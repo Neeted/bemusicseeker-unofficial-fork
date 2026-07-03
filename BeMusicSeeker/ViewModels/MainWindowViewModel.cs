@@ -7406,6 +7406,8 @@ public class MainWindowViewModel : ViewModel
 
         private string temp_output_dir_full_path;
 
+        private string temp_output_dir;
+
         private string temp_custom_folder_output_base_name;
 
         private string _output_dir;
@@ -8041,6 +8043,7 @@ public class MainWindowViewModel : ViewModel
         private void backupTableProperties()
         {
             temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? MainWindowViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist property output directory notification") : null;
+            temp_output_dir = bmsTable.output_dir;
             temp_is_root_folder = bmsTable.is_root_folder;
             temp_is_external_sync = bmsTable.is_external_sync;
             temp_compat_prefix = bmsTable.compat_prefix;
@@ -8066,6 +8069,10 @@ public class MainWindowViewModel : ViewModel
         {
             using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
             bool prefixChanged = !string.Equals(temp_compat_prefix, bmsTable.compat_prefix, StringComparison.Ordinal);
+            bool outputDirChanged = !string.Equals(
+                BMSTable.NormalizeOutputDirectoryName(temp_output_dir),
+                BMSTable.NormalizeOutputDirectoryName(bmsTable.output_dir),
+                StringComparison.Ordinal);
             bool flag = !string.Equals(temp_name, bmsTable.name, StringComparison.Ordinal) || !string.Equals(temp_symbol, bmsTable.symbol, StringComparison.Ordinal) || prefixChanged;
             bool outputBaseNameChanged = !string.Equals(
                 temp_custom_folder_output_base_name,
@@ -8225,12 +8232,13 @@ public class MainWindowViewModel : ViewModel
                     ownerViewModel.lr2config.Save();
                 }
             }
-            if (outputBaseNameChanged)
+            if (outputBaseNameChanged || outputDirChanged)
             {
-                ownerViewModel.RefreshPlaylistSummaryIfVisible("playlist_property_output_base_changed", invalidateTableCountCache: false);
+                ownerViewModel.RefreshPlaylistSummaryIfVisible("playlist_property_output_changed", invalidateTableCountCache: false);
             }
             bool bmtProjectionChanged = flag
                 || prefixChanged
+                || outputDirChanged
                 || externalResyncApplied
                 || entryFolderProjectionChanged
                 || temp_is_external_sync != bmsTable.is_external_sync
@@ -28973,6 +28981,8 @@ public class MainWindowViewModel : ViewModel
                 OutputBaseName = table.custom_folder_output_base_name ?? string.Empty,
                 OutputBaseDisplayName = CustomFolderOutputBaseRegistry.GetDisplayName(table.custom_folder_output_base_name),
                 Name = table.name ?? string.Empty,
+                FolderName = table.Output_dir ?? string.Empty,
+                FolderNameUndefined = IsPlaylistSummaryFolderNameUndefined(table),
                 CompatPrefix = table.compat_prefix ?? string.Empty,
                 Symbol = table.symbol ?? string.Empty,
                 LastUpdate = table.last_update,
@@ -28995,6 +29005,19 @@ public class MainWindowViewModel : ViewModel
             });
         }
         return rows;
+    }
+
+    private static bool IsPlaylistSummaryFolderNameUndefined(BMSTable table)
+    {
+        if (table == null)
+        {
+            return true;
+        }
+
+        string explicitOutputDirectoryName = BMSTable.NormalizeOutputDirectoryName(table.output_dir);
+        string defaultOutputDirectoryName = BMSTable.CreateDefaultOutputDirectoryName(table.name);
+        return string.IsNullOrWhiteSpace(explicitOutputDirectoryName)
+            || string.Equals(explicitOutputDirectoryName, defaultOutputDirectoryName, StringComparison.Ordinal);
     }
 
     private static string GetPlaylistSummaryTableCountCacheKey(BMSTable table, int ownedSnapshotVersion)
@@ -30000,12 +30023,19 @@ public class MainWindowViewModel : ViewModel
         }
 
         var propertyDialogViewModel = new PlaylistPropertyDialogViewModel(this, row.TableRef);
+        bool outputDirEdited = false;
+        string expectedOutputDir = null;
         try
         {
             switch (editPropertyName)
             {
                 case nameof(PlaylistSummaryRow.Name):
                     propertyDialogViewModel.name = text ?? string.Empty;
+                    break;
+                case nameof(PlaylistSummaryRow.FolderName):
+                    outputDirEdited = true;
+                    expectedOutputDir = NormalizeStoredPlaylistSummaryOutputDirectoryName(row.TableRef.name, text);
+                    propertyDialogViewModel.output_dir = text ?? string.Empty;
                     break;
                 case nameof(PlaylistSummaryRow.CompatPrefix):
                     propertyDialogViewModel.compat_prefix = text ?? string.Empty;
@@ -30021,6 +30051,11 @@ public class MainWindowViewModel : ViewModel
             {
                 return false;
             }
+            if (outputDirEdited
+                && !string.Equals(BMSTable.NormalizeOutputDirectoryName(row.TableRef.output_dir), expectedOutputDir, StringComparison.Ordinal))
+            {
+                return false;
+            }
         }
         finally
         {
@@ -30029,6 +30064,16 @@ public class MainWindowViewModel : ViewModel
 
         await propertyDialogViewModel.ApplyPostSaveUpdatesAsync();
         return true;
+    }
+
+    private static string NormalizeStoredPlaylistSummaryOutputDirectoryName(string playlistName, string outputDirectoryName)
+    {
+        string normalized = BMSTable.NormalizeOutputDirectoryName(outputDirectoryName);
+        string defaultOutputDirectoryName = BMSTable.CreateDefaultOutputDirectoryName(playlistName);
+        return !string.IsNullOrWhiteSpace(normalized)
+            && !string.Equals(defaultOutputDirectoryName, normalized, StringComparison.Ordinal)
+            ? normalized
+            : null;
     }
 
     public void ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput)

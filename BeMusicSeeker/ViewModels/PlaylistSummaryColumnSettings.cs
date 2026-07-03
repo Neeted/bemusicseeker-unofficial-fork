@@ -71,6 +71,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
 
     private ColumnLayout _Name = new();
 
+    private ColumnLayout _FolderName = new();
+
     private ColumnLayout _CompatPrefix = new();
 
     private ColumnLayout _Symbol = new();
@@ -106,6 +108,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
     private bool _outputBaseLoaded;
 
     private bool _nameLoaded;
+
+    private bool _folderNameLoaded;
 
     private bool _compatPrefixLoaded;
 
@@ -176,6 +180,20 @@ public class PlaylistSummaryColumnSettings : NotificationObject
             _Name = value;
             _nameLoaded = true;
             RaisePropertyChanged("Name");
+        }
+    }
+
+    public ColumnLayout FolderName
+    {
+        get
+        {
+            return _FolderName;
+        }
+        set
+        {
+            _FolderName = value;
+            _folderNameLoaded = true;
+            RaisePropertyChanged("FolderName");
         }
     }
 
@@ -397,6 +415,8 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         PlaylistId.Width = 60;
         OutputBase.Width = 100;
         Name.Width = 220;
+        FolderName.Width = 160;
+        FolderName.Visibility = Visibility.Hidden;
         CompatPrefix.Width = 80;
         Symbol.Width = 70;
         LastUpdate.Width = 145;
@@ -418,6 +438,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         PlaylistId.DisplayIndex = displayIndex++;
         OutputBase.DisplayIndex = displayIndex++;
         Name.DisplayIndex = displayIndex++;
+        FolderName.DisplayIndex = displayIndex++;
         CompatPrefix.DisplayIndex = displayIndex++;
         Symbol.DisplayIndex = displayIndex++;
         LastUpdate.DisplayIndex = displayIndex++;
@@ -455,6 +476,7 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         return HasLayout(PlaylistId, _playlistIdLoaded)
             && HasLayout(OutputBase, _outputBaseLoaded)
             && HasLayout(Name, _nameLoaded)
+            && HasLayout(FolderName, _folderNameLoaded)
             && HasLayout(CompatPrefix, _compatPrefixLoaded)
             && HasLayout(Symbol, _symbolLoaded)
             && HasLayout(LastUpdate, _lastUpdateLoaded)
@@ -482,20 +504,21 @@ public class PlaylistSummaryColumnSettings : NotificationObject
         PlaylistId = new ColumnLayout { Width = 60, DisplayIndex = 0 };
         OutputBase = new ColumnLayout { Width = 100, DisplayIndex = 1 };
         Name = new ColumnLayout { Width = 220, DisplayIndex = 2 };
-        CompatPrefix = new ColumnLayout { Width = 80, DisplayIndex = 3 };
-        Symbol = new ColumnLayout { Width = 70, DisplayIndex = 4 };
-        LastUpdate = new ColumnLayout { Width = 145, DisplayIndex = 5 };
-        TotalCharts = new ColumnLayout { Width = 80, DisplayIndex = 6 };
-        OwnedCharts = new ColumnLayout { Width = 80, DisplayIndex = 7 };
-        MissingCharts = new ColumnLayout { Width = 80, DisplayIndex = 8 };
-        OwnedRatio = new ColumnLayout { Width = 80, DisplayIndex = 9 };
-        Link = new ColumnLayout { Width = 70, DisplayIndex = 10 };
-        Header = new ColumnLayout { Width = 70, DisplayIndex = 11, Visibility = Visibility.Hidden };
-        Data = new ColumnLayout { Width = 70, DisplayIndex = 12, Visibility = Visibility.Hidden };
-        IsExternalSync = new ColumnLayout { Width = 70, DisplayIndex = 13 };
-        Status = new ColumnLayout { Width = 90, DisplayIndex = 14 };
-        IsRootFolder = new ColumnLayout { Width = 70, DisplayIndex = 15 };
-        BmtSort = new ColumnLayout { Width = 80, DisplayIndex = 16 };
-        IsBmtOutput = new ColumnLayout { Width = 95, DisplayIndex = 17 };
+        FolderName = new ColumnLayout { Width = 160, DisplayIndex = 3, Visibility = Visibility.Hidden };
+        CompatPrefix = new ColumnLayout { Width = 80, DisplayIndex = 4 };
+        Symbol = new ColumnLayout { Width = 70, DisplayIndex = 5 };
+        LastUpdate = new ColumnLayout { Width = 145, DisplayIndex = 6 };
+        TotalCharts = new ColumnLayout { Width = 80, DisplayIndex = 7 };
+        OwnedCharts = new ColumnLayout { Width = 80, DisplayIndex = 8 };
+        MissingCharts = new ColumnLayout { Width = 80, DisplayIndex = 9 };
+        OwnedRatio = new ColumnLayout { Width = 80, DisplayIndex = 10 };
+        Link = new ColumnLayout { Width = 70, DisplayIndex = 11 };
+        Header = new ColumnLayout { Width = 70, DisplayIndex = 12, Visibility = Visibility.Hidden };
+        Data = new ColumnLayout { Width = 70, DisplayIndex = 13, Visibility = Visibility.Hidden };
+        IsExternalSync = new ColumnLayout { Width = 70, DisplayIndex = 14 };
+        Status = new ColumnLayout { Width = 90, DisplayIndex = 15 };
+        IsRootFolder = new ColumnLayout { Width = 70, DisplayIndex = 16 };
+        BmtSort = new ColumnLayout { Width = 80, DisplayIndex = 17 };
+        IsBmtOutput = new ColumnLayout { Width = 95, DisplayIndex = 18 };
     }
 }

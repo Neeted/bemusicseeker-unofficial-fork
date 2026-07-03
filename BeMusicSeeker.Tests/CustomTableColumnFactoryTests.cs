@@ -335,6 +335,7 @@ public sealed class CustomTableColumnFactoryTests
                 "PlaylistId",
                 "OutputBase",
                 "Name",
+                "FolderName",
                 "CompatPrefix",
                 "Symbol",
                 "LastUpdate",
@@ -368,14 +369,17 @@ public sealed class CustomTableColumnFactoryTests
 
         Assert.IsNotNull(settings.CompatPrefix);
         Assert.AreEqual(220, settings.Name.Width);
+        Assert.AreEqual(160, settings.FolderName.Width);
         Assert.AreEqual(80, settings.CompatPrefix.Width);
         Assert.AreEqual(70, settings.Header.Width);
         Assert.AreEqual(70, settings.Data.Width);
         Assert.AreEqual(2, settings.Name.DisplayIndex);
-        Assert.AreEqual(3, settings.CompatPrefix.DisplayIndex);
-        Assert.AreEqual(4, settings.Symbol.DisplayIndex);
-        Assert.AreEqual(11, settings.Header.DisplayIndex);
-        Assert.AreEqual(12, settings.Data.DisplayIndex);
+        Assert.AreEqual(3, settings.FolderName.DisplayIndex);
+        Assert.AreEqual(4, settings.CompatPrefix.DisplayIndex);
+        Assert.AreEqual(5, settings.Symbol.DisplayIndex);
+        Assert.AreEqual(12, settings.Header.DisplayIndex);
+        Assert.AreEqual(13, settings.Data.DisplayIndex);
+        Assert.AreEqual(Visibility.Hidden, settings.FolderName.Visibility);
         Assert.AreEqual(Visibility.Hidden, settings.Header.Visibility);
         Assert.AreEqual(Visibility.Hidden, settings.Data.Visibility);
     }
@@ -391,7 +395,7 @@ public sealed class CustomTableColumnFactoryTests
         using var writer = new StringWriter();
         serializer.Serialize(writer, original);
         var doc = XDocument.Parse(writer.ToString());
-        doc.Root?.Element(nameof(PlaylistSummaryColumnSettings.CompatPrefix))?.Remove();
+        doc.Root?.Element(nameof(PlaylistSummaryColumnSettings.FolderName))?.Remove();
 
         PlaylistSummaryColumnSettings restored;
         using (var reader = new StringReader(doc.ToString()))
@@ -405,14 +409,17 @@ public sealed class CustomTableColumnFactoryTests
 
         Assert.IsTrue(restored.HasAllLayouts());
         Assert.AreEqual(220, restored.Name.Width);
+        Assert.AreEqual(160, restored.FolderName.Width);
         Assert.AreEqual(80, restored.CompatPrefix.Width);
         Assert.AreEqual(70, restored.Header.Width);
         Assert.AreEqual(70, restored.Data.Width);
         Assert.AreEqual(2, restored.Name.DisplayIndex);
-        Assert.AreEqual(3, restored.CompatPrefix.DisplayIndex);
-        Assert.AreEqual(4, restored.Symbol.DisplayIndex);
-        Assert.AreEqual(11, restored.Header.DisplayIndex);
-        Assert.AreEqual(12, restored.Data.DisplayIndex);
+        Assert.AreEqual(3, restored.FolderName.DisplayIndex);
+        Assert.AreEqual(4, restored.CompatPrefix.DisplayIndex);
+        Assert.AreEqual(5, restored.Symbol.DisplayIndex);
+        Assert.AreEqual(12, restored.Header.DisplayIndex);
+        Assert.AreEqual(13, restored.Data.DisplayIndex);
+        Assert.AreEqual(Visibility.Hidden, restored.FolderName.Visibility);
         Assert.AreEqual(Visibility.Hidden, restored.Header.Visibility);
         Assert.AreEqual(Visibility.Hidden, restored.Data.Visibility);
     }
@@ -425,6 +432,7 @@ public sealed class CustomTableColumnFactoryTests
 
         string[] ids = [.. CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).Select(column => column.Id)];
 
+        CollectionAssert.DoesNotContain(ids, "FolderName");
         CollectionAssert.DoesNotContain(ids, "Header");
         CollectionAssert.DoesNotContain(ids, "Data");
     }
@@ -450,12 +458,14 @@ public sealed class CustomTableColumnFactoryTests
     public void CreatePlaylistSummaryColumns_AssignsSortPathsAndActionMetadata()
     {
         var settings = new PlaylistSummaryColumnSettings();
+        settings.FolderName.Visibility = Visibility.Visible;
         settings.Header.Visibility = Visibility.Visible;
         settings.Data.Visibility = Visibility.Visible;
         var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
 
         Assert.AreEqual(nameof(PlaylistSummaryRow.PlaylistId), columns["PlaylistId"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.Name), columns["Name"].SortMemberPath);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.FolderName), columns["FolderName"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.CompatPrefix), columns["CompatPrefix"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.Symbol), columns["Symbol"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.LastUpdate), columns["LastUpdate"].SortMemberPath);
@@ -472,6 +482,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual(nameof(PlaylistSummaryRow.BmtSort), columns["BmtSort"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.IsBmtOutput), columns["IsBmtOutput"].SortMemberPath);
         Assert.AreEqual(nameof(PlaylistSummaryRow.Name), columns["Name"].EditPropertyName);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.FolderName), columns["FolderName"].EditPropertyName);
         Assert.AreEqual(nameof(PlaylistSummaryRow.CompatPrefix), columns["CompatPrefix"].EditPropertyName);
         Assert.AreEqual(nameof(PlaylistSummaryRow.Symbol), columns["Symbol"].EditPropertyName);
         Assert.AreEqual(CustomTableCellKind.ActionText, columns["Link"].CellKind);
@@ -557,6 +568,7 @@ public sealed class CustomTableColumnFactoryTests
         Assert.IsFalse(columns["BmtSort"].AutoTrimTooltip);
         Assert.IsFalse(columns["IsBmtOutput"].AutoTrimTooltip);
         Assert.IsTrue(columns["Name"].AutoTrimTooltip);
+        Assert.IsTrue(columns["FolderName"].AutoTrimTooltip);
         Assert.IsTrue(columns["Link"].AutoTrimTooltip);
         Assert.IsTrue(columns["Header"].AutoTrimTooltip);
         Assert.IsTrue(columns["Data"].AutoTrimTooltip);
@@ -566,6 +578,7 @@ public sealed class CustomTableColumnFactoryTests
     public void CreatePlaylistSummaryColumns_FormatsActionsTooltipsAndFailureBackground()
     {
         var settings = new PlaylistSummaryColumnSettings();
+        settings.FolderName.Visibility = Visibility.Visible;
         settings.Header.Visibility = Visibility.Visible;
         settings.Data.Visibility = Visibility.Visible;
         var columns = CustomTableColumnFactory.CreatePlaylistSummaryColumns(settings).ToDictionary(column => column.Id);
@@ -574,6 +587,8 @@ public sealed class CustomTableColumnFactoryTests
             LinkUri = new Uri("https://example.com/"),
             HeaderUri = new Uri("https://example.com/header.json"),
             DataUri = new Uri("https://example.com/data/score.json"),
+            FolderName = "AlphaTable",
+            FolderNameUndefined = true,
             IsExternalSync = true,
             IsRootFolder = false,
             Status = "-",
@@ -587,6 +602,8 @@ public sealed class CustomTableColumnFactoryTests
         Assert.AreEqual("https://example.com/", columns["Link"].GetTooltip(row));
         Assert.AreEqual("https://example.com/", columns["Link"].GetEditText(row));
         Assert.AreEqual("https://example.com/", CustomTableDataTransfer.BuildCellText(row, columns["Link"]));
+        Assert.AreEqual("AlphaTable", columns["FolderName"].GetText(row));
+        Assert.IsNotNull(columns["FolderName"].GetBackground(row));
         Assert.AreEqual("Open", columns["Header"].GetText(row));
         Assert.AreEqual("https://example.com/header.json", columns["Header"].GetTooltip(row));
         Assert.AreEqual("https://example.com/header.json", CustomTableDataTransfer.BuildCellText(row, columns["Header"]));

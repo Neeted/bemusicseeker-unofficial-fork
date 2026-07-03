@@ -426,6 +426,7 @@ public sealed class PlaylistSummaryAggregationTests
             {
                 PlaylistId = 10,
                 Name = "alpha pack",
+                FolderName = "folderalpha",
                 CompatPrefix = "A",
                 Symbol = "A",
                 HeaderUri = new Uri("https://example.com/header-alpha.json"),
@@ -435,6 +436,7 @@ public sealed class PlaylistSummaryAggregationTests
             {
                 PlaylistId = 20,
                 Name = "alpha other",
+                FolderName = "folderbeta",
                 CompatPrefix = "B",
                 Symbol = "B",
                 HeaderUri = new Uri("https://example.com/header-beta.json"),
@@ -444,7 +446,7 @@ public sealed class PlaylistSummaryAggregationTests
 
         MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
-            "name:alpha prefix:A symbol:A header:header-alpha data:data-alpha",
+            "name:alpha foldername:folderalpha prefix:A symbol:A header:header-alpha data:data-alpha",
             MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
             new MainWindowViewModel.cSortParameters
             {

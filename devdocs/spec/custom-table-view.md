@@ -301,21 +301,25 @@ LR2互換性警告画面は LR2 連携モード / standalone mode の両方で�
 | Order | Column | Header | Width |
 | ---: | --- | --- | ---: |
 | 1 | PlaylistId | `ID` | 60 |
-| 2 | Name | `NAME` | 220 |
-| 3 | Symbol | `SYMBOL` | 70 |
-| 4 | LastUpdate | `LAST UPDATE` | 145 |
-| 5 | TotalCharts | `TOTAL` | 80 |
-| 6 | OwnedCharts | `OWNED` | 80 |
-| 7 | MissingCharts | `MISSING` | 80 |
-| 8 | OwnedRatio | `OWNED %` | 80 |
-| 9 | Link | `LINK` | 70 |
-| 10 | IsExternalSync | `SYNC` | 70 |
-| 11 | Status | `STATUS` | 90 |
-| 12 | IsRootFolder | `ROOT` | 70 |
-| 13 | BmtSort | `BMT SORT` | 80 |
-| 14 | IsBmtOutput | `BMT OUTPUT` | 95 |
+| 2 | OutputBase | `OUTPUT` | 100 |
+| 3 | Name | `NAME` | 220 |
+| 4 | CompatPrefix | `PREFIX` | 80 |
+| 5 | Symbol | `SYMBOL` | 70 |
+| 6 | LastUpdate | `LAST UPDATE` | 145 |
+| 7 | TotalCharts | `TOTAL` | 80 |
+| 8 | OwnedCharts | `OWNED` | 80 |
+| 9 | MissingCharts | `MISSING` | 80 |
+| 10 | OwnedRatio | `OWNED %` | 80 |
+| 11 | Link | `LINK` | 70 |
+| 12 | IsExternalSync | `SYNC` | 70 |
+| 13 | Status | `STATUS` | 90 |
+| 14 | IsRootFolder | `ROOT` | 70 |
+| 15 | BmtSort | `BMT SORT` | 80 |
+| 16 | IsBmtOutput | `BMT OUTPUT` | 95 |
 
-`Status` のヘッダーは `Resources.Playlist_summary_status_header` 由来である。
+`FolderName` (`FOLDER NAME`, 160)、`Header` (`HEADER`, 70)、`Data` (`DATA`, 70) は初期非表示で保持する。`FolderName` は `Name` の直後、`Header` / `Data` は `Link` の直後の表示順を持つ。`Status` のヘッダーは `Resources.Playlist_summary_status_header` 由来である。
+
+`FolderName` はプレイリストの保存値 `output_dir` が未設定の場合でも、プロパティダイアログと同じくプレイリスト名由来の実効フォルダ名を表示する。この場合は、メイン一覧の未定義メタデータと同じ `UndefinedCellBackground` をセル背景に使う。
 
 ### プレイログ
 
@@ -422,11 +426,15 @@ LR2互換性警告画面は LR2 連携モード / standalone mode の両方で�
 | Column | Header | Tooltip |
 | --- | --- | --- |
 | Link | `LINK` | `LinkUri`。URL1 / URL2 と同様に、開く先の URL を表示する。 |
+| Header | `HEADER` | `HeaderUri`。画面上は `Open` を表示する。 |
+| Data | `DATA` | `DataUri`。画面上は `Open` を表示する。 |
 | Status | `STATUS` | `StatusDetail`。 |
 
 上記以外のプレイリストサマリー列は、現行実装では tooltip selector を持たない。ただし以下を除く通常テキスト列は、省略時にセル全文を tooltip 表示する。
 
 - `PlaylistId`
+- `OutputBase`
+- `CompatPrefix`
 - `Symbol`
 - `IsExternalSync`
 - `IsRootFolder`
@@ -536,6 +544,8 @@ LR2互換性警告画面は LR2 連携モード / standalone mode の両方で�
 
 - `Url1` / `Url2`: download URL を開く/編集する。
 - プレイリストサマリー `Link`: playlist link を開く。
+- プレイリストサマリー `Header`: header URI を開く。
+- プレイリストサマリー `Data`: data URI を開く。
 - プレイリストサマリー `SYNC`: 外部同期の ON/OFF。
 - プレイリストサマリー `ROOT`: root folder 出力の ON/OFF。
 - プレイリストサマリー `BMT OUTPUT`: `.bmt` 出力対象の ON/OFF。

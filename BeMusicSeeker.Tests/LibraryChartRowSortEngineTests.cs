@@ -713,6 +713,29 @@ public sealed class LibraryChartRowSortEngineTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void PlaylistSummarySortEngine_SortsFolderName()
+    {
+        List<PlaylistSummaryRow> rows =
+        [
+            new PlaylistSummaryRow { PlaylistId = 1, Name = "A", FolderName = "folder-b" },
+            new PlaylistSummaryRow { PlaylistId = 2, Name = "B", FolderName = "folder-a" },
+            new PlaylistSummaryRow { PlaylistId = 3, Name = "C", FolderName = "folder-c" }
+        ];
+
+        var sort = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(PlaylistSummaryRow.FolderName),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<PlaylistSummaryRow> sorted = PlaylistSummarySortEngine.Sort(rows, sort, useLegacyStringSort: false, out string profile);
+
+        CollectionAssert.AreEqual(new[] { 2, 1, 3 }, sorted.Select(row => row.PlaylistId ?? -1).ToArray());
+        Assert.AreEqual("playlist_summary_string_fast_ordinal_ignore_case", profile);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void PlaylistDetailSortEngine_ClearAndRankDisplayColumnsSort()
     {
         PlaylistDetailSourceRow hardAaa = CreatePlaylistDetailSourceRow("z_hard_aaa.bms", "Hard AAA", ClearType.HARD, RankType.AAA);

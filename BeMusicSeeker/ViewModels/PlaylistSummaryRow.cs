@@ -14,6 +14,10 @@ public class PlaylistSummaryRow
 
     public string Name { get; set; } = string.Empty;
 
+    public string FolderName { get; set; } = string.Empty;
+
+    public bool FolderNameUndefined { get; set; }
+
     /// <summary>
     /// LR2 互換フォルダ名へ付与する接頭辞です。
     /// </summary>

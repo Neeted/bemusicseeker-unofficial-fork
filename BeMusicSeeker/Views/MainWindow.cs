@@ -1838,6 +1838,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private static bool IsPlaylistSummaryEditableProperty(string propertyName)
     {
         return string.Equals(propertyName, nameof(PlaylistSummaryRow.Name), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistSummaryRow.FolderName), StringComparison.Ordinal)
             || string.Equals(propertyName, nameof(PlaylistSummaryRow.CompatPrefix), StringComparison.Ordinal)
             || string.Equals(propertyName, nameof(PlaylistSummaryRow.Symbol), StringComparison.Ordinal);
     }
@@ -1851,6 +1852,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return propertyName switch
         {
             nameof(PlaylistSummaryRow.Name) => NormalizePlaylistSummaryEditableText(propertyName, row.Name),
+            nameof(PlaylistSummaryRow.FolderName) => NormalizePlaylistSummaryEditableText(propertyName, row.FolderName),
             nameof(PlaylistSummaryRow.CompatPrefix) => NormalizePlaylistSummaryEditableText(propertyName, row.CompatPrefix),
             nameof(PlaylistSummaryRow.Symbol) => NormalizePlaylistSummaryEditableText(propertyName, row.Symbol),
             _ => string.Empty
@@ -1863,6 +1865,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return propertyName switch
         {
             nameof(PlaylistSummaryRow.CompatPrefix) => text.TrimStart(),
+            nameof(PlaylistSummaryRow.FolderName) => BMSTable.NormalizeOutputDirectoryName(text) ?? string.Empty,
             nameof(PlaylistSummaryRow.Name) => text.Trim(),
             nameof(PlaylistSummaryRow.Symbol) => text.Trim(),
             _ => text
