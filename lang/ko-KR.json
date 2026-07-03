@@ -470,7 +470,7 @@
   "Install_Dst": "설치 대상 위치:",
   "Playlist_table_uri": "난이도표 URI",
   "Playlist_md5_url_mapping_tsv_uri": "MD5-URL 매핑 TSV 가져오기 URI",
-  "Playlist_url_completion_enable": "플레이리스트의 URL1/URL2 가 비어 있으면 보완을 시도",
+  "Playlist_url_completion_enable": "플레이리스트의 URL1/URL2 가 비어 있거나 알려진 접속 불가 사이트를 가리키면 보완을 시도",
   "Playlist_url_completion_overwrite": "비어 있지 않은 URL1/URL2 도 보완값으로 덮어쓰기",
   "Playlist_url_completion_stella_full_enable": "Stella Uploader (Full) 데이터로 URL1/URL2 보완",
   "Error_InvalidPlaylistMd5UrlMappingTsvUri": "MD5-URL 매핑 TSV 가져오기 URI 가 올바르지 않습니다.",

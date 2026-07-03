@@ -470,7 +470,7 @@
   "Install_Dst": "Install destination:",
   "Playlist_table_uri": "Table list URI",
   "Playlist_md5_url_mapping_tsv_uri": "URI du TSV de correspondance MD5-URL",
-  "Playlist_url_completion_enable": "Essayer de completer les champs URL1/URL2 vides des playlists",
+  "Playlist_url_completion_enable": "Essayer de compléter les URL1/URL2 des playlists lorsqu'elles sont vides ou pointent vers un site connu comme indisponible",
   "Playlist_url_completion_overwrite": "Ecraser les champs URL1/URL2 non vides avec les valeurs completees",
   "Playlist_url_completion_stella_full_enable": "Completer URL1/URL2 avec les donnees Stella Uploader (Full)",
   "Error_InvalidPlaylistMd5UrlMappingTsvUri": "L'URI du TSV de correspondance MD5-URL est invalide.",

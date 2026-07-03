@@ -306,7 +306,7 @@ internal sealed class Settings : ApplicationSettingsBase
     }
 
     /// <summary>
-    /// プレイリストの URL1/URL2 が空欄のときに、外部マッピングからランタイム補完を試みるかどうかを取得または設定します。
+    /// プレイリストの URL1/URL2 が空欄または既知のリンク切れサイトのときに、外部マッピングからランタイム補完を試みるかどうかを取得または設定します。
     /// </summary>
     [UserScopedSetting]
     [DebuggerNonUserCode]

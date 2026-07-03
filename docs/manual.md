@@ -659,13 +659,15 @@ Playlists made into root folders are displayed at the root of LR2's song selecti
 
 ### URL1/URL2 Completion
 
-When playlist `URL1` / `URL2` are empty, URLs can be completed from external TSV files or Stella Uploader-derived information based on MD5.
+When playlist `URL1` / `URL2` are empty, or when they point to a known dead site, URLs can be completed from external TSV files or Stella Uploader-derived information based on MD5.
+
+Known dead sites are detected by checking whether the URL contains `gnqg.rosx.net` or `absolute.pv.land.to`. HTTP/HTTPS notation variants and URLs routed through web.archive.org are also treated as completion targets. If no completion data is available, the original URL is kept.
 
 Completed results are first treated as runtime display information. Only when row edits are saved in a local playlist are the completed values also saved to the playlist. Editing restrictions for externally synced playlists are preserved.
 
 On the `Playlist` tab in the settings dialog, you can configure the following:
 
-- Try completion when playlist URL1/URL2 are empty
+- Try completion when playlist URL1/URL2 are empty or point to a known dead site
 - Also overwrite non-empty URL1/URL2 using the completion feature
 - MD5-URL mapping TSV retrieval URI
 - Complete URL1/URL2 using Stella Uploader (Full) data

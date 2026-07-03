@@ -470,7 +470,7 @@
   "Install_Dst": "安裝目標：",
   "Playlist_table_uri": "難度表 URI",
   "Playlist_md5_url_mapping_tsv_uri": "MD5-URL 對應 TSV 取得 URI",
-  "Playlist_url_completion_enable": "當播放清單的 URL1/URL2 為空時嘗試補完",
+  "Playlist_url_completion_enable": "當播放清單的 URL1/URL2 為空或指向已知失效站台時嘗試補完",
   "Playlist_url_completion_overwrite": "也以補完值覆蓋非空的 URL1/URL2",
   "Playlist_url_completion_stella_full_enable": "使用 Stella Uploader (Full) 資料補完 URL1/URL2",
   "Error_InvalidPlaylistMd5UrlMappingTsvUri": "MD5-URL 對應 TSV 取得 URI 無效。",

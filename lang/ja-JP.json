@@ -479,7 +479,7 @@
   "Install_Dst": "新規インストール先:",
   "Playlist_table_uri": "難易度表リスト取得URI",
   "Playlist_md5_url_mapping_tsv_uri": "MD5-URLマッピングTSV取得URI",
-  "Playlist_url_completion_enable": "プレイリストの URL1/URL2 が空の場合補完を試みる",
+  "Playlist_url_completion_enable": "プレイリストの URL1/URL2 が空または既知のリンク切れサイトの場合補完を試みる",
   "Playlist_url_completion_overwrite": "空ではない URL1/URL2 も補完機能で上書きする",
   "Playlist_url_completion_stella_full_enable": "Stella Uploader (Full)のデータでURL1/URL2を補完する",
   "Error_InvalidPlaylistMd5UrlMappingTsvUri": "MD5-URLマッピングTSV取得URIが正しくありません。",

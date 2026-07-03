@@ -148,6 +148,42 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void BMSTableEntry_OverwriteDisabledCompletesKnownDeadPlaylistUrls()
+    {
+        BMSTableEntry entry = CreateEntry("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "DeadUrlSong");
+        entry.Url = new Uri("https://web.archive.org/web/20200101000000/http://absolute.pv.land.to/archive.zip");
+        entry.Url_diff = new Uri("ttp://gnqg.rosx.net/diff.zip");
+
+        bool changed = entry.ApplyRuntimeUrlCompletion(new Uri("https://example.com/runtime"), new Uri("https://example.com/runtime-diff"), overwriteExisting: false);
+
+        Assert.IsTrue(changed);
+        Assert.AreEqual(new Uri("https://web.archive.org/web/20200101000000/http://absolute.pv.land.to/archive.zip"), entry.Url);
+        Assert.AreEqual(new Uri("ttp://gnqg.rosx.net/diff.zip"), entry.Url_diff);
+        Assert.AreEqual(new Uri("https://example.com/runtime"), entry.RuntimeUrlCompletion);
+        Assert.AreEqual(new Uri("https://example.com/runtime-diff"), entry.RuntimeUrlDiffCompletion);
+        Assert.AreEqual(new Uri("https://example.com/runtime"), entry.EffectiveUrl);
+        Assert.AreEqual(new Uri("https://example.com/runtime-diff"), entry.EffectiveUrlDiff);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void BMSTableEntry_KnownDeadPlaylistUrlRemainsWhenCompletionCandidateIsMissing()
+    {
+        BMSTableEntry entry = CreateEntry("cececececececececececececececece", "DeadUrlNoCandidateSong");
+        entry.Url = new Uri("http://absolute.pv.land.to/archive.zip");
+        entry.Url_diff = new Uri("https://web.archive.org/web/20200101000000/http://gnqg.rosx.net/diff.zip");
+
+        bool changed = entry.ApplyRuntimeUrlCompletion(null, null, overwriteExisting: false);
+
+        Assert.IsFalse(changed);
+        Assert.IsNull(entry.RuntimeUrlCompletion);
+        Assert.IsNull(entry.RuntimeUrlDiffCompletion);
+        Assert.AreEqual(new Uri("http://absolute.pv.land.to/archive.zip"), entry.EffectiveUrl);
+        Assert.AreEqual(new Uri("https://web.archive.org/web/20200101000000/http://gnqg.rosx.net/diff.zip"), entry.EffectiveUrlDiff);
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void BMSTableEntry_ApplyRuntimeUrlCompletion_ClearsWhenCandidateDisappears()
     {
         BMSTableEntry entry = CreateEntry("dddddddddddddddddddddddddddddddd", "SongD");

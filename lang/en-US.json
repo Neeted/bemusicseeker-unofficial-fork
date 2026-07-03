@@ -470,7 +470,7 @@
   "Install_Dst": "Install destination:",
   "Playlist_table_uri": "Table list URI",
   "Playlist_md5_url_mapping_tsv_uri": "MD5-URL mapping TSV URI",
-  "Playlist_url_completion_enable": "Try to complete empty playlist URL1/URL2 fields",
+  "Playlist_url_completion_enable": "Try to complete playlist URL1/URL2 when empty or pointing to a known dead site",
   "Playlist_url_completion_overwrite": "Overwrite non-empty URL1/URL2 fields with completion values",
   "Playlist_url_completion_stella_full_enable": "Complete URL1/URL2 with Stella Uploader (Full) data",
   "Error_InvalidPlaylistMd5UrlMappingTsvUri": "The MD5-URL mapping TSV URI is invalid.",

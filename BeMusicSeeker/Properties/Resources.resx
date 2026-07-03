@@ -1179,7 +1179,7 @@ BMSファイルが重複しないようにマージします。
     <value>MD5-URLマッピングTSV取得URI</value>
   </data>
   <data name="Playlist_url_completion_enable" xml:space="preserve">
-    <value>プレイリストの URL1/URL2 が空の場合補完を試みる</value>
+    <value>プレイリストの URL1/URL2 が空または既知のリンク切れサイトの場合補完を試みる</value>
   </data>
   <data name="Playlist_url_completion_overwrite" xml:space="preserve">
     <value>空ではない URL1/URL2 も補完機能で上書きする</value>

@@ -8,6 +8,12 @@ public partial class BMSTableEntry
 
     private Uri runtimeUrlDiffCompletion;
 
+    private static readonly string[] knownDeadPlaylistUrlFragments =
+    [
+        "gnqg.rosx.net",
+        "absolute.pv.land.to"
+    ];
+
     /// <summary>
     /// 自動補完で解決したランタイム専用の URL1 値を取得します。
     /// DB や JSON には保存せず、画面表示と保存時 materialize の判断だけに使います。
@@ -108,7 +114,7 @@ public partial class BMSTableEntry
     {
         Uri normalizedCompletedValue = NormalizeAbsoluteUri(completedValue);
         Uri nextValue = null;
-        if (normalizedCompletedValue != null && (overwriteExisting || !HasAbsoluteUri(persistedValue)))
+        if (normalizedCompletedValue != null && (overwriteExisting || IsRuntimeUrlCompletionTarget(persistedValue)))
         {
             nextValue = normalizedCompletedValue;
         }
@@ -129,9 +135,30 @@ public partial class BMSTableEntry
         return value;
     }
 
-    private static bool HasAbsoluteUri(Uri value)
+    private static bool IsRuntimeUrlCompletionTarget(Uri value)
     {
-        return value != null && value.IsAbsoluteUri;
+        return value == null || !value.IsAbsoluteUri || IsKnownDeadPlaylistUrl(value);
+    }
+
+    private static bool IsKnownDeadPlaylistUrl(Uri value)
+    {
+        if (value == null)
+        {
+            return false;
+        }
+        string uriText = string.IsNullOrWhiteSpace(value.OriginalString) ? value.ToString() : value.OriginalString;
+        if (string.IsNullOrWhiteSpace(uriText))
+        {
+            return false;
+        }
+        foreach (string fragment in knownDeadPlaylistUrlFragments)
+        {
+            if (uriText.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static bool UriEquals(Uri left, Uri right)
