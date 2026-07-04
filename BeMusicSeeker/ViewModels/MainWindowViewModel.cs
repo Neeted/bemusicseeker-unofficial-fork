@@ -690,6 +690,12 @@ public class MainWindowViewModel : ViewModel
 
         private string tempAppearanceTheme;
 
+        private double tempCustomTableFontSize;
+
+        private double tempCustomTableRowHeight;
+
+        private double tempCustomTableHeaderHeight;
+
         private readonly IReadOnlyList<AppearanceThemeOption> appearanceThemeOptions;
 
         private readonly IReadOnlyList<BeatorajaBmtHashOutputModeOption> beatorajaBmtHashOutputModeOptions;
@@ -2645,6 +2651,64 @@ public class MainWindowViewModel : ViewModel
                     RaisePropertyChanged("AppearanceTheme");
                 }
             }
+        }
+
+        public double CustomTableFontSize
+        {
+            get
+            {
+                return Settings.Default.CustomTableFontSize;
+            }
+            set
+            {
+                double normalizedValue = Settings.NormalizeRange(value, Settings.MinCustomTableFontSize, Settings.MaxCustomTableFontSize, Settings.DefaultCustomTableFontSize);
+                if (!Settings.Default.CustomTableFontSize.Equals(normalizedValue))
+                {
+                    Settings.Default.CustomTableFontSize = normalizedValue;
+                    RaisePropertyChanged("CustomTableFontSize");
+                }
+            }
+        }
+
+        public double CustomTableRowHeight
+        {
+            get
+            {
+                return Settings.Default.CustomTableRowHeight;
+            }
+            set
+            {
+                double normalizedValue = Settings.NormalizeRange(value, Settings.MinCustomTableRowHeight, Settings.MaxCustomTableRowHeight, Settings.DefaultCustomTableRowHeight);
+                if (!Settings.Default.CustomTableRowHeight.Equals(normalizedValue))
+                {
+                    Settings.Default.CustomTableRowHeight = normalizedValue;
+                    RaisePropertyChanged("CustomTableRowHeight");
+                }
+            }
+        }
+
+        public double CustomTableHeaderHeight
+        {
+            get
+            {
+                return Settings.Default.CustomTableHeaderHeight;
+            }
+            set
+            {
+                double normalizedValue = Settings.NormalizeRange(value, Settings.MinCustomTableHeaderHeight, Settings.MaxCustomTableHeaderHeight, Settings.DefaultCustomTableHeaderHeight);
+                if (!Settings.Default.CustomTableHeaderHeight.Equals(normalizedValue))
+                {
+                    Settings.Default.CustomTableHeaderHeight = normalizedValue;
+                    RaisePropertyChanged("CustomTableHeaderHeight");
+                }
+            }
+        }
+
+        public void ResetCustomTableAppearanceDefaults()
+        {
+            CustomTableFontSize = Settings.DefaultCustomTableFontSize;
+            CustomTableRowHeight = Settings.DefaultCustomTableRowHeight;
+            CustomTableHeaderHeight = Settings.DefaultCustomTableHeaderHeight;
         }
 
         public bool ShowScoreViewerRegisterConfirmMsg
@@ -5463,6 +5527,9 @@ public class MainWindowViewModel : ViewModel
             tempUseExternalWebBrowser = Settings.Default.UseExternalWebBrowser;
             tempUseExternalPanelImage = Settings.Default.UseExternalPanelImage;
             tempAppearanceTheme = AppThemeService.NormalizeTheme(Settings.Default.AppearanceTheme);
+            tempCustomTableFontSize = Settings.Default.CustomTableFontSize;
+            tempCustomTableRowHeight = Settings.Default.CustomTableRowHeight;
+            tempCustomTableHeaderHeight = Settings.Default.CustomTableHeaderHeight;
             tempStagefilePath = Settings.Default.StagefilePath;
             tempFolderNameFormat = Settings.Default.FolderNameFormat;
             tempUseOnlyShiftJISChars = Settings.Default.UseOnlyShiftJISChars;
@@ -5583,6 +5650,9 @@ public class MainWindowViewModel : ViewModel
                 || tempUseExternalWebBrowser != Settings.Default.UseExternalWebBrowser
                 || tempUseExternalPanelImage != Settings.Default.UseExternalPanelImage
                 || !string.Equals(AppThemeService.NormalizeTheme(tempAppearanceTheme), AppThemeService.NormalizeTheme(Settings.Default.AppearanceTheme), StringComparison.Ordinal)
+                || !tempCustomTableFontSize.Equals(Settings.Default.CustomTableFontSize)
+                || !tempCustomTableRowHeight.Equals(Settings.Default.CustomTableRowHeight)
+                || !tempCustomTableHeaderHeight.Equals(Settings.Default.CustomTableHeaderHeight)
                 || HasPathSettingValueChanged(tempStagefilePath, Settings.Default.StagefilePath, IsStagefilePathValid)
                 || !string.Equals(tempFolderNameFormat, Settings.Default.FolderNameFormat, StringComparison.Ordinal)
                 || tempUseOnlyShiftJISChars != Settings.Default.UseOnlyShiftJISChars
@@ -6754,6 +6824,9 @@ public class MainWindowViewModel : ViewModel
             string restoredAppearanceTheme = AppThemeService.NormalizeTheme(tempAppearanceTheme);
             Settings.Default.AppearanceTheme = restoredAppearanceTheme;
             AppThemeService.ApplyTheme(restoredAppearanceTheme);
+            Settings.Default.CustomTableFontSize = tempCustomTableFontSize;
+            Settings.Default.CustomTableRowHeight = tempCustomTableRowHeight;
+            Settings.Default.CustomTableHeaderHeight = tempCustomTableHeaderHeight;
             Settings.Default.StagefilePath = tempStagefilePath;
             Settings.Default.FolderNameFormat = tempFolderNameFormat;
             Settings.Default.UseOnlyShiftJISChars = tempUseOnlyShiftJISChars;
@@ -6867,6 +6940,9 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => UseExternalWebBrowser);
             RaisePropertyChanged(() => UseExternalPanelImage);
             RaisePropertyChanged(() => AppearanceTheme);
+            RaisePropertyChanged(() => CustomTableFontSize);
+            RaisePropertyChanged(() => CustomTableRowHeight);
+            RaisePropertyChanged(() => CustomTableHeaderHeight);
             RaisePropertyChanged(() => StagefilePath);
             RaisePropertyChanged(() => FolderNameFormat);
             RaisePropertyChanged(() => UseOnlyShiftJISChars);

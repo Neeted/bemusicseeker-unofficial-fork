@@ -198,6 +198,8 @@ When `Register .bmt URLs in config_sys.json (stabilizes ordering on the song sel
 
 Change settings related to themes and display. Appearance changes generally do not require rebuilding the library.
 
+The list appearance settings adjust the shared table display used by the library list, playlist detail, play log, and playlist summary. You can change the list font size, row height, and header height. The defaults are font size `11`, row height `19`, and header height `22`.
+
 ### Playback
 
 ![Settings Playback](img/設定_再生.PNG)

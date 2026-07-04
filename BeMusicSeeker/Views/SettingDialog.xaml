@@ -278,6 +278,26 @@
                       <ComboBox Name="comboBoxAppearanceTheme" Width="120" Height="24" DockPanel.Dock="Right" ItemsSource="{Binding settingDialog.AppearanceThemeOptions}" DisplayMemberPath="DisplayName" SelectedValuePath="Key" SelectedValue="{Binding settingDialog.AppearanceTheme, Mode=TwoWay}" />
                       <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_theme, Mode=OneWay}" />
                     </DockPanel>
+                    <GroupBox Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table, Mode=OneWay}" Margin="0,2,0,6">
+                      <StackPanel>
+                        <DockPanel LastChildFill="False" Margin="0,0,0,3">
+                          <TextBox Width="48" Height="24" DockPanel.Dock="Right" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Text="{Binding settingDialog.CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:F0}}" />
+                          <Slider Width="160" Height="24" DockPanel.Dock="Right" Minimum="8" Maximum="18" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding settingDialog.CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                          <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_font_size, Mode=OneWay}" />
+                        </DockPanel>
+                        <DockPanel LastChildFill="False" Margin="0,0,0,3">
+                          <TextBox Width="48" Height="24" DockPanel.Dock="Right" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Text="{Binding settingDialog.CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:F0}}" />
+                          <Slider Width="160" Height="24" DockPanel.Dock="Right" Minimum="16" Maximum="40" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding settingDialog.CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                          <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_row_height, Mode=OneWay}" />
+                        </DockPanel>
+                        <DockPanel LastChildFill="False" Margin="0,0,0,4">
+                          <TextBox Width="48" Height="24" DockPanel.Dock="Right" HorizontalContentAlignment="Right" VerticalContentAlignment="Center" Text="{Binding settingDialog.CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=LostFocus, StringFormat={}{0:F0}}" />
+                          <Slider Width="160" Height="24" DockPanel.Dock="Right" Minimum="18" Maximum="48" TickFrequency="1" IsSnapToTickEnabled="True" Value="{Binding settingDialog.CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                          <Label Height="28" HorizontalContentAlignment="Right" DockPanel.Dock="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_header_height, Mode=OneWay}" />
+                        </DockPanel>
+                        <Button Height="24" Padding="12,0" HorizontalAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Appearance_table_reset_defaults, Mode=OneWay}" Click="resetCustomTableAppearanceDefaultsButtonClick" />
+                      </StackPanel>
+                    </GroupBox>
                     <CheckBox Name="checkBoxUseExternalPanelImage" IsChecked="{Binding settingDialog.UseExternalPanelImage}" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Change_stage_file, Mode=OneWay}" />
                     <DockPanel LastChildFill="False" IsEnabled="{Binding IsChecked, ElementName=checkBoxUseExternalPanelImage}">
                       <Button Width="75" DockPanel.Dock="Right" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Browse, Mode=OneWay}" Click="browseStagefilePathButtonClick" />

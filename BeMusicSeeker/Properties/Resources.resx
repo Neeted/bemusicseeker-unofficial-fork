@@ -1029,6 +1029,21 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   <data name="Appearance_theme" xml:space="preserve">
     <value>テーマ:</value>
   </data>
+  <data name="Appearance_table" xml:space="preserve">
+    <value>一覧</value>
+  </data>
+  <data name="Appearance_table_font_size" xml:space="preserve">
+    <value>フォントサイズ:</value>
+  </data>
+  <data name="Appearance_table_row_height" xml:space="preserve">
+    <value>行の高さ:</value>
+  </data>
+  <data name="Appearance_table_header_height" xml:space="preserve">
+    <value>ヘッダーの高さ:</value>
+  </data>
+  <data name="Appearance_table_reset_defaults" xml:space="preserve">
+    <value>一覧設定を初期値に戻す</value>
+  </data>
   <data name="Appearance_theme_dark" xml:space="preserve">
     <value>ダーク</value>
   </data>

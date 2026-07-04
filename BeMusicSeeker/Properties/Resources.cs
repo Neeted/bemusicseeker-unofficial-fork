@@ -58,6 +58,16 @@ public class Resources
 
     public static string Appearance => ResourceManager.GetString("Appearance", resourceCulture);
 
+    public static string Appearance_table => ResourceManager.GetString("Appearance_table", resourceCulture);
+
+    public static string Appearance_table_font_size => ResourceManager.GetString("Appearance_table_font_size", resourceCulture);
+
+    public static string Appearance_table_header_height => ResourceManager.GetString("Appearance_table_header_height", resourceCulture);
+
+    public static string Appearance_table_reset_defaults => ResourceManager.GetString("Appearance_table_reset_defaults", resourceCulture);
+
+    public static string Appearance_table_row_height => ResourceManager.GetString("Appearance_table_row_height", resourceCulture);
+
     public static string Appearance_theme => ResourceManager.GetString("Appearance_theme", resourceCulture);
 
     public static string Appearance_theme_dark => ResourceManager.GetString("Appearance_theme_dark", resourceCulture);

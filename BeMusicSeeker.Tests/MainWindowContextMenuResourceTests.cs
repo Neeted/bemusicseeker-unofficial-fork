@@ -2068,6 +2068,33 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_theme));
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_theme_light));
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_theme_dark));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table_font_size));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table_row_height));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table_header_height));
+        Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Appearance_table_reset_defaults));
+    }
+
+    [TestMethod]
+    public void CustomTableAppearanceSettings_NormalizeValues()
+    {
+        var settings = new Settings();
+
+        settings["CustomTableFontSize"] = double.NaN;
+        settings["CustomTableRowHeight"] = double.PositiveInfinity;
+        settings["CustomTableHeaderHeight"] = double.NegativeInfinity;
+
+        Assert.AreEqual(Settings.DefaultCustomTableFontSize, settings.CustomTableFontSize);
+        Assert.AreEqual(Settings.DefaultCustomTableRowHeight, settings.CustomTableRowHeight);
+        Assert.AreEqual(Settings.DefaultCustomTableHeaderHeight, settings.CustomTableHeaderHeight);
+
+        settings.CustomTableFontSize = Settings.MinCustomTableFontSize - 1d;
+        settings.CustomTableRowHeight = Settings.MaxCustomTableRowHeight + 1d;
+        settings.CustomTableHeaderHeight = Settings.MinCustomTableHeaderHeight - 1d;
+
+        Assert.AreEqual(Settings.MinCustomTableFontSize, (double)settings["CustomTableFontSize"]);
+        Assert.AreEqual(Settings.MaxCustomTableRowHeight, (double)settings["CustomTableRowHeight"]);
+        Assert.AreEqual(Settings.MinCustomTableHeaderHeight, (double)settings["CustomTableHeaderHeight"]);
     }
 
     [TestMethod]
@@ -2122,6 +2149,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(xaml, "ItemsSource=\"{Binding settingDialog.AppearanceThemeOptions}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "SelectedValue=\"{Binding settingDialog.AppearanceTheme, Mode=TwoWay}\""));
         Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_theme, Mode=OneWay"));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Path=Resources.Appearance_table, Mode=OneWay"));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding settingDialog.CustomTableFontSize, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding settingDialog.CustomTableRowHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Value=\"{Binding settingDialog.CustomTableHeaderHeight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"resetCustomTableAppearanceDefaultsButtonClick\""));
     }
 
     [TestMethod]

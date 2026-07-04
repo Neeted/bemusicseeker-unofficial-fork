@@ -27,6 +27,24 @@ internal sealed class Settings : ApplicationSettingsBase
 
     internal const string DefaultAppearanceTheme = AppThemeService.Light;
 
+    internal const double DefaultCustomTableFontSize = 11d;
+
+    internal const double MinCustomTableFontSize = 8d;
+
+    internal const double MaxCustomTableFontSize = 18d;
+
+    internal const double DefaultCustomTableRowHeight = 19d;
+
+    internal const double MinCustomTableRowHeight = 16d;
+
+    internal const double MaxCustomTableRowHeight = 40d;
+
+    internal const double DefaultCustomTableHeaderHeight = 22d;
+
+    internal const double MinCustomTableHeaderHeight = 18d;
+
+    internal const double MaxCustomTableHeaderHeight = 48d;
+
     internal const string DefaultTableListUrl = "https://script.google.com/macros/s/AKfycbzaQbcI9UZDcDlSHHl2NHilhmePrNrwxRdOFkmIXsfnbfksKKmAB3V65WZ8jPWU-7E/exec?table=tablelist";
 
     internal const string LegacyTableListUrl = "http://www.ribbit.xyz/bms/tables/table_info.json";
@@ -705,6 +723,15 @@ internal sealed class Settings : ApplicationSettingsBase
         return width;
     }
 
+    internal static double NormalizeRange(double value, double minimum, double maximum, double defaultValue)
+    {
+        if (double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return defaultValue;
+        }
+        return Math.Max(minimum, Math.Min(maximum, value));
+    }
+
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("False")]
@@ -931,6 +958,63 @@ internal sealed class Settings : ApplicationSettingsBase
         set
         {
             this["AppearanceTheme"] = AppThemeService.NormalizeTheme(value);
+        }
+    }
+
+    [UserScopedSetting]
+    [DefaultSettingValue("11")]
+    public double CustomTableFontSize
+    {
+        get
+        {
+            double value = NormalizeRange((double)this["CustomTableFontSize"], MinCustomTableFontSize, MaxCustomTableFontSize, DefaultCustomTableFontSize);
+            if (!((double)this["CustomTableFontSize"]).Equals(value))
+            {
+                this["CustomTableFontSize"] = value;
+            }
+            return value;
+        }
+        set
+        {
+            this["CustomTableFontSize"] = NormalizeRange(value, MinCustomTableFontSize, MaxCustomTableFontSize, DefaultCustomTableFontSize);
+        }
+    }
+
+    [UserScopedSetting]
+    [DefaultSettingValue("19")]
+    public double CustomTableRowHeight
+    {
+        get
+        {
+            double value = NormalizeRange((double)this["CustomTableRowHeight"], MinCustomTableRowHeight, MaxCustomTableRowHeight, DefaultCustomTableRowHeight);
+            if (!((double)this["CustomTableRowHeight"]).Equals(value))
+            {
+                this["CustomTableRowHeight"] = value;
+            }
+            return value;
+        }
+        set
+        {
+            this["CustomTableRowHeight"] = NormalizeRange(value, MinCustomTableRowHeight, MaxCustomTableRowHeight, DefaultCustomTableRowHeight);
+        }
+    }
+
+    [UserScopedSetting]
+    [DefaultSettingValue("22")]
+    public double CustomTableHeaderHeight
+    {
+        get
+        {
+            double value = NormalizeRange((double)this["CustomTableHeaderHeight"], MinCustomTableHeaderHeight, MaxCustomTableHeaderHeight, DefaultCustomTableHeaderHeight);
+            if (!((double)this["CustomTableHeaderHeight"]).Equals(value))
+            {
+                this["CustomTableHeaderHeight"] = value;
+            }
+            return value;
+        }
+        set
+        {
+            this["CustomTableHeaderHeight"] = NormalizeRange(value, MinCustomTableHeaderHeight, MaxCustomTableHeaderHeight, DefaultCustomTableHeaderHeight);
         }
     }
 
@@ -1598,12 +1682,25 @@ internal sealed class Settings : ApplicationSettingsBase
         {
             settings["AppearanceTheme"] = normalizedAppearanceTheme;
         }
+        NormalizeDoubleSetting(settings, "CustomTableFontSize", MinCustomTableFontSize, MaxCustomTableFontSize, DefaultCustomTableFontSize);
+        NormalizeDoubleSetting(settings, "CustomTableRowHeight", MinCustomTableRowHeight, MaxCustomTableRowHeight, DefaultCustomTableRowHeight);
+        NormalizeDoubleSetting(settings, "CustomTableHeaderHeight", MinCustomTableHeaderHeight, MaxCustomTableHeaderHeight, DefaultCustomTableHeaderHeight);
         EnsureColumnSettingDefaults(settings);
         if (settings.WindowPlacement.NormalPosition.Left >= settings.WindowPlacement.NormalPosition.Right || settings.WindowPlacement.NormalPosition.Top >= settings.WindowPlacement.NormalPosition.Bottom)
         {
             Win32API.WINDOWPLACEMENT windowPlacement = settings.WindowPlacement;
             windowPlacement.NormalPosition = new Win32API.RECT(0, 0, 1000, 800);
             settings.WindowPlacement = windowPlacement;
+        }
+    }
+
+    private static void NormalizeDoubleSetting(Settings settings, string key, double minimum, double maximum, double defaultValue)
+    {
+        double rawValue = settings[key] is double value ? value : defaultValue;
+        double normalizedValue = NormalizeRange(rawValue, minimum, maximum, defaultValue);
+        if (!normalizedValue.Equals(rawValue))
+        {
+            settings[key] = normalizedValue;
         }
     }
 

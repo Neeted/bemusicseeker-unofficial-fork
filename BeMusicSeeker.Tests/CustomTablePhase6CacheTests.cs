@@ -51,6 +51,32 @@ public sealed class CustomTablePhase6CacheTests
     }
 
     [TestMethod]
+    public void CustomTableView_CoercesAppearanceMetricsToSupportedRanges()
+    {
+        RunOnSta(delegate
+        {
+            var view = new CustomTableView
+            {
+                TextFontSize = 2d,
+                RowHeight = 2d,
+                HeaderHeight = 2d
+            };
+
+            Assert.AreEqual(BeMusicSeeker.Properties.Settings.MinCustomTableFontSize, view.TextFontSize);
+            Assert.AreEqual(BeMusicSeeker.Properties.Settings.MinCustomTableRowHeight, view.RowHeight);
+            Assert.AreEqual(BeMusicSeeker.Properties.Settings.MinCustomTableHeaderHeight, view.HeaderHeight);
+
+            view.TextFontSize = double.NaN;
+            view.RowHeight = double.PositiveInfinity;
+            view.HeaderHeight = double.NaN;
+
+            Assert.AreEqual(BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize, view.TextFontSize);
+            Assert.AreEqual(BeMusicSeeker.Properties.Settings.DefaultCustomTableRowHeight, view.RowHeight);
+            Assert.AreEqual(BeMusicSeeker.Properties.Settings.DefaultCustomTableHeaderHeight, view.HeaderHeight);
+        });
+    }
+
+    [TestMethod]
     public void CellValueCache_ReusesValuesUntilRowInvalidated()
     {
         int textCalls = 0;

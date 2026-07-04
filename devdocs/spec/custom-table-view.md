@@ -29,12 +29,14 @@
 | `customTableView` | `IsPlaylistSummaryMode == false` | `ChartRowsView` | `ColumnsSettingsChartRowsView` | 通常一覧は `SortParameters`、プレイログ一覧は `PlayHistorySortParameters`。表示 binding は `MainTableSortParameters` |
 | `customTablePlaylistSummary` | `IsPlaylistSummaryMode == true` | `PlaylistSummaryView` | `PlaylistSummaryColumnsSettings` | `PlaylistSummarySortParameters.ColumnsName` / `Direction` |
 
-共通の表示値:
+共通の既定表示値:
 
 - `RowHeight=19`
 - `HeaderHeight=22`
+- `TextFontSize=11`
 - メイン一覧のみ `ScoreFontFamily="{StaticResource SovjetBox}"` を渡し、CLEAR / DJ LEVEL などのスコア系表示に使う。
-- スコア系表示の `CLEAR` / `DJ LEVEL` / `DIFFICULTY` / `JUDGE` と、プレイログの `CLEAR` / `BEST DJ` は同じ `CustomTableTextStyle.Score` を使う。フォントサイズは `11d`、縦補正は `1d`。
+- `RowHeight` / `HeaderHeight` / `TextFontSize` は設定ダイアログの外観タブから変更でき、メイン一覧とプレイリストサマリー一覧の両方に反映される。
+- スコア系表示の `CLEAR` / `DJ LEVEL` / `DIFFICULTY` / `JUDGE` と、プレイログの `CLEAR` / `BEST DJ` は同じ `CustomTableTextStyle.Score` を使う。フォントサイズは `TextFontSize`、縦補正は `1d`。
 
 メイン一覧の行 drag payload は `RowDragKind="{Binding ChartRowsViewRowDragKind}"` で決める。通常譜面一覧、プレイリスト詳細、プレイログ一覧はいずれも `PlaylistDropCandidateRows` を使う。ただし playlist tree drop では `MainWindowViewModel.ArePlaylistDropCandidateRows` により全選択行を再検証し、プレイログ行は `PlayHistoryRow.ResolvedChart` を持つ場合だけ playlist entry 追加へ変換できる。未解決の play history row や playlist summary row が混じる場合は drop 全体を拒否し、部分追加で意味を変えない。
 

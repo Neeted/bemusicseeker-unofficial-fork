@@ -101,13 +101,19 @@ public sealed class CustomTableView : Grid
         nameof(RowHeight),
         typeof(double),
         typeof(CustomTableView),
-        new FrameworkPropertyMetadata(19d, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnLayoutMetricChanged));
+        new FrameworkPropertyMetadata(BeMusicSeeker.Properties.Settings.DefaultCustomTableRowHeight, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnLayoutMetricChanged, CoerceRowHeight));
 
     public static readonly DependencyProperty HeaderHeightProperty = DependencyProperty.Register(
         nameof(HeaderHeight),
         typeof(double),
         typeof(CustomTableView),
-        new FrameworkPropertyMetadata(22d, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnLayoutMetricChanged));
+        new FrameworkPropertyMetadata(BeMusicSeeker.Properties.Settings.DefaultCustomTableHeaderHeight, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender, OnLayoutMetricChanged, CoerceHeaderHeight));
+
+    public static readonly DependencyProperty TextFontSizeProperty = DependencyProperty.Register(
+        nameof(TextFontSize),
+        typeof(double),
+        typeof(CustomTableView),
+        new FrameworkPropertyMetadata(BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize, FrameworkPropertyMetadataOptions.AffectsRender, OnTextMetricChanged, CoerceTextFontSize));
 
     public static readonly DependencyProperty SelectedIndexProperty = DependencyProperty.Register(
         nameof(SelectedIndex),
@@ -464,6 +470,12 @@ public sealed class CustomTableView : Grid
         set => SetValue(HeaderHeightProperty, value);
     }
 
+    public double TextFontSize
+    {
+        get => (double)GetValue(TextFontSizeProperty);
+        set => SetValue(TextFontSizeProperty, value);
+    }
+
     public int SelectedIndex
     {
         get => (int)GetValue(SelectedIndexProperty);
@@ -528,6 +540,11 @@ public sealed class CustomTableView : Grid
     internal int RowDropPreviewInsertIndex => rowDropPreviewInsertIndex;
 
     internal bool IsItemsSourceSwapPending => suppressColumnRedrawUntilItemsSourceChanged;
+
+    internal CustomTableTextStyle ResolveTextStyle(CustomTableTextStyle textStyle)
+    {
+        return (textStyle ?? CustomTableTextStyle.Normal).WithFontSize(TextFontSize);
+    }
 
     internal bool IsReorderSourceColumn(CustomTableColumn column)
     {
@@ -597,6 +614,35 @@ public sealed class CustomTableView : Grid
         view.UpdateScrollBars();
         view.UpdateVisibleRowSubscriptions("layout_metric_changed");
         view.RequestRedraw("layout_metric_changed");
+    }
+
+    private static void OnTextMetricChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        var view = (CustomTableView)d;
+        view.CommitActiveEdit();
+        view.surface.ClearTextLayoutCache();
+        view.RequestRedraw("text_metric_changed");
+    }
+
+    private static object CoerceRowHeight(DependencyObject d, object baseValue)
+    {
+        return baseValue is double value
+            ? BeMusicSeeker.Properties.Settings.NormalizeRange(value, BeMusicSeeker.Properties.Settings.MinCustomTableRowHeight, BeMusicSeeker.Properties.Settings.MaxCustomTableRowHeight, BeMusicSeeker.Properties.Settings.DefaultCustomTableRowHeight)
+            : BeMusicSeeker.Properties.Settings.DefaultCustomTableRowHeight;
+    }
+
+    private static object CoerceHeaderHeight(DependencyObject d, object baseValue)
+    {
+        return baseValue is double value
+            ? BeMusicSeeker.Properties.Settings.NormalizeRange(value, BeMusicSeeker.Properties.Settings.MinCustomTableHeaderHeight, BeMusicSeeker.Properties.Settings.MaxCustomTableHeaderHeight, BeMusicSeeker.Properties.Settings.DefaultCustomTableHeaderHeight)
+            : BeMusicSeeker.Properties.Settings.DefaultCustomTableHeaderHeight;
+    }
+
+    private static object CoerceTextFontSize(DependencyObject d, object baseValue)
+    {
+        return baseValue is double value
+            ? BeMusicSeeker.Properties.Settings.NormalizeRange(value, BeMusicSeeker.Properties.Settings.MinCustomTableFontSize, BeMusicSeeker.Properties.Settings.MaxCustomTableFontSize, BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize)
+            : BeMusicSeeker.Properties.Settings.DefaultCustomTableFontSize;
     }
 
     private static void OnSelectedIndexChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
@@ -1826,7 +1872,7 @@ public sealed class CustomTableView : Grid
 
     private TextBox CreateCellEditor(CustomTableHitTestResult hit, string replacementText)
     {
-        CustomTableTextStyle textStyle = hit.Column?.TextStyle ?? CustomTableTextStyle.Normal;
+        CustomTableTextStyle textStyle = ResolveTextStyle(hit.Column?.TextStyle);
         Typeface typeface = textStyle.CreateTypeface(ScoreFontFamily);
         var textBox = new TextBox
         {
@@ -2274,7 +2320,7 @@ public sealed class CustomTableView : Grid
         bool wouldTrim = CustomTableTextLayoutCache.WouldTrim(
             cellValue.Text,
             maxTextWidth,
-            cellValue.TextStyle,
+            ResolveTextStyle(cellValue.TextStyle),
             ScoreFontFamily,
             pixelsPerDip,
             CultureInfo.CurrentUICulture);
@@ -2649,7 +2695,7 @@ internal sealed class CustomTableSurface : FrameworkElement
                         null,
                         entry.CreateVisibleInteriorRect(horizontalOffset, width, 0d, headerHeight));
                 }
-                DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, [], TextAlignment.Center, CustomTableTextStyle.Normal);
+                DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, [], TextAlignment.Center, owner.ResolveTextStyle(CustomTableTextStyle.Normal));
                 DrawSortGlyph(drawingContext, column, cellRect);
                 double borderX = entry.RightGridLineX(horizontalOffset);
                 if (CustomTableColumnLayout.IsGridLineFullyVisible(borderX, 0d, width))
@@ -2788,7 +2834,7 @@ internal sealed class CustomTableSurface : FrameworkElement
             }
             else
             {
-                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.TextRuns, cellValue.Alignment, cellValue.TextStyle);
+                DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.TextRuns, cellValue.Alignment, owner.ResolveTextStyle(cellValue.TextStyle));
             }
             double borderX = entry.RightGridLineX(horizontalOffset);
             if (CustomTableColumnLayout.IsGridLineFullyVisible(borderX, 0d, width))
@@ -2804,7 +2850,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         {
             return;
         }
-        CustomTableTextStyle effectiveTextStyle = textStyle ?? CustomTableTextStyle.Normal;
+        CustomTableTextStyle effectiveTextStyle = textStyle ?? owner.ResolveTextStyle(CustomTableTextStyle.Normal);
         double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
         double maxTextWidth = Math.Max(1d, cellRect.Width - CustomTableView.CellTextHorizontalPadding * 2d);
         double maxTextHeight = Math.Max(Math.Max(1d, cellRect.Height), effectiveTextStyle.FontSize * 2d);

@@ -68,6 +68,21 @@ internal sealed class CustomTableTextStyle
 
     private bool UsesScoreFontFamily { get; }
 
+    internal CustomTableTextStyle WithFontSize(double fontSize)
+    {
+        if (double.IsNaN(fontSize) || double.IsInfinity(fontSize) || fontSize <= 0d || FontSize.Equals(fontSize))
+        {
+            return this;
+        }
+        return new CustomTableTextStyle(
+            CacheKey + ":size=" + fontSize.ToString("0.###", CultureInfo.InvariantCulture),
+            FontFamily,
+            fontSize,
+            VerticalOffset,
+            UseBoldText,
+            UsesScoreFontFamily);
+    }
+
     internal Typeface CreateTypeface(FontFamily scoreFontFamily)
     {
         FontFamily fontFamily = UsesScoreFontFamily && scoreFontFamily != null ? scoreFontFamily : FontFamily;

@@ -462,6 +462,11 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
+    private void resetCustomTableAppearanceDefaultsButtonClick(object sender, RoutedEventArgs e)
+    {
+        GetSettingDialogViewModel().ResetCustomTableAppearanceDefaults();
+    }
+
     private static void LogSettingsDialogPerformance(string action, Stopwatch stopwatch, string detail = null)
     {
         try
