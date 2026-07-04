@@ -34,6 +34,7 @@
 - `RowHeight=19`
 - `HeaderHeight=22`
 - メイン一覧のみ `ScoreFontFamily="{StaticResource SovjetBox}"` を渡し、CLEAR / DJ LEVEL などのスコア系表示に使う。
+- スコア系表示の `CLEAR` / `DJ LEVEL` / `DIFFICULTY` / `JUDGE` と、プレイログの `CLEAR` / `BEST DJ` は同じ `CustomTableTextStyle.Score` を使う。フォントサイズは `11d`、縦補正は `1d`。
 
 ### メイン一覧の仮想 `IList`
 

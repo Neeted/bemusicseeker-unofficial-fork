@@ -42,7 +42,6 @@ public sealed class CustomTableTextLayoutCacheTests
             AssertKeyChangeMisses(cache => Create(cache, out _, alignment: TextAlignment.Left), cache => { Create(cache, out bool hit, alignment: TextAlignment.Center); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Normal), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.NormalBold); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Normal), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score); return hit; });
-            AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Rank); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, textStyle: CustomTableTextStyle.Score), cache => { Create(cache, out bool hit, textStyle: CustomTableTextStyle.Score, scoreFontFamily: new FontFamily("Arial")); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, foreground: Brushes.Black), cache => { Create(cache, out bool hit, foreground: Brushes.Red); return hit; });
             AssertKeyChangeMisses(cache => Create(cache, out _, textRuns: [new CustomTableTextRunStyle(0, 1, Brushes.Red)]), cache => { Create(cache, out bool hit, textRuns: [new CustomTableTextRunStyle(1, 1, Brushes.Red)]); return hit; });

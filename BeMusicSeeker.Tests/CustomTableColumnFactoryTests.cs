@@ -847,10 +847,12 @@ public sealed class CustomTableColumnFactoryTests
         var columns = CustomTableColumnFactory.CreateMainColumns(settings).ToDictionary(column => column.Id);
 
         Assert.AreSame(CustomTableTextStyle.Score, columns["Clear"].TextStyle);
-        Assert.AreSame(CustomTableTextStyle.Rank, columns["Rank"].TextStyle);
+        Assert.AreSame(CustomTableTextStyle.Score, columns["Rank"].TextStyle);
         Assert.AreSame(CustomTableTextStyle.Score, columns["ChartDifficulty"].TextStyle);
         Assert.AreSame(CustomTableTextStyle.Score, columns["ChartJudge"].TextStyle);
         Assert.AreSame(CustomTableTextStyle.Normal, columns["Level"].TextStyle);
+        Assert.AreEqual(11d, columns["Rank"].TextStyle.FontSize);
+        Assert.AreEqual(1d, columns["Rank"].TextStyle.VerticalOffset);
     }
 
     [TestMethod]
