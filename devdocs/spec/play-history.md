@@ -183,6 +183,8 @@ Play History view の右上 dropdown は表示対象を次の単位で切り替�
 
 dropdown の表示順は `すべて`、preset、`FOLDER: preset`、playlist 単体である。preset は `Settings.Default.PlayHistoryDisplayTargetSetsJson` に JSON として保存し、設定ダイアログの Playlist tab で追加 / 編集 / 削除する。JSON は target set name と `PlaylistId` の reference 配列だけで構成する。存在しない `PlaylistId` は読み取り時に一致せず、次回編集・保存時に自然に除外される。playlist 正本、playlist entries、`playlist.last_update` は変更しない。
 
+選択中の display target は `Settings.Default.PlayHistorySelectedDisplayTargetIdentity` に identity 文字列として保存する。空文字列と `all` は `すべて` として扱う。起動時や候補再構築時は保存 identity に一致する項目を選択し、一致する候補がまだ存在しない場合は UI 上は `すべて` に戻すが、希望 identity は保持しておき、playlist / preset 候補が後から現れた時点で復元する。UI の選択 binding は item instance ではなく identity を正本にし、候補再構築中に WPF ComboBox から一時的な未選択値が戻っても保存 identity を変更しない。preset 名の変更や playlist の削除などにより identity が変わった場合は別項目として扱い、意味の変わる fallback は行わない。
+
 display target filter / FOLDER projection は projection 後、keyword search 前に適用する。target 変更では、同じ期間 request の projection result を再利用して target filter / FOLDER projection / keyword filter / sort だけを再適用する。対象 playlist entries の読み込みが必要な場合は playlist entries hydration を使うが、playlist reload / external sync / `.bmt` 再出力は起動しない。
 
 Play History の表示対象 dropdown は playlist 正本から作る read model であり、playlist の追加・削除・リロードに対する `BMSTables` 変更通知から更新される。`BMSTables` 変更通知は playlist 正本の writer lock 中に発生し得るため、通知 handler 内で同期的に playlist reader lock を取り直してはならない。表示対象の再構築は UI Dispatcher へ遅延し、writer lock が解放された後の snapshot として行う。遅延中または再構築中に追加通知が来た場合は revision を進め、最新 revision を反映するまで再実行する。Play History 側の read model 更新は playlist 正本、playlist entries、LR2 custom folder、beatoraja `.bmt` 出力を変更しない。

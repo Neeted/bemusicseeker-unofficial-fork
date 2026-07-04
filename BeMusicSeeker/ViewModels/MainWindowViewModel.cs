@@ -6773,8 +6773,10 @@ public class MainWindowViewModel : ViewModel
 
         public void SaveOperationModeForRestart(bool operationMode)
         {
+            string playHistorySelectedDisplayTargetIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
             Settings.Default.Reload();
             Settings.Default.OperationModeLR2DB = operationMode;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;
             Settings.Default.Save();
         }
 
@@ -9975,6 +9977,10 @@ public class MainWindowViewModel : ViewModel
     private readonly List<PlayHistoryDisplayTargetSet> playHistoryDisplayTargetSets = [];
 
     private PlayHistoryDisplayTargetItem _SelectedPlayHistoryDisplayTarget;
+
+    private string preferredPlayHistoryDisplayTargetIdentity = PlayHistoryDisplayTargetItem.All.Identity;
+
+    private bool isRefreshingPlayHistoryDisplayTargets;
 
     private bool _IsKeywordSearchSuggestionPopupOpen;
 
@@ -19015,10 +19021,32 @@ public class MainWindowViewModel : ViewModel
             if (!ReferenceEquals(_SelectedPlayHistoryDisplayTarget, next)
                 && !string.Equals(_SelectedPlayHistoryDisplayTarget?.Identity, next.Identity, StringComparison.Ordinal))
             {
-                _SelectedPlayHistoryDisplayTarget = next;
-                RaisePropertyChanged("SelectedPlayHistoryDisplayTarget");
-                QueuePlayHistoryDisplayTargetRefresh();
+                ApplyPlayHistoryDisplayTargetSelection(next, persistIdentity: true, queueRefreshWhenSelectionChanges: true);
             }
+        }
+    }
+
+    public string SelectedPlayHistoryDisplayTargetIdentity
+    {
+        get
+        {
+            return SelectedPlayHistoryDisplayTarget.Identity;
+        }
+        set
+        {
+            if (isRefreshingPlayHistoryDisplayTargets || string.IsNullOrWhiteSpace(value))
+            {
+                return;
+            }
+
+            string identity = NormalizePlayHistoryDisplayTargetIdentity(value);
+            PlayHistoryDisplayTargetItem selected = FindPlayHistoryDisplayTarget(identity);
+            if (selected == null)
+            {
+                return;
+            }
+
+            ApplyPlayHistoryDisplayTargetSelection(selected, persistIdentity: true, queueRefreshWhenSelectionChanges: true);
         }
     }
 
@@ -19170,10 +19198,64 @@ public class MainWindowViewModel : ViewModel
         Settings.Default.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(playlistSummaryKeywordSearchHistory);
     }
 
+    private static string NormalizePlayHistoryDisplayTargetIdentity(string identity)
+    {
+        return string.IsNullOrWhiteSpace(identity)
+            ? PlayHistoryDisplayTargetItem.All.Identity
+            : identity.Trim();
+    }
+
+    private PlayHistoryDisplayTargetItem FindPlayHistoryDisplayTarget(string identity)
+    {
+        string normalizedIdentity = NormalizePlayHistoryDisplayTargetIdentity(identity);
+        return _PlayHistoryDisplayTargets.FirstOrDefault(item =>
+            string.Equals(item.Identity, normalizedIdentity, StringComparison.Ordinal));
+    }
+
+    private void ApplyPlayHistoryDisplayTargetSelection(
+        PlayHistoryDisplayTargetItem selected,
+        bool persistIdentity,
+        bool queueRefreshWhenSelectionChanges)
+    {
+        PlayHistoryDisplayTargetItem previousSelected = SelectedPlayHistoryDisplayTarget;
+        PlayHistoryDisplayTargetItem next = selected ?? PlayHistoryDisplayTargetItem.All;
+        string nextIdentity = NormalizePlayHistoryDisplayTargetIdentity(next.Identity);
+        bool identityChanged = !string.Equals(previousSelected.Identity, nextIdentity, StringComparison.Ordinal);
+        bool selectedItemChanged = !ReferenceEquals(_SelectedPlayHistoryDisplayTarget, next);
+        if (persistIdentity)
+        {
+            preferredPlayHistoryDisplayTargetIdentity = nextIdentity;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = nextIdentity;
+        }
+
+        if (selectedItemChanged)
+        {
+            _SelectedPlayHistoryDisplayTarget = next;
+            RaisePropertyChanged("SelectedPlayHistoryDisplayTarget");
+            RaisePropertyChanged("SelectedPlayHistoryDisplayTargetIdentity");
+        }
+        else if (identityChanged)
+        {
+            RaisePropertyChanged("SelectedPlayHistoryDisplayTargetIdentity");
+        }
+
+        if ((identityChanged || selectedItemChanged)
+            && queueRefreshWhenSelectionChanges
+            && (previousSelected.UsesProjection || next.UsesProjection))
+        {
+            QueuePlayHistoryDisplayTargetRefresh();
+        }
+    }
+
+    private void EnsurePlayHistoryDisplayTargetSelection()
+    {
+        RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges: false);
+    }
+
     private void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true)
     {
         PlayHistoryDisplayTargetItem previousSelected = SelectedPlayHistoryDisplayTarget;
-        string selectedIdentity = previousSelected.Identity;
+        string selectedIdentity = NormalizePlayHistoryDisplayTargetIdentity(preferredPlayHistoryDisplayTargetIdentity);
         List<PlayHistoryDisplayTargetItem> nextItems = [PlayHistoryDisplayTargetItem.All];
         nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));
         nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly));
@@ -19191,22 +19273,26 @@ public class MainWindowViewModel : ViewModel
             tables?.FreeReaderLockBMSTables();
         }
 
-        _PlayHistoryDisplayTargets.Clear();
-        foreach (PlayHistoryDisplayTargetItem item in nextItems)
+        isRefreshingPlayHistoryDisplayTargets = true;
+        try
         {
-            _PlayHistoryDisplayTargets.Add(item);
-        }
-        PlayHistoryDisplayTargetItem selected = nextItems.FirstOrDefault(item => string.Equals(item.Identity, selectedIdentity, StringComparison.Ordinal))
-            ?? PlayHistoryDisplayTargetItem.All;
-        if (!ReferenceEquals(_SelectedPlayHistoryDisplayTarget, selected))
-        {
-            _SelectedPlayHistoryDisplayTarget = selected;
-            RaisePropertyChanged("SelectedPlayHistoryDisplayTarget");
-            if (queueRefreshWhenSelectionChanges
-                && (previousSelected.UsesProjection || selected.UsesProjection))
+            _PlayHistoryDisplayTargets.Clear();
+            foreach (PlayHistoryDisplayTargetItem item in nextItems)
             {
-                QueuePlayHistoryDisplayTargetRefresh();
+                _PlayHistoryDisplayTargets.Add(item);
             }
+            PlayHistoryDisplayTargetItem selected = nextItems.FirstOrDefault(item => string.Equals(item.Identity, selectedIdentity, StringComparison.Ordinal))
+                ?? PlayHistoryDisplayTargetItem.All;
+            ApplyPlayHistoryDisplayTargetSelection(
+                selected,
+                persistIdentity: false,
+                queueRefreshWhenSelectionChanges
+                    && (previousSelected.UsesProjection || selected.UsesProjection));
+            RaisePropertyChanged("SelectedPlayHistoryDisplayTargetIdentity");
+        }
+        finally
+        {
+            isRefreshingPlayHistoryDisplayTargets = false;
         }
     }
 
@@ -19910,6 +19996,7 @@ public class MainWindowViewModel : ViewModel
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
+        preferredPlayHistoryDisplayTargetIdentity = NormalizePlayHistoryDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
@@ -24447,6 +24534,7 @@ public class MainWindowViewModel : ViewModel
     internal long BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest request)
     {
         SetPlaylistSummaryMode(enabled: false);
+        EnsurePlayHistoryDisplayTargetSelection();
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
         long requestId;
         lock (playHistoryViewRequestLock)

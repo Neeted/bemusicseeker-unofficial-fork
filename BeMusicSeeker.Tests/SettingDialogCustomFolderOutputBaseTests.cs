@@ -278,6 +278,198 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
+    public void PlayHistoryDisplayTargetSelection_PersistsSelectedIdentity()
+    {
+        string previousJson = Settings.Default.PlayHistoryDisplayTargetSetsJson;
+        string previousSelectedIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
+        try
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = string.Empty;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
+            var viewModel = new MainWindowViewModel();
+
+            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            [
+                CreateTargetSet("Saved")
+            ]);
+            PlayHistoryDisplayTargetItem target = viewModel.PlayHistoryDisplayTargets.Single(item =>
+                item.Kind == PlayHistoryDisplayTargetKind.TargetSet
+                && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
+                && item.TargetSet.Name == "Saved");
+
+            viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
+
+            Assert.AreEqual(target.Identity, Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
+        }
+        finally
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = previousJson;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
+        }
+    }
+
+    [TestMethod]
+    public void PlayHistoryDisplayTargetSelection_RestoresWhenSavedTargetAppearsLater()
+    {
+        string previousJson = Settings.Default.PlayHistoryDisplayTargetSetsJson;
+        string previousSelectedIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
+        try
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = string.Empty;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
+            var viewModel = new MainWindowViewModel();
+
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.SelectedPlayHistoryDisplayTarget.Kind);
+
+            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            [
+                CreateTargetSet("Saved")
+            ]);
+
+            Assert.AreEqual("set-folder:SAVED", viewModel.SelectedPlayHistoryDisplayTarget.Identity);
+        }
+        finally
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = previousJson;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
+        }
+    }
+
+    [TestMethod]
+    public void PlayHistoryDisplayTargetSelection_IgnoresTransientEmptyIdentity()
+    {
+        string previousJson = Settings.Default.PlayHistoryDisplayTargetSetsJson;
+        string previousSelectedIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
+        try
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = string.Empty;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
+            var viewModel = new MainWindowViewModel();
+
+            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            [
+                CreateTargetSet("Saved")
+            ]);
+            PlayHistoryDisplayTargetItem target = viewModel.PlayHistoryDisplayTargets.Single(item =>
+                item.Kind == PlayHistoryDisplayTargetKind.TargetSet
+                && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
+                && item.TargetSet.Name == "Saved");
+            viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
+
+            viewModel.SelectedPlayHistoryDisplayTargetIdentity = null;
+            viewModel.SelectedPlayHistoryDisplayTargetIdentity = string.Empty;
+
+            Assert.AreEqual(target.Identity, viewModel.SelectedPlayHistoryDisplayTarget.Identity);
+            Assert.AreEqual(target.Identity, Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
+        }
+        finally
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = previousJson;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
+        }
+    }
+
+    [TestMethod]
+    public void PlayHistoryDisplayTargetSelection_PersistsExplicitAllIdentity()
+    {
+        string previousJson = Settings.Default.PlayHistoryDisplayTargetSetsJson;
+        string previousSelectedIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
+        try
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = string.Empty;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
+            var viewModel = new MainWindowViewModel();
+
+            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            [
+                CreateTargetSet("Saved")
+            ]);
+            PlayHistoryDisplayTargetItem target = viewModel.PlayHistoryDisplayTargets.Single(item =>
+                item.Kind == PlayHistoryDisplayTargetKind.TargetSet
+                && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
+                && item.TargetSet.Name == "Saved");
+            viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
+
+            viewModel.SelectedPlayHistoryDisplayTargetIdentity = PlayHistoryDisplayTargetItem.All.Identity;
+
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.SelectedPlayHistoryDisplayTarget.Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetItem.All.Identity, Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
+        }
+        finally
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = previousJson;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
+        }
+    }
+
+    [TestMethod]
+    public void PlayHistoryDisplayTargetSelection_BeginPlayHistoryRequestReappliesSavedIdentity()
+    {
+        string previousJson = Settings.Default.PlayHistoryDisplayTargetSetsJson;
+        string previousSelectedIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
+        try
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = string.Empty;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
+            var viewModel = new MainWindowViewModel();
+            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            [
+                CreateTargetSet("Saved")
+            ]);
+            SetViewModelField(viewModel, "_SelectedPlayHistoryDisplayTarget", PlayHistoryDisplayTargetItem.All);
+
+            viewModel.BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest.All());
+
+            Assert.AreEqual("set-folder:SAVED", viewModel.SelectedPlayHistoryDisplayTarget.Identity);
+        }
+        finally
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = previousJson;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
+        }
+    }
+
+    [TestMethod]
+    public void PlayHistoryDisplayTargetSelection_RequeuesWhenSameIdentityTargetSetChanges()
+    {
+        string previousJson = Settings.Default.PlayHistoryDisplayTargetSetsJson;
+        string previousSelectedIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
+        try
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = string.Empty;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
+            var viewModel = new MainWindowViewModel();
+            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            [
+                CreateTargetSet("Saved", playlistId: 101)
+            ]);
+            PlayHistoryDisplayTargetItem target = viewModel.PlayHistoryDisplayTargets.Single(item =>
+                item.Kind == PlayHistoryDisplayTargetKind.TargetSet
+                && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
+                && item.TargetSet.Name == "Saved");
+            viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
+            long revisionBeforeChange = GetViewModelField<long>(viewModel, "playHistoryDisplayTargetRevision");
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = PlayHistoryDisplayTargetSetStore.Serialize(
+            [
+                CreateTargetSet("Saved", playlistId: 202)
+            ]);
+
+            InvokeRefreshPlayHistoryDisplayTargetSetsFromSettings(viewModel, queueRefreshWhenSelectionChanges: true);
+
+            Assert.AreEqual(target.Identity, viewModel.SelectedPlayHistoryDisplayTarget.Identity);
+            Assert.AreEqual(202, viewModel.SelectedPlayHistoryDisplayTarget.TargetSet.Targets.Single().PlaylistId);
+            Assert.IsTrue(
+                GetViewModelField<long>(viewModel, "playHistoryDisplayTargetRevision") > revisionBeforeChange,
+                "The active play-history filter must be re-applied when the selected target set keeps the same identity but changes content.");
+        }
+        finally
+        {
+            Settings.Default.PlayHistoryDisplayTargetSetsJson = previousJson;
+            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = previousSelectedIdentity;
+        }
+    }
+
+    [TestMethod]
     public void Lr2BmsDirectoryChoices_ExcludeCustomFolderOutputBases()
     {
         string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
@@ -1144,6 +1336,22 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             .SetValue(viewModel, value);
     }
 
+    private static T GetViewModelField<T>(MainWindowViewModel viewModel, string fieldName)
+    {
+        return (T)typeof(MainWindowViewModel)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(viewModel)!;
+    }
+
+    private static void InvokeRefreshPlayHistoryDisplayTargetSetsFromSettings(
+        MainWindowViewModel viewModel,
+        bool queueRefreshWhenSelectionChanges)
+    {
+        typeof(MainWindowViewModel)
+            .GetMethod("RefreshPlayHistoryDisplayTargetSetsFromSettings", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(viewModel, [queueRefreshWhenSelectionChanges]);
+    }
+
     private static void SetViewModelTables(MainWindowViewModel viewModel, string songDbPath, BMSTable[] tables)
     {
         var playlist = new BMSPlaylist(songDbPath)
@@ -1246,6 +1454,21 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             org_name = name,
             symbol = symbol,
             org_symbol = symbol
+        };
+    }
+
+    private static PlayHistoryDisplayTargetSet CreateTargetSet(string name, int playlistId = 101)
+    {
+        return new PlayHistoryDisplayTargetSet
+        {
+            Name = name,
+            Targets =
+            [
+                new PlayHistoryDisplayTargetReference
+                {
+                    PlaylistId = playlistId
+                }
+            ]
         };
     }
 

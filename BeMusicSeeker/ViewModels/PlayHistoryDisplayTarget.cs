@@ -51,7 +51,7 @@ public sealed class PlayHistoryDisplayTargetItem
 
     internal PlayHistoryDisplayTargetMode Mode { get; }
 
-    internal string Identity { get; }
+    public string Identity { get; }
 
     public string DisplayName { get; }
 

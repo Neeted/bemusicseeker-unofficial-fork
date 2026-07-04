@@ -216,6 +216,7 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
         string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows");
         string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
+        string applyDisplayTargetSelection = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryDisplayTargetSelection", "private void EnsurePlayHistoryDisplayTargetSelection");
         string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
         string queueDisplayTargets = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetsRefresh", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
         string queueDisplayTarget = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetRefresh", "private bool IsCurrentPlayHistoryViewRequest");
@@ -245,7 +246,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false)");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryDisplayTargetRefresh");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false)");
-        StringAssert.Contains(refreshTargets, "QueuePlayHistoryDisplayTargetRefresh();");
+        StringAssert.Contains(refreshTargets, "ApplyPlayHistoryDisplayTargetSelection(");
+        StringAssert.Contains(applyDisplayTargetSelection, "QueuePlayHistoryDisplayTargetRefresh();");
         StringAssert.Contains(queueDisplayTarget, "new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision, targetRevision)");
         StringAssert.Contains(queueDisplayTarget, "Interlocked.CompareExchange(ref playHistoryDisplayTargetQueuedRevision");
         StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshRequestedRevision");
@@ -287,14 +289,21 @@ public sealed class MainWindowContextMenuResourceTests
         string saveAndClose = ExtractBetween(settingDialogCode, "private async void SaveAndClose", "internal static bool ShouldResetSettingsOnCancel");
         string saveSettings = ExtractBetween(viewModelCode, "public async Task SaveSettings()", "public async Task SaveSettingsForInitialInitialize()");
         string saveSettingsCore = ExtractBetween(viewModelCode, "private async Task SaveSettingsCore", "public void SaveOperationModeForRestart");
+        string beginPlayHistoryFilterRequest = ExtractBetween(viewModelCode, "internal long BeginPlayHistoryFilterRequest", "private void QueuePlayHistoryKeywordFilterRefresh");
 
         StringAssert.Contains(toolbar, "Visibility=\"{Binding IsPlayHistoryViewActive");
         StringAssert.Contains(toolbar, "ItemsSource=\"{Binding PlayHistoryDisplayTargets}\"");
-        StringAssert.Contains(toolbar, "SelectedItem=\"{Binding SelectedPlayHistoryDisplayTarget, Mode=TwoWay}\"");
+        StringAssert.Contains(toolbar, "SelectedValue=\"{Binding SelectedPlayHistoryDisplayTargetIdentity, Mode=TwoWay}\"");
+        StringAssert.Contains(toolbar, "SelectedValuePath=\"Identity\"");
         StringAssert.Contains(toolbar, "DisplayMemberPath=\"DisplayName\"");
+        StringAssert.Contains(viewModelCode, "public string SelectedPlayHistoryDisplayTargetIdentity");
+        StringAssert.Contains(viewModelCode, "isRefreshingPlayHistoryDisplayTargets");
+        StringAssert.Contains(beginPlayHistoryFilterRequest, "EnsurePlayHistoryDisplayTargetSelection();");
         StringAssert.Contains(viewModelCode, "nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));");
         StringAssert.Contains(viewModelCode, "nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly));");
         StringAssert.Contains(viewModelCode, ".Select(PlayHistoryDisplayTargetItem.FromPlaylist));");
+        StringAssert.Contains(viewModelCode, "Settings.Default.PlayHistorySelectedDisplayTargetIdentity");
+        StringAssert.Contains(viewModelCode, "preferredPlayHistoryDisplayTargetIdentity");
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Play_history_display_target_folder_only_set_format));
         StringAssert.Contains(settingDialogXaml, "Path=Resources.Play_history_folder_display_preset, Mode=OneWay");
         StringAssert.Contains(settingDialogXaml, "ItemsSource=\"{Binding settingDialog.PlayHistoryFolderDisplayPresets}\"");
@@ -1032,7 +1041,17 @@ public sealed class MainWindowContextMenuResourceTests
             "LR2 config persistence, including autoreload normalization, must not be hidden behind runtime post-save actions.");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.Reload();");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.OperationModeLR2DB = operationMode;");
+        StringAssert.Contains(restartSaveMethod, "string playHistorySelectedDisplayTargetIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;");
+        StringAssert.Contains(restartSaveMethod, "Settings.Default.PlayHistorySelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.Save();");
+        Assert.IsTrue(
+            restartSaveMethod.IndexOf("string playHistorySelectedDisplayTargetIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;", StringComparison.Ordinal)
+            < restartSaveMethod.IndexOf("Settings.Default.Reload();", StringComparison.Ordinal),
+            "Restart save must preserve the in-memory play-history display target before reloading settings.");
+        Assert.IsTrue(
+            restartSaveMethod.IndexOf("Settings.Default.Reload();", StringComparison.Ordinal)
+            < restartSaveMethod.IndexOf("Settings.Default.PlayHistorySelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;", StringComparison.Ordinal),
+            "Restart save must restore the play-history display target after reloading settings.");
         Assert.IsFalse(restartSaveMethod.Contains("ResetSettings();"));
         Assert.IsFalse(restartSaveMethod.Contains("SetOperationModeSelection"));
         Assert.IsFalse(restartSaveMethod.Contains("RaisePropertyChanged"));
@@ -2764,6 +2783,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual("False", appConfigDefaults["UpdateLr2IrRankingCacheOnStartup"]);
         Assert.AreEqual(string.Empty, settingsDefaults["PlayHistoryDisplayTargetSetsJson"]);
         Assert.AreEqual(string.Empty, appConfigDefaults["PlayHistoryDisplayTargetSetsJson"]);
+        Assert.AreEqual(string.Empty, settingsDefaults["PlayHistorySelectedDisplayTargetIdentity"]);
+        Assert.AreEqual(string.Empty, appConfigDefaults["PlayHistorySelectedDisplayTargetIdentity"]);
         Assert.IsFalse(settingsDefaults.ContainsKey("SkipEstimateOfflineScoreRanking"));
         Assert.IsFalse(appConfigDefaults.ContainsKey("SkipEstimateOfflineScoreRanking"));
         StringAssert.Contains(settingsCode, "internal const string LegacyTableListUrl = \"http://www.ribbit.xyz/bms/tables/table_info.json\";");
