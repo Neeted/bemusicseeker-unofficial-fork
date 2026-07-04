@@ -1078,7 +1078,7 @@ public sealed class CustomTableView : Grid
                 return new CustomTableHitTestResult(CustomTableHitKind.HeaderResize, -1, null, resizeEntry.Column, resizeEntry.ColumnIndex, resizeRect);
             }
             bool hasHeaderColumn = layout.TryResolveColumn(tableX, out CustomTableColumnLayoutEntry headerEntry);
-            Rect headerRect = hasHeaderColumn ? headerEntry.CreateVisibleRect(horizontalOffset, surface.ActualWidth, 0d, HeaderHeight) : new Rect(0d, 0d, surface.ActualWidth, HeaderHeight);
+            Rect headerRect = hasHeaderColumn ? headerEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, 0d, HeaderHeight) : new Rect(0d, 0d, surface.ActualWidth, HeaderHeight);
             return new CustomTableHitTestResult(CustomTableHitKind.Header, -1, null, headerEntry.Column, hasHeaderColumn ? headerEntry.ColumnIndex : -1, headerRect);
         }
         bool hasColumn = layout.TryResolveColumn(tableX, out CustomTableColumnLayoutEntry cellEntry);
@@ -1094,7 +1094,7 @@ public sealed class CustomTableView : Grid
             return CreateEmptyHit();
         }
         double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
-        Rect cellRect = cellEntry.CreateVisibleRect(horizontalOffset, surface.ActualWidth, rowY, rowHeight);
+        Rect cellRect = cellEntry.CreateVisibleSlotRect(horizontalOffset, surface.ActualWidth, rowY, rowHeight);
         return new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], cellEntry.Column, cellEntry.ColumnIndex, cellRect);
     }
 
@@ -1793,7 +1793,10 @@ public sealed class CustomTableView : Grid
         {
             return false;
         }
-        Rect rect = hit.CellRect;
+        if (!TryCreateVisibleCellInteriorRect(hit.RowIndex, hit.Column?.Id, out Rect rect))
+        {
+            return false;
+        }
         if (rect.Width <= 2d || rect.Height <= 2d)
         {
             return false;
@@ -2038,13 +2041,41 @@ public sealed class CustomTableView : Grid
             double width = column?.Width ?? 0d;
             if (column != null && string.Equals(column.Id, columnId, StringComparison.Ordinal))
             {
-                Rect rect = CreateVisibleCellRect(x, width, rowIndex);
+                Rect rect = CreateVisibleCellSlotRect(x, width, rowIndex);
                 if (rect.Width <= 0d || rect.Height <= 0d)
                 {
                     return false;
                 }
                 hit = new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], column, i, rect);
                 return true;
+            }
+            x += width;
+        }
+        return false;
+    }
+
+    private bool TryCreateVisibleCellInteriorRect(int rowIndex, string columnId, out Rect rect)
+    {
+        rect = Rect.Empty;
+        if (rowIndex < FirstVisibleRowIndex || rowIndex >= FirstVisibleRowIndex + CalculateDrawableRowCapacity() || string.IsNullOrWhiteSpace(columnId))
+        {
+            return false;
+        }
+        IList rows = ItemsSource;
+        if (rows == null || rowIndex < 0 || rowIndex >= rows.Count)
+        {
+            return false;
+        }
+        IReadOnlyList<CustomTableColumn> columns = VisibleColumns;
+        double x = 0d;
+        for (int i = 0; i < columns.Count; i++)
+        {
+            CustomTableColumn column = columns[i];
+            double width = column?.Width ?? 0d;
+            if (column != null && string.Equals(column.Id, columnId, StringComparison.Ordinal))
+            {
+                rect = CreateVisibleCellInteriorRect(x, width, rowIndex);
+                return rect.Width > 0d && rect.Height > 0d;
             }
             x += width;
         }
@@ -2081,16 +2112,30 @@ public sealed class CustomTableView : Grid
         }
         IReadOnlyList<CustomTableColumn> columns = VisibleColumns;
         CustomTableColumn column = columns.Count == 0 ? null : columns[0];
-        Rect cellRect = column == null ? Rect.Empty : CreateVisibleCellRect(0d, column.Width, rowIndex);
+        Rect cellRect = column == null ? Rect.Empty : CreateVisibleCellSlotRect(0d, column.Width, rowIndex);
         return new CustomTableHitTestResult(CustomTableHitKind.Cell, rowIndex, rows[rowIndex], column, column == null ? -1 : 0, cellRect);
     }
 
-    private Rect CreateVisibleCellRect(double columnX, double columnWidth, int rowIndex)
+    private Rect CreateVisibleCellSlotRect(double columnX, double columnWidth, int rowIndex)
     {
         double rowHeight = Math.Max(1d, RowHeight);
         double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
         double visibleHeight = Math.Min(rowHeight, Math.Max(0d, surface.ActualHeight - rowY));
-        return CustomTableColumnLayout.CreateVisibleColumnRect(
+        return CustomTableColumnLayout.CreateVisibleColumnSlotRect(
+            columnX,
+            columnWidth,
+            HorizontalOffset,
+            surface.ActualWidth,
+            rowY,
+            visibleHeight);
+    }
+
+    private Rect CreateVisibleCellInteriorRect(double columnX, double columnWidth, int rowIndex)
+    {
+        double rowHeight = Math.Max(1d, RowHeight);
+        double rowY = HeaderHeight + (rowIndex - FirstVisibleRowIndex) * rowHeight;
+        double visibleHeight = Math.Min(rowHeight, Math.Max(0d, surface.ActualHeight - rowY));
+        return CustomTableColumnLayout.CreateVisibleColumnInteriorRect(
             columnX,
             columnWidth,
             HorizontalOffset,
@@ -2362,6 +2407,8 @@ public sealed class CustomTableView : Grid
 
 internal static class CustomTableColumnLayout
 {
+    internal const double GridLineThickness = 1d;
+
     internal static double CalculateExtentWidth(IReadOnlyList<CustomTableColumn> columns)
     {
         if (columns == null || columns.Count == 0)
@@ -2427,16 +2474,55 @@ internal static class CustomTableColumnLayout
         return false;
     }
 
-    internal static Rect CreateVisibleColumnRect(double columnX, double columnWidth, double horizontalOffset, double viewportWidth, double y, double height)
+    internal static Rect CreateVisibleColumnSlotRect(double columnX, double columnWidth, double horizontalOffset, double viewportWidth, double y, double height)
     {
         double left = Math.Max(0d, columnX - horizontalOffset);
         double right = Math.Min(viewportWidth, columnX + columnWidth - horizontalOffset);
         return new Rect(left, y, Math.Max(0d, right - left), height);
     }
 
-    internal static Rect CreateContentColumnRect(double columnX, double columnWidth, double horizontalOffset, double y, double height)
+    internal static Rect CreateVisibleColumnInteriorRect(double columnX, double columnWidth, double horizontalOffset, double viewportWidth, double y, double height)
+    {
+        double slotLeft = columnX - horizontalOffset;
+        double slotRight = slotLeft + Math.Max(0d, columnWidth);
+        double visibleLeft = Math.Max(0d, slotLeft);
+        double interiorRight = Math.Max(slotLeft, slotRight - GridLineThickness);
+        double visibleRight = Math.Min(viewportWidth, interiorRight);
+        double interiorHeight = Math.Max(0d, height - GridLineThickness);
+        return new Rect(visibleLeft, y, Math.Max(0d, visibleRight - visibleLeft), interiorHeight);
+    }
+
+    internal static Rect CreateColumnSlotRect(double columnX, double columnWidth, double horizontalOffset, double y, double height)
     {
         return new Rect(columnX - horizontalOffset, y, Math.Max(0d, columnWidth), height);
+    }
+
+    internal static Rect CreateInteriorRect(Rect slotRect)
+    {
+        if (slotRect.IsEmpty)
+        {
+            return Rect.Empty;
+        }
+        double width = Math.Max(0d, slotRect.Width - GridLineThickness);
+        double height = Math.Max(0d, slotRect.Height - GridLineThickness);
+        return new Rect(slotRect.X, slotRect.Y, width, height);
+    }
+
+    internal static double CreateRightGridLineX(double columnX, double columnWidth, double horizontalOffset)
+    {
+        return columnX + columnWidth - horizontalOffset - GridLineThickness / 2d;
+    }
+
+    internal static double CreateBottomGridLineY(double y, double height)
+    {
+        return y + height - GridLineThickness / 2d;
+    }
+
+    internal static bool IsGridLineFullyVisible(double center, double viewportStart, double viewportEnd)
+    {
+        double halfThickness = GridLineThickness / 2d;
+        return center - halfThickness >= viewportStart
+            && center + halfThickness <= viewportEnd;
     }
 
     internal static int CountColumnsWithinViewport(IReadOnlyList<CustomTableColumn> columns, double horizontalOffset, double viewportWidth)
@@ -2505,7 +2591,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         string redrawReason = owner.ConsumeRedrawReason();
         CustomTableColumnLayoutSnapshot layout = owner.GetColumnLayoutSnapshot();
         DrawBackground(drawingContext, width, height);
-        DrawHeader(drawingContext, layout, width);
+        DrawHeader(drawingContext, layout, width, height);
         if (owner.IsItemsSourceSwapPending)
         {
             renderStopwatch.Stop();
@@ -2544,7 +2630,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         drawingContext.DrawRectangle(CustomTablePalette.Current.RowBackground, null, new Rect(0d, 0d, width, height));
     }
 
-    private void DrawHeader(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, double width)
+    private void DrawHeader(DrawingContext drawingContext, CustomTableColumnLayoutSnapshot layout, double width, double height)
     {
         double headerHeight = owner.HeaderHeight;
         double horizontalOffset = owner.HorizontalOffset;
@@ -2555,24 +2641,28 @@ internal sealed class CustomTableSurface : FrameworkElement
             CustomTableColumn column = entry.Column;
             if (column != null)
             {
-                Rect cellRect = entry.CreateContentRect(horizontalOffset, 0d, headerHeight);
+                Rect cellRect = entry.CreateInteriorRect(horizontalOffset, 0d, headerHeight);
                 if (owner.IsReorderSourceColumn(column))
                 {
                     drawingContext.DrawRectangle(
                         palette.ReorderSourceHeader,
                         null,
-                        entry.CreateVisibleRect(horizontalOffset, width, 0d, headerHeight));
+                        entry.CreateVisibleInteriorRect(horizontalOffset, width, 0d, headerHeight));
                 }
                 DrawCellText(drawingContext, column.Header, cellRect, CustomTableScoreBrushProvider.DefaultForeground, [], TextAlignment.Center, CustomTableTextStyle.Normal);
                 DrawSortGlyph(drawingContext, column, cellRect);
-                double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
-                if (borderX >= 0d && borderX <= width)
+                double borderX = entry.RightGridLineX(horizontalOffset);
+                if (CustomTableColumnLayout.IsGridLineFullyVisible(borderX, 0d, width))
                 {
                     drawingContext.DrawLine(palette.HeaderBorder, new Point(borderX, 0d), new Point(borderX, headerHeight));
                 }
             }
         }
-        drawingContext.DrawLine(palette.HeaderBorder, new Point(0d, headerHeight - 0.5d), new Point(width, headerHeight - 0.5d));
+        double bottomGridLineY = CustomTableColumnLayout.CreateBottomGridLineY(0d, headerHeight);
+        if (CustomTableColumnLayout.IsGridLineFullyVisible(bottomGridLineY, 0d, height))
+        {
+            drawingContext.DrawLine(palette.HeaderBorder, new Point(0d, bottomGridLineY), new Point(width, bottomGridLineY));
+        }
         if (owner.IsColumnReorderPreviewActive)
         {
             double insertX = Math.Max(0d, Math.Min(width, owner.ColumnReorderPreviewInsertX));
@@ -2612,7 +2702,11 @@ internal sealed class CustomTableSurface : FrameworkElement
             var rowRect = new Rect(0d, y, width, Math.Min(rowHeight, height - y));
             drawingContext.DrawRectangle(rowBackground, null, rowRect);
             DrawRowCells(drawingContext, layout, rowIndex, row, width, y, rowHeight);
-            drawingContext.DrawLine(palette.CellBorder, new Point(0d, y + rowHeight - 0.5d), new Point(width, y + rowHeight - 0.5d));
+            double bottomGridLineY = CustomTableColumnLayout.CreateBottomGridLineY(y, rowHeight);
+            if (CustomTableColumnLayout.IsGridLineFullyVisible(bottomGridLineY, 0d, height))
+            {
+                drawingContext.DrawLine(palette.CellBorder, new Point(0d, bottomGridLineY), new Point(width, bottomGridLineY));
+            }
             y += rowHeight;
             drawnRows++;
         }
@@ -2659,18 +2753,18 @@ internal sealed class CustomTableSurface : FrameworkElement
             {
                 continue;
             }
-            Rect cellRect = entry.CreateContentRect(horizontalOffset, y, rowHeight);
+            Rect cellRect = entry.CreateInteriorRect(horizontalOffset, y, rowHeight);
             bool currentCell = owner.IsCurrentCell(rowIndex, column);
             long cellValueStart = Stopwatch.GetTimestamp();
             CustomTableCellValue cellValue = owner.GetCellValue(row, column, out _);
             renderCellValueTicks += Stopwatch.GetTimestamp() - cellValueStart;
             if (!owner.IsRowSelected(rowIndex) && cellValue.Background != null)
             {
-                drawingContext.DrawRectangle(cellValue.Background, null, entry.CreateVisibleRect(horizontalOffset, width, y, rowHeight));
+                drawingContext.DrawRectangle(cellValue.Background, null, entry.CreateVisibleInteriorRect(horizontalOffset, width, y, rowHeight));
             }
             if (currentCell)
             {
-                drawingContext.DrawRectangle(CustomTablePalette.Current.CurrentCellBackground, null, entry.CreateVisibleRect(horizontalOffset, width, y, rowHeight));
+                drawingContext.DrawRectangle(CustomTablePalette.Current.CurrentCellBackground, null, entry.CreateVisibleInteriorRect(horizontalOffset, width, y, rowHeight));
             }
             bool hasTextRuns = cellValue.TextRuns.Count > 0;
             Brush foreground = hasTextRuns
@@ -2696,8 +2790,8 @@ internal sealed class CustomTableSurface : FrameworkElement
             {
                 DrawCellText(drawingContext, cellValue.Text, cellRect, foreground, cellValue.TextRuns, cellValue.Alignment, cellValue.TextStyle);
             }
-            double borderX = entry.TableX + entry.Width - horizontalOffset - 0.5d;
-            if (borderX >= 0d && borderX <= width)
+            double borderX = entry.RightGridLineX(horizontalOffset);
+            if (CustomTableColumnLayout.IsGridLineFullyVisible(borderX, 0d, width))
             {
                 drawingContext.DrawLine(CustomTablePalette.Current.CellBorder, new Point(borderX, y), new Point(borderX, y + rowHeight));
             }

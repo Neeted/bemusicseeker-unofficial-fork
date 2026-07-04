@@ -24,6 +24,7 @@
 - `CustomTableCommandAdapter` に必要な event args DTO を定義する。
 - 既存 `CustomTable*Tests` を維持しながら pure logic を増やす。
 - cell edit overlay は WPF 全体の暗黙 `TextBox` style に依存させず、`CustomTableView` 専用 template で通常セルの文字余白、行高、角丸なしの外形に合わせる。
+- セル座標は column/row の論理範囲である slot、右/下グリッド線を除いた interior、グリッド線中心座標を分けて扱う。テキスト、アイコン、checkbox、cell edit overlay は interior に揃える。
 
 ## 現時点でやらないこと
 

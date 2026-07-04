@@ -126,13 +126,28 @@ internal readonly struct CustomTableColumnLayoutEntry
 
     internal bool IntersectsViewport { get; }
 
-    internal Rect CreateVisibleRect(double horizontalOffset, double viewportWidth, double y, double height)
+    internal Rect CreateVisibleSlotRect(double horizontalOffset, double viewportWidth, double y, double height)
     {
-        return CustomTableColumnLayout.CreateVisibleColumnRect(TableX, Width, horizontalOffset, viewportWidth, y, height);
+        return CustomTableColumnLayout.CreateVisibleColumnSlotRect(TableX, Width, horizontalOffset, viewportWidth, y, height);
     }
 
-    internal Rect CreateContentRect(double horizontalOffset, double y, double height)
+    internal Rect CreateSlotRect(double horizontalOffset, double y, double height)
     {
-        return CustomTableColumnLayout.CreateContentColumnRect(TableX, Width, horizontalOffset, y, height);
+        return CustomTableColumnLayout.CreateColumnSlotRect(TableX, Width, horizontalOffset, y, height);
+    }
+
+    internal Rect CreateInteriorRect(double horizontalOffset, double y, double height)
+    {
+        return CustomTableColumnLayout.CreateInteriorRect(CreateSlotRect(horizontalOffset, y, height));
+    }
+
+    internal Rect CreateVisibleInteriorRect(double horizontalOffset, double viewportWidth, double y, double height)
+    {
+        return CustomTableColumnLayout.CreateVisibleColumnInteriorRect(TableX, Width, horizontalOffset, viewportWidth, y, height);
+    }
+
+    internal double RightGridLineX(double horizontalOffset)
+    {
+        return CustomTableColumnLayout.CreateRightGridLineX(TableX, Width, horizontalOffset);
     }
 }
