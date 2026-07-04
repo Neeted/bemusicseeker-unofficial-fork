@@ -428,6 +428,8 @@
   "Playlist_output_desc": "※出力先には重要なデータを含まないようにして下さい。出力先はそれぞれ別の場所を指定してください。\n「通常出力先」にはプレイリストに対応するカスタムフォルダが出力されます。\n「ルートフォルダ出力先」にはプレイリストのプロパティで「ルートフォルダにする」を有効にしたものが出力されます。選曲画面のルートに表示されるのでクイックアクセスが可能です。",
   "Playlist_output_additional": "追加通常出力先",
   "Playlist_output_additional_name": "フォルダ名: ",
+  "Playlist_output_default_folder_types": "出力フォルダ既定値",
+  "Playlist_output_default_folder_types_desc": "新規作成するプレイリストと、外部URLから新規追加する表に適用されます。既存プレイリストには影響しません。",
   "Playlist_output_base": "OUTPUT: ",
   "Unregistered_in_lr2_db": "LR2互換性警告",
   "PlaylistProp_sortkey": "ソートキー: ",

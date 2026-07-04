@@ -1612,6 +1612,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "ML",
                 Output_dir = "MissingLastPlaySchema",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
                     & ~LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder,
                 entries =
                 [
@@ -1957,7 +1959,7 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsTrue(File.Exists(Path.Combine(outputDir, "PLAY COUNT SORT", "0000.lr2folder")));
             Assert.IsTrue(File.Exists(Path.Combine(outputDir, "LAST PLAY SORT", "0000.lr2folder")));
             using var verify = new LR2SongDBExtended(songDbPath);
-            Assert.AreEqual(2L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE command LIKE '%bms_lr2_last_play%';"));
+            Assert.AreEqual(1L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE command LIKE '%bms_lr2_last_play%';"));
         }
         finally
         {

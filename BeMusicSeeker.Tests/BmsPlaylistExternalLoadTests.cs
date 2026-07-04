@@ -17,6 +17,115 @@ public sealed class BmsPlaylistExternalLoadTests
 {
     [TestMethod]
     [TestCategory("Playlist")]
+    [DoNotParallelize]
+    public void CreateBMSTable_UsesPlaylistDefaultIgnoreFolderOutputSetting()
+    {
+        int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
+        BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput =
+            (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+
+            BMSTable table = playlist.CreateBMSTable();
+
+            Assert.AreEqual(LR2SongDBExtended.playlist.CustomFolderType.AllFolders, table.ignore_folder_output);
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = previousDefault;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DoNotParallelize]
+    public async Task LoadExternalTableAsync_NewExternalTableUsesPlaylistDefaultIgnoreFolderOutputSetting()
+    {
+        int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
+        var expectedMask = LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
+            | LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder;
+        BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = (int)expectedMask;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"DefaultMaskImport\",\"symbol\":\"D\",\"data_url\":\"./score.json\"}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath);
+
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+
+            Assert.AreEqual(expectedMask, table.ignore_folder_output);
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = previousDefault;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    [DoNotParallelize]
+    public async Task LoadExternalTableAsync_BaseTablePreservesIgnoreFolderOutput()
+    {
+        int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
+        BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput =
+            (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
+        var expectedMask = LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+            | LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"PreserveMaskImport\",\"symbol\":\"P\",\"data_url\":\"./score.json\"}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath);
+            var baseTable = new BMSTable
+            {
+                ignore_folder_output = expectedMask
+            };
+
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
+
+            Assert.AreEqual(expectedMask, table.ignore_folder_output);
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = previousDefault;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void LoadExternalTable_BomHeaderAndRelativeDataUrl_LoadsSuccessfully()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistExternalLoadTests", Guid.NewGuid().ToString("N"));

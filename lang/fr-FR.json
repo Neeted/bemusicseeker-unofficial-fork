@@ -418,6 +418,8 @@
   "Playlist_output_desc": "* Ne mettez pas de donnees importantes dans les dossiers de sortie. Les deux dossiers de sortie doivent etre differents.\nLes dossiers personnalises correspondant aux playlists sont ecrits dans Output (dossier normal).\nLes playlists dont l'option \"Utiliser comme dossier racine\" est activee dans les proprietes sont ecrites dans Output (dossier racine). Elles apparaissent a la racine de l'ecran de selection pour un acces rapide.",
   "Playlist_output_additional": "Sorties normales supplementaires",
   "Playlist_output_additional_name": "Nom du dossier : ",
+  "Playlist_output_default_folder_types": "Output folder defaults",
+  "Playlist_output_default_folder_types_desc": "Applied to newly created playlists and tables newly added from external URLs. Existing playlists are not affected.",
   "Playlist_output_base": "OUTPUT : ",
   "Unregistered_in_lr2_db": "Avertissements de compatibilité LR2",
   "PlaylistProp_sortkey": "Sort key: ",

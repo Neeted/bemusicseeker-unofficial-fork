@@ -650,6 +650,8 @@ public class MainWindowViewModel : ViewModel
 
         private string tempLR2CustomFolderAdditionalOutputBaseDirs;
 
+        private int tempPlaylistDefaultIgnoreFolderOutput;
+
         private string tempBMSInstallDir;
 
         private string tempLR2CustomFolderAsRootOutputDir;
@@ -1895,6 +1897,121 @@ public class MainWindowViewModel : ViewModel
                     RaiseValidationStateChanged();
                 }
             }
+        }
+
+        public bool DefaultOutputAllSongsFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder, value, nameof(DefaultOutputAllSongsFolder));
+        }
+
+        public bool DefaultOutputUserFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.UserFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, value, nameof(DefaultOutputUserFolder));
+        }
+
+        public bool DefaultOutputLevelFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder, value, nameof(DefaultOutputLevelFolder));
+        }
+
+        public bool DefaultOutputAlphabetFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, value, nameof(DefaultOutputAlphabetFolder));
+        }
+
+        public bool DefaultOutputClearFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder, value, nameof(DefaultOutputClearFolder));
+        }
+
+        public bool DefaultOutputDJLevelFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder, value, nameof(DefaultOutputDJLevelFolder));
+        }
+
+        public bool DefaultOutputCategoryAllFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder, value, nameof(DefaultOutputCategoryAllFolder));
+        }
+
+        public bool DefaultOutputOtherFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, value, nameof(DefaultOutputOtherFolder));
+        }
+
+        public bool DefaultOutputRandomFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.RandomFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.RandomFolder, value, nameof(DefaultOutputRandomFolder));
+        }
+
+        public bool DefaultOutputBpmSortFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder, value, nameof(DefaultOutputBpmSortFolder));
+        }
+
+        public bool DefaultOutputBpSortFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder, value, nameof(DefaultOutputBpSortFolder));
+        }
+
+        public bool DefaultOutputPlayCountSortFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder, value, nameof(DefaultOutputPlayCountSortFolder));
+        }
+
+        public bool DefaultOutputLastPlaySortFolder
+        {
+            get => IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder);
+            set => SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder, value, nameof(DefaultOutputLastPlaySortFolder));
+        }
+
+        private bool IsDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType type)
+        {
+            return LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(
+                BMSPlaylist.NormalizeNewPlaylistIgnoreFolderOutputDefault(Settings.Default.PlaylistDefaultIgnoreFolderOutput),
+                type);
+        }
+
+        private void SetDefaultCustomFolderOutputEnabled(LR2SongDBExtended.playlist.CustomFolderType type, bool enabled, string propertyName)
+        {
+            LR2SongDBExtended.playlist.CustomFolderType mask =
+                BMSPlaylist.NormalizeNewPlaylistIgnoreFolderOutputDefault(Settings.Default.PlaylistDefaultIgnoreFolderOutput);
+            mask = enabled ? mask & ~type : mask | type;
+            int nextValue = (int)BMSPlaylist.NormalizeNewPlaylistIgnoreFolderOutputDefault((int)mask);
+            if (Settings.Default.PlaylistDefaultIgnoreFolderOutput != nextValue)
+            {
+                Settings.Default.PlaylistDefaultIgnoreFolderOutput = nextValue;
+                RaisePropertyChanged(propertyName);
+            }
+        }
+
+        private void RaiseDefaultCustomFolderOutputPropertiesChanged()
+        {
+            RaisePropertyChanged(() => DefaultOutputAllSongsFolder);
+            RaisePropertyChanged(() => DefaultOutputUserFolder);
+            RaisePropertyChanged(() => DefaultOutputLevelFolder);
+            RaisePropertyChanged(() => DefaultOutputAlphabetFolder);
+            RaisePropertyChanged(() => DefaultOutputClearFolder);
+            RaisePropertyChanged(() => DefaultOutputDJLevelFolder);
+            RaisePropertyChanged(() => DefaultOutputCategoryAllFolder);
+            RaisePropertyChanged(() => DefaultOutputOtherFolder);
+            RaisePropertyChanged(() => DefaultOutputRandomFolder);
+            RaisePropertyChanged(() => DefaultOutputBpmSortFolder);
+            RaisePropertyChanged(() => DefaultOutputBpSortFolder);
+            RaisePropertyChanged(() => DefaultOutputPlayCountSortFolder);
+            RaisePropertyChanged(() => DefaultOutputLastPlaySortFolder);
         }
 
         private void ShowSettingValidationError(string errMsg)
@@ -5330,6 +5447,7 @@ public class MainWindowViewModel : ViewModel
             tempLR2CustomFolderOutputDir = Settings.Default.LR2CustomFolderOutputBaseDir;
             tempLR2CustomFolderAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
             tempLR2CustomFolderAsRootOutputDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+            tempPlaylistDefaultIgnoreFolderOutput = Settings.Default.PlaylistDefaultIgnoreFolderOutput;
             tempBMSInstallDir = Settings.Default.BMSInstallDir;
             tempTableListURL = Settings.Default.TableListURL;
             tempEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
@@ -5449,6 +5567,7 @@ public class MainWindowViewModel : ViewModel
                 || tempLR2bodyResolution != Settings.Default.LR2bodyResolution
                 || tempIsSaveLR2bodyWindowPosition != Settings.Default.IsSaveLR2bodyWindowPosition
                 || HasCustomFolderOutputBaseSettingsChanged()
+                || tempPlaylistDefaultIgnoreFolderOutput != Settings.Default.PlaylistDefaultIgnoreFolderOutput
                 || !string.Equals(tempBMSInstallDir, Settings.Default.BMSInstallDir, StringComparison.OrdinalIgnoreCase)
                 || !IsSameUri(tempTableListURL, Settings.Default.TableListURL)
                 || tempEnablePlaylistUrlCompletion != Settings.Default.EnablePlaylistUrlCompletion
@@ -6615,6 +6734,7 @@ public class MainWindowViewModel : ViewModel
             Settings.Default.LR2CustomFolderOutputBaseDir = tempLR2CustomFolderOutputDir;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = tempLR2CustomFolderAdditionalOutputBaseDirs;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = tempLR2CustomFolderAsRootOutputDir;
+            Settings.Default.PlaylistDefaultIgnoreFolderOutput = tempPlaylistDefaultIgnoreFolderOutput;
             Settings.Default.BMSInstallDir = tempBMSInstallDir;
             Settings.Default.TableListURL = tempTableListURL;
             Settings.Default.EnablePlaylistUrlCompletion = tempEnablePlaylistUrlCompletion;
@@ -6730,6 +6850,7 @@ public class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => LR2CustomFolderOutputDir);
             RaisePropertyChanged(() => BMSInstallDir);
             RaisePropertyChanged(() => LR2CustomFolderAsRootOutputDir);
+            RaiseDefaultCustomFolderOutputPropertiesChanged();
             RaisePropertyChanged(() => TableListURL);
             RaisePropertyChanged(() => EnablePlaylistUrlCompletion);
             RaisePropertyChanged(() => OverwritePlaylistUrlsWithCompletion);

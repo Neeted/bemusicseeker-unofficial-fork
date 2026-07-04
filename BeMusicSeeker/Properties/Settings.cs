@@ -424,6 +424,21 @@ internal sealed class Settings : ApplicationSettingsBase
 
     [UserScopedSetting]
     [DebuggerNonUserCode]
+    [DefaultSettingValue("102")]
+    public int PlaylistDefaultIgnoreFolderOutput
+    {
+        get
+        {
+            return (int)this["PlaylistDefaultIgnoreFolderOutput"];
+        }
+        set
+        {
+            this["PlaylistDefaultIgnoreFolderOutput"] = value;
+        }
+    }
+
+    [UserScopedSetting]
+    [DebuggerNonUserCode]
     [DefaultSettingValue(null)]
     public SerializableVersion AssemblyVersion
     {

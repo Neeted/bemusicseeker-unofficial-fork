@@ -234,6 +234,8 @@ In LR2 linked mode, playlists can be output as LR2 custom folders. This tab dete
 
 `Root folder output destination` is where playlists whose properties have `Make root folder` enabled are output. These appear at the root of LR2's song selection screen, so use this for tables you want to access quickly.
 
+`Output folder defaults` controls which folder types are enabled initially for newly created local playlists and tables newly added from external URLs. It does not affect existing playlists. After creation, each playlist can still be changed from playlist properties or `Bulk edit...` in the playlist summary.
+
 > [!TIP]
 > Use `Additional normal outputs` when you want to organize tables by their usual place, and use `Root folder output destination` when you want especially frequent tables at the first level of the song selection screen. Per-playlist `OUTPUT` and `Make root folder` can be set from playlist properties or from `Bulk edit...` in the playlist summary.
 
@@ -649,7 +651,7 @@ BeMusicSeeker outputs difficulty tables and local playlists in this format. It i
 
 #### Setup Flow
 
-1. On the `Playlist` tab in the settings dialog, specify the `Normal output destination`, and if needed, `Additional normal outputs` and the `Root folder output destination`.
+1. On the `Playlist` tab in the settings dialog, specify the `Normal output destination`, and if needed, `Additional normal outputs` and the `Root folder output destination`. To change the initial state for new playlists and tables added from external URLs, also configure `Output folder defaults`.
 2. From playlist `Properties`, configure `OUTPUT`, the output name, `Make root folder`, and the folder types to output.
 3. To change multiple playlists at once, use `Bulk edit...` from the playlist summary and apply `OUTPUT`, folder output types, or `Make root folder` to the selected rows.
 

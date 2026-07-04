@@ -7898,7 +7898,8 @@ public partial class BMSPlaylist : NotificationObject
     {
         var bMSTable = new BMSTable
         {
-            last_update = DateTime.Now
+            last_update = DateTime.Now,
+            ignore_folder_output = ReadNewPlaylistIgnoreFolderOutputDefault()
         };
         InvokeBMSTablesCollectionMutation(delegate
         {
@@ -7913,6 +7914,16 @@ public partial class BMSPlaylist : NotificationObject
             }
         });
         return bMSTable;
+    }
+
+    internal static LR2SongDBExtended.playlist.CustomFolderType ReadNewPlaylistIgnoreFolderOutputDefault()
+    {
+        return NormalizeNewPlaylistIgnoreFolderOutputDefault(Settings.Default.PlaylistDefaultIgnoreFolderOutput);
+    }
+
+    internal static LR2SongDBExtended.playlist.CustomFolderType NormalizeNewPlaylistIgnoreFolderOutputDefault(int value)
+    {
+        return (LR2SongDBExtended.playlist.CustomFolderType)(value & (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders);
     }
 
     /// <summary>
@@ -8637,6 +8648,10 @@ public partial class BMSPlaylist : NotificationObject
                 bMSTable.custom_folder_output_base_name = baseTable.custom_folder_output_base_name;
                 bMSTable.bmt_sort = baseTable.bmt_sort;
                 bMSTable.is_bmt_output = baseTable.is_bmt_output;
+            }
+            else
+            {
+                bMSTable.ignore_folder_output = ReadNewPlaylistIgnoreFolderOutputDefault();
             }
             resolvedDataUri = bMSTable.GetAbsoluteDataUrl();
             if (resolvedDataUri == null)

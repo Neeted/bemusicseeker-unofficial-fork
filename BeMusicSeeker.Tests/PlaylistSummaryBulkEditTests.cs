@@ -127,6 +127,27 @@ public sealed class PlaylistSummaryBulkEditTests
     }
 
     [TestMethod]
+    public void SettingDialog_CustomFolderOutputDefaultsExposeAllFolderTypeOptions()
+    {
+        string xaml = ReadWorkspaceText("BeMusicSeeker", "Views", "SettingDialog.xaml");
+
+        StringAssert.Contains(xaml, "Playlist_output_default_folder_types");
+        StringAssert.Contains(xaml, "DefaultOutputAllSongsFolder");
+        StringAssert.Contains(xaml, "DefaultOutputUserFolder");
+        StringAssert.Contains(xaml, "DefaultOutputLevelFolder");
+        StringAssert.Contains(xaml, "DefaultOutputAlphabetFolder");
+        StringAssert.Contains(xaml, "DefaultOutputClearFolder");
+        StringAssert.Contains(xaml, "DefaultOutputDJLevelFolder");
+        StringAssert.Contains(xaml, "DefaultOutputCategoryAllFolder");
+        StringAssert.Contains(xaml, "DefaultOutputOtherFolder");
+        StringAssert.Contains(xaml, "DefaultOutputRandomFolder");
+        StringAssert.Contains(xaml, "DefaultOutputBpmSortFolder");
+        StringAssert.Contains(xaml, "DefaultOutputBpSortFolder");
+        StringAssert.Contains(xaml, "DefaultOutputPlayCountSortFolder");
+        StringAssert.Contains(xaml, "DefaultOutputLastPlaySortFolder");
+    }
+
+    [TestMethod]
     public void MainWindowPlaylistPropertyDialogs_DoNotRefreshLastPlaySortSchemaStatus()
     {
         string source = ReadWorkspaceText("BeMusicSeeker", "Views", "MainWindow.cs");

@@ -418,6 +418,8 @@
   "Playlist_output_desc": "* Do not put important data in either output folder. The two output folders must be different.\nCustom folders for playlists are written to Output (normal folder).\nPlaylists with \"Use as root folder\" enabled in their properties are written to Output (root folder). They appear at the root of the music select screen for quick access.",
   "Playlist_output_additional": "Additional normal outputs",
   "Playlist_output_additional_name": "Folder name: ",
+  "Playlist_output_default_folder_types": "Output folder defaults",
+  "Playlist_output_default_folder_types_desc": "Applied to newly created playlists and tables newly added from external URLs. Existing playlists are not affected.",
   "Playlist_output_base": "OUTPUT: ",
   "Unregistered_in_lr2_db": "LR2 compatibility warnings",
   "PlaylistProp_sortkey": "Sort key: ",

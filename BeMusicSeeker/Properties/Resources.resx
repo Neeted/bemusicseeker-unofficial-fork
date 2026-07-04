@@ -1002,6 +1002,12 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   <data name="Playlist_output_additional_name" xml:space="preserve">
     <value>フォルダ名: </value>
   </data>
+  <data name="Playlist_output_default_folder_types" xml:space="preserve">
+    <value>出力フォルダ既定値</value>
+  </data>
+  <data name="Playlist_output_default_folder_types_desc" xml:space="preserve">
+    <value>新規作成するプレイリストと、外部URLから新規追加する表に適用されます。既存プレイリストには影響しません。</value>
+  </data>
   <data name="Playlist_output_base" xml:space="preserve">
     <value>OUTPUT: </value>
   </data>

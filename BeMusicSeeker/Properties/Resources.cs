@@ -892,6 +892,10 @@ public class Resources
 
     public static string Playlist_output_additional_name => ResourceManager.GetString("Playlist_output_additional_name", resourceCulture);
 
+    public static string Playlist_output_default_folder_types => ResourceManager.GetString("Playlist_output_default_folder_types", resourceCulture);
+
+    public static string Playlist_output_default_folder_types_desc => ResourceManager.GetString("Playlist_output_default_folder_types_desc", resourceCulture);
+
     public static string Playlist_output_base => ResourceManager.GetString("Playlist_output_base", resourceCulture);
 
     public static string Playlist_table_uri => ResourceManager.GetString("Playlist_table_uri", resourceCulture);
