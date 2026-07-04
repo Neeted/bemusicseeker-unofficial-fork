@@ -606,7 +606,7 @@ Right-clicking the playlist body in the playlist tree lets you run the following
 - `Delete playlist`: Removes the target playlist from BeMusicSeeker management. A confirmation dialog is shown before execution.
 - `Properties`: Edits the playlist name, display symbol, external sync, URI, folder output, and related settings.
 
-In playlists that are not externally synced, chart rows can be added by dragging and dropping them from a list onto the playlist body or a folder. Dragging rows within playlist detail to another folder moves them between folders inside the same playlist. When dropping onto the root of a folder-type playlist, the folder is selected based on the contents of existing folders and MD5 information for the same songs, and a new folder is created if necessary.
+In playlists that are not externally synced, chart rows can be added by dragging and dropping them from a list onto the playlist body or a folder. Play-log rows can be added the same way when they have been resolved to owned charts. Dragging rows within playlist detail to another folder moves them between folders inside the same playlist. When dropping onto the root of a folder-type playlist, the folder is selected based on the contents of existing folders and MD5 information for the same songs, and a new folder is created if necessary.
 
 ### Import External Playlist
 
@@ -948,6 +948,8 @@ The drop-down menu at the top-right of the Play Log view switches the display ta
 ### Context Menu
 
 The play-log context menu can open BMS-IR for rows with a resolved MD5, open Mocha / MinIR for rows with a resolved SHA-256, open locally resolved charts in Explorer or the chart viewer, and copy MD5 or SHA256.
+
+Play-log rows that resolve to owned charts can be dragged onto a non-externally-synced playlist body or folder to add them. If the selection includes unresolved rows, that drag is not accepted as a playlist add operation.
 
 ### Notes for beatoraja
 

@@ -123,7 +123,7 @@ entry folder projection を更新した場合は、DB 保存だけで終わら�
 
 DB 保存後、LR2 linked profile でのみ `.lr2folder` の移動・再生成や `config.xml` の BMS search directory 更新を行う。standalone profile では `.lr2folder` 実出力は行わないが、プレイリスト header / entry の DB 保存と beatoraja `.bmt` 再出力要求は行う。
 
-entry の追加・削除・folder 編集など、`playlist_entry` の全置換が必要なローカル編集では、DB 全体保存を行った後に LR2 linked profile でのみ custom folder を再出力する。custom folder 出力処理は DB 保存の副作用を持たず、DB 保存の有無は呼び出し元の正本更新処理で決める。
+entry の追加・削除・folder 編集など、`playlist_entry` の全置換が必要なローカル編集では、DB 全体保存を行った後に LR2 linked profile でのみ custom folder を再出力する。custom folder 出力処理は DB 保存の副作用を持たず、DB 保存の有無は呼び出し元の正本更新処理で決める。プレイリストへの drag & drop 追加は、通常譜面行、プレイリスト詳細行、または `PlayHistoryRow.ResolvedChart` を持つプレイログ行を入力にできる。プレイログ未解決行を含む selection は playlist entry へ変換せず、部分追加もしない。
 
 ## LR2 Custom Folder 出力
 

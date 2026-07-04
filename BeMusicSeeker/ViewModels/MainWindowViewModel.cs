@@ -17660,9 +17660,7 @@ public class MainWindowViewModel : ViewModel
 
     private static CustomTableRowDragKind ResolveChartRowsViewRowDragKind(CustomTableColumnSettings settings)
     {
-        return settings?.Kind == CustomTableColumnSettings.ViewKind.PLAY_HISTORY
-            ? CustomTableRowDragKind.GenericSelectedRows
-            : CustomTableRowDragKind.PlaylistDropCandidateRows;
+        return CustomTableRowDragKind.PlaylistDropCandidateRows;
     }
 
     public Visibility ColumnSettingsVisibilityForPlaylist
@@ -32110,6 +32108,10 @@ public class MainWindowViewModel : ViewModel
 
     internal static ChartFile ResolvePlaylistDropChart(object row)
     {
+        if (row is PlayHistoryRow playHistoryRow)
+        {
+            return playHistoryRow.ResolvedChart;
+        }
         return GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target)
             && !target.IsPlaylistMissing
             ? target.Chart

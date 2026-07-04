@@ -108,6 +108,8 @@ UI refresh では raw rows がある場合に projection index を作る。proje
 
 空 hash の raw row や chart 解決できない row は失敗として捨てず、diagnostic または unresolved row として扱う。Play history view の context menu は chart row 用 menu を広く出さず、resolved MD5 がある row は BMS-IR、resolved SHA-256 がある row は Mocha / MinIR と hash copy、所持 chart に解決できる row は Explorer / 譜面ビューアを出す。unresolved row には chart 操作 menu を出さない。
 
+所持 chart に解決できる play history row は、外部同期ではない playlist の本体または folder へ drag & drop した場合だけ playlist entry 追加の入力にできる。この操作はユーザーの明示的な playlist 編集であり、play history read / projection 自体が playlist 正本、playlist entries、LR2 custom folder、beatoraja `.bmt` 出力を変更するわけではない。playlist drop では `PlayHistoryRow.ResolvedChart` が non-null の行だけを追加候補とし、未解決 row が選択に含まれる場合は drop 全体を拒否する。unresolved row を別 hash や score 情報から推測して追加する fallback は持たない。
+
 LR2 `OP HISTORY` は `new_op_history & ~old_op_history` で新規に立った bit を名前表示する。`old_op_history & ~new_op_history` がある場合は `ASSIST off` のように消えた bit も遷移として表示する。
 
 beatoraja clear は表示用に既存 clear text へ投影するが、raw record は provider 専用 record に保持する。beatoraja の `oldminbp = int.MaxValue` は未プレイ sentinel として null に正規化し、`2147483647 -> value` とは表示しない。

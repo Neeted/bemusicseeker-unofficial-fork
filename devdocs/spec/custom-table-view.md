@@ -36,6 +36,8 @@
 - メイン一覧のみ `ScoreFontFamily="{StaticResource SovjetBox}"` を渡し、CLEAR / DJ LEVEL などのスコア系表示に使う。
 - スコア系表示の `CLEAR` / `DJ LEVEL` / `DIFFICULTY` / `JUDGE` と、プレイログの `CLEAR` / `BEST DJ` は同じ `CustomTableTextStyle.Score` を使う。フォントサイズは `11d`、縦補正は `1d`。
 
+メイン一覧の行 drag payload は `RowDragKind="{Binding ChartRowsViewRowDragKind}"` で決める。通常譜面一覧、プレイリスト詳細、プレイログ一覧はいずれも `PlaylistDropCandidateRows` を使う。ただし playlist tree drop では `MainWindowViewModel.ArePlaylistDropCandidateRows` により全選択行を再検証し、プレイログ行は `PlayHistoryRow.ResolvedChart` を持つ場合だけ playlist entry 追加へ変換できる。未解決の play history row や playlist summary row が混じる場合は drop 全体を拒否し、部分追加で意味を変えない。
+
 ### メイン一覧の仮想 `IList`
 
 `ChartRowsView` は `List<LibraryChartRow>` / `List<PlaylistDetailRow>` だけでなく、`IChartListViewMetadata` を実装した仮想 `IList` になり得る。通常ライブラリの default 表示と、その状態からの `ChartListOrder` registry 対応列 sort では、`ChartListSourceRow` と `ChartListOrder` を全件分作り、`CustomTableView` からの `Count` と index access に応じて可視行だけ `LibraryChartRow` を生成する。playlist detail では `PlaylistDetailSourceRow` を keyword / mode / sort 後の順序で保持し、`PlaylistDetailVirtualView` が index access 時にだけ `PlaylistDetailRow` を生成する。現行 registry は identity / install destination / ref-table 系に加えて、warning digest (`WarningDigestText`)、score 系 (`clear`, `rateDouble`, `score`, `maxcombo`, `minbp`, `rankingString`, `rankingLastupdate`, `stddevVal`, `scoreDifficulty`)、chart_info 系 (`ChartLevelSortKey`, BPM, duration, judge, feature, notes, TOTAL, density, soflan count など)、maintenance 直読列 (`WAVHealth`, `BGAHealth`, `MovieHealth`, `encoding`) を含む。`rank` は既存 sort と同じく `rateDouble` の alias として扱う。

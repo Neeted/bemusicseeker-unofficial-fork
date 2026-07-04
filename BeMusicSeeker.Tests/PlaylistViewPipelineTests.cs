@@ -2443,19 +2443,25 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PlayHistoryRowOperationPolicy_RejectsPlaylistDropAndChartOperationsEvenWhenResolved()
+    public void PlayHistoryRowOperationPolicy_AllowsPlaylistDropOnlyWhenResolved()
     {
-        PlayHistoryRow row = CreateResolvedPlayHistoryRow();
+        PlayHistoryRow resolvedRow = CreateResolvedPlayHistoryRow();
+        PlayHistoryRow unresolvedRow = CreateUnresolvedPlayHistoryRow();
 
-        Assert.IsNotNull(row.ResolvedChart);
-        Assert.IsFalse(MainWindowViewModel.IsPlaylistDropCandidateRow(row));
-        Assert.IsFalse(MainWindowViewModel.ArePlaylistDropCandidateRows([row]));
-        Assert.IsFalse(GridRowResolver.IsPlaylistRow(row));
-        Assert.IsNull(GridRowResolver.GetPlaylistEntry(row));
-        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(row, out _));
-        Assert.IsFalse(GridRowResolver.TryGetChartFile(row, out _));
-        Assert.IsFalse(GridRowResolver.TryGetChartOperationTarget(row, out _));
-        Assert.IsFalse(GridRowResolver.TryGetFolderEditChartOperationTarget(row, ChartOperationSourceScope.Library, out _));
+        Assert.IsNotNull(resolvedRow.ResolvedChart);
+        Assert.IsNull(unresolvedRow.ResolvedChart);
+        Assert.IsTrue(MainWindowViewModel.IsPlaylistDropCandidateRow(resolvedRow));
+        Assert.IsFalse(MainWindowViewModel.IsPlaylistDropCandidateRow(unresolvedRow));
+        Assert.IsTrue(MainWindowViewModel.ArePlaylistDropCandidateRows([resolvedRow]));
+        Assert.IsFalse(MainWindowViewModel.ArePlaylistDropCandidateRows([resolvedRow, unresolvedRow]));
+        Assert.AreSame(resolvedRow.ResolvedChart, MainWindowViewModel.ResolvePlaylistDropChart(resolvedRow));
+        Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChart(unresolvedRow));
+        Assert.IsFalse(GridRowResolver.IsPlaylistRow(resolvedRow));
+        Assert.IsNull(GridRowResolver.GetPlaylistEntry(resolvedRow));
+        Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(resolvedRow, out _));
+        Assert.IsFalse(GridRowResolver.TryGetChartFile(resolvedRow, out _));
+        Assert.IsFalse(GridRowResolver.TryGetChartOperationTarget(resolvedRow, out _));
+        Assert.IsFalse(GridRowResolver.TryGetFolderEditChartOperationTarget(resolvedRow, ChartOperationSourceScope.Library, out _));
     }
 
     [TestMethod]
@@ -3721,6 +3727,33 @@ public sealed class PlaylistViewPipelineTests
                 [],
                 Lr2PlayHistorySchemaStatus.Installed),
             projectionIndex);
+
+        return projected.Rows.Single();
+    }
+
+    private static PlayHistoryRow CreateUnresolvedPlayHistoryRow()
+    {
+        const string hash = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+        PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
+            new Lr2PlayHistoryReadResult(
+                PlayHistorySourceProfile.Lr2("score.db"),
+                [
+                    new Lr2PlayHistoryRecord
+                    {
+                        history_id = 2,
+                        hash = hash,
+                        played_at = 1000,
+                        finalized = 1,
+                        score_write_type = "update",
+                        new_playcount = 1,
+                        playcount_delta = 1,
+                        new_exscore = 100,
+                        new_totalnotes = 100
+                    }
+                ],
+                [],
+                Lr2PlayHistorySchemaStatus.Installed),
+            PlayHistoryProjectionIndex.Empty);
 
         return projected.Rows.Single();
     }

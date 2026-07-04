@@ -514,7 +514,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] Header context menu に play history columns を追加する。
 - [x] `PlayHistoryRowsView` を `customTableView.ItemsSource` へ出せるようにする。
 - [x] `CustomTableView` の row context / header context / sort request で play history row を識別する。
-- [x] PlayHistory view 中は playlist 編集用 column / DnD / cell edit を無効にする。`customTableView` の固定 `RowDragKind="PlaylistDropCandidateRows"` に依存せず、`ChartRowsViewRowDragKind` binding で PlayHistory row を playlist drop candidate にしない。
+- [x] PlayHistory view 中は playlist 編集用 column / cell edit を無効にする。DnD は `ChartRowsViewRowDragKind` binding で通常一覧と同じ playlist drop candidate payload にし、drop 側で `PlayHistoryRow.ResolvedChart` を持つ行だけ playlist entry 追加として受け付ける。
 - [x] `GridRowResolver` と PlayHistory 専用 context menu policy に PlayHistory row 用の hash-only operation target を追加し、未解決 row は raw hash copy のみにする。
 - [x] `GridSummaryText` または専用 summary binding で期間 digest を出す。
 - [x] Phase 3 では表示対象 dropdown を作らず、全履歴を対象にする。`FOLDER` は解決できた playlist / folder label の表示だけに使い、絞り込みは Phase 5 に送る。
@@ -555,7 +555,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - [x] `すべて` / `今日` / `昨日` / `最近 7 日` / `最近 30 日` node の epoch range が期待通りになる。
 - [x] 年 / 月 / 日 node の epoch range が期待通りになる。
 - [x] `未確定 / 診断` node では LR2 `finalized = 0` の未確定 row と projection / read diagnostics が見える。確定済み row は一覧対象にしない。beatoraja provider では通常履歴を未確定 row として代替表示しない。
-- [x] play history row は playlist tree drop candidate にならない。
+- [x] play history row は所持 chart に解決済みの場合だけ playlist tree drop candidate になる。未解決 row が混じる selection は drop 全体を拒否する。
 - [x] play history row 右 click では通常 chart 操作 context menu を開かない。
 - [x] play history 専用 context menu で、解決済み row の外部ページ / 所持 chart / hash 系操作だけを出す。
 - [x] play history row activation は chart 再生 / explorer / playlist edit を起動しない。
@@ -740,6 +740,7 @@ Play history view 用の keyword search context を追加する。既存 chart l
 - 2026-06-19: `docs/manual.ja.md` / `docs/manual.md` に `プレイログ` の最小説明を追加した。後続で設定画面、LAST PLAY SORT、troubleshooting、画像を拡充する。
 - 2026-06-19: Phase 3 初期実装の検証として `PlayHistoryReadModelTests|MainWindowContextMenuResourceTests|LocalizationResourceParityTests|MainColumnSettingModeTests` と `dotnet build BeMusicSeeker.sln` を実行し、成功を確認した。
 - 2026-06-19: Phase 3 操作 guard として PlayHistory view の row drag kind を `GenericSelectedRows` へ切り替え、playlist drop candidate / cell edit / row activation / 通常 chart context menu に流れないことを静的テストで固定した。
+- 2026-07-04: PlayHistory row の playlist DnD 方針を見直し、通常 chart 操作 / cell edit / row activation は引き続き拒否しつつ、`ResolvedChart` を持つ行だけ playlist drop candidate としてローカル playlist へ追加できるようにした。
 - 2026-06-19: Phase 3 archive node として `bms_lr2_play_history.played_at` の軽量 period index reader、年 / 月 / 日 `PlayHistoryPeriodRequest`、`PlayHistoryArchivePeriodTree` binding を追加し、`docs/manual.ja.md` / `docs/manual.md` に `日付別` / `By Date` を追記した。
 - 2026-06-19: Phase 3 PlayHistory 専用 context menu として、解決済み row は Mocha / MinIR と MD5 / SHA256 copy、未解決 row は raw hash copy だけを出す hash-only policy を追加した。
 - 2026-06-20: PlayHistory 専用 context menu に所持 chart の Explorer / 譜面ビューア操作を追加し、未解決 row の raw hash copy は出さない方針へ更新した。

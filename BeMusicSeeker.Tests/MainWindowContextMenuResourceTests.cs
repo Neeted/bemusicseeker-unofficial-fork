@@ -79,7 +79,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void PlayHistoryMainTable_UsesDisplayOnlyDragAndRejectsChartContextMenu()
+    public void PlayHistoryMainTable_UsesBoundDragKindAndRejectsChartContextMenu()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string mainTable = ExtractBetween(xaml, "<v:CustomTableView x:Name=\"customTableView\"", "<v:CustomTableView x:Name=\"customTablePlaylistSummary\"");
