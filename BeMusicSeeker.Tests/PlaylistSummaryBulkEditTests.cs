@@ -84,6 +84,11 @@ public sealed class PlaylistSummaryBulkEditTests
             MainWindowViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
                 [table],
                 LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder));
+        Assert.AreEqual(
+            true,
+            MainWindowViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
+                [table],
+                LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder));
     }
 
     [TestMethod]
@@ -106,6 +111,7 @@ public sealed class PlaylistSummaryBulkEditTests
     {
         string xaml = ReadWorkspaceText("BeMusicSeeker", "Views", "PlaylistPropertyDialog.xaml");
 
+        StringAssert.Contains(xaml, "PlaylistProp_ftype_all_songs");
         StringAssert.Contains(xaml, "PlaylistProp_ftype_last_play_sort");
         Assert.IsFalse(xaml.Contains("CanUseLastPlaySortFolder"));
     }
@@ -115,6 +121,7 @@ public sealed class PlaylistSummaryBulkEditTests
     {
         string xaml = ReadWorkspaceText("BeMusicSeeker", "Views", "PlaylistSummaryBulkEditDialog.xaml");
 
+        StringAssert.Contains(xaml, "PlaylistProp_ftype_all_songs");
         StringAssert.Contains(xaml, "PlaylistProp_ftype_last_play_sort");
         Assert.IsFalse(xaml.Contains("CanUseLastPlaySortFolder"));
     }

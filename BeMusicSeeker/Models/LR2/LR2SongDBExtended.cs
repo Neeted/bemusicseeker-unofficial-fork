@@ -108,7 +108,8 @@ public sealed class LR2SongDBExtended : LR2SongDB
             BpSortFolder = 0x200,
             PlayCountSortFolder = 0x400,
             LastPlaySortFolder = 0x800,
-            AllFolders = 0xFFF
+            AllSongsFolder = 0x1000,
+            AllFolders = 0x1FFF
         }
 
         public static bool IsCustomFolderTypeEnabled(CustomFolderType ignoreFolderOutput, CustomFolderType type)

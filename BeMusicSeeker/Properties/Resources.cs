@@ -922,29 +922,57 @@ public class Resources
 
     public static string PlaylistProp_ftype_all => ResourceManager.GetString("PlaylistProp_ftype_all", resourceCulture);
 
+    public static string PlaylistProp_ftype_all_tooltip => ResourceManager.GetString("PlaylistProp_ftype_all_tooltip", resourceCulture);
+
+    public static string PlaylistProp_ftype_all_songs => ResourceManager.GetString("PlaylistProp_ftype_all_songs", resourceCulture);
+
+    public static string PlaylistProp_ftype_all_songs_tooltip => ResourceManager.GetString("PlaylistProp_ftype_all_songs_tooltip", resourceCulture);
+
     public static string PlaylistProp_ftype_alphabet => ResourceManager.GetString("PlaylistProp_ftype_alphabet", resourceCulture);
+
+    public static string PlaylistProp_ftype_alphabet_tooltip => ResourceManager.GetString("PlaylistProp_ftype_alphabet_tooltip", resourceCulture);
 
     public static string PlaylistProp_ftype_bp_sort => ResourceManager.GetString("PlaylistProp_ftype_bp_sort", resourceCulture);
 
+    public static string PlaylistProp_ftype_bp_sort_tooltip => ResourceManager.GetString("PlaylistProp_ftype_bp_sort_tooltip", resourceCulture);
+
     public static string PlaylistProp_ftype_bpm_sort => ResourceManager.GetString("PlaylistProp_ftype_bpm_sort", resourceCulture);
 
+    public static string PlaylistProp_ftype_bpm_sort_tooltip => ResourceManager.GetString("PlaylistProp_ftype_bpm_sort_tooltip", resourceCulture);
+
     public static string PlaylistProp_ftype_clear => ResourceManager.GetString("PlaylistProp_ftype_clear", resourceCulture);
+
+    public static string PlaylistProp_ftype_clear_tooltip => ResourceManager.GetString("PlaylistProp_ftype_clear_tooltip", resourceCulture);
 
     public static string PlaylistProp_ftype_desc => ResourceManager.GetString("PlaylistProp_ftype_desc", resourceCulture);
 
     public static string PlaylistProp_ftype_djlevel => ResourceManager.GetString("PlaylistProp_ftype_djlevel", resourceCulture);
 
+    public static string PlaylistProp_ftype_djlevel_tooltip => ResourceManager.GetString("PlaylistProp_ftype_djlevel_tooltip", resourceCulture);
+
     public static string PlaylistProp_ftype_etc => ResourceManager.GetString("PlaylistProp_ftype_etc", resourceCulture);
+
+    public static string PlaylistProp_ftype_etc_tooltip => ResourceManager.GetString("PlaylistProp_ftype_etc_tooltip", resourceCulture);
 
     public static string PlaylistProp_ftype_level => ResourceManager.GetString("PlaylistProp_ftype_level", resourceCulture);
 
+    public static string PlaylistProp_ftype_level_tooltip => ResourceManager.GetString("PlaylistProp_ftype_level_tooltip", resourceCulture);
+
     public static string PlaylistProp_ftype_play_count_sort => ResourceManager.GetString("PlaylistProp_ftype_play_count_sort", resourceCulture);
+
+    public static string PlaylistProp_ftype_play_count_sort_tooltip => ResourceManager.GetString("PlaylistProp_ftype_play_count_sort_tooltip", resourceCulture);
 
     public static string PlaylistProp_ftype_last_play_sort => ResourceManager.GetString("PlaylistProp_ftype_last_play_sort", resourceCulture);
 
+    public static string PlaylistProp_ftype_last_play_sort_tooltip => ResourceManager.GetString("PlaylistProp_ftype_last_play_sort_tooltip", resourceCulture);
+
     public static string PlaylistProp_ftype_random => ResourceManager.GetString("PlaylistProp_ftype_random", resourceCulture);
 
+    public static string PlaylistProp_ftype_random_tooltip => ResourceManager.GetString("PlaylistProp_ftype_random_tooltip", resourceCulture);
+
     public static string PlaylistProp_ftype_user => ResourceManager.GetString("PlaylistProp_ftype_user", resourceCulture);
+
+    public static string PlaylistProp_ftype_user_tooltip => ResourceManager.GetString("PlaylistProp_ftype_user_tooltip", resourceCulture);
 
     public static string PlaylistProp_headeruri => ResourceManager.GetString("PlaylistProp_headeruri", resourceCulture);
 

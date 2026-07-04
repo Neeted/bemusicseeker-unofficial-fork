@@ -6914,6 +6914,8 @@ public class MainWindowViewModel : ViewModel
 
     public sealed class PlaylistSummaryCustomFolderOutputPatch
     {
+        public bool? AllSongsFolder { get; set; }
+
         public bool? UserFolder { get; set; }
 
         public bool? LevelFolder { get; set; }
@@ -6940,6 +6942,7 @@ public class MainWindowViewModel : ViewModel
 
         internal IEnumerable<KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>> Enumerate()
         {
+            yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder, AllSongsFolder);
             yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, UserFolder);
             yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder, LevelFolder);
             yield return new KeyValuePair<LR2SongDBExtended.playlist.CustomFolderType, bool?>(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, AlphabetFolder);
@@ -6975,6 +6978,8 @@ public class MainWindowViewModel : ViewModel
         private readonly IReadOnlyList<PlaylistSummaryRow> targetRows;
 
         private readonly IReadOnlyList<BMSTable> targetTables;
+
+        private bool? _outputAllSongsFolder;
 
         private bool? _outputUserFolder;
 
@@ -7051,6 +7056,12 @@ public class MainWindowViewModel : ViewModel
         public int TargetCount => targetTables.Count;
 
         public bool IsLevelFolderBulkApplicable => targetTables.Any(table => table.entry_type != LR2SongDBExtended.playlist.EntryUnitType.Folder);
+
+        public bool? OutputAllSongsFolder
+        {
+            get => _outputAllSongsFolder;
+            set => SetCustomFolderState(ref _outputAllSongsFolder, value, nameof(OutputAllSongsFolder));
+        }
 
         public bool? OutputUserFolder
         {
@@ -7218,6 +7229,7 @@ public class MainWindowViewModel : ViewModel
 
         public void ReloadCustomFolderOutputStates()
         {
+            OutputAllSongsFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder);
             OutputUserFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.UserFolder);
             OutputLevelFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.LevelFolder);
             OutputAlphabetFolder = ResolvePlaylistSummaryCustomFolderOutputState(targetTables, LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder);
@@ -7307,6 +7319,7 @@ public class MainWindowViewModel : ViewModel
         {
             return new PlaylistSummaryCustomFolderOutputPatch
             {
+                AllSongsFolder = OutputAllSongsFolder,
                 UserFolder = OutputUserFolder,
                 LevelFolder = OutputLevelFolder,
                 AlphabetFolder = OutputAlphabetFolder,

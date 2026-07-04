@@ -739,7 +739,8 @@ public sealed class BmsPlaylistUpdateTests
             table.symbol = "LC";
             table.Output_dir = "StableOutput";
             table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
             foreach (BMSTableEntry entry in table.entries)
             {
                 entry.playlist_id = table.playlist_id;
@@ -1005,7 +1006,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "FT",
                 Output_dir = "FolderTable",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
@@ -1075,7 +1077,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "LFT",
                 Output_dir = "LongFolderTable",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Folder B")
@@ -1140,7 +1143,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "AdditionalTable",
                 custom_folder_output_base_name = "Additional",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("cccccccccccccccccccccccccccccccc", "Folder C")
@@ -1226,7 +1230,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "BulkOutput",
                 custom_folder_output_base_name = "MissingAdditional",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("dddddddddddddddddddddddddddddddd", "Folder D")
@@ -1364,7 +1369,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "RootFolderTable",
                 is_root_folder = true,
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Root Folder")
@@ -1425,6 +1431,7 @@ public sealed class BmsPlaylistUpdateTests
             BMSPlaylist.EnsureSchema(songDbPath);
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
                 LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.RandomFolder
@@ -1534,6 +1541,7 @@ public sealed class BmsPlaylistUpdateTests
             BMSPlaylist.EnsureSchema(songDbPath);
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
                 LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
             var table = new BMSTable
             {
@@ -1654,6 +1662,7 @@ public sealed class BmsPlaylistUpdateTests
             BMSPlaylist.EnsureSchema(songDbPath);
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
                 LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder;
             var table = new BMSTable
             {
@@ -1689,7 +1698,8 @@ public sealed class BmsPlaylistUpdateTests
             }
 
             table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
             playlist.ReOutputCustomFolderAndCommitToDB(table);
 
             Assert.IsFalse(File.Exists(generatedPath));
@@ -1728,6 +1738,7 @@ public sealed class BmsPlaylistUpdateTests
             BMSPlaylist.EnsureSchema(songDbPath);
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
                 LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.RandomFolder;
             BMSTableEntry first = CreateEntryWithLevel("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 1);
@@ -1763,6 +1774,130 @@ public sealed class BmsPlaylistUpdateTests
             StringAssert.Contains(ReadShiftJisText(Path.Combine(outputDir, "0004.lr2folder")), "#TITLE LEVEL 2");
             StringAssert.Contains(ReadShiftJisText(Path.Combine(outputDir, "0005.lr2folder")), "#TITLE RootRandomOrder ALL RANDOM");
             StringAssert.Contains(ReadShiftJisText(Path.Combine(outputDir, "0008.lr2folder")), "#TITLE LEVEL 1 RANDOM");
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ReOutputCustomFolderAndCommitToDB_AllSongsScopeDoesNotRequireUserFolder()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7311,
+                name = "AllScopeOnly",
+                symbol = "ASO",
+                Output_dir = "AllScopeOnly",
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.ClearFolder,
+                entries =
+                [
+                    CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
+                ],
+                Folder_order = ["Folder A"]
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
+
+            playlist.ReOutputCustomFolderAndCommitToDB(table);
+
+            string outputDir = Path.Combine(outputBaseDir, "AllScopeOnly");
+            StringAssert.Contains(ReadShiftJisText(Path.Combine(outputDir, "0000.lr2folder")), "#TITLE AllScopeOnly ALL");
+            Assert.IsFalse(File.Exists(Path.Combine(outputDir, "0001.lr2folder")));
+            StringAssert.Contains(ReadShiftJisText(Path.Combine(outputDir, "CLEAR FOLDER", "0 NO PLAY", "0000.lr2folder")), "#TITLE AllScopeOnly ALL NO PLAY");
+            Assert.IsFalse(File.Exists(Path.Combine(outputDir, "CLEAR FOLDER", "0 NO PLAY", "0001.lr2folder")));
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ReOutputCustomFolderAndCommitToDB_UserFolderScopeDoesNotWriteAllSongs()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7312,
+                name = "FolderScopeOnly",
+                symbol = "FSO",
+                Output_dir = "FolderScopeOnly",
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.ClearFolder,
+                entries =
+                [
+                    CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Folder A")
+                ],
+                Folder_order = ["Folder A"]
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
+
+            playlist.ReOutputCustomFolderAndCommitToDB(table);
+
+            string outputDir = Path.Combine(outputBaseDir, "FolderScopeOnly");
+            string folderText = ReadShiftJisText(Path.Combine(outputDir, "0000.lr2folder"));
+            StringAssert.Contains(folderText, "#TITLE Folder A");
+            Assert.IsFalse(folderText.Contains("#TITLE FolderScopeOnly ALL"));
+            Assert.IsFalse(File.Exists(Path.Combine(outputDir, "0001.lr2folder")));
+            string clearText = ReadShiftJisText(Path.Combine(outputDir, "CLEAR FOLDER", "0 NO PLAY", "0000.lr2folder"));
+            StringAssert.Contains(clearText, "#TITLE Folder A NO PLAY");
+            Assert.IsFalse(clearText.Contains("#TITLE FolderScopeOnly ALL NO PLAY"));
+            Assert.IsFalse(File.Exists(Path.Combine(outputDir, "CLEAR FOLDER", "0 NO PLAY", "0001.lr2folder")));
         }
         finally
         {
@@ -1857,7 +1992,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "SOP",
                 Output_dir = "SameOutputPrune",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "Folder A")
@@ -1917,6 +2053,7 @@ public sealed class BmsPlaylistUpdateTests
             BMSPlaylist.EnsureSchema(songDbPath);
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
                 LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder;
             var table = new BMSTable
             {
@@ -1958,7 +2095,8 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsFalse(Directory.Exists(clearDir));
 
             table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
             playlist.ReOutputCustomFolderAndCommitToDB(table);
 
             Assert.IsFalse(Directory.Exists(clearDir));
@@ -2016,7 +2154,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "BR",
                 Output_dir = "BulkRewrite",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
@@ -2084,7 +2223,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "PL",
                 Output_dir = "ProgressLabel",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
@@ -2150,7 +2290,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "SNO",
                 Output_dir = "StatusNoOp",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
@@ -2232,7 +2373,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "RootStatusCurrent",
                 is_root_folder = true,
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
@@ -2326,7 +2468,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "ReloadRootStatusCurrent",
                 is_root_folder = true,
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
@@ -2411,7 +2554,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "SD",
                 Output_dir = "StatusDelete",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
@@ -2486,7 +2630,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "DAO",
                 Output_dir = "DisableAllOutput",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A"),
@@ -2561,7 +2706,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "DisableAllRootOutput",
                 is_root_folder = true,
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
@@ -2629,7 +2775,8 @@ public sealed class BmsPlaylistUpdateTests
             }
             LR2SongDBExtended.playlist.CustomFolderType initialMask =
                 LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+                & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder;
             var table = new BMSTable
             {
                 playlist_id = 7615,
@@ -2888,6 +3035,7 @@ public sealed class BmsPlaylistUpdateTests
             }
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
                 LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder;
             var table = new BMSTable
             {
@@ -2967,6 +3115,7 @@ public sealed class BmsPlaylistUpdateTests
             }
             LR2SongDBExtended.playlist.CustomFolderType enabledTypes =
                 LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                | LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder;
             var table = new BMSTable
             {
@@ -3237,7 +3386,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "PM",
                 Output_dir = "PartialMissing",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A"),
@@ -3306,7 +3456,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "EC",
                 Output_dir = "ExternalCoLocated",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("cccccccccccccccccccccccccccccccc", "Folder C")
@@ -3391,7 +3542,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "NP",
                 Output_dir = "NestedParent",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Parent Folder")
@@ -3405,7 +3557,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "NC",
                 Output_dir = Path.Combine("NestedParent", "NestedChild"),
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Child Folder")
@@ -3475,7 +3628,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "BNP",
                 Output_dir = "BatchNestedParent",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Parent Folder")
@@ -3489,7 +3643,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "BNC",
                 Output_dir = Path.Combine("BatchNestedParent", "BatchNestedChild"),
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Child Folder")
@@ -3639,7 +3794,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "TT",
                 Output_dir = "ToggleTable",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("dddddddddddddddddddddddddddddddd", "Folder A")
@@ -3729,7 +3885,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "RootToNormal",
                 is_root_folder = false,
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "Folder A")
@@ -3812,7 +3969,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "P",
                 Output_dir = "Parent",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Parent Folder")
@@ -3892,7 +4050,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "BMT",
                 Output_dir = "BulkMoveTable",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")
@@ -3980,7 +4139,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "P",
                 Output_dir = "Parent",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Parent Folder")
@@ -3994,7 +4154,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "C",
                 Output_dir = "Child",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Child Folder")
@@ -4406,7 +4567,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "NewFallback",
                 custom_folder_output_base_name = null,
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("99999999999999999999999999999999", "Folder A")
@@ -4531,7 +4693,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "NT",
                 Output_dir = "NestedTable",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("cccccccccccccccccccccccccccccccc", "Folder A")
@@ -4604,7 +4767,8 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "TT",
                 Output_dir = "TrailingTable",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
                 entries =
                 [
                     CreateEntry("dddddddddddddddddddddddddddddddd", "Folder A")

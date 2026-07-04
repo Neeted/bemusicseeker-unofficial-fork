@@ -146,7 +146,7 @@ LR2 linked profile の起動時には、user.config の既定通常出力先と�
 
 | 種別 | bit | 新規通常 playlist の既定 | 推定表 playlist の既定 | おすすめ表 playlist の既定 |
 | --- | ---: | --- | --- | --- |
-| User | `0x001` | 出力 | 出力しない | 出力 |
+| User | `0x001` | 出力 | 出力 | 出力 |
 | Level | `0x002` | 出力しない | 出力 | 出力しない |
 | Alphabet | `0x004` | 出力しない | 出力しない | 出力しない |
 | Clear | `0x008` | 出力 | 出力しない | 出力しない |
@@ -158,27 +158,31 @@ LR2 linked profile の起動時には、user.config の既定通常出力先と�
 | BP Sort | `0x200` | 出力 | 出力しない | 出力しない |
 | Play Count Sort | `0x400` | 出力 | 出力しない | 出力しない |
 | Last Play Sort | `0x800` | 出力 | 出力しない | 出力しない |
+| All Songs | `0x1000` | 出力 | 出力 | 出力 |
 
-新規通常 playlist の初期保存値は `Level | Alphabet | CategoryAll | Other` である。推定表 playlist は Level だけを出力し、おすすめ表 playlist は User だけを出力する。`AllFolders = 0xFFF` は全種別を出力しない deny mask であり、UI の全 OFF 相当として扱う。
+新規通常 playlist の初期保存値は `Level | Alphabet | CategoryAll | Other` である。推定表 playlist は `AllSongs | User | Level` を出力し、おすすめ表 playlist は `AllSongs | User` を出力する。`AllFolders = 0x1FFF` は全種別を出力しない deny mask であり、UI の全 OFF 相当として扱う。
 
-出力 directory には `0000.lr2folder` からの連番ファイルを Shift-JIS で作る。階層を持つ種別では、各相対 directory の中で `0000.lr2folder` から採番する。各ファイルは少なくとも `#COMMAND`、`#MAXTRACKS`、`#CATEGORY`、`#TITLE`、`#INFORMATION_A`、`#INFORMATION_B` を持つ。BeMusicSeeker 生成ファイルでは `#CATEGORY` は playlist name、`#TITLE` はフォルダ表示名である。生成順は root 直下の `UserFolder`、`LevelFolder`、`AlphabetFolder`、`CategoryAllFolder`、`OtherFolder` と、階層付きの `ClearFolder`、`DJLevelFolder`、`BpmSortFolder`、`BpSortFolder`、`PlayCountSortFolder`、`LastPlaySortFolder` で構成され、`ignore_folder_output` に含まれる種別は生成しない。`RandomFolder` は単独の抽出条件ではなく、User / Level / Clear / DJ level の各出力に `RANDOM` 版を追加する modifier として扱う。同一 directory 内では通常フォルダを先に連番化し、その後ろに `RANDOM` 版をまとめて配置する。各 playlist の出力 directory 配下は BeMusicSeeker の管理領域であり、同じ出力先への再出力時は期待 projection に含まれない `.lr2folder` を削除対象にする。出力先変更、root 切替、playlist 削除では旧 playlist 出力 directory 全体を削除し、LR2 `folder` row は旧 directory scope で prune する。通常出力先 / root 出力先の直下にある別フォルダや別ファイルは、対応する playlist の `Output_dir` でない限り触らない。管理 playlist の出力先同士が包含関係になる設定は通常経路では想定しない。
+`AllSongsFolder` は playlist 全体の `ALL` scope、`UserFolder` は `folder_list` の各 folder scope を有効化する bit である。`ClearFolder`、`DJLevelFolder`、`BpmSortFolder`、`BpSortFolder`、`PlayCountSortFolder`、`LastPlaySortFolder` は、この scope 選択に従って出力対象を決める。`LevelFolder`、`AlphabetFolder`、`CategoryAllFolder`、`OtherFolder` は独立した playlist 全体向けの分類として出力する。
+
+出力 directory には `0000.lr2folder` からの連番ファイルを Shift-JIS で作る。階層を持つ種別では、各相対 directory の中で `0000.lr2folder` から採番する。各ファイルは少なくとも `#COMMAND`、`#MAXTRACKS`、`#CATEGORY`、`#TITLE`、`#INFORMATION_A`、`#INFORMATION_B` を持つ。BeMusicSeeker 生成ファイルでは `#CATEGORY` は playlist name、`#TITLE` はフォルダ表示名である。生成順は root 直下の scope フォルダ（`AllSongsFolder` の playlist name `ALL`、`UserFolder` の `folder_list` 各フォルダ）、`LevelFolder`、`AlphabetFolder`、`CategoryAllFolder`、`OtherFolder` と、階層付きの `ClearFolder`、`DJLevelFolder`、`BpmSortFolder`、`BpSortFolder`、`PlayCountSortFolder`、`LastPlaySortFolder` で構成され、`ignore_folder_output` に含まれる種別は生成しない。`RandomFolder` は単独の抽出条件ではなく、scope フォルダ / Level / Clear / DJ level の各出力に `RANDOM` 版を追加する modifier として扱う。同一 directory 内では通常フォルダを先に連番化し、その後ろに `RANDOM` 版をまとめて配置する。各 playlist の出力 directory 配下は BeMusicSeeker の管理領域であり、同じ出力先への再出力時は期待 projection に含まれない `.lr2folder` を削除対象にする。出力先変更、root 切替、playlist 削除では旧 playlist 出力 directory 全体を削除し、LR2 `folder` row は旧 directory scope で prune する。通常出力先 / root 出力先の直下にある別フォルダや別ファイルは、対応する playlist の `Output_dir` でない限り触らない。管理 playlist の出力先同士が包含関係になる設定は通常経路では想定しない。
 
 生成するフォルダ種別は次の通り。
 
 | 種別 | 生成内容 | 主な command 条件 |
 | --- | --- | --- |
-| UserFolder | playlist 全体の `playlist name ALL` と、`folder_list` の各フォルダ。空 folder 名は playlist name を title にする。 | `playlist_entry.is_removed = 0`、folder 別では `playlist_entry.folder = {folder}`。 |
+| AllSongsFolder | playlist 全体の `playlist name ALL`。 | `playlist_entry.is_removed = 0`。 |
+| UserFolder | `folder_list` の各フォルダ。空 folder 名は playlist name を title にする。 | `playlist_entry.is_removed = 0`、`playlist_entry.folder = {folder}`。 |
 | LevelFolder | `playlist_entry.level` を floor した整数別の `LEVEL n` と、NULL 用の `LEVEL ???`。 | `playlist_entry.level` / `is_removed`。 |
 | AlphabetFolder | `A.B.C.D.` から `U.V.W.X.Y.Z.` までの 6 区間と `OTHERS`。 | `UPPER(playlist_entry.title)` の範囲。 |
-| ClearFolder | `CLEAR FOLDER\0 NO PLAY`、`1 FAILED`、`2 ASSIST`、`3 EASY`、`4 CLEAR`、`5 HARD`、`6 FC`、`7 P.A` の各 directory に、playlist 全体の ALL と folder 別ファイルを出す。LR2 の TITLE 順表示でもクリア状態順になるよう directory 名に番号を付ける。`.lr2folder` の `#TITLE` は番号なしの状態名を使う。`ASSIST` と `EASY` は LR2 native `score.clear = 2` を `op_history` の EASY bit で分け、EASY bit が立っている場合だけ EASY、EASY bit がない場合は ASSIST とする。`FC` と `P.A` は分離し、`FC` は P.A bit を持たない full combo だけにする。 | `score.clear`、`score.op_history`。 |
-| DJLevelFolder | `DJ LEVEL\AAA`、`AA`、`A`、`UNDER A` の各 directory に、playlist 全体の ALL と folder 別ファイルを出す。`UNDER A` は A 未満と no score をまとめる。 | `score.rank`。 |
+| ClearFolder | `CLEAR FOLDER\0 NO PLAY`、`1 FAILED`、`2 ASSIST`、`3 EASY`、`4 CLEAR`、`5 HARD`、`6 FC`、`7 P.A` の各 directory に、`AllSongsFolder` / `UserFolder` で選択された scope のファイルを出す。LR2 の TITLE 順表示でもクリア状態順になるよう directory 名に番号を付ける。`.lr2folder` の `#TITLE` は番号なしの状態名を使う。`ASSIST` と `EASY` は LR2 native `score.clear = 2` を `op_history` の EASY bit で分け、EASY bit が立っている場合だけ EASY、EASY bit がない場合は ASSIST とする。`FC` と `P.A` は分離し、`FC` は P.A bit を持たない full combo だけにする。 | `score.clear`、`score.op_history`。 |
+| DJLevelFolder | `DJ LEVEL\AAA`、`AA`、`A`、`UNDER A` の各 directory に、`AllSongsFolder` / `UserFolder` で選択された scope のファイルを出す。`UNDER A` は A 未満と no score をまとめる。 | `score.rank`。 |
 | CategoryAllFolder | `ALL LONG NOTES` と judge 種別別 folder。 | `song.longnote`、`song.judge`。 |
 | OtherFolder | `MY BEST`、`NEW SONGS`、`REMOVED SONGS`。LR2IR score 取得と未送信検知が有効な場合は `UNSENT SONGS` も出す。 | `score.playcount`、`playlist_entry.adddate`、`playlist_entry.is_removed`、必要に応じて `ir_score` と `score` の一致条件。 |
-| RandomFolder | User / Level / Clear / DJ level の各出力に `RANDOM` 版を追加する。 | 元の条件に `ORDER BY random()` と `#MAXTRACKS 1` を付ける。OpenLR2 は `#MAXTRACKS 1` だけでは random folder として扱わないため、`ORDER BY random()` を必ず含める。 |
-| BpmSortFolder | `BPM SORT` directory に、playlist 全体の ALL と folder 別ファイルを出す。 | `chart_info.mainbpm` の昇順。parser version は filter 条件にせず、`mainbpm` 欠損は末尾。 |
-| BpSortFolder | `BP SORT` directory に、playlist 全体の ALL と folder 別ファイルを出す。 | `score.minbp` の昇順。未プレイ / 欠損は末尾。 |
-| PlayCountSortFolder | `PLAY COUNT SORT` directory に、playlist 全体の ALL と folder 別ファイルを出す。 | `score.playcount` の降順。未プレイ / 欠損は末尾。 |
-| LastPlaySortFolder | `LAST PLAY SORT` directory に、playlist 全体の ALL と folder 別ファイルを出す。 | `bms_lr2_last_play.last_play_at` の降順。play history schema 未導入時も生成するが、LR2 / OpenLR2 側で利用するには `bms_lr2_last_play` が必要。score / playcount / playlist 更新日時への fallback はしない。 |
+| RandomFolder | scope フォルダ / Level / Clear / DJ level の各出力に `RANDOM` 版を追加する。 | 元の条件に `ORDER BY random()` と `#MAXTRACKS 1` を付ける。OpenLR2 は `#MAXTRACKS 1` だけでは random folder として扱わないため、`ORDER BY random()` を必ず含める。 |
+| BpmSortFolder | `BPM SORT` directory に、`AllSongsFolder` / `UserFolder` で選択された scope のファイルを出す。 | `chart_info.mainbpm` の昇順。parser version は filter 条件にせず、`mainbpm` 欠損は末尾。 |
+| BpSortFolder | `BP SORT` directory に、`AllSongsFolder` / `UserFolder` で選択された scope のファイルを出す。 | `score.minbp` の昇順。未プレイ / 欠損は末尾。 |
+| PlayCountSortFolder | `PLAY COUNT SORT` directory に、`AllSongsFolder` / `UserFolder` で選択された scope のファイルを出す。 | `score.playcount` の降順。未プレイ / 欠損は末尾。 |
+| LastPlaySortFolder | `LAST PLAY SORT` directory に、`AllSongsFolder` / `UserFolder` で選択された scope のファイルを出す。 | `bms_lr2_last_play.last_play_at` の降順。play history schema 未導入時も生成するが、LR2 / OpenLR2 側で利用するには `bms_lr2_last_play` が必要。score / playcount / playlist 更新日時への fallback はしない。 |
 
 `playlist.entry_type = File` の playlist では、基本条件は `song.hash in (SELECT md5 FROM playlist_entry WHERE playlist_id = ... AND is_removed = 0 ...)` になる。`entry_type = Folder` の playlist では、基本条件は `song.folder in (SELECT folder FROM song WHERE hash in (...))` になり、playlist entry の譜面 hash から LR2 `song.folder` 単位に広げる。どちらの場合も command は LR2 / OpenLR2 が `SELECT * FROM song LEFT JOIN score ON song.hash = score.hash WHERE {folder.command}` として評価できる WHERE 句断片である。OpenLR2 の実装では、`.lr2folder` の `#COMMAND` または `#TAG` が `folder.command` に入り、選曲画面でカスタムフォルダを開いたときにこの command が song/score join の WHERE 条件として使われる。
 

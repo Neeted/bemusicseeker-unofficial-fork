@@ -72,17 +72,24 @@ internal static class Lr2ManagedCustomFolderOutputLayout
         int playlistId = table.playlist_id.Value;
         LR2SongDBExtended.playlist.CustomFolderType ignored = table.ignore_folder_output;
         bool outputRandom = IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.RandomFolder);
-        int folderScopeCount = 1 + (outputCounts?.UserFolderCounts.TryGetValue(playlistId, out int userFolderCount) == true
-            ? userFolderCount
-            : 0);
+        int allScopeCount = IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder)
+            ? 1
+            : 0;
+        int folderScopeCount = 0;
+        if (IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.UserFolder)
+            && outputCounts?.UserFolderCounts.TryGetValue(playlistId, out int userFolderCount) == true)
+        {
+            folderScopeCount = userFolderCount;
+        }
+        int selectedScopeCount = allScopeCount + folderScopeCount;
         var result = new List<string>();
         int rootFileCount = 0;
-        if (IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.UserFolder))
+        if (selectedScopeCount > 0)
         {
-            rootFileCount += folderScopeCount;
+            rootFileCount += selectedScopeCount;
             if (outputRandom)
             {
-                rootFileCount += folderScopeCount;
+                rootFileCount += selectedScopeCount;
             }
         }
         if (IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.LevelFolder))
@@ -120,7 +127,7 @@ internal static class Lr2ManagedCustomFolderOutputLayout
                 AddSequentialRelativePaths(
                     result,
                     Path.Combine("CLEAR FOLDER", clearDirectory),
-                    folderScopeCount * (outputRandom ? 2 : 1));
+                    selectedScopeCount * (outputRandom ? 2 : 1));
             }
         }
         if (IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder))
@@ -130,24 +137,24 @@ internal static class Lr2ManagedCustomFolderOutputLayout
                 AddSequentialRelativePaths(
                     result,
                     Path.Combine("DJ LEVEL", djLevelDirectory),
-                    folderScopeCount * (outputRandom ? 2 : 1));
+                    selectedScopeCount * (outputRandom ? 2 : 1));
             }
         }
         if (IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder))
         {
-            AddSequentialRelativePaths(result, "BPM SORT", folderScopeCount);
+            AddSequentialRelativePaths(result, "BPM SORT", selectedScopeCount);
         }
         if (IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder))
         {
-            AddSequentialRelativePaths(result, "BP SORT", folderScopeCount);
+            AddSequentialRelativePaths(result, "BP SORT", selectedScopeCount);
         }
         if (IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder))
         {
-            AddSequentialRelativePaths(result, "PLAY COUNT SORT", folderScopeCount);
+            AddSequentialRelativePaths(result, "PLAY COUNT SORT", selectedScopeCount);
         }
         if (IsCustomFolderTypeEnabled(ignored, LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder))
         {
-            AddSequentialRelativePaths(result, "LAST PLAY SORT", folderScopeCount);
+            AddSequentialRelativePaths(result, "LAST PLAY SORT", selectedScopeCount);
         }
         return result;
     }

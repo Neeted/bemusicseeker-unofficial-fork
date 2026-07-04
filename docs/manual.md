@@ -224,13 +224,27 @@ Configure recording format, quality, sample rate, output filename format, encode
 
 Change custom folder output destinations, difficulty table list acquisition URI, MD5-URL mapping TSV acquisition URI, and URL1/URL2 completion settings.
 
-`Normal output destination` is where ordinary custom folders corresponding to playlists are output. In LR2-linked mode, the required LR2 BMS root entries are synchronized on save and repaired at startup, and this destination is also included internally in chart scanning for compatibility with legacy setups. However, it is not intended as a chart install destination, so it is hidden from the General tab BMS directory list, the Install tab new install destination choices, and the library tree folder nodes. When choosing a new normal output destination, it cannot be the same as, a parent of, or a child of an LR2 BMS root that is already registered.
-`Additional normal outputs` registers extra normal destinations that can be selected per playlist. The output folder name itself is used as the display name, and that name appears in the Playlist Summary `OUTPUT` column and playlist properties. In LR2-linked mode, additional normal outputs are synchronized to LR2 `<jukebox>`, but BeMusicSeeker treats them as managed custom folder output destinations, not as chart search roots or install destinations. They cannot be the same as, a parent of, or a child of another custom-folder output destination. When an additional output is removed, playlists using it return to the normal output destination.
-`Root folder output destination` is where playlists whose properties have `Make root folder` enabled are output. These appear at the root of the song selection screen, so frequently used tables can be accessed quickly.
+#### Custom Folder Output Destinations
 
-When an additional normal output or root folder output destination is the same as, a parent of, or a child of an LR2 BMS root that is already registered, a confirmation is shown when saving. If you continue, that location is treated as a BeMusicSeeker-managed custom folder output area rather than a normal chart search location. Existing files may be deleted during output updates or cleanup, so do not place important data there. This confirmation can be accepted when re-registering an output destination that was previously managed by BeMusicSeeker after setting up a newly downloaded copy of the app.
+In LR2 linked mode, playlists can be output as LR2 custom folders. This tab determines where BeMusicSeeker writes those custom folders.
+
+`Normal output destination` is the default output destination for playlists created in this application. Playlists whose output is not separated go here. In LR2-linked mode, the required LR2 BMS root entries are synchronized on save and repaired at startup, and this destination is also included internally in chart scanning for compatibility with legacy setups. However, it is not intended as a chart install destination, so it is hidden from the General tab BMS directory list, the Install tab new install destination choices, and the library tree folder nodes. When choosing a new normal output destination, it cannot be the same as, a parent of, or a child of an LR2 BMS root that is already registered.
+
+`Additional normal outputs` are extra output destinations that can be selected per playlist. Use them when you want to create folders by table genre, such as main difficulty tables, sabun author tables, personal tables, or event tables, and assign playlists to those folders. The output folder name itself is used as the display name, and that name appears in the Playlist Summary `OUTPUT` column and playlist properties. In LR2-linked mode, additional normal outputs are synchronized to LR2 `<jukebox>`, but BeMusicSeeker treats them as managed custom folder output destinations, not as chart search roots or install destinations. They cannot be the same as, a parent of, or a child of another custom-folder output destination. When an additional output is removed, playlists using it return to the normal output destination.
+
+`Root folder output destination` is where playlists whose properties have `Make root folder` enabled are output. These appear at the root of LR2's song selection screen, so use this for tables you want to access quickly.
+
+> [!TIP]
+> Use `Additional normal outputs` when you want to organize tables by their usual place, and use `Root folder output destination` when you want especially frequent tables at the first level of the song selection screen. Per-playlist `OUTPUT` and `Make root folder` can be set from playlist properties or from `Bulk edit...` in the playlist summary.
+
+> [!CAUTION]
+> When an additional normal output or root folder output destination is the same as, a parent of, or a child of an LR2 BMS root that is already registered, a confirmation is shown when saving. If you continue, that location is treated as a BeMusicSeeker-managed custom folder output area rather than a normal chart search location. Existing files may be deleted during output updates or cleanup, so do not place important data there. This confirmation can be accepted when re-registering an output destination that was previously managed by BeMusicSeeker after setting up a newly downloaded copy of the app.
+
+#### Play Log FOLDER Display Presets
 
 `Play Log FOLDER Display Presets` lets you create playlist sets shown in the drop-down menu at the top-right of the Play Log view. Press `Add` or `Edit` to open a separate window where you can enter a preset name and select multiple target playlists. These presets are used for Play Log filtering and for adjusting the FOLDER column display.
+
+#### URL Completion
 
 For URL completion, see [URL1/URL2 Completion](#url1url2-completion).
 
@@ -629,33 +643,65 @@ On the `Custom Folder` tab, you can set the output folder types, `OUTPUT`, and o
 
 ### Custom Folder Output
 
-In LR2 linked mode, playlists can be output as LR2 custom folders.
+In LR2 linked mode, playlists can be output as LR2 custom folders. LR2 custom folders are a feature that uses SQL conditions to create chart sets and show them as virtual folders on the song selection screen without moving the actual files.
 
-Specify the normal output destination, additional normal outputs, and root folder output destination on the `Playlist` tab in the settings dialog.
-From playlist `Properties`, configure `OUTPUT`, the output name, `Make root folder`, and the folder types to output. `OUTPUT` selects the normal output destination or an additional normal output from settings. While `Make root folder` is enabled, the saved `OUTPUT` value is kept, but the actual output destination is the root folder output destination. To apply `OUTPUT`, folder output types, or `Make root folder` to multiple playlists, use `Bulk edit...` from the playlist summary.
+BeMusicSeeker outputs difficulty tables and local playlists in this format. It is intended for uses such as selecting `★1`, `★2`, and similar folders from difficulty tables in LR2, finding only unplayed charts, or placing frequently used tables at the root of the song selection screen.
 
-Do not place important data in the output destinations, and specify different locations for the normal output destination, additional normal outputs, and root folder output destination. The normal output destination is also included in chart scanning, but during output, `.lr2folder` files under each playlist output folder are treated as BeMusicSeeker-managed files and stale ones are deleted. When `OUTPUT` or the root folder setting is changed, the previous playlist output folder is treated as a managed area and deleted as a whole. Other folders directly under the normal/root output destination are not touched, but manually managed LR2 custom folders or other files placed inside a playlist output folder will be deleted. It is recommended to prepare an empty folder dedicated to BeMusicSeeker.
+#### Setup Flow
 
-Main folder types that can be output:
+1. On the `Playlist` tab in the settings dialog, specify the `Normal output destination`, and if needed, `Additional normal outputs` and the `Root folder output destination`.
+2. From playlist `Properties`, configure `OUTPUT`, the output name, `Make root folder`, and the folder types to output.
+3. To change multiple playlists at once, use `Bulk edit...` from the playlist summary and apply `OUTPUT`, folder output types, or `Make root folder` to the selected rows.
 
-- User-defined
-- Level
-- Alphabet
-- Clear
-- DJ level
-- Category ALL
-- Other
-- Random
-- BPM sort
-- BP sort
-- Play count sort
-- Last play sort
+`OUTPUT` selects the `Normal output destination` or an `Additional normal output` from settings. While `Make root folder` is enabled, the saved `OUTPUT` value is kept, but the actual output destination is the `Root folder output destination`. When root folder output is turned off, the playlist returns to the saved `OUTPUT` destination.
 
-User-defined output creates an `ALL` `.lr2folder` for the whole playlist plus `.lr2folder` files for each playlist folder. Clear and DJ level output create subfolders by status, each containing `ALL` and per-folder `.lr2folder` files. Enabling Random adds `#MAXTRACKS 1` RANDOM variants for User-defined, Level, Clear, and DJ level output. In each output location, normal folders are written first and RANDOM folders are grouped after them. Clear status folders are named from `0 NO PLAY` through `7 P.A` so LR2's TITLE sort keeps the intended status order. BPM sort uses `chart_info.mainbpm`, BP sort uses `score.minbp`, and Play count sort uses `score.playcount`. Last play sort uses the `bms_lr2_last_play` table that the play log feature creates in LR2 `score.db`, and sorts charts by newest last-play time first. LR2 / OpenLR2 reads the DB when opening the custom folder, so the order updates after playing a chart without regenerating `.lr2folder` files. Last play sort custom folders are still output without the play log schema, but they require the schema-provided `bms_lr2_last_play` table to work in LR2 / OpenLR2.
+> [!IMPORTANT]
+> LR2 custom folder output is an LR2 linked mode feature. Even in standalone mode, playlist names and folder settings are saved in the in-app DB, but LR2 `.lr2folder` output is not updated.
 
-Playlists made into root folders are displayed at the root of LR2's song selection screen. This is useful when you want quick access to frequently used tables.
+#### Output Destination Usage
 
-> Many other custom folder formats are possible, but adding more built-in types in this application would increase the number of generated `.lr2folder` files and may hurt performance. [A custom folder output tool](https://github.com/Anyoji-bms/LR2FolderGenerator-v1.0.1) also exists, and these days I also think that if you tell various AI tools what kind of custom folder you want together with the DB schema, you may be able to generate something better suited to each person's preferences. Since `chart_info` contains various metadata, `chart_digest_map` contains BMS MD5/SHA256 mappings, and `playlist_entry` has an added SHA256 column, many kinds of folders can be made with some ingenuity.
+- `Normal output destination`: The default playlist output destination. Put tables here when you do not need to separate them.
+- `Additional normal outputs`: Use these when you want separate output locations by table genre. For example, you can split main difficulty tables, sabun author tables, personal tables, and event tables into different folders.
+- `Root folder output destination`: The output destination for playlists with `Make root folder` enabled. These appear at the root of LR2's song selection screen, so frequently used tables can be accessed quickly.
+
+> [!WARNING]
+> Do not place important data in custom folder output destinations. Specify different locations for the normal output destination, additional normal outputs, and root folder output destination, and it is recommended to prepare empty folders dedicated to BeMusicSeeker.
+>
+> During output, `.lr2folder` files under each playlist output folder are treated as BeMusicSeeker-managed files and stale ones are deleted. When `OUTPUT` or the root folder setting is changed, the previous playlist output folder is treated as a managed area and deleted as a whole. Other folders directly under the normal/root output destination are not touched, but manually managed LR2 custom folders or other files placed inside a playlist output folder will be deleted.
+
+#### Folder Types To Output
+
+On the `Custom Folder` tab, use the checkboxes to choose which folders to output for each playlist.
+
+| Item | Output and Usage |
+|---|---|
+| `All charts ALL` | Outputs the `ALL` folder that gathers every chart in the playlist. Use this when you want to open the whole table at once, or when you want clear status, DJ level, and sort folders for the whole playlist. |
+| `By folder` | Outputs `.lr2folder` files for each playlist folder. This is the basic setting when you want to select folders that match the table structure, such as `★1`, `★2`, and other symbol + numeric difficulty levels. Folder sort order is configured on the `Folder` tab in playlist properties. |
+| `Level` | Outputs numeric level folders such as `LEVEL 1` and `LEVEL 2`. Use this when you want to gather charts by numeric level regardless of the table symbol. If the playlist contains charts without levels, `LEVEL ???` is also output. |
+| `Alphabet ALL` | Outputs whole-playlist ALL folders grouped by the first letter of the title, such as `A.B.C.D.`. Use this when you want to find charts by title. Titles outside the alphabet ranges are placed in `OTHERS`. |
+| `Clear` | Outputs folders by clear status. Folder names are numbered from `0 NO PLAY` through `7 P.A` so LR2's TITLE sort keeps them in status order. The output scope follows the `All charts ALL` and `By folder` selections. |
+| `DJ level` | Outputs folders split into `AAA`, `AA`, `A`, and `UNDER A`. Use this when looking for score-improvement targets. The output scope follows the `All charts ALL` and `By folder` selections. |
+| `Chart category ALL` | Outputs ALL folders that gather charts matching category conditions, such as `ALL LONG NOTES`, `ALL VERY HARD JUDGES`, `ALL HARD JUDGES`, `ALL NORMAL JUDGES`, and `ALL EASY JUDGES`. Use this when you want to search from perspectives such as LN or judge difficulty. |
+| `Auxiliary folders` | Outputs auxiliary folders such as `MY BEST`, `NEW SONGS`, and `REMOVED SONGS`. When LR2IR score acquisition and unsent detection are enabled, `UNSENT SONGS` is also output. |
+| `Random` | This is not an independent folder type. It adds `#MAXTRACKS 1` RANDOM variants to `All charts ALL`, `By folder`, `Level`, `Clear`, and `DJ level`. In each output location, normal folders are written first and RANDOM folders are grouped after them. |
+| `BPM sort` | Uses `chart_info.mainbpm` and outputs folders sorted by BPM ascending. Use this when choosing practice targets by BPM. The output scope follows the `All charts ALL` and `By folder` selections. |
+| `BP sort` | Uses `score.minbp` and outputs folders sorted by lower BP first. Use this when you want to see priorities for BP improvement. The output scope follows the `All charts ALL` and `By folder` selections. |
+| `Play count sort` | Uses `score.playcount` and outputs folders sorted by higher play count first. Use this to review charts you often play. The output scope follows the `All charts ALL` and `By folder` selections. |
+| `Last play sort` | Uses the `bms_lr2_last_play` table that the play log feature creates in LR2 `score.db`, and outputs folders sorted by newest last-play time first. Use this when you want to return to charts you played recently. The output scope follows the `All charts ALL` and `By folder` selections. |
+
+`All charts ALL` adds the whole-playlist output scope, and `By folder` adds the per-playlist-folder output scope. `Clear`, `DJ level`, `BPM sort`, `BP sort`, `Play count sort`, and `Last play sort` output `.lr2folder` files according to those two scope settings.
+
+> [!NOTE]
+> `2 ASSIST` under `Clear` is a folder for separating charts that received an EASY clear lamp while using assist-type options. In this state, LR2's clear lamp is equivalent to EASY, but no history remains showing that the chart was cleared with the EASY gauge, so BeMusicSeeker detects it separately from `3 EASY`.
+
+> [!NOTE]
+> LR2 / OpenLR2 reads the DB when opening a custom folder. Clear status, DJ level, BP, play count, and similar values are reflected as long as the DB has been updated, even without regenerating `.lr2folder` files after playing a chart.
+
+> [!IMPORTANT]
+> `Last play sort` refers to `bms_lr2_last_play`, which the play log feature creates in LR2 `score.db`. Last play sort custom folders are still output without the play log schema, but they require the schema-provided `bms_lr2_last_play` table to work in LR2 / OpenLR2.
+
+> [!TIP]
+> Increasing the number of output `.lr2folder` files may make LR2 display or DB access slower. It is easier to manage if you start with `All charts ALL`, `By folder`, and only the few types you need, then keep unused classifications turned off.
 
 ### URL1/URL2 Completion
 

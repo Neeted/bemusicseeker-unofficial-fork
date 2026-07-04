@@ -2432,6 +2432,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Output_dir = "ManagedTable",
                     ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                         & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 }, typeof(LR2SongDBExtended.playlist));
             }
             var library = new BMSLibrary(scope.SongDbPath)
@@ -2677,6 +2678,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Output_dir = "CountParity",
                     ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                         & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                         & ~LR2SongDBExtended.playlist.CustomFolderType.LevelFolder
                         & ~LR2SongDBExtended.playlist.CustomFolderType.OtherFolder
                 }, typeof(LR2SongDBExtended.playlist));
@@ -2774,6 +2776,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Output_dir = "ManagedHierarchy",
                     ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                         & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                         & ~LR2SongDBExtended.playlist.CustomFolderType.ClearFolder
                 }, typeof(LR2SongDBExtended.playlist));
                 setup.Execute(
@@ -2945,6 +2948,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Output_dir = "ManagedTable",
                     ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                         & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 }, typeof(LR2SongDBExtended.playlist));
                 setup.Execute(
                     "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed) VALUES (?, ?, ?, ?, ?);",
@@ -3009,6 +3013,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     Output_dir = "ManagedTable",
                     ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                         & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 }, typeof(LR2SongDBExtended.playlist));
                 setup.Execute(
                     "INSERT INTO playlist_entry (playlist_id, md5, title, folder, is_removed) VALUES (?, ?, ?, ?, ?);",
@@ -5834,6 +5839,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     custom_folder_output_base_name = "Additional",
                     ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                         & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                        & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
                 }, typeof(LR2SongDBExtended.playlist));
             }
             var library = new BMSLibrary(scope.SongDbPath)

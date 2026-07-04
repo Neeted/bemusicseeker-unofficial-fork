@@ -207,8 +207,17 @@ LR2と連携する:
   <data name="PlaylistProp_ftype_desc" xml:space="preserve">
     <value>※フォルダの開閉が重い場合出力を減らすかフォルダランプをオフにしてください</value>
   </data>
+  <data name="PlaylistProp_ftype_all_songs" xml:space="preserve">
+    <value>全曲ALL</value>
+  </data>
+  <data name="PlaylistProp_ftype_all_songs_tooltip" xml:space="preserve">
+    <value>プレイリスト全体の譜面を集めた ALL フォルダを出力します。</value>
+  </data>
   <data name="PlaylistProp_ftype_user" xml:space="preserve">
-    <value>ユーザ定義</value>
+    <value>フォルダ別</value>
+  </data>
+  <data name="PlaylistProp_ftype_user_tooltip" xml:space="preserve">
+    <value>★1、★2 など、プレイリスト内フォルダごとの .lr2folder を出力します。</value>
   </data>
   <data name="Folder" xml:space="preserve">
     <value>フォルダ</value>
@@ -960,6 +969,9 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
   <data name="PlaylistProp_ftype_djlevel" xml:space="preserve">
     <value>DJレベル</value>
   </data>
+  <data name="PlaylistProp_ftype_djlevel_tooltip" xml:space="preserve">
+    <value>DJ レベル別のフォルダを出力します。全曲ALLとフォルダ別の選択に従って出力範囲が変わります。</value>
+  </data>
   <data name="Msg_override_level_error_recommended" xml:space="preserve">
     <value>この操作はリコメンドフォルダには使用できません</value>
   </data>
@@ -1053,7 +1065,10 @@ BeMusicSeeker にのみ存在するプレイリストの BMT SORT は最後尾�
     <value>YouTube</value>
   </data>
   <data name="PlaylistProp_ftype_alphabet" xml:space="preserve">
-    <value>アルファベット</value>
+    <value>アルファベット別ALL</value>
+  </data>
+  <data name="PlaylistProp_ftype_alphabet_tooltip" xml:space="preserve">
+    <value>曲名の先頭文字をまとめたアルファベット別 ALL フォルダを出力します。</value>
   </data>
   <data name="Tooltip_view_mode" xml:space="preserve">
     <value>表示モード</value>
@@ -1221,10 +1236,16 @@ BMSファイルが重複しないようにマージします。
     <value>ページURI: </value>
   </data>
   <data name="PlaylistProp_ftype_all" xml:space="preserve">
-    <value>カテゴリALL</value>
+    <value>譜面カテゴリ別ALL</value>
+  </data>
+  <data name="PlaylistProp_ftype_all_tooltip" xml:space="preserve">
+    <value>LN や判定難易度など、譜面カテゴリ別の ALL フォルダを出力します。</value>
   </data>
   <data name="PlaylistProp_ftype_etc" xml:space="preserve">
-    <value>その他(マイベスト・新規・未送信)</value>
+    <value>補助フォルダ</value>
+  </data>
+  <data name="PlaylistProp_ftype_etc_tooltip" xml:space="preserve">
+    <value>マイベスト、新規、未送信などの補助的なフォルダを出力します。</value>
   </data>
   <data name="Player_uBMplay_desc" xml:space="preserve">
     <value>※Win8/10では別ウィンドウでの再生となります</value>
@@ -1756,26 +1777,47 @@ maintenance の再スキャンや chart_info の全譜面補完は行いませ�
   <data name="PlaylistProp_ftype_clear" xml:space="preserve">
     <value>クリア</value>
   </data>
+  <data name="PlaylistProp_ftype_clear_tooltip" xml:space="preserve">
+    <value>クリアランプ別のフォルダを出力します。全曲ALLとフォルダ別の選択に従って出力範囲が変わります。</value>
+  </data>
   <data name="Msg_merge_bms_target" xml:space="preserve">
     <value>対象(移動して削除されます)</value>
   </data>
   <data name="PlaylistProp_ftype_level" xml:space="preserve">
     <value>レベル</value>
   </data>
+  <data name="PlaylistProp_ftype_level_tooltip" xml:space="preserve">
+    <value>数値レベル別の LEVEL フォルダを出力します。</value>
+  </data>
   <data name="PlaylistProp_ftype_random" xml:space="preserve">
     <value>ランダム</value>
+  </data>
+  <data name="PlaylistProp_ftype_random_tooltip" xml:space="preserve">
+    <value>対象フォルダに RANDOM 版を追加して、曲順をランダムにします。</value>
   </data>
   <data name="PlaylistProp_ftype_bpm_sort" xml:space="preserve">
     <value>BPM順</value>
   </data>
+  <data name="PlaylistProp_ftype_bpm_sort_tooltip" xml:space="preserve">
+    <value>BPM 順のフォルダを出力します。全曲ALLとフォルダ別の選択に従って出力範囲が変わります。</value>
+  </data>
   <data name="PlaylistProp_ftype_bp_sort" xml:space="preserve">
     <value>BP順</value>
+  </data>
+  <data name="PlaylistProp_ftype_bp_sort_tooltip" xml:space="preserve">
+    <value>BP 順のフォルダを出力します。全曲ALLとフォルダ別の選択に従って出力範囲が変わります。</value>
   </data>
   <data name="PlaylistProp_ftype_play_count_sort" xml:space="preserve">
     <value>プレイ回数順</value>
   </data>
+  <data name="PlaylistProp_ftype_play_count_sort_tooltip" xml:space="preserve">
+    <value>プレイ回数順のフォルダを出力します。全曲ALLとフォルダ別の選択に従って出力範囲が変わります。</value>
+  </data>
   <data name="PlaylistProp_ftype_last_play_sort" xml:space="preserve">
     <value>最終プレイ順</value>
+  </data>
+  <data name="PlaylistProp_ftype_last_play_sort_tooltip" xml:space="preserve">
+    <value>最終プレイ日時順のフォルダを出力します。全曲ALLとフォルダ別の選択に従って出力範囲が変わります。</value>
   </data>
   <data name="PlaylistProp_entrytype" xml:space="preserve">
     <value>エントリー単位: </value>

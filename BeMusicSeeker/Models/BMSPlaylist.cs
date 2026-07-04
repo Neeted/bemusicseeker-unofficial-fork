@@ -3455,14 +3455,19 @@ public partial class BMSPlaylist : NotificationObject
 
     private static IReadOnlyList<CustomFolderEntryScope> CreateCustomFolderEntryScopes(BMSTable bmsTable)
     {
-        var scopes = new List<CustomFolderEntryScope>
+        var scopes = new List<CustomFolderEntryScope>();
+        if (IsCustomFolderTypeEnabled(bmsTable, LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder))
         {
-            new()
+            scopes.Add(new CustomFolderEntryScope
             {
                 IsAll = true,
                 Title = (bmsTable?.name ?? string.Empty) + " ALL"
-            }
-        };
+            });
+        }
+        if (!IsCustomFolderTypeEnabled(bmsTable, LR2SongDBExtended.playlist.CustomFolderType.UserFolder))
+        {
+            return scopes;
+        }
         foreach (string folder in bmsTable?.folder_list ?? [])
         {
             scopes.Add(new CustomFolderEntryScope
@@ -6166,9 +6171,13 @@ public partial class BMSPlaylist : NotificationObject
         {
             return definitions;
         }
+        if (LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(bmsTable.ignore_folder_output, LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder)
+            || LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(bmsTable.ignore_folder_output, LR2SongDBExtended.playlist.CustomFolderType.UserFolder))
+        {
+            definitions.AddRange(makeCustomFolderDefinitionsUserFolder(bmsTable));
+        }
         foreach (Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<CustomFolderDefinition>>> item in new List<Tuple<LR2SongDBExtended.playlist.CustomFolderType, Func<BMSTable, List<CustomFolderDefinition>>>>
         {
-            new(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, makeCustomFolderDefinitionsUserFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.LevelFolder, makeCustomFolderDefinitionsLevelFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder, table => WrapFlatCustomFolderDefinitions(makeCustomFolderTextsAlphabetFolder(table))),
             new(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder, makeCustomFolderDefinitionsClearFolder),
