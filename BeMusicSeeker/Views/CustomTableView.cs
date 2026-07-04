@@ -61,12 +61,17 @@ internal enum CustomTableKeyboardCommand
 
 public sealed class CustomTableView : Grid
 {
+    internal const double CellTextHorizontalPadding = 2d;
     private const double ColumnResizeHitTestMargin = 4d;
     private const double ScrollBarThickness = 15d;
+    private const double CellEditorBorderThickness = 1d;
     private const int RowSubscriptionOverscan = 5;
     private const long RowSubscriptionSlowLogThresholdMs = 100L;
     private const long RenderSlowLogThresholdMs = 100L;
     private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.CustomTableView");
+    private static readonly Thickness CellEditorBorderThicknessValue = new(CellEditorBorderThickness);
+    private static readonly Thickness CellEditorPadding = new(Math.Max(0d, CellTextHorizontalPadding - CellEditorBorderThickness), 0d, Math.Max(0d, CellTextHorizontalPadding - CellEditorBorderThickness), 0d);
+    private static readonly Style CellEditorTextBoxStyle = CreateCellEditorTextBoxStyle();
 
     public static readonly DependencyProperty ItemsSourceProperty = DependencyProperty.Register(
         nameof(ItemsSource),
@@ -362,6 +367,47 @@ public sealed class CustomTableView : Grid
         }
         editSuggestionListBox.Background = palette.RowBackground;
         editSuggestionListBox.Foreground = palette.DefaultForeground;
+        if (activeEditor != null)
+        {
+            ApplyCellEditorTheme(activeEditor);
+        }
+    }
+
+    private static Style CreateCellEditorTextBoxStyle()
+    {
+        var style = new Style(typeof(TextBox));
+        style.Setters.Add(new Setter(FrameworkElement.FocusVisualStyleProperty, null));
+        style.Setters.Add(new Setter(Control.TemplateProperty, CreateCellEditorTemplate()));
+        style.Setters.Add(new Setter(Control.BorderThicknessProperty, CellEditorBorderThicknessValue));
+        style.Setters.Add(new Setter(Control.PaddingProperty, CellEditorPadding));
+        style.Setters.Add(new Setter(Control.VerticalContentAlignmentProperty, VerticalAlignment.Center));
+        style.Setters.Add(new Setter(ScrollViewer.HorizontalScrollBarVisibilityProperty, ScrollBarVisibility.Hidden));
+        style.Setters.Add(new Setter(ScrollViewer.VerticalScrollBarVisibilityProperty, ScrollBarVisibility.Hidden));
+        return style;
+    }
+
+    private static ControlTemplate CreateCellEditorTemplate()
+    {
+        var contentHost = new FrameworkElementFactory(typeof(ScrollViewer), "PART_ContentHost");
+        contentHost.SetValue(FrameworkElement.MarginProperty, new Thickness(0d));
+        contentHost.SetValue(FrameworkElement.FocusVisualStyleProperty, null);
+        contentHost.SetValue(UIElement.FocusableProperty, false);
+        contentHost.SetValue(FrameworkElement.VerticalAlignmentProperty, new TemplateBindingExtension(Control.VerticalContentAlignmentProperty));
+        contentHost.SetValue(Control.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+
+        var border = new FrameworkElementFactory(typeof(Border));
+        border.SetValue(Border.BackgroundProperty, new TemplateBindingExtension(Control.BackgroundProperty));
+        border.SetValue(Border.BorderBrushProperty, new TemplateBindingExtension(Control.BorderBrushProperty));
+        border.SetValue(Border.BorderThicknessProperty, new TemplateBindingExtension(Control.BorderThicknessProperty));
+        border.SetValue(Border.PaddingProperty, new TemplateBindingExtension(Control.PaddingProperty));
+        border.SetValue(Border.CornerRadiusProperty, new CornerRadius(0d));
+        border.SetValue(UIElement.SnapsToDevicePixelsProperty, true);
+        border.AppendChild(contentHost);
+
+        return new ControlTemplate(typeof(TextBox))
+        {
+            VisualTree = border
+        };
     }
 
     public event EventHandler<CustomTableFirstRenderCompletedEventArgs> FirstRenderCompleted;
@@ -1753,21 +1799,7 @@ public sealed class CustomTableView : Grid
             return false;
         }
         Rect editorRect = CreateEditorRect(hit.Column, rect);
-        var textBox = new TextBox
-        {
-            Text = replacementText ?? hit.Column.GetEditText(hit.Row),
-            TextAlignment = hit.Column.CellKind == CustomTableCellKind.DownloadIcon ? TextAlignment.Left : hit.Column.Alignment,
-            TextWrapping = hit.Column.EditTextWrapping ? TextWrapping.Wrap : TextWrapping.NoWrap,
-            AcceptsReturn = false,
-            BorderThickness = new Thickness(1d),
-            BorderBrush = CustomTablePalette.Current.HeaderBorder.Brush,
-            Background = CustomTablePalette.Current.RowBackground,
-            Foreground = CustomTablePalette.Current.DefaultForeground,
-            Padding = new Thickness(0d),
-            Margin = new Thickness(0d),
-            VerticalContentAlignment = VerticalAlignment.Center,
-            DataContext = hit.Row
-        };
+        TextBox textBox = CreateCellEditor(hit, replacementText);
         textBox.LostKeyboardFocus += ActiveEditorLostKeyboardFocus;
         Canvas.SetLeft(textBox, editorRect.Left);
         Canvas.SetTop(textBox, editorRect.Top);
@@ -1787,6 +1819,42 @@ public sealed class CustomTableView : Grid
             textBox.CaretIndex = textBox.Text.Length;
         }
         return true;
+    }
+
+    private TextBox CreateCellEditor(CustomTableHitTestResult hit, string replacementText)
+    {
+        CustomTableTextStyle textStyle = hit.Column?.TextStyle ?? CustomTableTextStyle.Normal;
+        Typeface typeface = textStyle.CreateTypeface(ScoreFontFamily);
+        var textBox = new TextBox
+        {
+            Style = CellEditorTextBoxStyle,
+            Text = replacementText ?? hit.Column.GetEditText(hit.Row),
+            TextAlignment = hit.Column.CellKind == CustomTableCellKind.DownloadIcon ? TextAlignment.Left : hit.Column.Alignment,
+            TextWrapping = hit.Column.EditTextWrapping ? TextWrapping.Wrap : TextWrapping.NoWrap,
+            AcceptsReturn = false,
+            FontFamily = typeface.FontFamily,
+            FontSize = textStyle.FontSize,
+            FontStyle = typeface.Style,
+            FontStretch = typeface.Stretch,
+            FontWeight = typeface.Weight,
+            Margin = new Thickness(0d),
+            MinWidth = 0d,
+            MinHeight = 0d,
+            ClipToBounds = true,
+            SnapsToDevicePixels = true,
+            DataContext = hit.Row
+        };
+        ApplyCellEditorTheme(textBox);
+        return textBox;
+    }
+
+    private static void ApplyCellEditorTheme(TextBox textBox)
+    {
+        CustomTablePalette palette = CustomTablePalette.Current;
+        textBox.Background = palette.RowBackground;
+        textBox.BorderBrush = palette.CurrentCellBackground;
+        textBox.Foreground = palette.DefaultForeground;
+        textBox.CaretBrush = palette.DefaultForeground;
     }
 
     private Rect CreateEditorRect(CustomTableColumn column, Rect cellRect)
@@ -2644,7 +2712,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         }
         CustomTableTextStyle effectiveTextStyle = textStyle ?? CustomTableTextStyle.Normal;
         double pixelsPerDip = VisualTreeHelper.GetDpi(this).PixelsPerDip;
-        double maxTextWidth = Math.Max(1d, cellRect.Width - 4d);
+        double maxTextWidth = Math.Max(1d, cellRect.Width - CustomTableView.CellTextHorizontalPadding * 2d);
         double maxTextHeight = Math.Max(Math.Max(1d, cellRect.Height), effectiveTextStyle.FontSize * 2d);
         long layoutStart = Stopwatch.GetTimestamp();
         FormattedText formattedText = textLayoutCache.GetOrCreate(
@@ -2668,7 +2736,7 @@ internal sealed class CustomTableSurface : FrameworkElement
         {
             renderTextCacheMisses++;
         }
-        double x = cellRect.X + 2d;
+        double x = cellRect.X + CustomTableView.CellTextHorizontalPadding;
         double y = cellRect.Y + Math.Max(0d, (cellRect.Height - formattedText.Height) / 2d) + effectiveTextStyle.VerticalOffset;
         long drawTextStart = Stopwatch.GetTimestamp();
         drawingContext.PushClip(new RectangleGeometry(cellRect));

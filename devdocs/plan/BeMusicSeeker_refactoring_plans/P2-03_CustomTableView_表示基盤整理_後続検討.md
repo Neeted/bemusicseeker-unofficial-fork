@@ -23,6 +23,7 @@
 
 - `CustomTableCommandAdapter` に必要な event args DTO を定義する。
 - 既存 `CustomTable*Tests` を維持しながら pure logic を増やす。
+- cell edit overlay は WPF 全体の暗黙 `TextBox` style に依存させず、`CustomTableView` 専用 template で通常セルの文字余白、行高、角丸なしの外形に合わせる。
 
 ## 現時点でやらないこと
 
