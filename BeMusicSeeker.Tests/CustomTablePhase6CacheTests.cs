@@ -137,6 +137,95 @@ public sealed class CustomTablePhase6CacheTests
     }
 
     [TestMethod]
+    public void CellValueCreate_NormalizesColoredTextCellsToTextRuns()
+    {
+        object row = new();
+        var column = new CustomTableColumn(
+            "Clear",
+            "CLEAR",
+            layout: null,
+            fallbackOrder: 0,
+            sortMemberPath: null,
+            alignment: TextAlignment.Center,
+            textSelector: _ => "HARD",
+            foregroundSelector: _ => Brushes.Red);
+
+        CustomTableCellValue value = CustomTableCellValue.Create(row, column);
+
+        Assert.AreSame(Brushes.Red, value.Foreground);
+        Assert.AreEqual(1, value.TextRuns.Count);
+        Assert.AreEqual(0, value.TextRuns[0].StartIndex);
+        Assert.AreEqual("HARD".Length, value.TextRuns[0].Length);
+        Assert.AreSame(Brushes.Red, value.TextRuns[0].Foreground);
+    }
+
+    [TestMethod]
+    public void CellValueCreate_KeepsDefaultForegroundAndNonTextCellsWithoutSyntheticTextRuns()
+    {
+        object row = new();
+        var defaultTextColumn = new CustomTableColumn(
+            "Title",
+            "TITLE",
+            layout: null,
+            fallbackOrder: 0,
+            sortMemberPath: null,
+            alignment: TextAlignment.Left,
+            textSelector: _ => "title",
+            foregroundSelector: _ => CustomTableScoreBrushProvider.DefaultForeground);
+        var iconColumn = new CustomTableColumn(
+            "Download",
+            "DL",
+            layout: null,
+            fallbackOrder: 0,
+            sortMemberPath: null,
+            alignment: TextAlignment.Center,
+            textSelector: _ => "download",
+            foregroundSelector: _ => Brushes.Red,
+            cellKind: CustomTableCellKind.DownloadIcon);
+        var checkBoxColumn = new CustomTableColumn(
+            "Checked",
+            "CHECK",
+            layout: null,
+            fallbackOrder: 0,
+            sortMemberPath: null,
+            alignment: TextAlignment.Center,
+            textSelector: _ => "checked",
+            foregroundSelector: _ => Brushes.Red,
+            checkedSelector: _ => true,
+            cellKind: CustomTableCellKind.CheckBox);
+
+        Assert.AreEqual(0, CustomTableCellValue.Create(row, defaultTextColumn).TextRuns.Count);
+        Assert.AreEqual(0, CustomTableCellValue.Create(row, iconColumn).TextRuns.Count);
+        Assert.AreEqual(0, CustomTableCellValue.Create(row, checkBoxColumn).TextRuns.Count);
+    }
+
+    [TestMethod]
+    public void CellValueCreate_PreservesExplicitTextRuns()
+    {
+        object row = new();
+        var column = new CustomTableColumn(
+            "Delta",
+            "DELTA",
+            layout: null,
+            fallbackOrder: 0,
+            sortMemberPath: null,
+            alignment: TextAlignment.Left,
+            textSelector: _ => "A -> AA",
+            foregroundSelector: _ => Brushes.Red,
+            textRunSelector: (_, _) =>
+            [
+                new CustomTableTextRunStyle(0, 1, Brushes.Blue)
+            ]);
+
+        CustomTableCellValue value = CustomTableCellValue.Create(row, column);
+
+        Assert.AreEqual(1, value.TextRuns.Count);
+        Assert.AreEqual(0, value.TextRuns[0].StartIndex);
+        Assert.AreEqual(1, value.TextRuns[0].Length);
+        Assert.AreSame(Brushes.Blue, value.TextRuns[0].Foreground);
+    }
+
+    [TestMethod]
     public void CustomTableView_RendersCellTextRunsAndPreservesRunsForSelection()
     {
         RunOnSta(delegate

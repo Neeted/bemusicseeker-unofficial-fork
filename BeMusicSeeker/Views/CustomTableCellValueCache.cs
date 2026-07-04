@@ -203,14 +203,33 @@ internal readonly struct CustomTableCellValue
     internal static CustomTableCellValue Create(object row, CustomTableColumn column)
     {
         string text = column.GetText(row);
+        Brush foreground = column.GetForeground(row);
+        IReadOnlyList<CustomTableTextRunStyle> textRuns = NormalizeTextRuns(text, foreground, column.GetTextRuns(row, text), column.CellKind);
         return new CustomTableCellValue(
             text,
-            column.GetForeground(row),
+            foreground,
             column.GetBackground(row),
-            column.GetTextRuns(row, text),
+            textRuns,
             column.CellKind,
             column.TextStyle,
             column.Alignment,
             column.GetChecked(row));
+    }
+
+    private static IReadOnlyList<CustomTableTextRunStyle> NormalizeTextRuns(string text, Brush foreground, IReadOnlyList<CustomTableTextRunStyle> textRuns, CustomTableCellKind cellKind)
+    {
+        if (textRuns.Count > 0
+            || string.IsNullOrEmpty(text)
+            || !UsesTextRunsForSelection(cellKind)
+            || ReferenceEquals(foreground, CustomTableScoreBrushProvider.DefaultForeground))
+        {
+            return textRuns;
+        }
+        return [new CustomTableTextRunStyle(0, text.Length, foreground)];
+    }
+
+    private static bool UsesTextRunsForSelection(CustomTableCellKind cellKind)
+    {
+        return cellKind == CustomTableCellKind.Text || cellKind == CustomTableCellKind.ActionText;
     }
 }
