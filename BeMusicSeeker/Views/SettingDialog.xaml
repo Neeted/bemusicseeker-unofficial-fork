@@ -746,6 +746,20 @@
                       </FrameworkContentElement.Resources>
                       <List>
                         <ListItem>
+                          <Paragraph FontWeight="Bold">2.1.6.0:</Paragraph>
+                          <List MarkerStyle="Box">
+                            <ListItem>
+                              <Paragraph>プレイリスト URL 取り込みやアーカイブ導入で使う一時ファイルをアプリ専用領域で管理し、導入後や次回起動時のクリーンアップを強化しました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>プレイリストサマリーに接頭辞、フォルダ名、ヘッダ URI、データ URI の列を追加し、一覧上での確認・編集・列初期化を行いやすくしました。</Paragraph>
+                            </ListItem>
+                            <ListItem>
+                              <Paragraph>プレイログからプレイリストへのドラッグ＆ドロップ追加、URL1/URL2 補完、カスタムフォルダ出力既定値、一覧外観設定などの操作性を改善しました。</Paragraph>
+                            </ListItem>
+                          </List>
+                        </ListItem>
+                        <ListItem>
                           <Paragraph FontWeight="Bold">2.1.5.0:</Paragraph>
                           <List MarkerStyle="Box">
                             <ListItem>
