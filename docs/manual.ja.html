@@ -249,7 +249,8 @@ ul,
 ol,
 table,
 pre,
-blockquote {
+blockquote,
+.markdown-alert {
   margin-top: 0;
   margin-bottom: 18px;
 }
@@ -490,7 +491,11 @@ hr {
 <li class="toc-level-3"><a href="#再生">再生</a></li>
 <li class="toc-level-3"><a href="#デバイス">デバイス</a></li>
 <li class="toc-level-3"><a href="#録音">録音</a></li>
-<li class="toc-level-3"><a href="#プレイリスト設定">プレイリスト設定</a></li>
+<li class="toc-level-3"><details open><summary><a href="#プレイリスト設定">プレイリスト設定</a></summary><ul>
+<li class="toc-level-4"><a href="#カスタムフォルダ出力先">カスタムフォルダ出力先</a></li>
+<li class="toc-level-4"><a href="#プレイログ-folder-表示プリセット">プレイログ FOLDER 表示プリセット</a></li>
+<li class="toc-level-4"><a href="#url-補完">URL 補完</a></li>
+</ul></details></li>
 <li class="toc-level-3"><a href="#インストール">インストール</a></li>
 <li class="toc-level-3"><a href="#バックアップ">バックアップ</a></li>
 <li class="toc-level-3"><details open><summary><a href="#詳細">詳細</a></summary><ul>
@@ -524,7 +529,11 @@ hr {
 <li class="toc-level-3"><a href="#プレイリスト詳細">プレイリスト詳細</a></li>
 <li class="toc-level-3"><a href="#外部プレイリストのインポート">外部プレイリストのインポート</a></li>
 <li class="toc-level-3"><a href="#プレイリストのプロパティ">プレイリストのプロパティ</a></li>
-<li class="toc-level-3"><a href="#カスタムフォルダ出力">カスタムフォルダ出力</a></li>
+<li class="toc-level-3"><details open><summary><a href="#カスタムフォルダ出力">カスタムフォルダ出力</a></summary><ul>
+<li class="toc-level-4"><a href="#設定の流れ">設定の流れ</a></li>
+<li class="toc-level-4"><a href="#出力先の使い分け">出力先の使い分け</a></li>
+<li class="toc-level-4"><a href="#出力するフォルダ種別">出力するフォルダ種別</a></li>
+</ul></details></li>
 <li class="toc-level-3"><a href="#url1url2-補完">URL1/URL2 補完</a></li>
 </ul></details></li>
 <li class="toc-level-2"><details open><summary><a href="#インストール--保留パッケージ">インストール / 保留パッケージ</a></summary><ul>
@@ -555,11 +564,30 @@ hr {
 <li class="toc-level-3"><a href="#beatoraja-利用時の注意">beatoraja 利用時の注意</a></li>
 </ul></details></li>
 <li class="toc-level-2"><a href="#バックアップアンインストール">バックアップ・アンインストール</a></li>
-<li class="toc-level-2"><details open><summary><a href="#ログとトラブルシューティング">ログとトラブルシューティング</a></summary><ul>
-<li class="toc-level-3"><a href="#起動や初期化が遅い">起動や初期化が遅い</a></li>
-<li class="toc-level-3"><a href="#プレイリストの-status-が失敗になる">プレイリストの STATUS が失敗になる</a></li>
-<li class="toc-level-3"><a href="#lr2-で選曲できない譜面がある">LR2 で選曲できない譜面がある</a></li>
-<li class="toc-level-3"><a href="#検索構文が分からない">検索構文が分からない</a></li>
+<li class="toc-level-2"><details open><summary><a href="#faq--トラブルシューティング">FAQ / トラブルシューティング</a></summary><ul>
+<li class="toc-level-3"><a href="#ログ不具合報告">ログ・不具合報告</a></li>
+<li class="toc-level-3"><details open><summary><a href="#起動初期化">起動・初期化</a></summary><ul>
+<li class="toc-level-4"><a href="#起動や初期化が遅い">起動や初期化が遅い</a></li>
+</ul></details></li>
+<li class="toc-level-3"><details open><summary><a href="#ダウンロードインストール">ダウンロード・インストール</a></summary><ul>
+<li class="toc-level-4"><a href="#ダウンロード済みファイルや解凍用一時ファイルはどこに置かれますか">ダウンロード済みファイルや解凍用一時ファイルはどこに置かれますか？</a></li>
+<li class="toc-level-4"><a href="#一時ファイルはいつ削除されますか">一時ファイルはいつ削除されますか？</a></li>
+<li class="toc-level-4"><a href="#保留一覧から削除すると実ファイルも消えますか">保留一覧から削除すると実ファイルも消えますか？</a></li>
+</ul></details></li>
+<li class="toc-level-3"><details open><summary><a href="#プレイリスト外部サイト">プレイリスト・外部サイト</a></summary><ul>
+<li class="toc-level-4"><a href="#プレイリストの-status-が失敗になる">プレイリストの STATUS が失敗になる</a></li>
+</ul></details></li>
+<li class="toc-level-3"><details open><summary><a href="#lr2-連携">LR2 連携</a></summary><ul>
+<li class="toc-level-4"><a href="#lr2-で選曲できない譜面がある">LR2 で選曲できない譜面がある</a></li>
+</ul></details></li>
+<li class="toc-level-3"><details open><summary><a href="#プレイログ_1">プレイログ</a></summary><ul>
+<li class="toc-level-4"><a href="#lr2-の過去プレイが表示されません">LR2 の過去プレイが表示されません</a></li>
+<li class="toc-level-4"><a href="#beatoraja-のプレイログ件数やサマリーが一覧と一致しません">beatoraja のプレイログ件数やサマリーが一覧と一致しません</a></li>
+<li class="toc-level-4"><a href="#未確定--診断-とは何ですか">未確定 / 診断 とは何ですか？</a></li>
+</ul></details></li>
+<li class="toc-level-3"><details open><summary><a href="#検索_1">検索</a></summary><ul>
+<li class="toc-level-4"><a href="#検索構文が分からない">検索構文が分からない</a></li>
+</ul></details></li>
 </ul></details></li>
 <li class="toc-level-2"><a href="#参考資料">参考資料</a></li>
 </ul></details></li>
@@ -589,7 +617,7 @@ hr {
 <li><a href="#メンテナンス">メンテナンス</a></li>
 <li><a href="#プレイログ">プレイログ</a></li>
 <li><a href="#バックアップアンインストール">バックアップ・アンインストール</a></li>
-<li><a href="#ログとトラブルシューティング">ログとトラブルシューティング</a></li>
+<li><a href="#faq--トラブルシューティング">FAQ / トラブルシューティング</a></li>
 <li><a href="#参考資料">参考資料</a></li>
 </ul>
 <h2 id="はじめに">はじめに</h2>
@@ -613,7 +641,7 @@ hr {
 </ul>
 <h3 id="注意">注意</h3>
 <p>BeMusicSeeker は、設定によっては LR2 の <code>song.db</code>、<code>config.xml</code>、カスタムフォルダ出力先、BMS 実ファイルを移動/削除します。<br/>
-大きな整理、インストール、削除、重複マージ、アンインストールを行う前には、LR2 関連ファイルと BMS フォルダのバックアップを取ることをおすすめします。<strong>song.db破損への対応であれば本アプリのバックアップ機能を使用していればゼロからの再構築は避けられるはずです。</strong></p>
+大きな整理、インストール、削除、重複マージ、アンインストールを行う前には、LR2 関連ファイルや BeMusicSeeker の設定 / DB をバックアップしておくことをおすすめします。BMS ルートフォルダは容量が大きくなりやすいため、本アプリの操作前に毎回丸ごと控えるというより、普段から別ディスクなどへ定期的にバックアップする運用をおすすめします。<strong>song.db破損への対応であれば本アプリのバックアップ機能を使用していればゼロからの再構築は避けられるはずです。</strong></p>
 <h2 id="初期セットアップ">初期セットアップ</h2>
 <p>BeMusicSeeker Unofficial Fork はインストール不要のポータブルアプリです。リリースページから最新版をダウンロードし、任意のフォルダへ展開して起動します。ZIP のまま実行せず、必ず書き込み可能なフォルダへ展開してください。</p>
 <p>展開する前に、ダウンロードした ZIP を右クリックして <code>プロパティ</code> を開き、下部に <code>セキュリティ</code> の <code>許可する</code> チェックボックスが表示されている場合は、チェックを入れて <code>適用</code> してください。これは Windows がインターネットから取得したファイルに付ける確認情報を、展開前に解除するための手順です。先に ZIP 側で許可しておくと、展開後の <code>BeMusicSeeker.exe</code> や DLL が Windows によって余分に制限されることを避けやすくなります。</p>
@@ -686,10 +714,8 @@ BMS ディレクトリに設定した場所が譜面を探す対象となりま�
 <p>beatoraja については、スコア DB の読み込みや難易度表キャッシュ出力など一部連携に対応していますが、beatoraja 全体を管理するためのツールではありません。<strong>beatoraja のDB更新を高速に行いたい場合は <a href="https://github.com/Neeted/songdata-updater">songdata-updater</a> をご利用ください。</strong></p>
 <p>beatoraja 連携では beatoraja ディレクトリを指定します。直下の <code>config_sys.json</code> から <code>tablepath</code> と <code>playerpath</code> を読み取り、スコア読み込みでは選択したプレイヤーフォルダの <code>score.db</code> を使います。</p>
 <h5 id="難易度表の一元管理table-url-インポート--bmt-出力">難易度表の一元管理（Table URL インポート / .bmt 出力）</h5>
-<div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p>
-<p>BeMusicSeeker と beatoraja の両方で同じ難易度表をダウンロード・更新すると、処理時間と管理対象が重複します。
-Table URL インポートと <code>.bmt</code> 出力は、難易度表を BeMusicSeeker 側で一元管理し、beatoraja には BeMusicSeeker が出力した <code>.bmt</code> キャッシュを読み込ませるための機能です。</p>
-</div>
+<div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p>BeMusicSeeker と beatoraja の両方で同じ難易度表をダウンロード・更新すると、処理時間と管理対象が重複します。
+Table URL インポートと <code>.bmt</code> 出力は、難易度表を BeMusicSeeker 側で一元管理し、beatoraja には BeMusicSeeker が出力した <code>.bmt</code> キャッシュを読み込ませるための機能です。</p></div>
 <p><code>beatoraja の Table URL をインポートする</code> を押すと、beatoraja のリソースタブで <code>Table URL</code> に登録済みの難易度表を BeMusicSeeker のプレイリストとして取り込みます。既に同じ URL のプレイリストがある場合は再読み込みせず、<code>BMT SORT</code> への反映だけを行います。新規 URL は通常の <code>URLを指定して読み込む</code> と同じように読み込み、外部から読み込めない場合は beatoraja の <code>tablepath</code> 配下にある <code>.bmt</code> キャッシュから復元を試みます。復元時も BeMusicSeeker 側の正本 URL は <code>config_sys.json</code> の <code>tableURL</code> に書かれていた文字列です。インポートに成功した難易度表と既存一致した難易度表は <code>tableURL</code> の並び順で <code>BMT SORT</code> 先頭へ配置され、BeMusicSeeker にのみ存在するプレイリストは現在の <code>BMT SORT</code> 順を保って最後尾へ移動します。</p>
 <p><code>.bmtを出力する</code> を有効にする前に Table URL をインポートしておくと、beatoraja の選曲画面での難易度表の並びを維持しやすくなり、beatoraja 側で難易度表をリロードする必要も少なくなります。未取り込みの Table URL がある状態で <code>.bmtを出力する</code> を ON にすると、この案内が表示されます。</p>
 <p><code>.bmtを出力する(難易度表読み込み互換処理)</code> を有効にすると、プレイリストサマリーの <code>BMT OUTPUT</code> が ON のプレイリストを beatoraja が読み込める <code>.bmt</code> キャッシュとして <code>config_sys.json</code> の <code>tablepath</code> 配下へ出力します。これは beatoraja 側の level 集約処理が重く、難易度表読み込みで遅延する環境向けの互換処理です。外部同期表は元の難易度表 URL、ローカルプレイリストは <code>bemusicseeker://playlist/{playlist_id}</code> を使って <code>.bmt</code> の保存名を決めます。出力先直下には BeMusicSeeker 管理用の <code>.bemusicseeker-bmt-manifest</code> が作られ、設定変更や再出力時の cleanup では、この manifest に記録された <code>.bmt</code> だけを削除対象にします。起動時などの全体確認では、manifest と実ファイルの更新日時・サイズ、プレイリストの hash / 更新日時が一致する <code>.bmt</code> は再生成を省略します。<code>BMT OUTPUT</code> を OFF にしたプレイリストの <code>.bmt</code> は削除対象になります。</p>
@@ -699,6 +725,7 @@ Table URL インポートと <code>.bmt</code> 出力は、難易度表を BeMus
 <h3 id="外観">外観</h3>
 <p><img alt="設定 外観" src="img/設定_外観.PNG"/></p>
 <p>テーマや表示に関わる設定を変更します。外観変更は基本的にライブラリ再構築を必要としません。</p>
+<p>一覧の外観設定では、ライブラリ一覧、プレイリスト詳細、プレイログ、プレイリストサマリーで共通して使う一覧表示を調整できます。フォントサイズ、行の高さ、ヘッダーの高さを変更できます。既定値はフォントサイズ <code>11</code>、行の高さ <code>19</code>、ヘッダーの高さ <code>22</code> です。</p>
 <h3 id="再生">再生</h3>
 <p><img alt="設定 再生" src="img/設定_再生.PNG"/></p>
 <p>譜面を再生するプレイヤーを選択します。内蔵プレイヤーは音声のみの簡易再生用です。uBMplay、BMIIDXView2015、LR2 など外部プレイヤーを使う場合は、実行ファイルのパスを指定します。</p>
@@ -712,11 +739,16 @@ Table URL インポートと <code>.bmt</code> 出力は、難易度表を BeMus
 <h3 id="プレイリスト設定">プレイリスト設定</h3>
 <p><img alt="設定 プレイリスト" src="img/設定_プレイリスト.PNG"/></p>
 <p>カスタムフォルダ出力先、難易度表リスト取得 URI、MD5-URL マッピング TSV 取得 URI、URL1/URL2 補完設定を変更します。</p>
-<p><code>通常出力先</code> には、プレイリストに対応する通常のカスタムフォルダが出力されます。LR2 連携モードでは必要な LR2 BMS ルート登録が保存時や起動時修復で同期され、従来版との互換性のため内部的には楽曲検索対象にも含まれます。ただし本来は楽曲インストール先として想定しない場所のため、一般タブの BMS ディレクトリ一覧、インストールタブの新規インストール先候補、ライブラリツリーのフォルダノードには表示されません。新しく通常出力先を選ぶ場合、LR2 に既に登録されている BMS ルートと同じ場所、または親子関係になる場所は指定できません。
-<code>追加通常出力先</code> には、プレイリストごとに選べる通常出力先を登録できます。登録名は出力先フォルダ名そのもので、プレイリストサマリーの <code>OUTPUT</code> 列やプロパティ画面ではこの名前で選択します。LR2 連携モードでは LR2 の <code>&lt;jukebox&gt;</code> に同期されますが、本アプリでは楽曲検索対象やインストール先としては扱わず、BeMusicSeeker 管理のカスタムフォルダ出力先として扱います。他のカスタムフォルダ出力先と同じ場所、または親子関係になる場所は指定できません。追加出力先を削除する場合、その出力先を使っているプレイリストは通常出力先へ戻ります。
-<code>ルートフォルダ出力先</code> には、プレイリストのプロパティで <code>ルートフォルダにする</code> を有効にしたものが出力されます。選曲画面のルートに表示されるため、よく使う表へ素早くアクセスできます。</p>
-<p>追加通常出力先またはルートフォルダ出力先に、LR2 に既に登録されている BMS ルートと同じ場所、または親子関係になる場所を指定すると、保存時に確認が表示されます。続行すると、その場所は通常楽曲の検索先ではなく BeMusicSeeker のカスタムフォルダ出力管理下として扱われます。出力更新やクリーンアップで既存ファイルが削除される場合があるため、重要なデータを置かないでください。以前 BeMusicSeeker で使っていた出力先を、新しくダウンロードした本アプリで再登録する場合は、この確認を承認して採用できます。</p>
+<h4 id="カスタムフォルダ出力先">カスタムフォルダ出力先</h4>
+<p>LR2 連携モードでは、プレイリストを LR2 のカスタムフォルダとして出力できます。このタブでは、BeMusicSeeker が出力するカスタムフォルダの置き場を決めます。</p>
+<p><code>通常出力先</code> は、本アプリで作成するプレイリストの既定の出力先です。特に出力先を分けないプレイリストはここへ出力されます。LR2 連携モードでは必要な LR2 BMS ルート登録が保存時や起動時修復で同期され、従来版との互換性のため内部的には楽曲検索対象にも含まれます。ただし本来は楽曲インストール先として想定しない場所のため、一般タブの BMS ディレクトリ一覧、インストールタブの新規インストール先候補、ライブラリツリーのフォルダノードには表示されません。新しく通常出力先を選ぶ場合、LR2 に既に登録されている BMS ルートと同じ場所、または親子関係になる場所は指定できません。</p>
+<p><code>追加通常出力先</code> は、プレイリストごとに選べる追加の出力先です。主要難易度表、差分作家表、個人作成表、イベント表のようにジャンルごとのフォルダを作り、プレイリストを振り分けたい場合に使います。登録名は出力先フォルダ名そのもので、プレイリストサマリーの <code>OUTPUT</code> 列やプロパティ画面ではこの名前で選択します。LR2 連携モードでは LR2 の <code>&lt;jukebox&gt;</code> に同期されますが、本アプリでは楽曲検索対象やインストール先としては扱わず、BeMusicSeeker 管理のカスタムフォルダ出力先として扱います。他のカスタムフォルダ出力先と同じ場所、または親子関係になる場所は指定できません。追加出力先を削除する場合、その出力先を使っているプレイリストは通常出力先へ戻ります。</p>
+<p><code>ルートフォルダ出力先</code> は、プレイリストのプロパティで <code>ルートフォルダにする</code> を有効にしたものの出力先です。LR2 の選曲画面のルートに表示されるため、よく使う表へ素早くアクセスしたい場合に使います。</p>
+<p><code>出力フォルダ既定値</code> は、新しく作成するローカルプレイリストと、外部 URL から新規追加する表で最初に有効にする出力フォルダ種別を決めます。既存プレイリストには影響しません。作成後のプレイリストは、プロパティまたはプレイリストサマリーの <code>一括変更...</code> から個別に変更できます。</p>
+<div class="markdown-alert markdown-alert-tip"><p class="markdown-alert-title">Tip</p><p>表を普段の置き場ごとに整理したい場合は <code>追加通常出力先</code>、特によく使う表を選曲画面の最初の階層に出したい場合は <code>ルートフォルダ出力先</code> を使います。プレイリストごとの <code>OUTPUT</code> や <code>ルートフォルダにする</code> は、プロパティまたはプレイリストサマリーの <code>一括変更...</code> から設定できます。</p></div><div class="markdown-alert markdown-alert-caution"><p class="markdown-alert-title">Caution</p><p>追加通常出力先またはルートフォルダ出力先に、LR2 に既に登録されている BMS ルートと同じ場所、または親子関係になる場所を指定すると、保存時に確認が表示されます。続行すると、その場所は通常楽曲の検索先ではなく BeMusicSeeker のカスタムフォルダ出力管理下として扱われます。出力更新やクリーンアップで既存ファイルが削除される場合があるため、重要なデータを置かないでください。以前 BeMusicSeeker で使っていた出力先を、新しくダウンロードした本アプリで再登録する場合は、この確認を承認して採用できます。</p></div>
+<h4 id="プレイログ-folder-表示プリセット">プレイログ FOLDER 表示プリセット</h4>
 <p><code>プレイログ FOLDER 表示プリセット</code> では、プレイログ画面右上のドロップダウンメニューに表示するプレイリストセットを作成できます。<code>追加</code> または <code>編集</code> を押すと別ウィンドウが開き、プリセット名と対象プレイリストを複数選択できます。ここで作成したプリセットは、プレイログの絞り込みや FOLDER 列の表示補正に使います。</p>
+<h4 id="url-補完">URL 補完</h4>
 <p>URL 補完については <a href="#url1url2-補完">URL1/URL2 補完</a> を参照してください。</p>
 <h3 id="インストール">インストール</h3>
 <p><img alt="設定 インストール" src="img/設定_インストール.PNG"/></p>
@@ -998,7 +1030,7 @@ Table URL インポートと <code>.bmt</code> 出力は、難易度表を BeMus
 <li><code>ゼロノート検索</code>: <code>ゼロノート記述確認</code> を実行できます。</li>
 <li><code>重複ファイルチェック</code> のフォルダ: <code>エクスプローラで開く</code>、<code>マージ先</code> を実行できます。重複フォルダマージについては <a href="#重複フォルダをマージする">重複フォルダをマージする</a> を参照してください。</li>
 </ul>
-<p>列ヘッダーの右クリックメニューでは、表示する列を切り替えたり、列設定を初期値へ戻したりできます。プレイリストサマリーにも専用の列表示メニューがあります。</p>
+<p>列ヘッダーの右クリックメニューでは、表示する列を切り替えたり、列設定を初期値へ戻したりできます。プレイリストサマリーにも専用の列表示メニューと列設定初期化があります。</p>
 <h3 id="その他のポップアップメニュー">その他のポップアップメニュー</h3>
 <p>右クリックではありませんが、画面上部のボタンから開くメニューもあります。</p>
 <ul>
@@ -1029,7 +1061,7 @@ playlist:"Satellite Sub"
 <p>BeMusicSeeker では、導入済みの難易度表や独自プレイリストを <code>プレイリスト</code> として管理できます。プレイリストには、全体の所持状況を一覧するサマリー表示と、各譜面を確認する詳細表示があります。</p>
 <h3 id="プレイリストサマリー">プレイリストサマリー</h3>
 <p><img alt="プレイリストサマリー" src="img/一覧_プレイリストサマリー.PNG"/></p>
-<p>プレイリストサマリーでは、各プレイリストの譜面数、所持数、未所持数、所持率、外部同期の状態、beatoraja <code>.bmt</code> 出力設定を一覧できます。</p>
+<p>プレイリストサマリーでは、各プレイリストの譜面数、所持数、未所持数、所持率、外部同期の状態、beatoraja <code>.bmt</code> 出力設定を一覧できます。<code>NAME</code>、<code>PREFIX</code>、<code>SYMBOL</code> はセルをクリックして編集でき、編集欄は通常セルと同じ行高・角のない表示でセル内に表示されます。保存時はプレイリストのプロパティ画面で OK を押したときと同じ保存処理が行われます。既定では非表示の <code>FOLDER NAME</code> 列を表示すると、プレイリストプロパティの「フォルダ名」を一覧から編集できます。フォルダ名が未設定の場合はプレイリスト名由来のフォルダ名を表示し、未定義メタデータと同じ背景色で示します。既定では非表示の <code>HEADER</code>、<code>DATA</code> 列を表示すると、相対 URI も解決したヘッダ URI とデータ URI を開けます。</p>
 <p>右上の検索欄から、所持率フィルタ: <code>All</code>、<code>OWNED=100%</code>、<code>OWNED&lt;100%</code> を切り替えることができます。</p>
 <p>未所持譜面が増えた表を見つけたら、<strong>行をダブルクリックすると対象のプレイリスト詳細へ移動できます。</strong></p>
 <p><code>STATUS</code> 列には、起動後またはリロード時に行われた外部プレイリスト同期の結果が表示されます。リンク切れ、ヘッダ取得失敗、データ取得失敗などはここで確認できます。詳細はツールチップに表示されます。</p>
@@ -1041,7 +1073,7 @@ playlist:"Satellite Sub"
 <p><code>OUTPUT</code> は通常出力先または追加通常出力先の選択です。<code>ルートフォルダにする</code> が ON のプレイリストでも保存値は更新されますが、実際の出力先はルートフォルダ出力先が優先されます。</p>
 <p>カスタムフォルダ出力種別は、チェックありが出力、チェックなしが非出力、中間状態が変更なしです。カスタムフォルダ出力種別の一括適用中はステータスバーに進捗が表示され、<code>.bmt</code> は再生成されません。</p>
 <p>外部同期を ON にした場合、URL 情報が不足しているプレイリストは警告なしで OFF のままになります。</p>
-<p>外部データでの初期化では、外部同期フラグに関係なく外部 URL を読み込み、チェックした項目だけを初期値へ戻します。外部 URL が読めないプレイリストはスキップされます。</p>
+<p>外部データでの初期化では、外部同期フラグに関係なく外部 URL を読み込み、チェックした項目だけを初期値へ戻します。外部 URL が読めないプレイリストはスキップされます。適用中は外部データ取得、保存、カスタムフォルダ出力の進捗がステータスバーに表示されます。</p>
 <ul>
 <li>プレイリスト名: 外部データの表名で初期化します。</li>
 <li>記号: 外部データの symbol で初期化します。</li>
@@ -1069,7 +1101,7 @@ playlist:"Satellite Sub"
 <li><code>プレイリストの削除</code>: 対象プレイリストを BeMusicSeeker の管理対象から削除します。実行前に確認ダイアログが表示されます。</li>
 <li><code>プロパティ</code>: プレイリスト名、表示記号、外部同期、URI、フォルダ出力などを編集します。</li>
 </ul>
-<p>外部同期ではないプレイリストでは、一覧からプレイリスト本体またはフォルダへ譜面行をドラッグアンドドロップして追加できます。プレイリスト詳細内の行を別フォルダへドラッグすると、同じプレイリスト内でフォルダ間移動できます。フォルダ型のプレイリストにルートへドロップした場合は、既存フォルダの内容や同じ曲の MD5 情報を参考にしてフォルダが選ばれ、必要に応じて新しいフォルダが作成されます。</p>
+<p>外部同期ではないプレイリストでは、一覧からプレイリスト本体またはフォルダへ譜面行をドラッグアンドドロップして追加できます。プレイログ一覧の行も、所持譜面へ解決できている行であれば同じように追加できます。プレイリスト詳細内の行を別フォルダへドラッグすると、同じプレイリスト内でフォルダ間移動できます。フォルダ型のプレイリストにルートへドロップした場合は、既存フォルダの内容や同じ曲の MD5 情報を参考にしてフォルダが選ばれ、必要に応じて新しいフォルダが作成されます。</p>
 <h3 id="外部プレイリストのインポート">外部プレイリストのインポート</h3>
 <p><img alt="プレイリストインポート メニュー" src="img/プレイリストインポート_ツリーコンテキストメニュー.PNG"/></p>
 <p>プレイリストツリーのルートを右クリックし、<code>インポート</code> から外部プレイリストを追加できます。登録済みの外部表リストから選ぶほか、URI を指定して読み込むこともできます。</p>
@@ -1081,42 +1113,103 @@ playlist:"Satellite Sub"
 <h3 id="プレイリストのプロパティ">プレイリストのプロパティ</h3>
 <p>プレイリストを右クリックして <code>プロパティ</code> を開くと、プレイリスト名、表示記号、外部同期設定、ページ URI、ヘッダ URI、データ URI を確認・編集できます。</p>
 <p>プレイリスト名やフォルダ設定などのプロパティは、スタンドアローンモードでもアプリ内 DB に保存されます。LR2 連携モードでのみ、保存後に LR2 用カスタムフォルダ出力も更新されます。</p>
+<div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p>フォルダ接頭辞はローカル設定として保存されます。外部同期プレイリストでも、プロパティやプレイリストサマリーで変更したフォルダ接頭辞は、通常のリロードでは外部データの値に戻りません。外部データの初期値へ戻したい場合は、プレイリストサマリーの <code>一括変更...</code> から <code>外部データで初期化</code> を実行してください。</p></div>
 <p><img alt="プレイリストプロパティ 一般" src="img/プレイリストプロパティ_一般.PNG"/></p>
 <p><code>フォルダ</code> タブでは、フォルダ内ソートのキーと昇順 / 降順、フォルダの並び順を設定できます。外部同期プレイリストでは、同期元と衝突する項目の編集が制限されます。</p>
 <p><img alt="プレイリストプロパティ フォルダ" src="img/プレイリストプロパティ_フォルダ.PNG"/></p>
 <p><code>カスタムフォルダ</code> タブでは、出力するフォルダ種別、<code>OUTPUT</code>、出力名を設定できます。</p>
 <p><img alt="プレイリストプロパティ カスタムフォルダ" src="img/プレイリストプロパティ_カスタムフォルダ.PNG"/></p>
 <h3 id="カスタムフォルダ出力">カスタムフォルダ出力</h3>
-<p>LR2 連携モードでは、プレイリストを LR2 のカスタムフォルダとして出力できます。</p>
-<p>設定画面の <code>プレイリスト</code> タブで通常出力先、追加通常出力先、ルートフォルダ出力先を指定します。
-プレイリストの <code>プロパティ</code> から、<code>OUTPUT</code>、出力名、<code>ルートフォルダにする</code>、出力するフォルダ種別を設定します。<code>OUTPUT</code> は設定画面の <code>通常出力先</code> または <code>追加通常出力先</code> から選びます。<code>ルートフォルダにする</code> が ON の間も <code>OUTPUT</code> の保存値は保持されますが、実際の出力先はルートフォルダ出力先です。複数プレイリストの <code>OUTPUT</code>、出力種別、<code>ルートフォルダにする</code> は、プレイリストサマリーの <code>一括変更...</code> から選択行へ一括適用できます。</p>
-<p>出力先には重要なデータを置かず、通常出力先、追加通常出力先、ルートフォルダ出力先はそれぞれ別の場所を指定してください。通常出力先は楽曲検索対象にもなりますが、出力時は各プレイリスト出力フォルダ配下の <code>.lr2folder</code> を BeMusicSeeker 管理ファイルとして書き直し、不要になったものを削除します。OUTPUT やルートフォルダ設定を変更した場合、変更前のプレイリスト出力フォルダは管理領域としてフォルダごと削除されます。通常出力先やルートフォルダ出力先の直下にある別フォルダは触りませんが、プレイリスト出力フォルダ内に手作業の LR2 カスタムフォルダや他のファイルを同居させると削除されます。BeMusicSeeker 専用の空フォルダを用意することをおすすめします。</p>
-<p>出力できる主なフォルダ種別:</p>
+<p>LR2 連携モードでは、プレイリストを LR2 のカスタムフォルダとして出力できます。LR2 のカスタムフォルダは、SQL 条件で曲の集合を作り、実ファイルを移動せずに仮想的なフォルダとして選曲画面へ表示する機能です。</p>
+<p>BeMusicSeeker では、難易度表やローカルプレイリストをこの形式で出力します。難易度表の <code>★1</code>、<code>★2</code> のようなフォルダを LR2 上で選ぶ、未プレイだけを探す、よく使う表を選曲画面のルートに置く、といった使い方を想定しています。</p>
+<h4 id="設定の流れ">設定の流れ</h4>
+<ol>
+<li>設定画面の <code>プレイリスト</code> タブで、<code>通常出力先</code>、必要に応じて <code>追加通常出力先</code> と <code>ルートフォルダ出力先</code> を指定します。新規プレイリストや外部 URL から追加する表の初期状態を変えたい場合は、<code>出力フォルダ既定値</code> も設定します。</li>
+<li>プレイリストの <code>プロパティ</code> から、<code>OUTPUT</code>、出力名、<code>ルートフォルダにする</code>、出力するフォルダ種別を設定します。</li>
+<li>複数プレイリストをまとめて変更する場合は、プレイリストサマリーの <code>一括変更...</code> から <code>OUTPUT</code>、出力種別、<code>ルートフォルダにする</code> を選択行へ一括適用します。</li>
+</ol>
+<p><code>OUTPUT</code> は設定画面の <code>通常出力先</code> または <code>追加通常出力先</code> から選びます。<code>ルートフォルダにする</code> が ON の間も <code>OUTPUT</code> の保存値は保持されますが、実際の出力先は <code>ルートフォルダ出力先</code> です。ルートフォルダ設定を OFF にすると、保存されていた <code>OUTPUT</code> の出力先へ戻ります。</p>
+<div class="markdown-alert markdown-alert-important"><p class="markdown-alert-title">Important</p><p>LR2 用カスタムフォルダの出力は LR2 連携モードの機能です。スタンドアローンモードでもプレイリスト名やフォルダ設定はアプリ内 DB に保存されますが、LR2 用の <code>.lr2folder</code> 出力は更新されません。</p></div>
+<h4 id="出力先の使い分け">出力先の使い分け</h4>
 <ul>
-<li>ユーザー定義</li>
-<li>レベル</li>
-<li>アルファベット</li>
-<li>クリア</li>
-<li>DJ レベル</li>
-<li>カテゴリ ALL</li>
-<li>その他</li>
-<li>ランダム</li>
-<li>BPM 順</li>
-<li>BP 順</li>
-<li>プレイ回数順</li>
-<li>最終プレイ順</li>
+<li><code>通常出力先</code>: プレイリストの既定の出力先です。特に振り分けない表をまとめて置きます。</li>
+<li><code>追加通常出力先</code>: 表のジャンルごとに置き場を分けたい場合に使います。たとえば主要難易度表、差分作家表、個人作成表、イベント表を別フォルダにできます。</li>
+<li><code>ルートフォルダ出力先</code>: <code>ルートフォルダにする</code> を有効にしたプレイリストの出力先です。LR2 の選曲画面ルートに表示されるため、よく使う表へ素早くアクセスできます。</li>
 </ul>
-<p>ユーザー定義では、プレイリスト全体をまとめた <code>ALL</code> と、プレイリスト内フォルダ別の <code>.lr2folder</code> が出力されます。クリア / DJ レベルは状態別のサブフォルダに <code>ALL</code> とフォルダ別の <code>.lr2folder</code> を出します。ランダムを有効にすると、ユーザー定義、レベル、クリア、DJ レベルに <code>#MAXTRACKS 1</code> の RANDOM 版が追加されます。同じ場所に出る通常版と RANDOM 版は、通常版が先、RANDOM 版が後ろにまとまる順番で出力されます。クリア状態別フォルダは LR2 の TITLE 順表示でも状態順に並ぶよう、<code>0 NO PLAY</code> から <code>7 P.A</code> までの番号付きフォルダ名になります。BPM 順は <code>chart_info.mainbpm</code>、BP 順は <code>score.minbp</code>、プレイ回数順は <code>score.playcount</code> を使って並び替えます。最終プレイ順はプレイログ機能が LR2 <code>score.db</code> に作成する <code>bms_lr2_last_play</code> を使い、最後にプレイした日時の新しい順に並び替えます。LR2 / OpenLR2 がカスタムフォルダを開くときに DB を参照するため、曲をプレイした後に <code>.lr2folder</code> を再出力しなくても並び順は更新されます。プレイログ用 schema が未導入でも最終プレイ順のカスタムフォルダは出力されますが、参照先の <code>bms_lr2_last_play</code> が無いため、LR2 / OpenLR2 上で利用するにはプレイログ用 schema の導入が必要です。</p>
-<p>ルートフォルダにしたプレイリストは LR2 の選曲画面ルートに表示されます。よく使う表へ素早くアクセスしたい場合に便利です。</p>
-<blockquote>
-<p>他にもいろいろなカスタムフォルダの形式が考えられますが、本アプリでこれ以上種別を増やすと、出力される .lr2folder の数は肥大化し性能に悪影響が出そうです。<a href="https://github.com/Anyoji-bms/LR2FolderGenerator-v1.0.1">カスタムフォルダ出力ツール</a> も存在しますし、今日では各種AIにこんなカスタムフォルダが欲しいという要望をDBのスキーマとともに伝えた方が各自の好みのものが生成できるのでは？という考えもあります。<code>chart_info</code> には各種メタデータ、<code>chart_digest_map</code> には BMS の MD5/SHA256 のマッピング、<code>playlist_entry</code> には SHA256 カラムを追加しているという状況なので工夫次第で色々なフォルダが作れると思います。</p>
-</blockquote>
+<div class="markdown-alert markdown-alert-warning"><p class="markdown-alert-title">Warning</p><p>カスタムフォルダ出力先には重要なデータを置かないでください。通常出力先、追加通常出力先、ルートフォルダ出力先はそれぞれ別の場所を指定し、BeMusicSeeker 専用の空フォルダを用意することをおすすめします。</p><p>出力時は各プレイリスト出力フォルダ配下の <code>.lr2folder</code> を BeMusicSeeker 管理ファイルとして書き直し、不要になったものを削除します。<code>OUTPUT</code> やルートフォルダ設定を変更した場合、変更前のプレイリスト出力フォルダは管理領域としてフォルダごと削除されます。通常出力先やルートフォルダ出力先の直下にある別フォルダは触りませんが、プレイリスト出力フォルダ内に手作業の LR2 カスタムフォルダや他のファイルを同居させると削除されます。</p></div>
+<h4 id="出力するフォルダ種別">出力するフォルダ種別</h4>
+<p><code>カスタムフォルダ</code> タブのチェックボックスで、プレイリストごとにどのフォルダを出力するかを選びます。</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>項目</th>
+<th>出力内容と使い方</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>全曲ALL</code></td>
+<td>プレイリスト全体の譜面を集めた <code>ALL</code> フォルダを出力します。表全体をまとめて開きたい場合や、クリア状態・DJ レベル・各種並び順をプレイリスト全体で見たい場合に使います。</td>
+</tr>
+<tr>
+<td><code>フォルダ別</code></td>
+<td>プレイリスト内フォルダ別の <code>.lr2folder</code> を出力します。<code>★1</code>、<code>★2</code> のように難易度表の記号 + 数値で分かれたフォルダを、表の構成どおりに選びたい場合の基本設定です。フォルダ内の並び順はプレイリストプロパティの <code>フォルダ</code> タブで設定します。</td>
+</tr>
+<tr>
+<td><code>レベル</code></td>
+<td><code>LEVEL 1</code>、<code>LEVEL 2</code> のように、数値レベル別のフォルダを出力します。表の記号に関係なく、数値レベルでまとめて探したい場合に使います。レベルがない譜面が含まれる場合は <code>LEVEL ???</code> も出力されます。</td>
+</tr>
+<tr>
+<td><code>アルファベット別ALL</code></td>
+<td>曲名の先頭文字を <code>A.B.C.D.</code> などの範囲に分け、プレイリスト全体を対象にした ALL フォルダを出力します。曲名から探したい場合に使います。英字範囲に入らない曲は <code>OTHERS</code> に入ります。</td>
+</tr>
+<tr>
+<td><code>クリア</code></td>
+<td>クリア状態別のフォルダを出力します。<code>0 NO PLAY</code> から <code>7 P.A</code> までの番号付きフォルダ名にしているため、LR2 の TITLE 順表示でも状態順に並びます。出力範囲は <code>全曲ALL</code> と <code>フォルダ別</code> の選択に従います。</td>
+</tr>
+<tr>
+<td><code>DJ レベル</code></td>
+<td><code>AAA</code>、<code>AA</code>、<code>A</code>、<code>UNDER A</code> に分けたフォルダを出力します。スコア詰めの対象を探すときに使います。出力範囲は <code>全曲ALL</code> と <code>フォルダ別</code> の選択に従います。</td>
+</tr>
+<tr>
+<td><code>譜面カテゴリ別ALL</code></td>
+<td><code>ALL LONG NOTES</code>、<code>ALL VERY HARD JUDGES</code>、<code>ALL HARD JUDGES</code>、<code>ALL NORMAL JUDGES</code>、<code>ALL EASY JUDGES</code> など、カテゴリ条件に一致する譜面を集めた ALL フォルダを出力します。LN や判定難易度の観点でまとめて探したい場合に使います。</td>
+</tr>
+<tr>
+<td><code>補助フォルダ</code></td>
+<td><code>MY BEST</code>、<code>NEW SONGS</code>、<code>REMOVED SONGS</code> などの補助的なフォルダを出力します。LR2IR スコア取得と未送信検出が有効な場合は <code>UNSENT SONGS</code> も出力されます。</td>
+</tr>
+<tr>
+<td><code>ランダム</code></td>
+<td>単独のフォルダ種別ではなく、<code>全曲ALL</code>、<code>フォルダ別</code>、<code>レベル</code>、<code>クリア</code>、<code>DJ レベル</code> に <code>#MAXTRACKS 1</code> の RANDOM 版を追加します。同じ場所に出る通常版と RANDOM 版は、通常版が先、RANDOM 版が後ろにまとまる順番で出力されます。</td>
+</tr>
+<tr>
+<td><code>BPM 順</code></td>
+<td><code>chart_info.mainbpm</code> を使い、BPM 昇順で並べたフォルダを出力します。BPM から練習対象を選びたい場合に使います。出力範囲は <code>全曲ALL</code> と <code>フォルダ別</code> の選択に従います。</td>
+</tr>
+<tr>
+<td><code>BP 順</code></td>
+<td><code>score.minbp</code> を使い、BP が少ない順に並べたフォルダを出力します。BP 詰めの優先順を見たい場合に使います。出力範囲は <code>全曲ALL</code> と <code>フォルダ別</code> の選択に従います。</td>
+</tr>
+<tr>
+<td><code>プレイ回数順</code></td>
+<td><code>score.playcount</code> を使い、プレイ回数が多い順に並べたフォルダを出力します。よく触っている譜面を確認したい場合に使います。出力範囲は <code>全曲ALL</code> と <code>フォルダ別</code> の選択に従います。</td>
+</tr>
+<tr>
+<td><code>最終プレイ順</code></td>
+<td>プレイログ機能が LR2 <code>score.db</code> に作成する <code>bms_lr2_last_play</code> を使い、最後にプレイした日時の新しい順に並べたフォルダを出力します。最近触った譜面へ戻りたい場合に使います。出力範囲は <code>全曲ALL</code> と <code>フォルダ別</code> の選択に従います。</td>
+</tr>
+</tbody>
+</table></div>
+<p><code>全曲ALL</code> はプレイリスト全体の出力範囲、<code>フォルダ別</code> はプレイリスト内フォルダごとの出力範囲を追加します。<code>クリア</code>、<code>DJ レベル</code>、<code>BPM 順</code>、<code>BP 順</code>、<code>プレイ回数順</code>、<code>最終プレイ順</code> は、この 2 つの範囲設定に従って <code>.lr2folder</code> を出力します。</p>
+<div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p><code>クリア</code> の <code>2 ASSIST</code> は、アシスト系オプションを使って EASY クリアランプが付いた譜面を分けるためのフォルダです。この状態では LR2 上のクリアランプは EASY 相当になりますが、EASY ゲージでクリアした履歴は残らないため、<code>3 EASY</code> とは別に検出しています。</p></div><div class="markdown-alert markdown-alert-note"><p class="markdown-alert-title">Note</p><p>LR2 / OpenLR2 はカスタムフォルダを開くときに DB を参照します。クリア状態、DJ レベル、BP、プレイ回数などは、曲をプレイした後に <code>.lr2folder</code> を再出力しなくても、DB が更新されていれば反映されます。</p></div><div class="markdown-alert markdown-alert-important"><p class="markdown-alert-title">Important</p><p><code>最終プレイ順</code> は、プレイログ機能が LR2 <code>score.db</code> に作成する <code>bms_lr2_last_play</code> を参照します。プレイログ用 schema が未導入でも最終プレイ順のカスタムフォルダ自体は出力されますが、LR2 / OpenLR2 上で利用するにはプレイログ用 schema の導入が必要です。</p></div><div class="markdown-alert markdown-alert-tip"><p class="markdown-alert-title">Tip</p><p>出力する <code>.lr2folder</code> の数が増えると LR2 側の表示や DB 参照が重くなる場合があります。最初は <code>全曲ALL</code>、<code>フォルダ別</code> と必要な数種類だけを有効にし、使わない分類は OFF にしておくと管理しやすくなります。</p></div>
 <h3 id="url1url2-補完">URL1/URL2 補完</h3>
-<p>プレイリストの <code>URL1</code> / <code>URL2</code> が空の場合、MD5 をもとに外部 TSV や Stella Uploader 由来の情報から URL を補完できます。</p>
+<p>プレイリストの <code>URL1</code> / <code>URL2</code> が空の場合、または既知のリンク切れサイトを指している場合、MD5 をもとに外部 TSV や Stella Uploader 由来の情報から URL を補完できます。</p>
+<p>既知のリンク切れサイトは、<code>gnqg.rosx.net</code> または <code>absolute.pv.land.to</code> を含む URL として判定します。HTTP/HTTPS の表記ゆれや web.archive.org 経由の URL も同じく補完対象として扱います。補完データがない場合、元の URL はそのまま残ります。</p>
 <p>補完結果はまず実行中の表示情報として扱われます。ローカルプレイリストで行編集を保存した場合のみ、補完値もプレイリストに保存されます。外部同期プレイリストの編集制限は維持されます。</p>
 <p>設定画面の <code>プレイリスト</code> タブで、以下を設定できます。</p>
 <ul>
-<li>プレイリストの URL1/URL2 が空の場合補完を試みる</li>
+<li>プレイリストの URL1/URL2 が空または既知のリンク切れサイトの場合補完を試みる</li>
 <li>空ではない URL1/URL2 も補完機能で上書きする</li>
 <li>MD5-URL マッピング TSV 取得 URI</li>
 <li>Stella Uploader (Full) のデータで URL1/URL2 を補完する</li>
@@ -1149,7 +1242,7 @@ playlist:"Satellite Sub"
 <h3 id="保留">保留</h3>
 <p><img alt="インストール 保留" src="img/一覧_インストール_保留.PNG"/></p>
 <p><code>保留</code> には、まだ導入前のパッケージが表示されます。推定された導入先の確認、手動導入先指定、インストール、一覧から削除、ごみ箱へ移動などを行います。</p>
-<p><code>一覧から削除</code> は表示上の保留行を取り除く操作です。実ファイルを消したい場合は右クリックメニューの <code>ファイル削除</code> → <code>ごみ箱へ移動</code> を使います。保留パッケージでは、フォルダごと削除するチェックが有効な場合でも、そのパッケージ内の譜面行がすべて選択対象に含まれているときだけ、パッケージフォルダ全体がごみ箱へ移動されます。複数行選択時は選択範囲すべてに同じ方針が適用され、対象フォルダごとの個別確認は出ないため、対象をよく確認してください。</p>
+<p><code>一覧から削除</code> は表示上の保留行を取り除く操作です。通常のユーザーフォルダや手動で指定した元アーカイブを消したい場合は、右クリックメニューの <code>ファイル削除</code> → <code>ごみ箱へ移動</code> を使います。URL 取り込みなどで作成されたアプリ管理の一時パッケージは、一覧から削除すると一時ファイルも削除される場合があります。保留パッケージでは、フォルダごと削除するチェックが有効な場合でも、そのパッケージ内の譜面行がすべて選択対象に含まれているときだけ、パッケージフォルダ全体がごみ箱へ移動されます。複数行選択時は選択範囲すべてに同じ方針が適用され、対象フォルダごとの個別確認は出ないため、対象をよく確認してください。</p>
 <p>保留に入った譜面は、既所持譜面の hash、フォルダ構成、譜面が参照している WAV / BGA / 動画 / 画像、同梱リソース、タイトル / アーティストなどを使って導入先を推定します。推定結果は主に次の列に表示されます。</p>
 <ul>
 <li><code>INSTL DST</code>: 実際に導入する候補ディレクトリ。</li>
@@ -1263,9 +1356,10 @@ playlist:"Satellite Sub"
 <p>プレイログ行では、SCORE、BEST DJ、BEST RATE、BP、COMBO、CLEAR の best 更新を <code>old -&gt; new</code> の遷移で表示します。CLEAR は <code>NP</code>、<code>EASY</code>、<code>NORMAL</code>、<code>HARD</code>、<code>EXH</code>、<code>FC</code> などの短縮形で表示し、CLEAR と BEST DJ は未選択行では更新元、矢印、更新先をそれぞれ別色で表示します。初回 BP は値だけを表示します。<code>TYPE</code> は <code>score bp clear</code> のように複数の更新種別を持つことがあり、<code>play</code> は他の更新種別が無い場合だけ表示されます。LR2 の <code>OP HISTORY</code> は新しく達成されたオプション履歴を名前で表示します。</p>
 <p>beatoraja では best が更新された行だけが表示されます。更新が無かったプレイや途中終了したプレイは一覧行にはなりません。</p>
 <h3 id="表示対象と-folder">表示対象と FOLDER</h3>
-<p>プレイログ右上のドロップダウンメニューでは、表示対象と FOLDER 列の投影方法を切り替えられます。<code>すべて</code> は期間ツリーで選んだ範囲の履歴を全件表示します。<code>プリセット: &lt;名前&gt;</code> は、設定画面の <code>プレイログ FOLDER 表示プリセット</code> で選んだプレイリストに含まれる譜面だけへ絞り込み、FOLDER 列には各プレイリストの表示記号とレベルを表示します。<code>FOLDER: &lt;名前&gt;</code> は行の絞り込みは行わず、期間ツリーと検索欄で選ばれた履歴を残したまま、FOLDER 列だけをそのプリセット基準で表示します。プリセット外の譜面は FOLDER が空欄になります。プレイリスト単体を選んだ場合は、そのプレイリストに含まれる譜面だけへ絞り込み、FOLDER 列にはプレイリスト内フォルダ名を表示します。</p>
+<p>プレイログ右上のドロップダウンメニューでは、表示対象と FOLDER 列の投影方法を切り替えられます。<code>すべて</code> は期間ツリーで選んだ範囲の履歴を全件表示します。<code>プリセット: &lt;名前&gt;</code> は、設定画面の <code>プレイログ FOLDER 表示プリセット</code> で選んだプレイリストに含まれる譜面だけへ絞り込み、FOLDER 列には各プレイリストの表示記号とレベルを表示します。<code>FOLDER: &lt;名前&gt;</code> は行の絞り込みは行わず、期間ツリーと検索欄で選ばれた履歴を残したまま、FOLDER 列だけをそのプリセット基準で表示します。プリセット外の譜面は FOLDER が空欄になります。プレイリスト単体を選んだ場合は、そのプレイリストに含まれる譜面だけへ絞り込み、FOLDER 列にはプレイリスト内フォルダ名を表示します。最後に選んだ表示対象は保存され、次回起動時も同じ項目が利用可能であれば自動的に選択されます。</p>
 <h3 id="右クリックメニュー">右クリックメニュー</h3>
 <p>プレイログの右クリックメニューでは、MD5 が解決できる行は BMS-IR を開けます。SHA-256 が解決できる行は Mocha / MinIR を開け、所持譜面へ解決できる行は Explorer や譜面ビューアで開けます。MD5 と SHA256 もコピーできます。</p>
+<p>所持譜面へ解決できるプレイログ行は、外部同期ではないプレイリスト本体またはフォルダへドラッグアンドドロップして追加できます。未解決行が選択に含まれる場合、そのドラッグはプレイリスト追加としては受け付けられません。</p>
 <h3 id="beatoraja-利用時の注意">beatoraja 利用時の注意</h3>
 <p>beatoraja のプレイログは読み取り専用の更新履歴です。スコア読み込みで選択しているプレイヤーフォルダの <code>scorelog.db</code> を読み、best が更新された SCORE / CLEAR / BP / COMBO の差分を表示します。BEST DJ / BEST RATE は、スコア読み込みで取得済みのノーツ数を使える場合に表示します。<code>scorelog.db</code> が無い場合、beatoraja の更新履歴は表示できません。beatoraja の <code>scoredatalog.db</code> は最新のプレイ詳細を保持する DB であり、プレイごとの履歴としては使いません。</p>
 <p>beatoraja の判定数、プレイ数、演奏時間は単曲行からは計算せず、上部サマリーだけに表示します。これらは beatoraja の <code>score.db</code> にある player 日別累計から、選択中の期間分として計算します。そのため、beatoraja の一覧行数や検索結果件数とは一致しないことがあります。<code>未確定 / 診断</code> は LR2 専用の診断なので、beatoraja ではこれらの期間集計も <code>-</code> になります。</p>
@@ -1280,13 +1374,16 @@ playlist:"Satellite Sub"
 <li>LR2 スコア DB</li>
 <li>BeMusicSeeker <code>config/user.config</code></li>
 <li>スタンドアローンモードの BeMusicSeeker <code>data/song.db</code></li>
-<li>BMS ルートフォルダ</li>
 </ul>
-<h2 id="ログとトラブルシューティング">ログとトラブルシューティング</h2>
+<p>BMS ルートフォルダは容量が大きくなりやすいため、本アプリの操作前に毎回丸ごとバックアップする運用は現実的でない場合があります。ただし、BMS フォルダ自体も SSD 故障、誤削除、整理ミス、同期ソフトの誤動作などから守る必要があるデータです。本アプリとは無関係に、普段使いは SSD、バックアップ先は低速でも容量単価の安い HDD や外付けドライブにするなど、定期的なバックアップを検討してください。</p>
+<p>RAID 1 などのミラーリングはドライブ故障への対策にはなりますが、誤って消したファイルや壊れた状態もすぐ複製されるため、バックアップの代わりにはなりません。差分バックアップや世代管理付きバックアップであれば、初回以降は変更分だけを保存できるため、容量や時間の負担を抑えやすくなります。</p>
+<h2 id="faq--トラブルシューティング">FAQ / トラブルシューティング</h2>
+<h3 id="ログ不具合報告">ログ・不具合報告</h3>
 <p>ログは通常起動で <code>log/application.log</code> と <code>log/install-performance.log</code> に出力されます。初期化、DB 読み込み、ファイルスキャン、プレイリスト同期などの情報も既定で記録されます。</p>
 <p>ログの読み方は <a href="log-level-info-guide.html">BeMusicSeeker ログ（実行記録）の見方ガイド</a> を参照してください。</p>
 <p>ログファイルが大きくなった場合は <code>log/archive/</code> にローテーションされます。不具合報告時は、直近の <code>log/application.log</code> と <code>log/install-performance.log</code> を確認してください。</p>
-<h3 id="起動や初期化が遅い">起動や初期化が遅い</h3>
+<h3 id="起動初期化">起動・初期化</h3>
+<h4 id="起動や初期化が遅い">起動や初期化が遅い</h4>
 <ul>
 <li>Everything 1.5 (x64) が導入されているか確認してください。</li>
 <li>Everything 側で BMS フォルダが検索できるか確認してください。</li>
@@ -1295,14 +1392,31 @@ playlist:"Satellite Sub"
 <li>Everything 連携に失敗して通常のファイル列挙へ fallback する際は、警告ダイアログが表示されます。想定より遅い場合は、<code>log/install-performance.log</code> の <code>everything_scan</code>、<code>nativeBridgeUsed</code>、<code>fallback</code>、<code>managed</code> などの記録を確認してください。</li>
 <li>Everything が正常に検索できた結果、譜面ファイル(BMS / bmson)が 0 件だった場合、または Everything が利用できず通常のファイル列挙へ切り替わった後も譜面ファイルが 0 件だった場合、既存の <code>song.db</code> に楽曲が残っていれば <code>song.db</code> 更新はスキップされ、警告が表示されます。BMS ディレクトリ設定が楽曲のある場所を指しているか、Everything 側でそのフォルダを検索できるかを確認してください。</li>
 </ul>
-<h3 id="プレイリストの-status-が失敗になる">プレイリストの STATUS が失敗になる</h3>
+<h3 id="ダウンロードインストール">ダウンロード・インストール</h3>
+<h4 id="ダウンロード済みファイルや解凍用一時ファイルはどこに置かれますか">ダウンロード済みファイルや解凍用一時ファイルはどこに置かれますか？</h4>
+<p>プレイリスト URL の一括取り込みや外部 API からの本体パッケージ取得では、ダウンロードしたファイルとアーカイブの解凍用一時ファイルを Windows の一時領域に作成します。通常は C ドライブ上の <code>%TEMP%</code> 配下で、BeMusicSeeker 管理の一時領域として扱われます。大量の URL や本体パッケージを取り込む場合は、C ドライブの空き容量に注意してください。</p>
+<h4 id="一時ファイルはいつ削除されますか">一時ファイルはいつ削除されますか？</h4>
+<p>URL 取り込みでダウンロードした一時アーカイブは、展開が成功すると削除されます。展開済みフォルダは、導入処理や保留画面で必要な間は残りますが、不要になったものは処理中またはアプリ終了時に削除されます。強制終了などで残った過去セッションの一時ファイルは、次回起動時にバックグラウンドで削除されます。起動処理はこの削除完了を待ちません。</p>
+<h4 id="保留一覧から削除すると実ファイルも消えますか">保留一覧から削除すると実ファイルも消えますか？</h4>
+<p>通常のユーザーフォルダや手動で指定した元アーカイブは、<code>一覧から削除</code> だけでは削除されません。実ファイルを消す場合は、右クリックメニューの <code>ファイル削除</code> → <code>ごみ箱へ移動</code> を使います。一方、URL 取り込みなどで作られた BeMusicSeeker 管理の一時パッケージは、保留一覧から削除すると一時ファイルも削除される場合があります。</p>
+<h3 id="プレイリスト外部サイト">プレイリスト・外部サイト</h3>
+<h4 id="プレイリストの-status-が失敗になる">プレイリストの STATUS が失敗になる</h4>
 <p>外部難易度表の URL が 404、403、タイムアウトなどを返している場合があります。プレイリストサマリーの <code>STATUS</code> のツールチップ、または <code>log/application.log</code> の <code>playlist_reload_target_failed</code> を確認してください。</p>
 <p>外部サイト側の一時的な問題であれば、時間を置いてリロードしてください。URL が変更されている場合は、プレイリストのプロパティで URI を修正する必要があります。</p>
-<h3 id="lr2-で選曲できない譜面がある">LR2 で選曲できない譜面がある</h3>
+<h3 id="lr2-連携">LR2 連携</h3>
+<h4 id="lr2-で選曲できない譜面がある">LR2 で選曲できない譜面がある</h4>
 <p><code>LR2互換性警告</code> に表示されていないか確認してください。CP932(Shift_JIS) で表現できない譜面パスやリソース定義、長すぎる譜面パスやリソース参照パスを含む譜面は、LR2 側で選曲または再生できない可能性があります。</p>
 <p>LR2 連携モードでは、ステータスバーの <code>LR2 song.db 同期</code> 状態も確認してください。未完了や失敗が残っていると、LR2 側が古い <code>song.db</code> を読んでいる可能性があります。<code>再試行</code> で完了させてから LR2 を起動してください。</p>
 <p>または、設定画面の <code>LR2 song.db データを再同期</code> を実行することも有効な手段です。</p>
-<h3 id="検索構文が分からない">検索構文が分からない</h3>
+<h3 id="プレイログ_1">プレイログ</h3>
+<h4 id="lr2-の過去プレイが表示されません">LR2 の過去プレイが表示されません</h4>
+<p>LR2 プレイログは、プレイログ用 schema を導入した後に LR2 でプレイした履歴だけを記録します。導入前の過去プレイはプレイログ画面には復元できません。</p>
+<h4 id="beatoraja-のプレイログ件数やサマリーが一覧と一致しません">beatoraja のプレイログ件数やサマリーが一覧と一致しません</h4>
+<p>beatoraja の一覧行は best が更新されたプレイだけを表示します。一方、判定数、プレイ数、演奏時間などのサマリーは、選択中の期間に対する player 日別累計から計算します。そのため、一覧の行数や検索結果件数とは一致しないことがあります。</p>
+<h4 id="未確定--診断-とは何ですか"><code>未確定 / 診断</code> とは何ですか？</h4>
+<p>LR2 専用の診断用期間です。LR2 がスコア更新後、プレイヤー情報の更新まで進む前に終了した場合など、1 回のプレイ履歴として一貫しない可能性がある行を表示します。beatoraja の履歴には関係ありません。</p>
+<h3 id="検索_1">検索</h3>
+<h4 id="検索構文が分からない">検索構文が分からない</h4>
 <p><a href="keyword-search-syntax-guide.ja.html">キーワード検索構文ガイド</a> を参照してください。<code>title:</code>、<code>artist:</code>、<code>playlist:</code>、<code>rate:</code> などの field 指定や、除外検索、OR、正規表現、数値範囲検索を使えます。</p>
 <h2 id="参考資料">参考資料</h2>
 <ul>

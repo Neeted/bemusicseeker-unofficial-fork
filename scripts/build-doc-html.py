@@ -318,7 +318,8 @@ ul,
 ol,
 table,
 pre,
-blockquote {
+blockquote,
+.markdown-alert {
   margin-top: 0;
   margin-bottom: 18px;
 }
@@ -708,39 +709,69 @@ def remove_language_badges(soup: BeautifulSoup) -> None:
 
 def convert_alert_blocks(soup: BeautifulSoup) -> None:
     marker_pattern = re.compile(r"^\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:\r?\n)?", re.IGNORECASE)
-    for blockquote in soup.find_all("blockquote"):
-        first_child = next(
-            (
+    for blockquote in list(soup.find_all("blockquote")):
+        groups: list[tuple[str | None, list[object]]] = []
+        current_kind: str | None = None
+        current_children: list[object] = []
+
+        def flush_current_group() -> None:
+            nonlocal current_kind, current_children
+            if current_children:
+                groups.append((current_kind, current_children))
+            current_kind = None
+            current_children = []
+
+        for child in list(blockquote.contents):
+            match = None
+            if getattr(child, "name", None) == "p":
+                match = marker_pattern.match(child.decode_contents())
+
+            if match:
+                flush_current_group()
+                current_kind = match.group(1).upper()
+                remaining_html = marker_pattern.sub("", child.decode_contents(), count=1)
+                child.clear()
+                remaining_fragment = BeautifulSoup(remaining_html, "html.parser")
+                for fragment_child in list(remaining_fragment.contents):
+                    child.append(fragment_child)
+                if child.get_text(strip=True) or child.find(True):
+                    current_children.append(child)
+                continue
+
+            current_children.append(child)
+
+        flush_current_group()
+        if not any(kind is not None for kind, _ in groups):
+            continue
+
+        replacement_nodes = []
+        for kind, children in groups:
+            meaningful_children = [
                 child
-                for child in blockquote.children
+                for child in children
                 if getattr(child, "name", None) or str(child).strip()
-            ),
-            None,
-        )
-        if first_child is None or getattr(first_child, "name", None) != "p":
-            continue
+            ]
+            if not meaningful_children:
+                continue
 
-        first_html = first_child.decode_contents()
-        match = marker_pattern.match(first_html)
-        if not match:
-            continue
+            if kind is None:
+                replacement = soup.new_tag("blockquote")
+            else:
+                alert_class, alert_label = ALERT_TYPES[kind]
+                replacement = soup.new_tag("div")
+                replacement["class"] = ["markdown-alert", "markdown-alert-" + alert_class]
+                title = soup.new_tag("p")
+                title["class"] = "markdown-alert-title"
+                title.string = alert_label
+                replacement.append(title)
 
-        alert_kind = match.group(1).upper()
-        alert_class, alert_label = ALERT_TYPES[alert_kind]
-        remaining_html = marker_pattern.sub("", first_html, count=1)
-        first_child.clear()
-        remaining_fragment = BeautifulSoup(remaining_html, "html.parser")
-        for child in list(remaining_fragment.contents):
-            first_child.append(child)
-        if not first_child.get_text(strip=True) and not first_child.find(True):
-            first_child.decompose()
+            for child in meaningful_children:
+                replacement.append(child.extract())
+            replacement_nodes.append(replacement)
 
-        title = soup.new_tag("p")
-        title["class"] = "markdown-alert-title"
-        title.string = alert_label
-        blockquote.name = "div"
-        blockquote["class"] = ["markdown-alert", "markdown-alert-" + alert_class]
-        blockquote.insert(0, title)
+        for replacement in replacement_nodes:
+            blockquote.insert_before(replacement)
+        blockquote.decompose()
 
 
 def extract_headings(soup: BeautifulSoup) -> list[dict[str, str | int]]:

@@ -261,7 +261,11 @@ rank:undefined
 | :--- | :--- |
 | `id` | playlist id |
 | `name` | name |
+| `folder` / `foldername` | フォルダ名 |
+| `prefix` | フォルダ接頭辞 |
 | `symbol` | symbol |
+| `header` | 解決済み header URI |
+| `data` | 解決済み data URI |
 
 ### プレイログで使える field
 
