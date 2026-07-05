@@ -28,7 +28,8 @@
 | 2026-07-05 | 完了 | Ticket D: Playlist dialog VM の nested partial 移動 | `86d46462` |
 | 2026-07-05 | 完了 | Ticket E: OperationProgressHubViewModel 導入 | `b9059645` |
 | 2026-07-06 | 完了 | Ticket F: PlaybackPanelViewModel 導入（手動 smoke 確認済み） | `80b53124` |
-| 2026-07-06 | 完了 | Ticket G: MainViewRefreshDecisionService 抽出 | このコミット |
+| 2026-07-06 | 完了 | Ticket G: MainViewRefreshDecisionService 抽出 | `3cfdf1c8` |
+| 2026-07-06 | 完了 | Ticket H: PlaylistRequestFactory 抽出 | このコミット |
 
 ### Ticket F 手動確認結果
 
@@ -39,6 +40,12 @@
 - `MainViewRefreshDecisionService` が main-view data dependency 変更時の `MainViewRefreshDecision`、sort column dependency、通常ライブラリ sort-key invalidation reason、virtual normal-library mode support、regular folder stage rebuild 判定を所有する。
 - `MainWindowViewModel` の既存 `ForTest` method は互換 forwarder として残す。
 - `LibraryChartRowSortEngineTests` の main-view refresh decision / dependency 判定は service 直接検証へ寄せる。
+
+### Ticket H 抽出範囲
+
+- `PlaylistRequestFactory` が playlist request identity の正規化、生成、source invalidation reason 判定を所有する。
+- `MainWindowViewModel.PlaylistRequestIdentity` の型名と root の既存 static method は互換 forwarder として残す。
+- `PlaylistViewPipelineTests` の request identity / invalidation reason 判定は factory 直接検証へ寄せる。
 
 ### Ticket E progress property 契約
 

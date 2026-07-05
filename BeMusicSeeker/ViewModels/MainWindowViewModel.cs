@@ -1807,11 +1807,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal static string NormalizePlaylistFolderName(string folderName)
     {
-        if (folderName == null)
-        {
-            return null;
-        }
-        return folderName.Trim();
+        return PlaylistRequestFactory.NormalizeFolderName(folderName);
     }
 
     /// <summary>
@@ -1819,11 +1815,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal static string NormalizePlaylistKeywordFilter(string keywordFilter)
     {
-        if (string.IsNullOrWhiteSpace(keywordFilter))
-        {
-            return string.Empty;
-        }
-        return keywordFilter.Trim().ToUpperInvariant();
+        return PlaylistRequestFactory.NormalizeKeywordFilter(keywordFilter);
     }
 
     internal static string BuildKeywordSearchWarningText(string keywordFilter, GridKeywordSearchContext context)
@@ -1902,7 +1894,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal static string NormalizePlaylistSortColumnName(cSortParameters sortParameters)
     {
-        return sortParameters?.ColumnsName ?? string.Empty;
+        return PlaylistRequestFactory.NormalizeSortColumnName(sortParameters);
     }
 
     /// <summary>
@@ -1910,7 +1902,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal static ListSortDirection NormalizePlaylistSortDirection(cSortParameters sortParameters)
     {
-        return sortParameters?.Direction ?? ListSortDirection.Ascending;
+        return PlaylistRequestFactory.NormalizeSortDirection(sortParameters);
     }
 
     /// <summary>
@@ -1926,7 +1918,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal static PlaylistRequestIdentity CreatePlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
     {
-        return new PlaylistRequestIdentity(table, NormalizePlaylistFolderName(folderName), filterType, NormalizePlaylistKeywordFilter(keywordFilter), modeFilter, NormalizePlaylistSortColumnName(sortParameters), NormalizePlaylistSortDirection(sortParameters), libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection);
+        return PlaylistRequestFactory.CreateIdentity(table, folderName, filterType, keywordFilter, modeFilter, sortParameters, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection);
     }
 
     /// <summary>
@@ -1934,31 +1926,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     private static string DeterminePlaylistSourceInvalidationReason(bool selectionChanged, bool libraryIndexInvalidated, bool playlistRevisionInvalidated, bool scoreSnapshotInvalidated, bool chartInfoIndexInvalidated, bool sourceMissing)
     {
-        if (selectionChanged)
-        {
-            return "selection_changed";
-        }
-        if (libraryIndexInvalidated)
-        {
-            return "library_index";
-        }
-        if (playlistRevisionInvalidated)
-        {
-            return "playlist_revision";
-        }
-        if (scoreSnapshotInvalidated)
-        {
-            return "score_snapshot_version";
-        }
-        if (chartInfoIndexInvalidated)
-        {
-            return "chart_info_index";
-        }
-        if (sourceMissing)
-        {
-            return "source_missing";
-        }
-        return "none";
+        return PlaylistRequestFactory.DetermineSourceInvalidationReason(selectionChanged, libraryIndexInvalidated, playlistRevisionInvalidated, scoreSnapshotInvalidated, chartInfoIndexInvalidated, sourceMissing);
     }
 
     /// <summary>
