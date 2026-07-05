@@ -104,6 +104,11 @@ public partial class MainWindowViewModel : ViewModel
 
     internal event EventHandler MainTableDisplayRefreshRequested;
 
+    /// <summary>
+    /// Gets status-bar progress presentation state owned outside the shell ViewModel while legacy root bindings remain in place.
+    /// </summary>
+    public OperationProgressHubViewModel ProgressHub { get; } = new();
+
 
 
 
@@ -1478,41 +1483,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool playlistUrlDownloadCanCancel;
 
-    private bool _IsInstallPipelineStatusActive;
-
-    private string _InstallPipelineLabel = string.Empty;
-
-    private string _InstallPipelineSubLabel = string.Empty;
-
-    private int _InstallPipelineValue;
-
-    private int _InstallPipelineMaximum = 1;
-
-    private bool _InstallPipelineCanCancel;
-
     private CancellationTokenSource maintenanceRescanCancellationTokenSource;
-
-    private bool _IsMaintenanceRescanProgressActive;
-
-    private string _MaintenanceRescanLabel = string.Empty;
-
-    private string _MaintenanceRescanSubLabel = string.Empty;
-
-    private double _MaintenanceRescanValue;
-
-    private double _MaintenanceRescanMaximum = 1.0;
-
-    private bool _MaintenanceRescanCanCancel;
-
-    private bool _IsFolderAutoRenameProgressActive;
-
-    private string _FolderAutoRenameProgressLabel = string.Empty;
-
-    private string _FolderAutoRenameProgressSubLabel = string.Empty;
-
-    private double _FolderAutoRenameProgressValue;
-
-    private double _FolderAutoRenameProgressMaximum = 1.0;
 
     private readonly object playlistSyncProgressLock = new();
 
@@ -1522,8 +1493,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly HashSet<long> activeBeatorajaBmtExportProgressOperations = [];
 
-    private bool _IsPlaylistSyncProgressActive;
-
     private readonly object lockPlaylistReloadCleanup = new();
 
     private PlaylistReloadCleanupRequest pendingPlaylistReloadCleanup;
@@ -1532,53 +1501,15 @@ public partial class MainWindowViewModel : ViewModel
 
     private long playlistReloadCleanupSeed;
 
-    private string _PlaylistSyncProgressLabel = string.Empty;
-
-    private string _PlaylistSyncProgressSubLabel = string.Empty;
-
-    private double _PlaylistSyncProgressValue;
-
-    private double _PlaylistSyncProgressMaximum;
-
     private readonly object startupProgressLock = new();
 
     private StartupProgressState startupProgressState = new();
 
     private long startupProgressOperationTokenSeed;
 
-    private bool _IsStartupProgressActive;
-
     private bool _IsStartupUiInteractionBlocked;
 
-    private string _StartupProgressLabel = string.Empty;
-
-    private string _StartupProgressSubLabel = string.Empty;
-
-    private double _StartupProgressValue;
-
-    private double _StartupProgressMaximum;
-
     private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
-
-    private bool _IsLr2SongDbSyncStatusActive;
-
-    private string _Lr2SongDbSyncStatusLabel = string.Empty;
-
-    private string _Lr2SongDbSyncStatusSubLabel = string.Empty;
-
-    private string _Lr2SongDbSyncStatusToolTip = string.Empty;
-
-    private double _Lr2SongDbSyncStatusProgressValue;
-
-    private double _Lr2SongDbSyncStatusProgressMaximum = 1.0;
-
-    private bool _IsLr2SongDbSyncStatusProgressVisible;
-
-    private bool _IsLr2SongDbSyncRetryVisible;
-
-    private bool _IsLr2SongDbSyncCancelVisible;
-
-    private bool _IsLr2SongDbSyncCleanupVisible;
 
     private bool _IsPlaylistTreeExpanded = true;
 
@@ -9882,367 +9813,202 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// Gets whether install, drop-install, playlist URL download, or estimate status is visible.
+    /// </summary>
     public bool IsInstallPipelineStatusActive
     {
-        get
-        {
-            return _IsInstallPipelineStatusActive;
-        }
-        private set
-        {
-            if (_IsInstallPipelineStatusActive != value)
-            {
-                _IsInstallPipelineStatusActive = value;
-                RaisePropertyChanged("IsInstallPipelineStatusActive");
-            }
-        }
+        get => ProgressHub.IsInstallPipelineStatusActive;
+        private set => ProgressHub.IsInstallPipelineStatusActive = value;
     }
 
+    /// <summary>
+    /// Gets the primary install pipeline status label.
+    /// </summary>
     public string InstallPipelineLabel
     {
-        get
-        {
-            return _InstallPipelineLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_InstallPipelineLabel == normalized))
-            {
-                _InstallPipelineLabel = normalized;
-                RaisePropertyChanged("InstallPipelineLabel");
-            }
-        }
+        get => ProgressHub.InstallPipelineLabel;
+        private set => ProgressHub.InstallPipelineLabel = value;
     }
 
+    /// <summary>
+    /// Gets the secondary install pipeline status label.
+    /// </summary>
     public string InstallPipelineSubLabel
     {
-        get
-        {
-            return _InstallPipelineSubLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_InstallPipelineSubLabel == normalized))
-            {
-                _InstallPipelineSubLabel = normalized;
-                RaisePropertyChanged("InstallPipelineSubLabel");
-            }
-        }
+        get => ProgressHub.InstallPipelineSubLabel;
+        private set => ProgressHub.InstallPipelineSubLabel = value;
     }
 
+    /// <summary>
+    /// Gets the current install pipeline progress value.
+    /// </summary>
     public int InstallPipelineValue
     {
-        get
-        {
-            return _InstallPipelineValue;
-        }
-        private set
-        {
-            if (_InstallPipelineValue != value)
-            {
-                _InstallPipelineValue = value;
-                RaisePropertyChanged("InstallPipelineValue");
-            }
-        }
+        get => ProgressHub.InstallPipelineValue;
+        private set => ProgressHub.InstallPipelineValue = value;
     }
 
+    /// <summary>
+    /// Gets the install pipeline progress maximum.
+    /// </summary>
     public int InstallPipelineMaximum
     {
-        get
-        {
-            return _InstallPipelineMaximum;
-        }
-        private set
-        {
-            int normalized = Math.Max(1, value);
-            if (_InstallPipelineMaximum != normalized)
-            {
-                _InstallPipelineMaximum = normalized;
-                RaisePropertyChanged("InstallPipelineMaximum");
-            }
-        }
+        get => ProgressHub.InstallPipelineMaximum;
+        private set => ProgressHub.InstallPipelineMaximum = value;
     }
 
+    /// <summary>
+    /// Gets whether the active install pipeline work can be canceled.
+    /// </summary>
     public bool InstallPipelineCanCancel
     {
-        get
-        {
-            return _InstallPipelineCanCancel;
-        }
-        private set
-        {
-            if (_InstallPipelineCanCancel != value)
-            {
-                _InstallPipelineCanCancel = value;
-                RaisePropertyChanged("InstallPipelineCanCancel");
-            }
-        }
+        get => ProgressHub.InstallPipelineCanCancel;
+        private set => ProgressHub.InstallPipelineCanCancel = value;
     }
 
+    /// <summary>
+    /// Gets whether maintenance rescan progress is visible.
+    /// </summary>
     public bool IsMaintenanceRescanProgressActive
     {
-        get
-        {
-            return _IsMaintenanceRescanProgressActive;
-        }
-        private set
-        {
-            if (_IsMaintenanceRescanProgressActive != value)
-            {
-                _IsMaintenanceRescanProgressActive = value;
-                RaisePropertyChanged("IsMaintenanceRescanProgressActive");
-            }
-        }
+        get => ProgressHub.IsMaintenanceRescanProgressActive;
+        private set => ProgressHub.IsMaintenanceRescanProgressActive = value;
     }
 
+    /// <summary>
+    /// Gets the primary maintenance rescan progress label.
+    /// </summary>
     public string MaintenanceRescanLabel
     {
-        get
-        {
-            return _MaintenanceRescanLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (_MaintenanceRescanLabel != normalized)
-            {
-                _MaintenanceRescanLabel = normalized;
-                RaisePropertyChanged("MaintenanceRescanLabel");
-            }
-        }
+        get => ProgressHub.MaintenanceRescanLabel;
+        private set => ProgressHub.MaintenanceRescanLabel = value;
     }
 
+    /// <summary>
+    /// Gets the secondary maintenance rescan progress label.
+    /// </summary>
     public string MaintenanceRescanSubLabel
     {
-        get
-        {
-            return _MaintenanceRescanSubLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (_MaintenanceRescanSubLabel != normalized)
-            {
-                _MaintenanceRescanSubLabel = normalized;
-                RaisePropertyChanged("MaintenanceRescanSubLabel");
-            }
-        }
+        get => ProgressHub.MaintenanceRescanSubLabel;
+        private set => ProgressHub.MaintenanceRescanSubLabel = value;
     }
 
+    /// <summary>
+    /// Gets the current maintenance rescan progress value.
+    /// </summary>
     public double MaintenanceRescanValue
     {
-        get
-        {
-            return _MaintenanceRescanValue;
-        }
-        private set
-        {
-            if (_MaintenanceRescanValue != value)
-            {
-                _MaintenanceRescanValue = value;
-                RaisePropertyChanged("MaintenanceRescanValue");
-            }
-        }
+        get => ProgressHub.MaintenanceRescanValue;
+        private set => ProgressHub.MaintenanceRescanValue = value;
     }
 
+    /// <summary>
+    /// Gets the maintenance rescan progress maximum.
+    /// </summary>
     public double MaintenanceRescanMaximum
     {
-        get
-        {
-            return _MaintenanceRescanMaximum;
-        }
-        private set
-        {
-            double normalized = Math.Max(1.0, value);
-            if (_MaintenanceRescanMaximum != normalized)
-            {
-                _MaintenanceRescanMaximum = normalized;
-                RaisePropertyChanged("MaintenanceRescanMaximum");
-            }
-        }
+        get => ProgressHub.MaintenanceRescanMaximum;
+        private set => ProgressHub.MaintenanceRescanMaximum = value;
     }
 
+    /// <summary>
+    /// Gets whether active maintenance rescan work can be canceled.
+    /// </summary>
     public bool MaintenanceRescanCanCancel
     {
-        get
-        {
-            return _MaintenanceRescanCanCancel;
-        }
-        private set
-        {
-            if (_MaintenanceRescanCanCancel != value)
-            {
-                _MaintenanceRescanCanCancel = value;
-                RaisePropertyChanged("MaintenanceRescanCanCancel");
-            }
-        }
+        get => ProgressHub.MaintenanceRescanCanCancel;
+        private set => ProgressHub.MaintenanceRescanCanCancel = value;
     }
 
+    /// <summary>
+    /// Gets whether automatic folder rename progress is visible.
+    /// </summary>
     public bool IsFolderAutoRenameProgressActive
     {
-        get
-        {
-            return _IsFolderAutoRenameProgressActive;
-        }
-        private set
-        {
-            if (_IsFolderAutoRenameProgressActive != value)
-            {
-                _IsFolderAutoRenameProgressActive = value;
-                RaisePropertyChanged("IsFolderAutoRenameProgressActive");
-            }
-        }
+        get => ProgressHub.IsFolderAutoRenameProgressActive;
+        private set => ProgressHub.IsFolderAutoRenameProgressActive = value;
     }
 
+    /// <summary>
+    /// Gets the primary automatic folder rename progress label.
+    /// </summary>
     public string FolderAutoRenameProgressLabel
     {
-        get
-        {
-            return _FolderAutoRenameProgressLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (_FolderAutoRenameProgressLabel != normalized)
-            {
-                _FolderAutoRenameProgressLabel = normalized;
-                RaisePropertyChanged("FolderAutoRenameProgressLabel");
-            }
-        }
+        get => ProgressHub.FolderAutoRenameProgressLabel;
+        private set => ProgressHub.FolderAutoRenameProgressLabel = value;
     }
 
+    /// <summary>
+    /// Gets the secondary automatic folder rename progress label.
+    /// </summary>
     public string FolderAutoRenameProgressSubLabel
     {
-        get
-        {
-            return _FolderAutoRenameProgressSubLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (_FolderAutoRenameProgressSubLabel != normalized)
-            {
-                _FolderAutoRenameProgressSubLabel = normalized;
-                RaisePropertyChanged("FolderAutoRenameProgressSubLabel");
-            }
-        }
+        get => ProgressHub.FolderAutoRenameProgressSubLabel;
+        private set => ProgressHub.FolderAutoRenameProgressSubLabel = value;
     }
 
+    /// <summary>
+    /// Gets the current automatic folder rename progress value.
+    /// </summary>
     public double FolderAutoRenameProgressValue
     {
-        get
-        {
-            return _FolderAutoRenameProgressValue;
-        }
-        private set
-        {
-            if (_FolderAutoRenameProgressValue != value)
-            {
-                _FolderAutoRenameProgressValue = value;
-                RaisePropertyChanged("FolderAutoRenameProgressValue");
-            }
-        }
+        get => ProgressHub.FolderAutoRenameProgressValue;
+        private set => ProgressHub.FolderAutoRenameProgressValue = value;
     }
 
+    /// <summary>
+    /// Gets the automatic folder rename progress maximum.
+    /// </summary>
     public double FolderAutoRenameProgressMaximum
     {
-        get
-        {
-            return _FolderAutoRenameProgressMaximum;
-        }
-        private set
-        {
-            double normalized = Math.Max(1.0, value);
-            if (_FolderAutoRenameProgressMaximum != normalized)
-            {
-                _FolderAutoRenameProgressMaximum = normalized;
-                RaisePropertyChanged("FolderAutoRenameProgressMaximum");
-            }
-        }
+        get => ProgressHub.FolderAutoRenameProgressMaximum;
+        private set => ProgressHub.FolderAutoRenameProgressMaximum = value;
     }
 
+    /// <summary>
+    /// Gets whether playlist sync progress is visible.
+    /// </summary>
     public bool IsPlaylistSyncProgressActive
     {
-        get
-        {
-            return _IsPlaylistSyncProgressActive;
-        }
-        private set
-        {
-            if (_IsPlaylistSyncProgressActive != value)
-            {
-                _IsPlaylistSyncProgressActive = value;
-                RaisePropertyChanged("IsPlaylistSyncProgressActive");
-            }
-        }
+        get => ProgressHub.IsPlaylistSyncProgressActive;
+        private set => ProgressHub.IsPlaylistSyncProgressActive = value;
     }
 
+    /// <summary>
+    /// Gets the primary playlist sync progress label.
+    /// </summary>
     public string PlaylistSyncProgressLabel
     {
-        get
-        {
-            return _PlaylistSyncProgressLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_PlaylistSyncProgressLabel == normalized))
-            {
-                _PlaylistSyncProgressLabel = normalized;
-                RaisePropertyChanged("PlaylistSyncProgressLabel");
-            }
-        }
+        get => ProgressHub.PlaylistSyncProgressLabel;
+        private set => ProgressHub.PlaylistSyncProgressLabel = value;
     }
 
+    /// <summary>
+    /// Gets the secondary playlist sync progress label.
+    /// </summary>
     public string PlaylistSyncProgressSubLabel
     {
-        get
-        {
-            return _PlaylistSyncProgressSubLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_PlaylistSyncProgressSubLabel == normalized))
-            {
-                _PlaylistSyncProgressSubLabel = normalized;
-                RaisePropertyChanged("PlaylistSyncProgressSubLabel");
-            }
-        }
+        get => ProgressHub.PlaylistSyncProgressSubLabel;
+        private set => ProgressHub.PlaylistSyncProgressSubLabel = value;
     }
 
+    /// <summary>
+    /// Gets the current playlist sync progress value.
+    /// </summary>
     public double PlaylistSyncProgressValue
     {
-        get
-        {
-            return _PlaylistSyncProgressValue;
-        }
-        private set
-        {
-            if (_PlaylistSyncProgressValue != value)
-            {
-                _PlaylistSyncProgressValue = value;
-                RaisePropertyChanged("PlaylistSyncProgressValue");
-            }
-        }
+        get => ProgressHub.PlaylistSyncProgressValue;
+        private set => ProgressHub.PlaylistSyncProgressValue = value;
     }
 
+    /// <summary>
+    /// Gets the playlist sync progress maximum.
+    /// </summary>
     public double PlaylistSyncProgressMaximum
     {
-        get
-        {
-            return _PlaylistSyncProgressMaximum;
-        }
-        private set
-        {
-            if (_PlaylistSyncProgressMaximum != value)
-            {
-                _PlaylistSyncProgressMaximum = value;
-                RaisePropertyChanged("PlaylistSyncProgressMaximum");
-            }
-        }
+        get => ProgressHub.PlaylistSyncProgressMaximum;
+        private set => ProgressHub.PlaylistSyncProgressMaximum = value;
     }
 
     /// <summary>
@@ -10250,21 +10016,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public bool IsStartupProgressActive
     {
-        get
-        {
-            return _IsStartupProgressActive;
-        }
-        private set
-        {
-            if (_IsStartupProgressActive != value)
-            {
-                _IsStartupProgressActive = value;
-                RaisePropertyChanged("IsStartupProgressActive");
-                RaisePropertyChanged("IsLibraryOperationInProgress");
-                RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
-                RecomputeLr2SongDbSyncStatusPresentation();
-            }
-        }
+        get => ProgressHub.IsStartupProgressActive;
+        private set => ProgressHub.IsStartupProgressActive = value;
     }
 
     /// <summary>
@@ -10272,19 +10025,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public string StartupProgressLabel
     {
-        get
-        {
-            return _StartupProgressLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_StartupProgressLabel == normalized))
-            {
-                _StartupProgressLabel = normalized;
-                RaisePropertyChanged("StartupProgressLabel");
-            }
-        }
+        get => ProgressHub.StartupProgressLabel;
+        private set => ProgressHub.StartupProgressLabel = value;
     }
 
     /// <summary>
@@ -10292,19 +10034,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public string StartupProgressSubLabel
     {
-        get
-        {
-            return _StartupProgressSubLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_StartupProgressSubLabel == normalized))
-            {
-                _StartupProgressSubLabel = normalized;
-                RaisePropertyChanged("StartupProgressSubLabel");
-            }
-        }
+        get => ProgressHub.StartupProgressSubLabel;
+        private set => ProgressHub.StartupProgressSubLabel = value;
     }
 
     /// <summary>
@@ -10312,18 +10043,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public double StartupProgressValue
     {
-        get
-        {
-            return _StartupProgressValue;
-        }
-        private set
-        {
-            if (_StartupProgressValue != value)
-            {
-                _StartupProgressValue = value;
-                RaisePropertyChanged("StartupProgressValue");
-            }
-        }
+        get => ProgressHub.StartupProgressValue;
+        private set => ProgressHub.StartupProgressValue = value;
     }
 
     /// <summary>
@@ -10331,183 +10052,99 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public double StartupProgressMaximum
     {
-        get
-        {
-            return _StartupProgressMaximum;
-        }
-        private set
-        {
-            if (_StartupProgressMaximum != value)
-            {
-                _StartupProgressMaximum = value;
-                RaisePropertyChanged("StartupProgressMaximum");
-            }
-        }
+        get => ProgressHub.StartupProgressMaximum;
+        private set => ProgressHub.StartupProgressMaximum = value;
     }
 
+    /// <summary>
+    /// Gets whether LR2 song DB sync status is visible.
+    /// </summary>
     public bool IsLr2SongDbSyncStatusActive
     {
-        get
-        {
-            return _IsLr2SongDbSyncStatusActive;
-        }
-        private set
-        {
-            if (_IsLr2SongDbSyncStatusActive != value)
-            {
-                _IsLr2SongDbSyncStatusActive = value;
-                RaisePropertyChanged("IsLr2SongDbSyncStatusActive");
-            }
-        }
+        get => ProgressHub.IsLr2SongDbSyncStatusActive;
+        private set => ProgressHub.IsLr2SongDbSyncStatusActive = value;
     }
 
+    /// <summary>
+    /// Gets the primary LR2 song DB sync status label.
+    /// </summary>
     public string Lr2SongDbSyncStatusLabel
     {
-        get
-        {
-            return _Lr2SongDbSyncStatusLabel;
-        }
-        private set
-        {
-            value ??= string.Empty;
-            if (_Lr2SongDbSyncStatusLabel != value)
-            {
-                _Lr2SongDbSyncStatusLabel = value;
-                RaisePropertyChanged("Lr2SongDbSyncStatusLabel");
-            }
-        }
+        get => ProgressHub.Lr2SongDbSyncStatusLabel;
+        private set => ProgressHub.Lr2SongDbSyncStatusLabel = value;
     }
 
+    /// <summary>
+    /// Gets the secondary LR2 song DB sync status label.
+    /// </summary>
     public string Lr2SongDbSyncStatusSubLabel
     {
-        get
-        {
-            return _Lr2SongDbSyncStatusSubLabel;
-        }
-        private set
-        {
-            value ??= string.Empty;
-            if (_Lr2SongDbSyncStatusSubLabel != value)
-            {
-                _Lr2SongDbSyncStatusSubLabel = value;
-                RaisePropertyChanged("Lr2SongDbSyncStatusSubLabel");
-            }
-        }
+        get => ProgressHub.Lr2SongDbSyncStatusSubLabel;
+        private set => ProgressHub.Lr2SongDbSyncStatusSubLabel = value;
     }
 
+    /// <summary>
+    /// Gets LR2 song DB sync status detail text for tooltips.
+    /// </summary>
     public string Lr2SongDbSyncStatusToolTip
     {
-        get
-        {
-            return _Lr2SongDbSyncStatusToolTip;
-        }
-        private set
-        {
-            value ??= string.Empty;
-            if (_Lr2SongDbSyncStatusToolTip != value)
-            {
-                _Lr2SongDbSyncStatusToolTip = value;
-                RaisePropertyChanged("Lr2SongDbSyncStatusToolTip");
-            }
-        }
+        get => ProgressHub.Lr2SongDbSyncStatusToolTip;
+        private set => ProgressHub.Lr2SongDbSyncStatusToolTip = value;
     }
 
+    /// <summary>
+    /// Gets the current LR2 song DB sync status progress value.
+    /// </summary>
     public double Lr2SongDbSyncStatusProgressValue
     {
-        get
-        {
-            return _Lr2SongDbSyncStatusProgressValue;
-        }
-        private set
-        {
-            if (_Lr2SongDbSyncStatusProgressValue != value)
-            {
-                _Lr2SongDbSyncStatusProgressValue = value;
-                RaisePropertyChanged("Lr2SongDbSyncStatusProgressValue");
-            }
-        }
+        get => ProgressHub.Lr2SongDbSyncStatusProgressValue;
+        private set => ProgressHub.Lr2SongDbSyncStatusProgressValue = value;
     }
 
+    /// <summary>
+    /// Gets the LR2 song DB sync status progress maximum.
+    /// </summary>
     public double Lr2SongDbSyncStatusProgressMaximum
     {
-        get
-        {
-            return _Lr2SongDbSyncStatusProgressMaximum;
-        }
-        private set
-        {
-            if (_Lr2SongDbSyncStatusProgressMaximum != value)
-            {
-                _Lr2SongDbSyncStatusProgressMaximum = value;
-                RaisePropertyChanged("Lr2SongDbSyncStatusProgressMaximum");
-            }
-        }
+        get => ProgressHub.Lr2SongDbSyncStatusProgressMaximum;
+        private set => ProgressHub.Lr2SongDbSyncStatusProgressMaximum = value;
     }
 
+    /// <summary>
+    /// Gets whether the LR2 song DB sync status progress bar is visible.
+    /// </summary>
     public bool IsLr2SongDbSyncStatusProgressVisible
     {
-        get
-        {
-            return _IsLr2SongDbSyncStatusProgressVisible;
-        }
-        private set
-        {
-            if (_IsLr2SongDbSyncStatusProgressVisible != value)
-            {
-                _IsLr2SongDbSyncStatusProgressVisible = value;
-                RaisePropertyChanged("IsLr2SongDbSyncStatusProgressVisible");
-            }
-        }
+        get => ProgressHub.IsLr2SongDbSyncStatusProgressVisible;
+        private set => ProgressHub.IsLr2SongDbSyncStatusProgressVisible = value;
     }
 
+    /// <summary>
+    /// Gets whether the LR2 song DB sync retry action is visible.
+    /// </summary>
     public bool IsLr2SongDbSyncRetryVisible
     {
-        get
-        {
-            return _IsLr2SongDbSyncRetryVisible;
-        }
-        set
-        {
-            if (_IsLr2SongDbSyncRetryVisible != value)
-            {
-                _IsLr2SongDbSyncRetryVisible = value;
-                RaisePropertyChanged("IsLr2SongDbSyncRetryVisible");
-            }
-        }
+        get => ProgressHub.IsLr2SongDbSyncRetryVisible;
+        set => ProgressHub.IsLr2SongDbSyncRetryVisible = value;
     }
 
+    /// <summary>
+    /// Gets whether the LR2 song DB sync cancel action is visible.
+    /// </summary>
     public bool IsLr2SongDbSyncCancelVisible
     {
-        get
-        {
-            return _IsLr2SongDbSyncCancelVisible;
-        }
-        set
-        {
-            if (_IsLr2SongDbSyncCancelVisible != value)
-            {
-                _IsLr2SongDbSyncCancelVisible = value;
-                RaisePropertyChanged("IsLr2SongDbSyncCancelVisible");
-            }
-        }
+        get => ProgressHub.IsLr2SongDbSyncCancelVisible;
+        set => ProgressHub.IsLr2SongDbSyncCancelVisible = value;
     }
 
+    /// <summary>
+    /// Gets whether the LR2 song DB sync cleanup action is visible.
+    /// </summary>
     public bool IsLr2SongDbSyncCleanupVisible
     {
-        get
-        {
-            return _IsLr2SongDbSyncCleanupVisible;
-        }
-        set
-        {
-            if (_IsLr2SongDbSyncCleanupVisible != value)
-            {
-                _IsLr2SongDbSyncCleanupVisible = value;
-                RaisePropertyChanged("IsLr2SongDbSyncCleanupVisible");
-            }
-        }
+        get => ProgressHub.IsLr2SongDbSyncCleanupVisible;
+        set => ProgressHub.IsLr2SongDbSyncCleanupVisible = value;
     }
-
     public PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings
     {
         get
@@ -11625,6 +11262,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public MainWindowViewModel()
     {
+        ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -11632,6 +11270,23 @@ public partial class MainWindowViewModel : ViewModel
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
+    }
+
+    private void ProgressHubPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        string propertyName = e?.PropertyName;
+        if (string.IsNullOrWhiteSpace(propertyName))
+        {
+            return;
+        }
+
+        RaisePropertyChanged(propertyName);
+        if (propertyName == nameof(IsStartupProgressActive))
+        {
+            RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
+            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+            RecomputeLr2SongDbSyncStatusPresentation();
+        }
     }
 
     public bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;

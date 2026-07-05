@@ -25,8 +25,20 @@
 | 2026-07-05 | 完了 | Ticket A: partial 対応前のテスト helper | `5b43658c` |
 | 2026-07-05 | 完了 | Ticket B: 先頭 helper 型の移動 | `ce7e1a66` |
 | 2026-07-05 | 完了 | Ticket C: SettingDialogViewModel の nested partial 移動 | `d19295a6` |
-| 2026-07-05 | 完了 | Ticket D: Playlist dialog VM の nested partial 移動 | このコミット |
-| 2026-07-05 | 次 | Ticket E: OperationProgressHubViewModel 導入 | - |
+| 2026-07-05 | 完了 | Ticket D: Playlist dialog VM の nested partial 移動 | `86d46462` |
+| 2026-07-05 | 完了 | Ticket E: OperationProgressHubViewModel 導入 | このコミット |
+| 2026-07-05 | 次 | Ticket F: PlaybackPanelViewModel 導入 | - |
+
+### Ticket E progress property 契約
+
+| group | root property | normalize / side effect | relay |
+|---|---|---|---|
+| Install pipeline | `IsInstallPipelineStatusActive`, `InstallPipelineLabel`, `InstallPipelineSubLabel`, `InstallPipelineValue`, `InstallPipelineMaximum`, `InstallPipelineCanCancel` | label は null を空文字、maximum は 1 以上 | 同名 `PropertyChanged` |
+| Maintenance rescan | `IsMaintenanceRescanProgressActive`, `MaintenanceRescanLabel`, `MaintenanceRescanSubLabel`, `MaintenanceRescanValue`, `MaintenanceRescanMaximum`, `MaintenanceRescanCanCancel` | label は null を空文字、maximum は 1.0 以上 | 同名 `PropertyChanged` |
+| Folder auto rename | `IsFolderAutoRenameProgressActive`, `FolderAutoRenameProgressLabel`, `FolderAutoRenameProgressSubLabel`, `FolderAutoRenameProgressValue`, `FolderAutoRenameProgressMaximum` | label は null を空文字、maximum は 1.0 以上 | 同名 `PropertyChanged` |
+| Playlist sync | `IsPlaylistSyncProgressActive`, `PlaylistSyncProgressLabel`, `PlaylistSyncProgressSubLabel`, `PlaylistSyncProgressValue`, `PlaylistSyncProgressMaximum` | label は null を空文字 | 同名 `PropertyChanged` |
+| Startup progress | `IsStartupProgressActive`, `StartupProgressLabel`, `StartupProgressSubLabel`, `StartupProgressValue`, `StartupProgressMaximum` | label は null を空文字。`IsStartupProgressActive` 変更時に `IsLibraryOperationInProgress` 通知、LR2 song DB sync resync availability 更新、LR2 song DB sync status presentation 再計算を維持 | 同名 `PropertyChanged` と `IsLibraryOperationInProgress` |
+| LR2 song DB sync status | `IsLr2SongDbSyncStatusActive`, `Lr2SongDbSyncStatusLabel`, `Lr2SongDbSyncStatusSubLabel`, `Lr2SongDbSyncStatusToolTip`, `Lr2SongDbSyncStatusProgressValue`, `Lr2SongDbSyncStatusProgressMaximum`, `IsLr2SongDbSyncStatusProgressVisible`, `IsLr2SongDbSyncRetryVisible`, `IsLr2SongDbSyncCancelVisible`, `IsLr2SongDbSyncCleanupVisible` | text は null を空文字。retry/cancel/cleanup は root の public setter を維持 | 同名 `PropertyChanged` |
 
 ## 1. 現状観測メモ
 
