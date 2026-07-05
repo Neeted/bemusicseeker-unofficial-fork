@@ -34,8 +34,11 @@ dotnet restore .\BeMusicSeeker.sln
 dotnet build .\BeMusicSeeker.sln /p:Configuration=Release
 dotnet test .\BeMusicSeeker.sln /p:Configuration=Release
 dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal
-dotnet roslynator analyze .\BeMusicSeeker.sln --properties Configuration=Release --severity-level warning --verbosity minimal
+$msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -version "[17.0,18.0)" -products * -requires Microsoft.Component.MSBuild -find "MSBuild\Current\Bin"
+dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path $msbuildPath --properties Configuration=Release --severity-level warning --verbosity minimal
 ```
+
+通常開発 SDK は `global.json` で .NET SDK 10 系に固定する。SDK 10 環境では Roslynator 0.12.0 が SDK 同梱 MSBuild 18 / VS 2026 MSBuild 18 で失敗するため、Roslynator だけは Visual Studio 2022 / MSBuild 17 の path を明示する。Roslynator が MSBuild 18 に対応したら見直す。
 
 小さい ticket では関連テストを先に回してよい。ただし、共有 model / ViewModel / DB / file system / settings / dispatcher に触れた場合は最終的に全体 test を回す。
 

@@ -637,7 +637,7 @@ public sealed class ChartListVirtualViewTests
         ];
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files, bmsons);
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
-        int[] existingOrderIndexes = [.. fullOrder.Indexes.Reverse()];
+        int[] existingOrderIndexes = fullOrder.Indexes.AsEnumerable().Reverse().ToArray();
         var keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
         Func<ChartListSourceRow, bool> folderFilter = MainWindowViewModel.CreateVirtualNormalLibraryFolderFilterForTest(
             MainWindowViewModel.FolderFilterType.DirectoryFilter,
