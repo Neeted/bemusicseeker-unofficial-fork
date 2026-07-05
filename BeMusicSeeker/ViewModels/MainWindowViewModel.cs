@@ -114,6 +114,11 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public PlaybackPanelViewModel PlaybackPanel { get; } = new();
 
+    /// <summary>
+    /// Gets main chart-table binding state while refresh orchestration remains in the shell ViewModel.
+    /// </summary>
+    public MainChartListViewModel MainChartList { get; } = new();
+
 
 
 
@@ -1258,8 +1263,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private IEnumerable<LibraryChartRow> ChartRowsModeFilterView;
 
-    private IList _ChartRowsView = new List<object>();
-
     private IReadOnlyList<PlayHistoryPeriodTreeItem> _PlayHistoryArchivePeriodTree = [];
 
     private cSortParameters _SortParameters;
@@ -1277,10 +1280,6 @@ public partial class MainWindowViewModel : ViewModel
     private Uri _BrowserSource;
 
     private string _BrowserHtml;
-
-    private int _SelectedIndexChartRowsView;
-
-    private CustomTableColumnSettings _ColumnsSettingsChartRowsView;
 
     private List<LibraryChartRow> folderSortSourceSnapshot;
 
@@ -5223,23 +5222,11 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _ChartRowsView;
+            return MainChartList.Rows;
         }
         set
         {
-            if (_ChartRowsView != value)
-            {
-                DisposeDisposableRows(_ChartRowsView);
-                if (value == null)
-                {
-                    _ChartRowsView = new List<object>();
-                }
-                else
-                {
-                    _ChartRowsView = value;
-                }
-                RaisePropertyChanged("ChartRowsView");
-            }
+            MainChartList.Rows = value;
         }
     }
 
@@ -5308,26 +5295,6 @@ public partial class MainWindowViewModel : ViewModel
             && left.PlayedAtFromInclusive == right.PlayedAtFromInclusive
             && left.PlayedAtToExclusive == right.PlayedAtToExclusive
             && left.FinalizationFilter == right.FinalizationFilter;
-    }
-
-    private static void DisposeDisposableRows(IEnumerable rows)
-    {
-        if (rows == null)
-        {
-            return;
-        }
-        if (rows is IChartListViewMetadata metadata)
-        {
-            metadata.DisposeRealizedRows();
-            return;
-        }
-        foreach (object row in rows)
-        {
-            if (row is IDisposable disposable)
-            {
-                disposable.Dispose();
-            }
-        }
     }
 
     /// <summary>
@@ -8751,7 +8718,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <param name="viewRows">破棄する表示用 snapshot。</param>
     private static void DisposePlaylistViewRows(IEnumerable viewRows)
     {
-        DisposeDisposableRows(viewRows);
+        MainChartListViewModel.DisposeRows(viewRows);
     }
 
     public cSortParameters SortParameters
@@ -8965,15 +8932,11 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _SelectedIndexChartRowsView;
+            return MainChartList.SelectedIndex;
         }
         set
         {
-            if (_SelectedIndexChartRowsView != value)
-            {
-                _SelectedIndexChartRowsView = value;
-                RaisePropertyChanged("SelectedIndexChartRowsView");
-            }
+            MainChartList.SelectedIndex = value;
         }
     }
 
@@ -8981,17 +8944,11 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _ColumnsSettingsChartRowsView;
+            return MainChartList.ColumnsSettings;
         }
         set
         {
-            if (ReferenceEquals(_ColumnsSettingsChartRowsView, value))
-            {
-                return;
-            }
-            _ColumnsSettingsChartRowsView = value;
-            RaisePropertyChanged("ColumnsSettingsChartRowsView");
-            RaisePropertyChanged("ChartRowsViewRowDragKind");
+            MainChartList.ColumnsSettings = value;
         }
     }
 
@@ -8999,13 +8956,13 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return ResolveChartRowsViewRowDragKind(ColumnsSettingsChartRowsView);
+            return MainChartList.RowDragKind;
         }
     }
 
     private static CustomTableRowDragKind ResolveChartRowsViewRowDragKind(CustomTableColumnSettings settings)
     {
-        return CustomTableRowDragKind.PlaylistDropCandidateRows;
+        return MainChartListViewModel.ResolveRowDragKindForTest(settings);
     }
 
     public Visibility ColumnSettingsVisibilityForPlaylist
@@ -10951,6 +10908,7 @@ public partial class MainWindowViewModel : ViewModel
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
+        MainChartList.PropertyChanged += MainChartListPropertyChanged;
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -10958,6 +10916,31 @@ public partial class MainWindowViewModel : ViewModel
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
+    }
+
+    private void MainChartListPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        string propertyName = e?.PropertyName;
+        if (string.IsNullOrWhiteSpace(propertyName))
+        {
+            return;
+        }
+
+        switch (propertyName)
+        {
+            case nameof(MainChartListViewModel.Rows):
+                RaisePropertyChanged(nameof(ChartRowsView));
+                break;
+            case nameof(MainChartListViewModel.SelectedIndex):
+                RaisePropertyChanged(nameof(SelectedIndexChartRowsView));
+                break;
+            case nameof(MainChartListViewModel.ColumnsSettings):
+                RaisePropertyChanged(nameof(ColumnsSettingsChartRowsView));
+                break;
+            case nameof(MainChartListViewModel.RowDragKind):
+                RaisePropertyChanged(nameof(ChartRowsViewRowDragKind));
+                break;
+        }
     }
 
     private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)

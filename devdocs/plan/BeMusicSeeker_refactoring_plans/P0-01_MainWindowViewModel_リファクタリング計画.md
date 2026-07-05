@@ -30,7 +30,8 @@
 | 2026-07-06 | 完了 | Ticket F: PlaybackPanelViewModel 導入（手動 smoke 確認済み） | `80b53124` |
 | 2026-07-06 | 完了 | Ticket G: MainViewRefreshDecisionService 抽出 | `3cfdf1c8` |
 | 2026-07-06 | 完了 | Ticket H: PlaylistRequestFactory 抽出 | `fe54e608` |
-| 2026-07-06 | 完了 | Ticket I-1: MainChartListViewModel 導入前の境界確認 | このコミット |
+| 2026-07-06 | 完了 | Ticket I-1: MainChartListViewModel 導入前の境界確認 | `50fe8e9b` |
+| 2026-07-06 | 完了 | Ticket I-2: MainChartListViewModel の state pass-through 化 | このコミット |
 
 ### Ticket F 手動確認結果
 
