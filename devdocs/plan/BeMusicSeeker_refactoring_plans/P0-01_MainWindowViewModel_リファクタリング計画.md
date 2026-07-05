@@ -26,8 +26,14 @@
 | 2026-07-05 | 完了 | Ticket B: 先頭 helper 型の移動 | `ce7e1a66` |
 | 2026-07-05 | 完了 | Ticket C: SettingDialogViewModel の nested partial 移動 | `d19295a6` |
 | 2026-07-05 | 完了 | Ticket D: Playlist dialog VM の nested partial 移動 | `86d46462` |
-| 2026-07-05 | 完了 | Ticket E: OperationProgressHubViewModel 導入 | このコミット |
-| 2026-07-05 | 次 | Ticket F: PlaybackPanelViewModel 導入 | - |
+| 2026-07-05 | 完了 | Ticket E: OperationProgressHubViewModel 導入 | `b9059645` |
+| 2026-07-05 | 自動確認完了 | Ticket F: PlaybackPanelViewModel 導入（手動 smoke 未実施） | 未コミット |
+
+### Ticket F 手動確認待ち
+
+- `PlaybackPanelViewModel` 導入と自動確認は完了。
+- 上部再生パネルの手動 smoke test（再生/停止/次/前/音量/ヘッダー表示）は未実施。
+- 手動確認完了後に次 Ticket へ進む。
 
 ### Ticket E progress property 契約
 

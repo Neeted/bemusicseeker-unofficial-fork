@@ -109,6 +109,11 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public OperationProgressHubViewModel ProgressHub { get; } = new();
 
+    /// <summary>
+    /// Gets playback-panel presentation state while player operations stay on the shell ViewModel.
+    /// </summary>
+    public PlaybackPanelViewModel PlaybackPanel { get; } = new();
+
 
 
 
@@ -1266,18 +1271,6 @@ public partial class MainWindowViewModel : ViewModel
     private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
 
     private BeMusicSeeker.Models.BMSFile _DisplayedBmsPlayerFile;
-
-    private string _BmsPlayerHeaderTitle = string.Empty;
-
-    private string _BmsPlayerHeaderSubtitle = string.Empty;
-
-    private string _BmsPlayerHeaderArtist = string.Empty;
-
-    private string _MoviePlayerHeaderTitle = string.Empty;
-
-    private string _MoviePlayerHeaderSubtitle = string.Empty;
-
-    private string _MoviePlayerHeaderArtist = string.Empty;
 
     private int nowPlayingChartRowsViewIndex = -1;
 
@@ -9141,94 +9134,39 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public string PlayerHeaderTitle
-    {
-        get
-        {
-            return IsMoviePlayerHeaderActive ? _MoviePlayerHeaderTitle : _BmsPlayerHeaderTitle;
-        }
-    }
+    public string PlayerHeaderTitle => PlaybackPanel.PlayerHeaderTitle;
 
-    public string PlayerHeaderSubtitle
-    {
-        get
-        {
-            return IsMoviePlayerHeaderActive ? _MoviePlayerHeaderSubtitle : _BmsPlayerHeaderSubtitle;
-        }
-    }
+    public string PlayerHeaderSubtitle => PlaybackPanel.PlayerHeaderSubtitle;
 
-    public string PlayerHeaderArtist
-    {
-        get
-        {
-            return IsMoviePlayerHeaderActive ? _MoviePlayerHeaderArtist : _BmsPlayerHeaderArtist;
-        }
-    }
+    public string PlayerHeaderArtist => PlaybackPanel.PlayerHeaderArtist;
 
-    internal string BmsPlayerHeaderTitle => _BmsPlayerHeaderTitle;
+    internal string BmsPlayerHeaderTitle => PlaybackPanel.BmsPlayerHeaderTitle;
 
-    internal string BmsPlayerHeaderSubtitle => _BmsPlayerHeaderSubtitle;
+    internal string BmsPlayerHeaderSubtitle => PlaybackPanel.BmsPlayerHeaderSubtitle;
 
-    internal string BmsPlayerHeaderArtist => _BmsPlayerHeaderArtist;
+    internal string BmsPlayerHeaderArtist => PlaybackPanel.BmsPlayerHeaderArtist;
 
-    internal string MoviePlayerHeaderTitle => _MoviePlayerHeaderTitle;
+    internal string MoviePlayerHeaderTitle => PlaybackPanel.MoviePlayerHeaderTitle;
 
-    internal string MoviePlayerHeaderSubtitle => _MoviePlayerHeaderSubtitle;
+    internal string MoviePlayerHeaderSubtitle => PlaybackPanel.MoviePlayerHeaderSubtitle;
 
-    internal string MoviePlayerHeaderArtist => _MoviePlayerHeaderArtist;
+    internal string MoviePlayerHeaderArtist => PlaybackPanel.MoviePlayerHeaderArtist;
 
     internal void SetBmsPlayerHeader(BeMusicSeeker.Models.BMSFile bmsFile)
     {
         DisplayedBmsPlayerFile = bmsFile;
-        bool changed = SetHeaderValue(ref _BmsPlayerHeaderTitle, GridRowResolver.GetBmsPlayerDisplayTitle(bmsFile))
-            | SetHeaderValue(ref _BmsPlayerHeaderSubtitle, GridRowResolver.GetBmsPlayerDisplaySubtitle(bmsFile))
-            | SetHeaderValue(ref _BmsPlayerHeaderArtist, GridRowResolver.GetBmsPlayerDisplayArtist(bmsFile));
-        if (changed || !IsMoviePlayerHeaderActive)
-        {
-            RaisePlayerHeaderPropertiesChanged();
-        }
+        PlaybackPanel.SetBmsPlayerHeader(bmsFile);
     }
 
     internal void SetMoviePlayerHeader(object row)
     {
-        bool changed = SetHeaderValue(ref _MoviePlayerHeaderTitle, GridRowResolver.GetDisplayRawTitle(row))
-            | SetHeaderValue(ref _MoviePlayerHeaderSubtitle, GridRowResolver.GetDisplaySubtitle(row))
-            | SetHeaderValue(ref _MoviePlayerHeaderArtist, GridRowResolver.GetDisplayArtist(row));
-        if (changed || IsMoviePlayerHeaderActive)
-        {
-            RaisePlayerHeaderPropertiesChanged();
-        }
+        PlaybackPanel.SetMoviePlayerHeader(row);
     }
 
     internal void NotifyPlayerHeaderSourceChanged()
     {
-        RaisePlayerHeaderPropertiesChanged();
+        PlaybackPanel.NotifyPlayerHeaderSourceChanged();
     }
-
-    private bool IsMoviePlayerHeaderActive =>
-        Settings.Default.PlayerPanelState == PanelState.MOVIE_PLAYER
-        && (!string.IsNullOrWhiteSpace(_MoviePlayerHeaderTitle)
-            || !string.IsNullOrWhiteSpace(_MoviePlayerHeaderSubtitle)
-            || !string.IsNullOrWhiteSpace(_MoviePlayerHeaderArtist));
-
-    private static bool SetHeaderValue(ref string storage, string value)
-    {
-        value ??= string.Empty;
-        if (storage == value)
-        {
-            return false;
-        }
-        storage = value;
-        return true;
-    }
-
-    private void RaisePlayerHeaderPropertiesChanged()
-    {
-        RaisePropertyChanged("PlayerHeaderTitle");
-        RaisePropertyChanged("PlayerHeaderSubtitle");
-        RaisePropertyChanged("PlayerHeaderArtist");
-    }
-
     public Uri BrowserSource
     {
         get
@@ -11238,22 +11176,8 @@ public partial class MainWindowViewModel : ViewModel
 
     public int PlayerVolume
     {
-        get
-        {
-            return Settings.Default.uBMplayVolume;
-        }
-        set
-        {
-            if (Settings.Default.uBMplayVolume != value)
-            {
-                Settings.Default.uBMplayVolume = value;
-                RaisePropertyChanged("PlayerVolume");
-                Task.Run(delegate
-                {
-                    uBMplayVolumeChanged();
-                }).Logging("PlayerVolume");
-            }
-        }
+        get => PlaybackPanel.PlayerVolume;
+        set => PlaybackPanel.PlayerVolume = value;
     }
 
     /// <summary>
@@ -11263,6 +11187,8 @@ public partial class MainWindowViewModel : ViewModel
     public MainWindowViewModel()
     {
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
+        PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
+        PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -11270,6 +11196,25 @@ public partial class MainWindowViewModel : ViewModel
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
+    }
+
+    private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        string propertyName = e?.PropertyName;
+        if (string.IsNullOrWhiteSpace(propertyName))
+        {
+            return;
+        }
+
+        RaisePropertyChanged(propertyName);
+    }
+
+    private void PlaybackPanelPlayerVolumeChanged(object sender, EventArgs e)
+    {
+        Task.Run(delegate
+        {
+            uBMplayVolumeChanged();
+        }).Logging("PlayerVolume");
     }
 
     private void ProgressHubPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -24664,3 +24609,4 @@ public partial class MainWindowViewModel : ViewModel
         BassAudioPlayer.Free();
     }
 }
+
