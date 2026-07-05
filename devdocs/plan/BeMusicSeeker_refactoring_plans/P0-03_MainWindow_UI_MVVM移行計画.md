@@ -60,7 +60,7 @@ MainWindow.xaml / MainWindow.cs           // shell view, lifecycle, view-host on
 
 ## 実装ルール
 
-1. `MainWindowViewModel` の P0-01 Phase 1〜2 が終わるまでは、XAML binding の大規模移行はしない。
+1. `MainWindowViewModel` の P0-01 Gate 1 後は child VM / coordinator 境界が安定した小領域だけ先行可とし、大規模 XAML 移行は P0-01 Gate 2 後に再判断する。
 2. 先に pure helper / service を抽出し、次に event-command bridge、最後に XAML split を行う。
 3. WPF `Control` / `RoutedEventArgs` / `DragEventArgs` を ViewModel に渡さない。
 4. `ICommand` 化できるものは ViewModel command へ寄せる。

@@ -4,7 +4,7 @@
 
 ## 0. 目的
 
-`BeMusicSeeker/ViewModels/MainWindowViewModel.cs` は現在 33,379 行あり、UI ルート ViewModel、設定画面 ViewModel、プレイリスト編集ダイアログ、チャート一覧生成、プレイリスト一覧/詳細、起動進捗、インストール進捗、プレイ履歴、play history display target、再生制御、外部同期、beatoraja Table URL import、スコアビューア連携などが 1 ファイルに集約されている。
+`BeMusicSeeker/ViewModels/MainWindowViewModel.cs` は開始時点で 33,379 行、2026-07-06 時点で 24,250 行あり、UI ルート ViewModel、チャート一覧生成、プレイリスト一覧/詳細、起動進捗、プレイ履歴、play history display target、再生制御、外部同期、beatoraja Table URL import、スコアビューア連携などがまだ 1 ファイルに多く残っている。
 
 この計画では、添付画像の UI 構成に合わせて責務を切り分ける。
 
@@ -34,7 +34,46 @@
 | 2026-07-06 | 完了 | Ticket I-2: MainChartListViewModel の state pass-through 化 | `b908f314` |
 | 2026-07-06 | 完了 | Ticket I-3a: chart row swap / summary state の child 化 | `6d2518d5` |
 | 2026-07-06 | 完了 | Ticket I-3b: refresh request routing の coordinator 入り口作成 | `1a0bb56a` |
-| 2026-07-06 | 完了 | Ticket I-3c: virtual normal / virtual subset apply の coordinator 化 | このコミット |
+| 2026-07-06 | 完了 | Ticket I-3c: virtual normal / virtual subset apply の coordinator 化 | `a60958c9` |
+
+次候補: Ticket I-3d-1: regular pipeline request / stage state 型の追加。
+
+## 現在地サマリ
+
+2026-07-06 時点では、P0-01 は「巨大ファイルの安全な切り出し」から「Shell 化に向けた責務移譲」へ移行中である。`MainWindowViewModel.cs` は開始時点より約 9,000 行減ったが、まだ 24,250 行あり、最終完了条件の 1,000〜1,500 行には遠い。
+
+| 領域 | 現在の状態 | 次に必要なこと |
+|---|---|---|
+| Playback | `PlaybackPanelViewModel` 導入済み。root pass-through と XAML root Binding は残る。 | XAML DataContext 移行、root facade 削除、UI handle 非依存 API へ寄せる。 |
+| Progress | `OperationProgressHubViewModel` 導入済み。root pass-through と一部副作用 relay は残る。 | XAML DataContext 移行、startup reducer / status presentation の service 化。 |
+| Main chart list | `MainChartListViewModel`、`ChartListRefreshCoordinator`、`MainViewRefreshDecisionService` 導入済み。仮想一覧終端処理は coordinator 化済み。 | 通常一覧 pipeline、sort/filter state、column settings、keyword presentation を child/coordinator へ移す。 |
+| Playlist detail / summary | `PlaylistRequestFactory` と dialog partial 移動は完了。detail build、summary build、bulk mutation は root に大きく残る。 | `PlaylistWorkspaceViewModel` と detail/summary service を導入し、root を facade にする。 |
+| Play history | 読み取り、表示行構築、summary card、sort/filter が root に残る。 | `PlayHistoryWorkspaceViewModel` と presentation/read coordinator へ分ける。 |
+| Settings | nested partial は別ファイル化済みだが 6,697 行あり、service 化は未着手。 | validation、snapshot/store、post-save coordinator を切り出す。 |
+| Sidebar / tree | XAML と code-behind が root の tree state / handlers に強く依存。 | `SidebarNavigationViewModel` 導入、tree DataContext と command bridge を段階移行。 |
+| Shell | 子 VM は増えたが root が workflow と facade と状態を兼務。 | composition root / lifecycle / dialog request / shared runtime context 以外を削る。 |
+
+### 行数ロードマップ
+
+行数は目的ではなく、責務境界が適切に切れているかの観測値として扱う。各ゲートで build/test/format/analyzer が通ることを必須にする。
+
+| ゲート | 目標 | 期待される状態 |
+|---|---:|---|
+| Gate 1: Main chart / playlist / play history workspace 導入後 | `MainWindowViewModel.cs` 15,000 行以下 | 一覧、playlist、play history の主要 workflow が child/coordinator/service へ移る。 |
+| Gate 2: settings service 化 / sidebar 導入後 | `MainWindowViewModel.cs` 8,000 行以下 | 設定保存・検証と tree/navigation の詳細が root から外れる。 |
+| Gate 3: XAML DataContext 移行後 | `MainWindowViewModel.cs` 3,000 行以下 | root pass-through の大半を削除できる。XAML は子 VM を直接参照する。 |
+| Gate 4: Shell 化完了 | `MainWindowViewModel.cs` 1,000〜1,500 行以下 | root は app lifecycle、子 VM composition、shared runtime context、dialog request だけを持つ。 |
+
+### 目標アーキテクチャ達成見込み
+
+目標アーキテクチャは達成可能。ただし、`MainWindowViewModel` 単体の行数だけを削ると、巨大な child VM へ移すだけになりやすい。以後は次の順序を守る。
+
+1. まず root の既存 Binding / private caller を壊さず child VM or service へ責務を移す。
+2. 次に source-text / reflection test を service 直接検証へ移し、root forwarder 依存を減らす。
+3. XAML DataContext を child VM へ移す。
+4. 最後に root pass-through と互換 forwarder を削除する。
+
+`MainWindowRuntimeContext` を中盤で導入し、`BMSLibrary` / `BMSPlaylist` / `LR2Config` / `IBMSPlayer` / dispatcher / dialog request など横断依存を root から child VM へ直接ばらまかないようにする。
 
 ### Ticket F 手動確認結果
 
@@ -115,9 +154,98 @@ I-2 確認対象:
 
 #### Ticket I-3d: regular library pipeline の coordinator 化
 
-1. 通常一覧の folder / keyword / mode / sort pipeline を coordinator へ移す。
-2. `MainViewRefreshDecisionService` と sort/cache key の既存 service を coordinator から利用する。
-3. root は facade と横断 state provider に寄せる。
+`Ticket I-3d` は 1 実装サイクルとしては大きすぎるため、以下へ分割する。
+
+##### Ticket I-3d-1: regular pipeline request / stage state 型の追加
+
+1. 通常一覧の materialized fallback に必要な入力を `RegularChartListRefreshRequest` / `RegularChartListStageState` として定義する。
+2. `ChartRowsFolderView`、`ChartRowsKeywordFilterView`、`ChartRowsModeFilterView` の read/write 契約を棚卸しし、root 所有のまま context 経由にする。
+3. `KeywordFilter` / `ModeFilter` / `SortParameters` / tree mode / virtual fallback failure の入力関係を明文化する。
+4. まだ filtering / sort 実装は移さず、型と forwarder だけで build/test できる状態にする。
+
+確認対象:
+
+- `ChartListVirtualViewTests`
+- `LibraryChartRowSortEngineTests`
+- `MainWindowContextMenuResourceTests`
+
+完了条件:
+
+- 通常一覧 pipeline の入力・出力・mutable cache が構造化される。
+- `RefreshChartRowsView` の既存呼び出し形状は変わらない。
+
+##### Ticket I-3d-2: keyword / mode filter stage の service 化
+
+1. `ChartRowsFolderView` から keyword filter、mode filter を適用する pure 部分を `RegularChartListFilterService` へ移す。
+2. `CreateModeFilterValueSet` と `GridKeywordSearchQuery.Parse(...)` の扱いを service 側へ寄せる。
+3. root は stage input/output を受け取り、既存 field の更新だけを担当する。
+
+確認対象:
+
+- `GridKeywordSearchQueryTests`
+- `ChartListVirtualViewTests`
+- `LibraryChartRowSortEngineTests`
+
+完了条件:
+
+- keyword / mode filtering が root を new しなくても検証できる。
+- filter stage の件数 logging が変わらない。
+
+##### Ticket I-3d-3: regular sort / cache stage の coordinator 化
+
+1. materialized 通常一覧の sort request を `RegularChartListSortRequest` として分離する。
+2. `LibraryChartRowSortEngine.SortForMainView`、folder sort snapshot、normal library sort cache の選択を coordinator へ移す。
+3. cache store / generation lock は root に残す場合でも、callback で注入して drift を避ける。
+4. `CreateNormalLibrarySortCacheKey` / `TryGetNormalLibrarySortCache` / `StoreNormalLibrarySortCache` の所有者を後続で `ChartListSortCache` に移す前提を文書化する。
+
+確認対象:
+
+- `LibraryChartRowSortEngineTests`
+- `ChartListVirtualViewTests`
+- full `dotnet test`（sort/cache は共有影響が大きいため）
+
+完了条件:
+
+- materialized sort/cache 選択が root から独立し始める。
+- `RefreshChartRowsView` 本体に残る通常一覧 sort 分岐が薄くなる。
+
+##### Ticket I-3d-4: regular materialized apply / log terminal の統合
+
+1. materialized 通常一覧の `RaiseMainTableSwapPreparing`、`ApplyMainColumnSettingForViewUpdate`、`SetChartRowsView`、build timestamp、`LogMainViewBuild` の終端を `ChartListRefreshCoordinator` へ寄せる。
+2. I-3c の virtual terminal helper と共通化できる箇所を再利用する。
+3. playlist detail と play history の logging と混ざらないよう、通常一覧専用 result 型を使う。
+
+確認対象:
+
+- `ChartListVirtualViewTests`
+- `PlaylistViewPipelineTests`
+- `PlayHistoryReadModelTests`
+
+完了条件:
+
+- `RefreshChartRowsView` の通常一覧 terminal apply が coordinator 経由になる。
+- virtual / materialized の terminal apply の順序が揃う。
+
+##### Ticket I-3d-5: RefreshChartRowsView facade 化完了
+
+1. `RefreshChartRowsView` を request normalization、route selection、各 coordinator 呼び出しだけに縮小する。
+2. play history と playlist はまだ root workflow でもよいが、main chart list 通常/仮想 workflow は child/coordinator 側へ寄せる。
+3. source-text / reflection tests を必要に応じて coordinator/service 直接検証へ移す。
+4. 手動一覧 smoke test を実施する。
+
+確認対象:
+
+- `ChartListVirtualViewTests`
+- `LibraryChartRowSortEngineTests`
+- `PlaylistViewPipelineTests`
+- `PlayHistoryReadModelTests`
+- `MainWindowContextMenuResourceTests`
+- 手動 smoke: 通常一覧、仮想通常一覧、duplicate/missing/installed/pending subset、sort、keyword、mode filter
+
+完了条件:
+
+- `RefreshChartRowsView` は facade として読める大きさになる。
+- main chart list の sort/filter/virtualization/cache の体感挙動が変わらない。
 
 ### Ticket E progress property 契約
 
@@ -134,17 +262,25 @@ I-2 確認対象:
 
 ### ファイル規模
 
+行数は空行を含む総行数で、PowerShell の `(Get-Content <path>).Count` による。
+
 | 対象 | 行数/範囲 | 備考 |
 |---|---:|---|
-| `MainWindowViewModel.cs` 全体 | 33,379 行 | ルート ViewModel と多数の補助型が同居 |
-| `MainWindowViewModel` 本体 | 約 32,864 行 | 516 行目付近から末尾まで |
-| ネストされた `SettingDialogViewModel` | 約 6,516 行 | 設定値の一時保持、検証、保存後処理、LR2/Beatoraja/プレイ履歴/エンコード/プレイヤー設定を保持 |
-| `PlaylistSummaryBulkEditDialogViewModel` | 約 395 行 | プレイリストサマリ一括編集 |
-| `PlaylistPropertyDialogViewModel` | 約 908 行 | プレイリストプロパティ編集 |
-| `MainWindow.xaml` | 約 2,510 行 | ルート VM への Binding が多い |
-| `MainWindow.cs` | 約 10,289 行 | UI 操作、ダイアログ、ドラッグ&ドロップ、右クリックなどが残る |
+| `MainWindowViewModel.cs` 全体 | 24,250 行（開始時 33,379 行） | nested dialog VM、先頭 helper、進捗/再生/一覧の一部は分離済み。root 本体には workflow と互換 facade がまだ多い |
+| `MainWindowViewModel.SettingDialogViewModel.cs` | 6,697 行 | 設定値の一時保持、検証、保存後処理、LR2/Beatoraja/プレイ履歴/エンコード/プレイヤー設定を保持 |
+| `MainWindowViewModel.PlaylistPropertyDialogViewModel.cs` | 960 行 | プレイリストプロパティ編集 |
+| `MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel.cs` | 463 行 | プレイリストサマリ一括編集 |
+| `ChartListRefreshCoordinator.cs` | 407 行 | main chart list refresh の coordinator。virtual terminal apply は移動済み |
+| `OperationProgressHubViewModel.cs` | 431 行 | 進捗/ステータス表示 state の子 VM |
+| `MainViewRefreshDecisionService.cs` | 370 行 | main-view refresh 判定と sort invalidation 判定 |
+| `MainChartListViewModel.cs` | 250 行 | main chart list state の受け皿。まだ pass-through 中心 |
+| `PlaybackPanelViewModel.cs` | 154 行 | 上部再生パネル state の子 VM |
+| `MainWindow.xaml` | 2,510 行 | ルート VM への Binding が多い |
+| `MainWindow.cs` | 10,289 行 | UI 操作、ダイアログ、ドラッグ&ドロップ、右クリックなどが残る |
 
 ### MainWindowViewModel 内の大きなメソッド例
+
+行数は計画開始時または直近抽出前の観測値を含む。各 ticket の実装後に、残存 method と行数を再計測して更新する。
 
 | メソッド | おおよその行数 | 主要責務 |
 |---|---:|---|
@@ -1138,6 +1274,457 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 - もっとも独立性の高い 2 領域が root Binding から外れる。
 - runtime binding error が増えていないことを debug output または手動確認で確認する。
 
+### Ticket K: MainWindowRuntimeContext 導入
+
+1. `MainWindowRuntimeContext` を追加し、子 VM / coordinator が必要とする横断依存を明示する。
+2. 初期段階では `BMSLibrary`、`BMSPlaylist`、`LR2Config`、`IBMSPlayer`、dispatcher、dialog request、logging callback をすべて移さず、read-only provider / callback interface から始める。
+3. root から child VM へ model 参照を直接ばらまいている箇所を棚卸しする。
+4. runtime context は意味の変わる fallback を持たず、未初期化なら明示的に失敗させる。
+
+確認対象:
+
+- `MainWindowViewModelStartupProgressTests`
+- `ChartListVirtualViewTests`
+- `PlaylistViewPipelineTests`
+- `PlayHistoryReadModelTests`
+
+完了条件:
+
+- child VM / service へ渡す横断依存の置き場ができる。
+- root の constructor / initialize が composition root として読めるようになる。
+
+### Ticket L: PlaylistWorkspaceViewModel 導入
+
+#### Ticket L-1: detail / summary state contract 棚卸し
+
+1. playlist detail と playlist summary の root property、field、command、dialog 生成、progress 表示を分類する。
+2. `PlaylistViewState`、`PlaylistBuildRequest`、`PlaylistSummaryView`、`PlaylistSummaryColumnsSettings`、bulk edit / property dialog の所有境界を決める。
+3. XAML / code-behind / tests からの root API 参照を分類する。
+
+確認対象:
+
+- `PlaylistViewPipelineTests`
+- `PlaylistSummaryAggregationTests`
+- `PlaylistSummaryBulkEditTests`
+- `MainWindowContextMenuResourceTests`
+
+完了条件:
+
+- `PlaylistWorkspaceViewModel` が持つ state と root facade に残す API が明確になる。
+
+#### Ticket L-2: PlaylistWorkspaceViewModel state pass-through
+
+1. `PlaylistWorkspaceViewModel` を追加する。
+2. playlist detail rows、summary rows、summary mode、summary columns、summary sort/filter/owned filter、dialog state のうち副作用が小さいものから child に移す。
+3. root の既存 property は pass-through と property relay を維持する。
+4. XAML はまだ変更しない。
+
+確認対象:
+
+- `PlaylistViewPipelineTests`
+- `PlaylistSummaryAggregationTests`
+- `PlaylistSummaryBulkEditTests`
+- `BmsPlaylistUpdateTests`
+
+完了条件:
+
+- playlist detail / summary の表示 state が root から child VM へ移り始める。
+- root Binding path は維持される。
+
+#### Ticket L-3: Playlist detail build coordinator 化
+
+1. `RegisterPlaylistSourceBuildRequest`、`CreatePlaylistBuildRequest`、`ApplyPlaylistViewRequest`、`RebuildPlaylistSource`、`ApplyPlaylistViewWithoutSourceRebuild` の境界を `PlaylistOpenCoordinator` / `PlaylistDetailViewModel` へ移す。
+2. `PlaylistRequestFactory` を coordinator から直接使う。
+3. source identity / presentation identity / chart info patch の stale 判定を root なしで検証できるようにする。
+
+確認対象:
+
+- `PlaylistViewPipelineTests`
+- `PlaylistReloadMergeTests`
+- `BmsPlaylistUpdateTests`
+- full `dotnet test`
+
+完了条件:
+
+- playlist detail build workflow が root facade から独立する。
+- root は playlist tree 選択と coordinator 呼び出しに寄る。
+
+#### Ticket L-4: Playlist summary presentation service 化
+
+1. `BuildPlaylistSummaryPresentationRows`、`ApplyPlaylistSummaryFilters`、`CalculatePlaylistSummaryCounts`、owned filter、sort を `PlaylistSummaryPresentationService` へ移す。
+2. `PlaylistSummaryDataRefreshDecision` と rows cache の責務を `PlaylistSummaryViewModel` / service へ寄せる。
+3. summary table count cache は callback または専用 cache 型に分ける。
+
+確認対象:
+
+- `PlaylistSummaryAggregationTests`
+- `PlaylistSummaryBulkEditTests`
+- `PlaylistViewPipelineTests`
+
+完了条件:
+
+- playlist summary の pure presentation が root を new せず検証できる。
+- summary rebuild / presentation refresh の stale guard が維持される。
+
+#### Ticket L-5: Playlist mutation / external sync の分割方針
+
+playlist 更新系は副作用と確認範囲が広いため、1 ticket では実装しない。次の sub-ticket に分け、各 ticket で `BMSPlaylist` / `BMSLibrary` mutation を runtime context 経由へ寄せる。
+
+##### Ticket L-5a: playlist summary bulk mutation service 化
+
+1. summary bulk edit の入力、対象 row selection、patch 生成、commit 結果を structured request/result にする。
+2. dialog VM は edit state、mutation service は patch 適用と結果分類を担当する。
+3. progress 表示が必要な場合は `ProgressHub` / `PlaylistWorkspace` のどちらが所有するかを明記する。
+
+確認対象:
+
+- `PlaylistSummaryBulkEditTests`
+- `PlaylistSummaryAggregationTests`
+- `BmsPlaylistUpdateTests`
+
+完了条件:
+
+- summary bulk mutation が root workflow から外れる。
+- bulk edit の成功/失敗/部分更新結果が service 単体で検証できる。
+
+##### Ticket L-5b: BMT sort / playlist order coordinator 化
+
+1. BMT sort と playlist order 更新の入力、対象 playlist、sort key、更新結果を coordinator request/result にする。
+2. playlist detail / summary の stale guard と reload 判定を coordinator から返す。
+
+確認対象:
+
+- `BmsPlaylistUpdateTests`
+- `PlaylistViewPipelineTests`
+
+完了条件:
+
+- BMT sort と playlist order 更新が root から独立する。
+
+##### Ticket L-5c: custom folder output coordinator 化
+
+1. custom folder output の plan 作成、materialize、repair、post-refresh を coordinator に分ける。
+2. file system mutation と playlist/header mutation の境界を明示する。
+3. 失敗時は意味の変わる fallback を入れず、structured error として root / dialog へ返す。
+
+確認対象:
+
+- `BmsPlaylistUpdateTests`
+- `SettingDialogCustomFolderOutputBaseTests`
+- full `dotnet test`（file system mutation 周辺の影響確認）
+
+完了条件:
+
+- custom folder output workflow が root から外れる。
+- file system mutation の失敗経路が隠蔽されない。
+
+##### Ticket L-5d: external playlist sync coordinator 化
+
+1. external playlist sync の request、download/parse/update、progress、cancellation、stale guard を coordinator に分ける。
+2. `ProgressHub` と `PlaylistWorkspace` の progress 所有境界を明記する。
+3. sync 完了後の playlist detail / summary refresh request を structured result として返す。
+
+確認対象:
+
+- `PlaylistReloadMergeTests`
+- `PlaylistViewPipelineTests`
+- full `dotnet test`
+
+完了条件:
+
+- external sync workflow が root facade から独立する。
+- cancellation / stale request の扱いが coordinator 単体で追える。
+
+##### Ticket L-5e: beatoraja table URL import coordinator 化
+
+1. beatoraja Table URL import の URL 正規化、取得、playlist mutation、UI 表示結果を coordinator request/result にする。
+2. user-facing text を触る場合は resource / lang JSON parity を同じ ticket で更新する。
+
+確認対象:
+
+- `BmsPlaylistUpdateTests`
+- `LocalizationResourceParityTests`
+- 手動 smoke: beatoraja Table URL import
+
+完了条件:
+
+- beatoraja Table URL import が root から外れる。
+- playlist 更新と UI 通知の境界が明確になる。
+
+### Ticket M: PlayHistoryWorkspaceViewModel 導入
+
+#### Ticket M-1: play history state / provider contract 棚卸し
+
+1. LR2 / beatoraja provider、period request、keyword queued refresh、display target、summary card、sort parameter の所有者を分類する。
+2. `MainTableSortParameters` が通常一覧 sort と play history sort を合成している現状を分離する方針を決める。
+3. reflection / source-text tests を棚卸しする。
+
+確認対象:
+
+- `PlayHistoryReadModelTests`
+- `Lr2PlayHistorySchemaUiTests`
+- `MainWindowContextMenuResourceTests`
+
+完了条件:
+
+- `PlayHistoryWorkspaceViewModel` が持つ state と root facade に残す API が明確になる。
+
+#### Ticket M-2: PlayHistoryPresentationService 抽出
+
+1. read result から `PlayHistoryRow`、summary card、diagnostic summary、grid summary text を作る pure 部分を service へ移す。
+2. keyword / mode / sort / display target 適用を service へ寄せる。
+3. LR2 / beatoraja DB read 自体はまだ root または provider に残してよい。
+
+確認対象:
+
+- `PlayHistoryReadModelTests`
+- `GridKeywordSearchQueryTests`
+
+完了条件:
+
+- play history 表示行構築が root なしで検証できる。
+
+#### Ticket M-3: ApplyPlayHistoryView coordinator 化
+
+1. `ApplyPlayHistoryView` を request validation、read provider、presentation apply、logging の小さな段階に分ける。
+2. stale request / cancellation / schema status の扱いを `PlayHistoryViewCoordinator` へ移す。
+3. root は facade と tree selection / operation section の relay に寄せる。
+
+確認対象:
+
+- `PlayHistoryReadModelTests`
+- `Lr2PlayHistorySchemaUiTests`
+- full `dotnet test`
+
+完了条件:
+
+- `ApplyPlayHistoryView` が root の巨大 workflow でなくなる。
+- play history sort/filter と main chart list sort/filter の state が分離される。
+
+### Ticket N: Settings service 化
+
+#### Ticket N-1: AppSettingsSnapshot / AppSettingsStore 導入
+
+1. P1-03 と整合する `AppSettingsSnapshot` / `AppSettingsStore` を追加する。
+2. `SettingDialogViewModel` の backup / restore / diff 判定を store 経由に寄せる。
+3. `Settings.Default` 直参照を増やさず、変更箇所を一覧化する。
+
+確認対象:
+
+- `SettingDialogCustomFolderOutputBaseTests`
+- `Lr2PlayHistorySchemaUiTests`
+
+完了条件:
+
+- settings backup / restore / diff が service 化される。
+
+#### Ticket N-2: SettingsValidationService 抽出
+
+1. `CheckCurrentRequiredSettingsForSave`、`CheckValidation`、path / player / LR2 / beatoraja validation を service へ移す。
+2. UI 表示に必要な validation result を structured result として返す。
+3. UI 文言追加が必要なら resource 更新と parity test を同じ ticket に含める。
+
+確認対象:
+
+- `SettingDialogCustomFolderOutputBaseTests`
+- `LocalizationResourceParityTests`
+
+完了条件:
+
+- 設定検証が root nested VM の巨大 method に依存しない。
+
+#### Ticket N-3: SettingsPostSaveCoordinator 抽出
+
+1. `necessaryStepsAfterSaved`、保存後の library reload / LR2 DB sync / play history schema / player 設定反映を coordinator へ移す。
+2. `MainWindowRuntimeContext` 経由で横断副作用を呼び、意味の変わる fallback は入れない。
+3. 保存後に必要な UI refresh / restart 判定を structured result 化する。
+
+確認対象:
+
+- `SettingDialogCustomFolderOutputBaseTests`
+- `MainWindowViewModelAppSchemaRepairTests`
+- `Lr2PlayHistorySchemaUiTests`
+
+完了条件:
+
+- `MainWindowViewModel.SettingDialogViewModel.cs` が UI edit state 中心になり、6,000 行規模から段階的に縮小する。
+
+### Ticket O: SidebarNavigationViewModel 導入
+
+#### Ticket O-1: tree state / event boundary 棚卸し
+
+1. library tree、playlist tree、install tree、maintenance tree、play history archive tree の ItemsSource / selected item / context menu / drag-drop 参照を分類する。
+2. code-behind handlers が root のどの method/property を呼ぶか一覧化する。
+3. `MainWindow.cs` から root 内部 state へ直接アクセスしている箇所を分類する。
+
+確認対象:
+
+- `MainWindowContextMenuResourceTests`
+- `BmsLibraryMutationBoundaryTests`
+- `DialogRouteConsolidationTests`
+
+完了条件:
+
+- sidebar の child VM 分割順が決まる。
+
+#### Ticket O-2: SidebarNavigationViewModel state pass-through
+
+1. `SidebarNavigationViewModel` を追加し、tree root nodes / expanded state / selected request を child に移す。
+2. root pass-through と event relay を維持し、XAML はまだ root Binding のままにする。
+3. tree selection は command 化の前に facade method として残す。
+
+確認対象:
+
+- `MainWindowContextMenuResourceTests`
+- `BmsLibraryMutationBoundaryTests`
+- `PlaylistViewPipelineTests`
+
+完了条件:
+
+- left sidebar state の所有者が root から child VM へ移り始める。
+
+#### Ticket O-3: tree command bridge / DataContext 移行
+
+1. tree 領域の DataContext を `Sidebar` 配下へ移す。
+2. code-behind event は root 直呼びではなく command bridge / request object を経由する。
+3. ContextMenu の `PlacementTarget.DataContext` / root command 参照を明示する。
+
+確認対象:
+
+- `MainWindowContextMenuResourceTests`
+- `dotnet build` の XAML compile
+- 手動 smoke: library / playlist / maintenance / install / play history tree selection と context menu
+
+完了条件:
+
+- left sidebar の主要 Binding が root から外れる。
+
+### Ticket P: XAML DataContext 移行の完了
+
+#### Ticket P-1: MainChartList DataContext 移行
+
+1. main table / keyword filter / mode filter / grid header / summary の DataContext を `MainChartList` または明示した child へ移す。
+2. `MainTableSortParameters` は play history と通常一覧の合成を解消してから移す。
+3. ContextMenu と `StaticResource vm` 経由の column settings 参照は BindingProxy / placement target 経由へ移す。
+
+確認対象:
+
+- `dotnet build`
+- `ChartListVirtualViewTests`
+- `MainWindowContextMenuResourceTests`
+- 手動 smoke: sort / keyword / mode / column menu / row activation
+
+完了条件:
+
+- main chart list の主要 Binding が root から外れる。
+
+#### Ticket P-2: PlaylistWorkspace DataContext 移行
+
+1. playlist detail / summary table、summary filter、bulk edit entry point の DataContext を `PlaylistWorkspace` へ移す。
+2. code-behind の playlist summary handlers を command bridge へ寄せる。
+3. dialog open は root 直 new ではなく request / command 経由にする。
+
+確認対象:
+
+- `dotnet build`
+- `PlaylistSummaryAggregationTests`
+- `PlaylistSummaryBulkEditTests`
+- `MainWindowContextMenuResourceTests`
+- 手動 smoke: summary filter / sort / bulk edit / property dialog
+
+完了条件:
+
+- playlist detail / summary の主要 Binding が root から外れる。
+
+#### Ticket P-3: PlayHistory DataContext 移行
+
+1. play history summary card / filter / table state を `PlayHistoryWorkspace` へ移す。
+2. main table と共有している Binding は `MainChartList` か `PlayHistoryWorkspace` のどちらが所有するか明示する。
+3. root の `MainTableSortParameters` 合成 forwarder を削除候補にする。
+
+確認対象:
+
+- `dotnet build`
+- `PlayHistoryReadModelTests`
+- `Lr2PlayHistorySchemaUiTests`
+- 手動 smoke: play history period selection / sort / keyword / display target
+
+完了条件:
+
+- play history の主要 Binding が root から外れる。
+
+#### Ticket P-4: root pass-through 削除
+
+1. XAML / code-behind / tests が child VM を直接参照できるようになった property から root pass-through を削除する。
+2. 削除前に `rg` で production 参照と test 参照を分類する。
+3. test-only forwarder は service 直接検証へ置き換える。
+
+確認対象:
+
+- full `dotnet test`
+- `dotnet build`
+- `dotnet format whitespace`
+- `dotnet roslynator analyze`
+
+完了条件:
+
+- root Binding は shell-level property に限定される。
+- `MainWindowViewModel.cs` が Gate 3 の 3,000 行以下に近づく。
+
+### Ticket Q: Shell 化仕上げ
+
+#### Ticket Q-1: root field / nested type 整理
+
+1. `MainWindowViewModel.cs` に残る nested type / field を owner 別に分類する。
+2. child VM / service / runtime context に移ったものは削除または移動する。
+3. field initializer 順序依存があるものは constructor 初期化へ明示移行する。
+
+確認対象:
+
+- full `dotnet test`
+- source-text tests
+
+完了条件:
+
+- root に残る field は lifecycle / composition / shared context に限られる。
+
+#### Ticket Q-2: dialog request / command boundary 整理
+
+1. `MainWindow.cs` から ViewModel 内部型を直接 new している箇所を request / command 経由にする。
+2. View 固有の `Window`, `Control`, `Panel`, `ContextMenu`, `TreeViewItem`, `DragEventArgs` は View / adapter に閉じる。
+3. `async void` は WPF event entry point のみに残す。
+
+確認対象:
+
+- `DialogRouteConsolidationTests`
+- `ExplorerOpenServiceTests`
+- `MainWindowContextMenuResourceTests`
+- 手動 smoke: dialog open / close / context menu actions
+
+完了条件:
+
+- `MainWindowViewModel` は dialog 実体ではなく dialog request を発行する。
+- `MainWindow.cs` と root VM の相互依存が薄くなる。
+
+#### Ticket Q-3: final shell audit
+
+1. `MainWindowViewModel.cs` の行数、public/root Binding、child VM property、service forwarder を一覧化する。
+2. 1,000〜1,500 行を超える場合は、残る責務ごとに追加 ticket を切る。
+3. 手動 smoke test を全項目実施する。
+4. P0-01 の完了条件に対するチェックリストをこの計画書へ追記する。
+
+確認対象:
+
+- 標準確認手順すべて
+- 手動 smoke test 全項目
+- source-text / reflection test の残存理由確認
+
+完了条件:
+
+- `MainWindowViewModel` が Shell ViewModel として 1,000〜1,500 行以下、または超過分が shell 責務として説明可能。
+- root Binding が shell-level に限定される。
+- P0-02 / P0-03 へ制約なく本格移行できる。なお、P0-01 Gate 2 完了後は P0-02 / P0-03 の限定的な並行着手を再判断してよい。
+
 ## 11. テスト方針
 
 ### 自動テスト
@@ -1188,17 +1775,27 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 
 ## 13. 完了定義
 
-### 中間完了
+### Gate 完了
 
-- `MainWindowViewModel.cs` 単体が 2,000 行以下になる。
-- ただし partial 全体の総行数はまだ大きくてもよい。
-- 設定画面 VM とプレイリストダイアログ VM は別ファイル化済み。
-- source text test は partial 対応済み。
-- 全体 build/test が通る。
+P0-01 は一度に完了判定しない。次の Gate を順に満たした状態で、次の ticket 群へ進む。
+
+| Gate | 完了条件 |
+|---|---|
+| Gate 1 | main chart / playlist / play history の主要 workflow が child VM / coordinator / service へ移り、`MainWindowViewModel.cs` が 15,000 行以下になる。 |
+| Gate 2 | settings validation/save と sidebar tree/navigation の詳細が root から外れ、`MainWindowViewModel.cs` が 8,000 行以下になる。 |
+| Gate 3 | XAML / code-behind / tests が child VM or service を直接参照できるようになり、root pass-through の大半を削除できる。`MainWindowViewModel.cs` は 3,000 行以下を目安にする。 |
+| Gate 4 | root は lifecycle、composition、shared runtime context、dialog request、shell-level command に限定され、`MainWindowViewModel.cs` は 1,000〜1,500 行以下、または超過分が shell 責務として説明可能になる。 |
+
+各 Gate の共通条件:
+
+- source text test は分割後のファイル構成に追従済み。
+- root forwarder 依存のテストは、抽出済み service / child VM 直接検証へ移行済み、または残す理由が計画書に明記済み。
+- 標準確認手順が通る。通らない場合は既存失敗 / 新規失敗を分類し、次 ticket へ持ち越す理由を明記する。
+- 手動 smoke が必要な ticket では、確認項目と結果をこの計画書の進捗へ追記する。
 
 ### 最終完了
 
-- `MainWindowViewModel` は Shell ViewModel として 1,000〜1,500 行以下。
+- `MainWindowViewModel` は Shell ViewModel として 1,000〜1,500 行以下、または超過分が shell 責務として説明可能。
 - 上部再生パネル、左ツリー、メイン一覧、進捗、設定、プレイリストはそれぞれ所有 ViewModel を持つ。
 - root Binding は shell-level に限定される。
 - pure logic は service/reducer へ移り、root を new しなくても単体テストできる。

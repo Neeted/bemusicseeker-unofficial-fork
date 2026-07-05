@@ -16,9 +16,9 @@
 
 | 優先度 | 計画書 | 主対象 | 現時点の実装プラン粒度 | 着手条件 |
 |---|---|---|---|---|
-| P0-01 | [MainWindowViewModel リファクタリング計画](./P0-01_MainWindowViewModel_リファクタリング計画.md) | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | 詳細 ticket 化済み | 第1弾として即着手 |
-| P0-02 | [BMSLibrary ドメイン facade 化計画](./P0-02_BMSLibrary_ドメインFacade化計画.md) | `BeMusicSeeker/Models/BMSLibrary.cs` | 詳細 ticket 化済み | MainWindowViewModel の Phase 1〜2 完了後に本格着手。事前調査は並行可 |
-| P0-03 | [MainWindow UI / code-behind MVVM 移行計画](./P0-03_MainWindow_UI_MVVM移行計画.md) | `BeMusicSeeker/Views/MainWindow.cs`, `MainWindow.xaml` | 詳細 ticket 化済み | MainWindowViewModel の子 VM 境界が見えた後に本格着手。純粋 helper 抽出は先行可 |
+| P0-01 | [MainWindowViewModel リファクタリング計画](./P0-01_MainWindowViewModel_リファクタリング計画.md) | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | Gate 1〜4 / Ticket Q まで再細分化済み | 第1弾として継続中。2026-07-06 時点で Ticket I-3c まで完了 |
+| P0-02 | [BMSLibrary ドメイン facade 化計画](./P0-02_BMSLibrary_ドメインFacade化計画.md) | `BeMusicSeeker/Models/BMSLibrary.cs` | 詳細 ticket 化済み | P0-01 の Gate 2 完了後に限定的な並行着手を再判断。事前調査は並行可 |
+| P0-03 | [MainWindow UI / code-behind MVVM 移行計画](./P0-03_MainWindow_UI_MVVM移行計画.md) | `BeMusicSeeker/Views/MainWindow.cs`, `MainWindow.xaml` | 詳細 ticket 化済み | P0-01 の Gate 1 後は子 VM 境界が安定した小領域のみ先行可。大規模 XAML 移行と本格並行は Gate 2 後に再判断 |
 | P0-04 | [.NET 10 移行準備と依存関係整理計画](./P0-04_DotNet10_移行準備と依存関係整理計画.md) | `*.csproj`, `libs/`, `native/`, `app.config` | 移行準備は詳細化済み。本移行は後続計画 | 依存棚卸しは即着手可。本移行は P0-01〜03 の主要境界整理後 |
 | P1-01 | [BMSPlaylist 責務分割計画](./P1-01_BMSPlaylist_責務分割計画.md) | `BeMusicSeeker/Models/BMSPlaylist.cs` | 中粒度。詳細化は BMSLibrary facade 後 | BMSLibrary の mutation / state 境界整理後 |
 | P1-02 | [BmsLibraryInitializationService / scan pipeline 分割計画](./P1-02_BmsLibraryInitializationService_スキャンPipeline分割計画.md) | `BmsLibraryInitializationService.cs` | 中〜詳細 | BMSLibrary 初期化 coordinator の境界確定後 |
@@ -47,9 +47,10 @@
 
 完了条件:
 
-- `MainWindowViewModel.cs` 単体が巨大ファイルでなくなる。
-- `MainWindowViewModel` は Shell / composition root に近づく。
-- 上部再生パネル、進捗、メイン一覧、プレイリスト、設定画面の責務境界が見える。
+- `MainWindowViewModel.cs` 単体が巨大ファイルでなくなる。P0-01 の Gate 4 では 1,000〜1,500 行以下、または超過分が shell 責務として説明可能な状態を目標にする。
+- `MainWindowViewModel` は Shell / composition root に寄り、workflow 詳細は child ViewModel / coordinator / service へ移っている。
+- 上部再生パネル、進捗、メイン一覧、プレイリスト、play history、settings、sidebar の責務境界が見える。
+- P0-01 計画書の進捗表と Gate 条件を見れば、前提知識なしでも現在地を把握できる。
 - 既存の全体 build/test/format/analyzer が通る、または既存警告と新規警告が分類されている。
 
 ### Wave 2: ドメイン中核の BMSLibrary を facade 化する
@@ -74,7 +75,7 @@
 
 目的:
 
-- code-behind 10,289 行を、View 固有の処理、event-command bridge、host 操作に限定する。
+- code-behind は開始時 10,289 行、2026-07-06 時点でも 10,289 行。View 固有の処理、event-command bridge、host 操作に限定していく。
 - context menu 生成、URL 解決、ドラッグ&ドロップ、playlist URL download、duplicate group 操作、score viewer 連携を presentation service / command へ移す。
 - `MainWindow.xaml` を添付画像の UI 構成に合わせて UserControl 単位へ分割する。
 
@@ -130,7 +131,7 @@
 ## この zip の使い方
 
 1. `00_Codex共通実行ルール.md` を読む。
-2. まず `P0-01_MainWindowViewModel_リファクタリング計画.md` の Ticket A から始める。
-3. P0-01 の Phase 1〜2 が完了したら、P0-02 / P0-03 を開始する。
+2. P0-01 は進捗表の次未完了 ticket から続ける。2026-07-06 時点の次候補は Ticket I-3d-1。
+3. P0-01 の Gate 1 後は、P0-03 の子 VM 境界が安定した小領域だけ先行可とする。P0-01 の Gate 2 が完了したら、P0-02 / P0-03 の大きな並行着手可否を再判断する。P0-01 Gate 4 完了後は、P0-01 起因の制約なしに本格移行できる。
 4. P0-04 は棚卸しだけ先行できる。本格的な TFM 変更は P0-01〜03 の主要境界が整った後にする。
 5. P1/P2 は前段完了後に、現実のコード形状に合わせて詳細 plan を再作成する。
