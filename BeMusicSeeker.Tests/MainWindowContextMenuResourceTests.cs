@@ -145,7 +145,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
 
         StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
@@ -168,7 +168,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlayHistoryView_LogsDedicatedStageEvents()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows");
         string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
         string applyPlayHistorySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult");
@@ -189,7 +189,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlayHistoryView_SelectsBeatorajaProviderAndProjectsSha256Rows()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows");
         string beatorajaProjection = ExtractBetween(viewModelCode, "BeatorajaPlayHistoryReadResult readResult,", "private PlayHistoryViewRequest ResolvePlayHistoryViewRequest");
         string providerSelection = ExtractBetween(viewModelCode, "private bool ShouldUseBeatorajaPlayHistoryProvider", "private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath");
@@ -213,7 +213,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlayHistoryView_KeywordFilterUpdatedReusesProjectedState()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string applyPlayHistoryView = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryView", "private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows");
         string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
         string applyDisplayTargetSelection = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryDisplayTargetSelection", "private void EnsurePlayHistoryDisplayTargetSelection");
@@ -284,7 +284,7 @@ public sealed class MainWindowContextMenuResourceTests
         string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string editDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.xaml"));
         string editDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.cs"));
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string toolbar = ExtractBetween(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\"", "<Border DockPanel.Dock=\"Right\" CornerRadius=\"6\" BorderThickness=\"1\" BorderBrush=\"{DynamicResource App.StrongBorderBrush}\" Width=\"Auto\" Margin=\"0,0,2,0\" VerticalAlignment=\"Center\" FlowDirection=\"LeftToRight\" Visibility=\"{Binding IsPlaylistSummaryMode");
         string saveAndClose = ExtractBetween(settingDialogCode, "private async void SaveAndClose", "internal static bool ShouldResetSettingsOnCancel");
         string saveSettings = ExtractBetween(viewModelCode, "public async Task SaveSettings()", "public async Task SaveSettingsForInitialInitialize()");
@@ -520,7 +520,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
-        string code = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string code = SourceTextTestHelper.ReadMainWindowSourceText();
         string dialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
         string dialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.xaml"));
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
@@ -586,7 +586,7 @@ public sealed class MainWindowContextMenuResourceTests
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string[] keys =
         [
             "Beatoraja_integration",
@@ -693,7 +693,7 @@ public sealed class MainWindowContextMenuResourceTests
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string[] keys =
         [
             "Standalone_BMSDirectories",
@@ -729,7 +729,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void StandaloneLibraryMode_UsesPortableSongDbAndBuildsPlaylist()
     {
         string root = FindRepositoryRoot();
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string portablePathCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "PortableSettingsPath.cs"));
         string standaloneDbCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "StandaloneLibraryDatabase.cs"));
 
@@ -777,7 +777,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string lr2PlaybackXaml = ExtractBetween(
             xaml,
             "Name=\"radioButtonPlayLR2body\"",
@@ -822,7 +822,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SettingDialogOperationModeChange_ConfirmsAndRestartsAfterInitialization()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string operationModeProperty = ExtractBetween(
             viewModelCode,
             "public bool OperationModeLR2DB",
@@ -892,9 +892,9 @@ public sealed class MainWindowContextMenuResourceTests
     public void FirstStartupValidationFailure_UsesInitialSetupLanguageDialog()
     {
         string root = FindRepositoryRoot();
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string initialDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml"));
         string initialDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
         string initialize = ExtractBetween(
@@ -929,8 +929,8 @@ public sealed class MainWindowContextMenuResourceTests
     public void MainWindowViewModel_RaisesUiInteractionsThroughTypedEvents()
     {
         string root = FindRepositoryRoot();
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string helperBody = ExtractMethodBody(viewModelCode, "private void RaiseUiInteractionOnUiThread(EventHandler handler, string interactionName)");
 
         StringAssert.Contains(helperBody, "handler(this, EventArgs.Empty);");
@@ -947,7 +947,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void StartupReloadProgress_UsesSerializedOperationTokens()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
             "public async void ReloadFileDiff()",
@@ -1001,7 +1001,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SettingDialogOperationModeRestartSave_SavesOnlyOperationMode()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string initialSaveMethod = ExtractBetween(
             viewModelCode,
             "public async Task SaveSettingsForInitialInitialize()",
@@ -1062,7 +1062,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SettingDialogModeSpecificGetters_DoNotClearPersistedSettings()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string lr2CustomFolderGetter = ExtractBetween(
             viewModelCode,
             "public string LR2CustomFolderOutputDir",
@@ -1089,7 +1089,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string playerDriverProperty = ExtractBetween(
             viewModelCode,
             "public int PlayerDriverIndex",
@@ -1162,7 +1162,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string resources = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"));
         string resourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs"));
         string checkValidation = ExtractBetween(
@@ -1192,7 +1192,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SettingDialogReloadDecision_UsesExplicitSettingDiffs()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string backupSavedSettings = ExtractBetween(
             viewModelCode,
             "private void backupSavedSettingsCore(SettingsSnapshotRefreshScope scope)",
@@ -1243,7 +1243,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void SearchRootChanges_UpdateRuntimeSearchTargetsBeforeFileDiffReload()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string playlistCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
@@ -1355,7 +1355,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void Lr2CompatibilityTree_IsAlwaysShown()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string unregisteredTreeItem = ExtractBetween(
             xaml,
             "Path=Resources.Unregistered_in_lr2_db",
@@ -1369,7 +1369,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void StandaloneRootNormalization_PreservesExistingRootsWhenAddingInstallDestination()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string addStandalone = ExtractBetween(
             viewModelCode,
             "private void AddStandaloneBmsRootPathsCore",
@@ -1429,7 +1429,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void RootFolderUnregister_RunsOnUiThreadAndStandaloneParentFolderCacheAcceptsEmptyRoots()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string parentFolderCacheCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryParentFolderCacheService.cs"));
         string unregisterHandler = ExtractBetween(
             mainWindowCode,
@@ -1446,8 +1446,8 @@ public sealed class MainWindowContextMenuResourceTests
     public void AutoRenameFolder_UsesChartSelectionIncludingBmson()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string bmsLibraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string autoRenameClick = ExtractBetween(
             mainWindowCode,
@@ -1496,7 +1496,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlaylistLibraryIndexUsesOwnedResolveIndex()
     {
         string root = FindRepositoryRoot();
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string bmsLibraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string createPlaylistLibraryIndex = ExtractBetween(
             viewModelCode,
@@ -1518,7 +1518,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void SharedTransientStatePruneUsesOwnedRuntimeStatePrimaryKeySnapshot()
     {
         string root = FindRepositoryRoot();
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string bmsLibraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string notificationHandler = ExtractBetween(
             viewModelCode,
@@ -1557,7 +1557,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void NormalLibraryRefreshNotificationOwnsStorageRowSourceRefresh()
     {
         string root = FindRepositoryRoot();
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string notificationVersionHandler = ExtractBetween(
             viewModelCode,
@@ -1646,7 +1646,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void DuplicateFilterViewUsesChartFileParameters()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string refreshChartRowsView = ExtractBetween(
             viewModelCode,
@@ -1683,7 +1683,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ChartContextMenu_BmsOnlyAndChartCommonHandlersUseExpectedSelectionHelpers()
     {
-        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string contextMenuResource = ExtractBetween(
             mainWindowCode,
             "private bool TryGetTableContextMenuResource",
@@ -1745,7 +1745,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PendingPackageChartHandlersUseChartTargetsForPackageOperations()
     {
-        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string forceInstall = ExtractBetween(
             mainWindowCode,
             "private async void forceInstallSelectedPendingCharts",
@@ -1801,7 +1801,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlaylistDropReferenceRefreshUsesChartTargets()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string addChartRows = ExtractBetween(
             viewModelCode,
             "internal void AddChartRowsToFolderBMSTable",
@@ -1824,7 +1824,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PendingInstallDestinationCellEditUsesChartTargets()
     {
-        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string editBeginning = ExtractBetween(
             mainWindowCode,
             "private void customTableView_CellEditBeginning",
@@ -1846,7 +1846,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void RepairInstalledLocationHandlersUseChartTargets()
     {
-        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string searchRepair = ExtractBetween(
             mainWindowCode,
             "private void tableContextMenuSearchCorrectInstallationDirectoryChartsClick",
@@ -1873,7 +1873,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void FullScanInstallDestinationClearUsesRepairTargetSnapshot()
     {
-        string mainWindowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string clearInstallDestination = ExtractBetween(
             mainWindowCode,
             "private void tableContextMenuRemoveInstallDestinationClick",
@@ -1892,7 +1892,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void StartupInitialize_ReleasesSemaphoreWhenFileInitializationFails()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string fileInitializeBlock = ExtractBetween(
             viewModelCode,
             "startupReadyDataReached = false;",
@@ -1909,7 +1909,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PostStartupWarmup_PrioritizesOwnedAdjacentIndexesBeforeVirtualSortPrewarm()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string scheduler = ExtractBetween(
             viewModelCode,
             "private void SchedulePostStartupBestEffortWarmups",
@@ -1946,7 +1946,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ReloadScoresOnly_DoesNotSchedulePlaylistReloadWork()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string method = ExtractBetween(
             viewModelCode,
             "public async void ReloadScoresOnly()",
@@ -1963,7 +1963,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ReloadTables_DoesNotInitializeScoresOnly()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string method = ExtractBetween(
             viewModelCode,
             "public async void ReloadTables()",
@@ -1979,7 +1979,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ManualPlaylistResync_UsesBatchReloadWithoutFailureDialogs()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string method = ExtractBetween(
             viewModelCode,
             "public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)",
@@ -2013,7 +2013,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlaylistReferenceReplace_InvalidatesIndexBackedBmsonDisplay()
     {
-        string viewModelCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string propertyDialogSave = ExtractBetween(
             viewModelCode,
             "internal async Task ApplyPostSaveUpdatesAsync()",
@@ -2356,7 +2356,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void AdvancedSettings_RemovePlaylistExpandSettingAndPromoteSongDbPragmaLabel()
     {
         string root = FindRepositoryRoot();
-        string viewModel = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string settings = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Settings.cs"));
         string appConfig = File.ReadAllText(Path.Combine(root, "app.config"));
         string settingDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
@@ -2379,7 +2379,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void AdvancedSettings_TestPrefixLabelsArePromotedToRegularSettingLabels()
     {
         string root = FindRepositoryRoot();
-        string viewModel = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string[] promotedLabels =
         [
             Resources.Details_scan_bms_files_on_startup,
@@ -2410,7 +2410,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void DownloadAndInstall_UsesChartFileKindResolverForDirectChartFiles()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string candidateHelper = ExtractBetween(mainWindowCode, "private static bool IsDownloadAndInstallCandidateFileName", "private static string NormalizeDownloadUrlString");
         string downloadResponseMethod = ExtractBetween(mainWindowCode, "private static async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth", "private static bool IsDownloadAndInstallCandidateFileName");
         MethodInfo helper = typeof(MainWindow).GetMethod("IsDownloadAndInstallCandidateFileName", BindingFlags.Static | BindingFlags.NonPublic);
@@ -2482,7 +2482,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlaylistUrlBulkImport_UsesSharedHandlerAndSuppressesBrowserFallback()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string singleUrlMethod = ExtractBetween(mainWindowCode, "private async Task OpenSinglePlaylistUrlAsync(Uri url)", "private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync");
         string singleUrlStatusMethod = ExtractBetween(mainWindowCode, "private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync", "private void playlistRootSelect");
         string openUrlHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLClick", "private async void tableContextMenuItemOpenURLdiffClick");
@@ -2493,7 +2493,7 @@ public sealed class MainWindowContextMenuResourceTests
         string selectionHelper = ExtractBetween(mainWindowCode, "private List<object> GetEffectiveContextMenuRows", "internal static List<Uri> BuildPlaylistUrlTargetsForTest");
         string bulkMethod = ExtractBetween(mainWindowCode, "private async Task DownloadSelectedPlaylistUrlsAsync", "private void tableContextMenuItemOpenDocumentFileClick");
         string refreshStatus = ExtractBetween(
-            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs")),
+            SourceTextTestHelper.ReadMainWindowViewModelSourceText(),
             "private void RefreshInstallPipelineStatus()",
             "private void BeginPlaylistSyncProgressOperation()");
 
@@ -2758,7 +2758,7 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string settingsCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Settings.cs"));
         string appConfigPath = Path.Combine(root, "app.config");
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string appCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.cs"));
         string legacyMigratorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "LegacyUserConfigMigrator.cs"));
 
@@ -2826,7 +2826,7 @@ public sealed class MainWindowContextMenuResourceTests
         string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string allPickerXaml = settingDialogXaml + mainWindowXaml;
 
         Assert.AreEqual(0, CountOccurrences(allPickerXaml, "<l:FolderBrowserDialogInteractionMessageAction"));
@@ -2887,7 +2887,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
 
         StringAssert.Contains(settingDialogCode, "new UiSaveFilePickerRequest(");
@@ -2918,7 +2918,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string uninstallClickHandler = ExtractMethodBody(settingDialogCode, "private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)");
 
         StringAssert.Contains(uninstallClickHandler, "UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_success_uninstall");
@@ -3032,7 +3032,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void DuplicateFileCheckConfirmations_RespectSharedMessageSetting()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string folderMergeMethod = ExtractMethodBody(mainWindowCode, "private void ExecuteDuplicateFolderMerge(string srcPath, string dstPath, DuplicateGroup duplicateGroup)");
         string hashCleanupMethod = ExtractMethodBody(mainWindowCode, "private void ExecuteDuplicateHashCleanup(DuplicateGroup duplicateGroup, string folderPath)");
 

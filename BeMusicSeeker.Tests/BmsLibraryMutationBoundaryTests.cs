@@ -96,7 +96,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     [TestMethod]
     public void MainWindowViewModel_UsesChartPackageMutationBoundary()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string librarySource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
         string runMethod = ExtractMethodBody(source, "private void RunChartPackageMutation(");
         string autoInstallMethod = ExtractMethodBody(source, "public void InstallChartPackages(");
@@ -143,7 +143,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     [TestMethod]
     public void MainWindow_BlocksChartPackageContextMenuWhileMutationIsRunning()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string source = SourceTextTestHelper.ReadMainWindowSourceText();
         string rowContextMenu = ExtractMethodBody(source, "private void customTableView_RowContextMenuRequested");
         string tableContextMenuOpened = ExtractMethodBody(source, "private void tableContextMenuOpened");
         string removeInstallDestination = ExtractMethodBody(source, "private void tableContextMenuRemoveInstallDestinationClick");

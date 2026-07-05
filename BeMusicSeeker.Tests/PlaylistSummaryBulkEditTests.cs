@@ -150,7 +150,7 @@ public sealed class PlaylistSummaryBulkEditTests
     [TestMethod]
     public void MainWindowPlaylistPropertyDialogs_DoNotRefreshLastPlaySortSchemaStatus()
     {
-        string source = ReadWorkspaceText("BeMusicSeeker", "Views", "MainWindow.cs");
+        string source = SourceTextTestHelper.ReadMainWindowSourceText();
 
         Assert.IsFalse(source.Contains("RefreshLr2PlayHistorySchemaStatusForCustomFolderUiAsync"));
         Assert.IsFalse(source.Contains("CheckLastPlaySortCustomFolderAvailability"));

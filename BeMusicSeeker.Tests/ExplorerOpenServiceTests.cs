@@ -249,7 +249,7 @@ public sealed class ExplorerOpenServiceTests
     public void MainWindowExplorerContextMenusUseExplorerOpenService()
     {
         string root = FindRepositoryRoot();
-        string mainWindow = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindow = SourceTextTestHelper.ReadMainWindowSourceText();
 
         Assert.IsFalse(mainWindow.Contains("Process.Start(\"EXPLORER.EXE\""));
         StringAssert.Contains(mainWindow, "ExplorerOpenService.OpenFileAndSelect");

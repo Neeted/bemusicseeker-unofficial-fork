@@ -221,6 +221,20 @@ public sealed class CustomTablePhase6CacheTests
             cellKind: CustomTableCellKind.CheckBox);
 
         Assert.AreEqual(0, CustomTableCellValue.Create(row, defaultTextColumn).TextRuns.Count);
+        if (CustomTableScoreBrushProvider.DefaultForeground is SolidColorBrush defaultForeground)
+        {
+            var equivalentDefaultTextColumn = new CustomTableColumn(
+                "EquivalentTitle",
+                "EQUIVALENT_TITLE",
+                layout: null,
+                fallbackOrder: 0,
+                sortMemberPath: null,
+                alignment: TextAlignment.Left,
+                textSelector: _ => "title",
+                foregroundSelector: _ => new SolidColorBrush(defaultForeground.Color));
+            Assert.AreEqual(0, CustomTableCellValue.Create(row, equivalentDefaultTextColumn).TextRuns.Count);
+        }
+
         Assert.AreEqual(0, CustomTableCellValue.Create(row, iconColumn).TextRuns.Count);
         Assert.AreEqual(0, CustomTableCellValue.Create(row, checkBoxColumn).TextRuns.Count);
     }

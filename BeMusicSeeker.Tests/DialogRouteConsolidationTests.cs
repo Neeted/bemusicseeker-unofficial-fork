@@ -91,7 +91,7 @@ public sealed class DialogRouteConsolidationTests
         string ubmplayCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "uBMplay.cs"));
         string fastDirectoryEnumeratorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "FastDirectoryEnumerator.cs"));
         string taskExCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "TaskEx.cs"));
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
         Assert.IsFalse(playlistCode.Contains("DispatcherMessageBox.Show("), "BMSPlaylist must return operation notifications instead of showing message boxes from the model layer.");
         Assert.IsFalse(ubmplayCode.Contains("DispatcherMessageBox.Show("), "uBMplay must report startup failures to its caller instead of showing message boxes from the model layer.");
@@ -107,8 +107,8 @@ public sealed class DialogRouteConsolidationTests
     public void ScoreViewerRegistration_UsesCoordinatorForConfirmationRoute()
     {
         string root = FindRepositoryRoot();
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string prepareScoreViewerRegistration = ExtractBetween(viewModelCode, "internal ScoreViewerRegistrationPlan PrepareScoreViewerRegistration", "internal ScoreViewerRegistrationResult CompleteScoreViewerRegistration");
         string completeScoreViewerRegistration = ExtractBetween(viewModelCode, "internal ScoreViewerRegistrationResult CompleteScoreViewerRegistration", "private static bool ShowUiConfirmation");
         string runScoreViewerRegistration = ExtractBetween(mainWindowCode, "private async Task RunScoreViewerRegistrationAsync", "private async Task<bool> ConfirmScoreViewerUploadIfNeededAsync");
@@ -149,8 +149,8 @@ public sealed class DialogRouteConsolidationTests
     {
         string root = FindRepositoryRoot();
         string combinedCode = string.Concat(
-            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs")),
-            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs")),
+            SourceTextTestHelper.ReadMainWindowViewModelSourceText(),
+            SourceTextTestHelper.ReadMainWindowSourceText(),
             File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "PlaylistSummaryBulkEditDialog.cs")));
 
         Assert.IsFalse(combinedCode.Contains("confirmationMessage.Response"), "Decision confirmations must use UiDialogCoordinator results instead of Livet ConfirmationMessage.Response.");
@@ -166,7 +166,7 @@ public sealed class DialogRouteConsolidationTests
     public void ProgressOperations_AreRoutedThroughUiDialogCoordinator()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string progressDialogCode = File.ReadAllText(Path.Combine(root, "Parago", "Windows", "ProgressDialog.cs"));
         string ownerResolverCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogOwnerResolver.cs"));
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
@@ -190,7 +190,7 @@ public sealed class DialogRouteConsolidationTests
     public void FilePickers_AreRoutedThroughUiDialogCoordinator()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string loadPlaylistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "LoadPlaylistURIDialog.cs"));
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
@@ -213,7 +213,7 @@ public sealed class DialogRouteConsolidationTests
     public void WindowModals_AreRoutedThroughUiDialogCoordinator()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogCoordinator.cs"));
         string requestsCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "Dialogs", "UiDialogRequests.cs"));
@@ -263,7 +263,7 @@ public sealed class DialogRouteConsolidationTests
             .ToList();
 
         CollectionAssert.AreEqual(Array.Empty<string>(), offenders, "ViewModel messages must use UiDialogCoordinator-backed routes instead of DispatcherMessageBox.");
-        string viewModelCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string temporaryCopyCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "temporarilyCopyFiles.cs"));
         StringAssert.Contains(viewModelCode, "ShowUiMessage(");
         StringAssert.Contains(viewModelCode, "ShowUiConfirmation(");
@@ -304,7 +304,7 @@ public sealed class DialogRouteConsolidationTests
     public void OverlayDialogs_AreShownThroughMainWindowHost()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string initialSetupCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));

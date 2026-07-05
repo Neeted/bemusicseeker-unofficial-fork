@@ -89,7 +89,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void ExternalTableImportContinuation_DoesNotReturnReferenceIndexWorkToUiThread()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string drainMethod = ExtractMethodBody(source, "private async Task DrainExternalPlaylistImportQueueAsync");
         string completionMethod = ExtractMethodBody(source, "private void CompleteImportedPlaylistRegistrations");
         string duplicatePreparationMethod = ExtractMethodBody(source, "private List<ExternalPlaylistImportWorkItem> PrepareExternalPlaylistImportRegistrationItems");
@@ -120,7 +120,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void BeatorajaTableUrlImport_ParallelizesExternalLoadAndBatchesRegistrationWork()
     {
-        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs"));
+        string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string importMethod = ExtractMethodBody(source, "private async Task ImportBeatorajaTableUrlsAsync");
         string completionMethod = ExtractMethodBody(source, "private void CompleteImportedPlaylistRegistrations");
 

@@ -221,11 +221,28 @@ internal readonly struct CustomTableCellValue
         if (textRuns.Count > 0
             || string.IsNullOrEmpty(text)
             || !UsesTextRunsForSelection(cellKind)
-            || ReferenceEquals(foreground, CustomTableScoreBrushProvider.DefaultForeground))
+            || IsDefaultForeground(foreground))
         {
             return textRuns;
         }
         return [new CustomTableTextRunStyle(0, text.Length, foreground)];
+    }
+
+    private static bool IsDefaultForeground(Brush foreground)
+    {
+        Brush defaultForeground = CustomTableScoreBrushProvider.DefaultForeground;
+        if (foreground == null || ReferenceEquals(foreground, defaultForeground))
+        {
+            return true;
+        }
+
+        // NOTE:
+        // Palette resources can be rebuilt between the column selector and normalization during parallel tests or theme changes.
+        // Treat an equivalent solid brush as default so normal text still switches to the selected/current-cell foreground.
+        return foreground is SolidColorBrush foregroundBrush
+            && defaultForeground is SolidColorBrush defaultBrush
+            && foregroundBrush.Color == defaultBrush.Color
+            && foregroundBrush.Opacity == defaultBrush.Opacity;
     }
 
     private static bool UsesTextRunsForSelection(CustomTableCellKind cellKind)
