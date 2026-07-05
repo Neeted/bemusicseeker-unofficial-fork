@@ -1212,7 +1212,7 @@ public sealed class MainWindowContextMenuResourceTests
         string saveOrCancelDecision = ExtractBetween(
             viewModelCode,
             "public RestartMode IsNeedRestartForSaveOrCancel()",
-            "public class PlaylistPropertyDialogViewModel");
+            "public partial class PlaylistPropertyDialogViewModel");
 
         StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);");
         StringAssert.Contains(backupSavedSettings, "tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();");

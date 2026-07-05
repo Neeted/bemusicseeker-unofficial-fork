@@ -51,17 +51,24 @@ internal static class SourceTextTestHelper
     {
         string root = FindRepositoryRoot();
         string mainWindowViewModelPath = Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
-        string settingDialogViewModelPath = Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.SettingDialogViewModel.cs");
+        string mainWindowViewModelSplitDirectory = Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow");
+        string[] nestedSourcePaths =
+        [
+            Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.SettingDialogViewModel.cs"),
+            Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel.cs"),
+            Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.PlaylistPropertyDialogViewModel.cs")
+        ];
         string logicalMainWindowViewModelSource = InsertSourceAfterMarker(
             File.ReadAllText(mainWindowViewModelPath),
             "    internal event EventHandler MainTableDisplayRefreshRequested;",
-            ExtractNestedMainWindowViewModelSource(
-                settingDialogViewModelPath));
+            string.Join(
+                Environment.NewLine,
+                nestedSourcePaths.Select(ExtractMainWindowViewModelPartialBody)));
 
         string[] splitFiles = Directory.EnumerateFiles(Path.Combine(root, "BeMusicSeeker", "ViewModels"), "MainWindowViewModel*.cs", SearchOption.TopDirectoryOnly)
-            .Concat(EnumerateDirectoryFiles(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow")))
+            .Concat(EnumerateDirectoryFiles(mainWindowViewModelSplitDirectory))
             .Where(path => !string.Equals(path, mainWindowViewModelPath, StringComparison.OrdinalIgnoreCase))
-            .Where(path => !string.Equals(path, settingDialogViewModelPath, StringComparison.OrdinalIgnoreCase))
+            .Where(path => !nestedSourcePaths.Contains(path, StringComparer.OrdinalIgnoreCase))
             .Where(File.Exists)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => GetRelativePath(root, path), StringComparer.OrdinalIgnoreCase)
@@ -143,7 +150,7 @@ internal static class SourceTextTestHelper
             + source.Substring(insertIndex);
     }
 
-    private static string ExtractNestedMainWindowViewModelSource(string path)
+    private static string ExtractMainWindowViewModelPartialBody(string path)
     {
         if (!File.Exists(path))
         {
@@ -151,21 +158,38 @@ internal static class SourceTextTestHelper
         }
 
         string source = File.ReadAllText(path);
-        const string startMarker = "    public partial class SettingDialogViewModel : ViewModel";
         const string endMarker = "\n}";
-        int startIndex = source.IndexOf(startMarker, StringComparison.Ordinal);
-        if (startIndex < 0)
+        const string wrapperMarker = "public partial class MainWindowViewModel";
+        int wrapperIndex = source.IndexOf(wrapperMarker, StringComparison.Ordinal);
+        if (wrapperIndex < 0)
         {
-            throw new InvalidOperationException("Nested MainWindowViewModel start marker was not found.");
+            throw new InvalidOperationException("MainWindowViewModel partial wrapper marker was not found.");
+        }
+
+        int wrapperOpenBraceIndex = source.IndexOf('{', wrapperIndex);
+        if (wrapperOpenBraceIndex < 0)
+        {
+            throw new InvalidOperationException("MainWindowViewModel partial wrapper opening brace was not found.");
         }
 
         int endIndex = source.LastIndexOf(endMarker, StringComparison.Ordinal);
-        if (endIndex <= startIndex)
+        if (endIndex <= wrapperOpenBraceIndex)
         {
-            throw new InvalidOperationException("Nested MainWindowViewModel end marker was not found.");
+            throw new InvalidOperationException("MainWindowViewModel partial wrapper closing brace was not found.");
         }
 
-        return source.Substring(startIndex, endIndex - startIndex);
+        int bodyStartIndex = wrapperOpenBraceIndex + 1;
+        if (bodyStartIndex < source.Length && source[bodyStartIndex] == '\r')
+        {
+            bodyStartIndex++;
+        }
+
+        if (bodyStartIndex < source.Length && source[bodyStartIndex] == '\n')
+        {
+            bodyStartIndex++;
+        }
+
+        return source.Substring(bodyStartIndex, endIndex - bodyStartIndex);
     }
 
     private static IEnumerable<string> EnumerateExistingFiles(params string[] paths)

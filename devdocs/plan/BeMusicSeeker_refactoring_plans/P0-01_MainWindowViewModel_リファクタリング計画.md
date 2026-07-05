@@ -24,8 +24,9 @@
 | 2026-07-05 | 完了 | SDK 10 開発環境整備 | `b112dd27` |
 | 2026-07-05 | 完了 | Ticket A: partial 対応前のテスト helper | `5b43658c` |
 | 2026-07-05 | 完了 | Ticket B: 先頭 helper 型の移動 | `ce7e1a66` |
-| 2026-07-05 | 完了 | Ticket C: SettingDialogViewModel の nested partial 移動 | このコミット |
-| 2026-07-05 | 次 | Ticket D: Playlist dialog VM の nested partial 移動 | - |
+| 2026-07-05 | 完了 | Ticket C: SettingDialogViewModel の nested partial 移動 | `d19295a6` |
+| 2026-07-05 | 完了 | Ticket D: Playlist dialog VM の nested partial 移動 | このコミット |
+| 2026-07-05 | 次 | Ticket E: OperationProgressHubViewModel 導入 | - |
 
 ## 1. 現状観測メモ
 
