@@ -10,9 +10,9 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `Settings.Default` 参照 | `MainWindowViewModel.cs` 約 779 箇所、`BMSPlaylist.cs` 約 49 箇所、`MainWindow.cs` 約 32 箇所、`BMSLibrary.cs` 約 26 箇所 |
+| `Settings.Default` 参照 | `MainWindowViewModel.cs` 約 819 箇所、`BMSPlaylist.cs` 約 51 箇所、`BMSPlaylist.UrlCompletion.cs` 約 6 箇所、`MainWindow.cs` 約 31 箇所、`MainWindow.xaml` 約 31 箇所、`BMSLibrary.cs` 約 25 箇所 |
 | source-text tests | `MainWindowViewModel.cs`, `MainWindow.cs`, `BMSLibrary.cs`, `BMSPlaylist.cs` などを直接 `File.ReadAllText` している |
-| private reflection tests | `BMSLibrary`, `SettingDialogViewModel`, `CustomTableView` などの private member に直接依存 |
+| private reflection tests | `BMSLibrary`, `SettingDialogViewModel`, `MainWindowViewModel.ApplyPlayHistoryDisplayTargetRows`, `CustomTableView` などの private member に直接依存 |
 | risk | partial split / service extract だけで test が落ちる。settings 変更が test 間で漏れやすい |
 
 ## 目標アーキテクチャ
@@ -71,6 +71,7 @@ internal static class SourceTextTestHelper
 
 1. `BindingFlags.NonPublic`, `GetField`, `GetMethod` を grep する。
 2. `.tmp/refactor/private-reflection-test-inventory.md` に target type / member / test / replacement plan を記録する。ticket をまたいで参照する必要が出たら `devdocs/` 側へ移す。
+   - 例: `PlayHistoryReadModelTests`, `SettingDialogCustomFolderOutputBaseTests`, `CustomTableView` 関連 test。
 3. replacement plan は次に分類する。
    - service 抽出後に internal API test へ移す。
    - public compatibility API として残す。

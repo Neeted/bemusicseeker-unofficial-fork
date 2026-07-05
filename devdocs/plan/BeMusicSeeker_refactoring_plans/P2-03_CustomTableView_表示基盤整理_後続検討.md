@@ -4,7 +4,7 @@
 
 ## 位置づけ
 
-`CustomTableView.cs` は 2,840 行の owner-drawn table control で、描画、hit test、selection、keyboard、cell edit、drag、tooltip、column resize、render metrics を持つ。MainWindow の巨大化とは別に UI 基盤として重要だが、先に MainWindow UI 分割と command adapter を進める方が安全。
+`CustomTableView.cs` は 3,069 行の owner-drawn table control で、描画、hit test、selection、keyboard、cell edit、drag、tooltip、column resize、render metrics を持つ。MainWindow の巨大化とは別に UI 基盤として重要だが、先に MainWindow UI 分割と command adapter を進める方が安全。
 
 ## 詳細計画を検討する条件
 

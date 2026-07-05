@@ -4,7 +4,7 @@
 
 ## 位置づけ
 
-`BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryInitializationService.cs` は 5,250 行あり、既に `BMSLibrary` から切り出された service ではあるが、内部では DB load、LR2 folder mtime、file diff、parallel read/parse、commit writer、inline maintenance、chart_info inline build、score load が同居している。
+`BeMusicSeeker/Models/BmsLibraryInternal/BmsLibraryInitializationService.cs` は 5,341 行あり、既に `BMSLibrary` から切り出された service ではあるが、内部では DB load、LR2 folder mtime、file diff、parallel read/parse、commit writer、inline maintenance、chart_info inline build、score load が同居している。
 
 詳細な実装プランは [BMSLibrary ドメイン facade 化計画](./P0-02_BMSLibrary_ドメインFacade化計画.md) の `LibraryInitializationCoordinator` が見えた後に調整する。ただし scan pipeline は比較的自己完結しているため、中粒度 ticket は先に定義できる。
 

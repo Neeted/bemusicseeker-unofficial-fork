@@ -4,7 +4,7 @@
 
 ## 位置づけ
 
-`BMSPlaylist.cs` は 9,304 行あり、プレイリスト DB 永続化、外部テーブル同期、beatoraja BMT 出力、LR2 custom folder 出力、推定表、URL 補完、更新差分判定を抱えている。
+`BMSPlaylist.cs` は 9,748 行あり、プレイリスト DB 永続化、外部テーブル同期、beatoraja BMT 出力、LR2 custom folder 出力、推定表、URL 補完、更新差分判定を抱えている。
 
 ただし `BMSPlaylist` は `BMSLibrary` の owned chart / playlist reference / LR2 song.db sync と強く結合しているため、詳細な実装プランは [BMSLibrary ドメイン facade 化計画](./P0-02_BMSLibrary_ドメインFacade化計画.md) の主要 state / mutation 境界が整った後に再検討する。
 

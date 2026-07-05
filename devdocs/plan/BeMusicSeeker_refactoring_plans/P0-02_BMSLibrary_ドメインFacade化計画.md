@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 21,827 行あり、BeMusicSeeker の中核ドメイン操作が集中している。`MainWindowViewModel` の整理後も `BMSLibrary` が God Object のままだと、機能追加、起動/スキャン性能改善、LR2 / beatoraja 互換、.NET 10 移行のたびに広範囲の変更が必要になる。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 21,696 行あり、BeMusicSeeker の中核ドメイン操作が集中している。`MainWindowViewModel` の整理後も `BMSLibrary` が God Object のままだと、機能追加、起動/スキャン性能改善、LR2 / beatoraja 互換、.NET 10 移行のたびに広範囲の変更が必要になる。
 
 この計画では `BMSLibrary` を互換 API を持つ facade として残しつつ、内部を state / coordinator / service へ分離する。
 
@@ -12,10 +12,10 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 21,827 行 |
+| `BMSLibrary.cs` 行数 | 21,696 行 |
 | ロック / state / version field 群 | 1,100 行目付近から大量に集中 |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
-| `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 26 箇所、関連 model ではさらに多い |
+| `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
 
 既に `BmsLibraryInternal` には次のような service が存在するため、完全な新規設計ではなく「facade に残った orchestration と state mutation をさらに外へ逃がす」方針にする。

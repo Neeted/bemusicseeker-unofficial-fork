@@ -4,7 +4,7 @@
 
 ## 0. 目的
 
-`BeMusicSeeker/ViewModels/MainWindowViewModel.cs` は現在 31,504 行あり、UI ルート ViewModel、設定画面 ViewModel、プレイリスト編集ダイアログ、チャート一覧生成、プレイリスト一覧/詳細、起動進捗、インストール進捗、プレイ履歴、再生制御、外部同期、スコアビューア連携などが 1 ファイルに集約されている。
+`BeMusicSeeker/ViewModels/MainWindowViewModel.cs` は現在 33,379 行あり、UI ルート ViewModel、設定画面 ViewModel、プレイリスト編集ダイアログ、チャート一覧生成、プレイリスト一覧/詳細、起動進捗、インストール進捗、プレイ履歴、play history display target、再生制御、外部同期、beatoraja Table URL import、スコアビューア連携などが 1 ファイルに集約されている。
 
 この計画では、添付画像の UI 構成に合わせて責務を切り分ける。
 
@@ -23,33 +23,34 @@
 
 | 対象 | 行数/範囲 | 備考 |
 |---|---:|---|
-| `MainWindowViewModel.cs` 全体 | 31,504 行 | ルート ViewModel と多数の補助型が同居 |
-| `MainWindowViewModel` 本体 | 約 31,036 行 | 476 行目付近から末尾まで |
-| ネストされた `SettingDialogViewModel` | 約 6,077 行 | 設定値の一時保持、検証、保存後処理、LR2/Beatoraja/プレイ履歴/エンコード/プレイヤー設定を保持 |
-| `PlaylistSummaryBulkEditDialogViewModel` | 約 386 行 | プレイリストサマリ一括編集 |
-| `PlaylistPropertyDialogViewModel` | 約 888 行 | プレイリストプロパティ編集 |
-| `MainWindow.xaml` | 約 2,530 行 | ルート VM への Binding が多い |
-| `MainWindow.cs` | 約 9,819 行 | UI 操作、ダイアログ、ドラッグ&ドロップ、右クリックなどが残る |
+| `MainWindowViewModel.cs` 全体 | 33,379 行 | ルート ViewModel と多数の補助型が同居 |
+| `MainWindowViewModel` 本体 | 約 32,864 行 | 516 行目付近から末尾まで |
+| ネストされた `SettingDialogViewModel` | 約 6,516 行 | 設定値の一時保持、検証、保存後処理、LR2/Beatoraja/プレイ履歴/エンコード/プレイヤー設定を保持 |
+| `PlaylistSummaryBulkEditDialogViewModel` | 約 395 行 | プレイリストサマリ一括編集 |
+| `PlaylistPropertyDialogViewModel` | 約 908 行 | プレイリストプロパティ編集 |
+| `MainWindow.xaml` | 約 2,510 行 | ルート VM への Binding が多い |
+| `MainWindow.cs` | 約 10,289 行 | UI 操作、ダイアログ、ドラッグ&ドロップ、右クリックなどが残る |
 
 ### MainWindowViewModel 内の大きなメソッド例
 
 | メソッド | おおよその行数 | 主要責務 |
 |---|---:|---|
-| `Initialize` | 631 行 | 起動初期化の統括 |
-| `RefreshChartRowsView` | 330 行 | メイン一覧の表示更新統括 |
-| `ApplyPlayHistoryView` | 324 行 | プレイ履歴ビュー構築 |
-| `RunVirtualNormalLibraryOrderPrewarm` | 224 行 | 仮想一覧のソート事前計算 |
-| `ApplyPlaylistSummaryExternalPropertyInitializationAsync` | 222 行 | プレイリストサマリ外部プロパティ初期化 |
-| `loadColumnSetting` | 171 行 | 一覧カラム設定切替 |
-| `PlayStartBmsFile` | 147 行 | 再生開始処理 |
-| `StartDeferredExternalPlaylistSync` | 109 行 | 外部プレイリスト同期遅延実行 |
-| `RecomputeStartupProgressPresentation` | 104 行 | 起動進捗表示再計算 |
+| `Initialize` | 632 行 | 起動初期化の統括 |
+| `RefreshChartRowsView` | 331 行 | メイン一覧の表示更新統括 |
+| `ApplyPlayHistoryView` | 325 行 | プレイ履歴ビュー構築 |
+| `ApplyPlaylistSummaryExternalPropertyInitializationAsync` | 235 行 | プレイリストサマリ外部プロパティ初期化 |
+| `RunVirtualNormalLibraryOrderPrewarm` | 225 行 | 仮想一覧のソート事前計算 |
+| `loadColumnSetting` | 172 行 | 一覧カラム設定切替 |
+| `PlayStartBmsFile` | 148 行 | 再生開始処理 |
+| `StartDeferredExternalPlaylistSync` | 116 行 | 外部プレイリスト同期遅延実行 |
+| `RecomputeStartupProgressPresentation` | 105 行 | 起動進捗表示再計算 |
 
 ### 移動時の注意点
 
 このリポジトリには、ソース文字列を直接検査するテストがある。特に次は partial 分割だけでも壊れやすい。
 
 - `Lr2PlayHistorySchemaUiTests.cs`: `MainWindowViewModel.cs` を `File.ReadAllText` して特定文字列を確認している
+- `PlayHistoryReadModelTests.cs`: `MainWindowViewModel.ApplyPlayHistoryDisplayTargetRows` を reflection で参照している
 - `MainWindowContextMenuResourceTests.cs`: `MainWindowViewModel.cs` や `MainWindow.cs` の文字列検査がある
 - `BmsLibraryMutationBoundaryTests.cs`: `MainWindowViewModel.cs` / `MainWindow.cs` の境界検査がある
 - `DialogRouteConsolidationTests.cs`: dialog route の source-text 検査で `MainWindowViewModel.cs` / `MainWindow.cs` を読む
@@ -1038,6 +1039,7 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 | カラム設定 | `CustomTableColumnSettingsTests`, `MainColumnSettingModeTests` |
 | プレイリスト詳細 | `PlaylistViewPipelineTests`, `PlaylistReloadMergeTests`, `BmsPlaylistUpdateTests` |
 | プレイリストサマリ | `PlaylistSummaryAggregationTests`, `PlaylistSummaryBulkEditTests` |
+| プレイ履歴 | `PlayHistoryReadModelTests`, `Lr2PlayHistorySchemaUiTests` |
 | 設定画面 | `SettingDialogCustomFolderOutputBaseTests`, `Lr2PlayHistorySchemaUiTests` |
 | 多言語 | `LocalizationResourceParityTests` |
 | UI ソース検査 | `MainWindowContextMenuResourceTests` |

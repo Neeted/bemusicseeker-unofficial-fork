@@ -74,7 +74,7 @@
 
 目的:
 
-- code-behind 9,819 行を、View 固有の処理、event-command bridge、host 操作に限定する。
+- code-behind 10,289 行を、View 固有の処理、event-command bridge、host 操作に限定する。
 - context menu 生成、URL 解決、ドラッグ&ドロップ、playlist URL download、duplicate group 操作、score viewer 連携を presentation service / command へ移す。
 - `MainWindow.xaml` を添付画像の UI 構成に合わせて UserControl 単位へ分割する。
 

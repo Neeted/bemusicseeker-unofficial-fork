@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Views/MainWindow.cs` は 9,819 行、`MainWindow.xaml` は 2,530 行ある。`MainWindowViewModel` を整理しても、code-behind と巨大 XAML が UI logic を抱えたままだと、MVVM としての見通しや将来的な `.NET 10` 移行性は十分に改善しない。
+`BeMusicSeeker/Views/MainWindow.cs` は 10,289 行、`MainWindow.xaml` は 2,510 行ある。`MainWindowViewModel` を整理しても、code-behind と巨大 XAML が UI logic を抱えたままだと、MVVM としての見通しや将来的な `.NET 10` 移行性は十分に改善しない。
 
 この計画では、添付画像の UI 構成に合わせて MainWindow を shell view に寄せる。
 
@@ -17,10 +17,10 @@
 
 | 対象 | 規模 / 問題 |
 |---|---|
-| `MainWindow.cs` | 9,819 行。event handler、context menu 構築、drag & drop、URL download、duplicate merge、score viewer upload、external player host が同居 |
-| `MainWindow.xaml` | 2,530 行。上部再生パネル、tree、table、context menu、progress UI が同居 |
-| `async void` | production の `MainWindow.cs` に 72 箇所程度。WPF event entry point 以外にも処理本体が混ざりやすい |
-| 最大 method | `tableContextMenuOpened` 約 583 行。context menu state calculation と UI 操作が混在 |
+| `MainWindow.cs` | 10,289 行。event handler、context menu 構築、drag & drop、URL download、external package lookup、duplicate merge、score viewer upload、external player host が同居 |
+| `MainWindow.xaml` | 2,510 行。上部再生パネル、tree、table、context menu、progress UI が同居 |
+| `async void` | production の `MainWindow.cs` に 74 箇所程度。WPF event entry point 以外にも処理本体が混ざりやすい |
+| 最大 method | `tableContextMenuOpened` 約 566 行。context menu state calculation と UI 操作が混在 |
 | WPF + WinForms | `UseWPF=True`, `UseWindowsForms=True`。player panel / WindowsFormsHost 周辺は .NET 10 移行時の注意点 |
 
 ## 目標アーキテクチャ
@@ -228,10 +228,10 @@ BeMusicSeeker/ViewModels/MainWindow/CustomTableCommandArgs.cs
 
 対象:
 
-- `tableContextMenuOpened` 約 583 行
+- `tableContextMenuOpened` 約 566 行
 - `tableContextMenuItem*Click` 系
-- `tableContextMenuOpenVideoSubmenuOpened`
-- `tableContextMenuSearchLinkOpened`
+- `DownloadSelectedPlaylistExternalPackagesAsync`
+- `DownloadSelectedPlaylistUrlsAsync`
 
 新規候補:
 
@@ -247,11 +247,13 @@ ChartContextMenuCommandRouter
 2. XAML の `MenuItem` は state に Binding する。
 3. click handler は command に置換する。
 4. 動的 submenu は `ItemsSource` に寄せる。
+5. external package lookup は既存の `PlaylistExternalPackageLookupService` を維持し、UI 側は選択行・進捗・通知の bridge に寄せる。
 
 受け入れ条件:
 
 - `tableContextMenuOpened` が削除される、または state builder 呼び出しだけになる。
 - menu state calculation の単体 test がある。
+- external package lookup の既存挙動を `PlaylistExternalPackageLookupServiceTests` で確認できる。
 - `MainWindowContextMenuResourceTests` が通る。
 
 ### Ticket MWUI-2C: playlist summary / playlist tree context menu を ViewModel 化する
