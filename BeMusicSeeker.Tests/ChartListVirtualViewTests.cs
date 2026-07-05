@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -499,6 +500,103 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual("custom summary", viewModel.MainChartList.SummaryText);
         Assert.AreEqual("custom summary", viewModel.GridSummaryText);
         CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.GridSummaryText));
+    }
+
+    [TestMethod]
+    public void ChartListRefreshCoordinator_ApplyVirtualRowsPreservesSwapOrderAndMetrics()
+    {
+        ChartListVirtualView view = CreateView(out _, distinctFolderCount: 2);
+        var currentRows = new List<object>();
+        var calls = new List<string>();
+        ChartListVirtualView? assignedRows = null;
+        int assignedDistinctFolderCount = -1;
+        var stopwatch = Stopwatch.StartNew();
+        long stageStartMs = stopwatch.ElapsedMilliseconds;
+
+        ChartListVirtualViewApplyResult result = ChartListRefreshCoordinator.ApplyVirtualRows(
+            currentRows,
+            view,
+            distinctFolderCount: 2,
+            stageStartMs,
+            stopwatch,
+            prepareSwap: () => calls.Add("prepare"),
+            applyColumnSetting: () =>
+            {
+                calls.Add("columns");
+                return true;
+            },
+            setRowsView: (rows, distinctFolderCount) =>
+            {
+                calls.Add("set");
+                assignedRows = rows;
+                assignedDistinctFolderCount = distinctFolderCount;
+            });
+
+        CollectionAssert.AreEqual(new[] { "prepare", "columns", "set" }, calls);
+        Assert.AreSame(view, assignedRows);
+        Assert.AreEqual(2, assignedDistinctFolderCount);
+        Assert.IsTrue(result.ColumnSettingReuse);
+        Assert.IsTrue(result.PrepareSwapMs >= 0);
+        Assert.IsTrue(result.ColumnSettingMs >= 0);
+        Assert.IsTrue(result.SetViewMs >= 0);
+        Assert.IsTrue(result.ColumnStageMs >= 0);
+    }
+
+    [TestMethod]
+    public void ChartListRefreshCoordinator_ApplyVirtualRowsSkipsPrepareForSameReference()
+    {
+        ChartListVirtualView view = CreateView(out _, distinctFolderCount: 2);
+        var calls = new List<string>();
+
+        ChartListRefreshCoordinator.ApplyVirtualRows(
+            view,
+            view,
+            distinctFolderCount: 2,
+            terminalStageStartMs: 0,
+            Stopwatch.StartNew(),
+            prepareSwap: () => calls.Add("prepare"),
+            applyColumnSetting: () =>
+            {
+                calls.Add("columns");
+                return false;
+            },
+            setRowsView: (_, _) => calls.Add("set"));
+
+        CollectionAssert.AreEqual(new[] { "columns", "set" }, calls);
+    }
+
+    [TestMethod]
+    public void ChartListRefreshCoordinator_CreateVirtualSortMetricsPreservesOrderFields()
+    {
+        List<BMSFile> files =
+        [
+            CreateFile(@"folder-b\charlie.bms", "Charlie", "folder-b"),
+            CreateFile(@"folder-a\alpha.bms", "Alpha", "folder-a")
+        ];
+        List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(files);
+        ChartListOrder order = ChartListOrder.CreateTitleAscending(sourceRows);
+
+        LibraryChartSortMetrics metrics = ChartListRefreshCoordinator.CreateVirtualSortMetrics(
+            order,
+            sortStageMs: 12,
+            sortCacheHit: true,
+            sortCacheGeneration: 34,
+            orderCacheLookupMs: 56,
+            orderBuildMs: 78);
+
+        Assert.AreEqual(order.Count, metrics.RowCount);
+        Assert.AreEqual(order.ColumnName, metrics.ColumnName);
+        Assert.AreEqual(order.Direction, metrics.Direction);
+        Assert.AreEqual(order.PropertyTypeName, metrics.PropertyTypeName);
+        Assert.AreEqual(order.SortProfile, metrics.SortProfile);
+        Assert.AreEqual(order.StringSortKind, metrics.StringSortKind);
+        Assert.AreEqual(12, metrics.SortMs);
+        Assert.IsTrue(metrics.SortReuse);
+        Assert.AreEqual(order.ColumnName, metrics.SortCacheKey);
+        Assert.AreEqual(34, metrics.SortCacheGeneration);
+        Assert.IsTrue(metrics.SortCacheHit);
+        Assert.AreEqual(56, metrics.OrderCacheLookupMs);
+        Assert.AreEqual(78, metrics.OrderBuildMs);
     }
 
     [TestMethod]

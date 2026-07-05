@@ -6555,46 +6555,29 @@ public partial class MainWindowViewModel : ViewModel
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         var nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
-        long prepareSwapMs = 0L;
-        if (!ReferenceEquals(ChartRowsView, nextRowsView))
-        {
-            long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            RaiseMainTableSwapPreparing();
-            prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
-        }
-        long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        bool columnSettingReuse = ApplyMainColumnSettingForViewUpdate(mode);
-        long columnSettingMs = viewBuildStopwatch.ElapsedMilliseconds - columnSettingStartMs;
-        long setViewStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        SetChartRowsView(nextRowsView, distinctFolderCount);
-        long setViewMs = viewBuildStopwatch.ElapsedMilliseconds - setViewStartMs;
-        long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        ChartListVirtualViewApplyResult applyResult = ChartListRefreshCoordinator.ApplyVirtualRows(
+            ChartRowsView,
+            nextRowsView,
+            distinctFolderCount,
+            stageStartMs,
+            viewBuildStopwatch,
+            RaiseMainTableSwapPreparing,
+            () => ApplyMainColumnSettingForViewUpdate(mode),
+            SetChartRowsView);
         if (!summaryCacheHit)
         {
             ScheduleMainSummaryFolderCount(summaryKey, SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes), nextRowsView, mode.ToString());
         }
 
-        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
-        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
-        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
-        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
-        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
-        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
+        CompleteMainViewBuild(mode);
 
-        LogMainSortDetail(new LibraryChartSortMetrics(
-            order.Count,
-            order.ColumnName,
-            order.Direction,
-            order.PropertyTypeName,
-            order.SortProfile,
-            order.StringSortKind,
+        LogMainSortDetail(ChartListRefreshCoordinator.CreateVirtualSortMetrics(
+            order,
             sortStageMs,
-            sortReuse: sortCacheHit,
-            sortCacheKey: order.ColumnName,
-            sortCacheGeneration: GetSortCacheGenerationForLog(sortCacheKey),
-            sortCacheHit: sortCacheHit,
-            orderCacheLookupMs: orderCacheLookupMs,
-            orderBuildMs: orderBuildMs));
+            sortCacheHit,
+            GetSortCacheGenerationForLog(sortCacheKey),
+            orderCacheLookupMs,
+            orderBuildMs));
 
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirectionText = SortParameters?.Direction.ToString() ?? "Ascending";
@@ -6611,11 +6594,11 @@ public partial class MainWindowViewModel : ViewModel
             + " sortEngine=virtual fastSortEnabled=True"
             + " isPlaylistDetailView=False"
             + " sourceRowsMs=" + sourceRowsMs
-            + " columnMs=" + columnStageMs
-            + " prepareSwapMs=" + prepareSwapMs
-            + " columnSettingMs=" + columnSettingMs
-            + " setViewMs=" + setViewMs
-            + " columnSettingReuse=" + columnSettingReuse
+            + " columnMs=" + applyResult.ColumnStageMs
+            + " prepareSwapMs=" + applyResult.PrepareSwapMs
+            + " columnSettingMs=" + applyResult.ColumnSettingMs
+            + " setViewMs=" + applyResult.SetViewMs
+            + " columnSettingReuse=" + applyResult.ColumnSettingReuse
             + " callbackMs=0"
             + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds
             + " folderCount=" + folderFilteredCount
@@ -6734,46 +6717,29 @@ public partial class MainWindowViewModel : ViewModel
             order,
             row => CreateVirtualChartSubsetRow(row, applyResourceHealthProjection),
             distinctFolderCount);
-        long prepareSwapMs = 0L;
-        if (!ReferenceEquals(ChartRowsView, nextRowsView))
-        {
-            long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            RaiseMainTableSwapPreparing();
-            prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
-        }
-        long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        bool columnSettingReuse = ApplyMainColumnSettingForViewUpdate(mode);
-        long columnSettingMs = viewBuildStopwatch.ElapsedMilliseconds - columnSettingStartMs;
-        long setViewStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        SetChartRowsView(nextRowsView, distinctFolderCount);
-        long setViewMs = viewBuildStopwatch.ElapsedMilliseconds - setViewStartMs;
-        long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        ChartListVirtualViewApplyResult applyResult = ChartListRefreshCoordinator.ApplyVirtualRows(
+            ChartRowsView,
+            nextRowsView,
+            distinctFolderCount,
+            stageStartMs,
+            viewBuildStopwatch,
+            RaiseMainTableSwapPreparing,
+            () => ApplyMainColumnSettingForViewUpdate(mode),
+            SetChartRowsView);
         if (applyResourceHealthProjection)
         {
             LogResourceHealthProjection(mode, nextRowsView.Count);
         }
 
-        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
-        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
-        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
-        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
-        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
-        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
+        CompleteMainViewBuild(mode);
 
-        LogMainSortDetail(new LibraryChartSortMetrics(
-            order.Count,
-            order.ColumnName,
-            order.Direction,
-            order.PropertyTypeName,
-            order.SortProfile,
-            order.StringSortKind,
+        LogMainSortDetail(ChartListRefreshCoordinator.CreateVirtualSortMetrics(
+            order,
             sortStageMs,
-            sortReuse: sortCacheHit,
-            sortCacheKey: order.ColumnName,
-            sortCacheGeneration: GetSortCacheGenerationForLog(sortCacheKey),
-            sortCacheHit: sortCacheHit,
-            orderCacheLookupMs: orderCacheLookupMs,
-            orderBuildMs: orderBuildMs));
+            sortCacheHit,
+            GetSortCacheGenerationForLog(sortCacheKey),
+            orderCacheLookupMs,
+            orderBuildMs));
 
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirectionText = SortParameters?.Direction.ToString() ?? "Ascending";
@@ -6792,11 +6758,11 @@ public partial class MainWindowViewModel : ViewModel
             + " sortEngine=virtual fastSortEnabled=True"
             + " isPlaylistDetailView=False"
             + " sourceRowsMs=" + sourceRowsMs
-            + " columnMs=" + columnStageMs
-            + " prepareSwapMs=" + prepareSwapMs
-            + " columnSettingMs=" + columnSettingMs
-            + " setViewMs=" + setViewMs
-            + " columnSettingReuse=" + columnSettingReuse
+            + " columnMs=" + applyResult.ColumnStageMs
+            + " prepareSwapMs=" + applyResult.PrepareSwapMs
+            + " columnSettingMs=" + applyResult.ColumnSettingMs
+            + " setViewMs=" + applyResult.SetViewMs
+            + " columnSettingReuse=" + applyResult.ColumnSettingReuse
             + " callbackMs=0"
             + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds
             + " folderCount=" + folderCount
@@ -6812,6 +6778,16 @@ public partial class MainWindowViewModel : ViewModel
             + " distinctFolderCount=" + distinctFolderCount
             + " sourceRowsSignature=" + sourceRowsSignature);
         return true;
+    }
+
+    private void CompleteMainViewBuild(viewUpdateMode mode)
+    {
+        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
+        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
+        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
+        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
+        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
+        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
     }
 
     private object GetVirtualChartSubsetParameter(viewUpdateMode treeMode, object parameter)
