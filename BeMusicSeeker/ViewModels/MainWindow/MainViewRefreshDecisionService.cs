@@ -365,25 +365,6 @@ internal static class MainViewRefreshDecisionService
 
     private static bool IsPlaylistTreeActive(MainWindowViewModel.viewUpdateMode mode, MainWindowViewModel.viewUpdateMode currentTreeMode)
     {
-        if (IsPlaylistViewMode(mode))
-        {
-            return true;
-        }
-
-        if (!IsPlaylistViewMode(currentTreeMode))
-        {
-            return false;
-        }
-
-        return mode == MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged
-            || mode == MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated
-            || mode == MainWindowViewModel.viewUpdateMode.ModeFilterUpdated
-            || mode == MainWindowViewModel.viewUpdateMode.SortUpdated;
-    }
-
-    private static bool IsPlaylistViewMode(MainWindowViewModel.viewUpdateMode mode)
-    {
-        return mode == MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected
-            || mode == MainWindowViewModel.viewUpdateMode.PlaylistNotOwnedFilterSelected;
+        return ChartListRefreshCoordinator.IsPlaylistTreeActive(mode, currentTreeMode);
     }
 }

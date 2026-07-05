@@ -32,7 +32,8 @@
 | 2026-07-06 | 完了 | Ticket H: PlaylistRequestFactory 抽出 | `fe54e608` |
 | 2026-07-06 | 完了 | Ticket I-1: MainChartListViewModel 導入前の境界確認 | `50fe8e9b` |
 | 2026-07-06 | 完了 | Ticket I-2: MainChartListViewModel の state pass-through 化 | `b908f314` |
-| 2026-07-06 | 完了 | Ticket I-3a: chart row swap / summary state の child 化 | このコミット |
+| 2026-07-06 | 完了 | Ticket I-3a: chart row swap / summary state の child 化 | `6d2518d5` |
+| 2026-07-06 | 完了 | Ticket I-3b: refresh request routing の coordinator 入り口作成 | このコミット |
 
 ### Ticket F 手動確認結果
 

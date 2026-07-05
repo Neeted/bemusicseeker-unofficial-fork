@@ -1952,15 +1952,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <returns>プレイリスト詳細ビューの再描画経路を使う場合は <see langword="true"/>。</returns>
     private static bool IsPlaylistTreeActive(viewUpdateMode mode, viewUpdateMode currentTreeMode)
     {
-        if (IsPlaylistViewMode(mode))
-        {
-            return true;
-        }
-        if (!IsPlaylistViewMode(currentTreeMode))
-        {
-            return false;
-        }
-        return mode == viewUpdateMode.TreeViewFilterNotChanged || mode == viewUpdateMode.KeywordFilterUpdated || mode == viewUpdateMode.ModeFilterUpdated || mode == viewUpdateMode.SortUpdated;
+        return ChartListRefreshCoordinator.IsPlaylistTreeActive(mode, currentTreeMode);
     }
 
     /// <summary>
@@ -2271,11 +2263,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     private static viewUpdateMode ResolveMainColumnSettingMode(viewUpdateMode mode, viewUpdateMode currentTreeMode)
     {
-        return mode switch
-        {
-            viewUpdateMode.TreeViewFilterNotChanged or viewUpdateMode.KeywordFilterUpdated or viewUpdateMode.ModeFilterUpdated or viewUpdateMode.SortUpdated => currentTreeMode,
-            _ => mode,
-        };
+        return ChartListRefreshCoordinator.ResolveMainColumnSettingMode(mode, currentTreeMode);
     }
 
     internal static int ResolveMainColumnSettingModeForTest(int mode, int currentTreeMode)
@@ -5965,7 +5953,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private static bool IsPlayHistoryMainViewMode(viewUpdateMode mode, viewUpdateMode currentTreeMode)
     {
-        return ResolveMainColumnSettingMode(mode, currentTreeMode) == viewUpdateMode.PlayHistorySelected;
+        return ChartListRefreshCoordinator.IsPlayHistoryMainViewMode(mode, currentTreeMode);
     }
 
     internal static bool IsPlayHistoryMainViewModeForTest(viewUpdateMode mode, viewUpdateMode currentTreeMode)
@@ -14056,22 +14044,23 @@ public partial class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => IsPlayHistoryViewActive);
             RaisePropertyChanged("MainTableSortParameters");
         }
-        if (files == null)
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(mode, requestedMode, treeViewFilterTypeSelected, files != null);
+        if (route.Kind == ChartListRefreshRouteKind.MissingFiles)
         {
             return;
         }
-        if (IsPlayHistoryMainViewMode(mode, treeViewFilterTypeSelected))
+        if (route.Kind == ChartListRefreshRouteKind.ApplyPlayHistoryView)
         {
-            ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);
+            ApplyPlayHistoryView(route.Mode, route.RequestedMode, parameter, viewBuildStopwatch);
             return;
         }
-        UpdateBmsFilesViewBindingMode(IsPlaylistTreeActive(mode, treeViewFilterTypeSelected));
-        if (IsPlaylistTreeActive(mode, treeViewFilterTypeSelected))
+        UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive);
+        if (route.Kind == ChartListRefreshRouteKind.RegisterPlaylistSourceBuild)
         {
-            RegisterPlaylistSourceBuildRequest(mode, requestedMode, parameter);
+            RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter);
             return;
         }
-        bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(mode, treeViewFilterTypeSelected);
+        bool includeBmsonRows = route.IncludeBmsonRows;
         ClearPlaylistSourceRows();
         if (includeBmsonRows)
         {
@@ -16384,23 +16373,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private static bool ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode mode, viewUpdateMode currentTreeMode)
     {
-        if (mode == viewUpdateMode.FullScanAllChartsFilterSelected || currentTreeMode == viewUpdateMode.FullScanAllChartsFilterSelected)
-        {
-            return true;
-        }
-        if (IsPlaylistTreeActive(mode, currentTreeMode))
-        {
-            return false;
-        }
-        if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)mode))
-        {
-            return false;
-        }
-        if (Enum.IsDefined(typeof(InstallFilterType), (int)mode))
-        {
-            return false;
-        }
-        return true;
+        return ChartListRefreshCoordinator.ShouldIncludeBmsonLibraryRows(mode, currentTreeMode);
     }
 
     private static object NormalizeDuplicateViewParameter(object parameter)

@@ -183,6 +183,66 @@ public sealed class LibraryChartRowSortEngineTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_RoutesMissingFilesBeforeViewPipelines()
+    {
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            hasFiles: false);
+
+        Assert.AreEqual(ChartListRefreshRouteKind.MissingFiles, route.Kind);
+        Assert.IsFalse(route.IsPlaylistTreeActive);
+        Assert.IsFalse(route.IncludeBmsonRows);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_RoutesPlayHistoryIncrementalUpdatesToPlayHistoryView()
+    {
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
+            MainWindowViewModel.viewUpdateMode.SortUpdated,
+            MainWindowViewModel.viewUpdateMode.SortUpdated,
+            MainWindowViewModel.viewUpdateMode.PlayHistorySelected,
+            hasFiles: true);
+
+        Assert.AreEqual(ChartListRefreshRouteKind.ApplyPlayHistoryView, route.Kind);
+        Assert.IsFalse(route.IsPlaylistTreeActive);
+        Assert.IsFalse(route.IncludeBmsonRows);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_RoutesPlaylistIncrementalUpdatesToPlaylistBuild()
+    {
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
+            MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
+            MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
+            MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected,
+            hasFiles: true);
+
+        Assert.AreEqual(ChartListRefreshRouteKind.RegisterPlaylistSourceBuild, route.Kind);
+        Assert.IsTrue(route.IsPlaylistTreeActive);
+        Assert.IsFalse(route.IncludeBmsonRows);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_RoutesNormalLibraryWithBmsonRows()
+    {
+        ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            hasFiles: true);
+
+        Assert.AreEqual(ChartListRefreshRouteKind.ContinueMainLibrary, route.Kind);
+        Assert.IsFalse(route.IsPlaylistTreeActive);
+        Assert.IsTrue(route.IncludeBmsonRows);
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void NormalLibrarySortCacheCandidate_AllowsVirtualRegistryColumns()
     {
         Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(null));
