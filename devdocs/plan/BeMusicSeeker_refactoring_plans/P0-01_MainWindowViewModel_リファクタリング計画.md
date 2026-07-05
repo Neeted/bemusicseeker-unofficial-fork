@@ -29,7 +29,8 @@
 | 2026-07-05 | 完了 | Ticket E: OperationProgressHubViewModel 導入 | `b9059645` |
 | 2026-07-06 | 完了 | Ticket F: PlaybackPanelViewModel 導入（手動 smoke 確認済み） | `80b53124` |
 | 2026-07-06 | 完了 | Ticket G: MainViewRefreshDecisionService 抽出 | `3cfdf1c8` |
-| 2026-07-06 | 完了 | Ticket H: PlaylistRequestFactory 抽出 | このコミット |
+| 2026-07-06 | 完了 | Ticket H: PlaylistRequestFactory 抽出 | `fe54e608` |
+| 2026-07-06 | 完了 | Ticket I-1: MainChartListViewModel 導入前の境界確認 | このコミット |
 
 ### Ticket F 手動確認結果
 
@@ -46,6 +47,33 @@
 - `PlaylistRequestFactory` が playlist request identity の正規化、生成、source invalidation reason 判定を所有する。
 - `MainWindowViewModel.PlaylistRequestIdentity` の型名と root の既存 static method は互換 forwarder として残す。
 - `PlaylistViewPipelineTests` の request identity / invalidation reason 判定は factory 直接検証へ寄せる。
+
+### Ticket I-1 境界確認結果
+
+| group | root API / usage | I-2 方針 |
+|---|---|---|
+| 表示行 | `ChartRowsView`。XAML main table `ItemsSource`、一部テストが直接代入。setter は旧行 dispose、null を `new List<object>()` へ正規化、`ChartRowsView` 通知を持つ。`SetChartRowsView(...)` は grid summary 更新も行う。 | `MainChartListViewModel.Rows` へ移し、root `ChartRowsView` は pass-through。旧行 dispose、null 正規化、summary 更新の順序を維持する。XAML binding は変更しない。 |
+| 選択 | `SelectedIndexChartRowsView`。XAML `SelectedIndex`、playlist rebuild / play history apply 時に `-1` へ戻す。setter は通知のみ。 | `MainChartListViewModel.SelectedIndex` へ移し、root は pass-through。playlist rebuild と play history apply の `-1` reset は root orchestration 側から呼ぶ。 |
+| 列設定 | `ColumnsSettingsChartRowsView` / `ChartRowsViewRowDragKind`。XAML header/menu、`MainWindow.cs` header context menu が参照。setter は `ColumnsSettingsChartRowsView` と `ChartRowsViewRowDragKind` を通知。`ChartRowsViewRowDragKind` は独立 state ではなく列設定からの read-only 派生 property。 | `MainChartListViewModel.ColumnsSettings` へ移し、root は pass-through。`RowDragKind` は child 側でも `ColumnsSettings` から計算する派生 property とし、状態重複を作らない。`ChartRowsViewRowDragKind` 通知を維持。 |
+| sort 表示 | `MainTableSortParameters` は `IsPlayHistoryViewActive ? PlayHistorySortParameters : SortParameters` の合成。XAML sort column/direction が参照。 | I-2 では root に残す。`SortParameters` 移動は通常一覧と play history の合成を分ける後続 Ticket に回す。 |
+| filter | `KeywordFilter` / `ModeFilter`。setter が通常 refresh、play history queue、検索警告更新を起動。 | I-2 では root に残す。MainChartListViewModel 導入後の coordinator 化で扱う。 |
+| refresh orchestration | `RefreshChartRowsView` は通常/playlist/play history/tree/columns/sort/cache を横断。tests が reflection と source-text で参照。 | I-2 では root facade のまま。I-3 で段階的に coordinator へ移す。 |
+
+I-2 の最初の実装単位:
+
+1. `MainChartListViewModel` を追加し、`Rows`、`SelectedIndex`、`ColumnsSettings` を所有させる。`RowDragKind` は `ColumnsSettings` から計算する read-only 派生 property とする。
+2. `MainWindowViewModel` に `public MainChartListViewModel MainChartList { get; }` を追加する。
+3. 既存 root property 名（`ChartRowsView`、`SelectedIndexChartRowsView`、`ColumnsSettingsChartRowsView`、`ChartRowsViewRowDragKind`）は pass-through と `PropertyChanged` relay で維持する。
+4. XAML は変更しない。
+5. `SortParameters`、`MainTableSortParameters`、`KeywordFilter`、`ModeFilter`、`RefreshChartRowsView` は I-2 では移さない。
+
+I-2 確認対象:
+
+- `ChartListVirtualViewTests`
+- `MainColumnSettingModeTests`
+- `CustomTableColumnSettingsTests`
+- `PlayHistoryReadModelTests` の `MainTableSortParameters` 周辺
+- `MainWindowContextMenuResourceTests` の binding/source-text 検査
 
 ### Ticket E progress property 契約
 
