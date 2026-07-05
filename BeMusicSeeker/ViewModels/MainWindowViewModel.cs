@@ -4229,7 +4229,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void RefreshLibraryMainViewForDataDependency(MainViewDataDependency dependency, string reason)
     {
-        MainViewRefreshDecision decision = BuildMainViewRefreshDecision(
+        MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
             treeViewFilterTypeSelected,
             virtualNormalLibraryTreeFilter != null,
             KeywordFilter,
@@ -4292,181 +4292,12 @@ public partial class MainWindowViewModel : ViewModel
         MainViewDataDependency dependency,
         string reason)
     {
-        return BuildMainViewRefreshDecision(currentMode, folderFilterApplied, keywordFilter, modeFilter, sortColumnName, isPlaylistDetailView, dependency, reason);
-    }
-
-    private static MainViewRefreshDecision BuildMainViewRefreshDecision(
-        viewUpdateMode currentMode,
-        bool folderFilterApplied,
-        string keywordFilter,
-        ModeFilterType modeFilter,
-        string sortColumnName,
-        bool isPlaylistDetailView,
-        MainViewDataDependency dependency,
-        string reason)
-    {
-        MainViewDataDependency sortDependency = GetMainViewSortColumnDependency(sortColumnName);
-        bool fullNormalLibraryView = currentMode == viewUpdateMode.FolderFilterSelected
-            && !folderFilterApplied
-            && string.IsNullOrWhiteSpace(keywordFilter)
-            && modeFilter == ModeFilterType.All
-            && !isPlaylistDetailView;
-        if (!fullNormalLibraryView)
-        {
-            if (IsDuplicateSubsetDisplayRefreshEnough(currentMode, keywordFilter, modeFilter, isPlaylistDetailView, sortDependency, dependency))
-            {
-                return new MainViewRefreshDecision(MainViewRefreshAction.RefreshDisplay, dependency, sortDependency, reason, "duplicate_subset_dependency_update_does_not_affect_current_sort_or_filter");
-            }
-            return new MainViewRefreshDecision(MainViewRefreshAction.Refresh, dependency, sortDependency, reason, "not_full_normal_library");
-        }
-        if (IsMainViewDisplayRefreshEnough(sortDependency, dependency))
-        {
-            return new MainViewRefreshDecision(MainViewRefreshAction.RefreshDisplay, dependency, sortDependency, reason, "dependency_update_does_not_affect_current_sort_or_filter");
-        }
-        return new MainViewRefreshDecision(MainViewRefreshAction.Refresh, dependency, sortDependency, reason, "dependency_affects_current_view");
-    }
-
-    private static bool IsDuplicateSubsetDisplayRefreshEnough(
-        viewUpdateMode currentMode,
-        string keywordFilter,
-        ModeFilterType modeFilter,
-        bool isPlaylistDetailView,
-        MainViewDataDependency sortDependency,
-        MainViewDataDependency changedDependency)
-    {
-        if (currentMode != viewUpdateMode.DuplicateFilterSelected
-            || isPlaylistDetailView
-            || !string.IsNullOrWhiteSpace(keywordFilter)
-            || modeFilter != ModeFilterType.All)
-        {
-            return false;
-        }
-
-        return IsMainViewDisplayRefreshEnough(sortDependency, changedDependency);
-    }
-
-    private static bool IsMainViewDisplayRefreshEnough(MainViewDataDependency sortDependency, MainViewDataDependency changedDependency)
-    {
-        if (sortDependency == MainViewDataDependency.Unknown || sortDependency == changedDependency)
-        {
-            return false;
-        }
-        if (changedDependency == MainViewDataDependency.InstallDestination
-            && sortDependency == MainViewDataDependency.Warning)
-        {
-            return false;
-        }
-        switch (changedDependency)
-        {
-            case MainViewDataDependency.ChartInfo:
-            case MainViewDataDependency.Score:
-            case MainViewDataDependency.Maintenance:
-            case MainViewDataDependency.Warning:
-            case MainViewDataDependency.InstallDestination:
-            case MainViewDataDependency.ReferenceTables:
-                break;
-            default:
-                return false;
-        }
-        return sortDependency == MainViewDataDependency.IdentitySortKey
-            || sortDependency == MainViewDataDependency.InstallDestination
-            || sortDependency == MainViewDataDependency.ChartInfo
-            || sortDependency == MainViewDataDependency.Score
-            || sortDependency == MainViewDataDependency.Maintenance
-            || sortDependency == MainViewDataDependency.Warning
-            || sortDependency == MainViewDataDependency.ReferenceTables;
+        return MainViewRefreshDecisionService.Build(currentMode, folderFilterApplied, keywordFilter, modeFilter, sortColumnName, isPlaylistDetailView, dependency, reason);
     }
 
     internal static MainViewDataDependency GetMainViewSortColumnDependencyForTest(string columnName)
     {
-        return GetMainViewSortColumnDependency(columnName);
-    }
-
-    private static MainViewDataDependency GetMainViewSortColumnDependency(string columnName)
-    {
-        if (ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata))
-        {
-            return metadata.Dependency;
-        }
-        if (string.Equals(columnName, nameof(LibraryChartRow.instl_dst), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.InstallDestinationTitle), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.InstallDestinationArtist), StringComparison.Ordinal))
-        {
-            return MainViewDataDependency.InstallDestination;
-        }
-        if (string.Equals(columnName, nameof(LibraryChartRow.RefTablesSymbols), StringComparison.Ordinal))
-        {
-            return MainViewDataDependency.ReferenceTables;
-        }
-        if (IsMainViewScoreSortColumn(columnName))
-        {
-            return MainViewDataDependency.Score;
-        }
-        if (IsMainViewChartInfoSortColumn(columnName))
-        {
-            return MainViewDataDependency.ChartInfo;
-        }
-        if (IsMainViewMaintenanceSortColumn(columnName))
-        {
-            return MainViewDataDependency.Maintenance;
-        }
-        if (IsMainViewWarningSortColumn(columnName))
-        {
-            return MainViewDataDependency.Warning;
-        }
-        return MainViewDataDependency.Unknown;
-    }
-
-    private static bool IsMainViewScoreSortColumn(string columnName)
-    {
-        return string.Equals(columnName, nameof(LibraryChartRow.clear), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.rank), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.rate), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.rateDouble), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.score), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.totalnotes), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.maxcombo), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.minbp), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ranking), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.rankingNum), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.rankingString), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.rankingLastupdate), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.stddevVal), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.scoreDifficulty), StringComparison.Ordinal);
-    }
-
-    private static bool IsMainViewChartInfoSortColumn(string columnName)
-    {
-        return string.Equals(columnName, nameof(LibraryChartRow.ChartLevelSortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartDifficultySortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartMainBpmSortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartMaxBpmSortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartMinBpmSortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartDurationSortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartJudgeSortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartFeatureSortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartNotes), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartLongNotes), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartScratchNotes), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartTotalSortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartTotalPerNoteSortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartDensitySortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartPeakDensitySortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartEndDensitySortKey), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.ChartSoflanCount), StringComparison.Ordinal);
-    }
-
-    private static bool IsMainViewMaintenanceSortColumn(string columnName)
-    {
-        return string.Equals(columnName, nameof(LibraryChartRow.WAVHealth), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.BGAHealth), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.MovieHealth), StringComparison.Ordinal)
-            || string.Equals(columnName, nameof(LibraryChartRow.encoding), StringComparison.Ordinal);
-    }
-
-    private static bool IsMainViewWarningSortColumn(string columnName)
-    {
-        return string.Equals(columnName, nameof(LibraryChartRow.WarningDigestText), StringComparison.Ordinal);
+        return MainViewRefreshDecisionService.GetSortColumnDependency(columnName);
     }
 
     private void RefreshChartInfoDependentViews()
@@ -6380,16 +6211,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasons(bool hasBmsPathMutation, bool hasBmsonPathMutation)
     {
-        var reasons = new List<string>(2);
-        if (hasBmsPathMutation)
-        {
-            reasons.Add(NormalLibraryBmsPathChangedReason);
-        }
-        if (hasBmsonPathMutation)
-        {
-            reasons.Add(NormalLibraryBmsonPathChangedReason);
-        }
-        return reasons;
+        return MainViewRefreshDecisionService.GetPathSortKeyInvalidationReasons(hasBmsPathMutation, hasBmsonPathMutation);
     }
 
     internal static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasonsForTest(bool hasBmsPathMutation, bool hasBmsonPathMutation)
@@ -6399,19 +6221,7 @@ public partial class MainWindowViewModel : ViewModel
 
     internal static IReadOnlyList<string> GetNormalLibrarySortKeyInvalidationReasonsForTest()
     {
-        return
-        [
-            NormalLibraryBmsTitleChangedReason,
-            NormalLibraryBmsPathChangedReason,
-            NormalLibraryBmsonPathChangedReason,
-            NormalLibraryBmsonSourceIdentityChangedReason,
-            NormalLibraryBmsonSortKeyChangedReason,
-            NormalLibraryChartInfoDigestBackfilledReason,
-            NormalLibraryInstallDestinationChangedReason,
-            NormalLibraryReferenceTablesChangedReason,
-            NormalLibraryMaintenanceChangedReason,
-            NormalLibraryWarningChangedReason
-        ];
+        return MainViewRefreshDecisionService.GetSortKeyInvalidationReasons();
     }
 
     private const string NormalLibraryBmsonSourceIdentityChangedReason = "bmson_source_identity_changed";
@@ -6568,15 +6378,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(string reason)
     {
-        if (string.IsNullOrWhiteSpace(reason))
-        {
-            return false;
-        }
-
-        return reason.IndexOf(NormalLibraryBmsPathChangedReason, StringComparison.Ordinal) >= 0
-            || reason.IndexOf(NormalLibraryBmsTitleChangedReason, StringComparison.Ordinal) >= 0
-            || reason.IndexOf(NormalLibraryBmsonPathChangedReason, StringComparison.Ordinal) >= 0
-            || reason.IndexOf(NormalLibraryBmsonSourceIdentityChangedReason, StringComparison.Ordinal) >= 0;
+        return MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange(reason);
     }
 
     internal static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest(string reason)
@@ -8365,12 +8167,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private static bool IsVirtualNormalLibraryModeSupported(viewUpdateMode mode)
     {
-        return mode == viewUpdateMode.TreeViewFilterNotChanged
-            || mode == viewUpdateMode.FolderFilterSelected
-            || mode == viewUpdateMode.FullScanAllChartsFilterSelected
-            || mode == viewUpdateMode.KeywordFilterUpdated
-            || mode == viewUpdateMode.ModeFilterUpdated
-            || mode == viewUpdateMode.SortUpdated;
+        return MainViewRefreshDecisionService.IsVirtualNormalLibraryModeSupported(mode);
     }
 
     private static bool IsVirtualNormalLibraryRequestModeSupported(viewUpdateMode mode, viewUpdateMode treeMode)
@@ -8842,15 +8639,12 @@ public partial class MainWindowViewModel : ViewModel
     /// <returns>regular cache の再構築が必要なら <see langword="true"/>。</returns>
     private static bool ShouldRebuildRegularFolderStage(viewUpdateMode mode, IEnumerable<LibraryChartRow> folderView, IEnumerable<LibraryChartRow> keywordView, IEnumerable<LibraryChartRow> modeView, viewUpdateMode currentTreeMode)
     {
-        if (IsPlaylistTreeActive(mode, currentTreeMode))
-        {
-            return false;
-        }
-        if (mode < viewUpdateMode.KeywordFilterUpdated)
-        {
-            return false;
-        }
-        return folderView == null || keywordView == null || modeView == null;
+        return MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
+            mode,
+            folderView != null,
+            keywordView != null,
+            modeView != null,
+            currentTreeMode);
     }
 
     /// <summary>
@@ -8858,7 +8652,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal static bool ShouldRebuildRegularFolderStageForTest(int mode, bool hasFolderView, bool hasKeywordView, bool hasModeView, int currentTreeMode)
     {
-        return ShouldRebuildRegularFolderStage((viewUpdateMode)mode, hasFolderView ? Array.Empty<LibraryChartRow>() : null, hasKeywordView ? Array.Empty<LibraryChartRow>() : null, hasModeView ? Array.Empty<LibraryChartRow>() : null, (viewUpdateMode)currentTreeMode);
+        return MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage((viewUpdateMode)mode, hasFolderView, hasKeywordView, hasModeView, (viewUpdateMode)currentTreeMode);
     }
 
     /// <summary>
@@ -24609,4 +24403,3 @@ public partial class MainWindowViewModel : ViewModel
         BassAudioPlayer.Free();
     }
 }
-
