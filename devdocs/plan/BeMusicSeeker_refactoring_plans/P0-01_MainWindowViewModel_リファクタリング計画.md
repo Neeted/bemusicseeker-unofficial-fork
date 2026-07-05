@@ -31,7 +31,8 @@
 | 2026-07-06 | 完了 | Ticket G: MainViewRefreshDecisionService 抽出 | `3cfdf1c8` |
 | 2026-07-06 | 完了 | Ticket H: PlaylistRequestFactory 抽出 | `fe54e608` |
 | 2026-07-06 | 完了 | Ticket I-1: MainChartListViewModel 導入前の境界確認 | `50fe8e9b` |
-| 2026-07-06 | 完了 | Ticket I-2: MainChartListViewModel の state pass-through 化 | このコミット |
+| 2026-07-06 | 完了 | Ticket I-2: MainChartListViewModel の state pass-through 化 | `b908f314` |
+| 2026-07-06 | 完了 | Ticket I-3a: chart row swap / summary state の child 化 | このコミット |
 
 ### Ticket F 手動確認結果
 
@@ -75,6 +76,46 @@ I-2 確認対象:
 - `CustomTableColumnSettingsTests`
 - `PlayHistoryReadModelTests` の `MainTableSortParameters` 周辺
 - `MainWindowContextMenuResourceTests` の binding/source-text 検査
+
+### Ticket I-3 分割方針
+
+`RefreshChartRowsView` は通常ライブラリ、仮想通常一覧、仮想サブセット、playlist 詳細、play history、tree selection、column settings、sort/cache、ログ更新を横断しているため、1 サイクルで coordinator へ移すと検証範囲が大きくなりすぎる。I-3 は以下の小単位で進める。
+
+#### Ticket I-3a: chart row swap / summary state の child 化
+
+1. `MainChartListViewModel` に `SummaryText` と rows swap helper を追加する。
+2. root の `GridSummaryText` は pass-through と property relay を維持する。
+3. root の `SetChartRowsView(...)` は child helper 呼び出しに寄せ、通常一覧 / playlist 詳細の summary 更新責務を child に移す。
+4. play history / playlist summary は既存 root workflow から `GridSummaryText` に書き続け、表示名と通知は維持する。
+
+確認対象:
+
+- `ChartListVirtualViewTests`
+- `PlaylistViewPipelineTests`
+- `PlayHistoryReadModelTests`
+- `MainWindowContextMenuResourceTests`
+
+完了条件:
+
+- rows swap と通常 summary 計算が `MainChartListViewModel` で完結する。
+- root の `ChartRowsView` / `GridSummaryText` Binding path は変わらない。
+
+#### Ticket I-3b: refresh request routing の coordinator 入り口作成
+
+1. `ChartListRefreshCoordinator` を追加し、`RefreshChartRowsView` 冒頭の requested mode / current tree mode / play history stale 判定 / playlist route 判定を表す request context を作る。
+2. 副作用のある `SetTreeViewFilterSelection`、`UpdateKeywordSearchPresentation`、`RegisterPlaylistSourceBuildRequest` は root callback として残し、意味の変わる fallback は入れない。
+3. root は既存 private `RefreshChartRowsView(viewUpdateMode, object)` の呼び出し形状を維持する。
+
+#### Ticket I-3c: virtual normal / virtual subset apply の coordinator 化
+
+1. `TryApplyVirtualDefaultNormalLibraryView` と `TryApplyVirtualChartSubsetLibraryView` の重複している view swap / column setting / build timestamp / log metric 終端を coordinator 経由に寄せる。
+2. source rows / order / cache の所有はまだ root に残し、移動範囲を終端処理に限定する。
+
+#### Ticket I-3d: regular library pipeline の coordinator 化
+
+1. 通常一覧の folder / keyword / mode / sort pipeline を coordinator へ移す。
+2. `MainViewRefreshDecisionService` と sort/cache key の既存 service を coordinator から利用する。
+3. root は facade と横断 state provider に寄せる。
 
 ### Ticket E progress property 契約
 

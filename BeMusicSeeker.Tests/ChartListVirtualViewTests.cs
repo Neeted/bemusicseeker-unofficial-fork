@@ -467,6 +467,41 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void MainChartList_SetRowsUpdatesRootSummaryRelay()
+    {
+        var viewModel = new MainWindowViewModel();
+        var rows = new List<LibraryChartRow>
+        {
+            LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(CreateFile(@"D:\Charts\A\alpha.bms", "Alpha", @"D:\Charts\A"))),
+            LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(CreateFile(@"D:\Charts\B\bravo.bms", "Bravo", @"D:\Charts\B"))),
+        };
+        var propertyNames = new List<string>();
+        viewModel.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+
+        viewModel.MainChartList.SetRows(rows, updateSummary: true);
+
+        Assert.AreSame(rows, viewModel.ChartRowsView);
+        StringAssert.StartsWith(viewModel.GridSummaryText, "[2");
+        StringAssert.Contains(viewModel.GridSummaryText, "/ 2");
+        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.ChartRowsView));
+        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.GridSummaryText));
+    }
+
+    [TestMethod]
+    public void GridSummaryText_SetterUpdatesMainChartListAndRootRelay()
+    {
+        var viewModel = new MainWindowViewModel();
+        var propertyNames = new List<string>();
+        viewModel.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+
+        viewModel.GridSummaryText = "custom summary";
+
+        Assert.AreEqual("custom summary", viewModel.MainChartList.SummaryText);
+        Assert.AreEqual("custom summary", viewModel.GridSummaryText);
+        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.GridSummaryText));
+    }
+
+    [TestMethod]
     public void DisposeRealizedRows_DoesNotRealizeUnvisitedRows()
     {
         ChartListVirtualView view = CreateView(out Func<int> getCreatedCount);

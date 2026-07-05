@@ -1425,8 +1425,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private string _GridHeaderText = string.Empty;
 
-    private string _GridSummaryText = string.Empty;
-
     private IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards = [];
 
     private ListenerCommand<PlayHistorySummaryCard> _TogglePlayHistorySummaryCardFilterCommand;
@@ -5304,14 +5302,12 @@ public partial class MainWindowViewModel : ViewModel
     /// <param name="rows">新しい表示行。</param>
     private void SetChartRowsView(IList rows)
     {
-        ChartRowsView = rows;
-        UpdateMainGridSummaryText(rows);
+        MainChartList.SetRows(rows, updateSummary: !IsPlaylistSummaryMode);
     }
 
     private void SetChartRowsView(IList rows, int distinctFolderCount)
     {
-        ChartRowsView = rows;
-        UpdateMainGridSummaryText(rows?.Count ?? 0, distinctFolderCount);
+        MainChartList.SetRows(rows, distinctFolderCount, updateSummary: !IsPlaylistSummaryMode);
     }
 
     private void UpdateMainGridSummaryText(IList rows)
@@ -5320,17 +5316,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (rows == null)
-        {
-            GridSummaryText = string.Empty;
-            return;
-        }
-        if (rows is IChartListViewMetadata metadata)
-        {
-            UpdateMainGridSummaryText(metadata.RowCount, metadata.DistinctFolderCount);
-            return;
-        }
-        UpdateMainGridSummaryText(rows.Count, CountDistinctFoldersForRows(rows));
+        MainChartList.UpdateSummaryText(rows);
     }
 
     private void UpdateMainGridSummaryText(int rowCount, int distinctFolderCount)
@@ -5339,52 +5325,12 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        GridSummaryText = FormatMainGridSummaryText(rowCount, distinctFolderCount);
-    }
-
-    private static string FormatMainGridSummaryText(int rowCount, int distinctFolderCount)
-    {
-        string text = "[" + rowCount + BeMusicSeeker.Properties.Resources.Num_songs;
-        if (distinctFolderCount > 1)
-        {
-            return text + " / " + distinctFolderCount + BeMusicSeeker.Properties.Resources.Num_folders + "]";
-        }
-        return text + "]";
+        MainChartList.UpdateSummaryText(rowCount, distinctFolderCount);
     }
 
     internal static string FormatMainGridSummaryTextForTest(int rowCount, int distinctFolderCount)
     {
-        return FormatMainGridSummaryText(rowCount, distinctFolderCount);
-    }
-
-    private static int CountDistinctFoldersForRows(IEnumerable rows)
-    {
-        if (rows == null)
-        {
-            return -1;
-        }
-        return rows.Cast<object>()
-            .Select(GetMainGridSummaryFolderName)
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-    }
-
-    private static string GetMainGridSummaryFolderName(object row)
-    {
-        if (row is BeMusicSeeker.Models.BMSFile bmsFile)
-        {
-            return bmsFile.Folder;
-        }
-        if (row is PlaylistDetailRow playlistDetailRow)
-        {
-            return playlistDetailRow.Folder;
-        }
-        if (row is LibraryChartRow libraryChartRow)
-        {
-            return libraryChartRow.Folder;
-        }
-        return string.Empty;
+        return MainChartListViewModel.FormatSummaryTextForTest(rowCount, distinctFolderCount);
     }
 
     private static int CountDistinctFoldersForSourceRows(IEnumerable<ChartListSourceRow> rows)
@@ -9159,15 +9105,11 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _GridSummaryText;
+            return MainChartList.SummaryText;
         }
         set
         {
-            if (!(_GridSummaryText == value))
-            {
-                _GridSummaryText = value ?? string.Empty;
-                RaisePropertyChanged("GridSummaryText");
-            }
+            MainChartList.SummaryText = value;
         }
     }
 
@@ -10939,6 +10881,9 @@ public partial class MainWindowViewModel : ViewModel
                 break;
             case nameof(MainChartListViewModel.RowDragKind):
                 RaisePropertyChanged(nameof(ChartRowsViewRowDragKind));
+                break;
+            case nameof(MainChartListViewModel.SummaryText):
+                RaisePropertyChanged(nameof(GridSummaryText));
                 break;
         }
     }
