@@ -50,12 +50,26 @@ internal static class SourceTextTestHelper
     internal static string ReadMainWindowViewModelSourceText()
     {
         string root = FindRepositoryRoot();
-        return ReadSourceFileSet(
-            root,
-            EnumerateExistingFiles(
-                Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs")),
-            Directory.EnumerateFiles(Path.Combine(root, "BeMusicSeeker", "ViewModels"), "MainWindowViewModel*.cs", SearchOption.TopDirectoryOnly),
-            EnumerateDirectoryFiles(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow")));
+        string mainWindowViewModelPath = Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string settingDialogViewModelPath = Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.SettingDialogViewModel.cs");
+        string logicalMainWindowViewModelSource = InsertSourceAfterMarker(
+            File.ReadAllText(mainWindowViewModelPath),
+            "    internal event EventHandler MainTableDisplayRefreshRequested;",
+            ExtractNestedMainWindowViewModelSource(
+                settingDialogViewModelPath));
+
+        string[] splitFiles = Directory.EnumerateFiles(Path.Combine(root, "BeMusicSeeker", "ViewModels"), "MainWindowViewModel*.cs", SearchOption.TopDirectoryOnly)
+            .Concat(EnumerateDirectoryFiles(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow")))
+            .Where(path => !string.Equals(path, mainWindowViewModelPath, StringComparison.OrdinalIgnoreCase))
+            .Where(path => !string.Equals(path, settingDialogViewModelPath, StringComparison.OrdinalIgnoreCase))
+            .Where(File.Exists)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => GetRelativePath(root, path), StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        return string.Join(
+            Environment.NewLine,
+            splitFiles.Select(path => File.ReadAllText(path)).Prepend(logicalMainWindowViewModelSource));
     }
 
     /// <summary>
@@ -106,6 +120,52 @@ internal static class SourceTextTestHelper
         return string.Join(
             Environment.NewLine,
             files.Select(path => File.ReadAllText(path)));
+    }
+
+    private static string InsertSourceAfterMarker(string source, string marker, string insertedSource)
+    {
+        if (string.IsNullOrEmpty(insertedSource))
+        {
+            return source;
+        }
+
+        int markerIndex = source.IndexOf(marker, StringComparison.Ordinal);
+        if (markerIndex < 0)
+        {
+            throw new InvalidOperationException("MainWindowViewModel source insertion marker was not found.");
+        }
+
+        int insertIndex = markerIndex + marker.Length;
+        return source.Substring(0, insertIndex)
+            + Environment.NewLine
+            + Environment.NewLine
+            + insertedSource
+            + source.Substring(insertIndex);
+    }
+
+    private static string ExtractNestedMainWindowViewModelSource(string path)
+    {
+        if (!File.Exists(path))
+        {
+            throw new FileNotFoundException("Nested MainWindowViewModel source file was not found.", path);
+        }
+
+        string source = File.ReadAllText(path);
+        const string startMarker = "    public partial class SettingDialogViewModel : ViewModel";
+        const string endMarker = "\n}";
+        int startIndex = source.IndexOf(startMarker, StringComparison.Ordinal);
+        if (startIndex < 0)
+        {
+            throw new InvalidOperationException("Nested MainWindowViewModel start marker was not found.");
+        }
+
+        int endIndex = source.LastIndexOf(endMarker, StringComparison.Ordinal);
+        if (endIndex <= startIndex)
+        {
+            throw new InvalidOperationException("Nested MainWindowViewModel end marker was not found.");
+        }
+
+        return source.Substring(startIndex, endIndex - startIndex);
     }
 
     private static IEnumerable<string> EnumerateExistingFiles(params string[] paths)
