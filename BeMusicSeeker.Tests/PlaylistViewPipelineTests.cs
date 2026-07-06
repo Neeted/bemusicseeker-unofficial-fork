@@ -118,6 +118,7 @@ public sealed class PlaylistViewPipelineTests
         string playlistStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistState.cs");
         string buildStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildState.cs");
         string queueCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildQueueCoordinator.cs");
+        string sourceBuildResultSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSourceBuildResult.cs");
         string playlistViewStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewState");
         string playlistSourceSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistSourceSnapshotState");
         string playlistViewSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewSnapshotState");
@@ -159,6 +160,11 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
         StringAssert.Contains(rootSource, "ApplyPlaylistDetailViewRowsToMainView(");
+        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");
+        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistScoreProbeMetrics");
+        StringAssert.Contains(rootSource, "PlaylistSourceBuildResult sourceBuildResult = BuildPlaylistSourceRows");
+        Assert.AreEqual(-1, rootSource.IndexOf("out int scoreUpdateTargetCount", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playlistStateSource.IndexOf("private sealed class PlaylistScoreProbeMetrics", StringComparison.Ordinal));
     }
 
     [TestMethod]

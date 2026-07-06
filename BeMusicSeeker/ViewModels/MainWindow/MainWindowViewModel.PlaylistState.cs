@@ -314,18 +314,6 @@ public partial class MainWindowViewModel
         internal long RequestedAtTimestamp;
     }
 
-    /// <summary>
-    /// playlist score probe の集計メトリクスです。
-    /// </summary>
-    private sealed class PlaylistScoreProbeMetrics
-    {
-        internal int TargetCount;
-
-        internal int MatchedScoreCount;
-
-        internal long TotalMs;
-    }
-
     private readonly struct PlaylistBuildRequestViewSnapshot
     {
         internal PlaylistBuildRequestViewSnapshot(long playlistRevision, int lastBuiltScoreSnapshotVersion, PlaylistRequestIdentity? currentViewIdentity)

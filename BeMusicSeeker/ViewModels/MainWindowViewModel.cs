@@ -12629,17 +12629,17 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// プレイリスト詳細ビューの source snapshot を構築します。
     /// </summary>
-    private List<PlaylistDetailSourceRow> BuildPlaylistSourceRows(BMSTable bmsTable, string folderName, bool onlyNotOwned, PlaylistLibraryIndexSnapshot libraryIndexSnapshot, int requestVersion, CancellationToken cancellationToken, ref string cancellationStage, out int scoreUpdateTargetCount, out long entryResolveMs, out long scoreProbeMs, out long sourceMaterializeMs, out PlaylistScoreProbeMetrics scoreProbeMetrics)
+    private PlaylistSourceBuildResult BuildPlaylistSourceRows(BMSTable bmsTable, string folderName, bool onlyNotOwned, PlaylistLibraryIndexSnapshot libraryIndexSnapshot, int requestVersion, CancellationToken cancellationToken, ref string cancellationStage)
     {
         var stopwatch = Stopwatch.StartNew();
-        scoreUpdateTargetCount = 0;
-        entryResolveMs = 0L;
-        scoreProbeMs = 0L;
-        sourceMaterializeMs = 0L;
-        scoreProbeMetrics = new PlaylistScoreProbeMetrics();
+        int scoreUpdateTargetCount = 0;
+        long entryResolveMs = 0L;
+        long scoreProbeMs = 0L;
+        long sourceMaterializeMs = 0L;
+        var scoreProbeMetrics = new PlaylistScoreProbeMetrics();
         if (bmsTable == null)
         {
-            return [];
+            return new PlaylistSourceBuildResult([], scoreUpdateTargetCount, entryResolveMs, scoreProbeMs, sourceMaterializeMs, scoreProbeMetrics);
         }
         var entryHydrationStopwatch = Stopwatch.StartNew();
         tables?.EnsurePlaylistEntriesLoaded(bmsTable, "BuildPlaylistSourceRows");
@@ -12734,7 +12734,7 @@ public partial class MainWindowViewModel : ViewModel
                 resolvedChartRef));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
-        return playlistRows;
+        return new PlaylistSourceBuildResult(playlistRows, scoreUpdateTargetCount, entryResolveMs, scoreProbeMs, sourceMaterializeMs, scoreProbeMetrics);
     }
 
     /// <summary>
@@ -12877,7 +12877,6 @@ public partial class MainWindowViewModel : ViewModel
         object parameter = request.Parameter;
         var viewBuildStopwatch = Stopwatch.StartNew();
         int sourceCount = 0;
-        var scoreProbeMetrics = new PlaylistScoreProbeMetrics();
         List<PlaylistDetailSourceRow> sourceRows = null;
         IList finalRows = null;
         bool gateEntered = false;
@@ -12902,10 +12901,16 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistLibraryIndexSnapshot libraryIndexSnapshot = GetOrCreatePlaylistLibraryIndexSnapshot(cancellationToken, out string libraryIndexAccess, out long libraryIndexBuildMs);
             long libraryIndexMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
             stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            sourceRows = BuildPlaylistSourceRows(bmsTable, folderName, onlyNotOwned, libraryIndexSnapshot, requestVersion, cancellationToken, ref cancellationStage, out int scoreUpdateTargetCount, out long entryResolveMs, out long scoreProbeMs, out long sourceMaterializeMs, out scoreProbeMetrics);
+            PlaylistSourceBuildResult sourceBuildResult = BuildPlaylistSourceRows(bmsTable, folderName, onlyNotOwned, libraryIndexSnapshot, requestVersion, cancellationToken, ref cancellationStage);
+            sourceRows = sourceBuildResult.SourceRows;
             long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-            int folderCount = sourceRows.Count;
-            sourceCount = folderCount;
+            int folderCount = sourceBuildResult.FolderCount;
+            sourceCount = sourceBuildResult.SourceCount;
+            int scoreUpdateTargetCount = sourceBuildResult.ScoreUpdateTargetCount;
+            long entryResolveMs = sourceBuildResult.EntryResolveMs;
+            long scoreProbeMs = sourceBuildResult.ScoreProbeMs;
+            long sourceMaterializeMs = sourceBuildResult.SourceMaterializeMs;
+            PlaylistScoreProbeMetrics scoreProbeMetrics = sourceBuildResult.ScoreProbeMetrics;
             LogPlaylistWorker("playlist_score_probe_summary requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs);
             if (scoreProbeMetrics.TotalMs >= PlaylistScoreProbeSlowLogThresholdMs)
             {
