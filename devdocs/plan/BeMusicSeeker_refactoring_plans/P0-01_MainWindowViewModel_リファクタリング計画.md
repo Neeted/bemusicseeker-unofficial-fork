@@ -18,18 +18,18 @@
 | `MainWindowViewModel.PlaylistState.cs` | 485 行。playlist identity / source snapshot / view snapshot state の受け皿 |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
-| 直近の完了 | L-3c-2: Playlist detail worker queue / cancellation 境界整理 |
-| 次の active ticket | L-3c-3: Playlist detail source rebuild / view apply 実行境界の整理 |
+| 直近の完了 | L-3c-3: Playlist detail source rebuild / view apply 実行境界 decision |
+| 次の active ticket | L-3c-4: Playlist detail terminal apply boundary 抽出 |
 
 ## Now
 
-### Active Ticket L-3c-3: Playlist detail source rebuild / view apply 実行境界の整理
+### Active Ticket L-3c-4: Playlist detail terminal apply boundary 抽出
 
 目的:
 
-- `RebuildPlaylistSource` / `ApplyPlaylistViewWithoutSourceRebuild` / `TryPatchPlaylistSourceChartInfoIndex` の実行境界を棚卸しし、1 ticket で移せる範囲を決める。
-- source materialize、view materialize、chart-info patch、UI apply side effect を混ぜたまま大移動しない。
-- まず coordinator へ渡す input/output DTO と root に残す terminal apply/logging boundary を明確にする。
+- `RebuildPlaylistSource` と `ApplyPlaylistViewWithoutSourceRebuild` に重複する terminal apply sequence を root-local method へまとめる。
+- root に残す UI apply / logging / lifecycle side effect を、後続 coordinator が呼び出しやすい境界として名前付けする。
+- L-3c-3 の decision は [execution boundary decision](./P0-01_L-3c-3_PlaylistDetailBuild実行境界Decision.md) を正とする。
 
 制約:
 
@@ -37,14 +37,14 @@
 - XAML Binding / code-behind event handler の参照先を変えない。
 - persisted setting value、serialized name、DB schema、外部ファイル形式に触れない。
 - terminal apply callback、main table swap、timing / logging side effects は root に残す。
-- BuildGate、source materialize、chart-info patch mutation、view apply UI side effects を動かす場合は、実装前に checkpoint / decision record を作る。
+- BuildGate、source materialize、chart-info patch mutation、view apply UI side effects の owner は変えない。
 - 1 ticket 内で 3 個以上の sub-ticket が必要になった場合は、実装前に checkpoint / decision record を作り直す。
 
 完了条件:
 
-- 実行境界の checkpoint / decision record が active plan または別 docs に残っている。
-- 1 ticket で安全に移せる実装範囲が 1 件に定まっている、または小さな coordinator/helper 抽出が完了している。
-- root に残す UI apply / logging / lifecycle side effect と、service/coordinator へ移す pure/worker logic が明確になっている。
+- terminal apply sequence が 1 つの root-local method にまとまっている。
+- `RebuildPlaylistSource` / `ApplyPlaylistViewWithoutSourceRebuild` は terminal apply の詳細ではなく boundary method 呼び出し中心になっている。
+- behavior、logging text、public user-facing text は変わっていない。
 - `SourceTextTestHelper.ReadMainWindowViewModelSourceText()` と playlist source-text tests が分割後も意図を検証できる。
 - behavior、persisted value、public user-facing text は変えない。
 
@@ -58,12 +58,12 @@
 
 ## Next
 
-次候補は最大 2 件に固定する。L-3c-3 では実装に入る前に移動単位が 1 件へ収束しているか確認する。
+次候補は最大 2 件に固定する。L-3c-4 完了後に次の実装単位を再判断する。
 
 | 候補 | 内容 | 着手条件 |
 |---|---|---|
-| L-3c-4 | L-3c-3 の decision に従う実装 ticket | L-3c-3 で実装単位が確定した後 |
-| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-3 の実装を阻害する test が特定された場合 |
+| L-3c-5 | source build execution result DTO / coordinator 化の次段 | L-3c-4 完了後に詳細な実装プランを検討する |
+| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-4 の実装を阻害する test が特定された場合 |
 
 ## Later
 
