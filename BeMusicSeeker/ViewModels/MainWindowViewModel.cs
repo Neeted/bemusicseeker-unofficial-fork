@@ -12870,7 +12870,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// 現在保持している playlist source snapshot から view を再計算します。
     /// </summary>
-    private PlaylistViewOnlyApplyResult ApplyPlaylistViewFromCurrentSource(MainViewUpdateMode mode)
+    private PlaylistViewApplyResult ApplyPlaylistViewFromCurrentSource(MainViewUpdateMode mode)
     {
         List<PlaylistDetailSourceRow> sourceRows;
         int currentViewRowsAlive;
@@ -12885,16 +12885,16 @@ public partial class MainWindowViewModel : ViewModel
         int sourceCount = sourceRows.Count;
         LogPlaylistViewApply("started mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive);
         IList finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
-        var result = new PlaylistViewOnlyApplyResult(finalRows, sourceCount, sortProfile, keywordCount, modeCount, keywordStageMs, modeStageMs, sortStageMs, viewMaterializeMs);
+        var result = new PlaylistViewApplyResult(finalRows, sourceCount, sortProfile, keywordCount, modeCount, keywordStageMs, modeStageMs, sortStageMs, viewMaterializeMs);
         LogPlaylistViewApply("completed mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + result.SourceCount + " keywordCount=" + result.KeywordCount + " modeCount=" + result.ModeCount + " viewCount=" + result.ViewCount + " sortProfile=" + result.SortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(result.FinalRows));
         return result;
     }
 
-    private PlaylistRebuiltSourceViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)
+    private PlaylistViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)
     {
         LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(playlistViewState.View.Rows));
         finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
-        var result = new PlaylistRebuiltSourceViewApplyResult(finalRows, sortProfile, keywordCount, modeCount, keywordStageMs, modeStageMs, sortStageMs, viewMaterializeMs);
+        var result = new PlaylistViewApplyResult(finalRows, sourceCount, sortProfile, keywordCount, modeCount, keywordStageMs, modeStageMs, sortStageMs, viewMaterializeMs);
         LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + result.KeywordCount + " modeCount=" + result.ModeCount + " viewCount=" + result.ViewCount + " sortProfile=" + result.SortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(result.FinalRows));
         return result;
     }
@@ -12942,8 +12942,8 @@ public partial class MainWindowViewModel : ViewModel
                 return true;
             }
             cancellationStage = "view_apply";
-            PlaylistRebuiltSourceViewApplyResult rebuiltSourceViewApplyResult = ApplyPlaylistViewFromRebuiltSource(mode, sourceRows, sourceCount, ref finalRows);
-            var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, rebuiltSourceViewApplyResult);
+            PlaylistViewApplyResult viewApplyResult = ApplyPlaylistViewFromRebuiltSource(mode, sourceRows, sourceCount, ref finalRows);
+            var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, viewApplyResult);
             int viewCount = executionResult.ViewCount;
             if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
             {
@@ -13004,9 +13004,9 @@ public partial class MainWindowViewModel : ViewModel
         object parameter = request.Parameter;
         var viewBuildStopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
-        PlaylistViewOnlyApplyResult viewOnlyApplyResult = ApplyPlaylistViewFromCurrentSource(mode);
-        IList finalRows = viewOnlyApplyResult.FinalRows;
-        int viewCount = viewOnlyApplyResult.ViewCount;
+        PlaylistViewApplyResult viewApplyResult = ApplyPlaylistViewFromCurrentSource(mode);
+        IList finalRows = viewApplyResult.FinalRows;
+        int viewCount = viewApplyResult.ViewCount;
         if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(request.RequestVersion))
         {
             return true;
@@ -13019,7 +13019,7 @@ public partial class MainWindowViewModel : ViewModel
             viewBuildStopwatch,
             out long columnStageMs,
             out long callbackStageMs);
-        FinalizeMainViewBuild(viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, folderStageMs: 0L, viewOnlyApplyResult.KeywordStageMs, viewOnlyApplyResult.ModeStageMs, viewOnlyApplyResult.SortStageMs, sortReuse: false, viewOnlyApplyResult.SortProfile, folderCount: viewOnlyApplyResult.SourceCount, viewOnlyApplyResult.KeywordCount, viewOnlyApplyResult.ModeCount, viewCount, columnStageMs, callbackStageMs);
+        FinalizeMainViewBuild(viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, folderStageMs: 0L, viewApplyResult.KeywordStageMs, viewApplyResult.ModeStageMs, viewApplyResult.SortStageMs, sortReuse: false, viewApplyResult.SortProfile, folderCount: viewApplyResult.SourceCount, viewApplyResult.KeywordCount, viewApplyResult.ModeCount, viewCount, columnStageMs, callbackStageMs);
         return true;
     }
 

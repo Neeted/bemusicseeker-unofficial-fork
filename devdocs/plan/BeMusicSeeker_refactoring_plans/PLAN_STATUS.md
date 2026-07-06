@@ -6,13 +6,13 @@
 
 ## Active Ticket
 
-L-3c-15: Playlist view apply result DTO 共通化
+L-3c-16-checkpoint: playlist build execution boundary の次候補決定
 
 目的:
 
-- [L-3c-14 decision](./P0-01_L-3c-14_PlaylistBuildExecutionNextBoundaryDecision.md) に従い、rebuilt source path と view-only path の view apply 結果を共通 contract に揃える。
-- `ApplyPlaylistViewFromRebuiltSource` と `ApplyPlaylistViewFromCurrentSource` の戻り値を同じ internal DTO にする。
-- root の freshness check、terminal apply、`FinalizeMainViewBuild` は動かさない。
+- L-3c-15 で共通化した `PlaylistViewApplyResult` を前提に、次に動かす playlist build execution boundary を 1 ticket に絞る。
+- `RebuildPlaylistSource` の coordinator 化へ進むか、source build / view apply / UI apply の小さな adapter を先に作るかを decision record に残す。
+- root に残す side effect と dependencies を明確にする。
 
 次に読む:
 
@@ -23,8 +23,8 @@ L-3c-15: Playlist view apply result DTO 共通化
 
 | 順 | 候補 | 条件 |
 |---:|---|---|
-| 1 | L-3c-16-checkpoint: playlist build execution boundary の次候補決定 | L-3c-15 完了後 |
-| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3c-15 で blocker が特定された場合 |
+| 1 | L-3c-17: L-3c-16-checkpoint の decision に従う実装 ticket | L-3c-16-checkpoint で実装単位が確定した後 |
+| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3c-16-checkpoint で blocker が特定された場合 |
 
 ## Blocked / Waiting
 
@@ -38,18 +38,22 @@ L-3c-15: Playlist view apply result DTO 共通化
 
 | 計画 | 現在地 | 並行可否 |
 |---|---|---|
-| P0-01 | L-3c-14-checkpoint 完了。active は L-3c-15 | WIP は原則 1 ticket |
+| P0-01 | L-3c-15 完了。active は L-3c-16-checkpoint | WIP は原則 1 ticket |
 | P0-02 | BMSLibrary Phase 0 は未着手 | source-text helper / reflection inventory / dependency inventory は即並行可 |
 | P0-03 | MainWindow UI Phase 0 は未着手。一部 DataContext 移行は P0-01 で先行済み | event handler inventory / `async void` 分類は即並行可 |
 | P0-04 | SDK 10 + `net472` baseline。TFM は未変更 | TFM 変更なしの棚卸しは即並行可 |
 
 ## Latest Completed Ticket
 
-L-3c-14-checkpoint: `P0-01_L-3c-14_PlaylistBuildExecutionNextBoundaryDecision.md` を追加し、次の実装 ticket を `L-3c-15: Playlist view apply result DTO 共通化` に固定した。
+L-3c-15: `PlaylistRebuiltSourceViewApplyResult` と `PlaylistViewOnlyApplyResult` を `PlaylistViewApplyResult` へ統合し、rebuilt source / view-only path の view apply result contract を共通化した。
 
 実行した確認:
 
-- docs-only checkpoint のため `git diff --check`
+- `dotnet build .\BeMusicSeeker.sln /p:Configuration=Release`
+- `dotnet test .\BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj /p:Configuration=Release --filter "FullyQualifiedName~PlaylistDetailBuildState_SourceText"`
+- `dotnet test .\BeMusicSeeker.sln /p:Configuration=Release`
+- `dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal`
+- `dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path <VS2022 MSBuild Bin> --properties Configuration=Release --severity-level warning --verbosity minimal`
 
 ## 次回 Codex が最初に読むべきファイル
 

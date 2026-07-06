@@ -86,56 +86,11 @@ internal sealed class PlaylistSourceBuildStageResult
 }
 
 /// <summary>
-/// rebuilt playlist source から view rows を作る stage の結果です。
+/// playlist source から view rows を作る stage の結果です。
 /// </summary>
-internal sealed class PlaylistRebuiltSourceViewApplyResult
+internal sealed class PlaylistViewApplyResult
 {
-    internal PlaylistRebuiltSourceViewApplyResult(
-        IList finalRows,
-        string sortProfile,
-        int keywordCount,
-        int modeCount,
-        long keywordStageMs,
-        long modeStageMs,
-        long sortStageMs,
-        long viewMaterializeMs)
-    {
-        FinalRows = finalRows ?? throw new System.ArgumentNullException(nameof(finalRows));
-        ViewCount = FinalRows.Count;
-        SortProfile = sortProfile;
-        KeywordCount = keywordCount;
-        ModeCount = modeCount;
-        KeywordStageMs = keywordStageMs;
-        ModeStageMs = modeStageMs;
-        SortStageMs = sortStageMs;
-        ViewMaterializeMs = viewMaterializeMs;
-    }
-
-    internal IList FinalRows { get; }
-
-    internal int ViewCount { get; }
-
-    internal string SortProfile { get; }
-
-    internal int KeywordCount { get; }
-
-    internal int ModeCount { get; }
-
-    internal long KeywordStageMs { get; }
-
-    internal long ModeStageMs { get; }
-
-    internal long SortStageMs { get; }
-
-    internal long ViewMaterializeMs { get; }
-}
-
-/// <summary>
-/// 既存 playlist source から view rows だけを再計算する stage の結果です。
-/// </summary>
-internal sealed class PlaylistViewOnlyApplyResult
-{
-    internal PlaylistViewOnlyApplyResult(
+    internal PlaylistViewApplyResult(
         IList finalRows,
         int sourceCount,
         string sortProfile,
@@ -186,17 +141,17 @@ internal sealed class PlaylistRebuildExecutionResult
 {
     internal PlaylistRebuildExecutionResult(
         PlaylistSourceBuildStageResult sourceBuildStage,
-        PlaylistRebuiltSourceViewApplyResult rebuiltSourceViewApply)
+        PlaylistViewApplyResult viewApply)
     {
         SourceBuildStage = sourceBuildStage ?? throw new System.ArgumentNullException(nameof(sourceBuildStage));
-        RebuiltSourceViewApply = rebuiltSourceViewApply ?? throw new System.ArgumentNullException(nameof(rebuiltSourceViewApply));
+        ViewApply = viewApply ?? throw new System.ArgumentNullException(nameof(viewApply));
     }
 
     internal PlaylistSourceBuildStageResult SourceBuildStage { get; }
 
     internal PlaylistSourceBuildResult SourceBuild => SourceBuildStage.SourceBuild;
 
-    internal PlaylistRebuiltSourceViewApplyResult RebuiltSourceViewApply { get; }
+    internal PlaylistViewApplyResult ViewApply { get; }
 
     internal List<PlaylistDetailSourceRow> SourceRows => SourceBuild.SourceRows;
 
@@ -222,19 +177,19 @@ internal sealed class PlaylistRebuildExecutionResult
 
     internal long LibraryIndexBuildMs => SourceBuildStage.LibraryIndexBuildMs;
 
-    internal int ViewCount => RebuiltSourceViewApply.ViewCount;
+    internal int ViewCount => ViewApply.ViewCount;
 
-    internal string SortProfile => RebuiltSourceViewApply.SortProfile;
+    internal string SortProfile => ViewApply.SortProfile;
 
-    internal int KeywordCount => RebuiltSourceViewApply.KeywordCount;
+    internal int KeywordCount => ViewApply.KeywordCount;
 
-    internal int ModeCount => RebuiltSourceViewApply.ModeCount;
+    internal int ModeCount => ViewApply.ModeCount;
 
-    internal long KeywordStageMs => RebuiltSourceViewApply.KeywordStageMs;
+    internal long KeywordStageMs => ViewApply.KeywordStageMs;
 
-    internal long ModeStageMs => RebuiltSourceViewApply.ModeStageMs;
+    internal long ModeStageMs => ViewApply.ModeStageMs;
 
-    internal long SortStageMs => RebuiltSourceViewApply.SortStageMs;
+    internal long SortStageMs => ViewApply.SortStageMs;
 
-    internal long ViewMaterializeMs => RebuiltSourceViewApply.ViewMaterializeMs;
+    internal long ViewMaterializeMs => ViewApply.ViewMaterializeMs;
 }
