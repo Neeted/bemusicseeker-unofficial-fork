@@ -90,6 +90,15 @@ internal static class SourceTextTestHelper
     }
 
     /// <summary>
+    /// Reads the playlist workspace child ViewModel source directly.
+    /// </summary>
+    /// <returns>The source text for <c>PlaylistWorkspaceViewModel</c>.</returns>
+    internal static string ReadPlaylistWorkspaceViewModelSourceText()
+    {
+        return ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.cs");
+    }
+
+    /// <summary>
     /// Reads all source files that are considered part of <c>MainWindow</c> after partial splitting.
     /// </summary>
     /// <returns>The concatenated source text for MainWindow-related files.</returns>

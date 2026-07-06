@@ -50,6 +50,7 @@
 | 2026-07-06 | 完了 | Ticket K-2: runtime context 利用候補の棚卸し | `5eca5da8` |
 | 2026-07-06 | 完了 | Ticket L-1: detail / summary state contract 棚卸し | `e5ae21dd` |
 | 2026-07-06 | 完了 | Ticket L-2a: PlaylistWorkspaceViewModel skeleton と summary/detail 表示 state pass-through | `978a9e5d` |
+| 2026-07-06 | 進行中 | Ticket L-2b: PlaylistWorkspace source-text / tests 直接化 | このコミット |
 
 次候補: Ticket L-2b: PlaylistWorkspace source-text / tests 直接化。
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Windows;
@@ -9,6 +10,44 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PlaylistWorkspaceViewModelTests
 {
+    [TestMethod]
+    public void SourceText_OwnsPlaylistPresentationStateOutsideRoot()
+    {
+        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string logicalSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+
+        foreach (string rootField in new[]
+        {
+            "_PlaylistSummarySortParameters",
+            "_PlaylistSummaryColumnsSettings",
+            "_ColumnSettingsVisibilityForPlaylist",
+            "_PlaylistSummaryView",
+            "previousPlaylistSummaryViewWeakReference",
+            "_IsPlaylistSummaryMode",
+            "_IsPlaylistDetailViewActive",
+            "_UseAsyncChartRowsViewBinding",
+            "_GridHeaderText",
+            "_PlaylistSummaryKeywordFilter",
+            "_PlaylistSummaryKeywordSearchWarningText",
+            "_IsPlaylistSummaryKeywordSearchHelpOpen",
+            "_PlaylistSummaryKeywordSearchSuggestions",
+            "_IsPlaylistSummaryKeywordSearchSuggestionPopupOpen",
+            "_PlaylistSummaryKeywordSearchSuggestionHeaderText",
+            "_PlaylistSummaryOwnedFilter"
+        })
+        {
+            Assert.AreEqual(-1, rootSource.IndexOf(rootField, StringComparison.Ordinal), rootField);
+        }
+
+        StringAssert.Contains(workspaceSource, "public sealed class PlaylistWorkspaceViewModel : ViewModel");
+        StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
+        StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
+        StringAssert.Contains(workspaceSource, "internal long LastPlaylistSummaryBuildCompletedTimestamp");
+        StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; } = new();");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;");
+    }
+
     [TestMethod]
     public void RootPlaylistSummaryState_ForwardsToPlaylistWorkspace()
     {
