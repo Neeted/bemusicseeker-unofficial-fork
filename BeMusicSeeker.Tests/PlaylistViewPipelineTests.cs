@@ -158,6 +158,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "CreatePlaylistBuildRequestViewSnapshotUnsafe");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
+        StringAssert.Contains(rootSource, "ApplyPlaylistDetailViewRowsToMainView(");
     }
 
     [TestMethod]

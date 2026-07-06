@@ -12929,16 +12929,14 @@ public partial class MainWindowViewModel : ViewModel
             cancellationStage = "ui_apply";
             List<PlaylistDetailSourceRow> previousSourceRows = ReplacePlaylistSourceRows(sourceRows, bmsTable, folderName, filterType, request.Identity);
             sourceRows = null;
-            SelectedIndexChartRowsView = -1;
-            RaiseMainTableSwapPreparing();
-            stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            loadColumnSetting(ResolvePlaylistColumnSettingMode(filterType));
-            long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-            stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            long callbackStageMs = 0L;
-            ReplacePlaylistViewRows(finalRows, request.Identity);
-            SetChartRowsView(finalRows);
-            TryMarkPlaylistOpenBuildCompleted(request, viewCount);
+            ApplyPlaylistDetailViewRowsToMainView(
+                request,
+                finalRows,
+                viewCount,
+                ResolvePlaylistColumnSettingMode(filterType),
+                viewBuildStopwatch,
+                out long columnStageMs,
+                out long callbackStageMs);
             finalRows = null;
             int disposedSourceRowsCount = CountPlaylistSourceRows(previousSourceRows);
             previousSourceRows = null;
@@ -12988,18 +12986,36 @@ public partial class MainWindowViewModel : ViewModel
         {
             return true;
         }
+        ApplyPlaylistDetailViewRowsToMainView(
+            request,
+            finalRows,
+            viewCount,
+            ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
+            viewBuildStopwatch,
+            out long columnStageMs,
+            out long callbackStageMs);
+        FinalizeMainViewBuild(viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, folderStageMs: 0L, keywordStageMs, modeStageMs, sortStageMs, sortReuse: false, sortProfile, folderCount: sourceCount, keywordCount, modeCount, viewCount, columnStageMs, callbackStageMs);
+        return true;
+    }
+
+    private void ApplyPlaylistDetailViewRowsToMainView(
+        PlaylistBuildRequest request,
+        IList finalRows,
+        int viewCount,
+        MainViewUpdateMode columnSettingMode,
+        Stopwatch viewBuildStopwatch,
+        out long columnStageMs,
+        out long callbackStageMs)
+    {
         SelectedIndexChartRowsView = -1;
         RaiseMainTableSwapPreparing();
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        loadColumnSetting(ResolvePlaylistColumnSettingMode(request.Identity.FilterType));
-        long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        long callbackStageMs = 0L;
+        loadColumnSetting(columnSettingMode);
+        columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        callbackStageMs = 0L;
         ReplacePlaylistViewRows(finalRows, request.Identity);
         SetChartRowsView(finalRows);
         TryMarkPlaylistOpenBuildCompleted(request, viewCount);
-        FinalizeMainViewBuild(viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, folderStageMs: 0L, keywordStageMs, modeStageMs, sortStageMs, sortReuse: false, sortProfile, folderCount: sourceCount, keywordCount, modeCount, viewCount, columnStageMs, callbackStageMs);
-        return true;
     }
 
     private bool TryPatchPlaylistSourceChartInfoIndex(PlaylistBuildRequest request, CancellationToken cancellationToken, out int sourceCount, out int dependencyCount, out int patchedCount, out long elapsedMs)

@@ -6,13 +6,13 @@
 
 ## Active Ticket
 
-L-3c-4: Playlist detail terminal apply boundary 抽出
+L-3c-5-checkpoint: source build execution result DTO / coordinator 化の実装単位決定
 
 目的:
 
-- `RebuildPlaylistSource` と `ApplyPlaylistViewWithoutSourceRebuild` に重複する terminal apply sequence を root-local method へまとめる。
-- root に残す UI apply / logging / lifecycle side effect を、後続 coordinator が呼び出しやすい境界として名前付けする。
-- L-3c-3 の decision は [execution boundary decision](./P0-01_L-3c-3_PlaylistDetailBuild実行境界Decision.md) を正とする。
+- L-3c-4 で root-local boundary 化した terminal apply を前提に、次に移すべき execution result DTO / coordinator 範囲を 1 ticket に絞る。
+- source materialize、view materialize、chart-info patch、snapshot replace、terminal apply のうち、どれを次に動かすかを decision record に残す。
+- 実装に入る前に、root に残す side effect と coordinator/service へ移す pure/worker logic を明確にする。
 
 次に読む:
 
@@ -23,8 +23,8 @@ L-3c-4: Playlist detail terminal apply boundary 抽出
 
 | 順 | 候補 | 条件 |
 |---:|---|---|
-| 1 | L-3c-5: source build execution result DTO / coordinator 化の次段 | L-3c-4 完了後に詳細な実装プランを検討する |
-| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3c-4 の実装を阻害する test が特定された場合 |
+| 1 | L-3c-6: L-3c-5-checkpoint の decision に従う実装 ticket | L-3c-5-checkpoint で実装単位が確定した後 |
+| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3c-5-checkpoint で blocker が特定された場合 |
 
 ## Blocked / Waiting
 
@@ -38,18 +38,22 @@ L-3c-4: Playlist detail terminal apply boundary 抽出
 
 | 計画 | 現在地 | 並行可否 |
 |---|---|---|
-| P0-01 | L-3c-3 完了。active は L-3c-4 | WIP は原則 1 ticket |
+| P0-01 | L-3c-4 完了。active は L-3c-5-checkpoint | WIP は原則 1 ticket |
 | P0-02 | BMSLibrary Phase 0 は未着手 | source-text helper / reflection inventory / dependency inventory は即並行可 |
 | P0-03 | MainWindow UI Phase 0 は未着手。一部 DataContext 移行は P0-01 で先行済み | event handler inventory / `async void` 分類は即並行可 |
 | P0-04 | SDK 10 + `net472` baseline。TFM は未変更 | TFM 変更なしの棚卸しは即並行可 |
 
 ## Latest Completed Ticket
 
-L-3c-3: `RebuildPlaylistSource` / `ApplyPlaylistViewWithoutSourceRebuild` / `TryPatchPlaylistSourceChartInfoIndex` の実行境界を棚卸しし、次 ticket を terminal apply boundary 抽出に決定した。
+L-3c-4: `RebuildPlaylistSource` / `ApplyPlaylistViewWithoutSourceRebuild` に重複する terminal apply sequence を `ApplyPlaylistDetailViewRowsToMainView` にまとめた。
 
 実行した確認:
 
-- docs-only。`git diff --check`
+- `dotnet build .\BeMusicSeeker.sln /p:Configuration=Release`
+- `dotnet test .\BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj /p:Configuration=Release --filter "FullyQualifiedName~PlaylistDetailBuildState_SourceText"`
+- `dotnet test .\BeMusicSeeker.sln /p:Configuration=Release`
+- `dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal`
+- `dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path <VS2022 MSBuild> --properties Configuration=Release --severity-level warning --verbosity minimal`
 
 ## 次回 Codex が最初に読むべきファイル
 
