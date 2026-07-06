@@ -1964,19 +1964,6 @@ public partial class MainWindowViewModel : ViewModel
         return rows?.Count() ?? 0;
     }
 
-    private static int CountDistinctFoldersForPlaylistSourceRows(IEnumerable<PlaylistDetailSourceRow> rows)
-    {
-        if (rows == null)
-        {
-            return -1;
-        }
-        return rows
-            .Select(row => row?.Folder)
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-    }
-
     /// <summary>
     /// playlist 詳細表示時の一覧反映方式を更新します。
     /// </summary>
@@ -13358,35 +13345,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// source row から表示用 lightweight row を生成します。
-    /// </summary>
-    private static PlaylistDetailRow CreatePlaylistViewRowClone(PlaylistDetailSourceRow row)
-    {
-        return row?.CreateViewRow();
-    }
-
-    /// <summary>
-    /// source snapshot から表示用 row 一覧を生成します。
-    /// </summary>
-    private static List<PlaylistDetailRow> CreatePlaylistViewRowsFromSource(IEnumerable<PlaylistDetailSourceRow> rows)
-    {
-        if (rows == null)
-        {
-            return [];
-        }
-        List<PlaylistDetailRow> clones = [];
-        foreach (PlaylistDetailSourceRow row in rows)
-        {
-            PlaylistDetailRow playlistRow = CreatePlaylistViewRowClone(row);
-            if (playlistRow != null)
-            {
-                clones.Add(playlistRow);
-            }
-        }
-        return clones;
-    }
-
-    /// <summary>
     /// 現在のモード/パラメータからプレイリスト選択情報を解決します。
     /// </summary>
     /// <param name="mode">解決対象モード。</param>
@@ -13443,76 +13401,6 @@ public partial class MainWindowViewModel : ViewModel
         return false;
     }
 
-    private static List<PlaylistDetailSourceRow> ApplyPlaylistSourceRows(
-        IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
-        string keywordFilter,
-        ModeFilterType modeFilter,
-        cSortParameters sortParameters,
-        out string sortProfile,
-        out int keywordCount,
-        out int modeCount,
-        out long keywordStageMs,
-        out long modeStageMs,
-        out long sortStageMs)
-    {
-        var stageStopwatch = Stopwatch.StartNew();
-        IReadOnlyList<PlaylistDetailSourceRow> effectiveSourceRows = sourceRows ?? [];
-        List<PlaylistDetailSourceRow> keywordRows;
-        if (!string.IsNullOrWhiteSpace(keywordFilter))
-        {
-            var query = GridKeywordSearchQuery.Parse(keywordFilter);
-            keywordRows = effectiveSourceRows.AsParallel().Where(delegate (PlaylistDetailSourceRow row)
-            {
-                return query.MatchesPlaylistDetail(row);
-            }).ToList();
-        }
-        else
-        {
-            keywordRows = (effectiveSourceRows as List<PlaylistDetailSourceRow>) ?? [.. effectiveSourceRows];
-        }
-        keywordStageMs = stageStopwatch.ElapsedMilliseconds;
-        keywordCount = keywordRows.Count;
-
-        stageStopwatch.Restart();
-        List<PlaylistDetailSourceRow> modeRows;
-        if (modeFilter != ModeFilterType.All)
-        {
-            List<int?> modeFlag = [null];
-            if ((modeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
-            {
-                modeFlag.Add(5);
-            }
-            if ((modeFilter & ModeFilterType._7KEYS) == ModeFilterType._7KEYS)
-            {
-                modeFlag.Add(7);
-            }
-            if ((modeFilter & ModeFilterType._9KEYS) == ModeFilterType._9KEYS)
-            {
-                modeFlag.Add(9);
-            }
-            if ((modeFilter & ModeFilterType._10KEYS) == ModeFilterType._10KEYS)
-            {
-                modeFlag.Add(10);
-            }
-            if ((modeFilter & ModeFilterType._14KEYS) == ModeFilterType._14KEYS)
-            {
-                modeFlag.Add(14);
-            }
-            modeRows = [.. keywordRows.Where(file => modeFlag.Contains(file.mode))];
-        }
-        else
-        {
-            modeRows = keywordRows;
-        }
-        modeStageMs = stageStopwatch.ElapsedMilliseconds;
-        modeCount = modeRows.Count;
-
-        stageStopwatch.Restart();
-        List<PlaylistDetailSourceRow> sortedSourceRows = PlaylistDetailSortEngine.Sort(modeRows, sortParameters, out sortProfile);
-        sortStageMs = stageStopwatch.ElapsedMilliseconds;
-        return sortedSourceRows;
-    }
-
     /// <summary>
     /// プレイリスト source snapshot から keyword/mode/sort を適用し、表示用行集合を返します。
     /// </summary>
@@ -13529,7 +13417,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <returns>表示用行集合。</returns>
     internal static List<PlaylistDetailRow> ApplyPlaylistViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs)
     {
-        List<PlaylistDetailSourceRow> sortedSourceRows = ApplyPlaylistSourceRows(
+        return PlaylistDetailPresentationService.ApplyViewFromSource(
             sourceRows,
             keywordFilter,
             modeFilter,
@@ -13539,17 +13427,13 @@ public partial class MainWindowViewModel : ViewModel
             out modeCount,
             out keywordStageMs,
             out modeStageMs,
-            out sortStageMs);
-        var stageStopwatch = Stopwatch.StartNew();
-        List<PlaylistDetailRow> viewRows = CreatePlaylistViewRowsFromSource(sortedSourceRows);
-        viewMaterializeMs = stageStopwatch.ElapsedMilliseconds;
-        return viewRows;
+            out sortStageMs,
+            out viewMaterializeMs);
     }
 
     internal static PlaylistDetailVirtualView ApplyPlaylistVirtualViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs)
     {
-        var stageStopwatch = Stopwatch.StartNew();
-        List<PlaylistDetailSourceRow> sortedSourceRows = ApplyPlaylistSourceRows(
+        return PlaylistDetailPresentationService.ApplyVirtualViewFromSource(
             sourceRows,
             keywordFilter,
             modeFilter,
@@ -13559,13 +13443,8 @@ public partial class MainWindowViewModel : ViewModel
             out modeCount,
             out keywordStageMs,
             out modeStageMs,
-            out sortStageMs);
-        stageStopwatch.Restart();
-        var viewRows = new PlaylistDetailVirtualView(
-            sortedSourceRows,
-            CountDistinctFoldersForPlaylistSourceRows(sortedSourceRows));
-        viewMaterializeMs = stageStopwatch.ElapsedMilliseconds;
-        return viewRows;
+            out sortStageMs,
+            out viewMaterializeMs);
     }
 
     /// <summary>

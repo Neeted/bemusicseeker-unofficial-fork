@@ -51,8 +51,9 @@
 | 2026-07-06 | 完了 | Ticket L-1: detail / summary state contract 棚卸し | `e5ae21dd` |
 | 2026-07-06 | 完了 | Ticket L-2a: PlaylistWorkspaceViewModel skeleton と summary/detail 表示 state pass-through | `978a9e5d` |
 | 2026-07-06 | 完了 | Ticket L-2b: PlaylistWorkspace source-text / tests 直接化 | `71a3f090` |
+| 2026-07-06 | 進行中 | Ticket L-3a: Playlist detail presentation service 抽出 | このコミット |
 
-次候補: Ticket L-3: Playlist detail build coordinator 化。
+次候補: Ticket L-3a: Playlist detail presentation service 抽出。
 
 ## 現在地サマリ
 
@@ -1548,9 +1549,45 @@ L-2 実装方針:
 
 #### Ticket L-3: Playlist detail build coordinator 化
 
-1. `RegisterPlaylistSourceBuildRequest`、`CreatePlaylistBuildRequest`、`ApplyPlaylistViewRequest`、`RebuildPlaylistSource`、`ApplyPlaylistViewWithoutSourceRebuild` の境界を `PlaylistOpenCoordinator` / `PlaylistDetailViewModel` へ移す。
+detail build は request scheduling、source materialize、presentation filter/sort、UI apply、stale 判定が密結合しているため、次の sub-ticket に分けて進める。
+
+##### Ticket L-3a: Playlist detail presentation service 抽出
+
+1. `ApplyPlaylistSourceRows`、`CreatePlaylistViewRowsFromSource`、`ApplyPlaylistViewFromSource`、`ApplyPlaylistVirtualViewFromSource` を `PlaylistDetailPresentationService` へ移す。
+2. root の既存 static test API は service への forwarder とし、直接 service tests を追加する。
+3. keyword/mode/sort/view materialize の pure pipeline を root state なしで検証できるようにする。
+
+確認対象:
+
+- `PlaylistViewPipelineTests`
+- `PlaylistWorkspaceViewModelTests`
+
+完了条件:
+
+- playlist detail の presentation pipeline が root なしで検証できる。
+- root には互換 wrapper だけが残る。
+
+##### Ticket L-3b: Playlist build request / state contract 抽出
+
+1. `PlaylistBuildRequest` と request queue / coalescing / stale 判定に必要な snapshot を `PlaylistDetailBuildCoordinator` 用の request/state contract に分ける。
 2. `PlaylistRequestFactory` を coordinator から直接使う。
-3. source identity / presentation identity / chart info patch の stale 判定を root なしで検証できるようにする。
+3. root は tree selection と coordinator 呼び出しに寄せる。
+
+確認対象:
+
+- `PlaylistViewPipelineTests`
+- `PlaylistReloadMergeTests`
+- `BmsPlaylistUpdateTests`
+
+完了条件:
+
+- request scheduling と stale 判定が root private fields へ直接依存しない。
+
+##### Ticket L-3c: Playlist source rebuild / apply coordinator 化
+
+1. `RebuildPlaylistSource`、`ApplyPlaylistViewWithoutSourceRebuild`、`TryBuildPlaylistViewAndApply` を coordinator へ寄せる。
+2. source materialize に必要な library/playlist projection は L-1/K-2 の narrow provider 境界で渡す。
+3. UI apply (`RaiseMainTableSwapPreparing`、column settings、`SetChartRowsView`) は terminal callback として root に残す。
 
 確認対象:
 

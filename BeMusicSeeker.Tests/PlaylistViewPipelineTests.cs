@@ -62,6 +62,43 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailPresentationService_AppliesKeywordModeAndSortWithoutRoot()
+    {
+        PlaylistDetailSourceRow zetaRow = CreateSourceRow("11111111111111111111111111111111", "Zeta", 7);
+        PlaylistDetailSourceRow alphaRow = CreateSourceRow("22222222222222222222222222222222", "Alpha", 5);
+        PlaylistDetailSourceRow bravoRow = CreateSourceRow("33333333333333333333333333333333", "Bravo", 7, memo: "target");
+        var sourceRows = new PlaylistDetailSourceRow[] { zetaRow, alphaRow, bravoRow };
+        var sortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(BMSFile.Title),
+            Direction = ListSortDirection.Ascending
+        };
+
+        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
+            sourceRows,
+            keywordFilter: "target",
+            modeFilter: MainWindowViewModel.ModeFilterType._7KEYS,
+            sortParameters: sortParameters,
+            out string sortProfile,
+            out int keywordCount,
+            out int modeCount,
+            out long keywordStageMs,
+            out long modeStageMs,
+            out long sortStageMs,
+            out long viewMaterializeMs);
+
+        Assert.AreEqual(1, result.Count);
+        Assert.AreEqual("Bravo", result[0].Title);
+        Assert.AreEqual(1, keywordCount);
+        Assert.AreEqual(1, modeCount);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(sortProfile));
+        Assert.IsTrue(keywordStageMs >= 0);
+        Assert.IsTrue(modeStageMs >= 0);
+        Assert.IsTrue(sortStageMs >= 0);
+        Assert.IsTrue(viewMaterializeMs >= 0);
+    }
+
+    [TestMethod]
     public void ApplyPlaylistVirtualViewFromSource_DoesNotMaterializeRowsUntilIndexed()
     {
         PlaylistDetailSourceRow zetaRow = CreateSourceRow("11111111111111111111111111111111", "Zeta", 7);
