@@ -37,7 +37,7 @@
 | 2026-07-06 | 完了 | Ticket I-3c: virtual normal / virtual subset apply の coordinator 化 | `a60958c9` |
 | 2026-07-06 | 完了 | Ticket I-3d-1: regular pipeline request / stage state 型の追加 | `e4b301b9` |
 | 2026-07-06 | 完了 | Ticket I-3d-2: keyword / mode filter stage の service 化 | `b7be45e1` |
-| 2026-07-06 | 完了 | Ticket I-3d-3: regular sort / cache stage の coordinator 化 | このコミット |
+| 2026-07-06 | 完了 | Ticket I-3d-3: regular sort / cache stage の coordinator 化 | `c32cb023` |
 
 次候補: Ticket I-3d-4: regular materialized apply / log terminal の統合。
 
