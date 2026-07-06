@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 
 namespace BeMusicSeeker.ViewModels;
@@ -82,4 +83,49 @@ internal sealed class PlaylistSourceBuildStageResult
     internal string LibraryIndexAccess { get; }
 
     internal long LibraryIndexBuildMs { get; }
+}
+
+/// <summary>
+/// rebuilt playlist source から view rows を作る stage の結果です。
+/// </summary>
+internal sealed class PlaylistRebuiltSourceViewApplyResult
+{
+    internal PlaylistRebuiltSourceViewApplyResult(
+        IList finalRows,
+        string sortProfile,
+        int keywordCount,
+        int modeCount,
+        long keywordStageMs,
+        long modeStageMs,
+        long sortStageMs,
+        long viewMaterializeMs)
+    {
+        FinalRows = finalRows ?? throw new System.ArgumentNullException(nameof(finalRows));
+        ViewCount = FinalRows.Count;
+        SortProfile = sortProfile;
+        KeywordCount = keywordCount;
+        ModeCount = modeCount;
+        KeywordStageMs = keywordStageMs;
+        ModeStageMs = modeStageMs;
+        SortStageMs = sortStageMs;
+        ViewMaterializeMs = viewMaterializeMs;
+    }
+
+    internal IList FinalRows { get; }
+
+    internal int ViewCount { get; }
+
+    internal string SortProfile { get; }
+
+    internal int KeywordCount { get; }
+
+    internal int ModeCount { get; }
+
+    internal long KeywordStageMs { get; }
+
+    internal long ModeStageMs { get; }
+
+    internal long SortStageMs { get; }
+
+    internal long ViewMaterializeMs { get; }
 }

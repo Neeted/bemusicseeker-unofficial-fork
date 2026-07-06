@@ -14,23 +14,23 @@
 
 | 項目 | 現状 |
 |---|---|
-| `MainWindowViewModel.cs` | 23,444 行。source build stage root-local boundary を導入済み |
+| `MainWindowViewModel.cs` | 23,459 行。rebuilt source view apply result DTO を導入済み |
 | `MainWindowViewModel.PlaylistState.cs` | 473 行。playlist identity / source snapshot / view snapshot state の受け皿 |
-| `PlaylistSourceBuildResult.cs` | 85 行。source build stage の rows / timing / score metrics contract |
+| `PlaylistSourceBuildResult.cs` | 131 行。source build / rebuilt source view apply stage の result contract |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
-| 直近の完了 | L-3c-8-checkpoint: 次の playlist build execution 境界決定 |
-| 次の active ticket | L-3c-9: Playlist rebuilt source view apply result DTO 導入 |
+| 直近の完了 | L-3c-9: Playlist rebuilt source view apply result DTO 導入 |
+| 次の active ticket | L-3c-10-checkpoint: 次の playlist build execution 境界決定 |
 
 ## Now
 
-### Active Ticket L-3c-9: Playlist rebuilt source view apply result DTO 導入
+### Active Ticket L-3c-10-checkpoint: 次の playlist build execution 境界決定
 
 目的:
 
-- [L-3c-8 decision](./P0-01_L-3c-8_PlaylistBuildExecutionNextBoundaryDecision.md) に従い、rebuilt source から view rows を作る stage の結果を DTO に束ねる。
-- `ApplyPlaylistVirtualViewFromSource(...)` 呼び出しと直後の completed log を root-local method へ寄せる。
-- freshness check after apply、snapshot replace、terminal apply、finalize logging は root 側に残す。
+- L-3c-9 で導入した `PlaylistRebuiltSourceViewApplyResult` / `ApplyPlaylistViewFromRebuiltSource` を前提に、次に動かす境界を 1 ticket に絞る。
+- source build + rebuilt source view apply を execution boundary 化するか、view-only apply path へ横展開するかを decision record に残す。
+- freshness check、snapshot replace、terminal apply、finalize logging を root に残した判断を後続計画に反映する。
 
 制約:
 
@@ -38,16 +38,16 @@
 - XAML Binding / code-behind event handler の参照先を変えない。
 - persisted setting value、serialized name、DB schema、外部ファイル形式に触れない。
 - terminal apply callback、main table swap、timing / logging side effects は root に残す。
-- BuildGate、source materialize の処理本体、chart-info patch mutation、view-only apply path、view apply UI side effects は動かさない。
+- BuildGate、source materialize の処理本体、chart-info patch mutation、view-only apply path、view apply UI side effects を動かす場合は、実装前に checkpoint / decision record を作る。
 - `PlaylistSourceBuildResult` の public / serialized contract 化はしない。internal worker contract のまま扱う。
 - 1 ticket 内で 3 個以上の sub-ticket が必要になった場合は、実装前に checkpoint / decision record を作り直す。
 
 完了条件:
 
-- rebuilt source view apply result DTO が追加されている。
-- `RebuildPlaylistSource` の `ApplyPlaylistVirtualViewFromSource(...)` 呼び出しと completed log が root-local method にまとまっている。
-- `finalRows` ownership と `finally` の `DisposePlaylistViewRows(finalRows)` safety が維持されている。
-- L-3c-7 の root-local boundary と freshness check 維持判断を活かす方向になっている。
+- 次の実装 ticket が 1 件に定まっている。
+- decision record に、動かす範囲 / 動かさない範囲 / 必要なテストが明記されている。
+- L-3c-7 / L-3c-9 の root-local boundary と freshness check 維持判断を活かす方向になっている。
+- source build + rebuilt source view apply をまとめる場合は、root に残す side effect と result ownership が明確になっている。
 - L-3c-4 の terminal apply boundary を活かす方向になっている。
 - `SourceTextTestHelper.ReadMainWindowViewModelSourceText()` と playlist source-text tests が分割後も意図を検証できる。
 - behavior、persisted value、public user-facing text は変えない。
@@ -62,12 +62,12 @@
 
 ## Next
 
-次候補は最大 2 件に固定する。L-3c-9 完了後に次の実装単位を判断する。
+次候補は最大 2 件に固定する。L-3c-10-checkpoint 完了後に次の実装単位を判断する。
 
 | 候補 | 内容 | 着手条件 |
 |---|---|---|
-| L-3c-10-checkpoint | source build + rebuilt source view apply を execution boundary 化するか、view-only path へ横展開するかを決める | L-3c-9 完了後 |
-| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-9 で blocker が特定された場合 |
+| L-3c-11 | L-3c-10-checkpoint の decision に従う実装 ticket | L-3c-10-checkpoint で実装単位が確定した後 |
+| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-10-checkpoint で blocker が特定された場合 |
 
 ## Later
 

@@ -12889,6 +12889,15 @@ public partial class MainWindowViewModel : ViewModel
         return finalRows;
     }
 
+    private PlaylistRebuiltSourceViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)
+    {
+        LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(playlistViewState.View.Rows));
+        finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
+        var result = new PlaylistRebuiltSourceViewApplyResult(finalRows, sortProfile, keywordCount, modeCount, keywordStageMs, modeStageMs, sortStageMs, viewMaterializeMs);
+        LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + result.KeywordCount + " modeCount=" + result.ModeCount + " viewCount=" + result.ViewCount + " sortProfile=" + result.SortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(result.FinalRows));
+        return result;
+    }
+
     /// <summary>
     /// プレイリスト source snapshot を再構築してから view を反映します。
     /// </summary>
@@ -12943,10 +12952,15 @@ public partial class MainWindowViewModel : ViewModel
                 return true;
             }
             cancellationStage = "view_apply";
-            LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(playlistViewState.View.Rows));
-            finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
-            int viewCount = finalRows.Count;
-            LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortProfile=" + sortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows));
+            PlaylistRebuiltSourceViewApplyResult rebuiltSourceViewApplyResult = ApplyPlaylistViewFromRebuiltSource(mode, sourceRows, sourceCount, ref finalRows);
+            int viewCount = rebuiltSourceViewApplyResult.ViewCount;
+            string sortProfile = rebuiltSourceViewApplyResult.SortProfile;
+            int keywordCount = rebuiltSourceViewApplyResult.KeywordCount;
+            int modeCount = rebuiltSourceViewApplyResult.ModeCount;
+            long keywordStageMs = rebuiltSourceViewApplyResult.KeywordStageMs;
+            long modeStageMs = rebuiltSourceViewApplyResult.ModeStageMs;
+            long sortStageMs = rebuiltSourceViewApplyResult.SortStageMs;
+            long viewMaterializeMs = rebuiltSourceViewApplyResult.ViewMaterializeMs;
             if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
             {
                 LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_apply mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
