@@ -1367,22 +1367,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist source rebuild が必要になった理由を返します。
-    /// </summary>
-    private static string DeterminePlaylistSourceInvalidationReason(bool selectionChanged, bool libraryIndexInvalidated, bool playlistRevisionInvalidated, bool scoreSnapshotInvalidated, bool chartInfoIndexInvalidated, bool sourceMissing)
-    {
-        return PlaylistRequestFactory.DetermineSourceInvalidationReason(selectionChanged, libraryIndexInvalidated, playlistRevisionInvalidated, scoreSnapshotInvalidated, chartInfoIndexInvalidated, sourceMissing);
-    }
-
-    /// <summary>
-    /// playlist source rebuild 理由判定をテストから呼び出せるようにします。
-    /// </summary>
-    internal static string DeterminePlaylistSourceInvalidationReasonForTest(bool selectionChanged, bool libraryIndexInvalidated, bool playlistRevisionInvalidated, bool scoreSnapshotInvalidated, bool chartInfoIndexInvalidated, bool sourceMissing)
-    {
-        return DeterminePlaylistSourceInvalidationReason(selectionChanged, libraryIndexInvalidated, playlistRevisionInvalidated, scoreSnapshotInvalidated, chartInfoIndexInvalidated, sourceMissing);
-    }
-
-    /// <summary>
     /// playlist 系表示モードかどうかを判定します。
     /// </summary>
     /// <param name="mode">判定対象モード。</param>
@@ -13236,57 +13220,38 @@ public partial class MainWindowViewModel : ViewModel
         {
             return false;
         }
-        MainViewUpdateMode mode = request.Mode;
-        MainViewUpdateMode requestedMode = request.RequestedMode;
-        object parameter = request.Parameter;
         List<PlaylistDetailSourceRow> sourceRows;
-        BMSTable currentTable;
-        string currentFolderName;
-        PlaylistFilterType currentFilterType;
-        long lastBuiltLibraryIndexVersion;
-        long lastBuiltPlaylistRevision;
-        int lastBuiltScoreSnapshotVersion;
-        int lastBuiltChartInfoIndexVersion;
-        PlaylistSourceIdentity? currentSourceIdentity;
-        PlaylistRequestIdentity? currentViewIdentity;
+        PlaylistDetailBuildStateSnapshot stateSnapshot;
         lock (playlistViewState.SyncRoot)
         {
             sourceRows = playlistViewState.Source.Rows;
-            currentTable = playlistViewState.Source.CurrentTable;
-            currentFolderName = playlistViewState.Source.CurrentFolderName;
-            currentFilterType = playlistViewState.Source.CurrentFilterType;
-            lastBuiltLibraryIndexVersion = playlistViewState.Source.LastBuiltLibraryIndexVersion;
-            lastBuiltPlaylistRevision = playlistViewState.Source.LastBuiltPlaylistRevision;
-            lastBuiltScoreSnapshotVersion = playlistViewState.Source.LastBuiltScoreSnapshotVersion;
-            lastBuiltChartInfoIndexVersion = playlistViewState.Source.LastBuiltChartInfoIndexVersion;
-            currentSourceIdentity = playlistViewState.Source.CurrentIdentity;
-            currentViewIdentity = playlistViewState.View.CurrentIdentity;
+            stateSnapshot = new PlaylistDetailBuildStateSnapshot(
+                hasSourceRows: sourceRows != null,
+                sourceRowCount: sourceRows?.Count ?? 0,
+                playlistViewState.Source.CurrentTable,
+                playlistViewState.Source.CurrentFolderName,
+                playlistViewState.Source.CurrentFilterType,
+                playlistViewState.Source.LastBuiltLibraryIndexVersion,
+                playlistViewState.Source.LastBuiltPlaylistRevision,
+                playlistViewState.Source.LastBuiltScoreSnapshotVersion,
+                playlistViewState.Source.LastBuiltChartInfoIndexVersion,
+                playlistViewState.Source.CurrentIdentity,
+                playlistViewState.View.CurrentIdentity);
         }
-        bool hasResolvedPlaylistSource = currentSourceIdentity.HasValue || currentTable != null || currentFilterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected;
-        bool selectionChanged = !currentSourceIdentity.HasValue || currentTable != request.Identity.Table || !string.Equals(NormalizePlaylistFolderName(currentFolderName), request.Identity.FolderName, StringComparison.Ordinal) || currentFilterType != request.Identity.FilterType || currentSourceIdentity.Value.HasResolvedSelection != request.Identity.HasResolvedSelection;
-        bool libraryIndexInvalidated = lastBuiltLibraryIndexVersion != request.Identity.LibraryIndexVersion;
-        bool playlistRevisionInvalidated = lastBuiltPlaylistRevision != request.Identity.PlaylistRevision;
-        bool scoreSnapshotInvalidated = lastBuiltScoreSnapshotVersion != request.Identity.ScoreSnapshotVersion;
-        bool chartInfoIndexInvalidated = lastBuiltChartInfoIndexVersion != request.Identity.ChartInfoIndexVersion;
-        bool sourceIdentityInvalidatedExceptChartInfo = !currentSourceIdentity.HasValue || !currentSourceIdentity.Value.EqualsIgnoringChartInfoIndex(request.Identity.SourceIdentity);
-        bool presentationIdentityChanged = !currentViewIdentity.HasValue || !currentViewIdentity.Value.PresentationIdentity.Equals(request.Identity.PresentationIdentity);
-        bool sourceMissing = sourceRows == null || (sourceRows.Count == 0 && !hasResolvedPlaylistSource);
-        bool sourceInvalidated = sourceIdentityInvalidatedExceptChartInfo || libraryIndexInvalidated || playlistRevisionInvalidated || scoreSnapshotInvalidated;
-        bool chartInfoOnlyInvalidated = chartInfoIndexInvalidated && !selectionChanged && !sourceInvalidated && !sourceMissing;
-        if (chartInfoOnlyInvalidated && TryPatchPlaylistSourceChartInfoIndex(request, cancellationToken, out int patchedSourceCount, out int chartInfoDependencyCount, out int chartInfoPatchedCount, out long chartInfoPatchMs))
+        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot);
+        if (decision.Action == PlaylistDetailBuildAction.PatchChartInfoThenApplyView
+            && TryPatchPlaylistSourceChartInfoIndex(request, cancellationToken, out int patchedSourceCount, out int chartInfoDependencyCount, out int chartInfoPatchedCount, out long chartInfoPatchMs))
         {
             LogPlaylistViewApply("chart_info_patch requestVersion=" + request.RequestVersion + " sourceCount=" + patchedSourceCount + " dependencyCount=" + chartInfoDependencyCount + " patchedCount=" + chartInfoPatchedCount + " chartInfoIndexVersion=" + request.Identity.ChartInfoIndexVersion + " elapsedMs=" + chartInfoPatchMs);
             return ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
         }
-        sourceInvalidated = sourceInvalidated || (chartInfoIndexInvalidated && !chartInfoOnlyInvalidated);
-        bool requiresSourceRebuild = selectionChanged || sourceInvalidated || sourceMissing;
-        if (requiresSourceRebuild)
+        if (decision.Action == PlaylistDetailBuildAction.RebuildSource)
         {
-            request.LastBuiltScoreSnapshotVersion = lastBuiltScoreSnapshotVersion;
-            request.SourceInvalidationReason = DeterminePlaylistSourceInvalidationReason(selectionChanged, libraryIndexInvalidated, playlistRevisionInvalidated, scoreSnapshotInvalidated, chartInfoIndexInvalidated, sourceMissing);
+            request.LastBuiltScoreSnapshotVersion = decision.LastBuiltScoreSnapshotVersion;
+            request.SourceInvalidationReason = decision.SourceInvalidationReason;
             return RebuildPlaylistSource(request, cancellationToken);
         }
-        LogPlaylistViewApply("source_reuse requestVersion=" + request.RequestVersion + " presentationChanged=" + presentationIdentityChanged + " sourceIdentityChanged=false keyword=\"" + (request.Identity.KeywordFilter ?? string.Empty).Replace("\"", "\"\"") + "\" modeFilter=" + request.Identity.ModeFilter + " sortColumn=" + (request.Identity.SortColumnName ?? string.Empty) + " sortDirection=" + request.Identity.SortDirection);
+        LogPlaylistViewApply("source_reuse requestVersion=" + request.RequestVersion + " presentationChanged=" + decision.PresentationIdentityChanged + " sourceIdentityChanged=false keyword=\"" + (request.Identity.KeywordFilter ?? string.Empty).Replace("\"", "\"\"") + "\" modeFilter=" + request.Identity.ModeFilter + " sortColumn=" + (request.Identity.SortColumnName ?? string.Empty) + " sortDirection=" + request.Identity.SortDirection);
         return ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
     }
 

@@ -554,6 +554,117 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailBuildDecision_WhenOnlyPresentationChanges_AppliesViewOnly()
+    {
+        var table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "alpha", MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, "beta", MainWindowViewModel.ModeFilterType._7KEYS, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+
+        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
+            CreatePlaylistBuildRequest(request),
+            CreatePlaylistDetailBuildStateSnapshot(current));
+
+        Assert.AreEqual(PlaylistDetailBuildAction.ApplyViewOnly, decision.Action);
+        Assert.IsTrue(decision.PresentationIdentityChanged);
+        Assert.IsNull(decision.SourceInvalidationReason);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildDecision_WhenScoreSnapshotChanges_RebuildsSource()
+    {
+        var table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 6, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+
+        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
+            CreatePlaylistBuildRequest(request),
+            CreatePlaylistDetailBuildStateSnapshot(current));
+
+        Assert.AreEqual(PlaylistDetailBuildAction.RebuildSource, decision.Action);
+        Assert.IsTrue(decision.ScoreSnapshotInvalidated);
+        Assert.AreEqual("score_snapshot_version", decision.SourceInvalidationReason);
+        Assert.AreEqual(5, decision.LastBuiltScoreSnapshotVersion);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildDecision_WhenOnlyChartInfoIndexChanges_PatchesThenAppliesView()
+    {
+        var table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
+
+        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
+            CreatePlaylistBuildRequest(request),
+            CreatePlaylistDetailBuildStateSnapshot(current));
+
+        Assert.AreEqual(PlaylistDetailBuildAction.PatchChartInfoThenApplyView, decision.Action);
+        Assert.IsTrue(decision.ChartInfoIndexInvalidated);
+        Assert.IsNull(decision.SourceInvalidationReason);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildDecision_WhenEmptyFolderChartInfoOnlyChanges_PatchesThenAppliesView()
+    {
+        var table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(table, string.Empty, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(table, string.Empty, MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
+
+        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
+            CreatePlaylistBuildRequest(request),
+            CreatePlaylistDetailBuildStateSnapshot(current));
+
+        Assert.AreEqual(PlaylistDetailBuildAction.PatchChartInfoThenApplyView, decision.Action);
+        Assert.IsFalse(decision.SelectionChanged);
+        Assert.IsTrue(decision.ChartInfoIndexInvalidated);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildDecision_WhenSelectionAndChartInfoChange_RebuildsSource()
+    {
+        var currentTable = new BMSTable();
+        var requestTable = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity current = PlaylistRequestFactory.CreateIdentity(currentTable, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+        MainWindowViewModel.PlaylistRequestIdentity request = PlaylistRequestFactory.CreateIdentity(requestTable, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 7, hasResolvedSelection: true);
+
+        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
+            CreatePlaylistBuildRequest(request),
+            CreatePlaylistDetailBuildStateSnapshot(current));
+
+        Assert.AreEqual(PlaylistDetailBuildAction.RebuildSource, decision.Action);
+        Assert.IsTrue(decision.SelectionChanged);
+        Assert.AreEqual("selection_changed", decision.SourceInvalidationReason);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildDecision_WhenResolvedSourceHasNoRows_DoesNotTreatSourceAsMissing()
+    {
+        var table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+
+        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
+            CreatePlaylistBuildRequest(identity),
+            CreatePlaylistDetailBuildStateSnapshot(identity, sourceRowCount: 0));
+
+        Assert.AreEqual(PlaylistDetailBuildAction.ApplyViewOnly, decision.Action);
+        Assert.IsFalse(decision.SourceMissing);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildDecision_WhenSnapshotRowsAreNull_RebuildsAsSourceMissing()
+    {
+        var table = new BMSTable();
+        MainWindowViewModel.PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(table, "Folder", MainWindowViewModel.PlaylistFilterType.PlaylistFilter, null, MainWindowViewModel.ModeFilterType.All, sortParameters: null, libraryIndexVersion: 3, playlistRevision: 4, scoreSnapshotVersion: 5, chartInfoIndexVersion: 6, hasResolvedSelection: true);
+
+        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(
+            CreatePlaylistBuildRequest(identity),
+            CreatePlaylistDetailBuildStateSnapshot(identity, hasSourceRows: false, sourceRowCount: 0));
+
+        Assert.AreEqual(PlaylistDetailBuildAction.RebuildSource, decision.Action);
+        Assert.IsTrue(decision.SourceMissing);
+        Assert.AreEqual("source_missing", decision.SourceInvalidationReason);
+    }
+
+    [TestMethod]
     public void CreatePlaylistRequestIdentity_DistinguishesRootPlaylistAndEmptyFolderNode()
     {
         var table = new BMSTable();
@@ -3850,6 +3961,34 @@ public sealed class PlaylistViewPipelineTests
             PlayHistoryProjectionIndex.Empty);
 
         return projected.Rows.Single();
+    }
+
+    private static PlaylistBuildRequest CreatePlaylistBuildRequest(MainWindowViewModel.PlaylistRequestIdentity identity)
+    {
+        return new PlaylistBuildRequest
+        {
+            Identity = identity
+        };
+    }
+
+    private static PlaylistDetailBuildStateSnapshot CreatePlaylistDetailBuildStateSnapshot(
+        MainWindowViewModel.PlaylistRequestIdentity identity,
+        bool hasSourceRows = true,
+        int sourceRowCount = 1,
+        MainWindowViewModel.PlaylistRequestIdentity? currentViewIdentity = null)
+    {
+        return new PlaylistDetailBuildStateSnapshot(
+            hasSourceRows,
+            sourceRowCount,
+            identity.Table,
+            identity.FolderName,
+            identity.FilterType,
+            identity.LibraryIndexVersion,
+            identity.PlaylistRevision,
+            identity.ScoreSnapshotVersion,
+            identity.ChartInfoIndexVersion,
+            identity.SourceIdentity,
+            currentViewIdentity ?? identity);
     }
 
     private static string ExtractTypeBlock(string text, string typeDeclaration)

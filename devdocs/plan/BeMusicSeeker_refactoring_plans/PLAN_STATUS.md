@@ -6,13 +6,13 @@
 
 ## Active Ticket
 
-L-3c: Playlist detail build coordinator 化
+L-3c-2: Playlist detail worker queue / cancellation 境界整理
 
 目的:
 
-- playlist detail の request scheduling / cancellation / source build / view apply のうち、root shell に残すべき UI timing / terminal apply 以外を coordinator 境界へ寄せる。
-- `PlaylistDetailBuildState`、`PlaylistSourceSnapshotState`、`PlaylistViewSnapshotState` を root の private state から coordinator 入り口へ渡しやすい形にする。
-- root は shell state、logging、UI thread apply、dialog/lifecycle side effects を担当し、build workflow の分岐を薄くする。
+- `PlaylistDetailBuildState` の request queue / coalescing / cancellation / worker-running state 操作を、root から coordinator 境界へ寄せる。
+- root は request 作成、open timing、logging、Task 起動、shutdown lifecycle の入口を担当し、queue mutation の詳細を薄くする。
+- L-3c-1 で作った `PlaylistDetailBuildDecisionService` は維持し、source rebuild / view apply / chart-info patch の実行本体はまだ root に残す。
 
 次に読む:
 
@@ -23,8 +23,8 @@ L-3c: Playlist detail build coordinator 化
 
 | 順 | 候補 | 条件 |
 |---:|---|---|
-| 1 | L-3c-checkpoint: coordinator 化の decision record / 実装単位再分割 | L-3c が 3 個以上の sub-ticket を必要とすると判明した場合 |
-| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3c の実装を阻害する test が特定された場合 |
+| 1 | L-3c-3: Playlist detail source rebuild / view apply 実行境界の整理 | L-3c-2 完了後に詳細な実装プランを検討する |
+| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3c-2 の実装を阻害する test が特定された場合 |
 
 ## Blocked / Waiting
 
@@ -38,19 +38,19 @@ L-3c: Playlist detail build coordinator 化
 
 | 計画 | 現在地 | 並行可否 |
 |---|---|---|
-| P0-01 | L-3b-4 完了。active は L-3c | WIP は原則 1 ticket |
+| P0-01 | L-3c-1 完了。active は L-3c-2 | WIP は原則 1 ticket |
 | P0-02 | BMSLibrary Phase 0 は未着手 | source-text helper / reflection inventory / dependency inventory は即並行可 |
 | P0-03 | MainWindow UI Phase 0 は未着手。一部 DataContext 移行は P0-01 で先行済み | event handler inventory / `async void` 分類は即並行可 |
 | P0-04 | SDK 10 + `net472` baseline。TFM は未変更 | TFM 変更なしの棚卸しは即並行可 |
 
 ## Latest Completed Ticket
 
-L-3b-4: playlist source / view snapshot state を `PlaylistSourceSnapshotState` / `PlaylistViewSnapshotState` として分離し、`PlaylistViewState` は snapshot state の owner に寄せた。
+L-3c-1: `PlaylistDetailBuildDecisionService` を追加し、source rebuild / chart-info patch / view-only apply の判定を root-free service として抽出した。
 
 実行した確認:
 
 - `dotnet build .\BeMusicSeeker.sln /p:Configuration=Release`
-- `dotnet test .\BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj /p:Configuration=Release --filter "FullyQualifiedName~PlaylistDetailBuildState_SourceText_OwnsWorkerQueueState"`
+- `dotnet test .\BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj /p:Configuration=Release --filter "FullyQualifiedName~PlaylistDetailBuildDecision"`
 - `dotnet test .\BeMusicSeeker.sln /p:Configuration=Release`
 - `dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal`
 - `dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path <VS2022 MSBuild> --properties Configuration=Release --severity-level warning --verbosity minimal`
