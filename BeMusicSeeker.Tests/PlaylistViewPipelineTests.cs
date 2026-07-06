@@ -114,12 +114,9 @@ public sealed class PlaylistViewPipelineTests
     public void PlaylistDetailBuildState_SourceText_OwnsWorkerQueueState()
     {
         string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string playlistStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistState.cs");
         string buildStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildState.cs");
-        int playlistViewStateStart = rootSource.IndexOf("private sealed class PlaylistViewState", StringComparison.Ordinal);
-        int playlistViewStateEnd = rootSource.IndexOf("private sealed class StartupBackgroundTaskRequest", StringComparison.Ordinal);
-        Assert.IsTrue(playlistViewStateStart >= 0);
-        Assert.IsTrue(playlistViewStateEnd > playlistViewStateStart);
-        string playlistViewStateSource = rootSource.Substring(playlistViewStateStart, playlistViewStateEnd - playlistViewStateStart);
+        string playlistViewStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewState");
 
         foreach (string rootFieldDeclaration in new[]
         {
@@ -3843,6 +3840,40 @@ public sealed class PlaylistViewPipelineTests
             PlayHistoryProjectionIndex.Empty);
 
         return projected.Rows.Single();
+    }
+
+    private static string ExtractTypeBlock(string text, string typeDeclaration)
+    {
+        int declarationIndex = text.IndexOf(typeDeclaration, StringComparison.Ordinal);
+        if (declarationIndex < 0)
+        {
+            throw new InvalidOperationException("Type declaration was not found.");
+        }
+
+        int braceIndex = text.IndexOf('{', declarationIndex);
+        if (braceIndex < 0)
+        {
+            throw new InvalidOperationException("Type declaration brace was not found.");
+        }
+
+        int depth = 0;
+        for (int index = braceIndex; index < text.Length; index++)
+        {
+            if (text[index] == '{')
+            {
+                depth++;
+            }
+            else if (text[index] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return text.Substring(declarationIndex, index - declarationIndex + 1);
+                }
+            }
+        }
+
+        throw new InvalidOperationException("Type declaration body was not closed.");
     }
 
     private sealed class TestablePlaylistEntry : BMSTableEntry

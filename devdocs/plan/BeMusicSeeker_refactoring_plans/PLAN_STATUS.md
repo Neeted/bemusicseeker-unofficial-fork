@@ -6,13 +6,13 @@
 
 ## Active Ticket
 
-P0-01-C2: `MainWindowViewModel.cs` の責務別 partial split checkpoint
+L-3b-4: Playlist source / view snapshot state 抽出
 
 目的:
 
-- `MainWindowViewModel.cs` に残る大きな責務を、挙動変更なしの partial split で見える形にする。
-- playlist / play history / settings / sidebar / shell lifecycle などの境界を、後続の service / child VM 抽出前にレビューしやすくする。
-- 行数だけでなく、責務境界と依存方向で分割単位を決める。
+- `PlaylistViewState` に残る source / view snapshot と build workflow の境界を明確にする。
+- playlist source identity / current view identity / previous snapshot retention を、後続の playlist coordinator 化へ渡せる形にする。
+- terminal apply / UI timing / root shell side effects はまだ root に残す。
 
 次に読む:
 
@@ -23,8 +23,8 @@ P0-01-C2: `MainWindowViewModel.cs` の責務別 partial split checkpoint
 
 | 順 | 候補 | 条件 |
 |---:|---|---|
-| 1 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | C2 の実装を阻害する test が特定されている |
-| 2 | L-3b-4: Playlist source / view snapshot state 抽出 | C2 / C3 で分割耐性と test blocker を処理した後 |
+| 1 | L-3c: Playlist detail build coordinator 化 | L-3b-4 と test blocker 解消後 |
+| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3b-4 の実装を阻害する test が特定された場合 |
 
 ## Blocked / Waiting
 
@@ -38,18 +38,19 @@ P0-01-C2: `MainWindowViewModel.cs` の責務別 partial split checkpoint
 
 | 計画 | 現在地 | 並行可否 |
 |---|---|---|
-| P0-01 | P0-01-C1 完了。active は P0-01-C2 | WIP は原則 1 ticket |
+| P0-01 | P0-01-C2 完了。active は L-3b-4 | WIP は原則 1 ticket |
 | P0-02 | BMSLibrary Phase 0 は未着手 | source-text helper / reflection inventory / dependency inventory は即並行可 |
 | P0-03 | MainWindow UI Phase 0 は未着手。一部 DataContext 移行は P0-01 で先行済み | event handler inventory / `async void` 分類は即並行可 |
 | P0-04 | SDK 10 + `net472` baseline。TFM は未変更 | TFM 変更なしの棚卸しは即並行可 |
 
 ## Latest Completed Ticket
 
-P0-01-C1: `viewUpdateMode` を `MainViewUpdateMode` top-level contract へ移動。
+P0-01-C2: playlist identity / state nested types を `MainWindowViewModel.PlaylistState.cs` partial へ移動。
 
 実行した確認:
 
 - `dotnet build .\BeMusicSeeker.sln /p:Configuration=Release`
+- `dotnet test .\BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj /p:Configuration=Release --filter "FullyQualifiedName~PlaylistDetailBuildState_SourceText_OwnsWorkerQueueState"`
 - `dotnet test .\BeMusicSeeker.sln /p:Configuration=Release`
 - `dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal`
 - `dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path <VS2022 MSBuild> --properties Configuration=Release --severity-level warning --verbosity minimal`
