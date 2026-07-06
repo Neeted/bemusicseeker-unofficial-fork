@@ -52,9 +52,9 @@
 | 2026-07-06 | 完了 | Ticket L-2a: PlaylistWorkspaceViewModel skeleton と summary/detail 表示 state pass-through | `978a9e5d` |
 | 2026-07-06 | 完了 | Ticket L-2b: PlaylistWorkspace source-text / tests 直接化 | `71a3f090` |
 | 2026-07-06 | 完了 | Ticket L-3a: Playlist detail presentation service 抽出 | `f37e4ffb` |
-| 2026-07-06 | 進行中 | Ticket L-3b-1: Playlist build request contract 抽出 | このコミット |
+| 2026-07-06 | 完了 | Ticket L-3b-1: Playlist build request contract 抽出 | `2594d7fa` |
 
-次候補: Ticket L-3b-1: Playlist build request contract 抽出。
+次候補: Ticket L-3b-2: Playlist view state contract 抽出。
 
 ## 現在地サマリ
 
