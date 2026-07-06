@@ -8,8 +8,18 @@
 - 1 ticket で「構造変更」と「挙動変更」を混ぜない。
 - デコンパイル由来の読みにくい名前に触れた場合は、意味を推定できる範囲で命名を改善する。
 - 外部仕様を変えない限り、既存の振る舞いを維持する。
-- ユーザー承認前に `git commit` しない。
+- ユーザー承認前に `git commit` しない。実装サイクル単位で commit 許可が明示されている場合は、そのサイクル内の ticket 完了時に commit してよい。
 - C# symbol rename は text replacement ではなく semantic rename / compiler-driven edit を使う。
+
+## 計画運用ルール
+
+- WIP は原則 1 ticket にする。
+- 1 ticket がさらに 3 個以上の sub-ticket を必要とする場合、実装を進める前に checkpoint / decision record を作る。
+- active plan は短く保ち、完了履歴は別ファイルまたは Appendix へ移す。
+- ticket 完了時は「実装結果」「実行したテスト」「未解決の blocker」「次にやる 1 件」だけを更新する。
+- 計画書は作業指示書であり、長い調査ログ置き場にしない。
+- `.tmp` にだけ重要判断を残さない。継続判断は `devdocs` 側へ移す。
+- 行数は観測値であり、設計の成否判定は責務境界、依存方向、テスト容易性、UI / DataContext 境界で判断する。
 
 ## 着手前チェック
 

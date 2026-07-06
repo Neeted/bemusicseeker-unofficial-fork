@@ -23,6 +23,26 @@
 | 最大 method | `tableContextMenuOpened` 約 566 行。context menu state calculation と UI 操作が混在 |
 | WPF + WinForms | `UseWPF=True`, `UseWindowsForms=True`。player panel / WindowsFormsHost 周辺は .NET 10 移行時の注意点 |
 
+## 現在地と P0-01 連動条件
+
+2026-07-06 再ベースラインでは、P0-03 は P0-01 の後半 blocker を先に減らす計画として扱う。
+
+P0-01 では `PlaybackPanelViewModel` / `OperationProgressHubViewModel` / `MainChartListViewModel` / `PlaylistWorkspaceViewModel` が導入され、一部 XAML は child VM DataContext へ先行移行済みである。これは Gate 後の例外ではなく、root pass-through 削除へ向けた段階移行として継続してよい。
+
+即並行できるもの:
+
+- MWUI-0B: MainWindow event handler inventory。
+- `async void` と処理本体の分類。
+- XAML DataContext 移行対象の棚卸し。
+- playback / progress / main workspace の UserControl 化準備。
+- 既存 `SourceTextTestHelper.ReadMainWindowSourceText()` の拡張。新規作成済みの場合は重複して作らない。
+
+P0-01 と連動するもの:
+
+- root pass-through 削除は、対応 XAML / code-behind が child VM or service を直接参照できるようになってから行う。
+- UserControl 化は、child VM の契約型と DataContext が安定した領域から進める。
+- `WindowsFormsHost` / player host / external process UI は .NET 10 と UI handle 依存が絡むため、P0-04 inventory 後に詳細化する。
+
 ## 目標アーキテクチャ
 
 ```text
@@ -60,7 +80,7 @@ MainWindow.xaml / MainWindow.cs           // shell view, lifecycle, view-host on
 
 ## 実装ルール
 
-1. `MainWindowViewModel` の P0-01 Gate 1 後は child VM / coordinator 境界が安定した小領域だけ先行可とし、大規模 XAML 移行は P0-01 Gate 2 後に再判断する。
+1. P0-01 の Gate 完了だけを待たず、child VM / coordinator 境界が安定した小領域は先行して DataContext 移行してよい。大規模 XAML 分割は対象領域の child VM contract が安定してから行う。
 2. 先に pure helper / service を抽出し、次に event-command bridge、最後に XAML split を行う。
 3. WPF `Control` / `RoutedEventArgs` / `DragEventArgs` を ViewModel に渡さない。
 4. `ICommand` 化できるものは ViewModel command へ寄せる。
@@ -71,6 +91,8 @@ MainWindow.xaml / MainWindow.cs           // shell view, lifecycle, view-host on
 ## Phase 0: 分割前の安全網
 
 ### Ticket MWUI-0A: MainWindow source-text test helper を作る
+
+2026-07-06 時点で helper が既に存在する場合、この ticket は「既存 helper の対象範囲確認と不足分の拡張」として扱う。
 
 変更候補:
 

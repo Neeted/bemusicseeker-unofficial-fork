@@ -29,6 +29,28 @@
 | config | root `app.config` に userSettings, probing privatePath, AppContextSwitchOverrides |
 | risk | WPF+WinForms 同時参照、MenuItem/ContextMenu ambiguity、System.Configuration、assembly probing、native load path、古い UI behavior libraries |
 
+## 現在地と即時棚卸し範囲
+
+2026-07-06 時点では `global.json` で .NET SDK 10.0.301 を使う開発環境に整備済みだが、app / tests / updater の TFM はすべて `net472` のままである。つまり「SDK 10 で .NET Framework アプリを開発している」状態であり、runtime として .NET 10 へ移行済みではない。
+
+即並行できるもの:
+
+- TFM を変更しない dependency inventory。
+- `BeMusicSeeker.csproj` / tests / updater / tools の `TargetFramework`, `UseWPF`, `UseWindowsForms`, `HintPath`, native DLL copy, `System.Configuration`, `System.Deployment` 参照の棚卸し。
+- `app.config` の probing `privatePath`, userSettings, AppContextSwitchOverrides の棚卸し。
+- `Settings.Default` / `System.Configuration` 直接参照の境界調査。
+- WPF + WinForms 混在による `MenuItem` / `ContextMenu` ambiguity 調査。
+- `libs/`, `native/`, `vendor/native/x64/` の load / copy / relocation policy の台帳化。
+
+後続判断に回すもの:
+
+- `TargetFramework` を `net10.0-windows` に変える本移行。
+- `app.config` probing を `.deps.json` / runtimeconfig / copy policy へ置き換える設計。
+- `Settings.Default` / user.config migration。
+- WindowsFormsHost / WebBrowser / native audio / external player host の runtime QA。
+
+これらは P0-01 / P0-03 の UI 境界、P0-02 の domain facade 境界、P0-04 Phase 0 の inventory が揃った後に詳細な実装プランを検討する。
+
 ## 移行方針
 
 1. まず `net472` baseline を安定させる。

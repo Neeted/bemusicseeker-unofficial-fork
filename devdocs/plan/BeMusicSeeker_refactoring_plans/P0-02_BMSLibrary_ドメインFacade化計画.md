@@ -18,6 +18,25 @@
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
 
+## 現在地と並行可能範囲
+
+2026-07-06 再ベースラインでは、P0-02 は P0-01 Gate 4 完了待ちにしない。
+
+即並行できるもの:
+
+- BMSLIB-0A: `SourceTextTestHelper.ReadBmsLibrarySourceText()` 追加と source-text test の分割耐性向上。
+- BMSLIB-0B: private reflection test / source-text test / `BMSLibrary` 直接 new 依存の inventory。
+- dependency inventory: `BMSLibrary` 周辺の `Settings.Default`, `System.Configuration`, DB gateway, native / external process 参照の棚卸し。
+- partial split 計画: 挙動変更なしで reviewability を上げる分割候補の整理。
+
+後続判断に回すもの:
+
+- lock / state mutation / notification ordering を変え得る移動。
+- `BmsLibraryRuntimeState` への大規模 field 移動。
+- LR2 song.db sync / package install / maintenance workflow の coordinator 再設計。
+
+これらは Phase 0 の安全網と P0-04 の dependency inventory 完了後に詳細な実装プランを検討する。
+
 既に `BmsLibraryInternal` には次のような service が存在するため、完全な新規設計ではなく「facade に残った orchestration と state mutation をさらに外へ逃がす」方針にする。
 
 - `BmsLibraryInitializationService`
@@ -88,7 +107,7 @@ BMSLibrary                         // public facade / compatibility API
 
 1. 最初の ticket は partial 分割に限定し、動作を変えない。
 2. lock 順序コメントは失わない。現在の順序は `BMSLibrary` の安全性に関わる。
-3. field を state object へ移すときは、同じ ticket で関連 method をすべて移す。field だけ移して root から大量参照する中途半端な形を長く残さない。
+3. field を state object へ移すときは、field-only move を最終状態にしない。checkpoint として owner field を先に移す場合も、同じ checkpoint 内で関連 method の移動順と完了条件を明記し、root から大量参照する中途半端な形を長く残さない。
 4. `ReaderWriterLockSlimWrapper` の取得順序を変える変更は、別 ticket に分けて理由コメントと test を追加する。
 5. service 抽出では `BMSLibrary` の public API を即変更しない。先に facade から委譲する。
 6. `Settings.Default` 直参照を新規 service に持ち込まない。必要な値は `BmsLibraryOptionsSnapshot` または新しい options snapshot で渡す。
