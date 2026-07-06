@@ -42,7 +42,7 @@ BmsLibraryInitializationService       // facade over initialization phases
 作業:
 
 1. `BmsLibraryInitializationServiceTests` の coverage を確認する。
-2. `.tmp/refactor/initialization-pipeline-inventory.md` に pipeline phase と既存 test を対応付ける。
+2. `devdocs/plan/BeMusicSeeker_refactoring_plans/inventory/initialization-pipeline-inventory.md` に pipeline phase と既存 test を対応付ける。
 3. parser degree / commit chunk / queue capacity など environment / override を一覧化する。
 
 受け入れ条件:

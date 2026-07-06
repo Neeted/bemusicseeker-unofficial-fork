@@ -4,98 +4,86 @@
 
 ## 目的
 
-`MainWindowViewModel` を app shell / composition root へ寄せ、一覧・playlist・play history・settings・sidebar・progress・playback の詳細を child ViewModel / coordinator / service に移す。
+`MainWindowViewModel` を application shell / composition / lifecycle / dialog request bridge / progress bridge / UI thread 境界へ寄せる。
 
-行数は観測値として使う。最終的な 1,000〜1,500 行という目安は残すが、直近 ticket の成功条件は責務境界、依存方向、テスト容易性、XAML / code-behind の DataContext 境界で判断する。
+playlist、main chart list、play history、playback、settings save、library refresh、package install の詳細 workflow は child ViewModel / coordinator / service へ移す。
 
 ## 現在地
 
-2026-07-06。
+2026-07-07。
 
 | 項目 | 現状 |
 |---|---|
-| `MainWindowViewModel.cs` | 23,443 行。playlist view apply result DTO 共通化済み |
+| `MainWindowViewModel.cs` | 23,443 行。playlist build の helper / DTO 抽出は進んだが、workflow 責務は root に残っている |
 | `MainWindowViewModel.PlaylistState.cs` | 473 行。playlist identity / source snapshot / view snapshot state の受け皿 |
 | `PlaylistSourceBuildResult.cs` | 195 行。source build / view apply / rebuild execution result contract |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
-| 直近の完了 | L-3c-16-checkpoint: playlist build execution boundary の次候補決定 |
-| 次の active ticket | L-3c-17: Playlist main view apply result DTO 導入 |
+| 旧 active | `L-3c-17: Playlist main view apply result DTO 導入` は独立 ticket から外し、`REF-MVP-A1` の subtask に格下げ |
+| active lane | `REF-MVP-A1: Playlist detail build workflow extraction` |
 
-## Now
+## Active Ticket: `REF-MVP-A1`
 
-### Active Ticket L-3c-17: Playlist main view apply result DTO 導入
+### Playlist detail build workflow extraction
 
 目的:
 
-- [L-3c-16 decision](./P0-01_L-3c-16_PlaylistBuildExecutionNextBoundaryDecision.md) に従い、`ApplyPlaylistDetailViewRowsToMainView` の `out` timing metrics を internal result DTO に束ねる。
-- source build、view apply、main view apply の各 stage が値を返す形を揃え、後続 coordinator 化の surface を単純にする。
-- UI side effect の順序と `FinalizeMainViewBuild` の呼び出し位置は変えない。
+- playlist detail build の request scheduling、source build、view apply、main view apply、finalize timing を workflow 単位で root から coordinator / workspace へ移す。
+- root `MainWindowViewModel` は request 発行、lifecycle、dialog / progress bridge、UI thread 境界だけを持つ。
+- 挙動変更、XAML binding 変更、serialized value 変更、DB schema 変更はしない。
 
-制約:
+主対象:
 
-- 挙動変更を入れない。
-- XAML Binding / code-behind event handler の参照先を変えない。
-- persisted setting value、serialized name、DB schema、外部ファイル形式に触れない。
-- terminal apply callback、main table swap、timing / logging side effects は root に残す。
-- 挙動変更を入れない。
-- BuildGate、source materialize の処理本体、chart-info patch mutation、view apply UI side effects は動かさない。
-- `PlaylistSourceBuildResult` の public / serialized contract 化はしない。internal worker contract のまま扱う。
-- rebuilt source path の `finalRows` cleanup ownership と view-only path の ownership 差分は変えない。
-- 1 ticket 内で 3 個以上の sub-ticket が必要になった場合は、実装前に checkpoint / decision record を作り直す。
+- `BeMusicSeeker/ViewModels/MainWindowViewModel.cs`
+- `BeMusicSeeker/ViewModels/MainWindowViewModel.PlaylistState.cs`
+- `BeMusicSeeker/ViewModels/MainWindow/PlaylistDetailBuildDecisionService.cs`
+- `BeMusicSeeker/ViewModels/MainWindow/PlaylistDetailBuildQueueCoordinator.cs`
+- `BeMusicSeeker/ViewModels/MainWindow/PlaylistSourceBuildResult.cs`
+- 新規候補: `PlaylistDetailBuildWorkflowCoordinator`, `PlaylistDetailBuildWorkspace`, `PlaylistMainViewApplyResult`
+
+subtasks:
+
+1. `ApplyPlaylistDetailViewRowsToMainView` の timing result DTO 化は、単独 ticket ではなく workflow coordinator surface を整える subtask として扱う。
+2. `RebuildPlaylistSource` と `ApplyPlaylistViewWithoutSourceRebuild` の重複する build/apply/finalize flow を coordinator に寄せる。
+3. BuildGate / cancellation / freshness check / cleanup ownership の順序を変えずに、root から workflow 本体を移す。
+4. root に残すものを request 発行、lifecycle、UI thread bridge、dialog / progress bridge として説明できる状態にする。
 
 完了条件:
 
-- `PlaylistMainViewApplyResult` のような internal DTO が追加され、`ApplyPlaylistDetailViewRowsToMainView` の `out` 引数がなくなっている。
-- rebuilt source / view-only path の `FinalizeMainViewBuild` が DTO の timing metrics を使っている。
-- `ReplacePlaylistViewRows`、`SetChartRowsView`、`TryMarkPlaylistOpenBuildCompleted` の順序が変わっていない。
-- behavior、persisted value、public user-facing text は変えない。
+- playlist detail build workflow の主要処理が root から移動している。
+- root 側に残る処理が orchestration / bridge として説明できる。
+- `MainWindowViewModel.cs` の playlist workflow 責務が明確に減っている。
+- 既存 UI 挙動が変わらない。
+- build / test / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
 
-標準確認:
+## Constraints
 
-- 変更範囲に応じた関連 test。
-- `dotnet build .\BeMusicSeeker.sln /p:Configuration=Release`
-- `dotnet test .\BeMusicSeeker.sln /p:Configuration=Release`
-- `dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal`
-- 大きな public surface / analyzer リスクがある場合のみ Roslynator を実行する。
+- release freeze を破らない。
+- XAML Binding / code-behind event handler の参照先を無計画に変えない。
+- persisted setting value、serialized name、DB schema、外部ファイル形式に触れない。
+- BuildGate、cancellation / freshness check、cleanup ownership、terminal apply の UI side effects は順序を維持する。
+- 新規 coordinator に `Window`、`Control`、`MessageBox`、`Settings.Default`、`NLog`、無制御な `Dispatcher` 直参照を増やさない。
+- DTO、result object、helper 導入は subtask として扱い、独立した成果にしない。
 
-## Next
+## Guardrail
 
-次候補は最大 2 件に固定する。L-3c-17 完了後に次の実装単位を判断する。
+`MainWindowViewModel.cs` は最終 8,000 行以下を目標にする。行数は観測値であり、成否は責務境界、依存方向、テスト容易性、UI / DataContext 境界で判断する。
 
-| 候補 | 内容 | 着手条件 |
-|---|---|---|
-| L-3c-18-checkpoint | main view apply result 導入後、playlist build execution boundary の次候補を決める | L-3c-17 完了後 |
-| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-17 で blocker が特定された場合 |
+Guardrail 超過時に残せる責務:
 
-## Later
+- application shell
+- composition
+- lifecycle
+- dialog request bridge
+- progress bridge
+- UI thread 境界
+- child ViewModel / coordinator への委譲
 
-- L-4 / L-5: summary build / bulk mutation。PlaylistWorkspace の state 境界が見えた後に詳細化する。
-- M / N / O / P / Q: play history、settings、sidebar、shell cleanup、playback command boundary。L-3c と P0-03 early ticket の結果を見て再計画する。
+## P0-03 連動条件
 
-## Blocked / 連動条件
+root pass-through 削除は、P0-03 / Lane B の XAML / code-behind DataContext 移行後でないと無理に進めない。MainWindow code-behind の event handler / `async void` は `REF-MVP-B1` で先行して扱う。
 
-- root pass-through 削除は、P0-03 の XAML / code-behind DataContext 移行後でないと無理に進めない。
-- `Settings.Default` 直参照削減は P0-04 / P1-03 と owner を揃える。P0-01 では新規 service に直参照を増やさない。
-- SettingDialog partial は 6,697 行あるが、設定 schema / persistence と結合しているため、P0-01 の playlist ticket では触らない。
-- MainWindow code-behind の event handler / `async void` は P0-03 の early inventory と連動して扱う。
+## 完了履歴の扱い
 
-## P0-01 最小完了条件
-
-P0-01 は Gate 4 完了まで他 P0 を止める gate ではない。P0-01 側の最小完了は次を満たす状態とする。
-
-- root nested presentation contract 依存が縮小し、child VM / service が root type を契約型置き場として使わない。
-- main chart list と playlist の主要 workflow は child VM / coordinator / service へ移り、root は shell / composition / lifecycle / dialog request に寄る。
-- XAML / code-behind / tests が root pass-through だけに依存し続けないための P0-03 連動条件が明確になっている。
-- 残る root の行数超過分を責務として説明できる。
-
-## 更新ルール
-
-ticket 完了時に更新するのは次だけにする。
-
-- 実装結果
-- 実行したテスト
-- 未解決の blocker
-- 次にやる 1 件
-
-長い調査ログや完了済み ticket の詳細は、この active plan ではなく [完了履歴](./P0-01_MainWindowViewModel_完了履歴.md) または [現状メトリクス調査メモ](./99_調査メモ_現状メトリクス.md) に移す。
+旧 `L-*` の詳細履歴は [P0-01 完了履歴](./P0-01_MainWindowViewModel_完了履歴.md) と各 decision file に残す。今後の active plan では `REF-MVP-A1` の workflow extraction を正本とし、DTO / checkpoint 単位の ticket へ戻さない。

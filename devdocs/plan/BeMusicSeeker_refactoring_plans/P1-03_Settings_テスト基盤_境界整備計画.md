@@ -70,7 +70,7 @@ internal static class SourceTextTestHelper
 作業:
 
 1. `BindingFlags.NonPublic`, `GetField`, `GetMethod` を grep する。
-2. `.tmp/refactor/private-reflection-test-inventory.md` に target type / member / test / replacement plan を記録する。ticket をまたいで参照する必要が出たら `devdocs/` 側へ移す。
+2. `devdocs/plan/BeMusicSeeker_refactoring_plans/inventory/private-reflection-test-inventory.md` に target type / member / test / replacement plan を記録する。
    - 例: `PlayHistoryReadModelTests`, `SettingDialogCustomFolderOutputBaseTests`, `CustomTableView` 関連 test。
 3. replacement plan は次に分類する。
    - service 抽出後に internal API test へ移す。

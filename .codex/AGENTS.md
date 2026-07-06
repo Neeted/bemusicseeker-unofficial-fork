@@ -19,9 +19,40 @@
 
 ## 1. コミット戦略
 
-- 機能を実装・修正した場合、**絶対にユーザーの承認を得る前に自動で `git commit` を実行してはならない**。
-- 必ずユーザーに動作確認を依頼し、OKの回答を得た後にコミットのコマンドを提案し、承認を得てから実行（またはユーザー自身に実行）してもらうこと。
+- 通常作業で機能を実装・修正した場合、**絶対にユーザーの承認を得る前に自動で `git commit` を実行してはならない**。
+- 通常作業では、必ずユーザーに動作確認を依頼し、OKの回答を得た後にコミットのコマンドを提案し、承認を得てから実行（またはユーザー自身に実行）してもらうこと。
+- 例外: `devdocs/plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md` の Refactoring MVP active lane 作業では、ユーザーが実装単位ごとの commit を事前許可している。Codex は ticket / slice 完了後、標準確認とサブエージェント静的レビューで重大指摘がないことを確認してから、ユーザー承認待ちなしで `git commit` してよい。
+- Refactoring MVP commit message には ticket ID を含める。
+  - 例: `refactor(mvvm): REF-MVP-A1 extract playlist detail build coordinator`
+  - 例: `refactor(ui): REF-MVP-B1 bridge table context menu command`
+  - 例: `refactor(domain): REF-MVP-C1 add BMSLibrary source text helper`
+  - 例: `docs(migration): REF-MVP-D1 inventory dotnet10 blockers`
 - **注意**: 本プロジェクト（ブランチ）はリモート未登録のため、コミット後の `git push` は不要（実行不可）である。
+- `git push`、GitHub Release、tag 作成、release draft 作成、publish / release script 実行は、ユーザーから明示依頼があっても Refactoring MVP Gate 通過前は禁止する。
+
+---
+
+## 1.1 Refactoring MVP Release Freeze
+
+Refactoring MVP Gate 通過まで、リリース作業を凍結する。Release Freeze は `## 5. バージョン更新作業時の手順` より優先する。
+
+禁止:
+
+- `Properties/AssemblyInfo.cs` の `AssemblyInformationalVersion` 更新
+- `release notes/` の新規リリース向け更新
+- `version.txt` のリリース目的更新
+- `scripts/publish.ps1` / `scripts/release.ps1` のリリース運用目的変更
+- GitHub Release / Git tag / Release draft の作成
+- 配布 package の作成
+- ユーザーに「リリース準備完了」と見える変更
+
+例外:
+
+- build / test のためのローカル artifact 作成
+- release freeze ルール自体を文書化する docs 変更
+- 既存 release 関連コードの refactor blocker 調査
+
+blocker 調査から実リリース準備へ進んではならない。
 
 ---
 
@@ -239,4 +270,6 @@ dotnet build / dotnet test / dotnet format / dotnet roslynator analyze は絶対
 3. XMLドキュメント追加・更新
 4. 必要な理由コメント追加
 5. `## 4. ビルド環境とコマンド` に従った確認
-6. ユーザー承認待ち（コミット前）
+6. サブエージェント静的レビュー
+7. ユーザー承認待ち（通常作業のコミット前）
+8. Refactoring MVP active lane 作業では、重大指摘なし・標準確認完了後にユーザー承認待ちなしで commit してよい

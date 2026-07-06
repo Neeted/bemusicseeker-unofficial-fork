@@ -2,6 +2,8 @@
 
 作成日: 2026-07-06
 
+> 2026-07-07 superseded: この decision で次 ticket とした `L-3c-17` は、Refactoring MVP 計画更新により独立 ticket ではなく `REF-MVP-A1: Playlist detail build workflow extraction` の subtask に格下げした。現在の active lane は [PLAN_STATUS](./PLAN_STATUS.md) を正本とする。
+
 ## 決定
 
 次の実装 ticket は `L-3c-17: Playlist main view apply result DTO 導入` とする。

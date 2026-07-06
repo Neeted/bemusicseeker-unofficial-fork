@@ -2,120 +2,124 @@
 
 ## 目的
 
-この計画は、BeMusicSeeker を長期保守しやすい構造へ移すための入口を定義する。
+この計画は、BeMusicSeeker を長期保守しやすい構造へ移すための Refactoring MVP を定義する。
 
-重視する順序は次の通り。
-
-1. 将来的な `.NET 10` / `net10.0-windows` 移行の阻害要因を減らす。
-2. WPF アプリとして、View / ViewModel / Model / service の境界を明確にする。
-3. 巨大クラスを facade / coordinator / service / state / presentation model へ分ける。
-4. Codex が小さな ticket 単位で自走できる粒度に落とす。
-5. 前段リファクタリング後でないと正確な計画を切れないものは、無理に詳細化しない。
+現在の最優先は、DTO 単体導入や checkpoint の連続ではなく、MVVM としての責務分離と巨大コード整理を進めること。以後の実装単位は **1 workflow / 1 responsibility boundary** とし、成果は root ViewModel / code-behind / facade から責務が減ったことで測定する。
 
 ## 最初に読むファイル
 
 1. [Codex 共通実行ルール](./00_Codex共通実行ルール.md)
 2. [PLAN_STATUS](./PLAN_STATUS.md)
-3. その時点の active ticket を持つ P0 計画書
+3. active lane の対象計画書
 4. [現状メトリクス調査メモ](./99_調査メモ_現状メトリクス.md)
 
-## 現在地
+## Release Freeze
 
-2026-07-06 再ベースライン。
+Refactoring MVP Gate 通過まで、リリース作業を凍結する。詳細は [Codex 共通実行ルール](./00_Codex共通実行ルール.md) と [REF-MVP Release Freeze and Gate Decision](./decisions/REF-MVP_release_freeze_and_gate.md) を正本とする。
 
-| 計画 | 状態 | 次に見る場所 |
-|---|---|---|
-| P0-01 | L-3c-16-checkpoint まで完了。次は L-3c-17 で playlist main view apply result DTO を導入する | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
-| P0-02 | P0-01 完了待ちではない。source-text helper / reflection inventory / dependency inventory / partial split 計画は即並行可 | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
-| P0-03 | P0-01 の root pass-through 削除に必要な前提。event handler inventory と XAML DataContext 移行準備は早期着手可 | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| P0-04 | TFM 変更なしの棚卸しは即並行可。本格的な `net10.0-windows` 移行は後続計画 | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
+禁止:
 
-## 全体の優先度
+- `Properties/AssemblyInfo.cs` の `AssemblyInformationalVersion` 更新。
+- `release notes/` の新規リリース向け更新。
+- `version.txt` のリリース目的更新。
+- `scripts/publish.ps1` / `scripts/release.ps1` のリリース運用目的変更。
+- GitHub Release、Git tag、Release draft、配布 package の作成。
+- ユーザーに「リリース準備完了」と見える変更。
 
-| 優先度 | 計画書 | 主対象 | 現時点の実装プラン粒度 | 着手条件 |
-|---|---|---|---|---|
-| P0-01 | [MainWindowViewModel リファクタリング計画](./P0-01_MainWindowViewModel_リファクタリング計画.md) | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | active ticket 1 件 + 次候補 2 件へ整理済み | 継続中。次は L-3c-17 |
-| P0-02 | [BMSLibrary ドメイン facade 化計画](./P0-02_BMSLibrary_ドメインFacade化計画.md) | `BeMusicSeeker/Models/BMSLibrary.cs` | Phase 0 は着手可。後半は P0-01 / P0-04 の結果を見て再計画 | BMSLIB-0A/0B と依存棚卸しは即並行可 |
-| P0-03 | [MainWindow UI / code-behind MVVM 移行計画](./P0-03_MainWindow_UI_MVVM移行計画.md) | `BeMusicSeeker/Views/MainWindow.cs`, `MainWindow.xaml` | Phase 0 は着手可。XAML 分割は child VM 境界に合わせて段階化 | MWUI-0B と DataContext 移行準備は即並行可 |
-| P0-04 | [.NET 10 移行準備と依存関係整理計画](./P0-04_DotNet10_移行準備と依存関係整理計画.md) | `*.csproj`, `libs/`, `native/`, `app.config` | 棚卸しは詳細化済み。本移行は後続計画 | TFM を変えない inventory は即並行可 |
-| P1-01 | [BMSPlaylist 責務分割計画](./P1-01_BMSPlaylist_責務分割計画.md) | `BeMusicSeeker/Models/BMSPlaylist.cs` | 中粒度 | BMSLibrary / playlist workspace 境界が安定した後に詳細化する |
-| P1-02 | [BmsLibraryInitializationService / scan pipeline 分割計画](./P1-02_BmsLibraryInitializationService_スキャンPipeline分割計画.md) | `BmsLibraryInitializationService.cs` | 中粒度 | P0-02 Phase 0 完了後に詳細な実装プランを検討する |
-| P1-03 | [Settings / テスト基盤 / 境界整備計画](./P1-03_Settings_テスト基盤_境界整備計画.md) | `Settings.Default` 参照、source-text tests、reflection tests | 横断支援計画 | P0 ticket の blocker が明確になったところから必要最小限で着手する |
-| P2-01 | [DB / LR2 永続化境界整理 後続検討](./P2-01_DB_LR2_永続化境界整理_後続検討.md) | SQLite / LR2 DB / repository | 後続検討 | BMSLibrary / BMSPlaylist 分割後に詳細な実装プランを検討する |
-| P2-02 | [BMSFile / Chart domain 分離 後続検討](./P2-02_BMSFile_ChartDomain分離_後続検討.md) | `BMSFile.cs`, `ChartFile*` | 後続検討 | scan pipeline / DB 境界整理後に詳細な実装プランを検討する |
-| P2-03 | [CustomTableView 表示基盤整理 後続検討](./P2-03_CustomTableView_表示基盤整理_後続検討.md) | `CustomTableView.cs` | 後続検討 | MainWindow UI split 後に詳細な実装プランを検討する |
-| P2-04 | [Native interop / audio / external process 境界 後続検討](./P2-04_NativeInterop_Audio_外部プロセス境界_後続検討.md) | `EverythingNative`, `Win32API`, `Bass`, 外部プレイヤー | 後続検討 | P0-04 inventory 後に詳細な実装プランを検討する |
+例外:
 
-補助資料:
+- build / test のためのローカル artifact 作成。
+- release freeze ルール自体を文書化する docs 変更。
+- 既存 release 関連コードの refactor blocker 調査。
 
-- [現状メトリクス調査メモ](./99_調査メモ_現状メトリクス.md)
-- [P0-01 完了履歴](./P0-01_MainWindowViewModel_完了履歴.md)
+## Refactoring MVP Gate
 
-## P0 の進め方
+MVP Gate は「リファクタリングがある程度完了し、その後は純粋に `.NET 10` / `net10.0-windows` 移行作業として検討できる段階」を指す。
 
-### P0-01: MainWindowViewModel
+通過条件:
 
-P0-01 は Gate 4 まで完了してから他 P0 へ進む gate ではない。最小完了条件は次の通り。
+- `MainWindowViewModel` は application shell / composition / lifecycle / dialog request bridge / progress bridge / UI thread 境界 / child ViewModel・coordinator 委譲に寄っている。
+- main chart list、playlist detail build / apply、play history、playback、settings save、library refresh、package install workflow が root から child ViewModel / coordinator / service へ移っている。
+- `MainWindow.cs` は WPF lifecycle / view-host / WPF event entry point / UI 型 adapter / command invocation bridge に寄っている。
+- 処理本体を持つ `async void` と巨大 event handler が大幅に減っている。
+- `BMSLibrary` は public compatibility facade として残しつつ、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling が service / coordinator へ移っている。
+- 新規 service / coordinator が `Window`、`Control`、`MessageBox`、`Settings.Default`、`NLog`、無制御な DB connection / transaction、無制御な `Dispatcher` 直参照を増やしていない。
+- `.NET 10` 移行 blocker が、巨大クラス内の未整理ロジックではなく adapter / gateway / native dependency / config / settings / external process host の課題として説明できる。
+- build、test、format / whitespace check、`git diff --check` が通る。
+- サブエージェント静的レビューで重大な指摘がない。
 
-- root nested presentation contract 依存が縮小し、child VM / service が root type を契約型置き場として使わない。
-- main chart list と playlist の主要 workflow は child VM / coordinator / service へ移り、root は shell / composition / lifecycle / dialog request に寄る。
-- root pass-through 削除に必要な XAML / code-behind DataContext 移行条件が P0-03 側で明確になっている。
-- 残る root の行数超過分を責務として説明できる。
+## 行数 Guardrail
 
-### P0-02: BMSLibrary
+行数は設計成功の唯一の判定にしない。ただし巨大クラス整理の進捗監視として使う。
 
-P0-02 は P0-01 の完了待ちにしない。BMSLibrary の source-text helper、private reflection inventory、dependency inventory、partial split 計画は UI と衝突しにくいため即並行できる。
+| 対象 | 現状目安 | Guardrail |
+|---|---:|---:|
+| `MainWindowViewModel.cs` | 23,443 行 | 8,000 行以下 |
+| `MainWindow.cs` | 10,289 行 | 5,000 行以下 |
+| `BMSLibrary.cs` | 21,696 行 | 12,000 行以下 |
+| `BMSPlaylist.cs` | P1 対象 | P0/P1 境界で 6,000 行以下 |
 
-ただし、state mutation / lock / notification を大きく動かす ticket は、BMSLibrary 側の安全網と P0-04 の dependency inventory が揃ってから詳細化する。
+Guardrail を超える場合は `PLAN_STATUS.md` に、残す責務、残す理由、次の extraction 候補、サブエージェントレビュー結果を記録する。
 
-### P0-03: MainWindow UI
+## Active Lanes
 
-P0-03 は P0-01 後半の blocker になり得る。root pass-through 削除には XAML / code-behind が child VM or service を直接参照できる状態が必要になる。
+`PLAN_STATUS.md` を正本として、次の active lanes を並行可能な MVP 作業として扱う。Codex は毎回、MVP Gate に最も近づく slice を選ぶ。
 
-早期着手は次に限定する。
+| Lane | 計画 | 目的 | 直近 ticket |
+|---|---|---|---|
+| A | [P0-01 MainWindowViewModel](./P0-01_MainWindowViewModel_リファクタリング計画.md) | root ViewModel を shell / composition / lifecycle に寄せる | `REF-MVP-A1` |
+| B | [P0-03 MainWindow UI / code-behind](./P0-03_MainWindow_UI_MVVM移行計画.md) | code-behind を view-host / command bridge に寄せる | `REF-MVP-B1` |
+| C | [P0-02 BMSLibrary facade](./P0-02_BMSLibrary_ドメインFacade化計画.md) | `BMSLibrary` を compatibility facade として薄くする | `REF-MVP-C1` |
+| D | [P0-04 .NET 10 readiness](./P0-04_DotNet10_移行準備と依存関係整理計画.md) | TFM を変えず migration blocker を devdocs に inventory 化する | `REF-MVP-D1` |
 
-- MainWindow event handler inventory。
-- `async void` と処理本体の分類。
-- XAML DataContext 移行対象の棚卸し。
-- playback / progress / main workspace の UserControl 化準備。
+推奨する最初の実装順:
 
-### P0-04: .NET 10 移行準備
+1. `REF-MVP-B1`: MainWindow event handler inventory and first command bridge。
+2. `REF-MVP-C1`: BMSLibrary source-text helper and facade split foundation。
+3. `REF-MVP-A1`: Playlist detail build workflow extraction。
+4. `REF-MVP-D1`: .NET 10 blocker inventory in devdocs。
 
-P0-04 は TFM 変更なしの棚卸しを即並行する。本格的な `net10.0-windows` 移行は、P0-01 / P0-03 の UI 境界と dependency inventory が揃った後に dry-run branch と blocker report を作ってから決める。
+## Ticket 粒度
 
-即時対象:
+- 1 ticket は 1 workflow / 1 responsibility boundary を移す。
+- DTO 追加、method signature 整理、result object 導入だけで 1 ticket にしない。
+- DTO、result object、helper、adapter は成果ではなく手段として扱う。
+- checkpoint 専用 ticket を連続させない。
+- decision record は、永続化、DB schema、public API、concurrency / lock ordering、UI observable behavior、.NET migration policy に関わる場合だけ作る。
+- docs-only commit は計画修正、gate 定義、重要 decision record に限る。
 
-- `BeMusicSeeker.csproj` / tests / updater / tools の TargetFramework, UseWPF, UseWindowsForms, HintPath, native copy, `System.Configuration` 参照。
-- `app.config` probing / userSettings / AppContextSwitchOverrides。
-- WPF + WinForms 混在による `MenuItem` / `ContextMenu` ambiguity。
-- `Settings.Default` / `System.Configuration` 依存の境界。
+## P0 の扱い
+
+### Lane A: MainWindowViewModel shell 化
+
+`MainWindowViewModel` は app shell / composition root として残し、playlist、main chart list、play history、playback、settings、library refresh の workflow を child ViewModel / coordinator / service へ移す。
+
+旧 `L-3c-17: Playlist main view apply result DTO 導入` は独立 ticket ではなく、`REF-MVP-A1` の subtask に格下げする。
+
+### Lane B: MainWindow code-behind / XAML MVVM 移行
+
+`MainWindow.cs` の巨大 event handler と処理本体を持つ `async void` を減らす。`tableContextMenuOpened` は最初の command bridge slice として扱う。
+
+### Lane C: BMSLibrary domain facade 化
+
+`BMSLibrary` は compatibility facade として残し、source-text / private reflection tests を先に分割耐性のある形へ緩める。その後、partial split または既存 `BmsLibraryInternal` service への workflow 移動を進める。
+
+### Lane D: .NET 10 migration readiness
+
+Refactoring MVP Gate 通過前に `net10.0-windows` 本移行は行わない。TFM を変えない blocker inventory、adapter / gateway 化、dependency cleanup、migration readiness の明文化に限定する。
 
 ## P1 / P2 の扱い
 
-P1 / P2 は詳細化しすぎない。P0 で API 境界・state 境界・UI 境界が変わるため、現時点の細かい ticket に固執しない。
+P1 / P2 は MVP Gate の進捗を見て再計画する。
 
-- P1-01 は P0-02 の mutation / facade 境界が見えた後に詳細な実装プランを検討する。
-- P1-02 は P0-02 Phase 0 と initialization dependency inventory 完了後に詳細な実装プランを検討する。
-- P1-03 は P0 ticket の blocker 解消として必要になった箇所から扱い、settings wrapper の owner は P0-04 / P1-03 で揃える。
+- P1-01 `BMSPlaylist` は P0 / P1 境界で 6,000 行以下を guardrail とし、BMSLibrary / playlist workspace 境界が安定した後に詳細化する。
+- P1-02 scan pipeline は P0-02 の facade / initialization boundary が安定した後に詳細化する。
+- P1-03 Settings / テスト基盤は P0 ticket の blocker 解消として必要になった箇所から扱う。
 - P2 は該当する P0/P1 の完了後に再計画する。
 
-## 横断的な設計方針
+## 横断方針
 
-### MVVM 境界
-
-- ViewModel は UI 状態と command の公開に集中する。
 - View 固有の `Window`, `Control`, `Panel`, `ContextMenu`, `TreeViewItem`, `DragEventArgs` は View / behavior / adapter で閉じる。
-- Model は永続化行とドメイン状態を分ける。
-- `MainWindowViewModel` は app shell / composition root、`BMSLibrary` は domain facade として残してよいが、workflow の詳細は service へ移す。
-
-### .NET 10 移行境界
-
-- `Settings.Default`、`System.Configuration`、`app.config`、HintPath DLL、native DLL copy、WPF+WinForms 同時参照、P/Invoke、外部 process host は移行リスクとして扱う。
-- すぐに全廃せず、wrapper / adapter / gateway を作って依存箇所を狭める。
-- `net472` と `net10.0-windows` の両立を無理に約束しない。まず移行 blocker を可視化し、その後に本移行計画を切る。
-
-### テスト方針
-
+- `Settings.Default`、`System.Configuration`、`app.config`、HintPath DLL、native DLL copy、WPF + WinForms 同時参照、P/Invoke、外部 process host は migration risk として adapter / gateway へ寄せる。
 - 巨大ファイル前提の source-text tests は、分割後の複数ファイルを読む helper に置き換える。
-- private reflection tests は、抽出した pure service / internal API の挙動テストへ段階的に置き換える。
-- 並行処理、DB mutation、file system mutation、Settings.Default、WPF Dispatcher を触るテストは、共有状態の復元と非並列化を明示する。
+- private reflection tests は、抽出した service / internal API の挙動テストへ段階的に置き換える。

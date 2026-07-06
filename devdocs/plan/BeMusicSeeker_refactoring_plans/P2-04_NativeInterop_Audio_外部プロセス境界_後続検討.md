@@ -10,8 +10,8 @@ BeMusicSeeker は Everything native bridge、BASS / OggVorbis、Win32 API、外�
 
 ## 詳細計画を検討する条件
 
-- `.tmp/dotnet10/api-risk-inventory.md` が作成済み。
-- `.tmp/dotnet10/output-layout.md` が作成済み。
+- `devdocs/plan/BeMusicSeeker_refactoring_plans/inventory/REF-MVP-D1_dotnet10_blockers.md` が作成済み。
+- `devdocs/plan/BeMusicSeeker_refactoring_plans/inventory/dotnet10-output-layout.md` が作成済み。
 - `net10.0-windows` dry-run blocker report がある。
 - MainWindow playback panel / external player host が UserControl / adapter に分離済み。
 
