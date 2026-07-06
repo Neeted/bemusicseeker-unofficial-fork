@@ -99,6 +99,18 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistBuildRequest_SourceText_IsRootExternalContract()
+    {
+        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string requestSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistBuildRequest.cs");
+
+        Assert.AreEqual(-1, rootSource.IndexOf("private sealed class PlaylistBuildRequest", StringComparison.Ordinal));
+        StringAssert.Contains(requestSource, "internal sealed class PlaylistBuildRequest");
+        StringAssert.Contains(requestSource, "internal MainWindowViewModel.viewUpdateMode Mode;");
+        StringAssert.Contains(requestSource, "internal MainWindowViewModel.PlaylistRequestIdentity Identity;");
+    }
+
+    [TestMethod]
     public void ApplyPlaylistVirtualViewFromSource_DoesNotMaterializeRowsUntilIndexed()
     {
         PlaylistDetailSourceRow zetaRow = CreateSourceRow("11111111111111111111111111111111", "Zeta", 7);

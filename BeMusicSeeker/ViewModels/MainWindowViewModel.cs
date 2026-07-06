@@ -485,29 +485,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist 詳細表示の build 要求 1 件を表します。
-    /// worker は常にこの最新要求だけを処理します。
-    /// </summary>
-    private sealed class PlaylistBuildRequest
-    {
-        internal int RequestVersion;
-
-        internal viewUpdateMode Mode;
-
-        internal viewUpdateMode RequestedMode;
-
-        internal object Parameter;
-
-        internal PlaylistRequestIdentity Identity;
-
-        internal bool UseCoalescingWindow;
-
-        internal int LastBuiltScoreSnapshotVersion;
-
-        internal string SourceInvalidationReason;
-    }
-
-    /// <summary>
     /// playlist source build で再利用するライブラリ索引 snapshot です。
     /// </summary>
     private sealed class PlaylistLibraryIndexSnapshot

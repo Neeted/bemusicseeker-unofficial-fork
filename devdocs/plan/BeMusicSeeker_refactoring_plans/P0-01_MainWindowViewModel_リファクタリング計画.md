@@ -52,8 +52,9 @@
 | 2026-07-06 | 完了 | Ticket L-2a: PlaylistWorkspaceViewModel skeleton と summary/detail 表示 state pass-through | `978a9e5d` |
 | 2026-07-06 | 完了 | Ticket L-2b: PlaylistWorkspace source-text / tests 直接化 | `71a3f090` |
 | 2026-07-06 | 完了 | Ticket L-3a: Playlist detail presentation service 抽出 | `f37e4ffb` |
+| 2026-07-06 | 進行中 | Ticket L-3b-1: Playlist build request contract 抽出 | このコミット |
 
-次候補: Ticket L-3b: Playlist build request / state contract 抽出。
+次候補: Ticket L-3b-1: Playlist build request contract 抽出。
 
 ## 現在地サマリ
 
@@ -1569,8 +1570,30 @@ detail build は request scheduling、source materialize、presentation filter/s
 
 ##### Ticket L-3b: Playlist build request / state contract 抽出
 
-1. `PlaylistBuildRequest` と request queue / coalescing / stale 判定に必要な snapshot を `PlaylistDetailBuildCoordinator` 用の request/state contract に分ける。
-2. `PlaylistRequestFactory` を coordinator から直接使う。
+`PlaylistViewState` は `PlaylistOpenInteractionState` / readiness snapshot / source/view lifetime と結合しているため、次の sub-ticket に分ける。
+
+###### Ticket L-3b-1: Playlist build request contract 抽出
+
+1. `PlaylistBuildRequest` を `PlaylistDetailBuildRequest` 系の root 外 contract ファイルへ移す。
+2. 既存の request queue / coalescing / stale 判定の呼び出し形は維持する。
+3. root から参照する互換名が必要なら wrapper ではなく新 contract 型を直接使う。
+
+確認対象:
+
+- `PlaylistViewPipelineTests`
+- `PlaylistReloadMergeTests`
+
+完了条件:
+
+- playlist build request 型が root private nested class ではなくなる。
+- request scheduling の挙動は変わらない。
+
+注記: L-3b-1 時点では `viewUpdateMode` と `PlaylistRequestIdentity` はまだ `MainWindowViewModel` nested type へ依存してよい。ここでは root private nested class の解消を優先し、root 非依存 contract 化は L-3b-2 以降で扱う。
+
+###### Ticket L-3b-2: Playlist view state contract 抽出
+
+1. `PlaylistViewState` の request queue / source snapshot / current view snapshot / edit suppression を分類する。
+2. `PlaylistOpenInteractionState` と readiness snapshot の追跡は別 owner へ切るか、明示的に state contract に含める。
 3. root は tree selection と coordinator 呼び出しに寄せる。
 
 確認対象:
