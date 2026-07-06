@@ -14,23 +14,23 @@
 
 | 項目 | 現状 |
 |---|---|
-| `MainWindowViewModel.cs` | 23,443 行。playlist view-only apply result DTO を導入済み |
+| `MainWindowViewModel.cs` | 23,443 行。playlist view apply result 共通化前 |
 | `MainWindowViewModel.PlaylistState.cs` | 473 行。playlist identity / source snapshot / view snapshot state の受け皿 |
 | `PlaylistSourceBuildResult.cs` | 240 行。source build / rebuilt source view apply / view-only apply / rebuild execution result contract |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
-| 直近の完了 | L-3c-13: Playlist view-only apply result DTO 導入 |
-| 次の active ticket | L-3c-14-checkpoint: 次の playlist build execution 境界決定 |
+| 直近の完了 | L-3c-14-checkpoint: 次の playlist build execution 境界決定 |
+| 次の active ticket | L-3c-15: Playlist view apply result DTO 共通化 |
 
 ## Now
 
-### Active Ticket L-3c-14-checkpoint: 次の playlist build execution 境界決定
+### Active Ticket L-3c-15: Playlist view apply result DTO 共通化
 
 目的:
 
-- L-3c-13 で導入した `PlaylistViewOnlyApplyResult` を前提に、次に動かす境界を 1 ticket に絞る。
-- rebuilt source / view-only result DTO を共通化するか、playlist build execution boundary の coordinator 化へ進むかを decision record に残す。
-- freshness check、terminal apply、`FinalizeMainViewBuild` を root に残した判断を後続計画に反映する。
+- [L-3c-14 decision](./P0-01_L-3c-14_PlaylistBuildExecutionNextBoundaryDecision.md) に従い、rebuilt source path と view-only path の view apply 結果を共通 contract に揃える。
+- `ApplyPlaylistViewFromRebuiltSource` と `ApplyPlaylistViewFromCurrentSource` の戻り値を同じ internal DTO にし、後続 coordinator 化の入力 / 出力を読みやすくする。
+- root の freshness check、terminal apply、`FinalizeMainViewBuild` は動かさない。
 
 制約:
 
@@ -38,17 +38,17 @@
 - XAML Binding / code-behind event handler の参照先を変えない。
 - persisted setting value、serialized name、DB schema、外部ファイル形式に触れない。
 - terminal apply callback、main table swap、timing / logging side effects は root に残す。
-- BuildGate、source materialize の処理本体、chart-info patch mutation、view apply UI side effects を動かす場合は、実装前に checkpoint / decision record を作る。
+- `RebuildPlaylistSource` 全体の coordinator 化、BuildGate、source materialize の処理本体、chart-info patch mutation、view apply UI side effects は動かさない。
 - `PlaylistSourceBuildResult` の public / serialized contract 化はしない。internal worker contract のまま扱う。
+- rebuilt source path の `finalRows` cleanup ownership は維持する。必要なら `ref IList finalRows` は残す。
+- view-only path に新しい cleanup ownership を足さない。
 - 1 ticket 内で 3 個以上の sub-ticket が必要になった場合は、実装前に checkpoint / decision record を作り直す。
 
 完了条件:
 
-- 次の実装 ticket が 1 件に定まっている。
-- decision record に、動かす範囲 / 動かさない範囲 / 必要なテストが明記されている。
-- rebuilt source / view-only result DTO 共通化へ進む場合は、ownership と logging の違いが明確になっている。
-- coordinator 化へ進む場合は、root に残す side effect と dependencies が明確になっている。
-- L-3c-4 の terminal apply boundary を活かす方向になっている。
+- `PlaylistRebuiltSourceViewApplyResult` と `PlaylistViewOnlyApplyResult` の重複が解消され、共通の view apply result contract になっている。
+- rebuilt source / view-only の logging 内容、count、timing metrics が従来と一致している。
+- `PlaylistRebuildExecutionResult` が共通 result を受け取る。
 - `SourceTextTestHelper.ReadMainWindowViewModelSourceText()` と playlist source-text tests が分割後も意図を検証できる。
 - behavior、persisted value、public user-facing text は変えない。
 
@@ -62,12 +62,12 @@
 
 ## Next
 
-次候補は最大 2 件に固定する。L-3c-14-checkpoint 完了後に次の実装単位を判断する。
+次候補は最大 2 件に固定する。L-3c-15 完了後に次の実装単位を判断する。
 
 | 候補 | 内容 | 着手条件 |
 |---|---|---|
-| L-3c-15 | L-3c-14-checkpoint の decision に従う実装 ticket | L-3c-14-checkpoint で実装単位が確定した後 |
-| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-14-checkpoint で blocker が特定された場合 |
+| L-3c-16-checkpoint | view apply result 共通化後、playlist build execution boundary の次候補を決める | L-3c-15 完了後 |
+| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-15 で blocker が特定された場合 |
 
 ## Later
 
