@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -116,6 +117,7 @@ public sealed class PlaylistViewPipelineTests
         string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string playlistStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistState.cs");
         string buildStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildState.cs");
+        string queueCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildQueueCoordinator.cs");
         string playlistViewStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewState");
         string playlistSourceSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistSourceSnapshotState");
         string playlistViewSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewSnapshotState");
@@ -149,10 +151,13 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal List<PlaylistDetailSourceRow> SourceRows", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal IList CurrentViewRows", StringComparison.Ordinal));
         StringAssert.Contains(rootSource, "private readonly PlaylistDetailBuildState playlistDetailBuildState = new();");
+        StringAssert.Contains(queueCoordinatorSource, "internal static class PlaylistDetailBuildQueueCoordinator");
+        StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested || isShutdownRequested");
+        StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested = true;");
+        StringAssert.Contains(queueCoordinatorSource, "lock (state.SyncRoot)");
         StringAssert.Contains(rootSource, "CreatePlaylistBuildRequestViewSnapshotUnsafe");
-        StringAssert.Contains(rootSource, "playlistDetailBuildState.ShutdownCancellationRequested || IsShutdownRequested");
-        StringAssert.Contains(rootSource, "playlistDetailBuildState.ShutdownCancellationRequested = true;");
-        StringAssert.Contains(rootSource, "lock (playlistDetailBuildState.SyncRoot)");
+        StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
+        StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
     }
 
     [TestMethod]
@@ -662,6 +667,74 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(PlaylistDetailBuildAction.RebuildSource, decision.Action);
         Assert.IsTrue(decision.SourceMissing);
         Assert.AreEqual("source_missing", decision.SourceInvalidationReason);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildQueueRegister_WhenNewRequest_EnqueuesAndStartsWorker()
+    {
+        var state = new PlaylistDetailBuildState();
+        MainWindowViewModel.PlaylistRequestIdentity identity = CreatePlaylistIdentity("Folder");
+        PlaylistBuildRequest request = CreatePlaylistBuildRequest(identity);
+
+        PlaylistBuildQueueRegisterResult result = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state,
+            request,
+            currentViewIdentity: null,
+            lastBuiltScoreSnapshotVersion: 5,
+            isShutdownRequested: false);
+
+        Assert.IsTrue(result.Enqueued);
+        Assert.IsTrue(result.StartWorker);
+        Assert.AreEqual(1, request.RequestVersion);
+        Assert.AreEqual(5, result.LastBuiltScoreSnapshotVersion);
+        Assert.IsTrue(state.WorkerRunning);
+        Assert.AreSame(request, PlaylistDetailBuildQueueCoordinator.DequeuePendingRequest(state));
+        Assert.AreSame(request, state.CurrentBuildRequest);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildQueueRegister_WhenCurrentViewMatches_DeduplicatesNoop()
+    {
+        var state = new PlaylistDetailBuildState();
+        MainWindowViewModel.PlaylistRequestIdentity identity = CreatePlaylistIdentity("Folder");
+        PlaylistBuildRequest request = CreatePlaylistBuildRequest(identity);
+
+        PlaylistBuildQueueRegisterResult result = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state,
+            request,
+            currentViewIdentity: identity,
+            lastBuiltScoreSnapshotVersion: 5,
+            isShutdownRequested: false);
+
+        Assert.IsFalse(result.Enqueued);
+        Assert.AreEqual("current_view", result.DeduplicatedTarget);
+        Assert.AreEqual("noop_same_view", result.IgnoredReason);
+        Assert.IsFalse(state.WorkerRunning);
+        Assert.IsNull(state.PendingRequest);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildQueueCancelForShutdown_ClearsPendingAndCancelsTokens()
+    {
+        var state = new PlaylistDetailBuildState();
+        MainWindowViewModel.PlaylistRequestIdentity identity = CreatePlaylistIdentity("Folder");
+        PlaylistBuildRequest request = CreatePlaylistBuildRequest(identity);
+        PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state,
+            request,
+            currentViewIdentity: null,
+            lastBuiltScoreSnapshotVersion: 5,
+            isShutdownRequested: false);
+        var activeCancellation = new CancellationTokenSource();
+        Assert.IsTrue(PlaylistDetailBuildQueueCoordinator.TryBeginIteration(state, request, activeCancellation, isShutdownRequested: false));
+
+        PlaylistDetailBuildQueueCoordinator.CancelForShutdown(state);
+
+        Assert.IsNull(state.PendingRequest);
+        Assert.IsTrue(state.ShutdownCancellationRequested);
+        Assert.IsTrue(activeCancellation.IsCancellationRequested);
+        Assert.IsTrue(state.Cancellation.IsCancellationRequested);
+        activeCancellation.Dispose();
     }
 
     [TestMethod]
@@ -3969,6 +4042,22 @@ public sealed class PlaylistViewPipelineTests
         {
             Identity = identity
         };
+    }
+
+    private static MainWindowViewModel.PlaylistRequestIdentity CreatePlaylistIdentity(string folderName)
+    {
+        return PlaylistRequestFactory.CreateIdentity(
+            new BMSTable(),
+            folderName,
+            MainWindowViewModel.PlaylistFilterType.PlaylistFilter,
+            keywordFilter: null,
+            MainWindowViewModel.ModeFilterType.All,
+            sortParameters: null,
+            libraryIndexVersion: 3,
+            playlistRevision: 4,
+            scoreSnapshotVersion: 5,
+            chartInfoIndexVersion: 6,
+            hasResolvedSelection: true);
     }
 
     private static PlaylistDetailBuildStateSnapshot CreatePlaylistDetailBuildStateSnapshot(

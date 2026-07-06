@@ -14,21 +14,22 @@
 
 | 項目 | 現状 |
 |---|---|
-| `MainWindowViewModel.cs` | 23,538 行。playlist detail build decision は service 化済み |
+| `MainWindowViewModel.cs` | 23,397 行。playlist detail build decision と queue/cancellation state mutation は service/coordinator 化済み |
 | `MainWindowViewModel.PlaylistState.cs` | 485 行。playlist identity / source snapshot / view snapshot state の受け皿 |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
-| 直近の完了 | L-3c-1: Playlist detail build decision service 抽出 |
-| 次の active ticket | L-3c-2: Playlist detail worker queue / cancellation 境界整理 |
+| `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
+| 直近の完了 | L-3c-2: Playlist detail worker queue / cancellation 境界整理 |
+| 次の active ticket | L-3c-3: Playlist detail source rebuild / view apply 実行境界の整理 |
 
 ## Now
 
-### Active Ticket L-3c-2: Playlist detail worker queue / cancellation 境界整理
+### Active Ticket L-3c-3: Playlist detail source rebuild / view apply 実行境界の整理
 
 目的:
 
-- `PlaylistDetailBuildState` の request queue / coalescing / cancellation / worker-running state 操作を、root から coordinator 境界へ寄せる。
-- root は request 作成、open timing、logging、Task 起動、shutdown lifecycle の入口を担当し、queue mutation の詳細を薄くする。
-- L-3c-1 で作った `PlaylistDetailBuildDecisionService` は維持し、source rebuild / view apply / chart-info patch の実行本体はまだ root に残す。
+- `RebuildPlaylistSource` / `ApplyPlaylistViewWithoutSourceRebuild` / `TryPatchPlaylistSourceChartInfoIndex` の実行境界を棚卸しし、1 ticket で移せる範囲を決める。
+- source materialize、view materialize、chart-info patch、UI apply side effect を混ぜたまま大移動しない。
+- まず coordinator へ渡す input/output DTO と root に残す terminal apply/logging boundary を明確にする。
 
 制約:
 
@@ -36,14 +37,14 @@
 - XAML Binding / code-behind event handler の参照先を変えない。
 - persisted setting value、serialized name、DB schema、外部ファイル形式に触れない。
 - terminal apply callback、main table swap、timing / logging side effects は root に残す。
-- BuildGate、source materialize、chart-info patch mutation、view apply UI side effects は今回の ticket では動かさない。
+- BuildGate、source materialize、chart-info patch mutation、view apply UI side effects を動かす場合は、実装前に checkpoint / decision record を作る。
 - 1 ticket 内で 3 個以上の sub-ticket が必要になった場合は、実装前に checkpoint / decision record を作り直す。
 
 完了条件:
 
-- request queue / coalescing / dequeue / worker stop / shutdown cancellation の state mutation が専用 coordinator/helper へまとまっている。
-- root の `RegisterPlaylistSourceBuildRequest` / `ProcessPendingPlaylistBuildRequests` は、queue 操作の詳細ではなく coordinator API 呼び出し中心になっている。
-- coordinator/helper へ移した範囲を root なしで直接検証できる test がある。
+- 実行境界の checkpoint / decision record が active plan または別 docs に残っている。
+- 1 ticket で安全に移せる実装範囲が 1 件に定まっている、または小さな coordinator/helper 抽出が完了している。
+- root に残す UI apply / logging / lifecycle side effect と、service/coordinator へ移す pure/worker logic が明確になっている。
 - `SourceTextTestHelper.ReadMainWindowViewModelSourceText()` と playlist source-text tests が分割後も意図を検証できる。
 - behavior、persisted value、public user-facing text は変えない。
 
@@ -57,12 +58,12 @@
 
 ## Next
 
-次候補は最大 2 件に固定する。L-3c-2 が大きすぎると判明した場合は checkpoint を作り、次候補のどちらかを active ticket に戻す。
+次候補は最大 2 件に固定する。L-3c-3 では実装に入る前に移動単位が 1 件へ収束しているか確認する。
 
 | 候補 | 内容 | 着手条件 |
 |---|---|---|
-| L-3c-3 | Playlist detail source rebuild / view apply 実行境界の整理 | L-3c-2 完了後に詳細な実装プランを検討する |
-| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-2 の実装を阻害する test が特定された場合 |
+| L-3c-4 | L-3c-3 の decision に従う実装 ticket | L-3c-3 で実装単位が確定した後 |
+| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-3 の実装を阻害する test が特定された場合 |
 
 ## Later
 
