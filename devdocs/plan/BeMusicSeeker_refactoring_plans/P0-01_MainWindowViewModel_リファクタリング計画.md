@@ -45,8 +45,9 @@
 | 2026-07-06 | 完了 | Ticket I-4c: root forwarder / reflection test の直接化 | `689518ba` |
 | 2026-07-06 | 完了 | Ticket J-1: playback header DataContext 移行 | `1581fc9e` |
 | 2026-07-06 | 完了 | Ticket J-2: progress status bar DataContext 移行 | `798fe933` |
+| 2026-07-06 | 完了 | Ticket J-3: DataContext 移行後の binding 棚卸し | このコミット |
 
-次候補: Ticket J-3: DataContext 移行後の binding 棚卸し。
+次候補: Ticket K: MainWindowRuntimeContext 導入。
 
 ## 現在地サマリ
 
@@ -54,8 +55,8 @@
 
 | 領域 | 現在の状態 | 次に必要なこと |
 |---|---|---|
-| Playback | `PlaybackPanelViewModel` 導入済み。root pass-through と XAML root Binding は残る。 | XAML DataContext 移行、root facade 削除、UI handle 非依存 API へ寄せる。 |
-| Progress | `OperationProgressHubViewModel` 導入済み。root pass-through と一部副作用 relay は残る。 | XAML DataContext 移行、startup reducer / status presentation の service 化。 |
+| Playback | `PlaybackPanelViewModel` 導入済み。header 表示 XAML は `PlaybackPanel` DataContext へ移行済み。再生制御/seek/volume は root/code-behind 所有として残る。 | root facade 削除、UI handle 非依存 API へ寄せる。 |
+| Progress | `OperationProgressHubViewModel` 導入済み。StatusBar XAML は `ProgressHub` DataContext へ移行済み。cancel/retry/cleanup click handler は root/code-behind 所有として残る。 | startup reducer / status presentation の service 化、root pass-through 削除候補を P-4/Q で整理する。 |
 | Main chart list | `MainChartListViewModel`、`ChartListRefreshCoordinator`、`MainViewRefreshDecisionService` 導入済み。仮想一覧終端処理は coordinator 化済み。 | 通常一覧 pipeline、sort/filter state、column settings、keyword presentation を child/coordinator へ移す。 |
 | Playlist detail / summary | `PlaylistRequestFactory` と dialog partial 移動は完了。detail build、summary build、bulk mutation は root に大きく残る。 | `PlaylistWorkspaceViewModel` と detail/summary service を導入し、root を facade にする。 |
 | Play history | 読み取り、表示行構築、summary card、sort/filter が root に残る。 | `PlayHistoryWorkspaceViewModel` と presentation/read coordinator へ分ける。 |
@@ -1363,6 +1364,21 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 2. root pass-through 削除候補を Ticket P/Q へ送る。
 3. 手動 smoke test 項目を更新する。
 
+棚卸し結果:
+
+| 領域 | child DataContext へ移行済み | 意図的に root/code-behind に残すもの | 後続候補 |
+|---|---|---|---|
+| playback header | `gridPlayerTitle` と `gridBMSPlayerControlsTitle2` は `PlaybackPanel` DataContext。`PlayerHeaderTitle` / `PlayerHeaderSubtitle` / `PlayerHeaderArtist` は child VM 上で解決する。 | `windowsFormsHost` / `webBrowser` の `ElementName` visibility、`Settings.Default.PlayerPanelState` 系の static binding。 | `PlayerHeader*` / `BmsPlayerHeader*` / `MoviePlayerHeader*` の root pass-through は、XAML と code-behind の直接参照が外れた後に Ticket P-4 で削除候補にする。 |
+| playback controls | なし。J-1 では header 表示だけを移した。 | `NowPlayingBMS` は player host visibility と play button 表示に残る。`CurrentlyPlayingDuration` / `CurrentlyPlayingTime` は info 表示、current-time 表示、seek slider に残る。`PlayerVolume` は dropdown 内で root pass-through 経由のまま残る。play/stop/prev/next/fast-forward/seek/volume/dropdown の event handler は code-behind gesture と結合しているため、まだ root shell / code-behind 所有にする。 | UI handle 非依存の playback command API を作った後、Ticket Q-2 で command boundary を整理する。`PlayerVolume` pass-through は dropdown が `PlaybackPanel` を直接参照できるまで削除しない。 |
+| progress status bar | `StatusBar` は `ProgressHub` DataContext。startup / install / playlist sync / maintenance rescan / folder auto rename / LR2 song DB sync の表示 binding は child VM 上で解決する。 | `cancelDropInstallQueueClick`、`cancelMaintenanceRescanClick`、`retryLr2SongDbSyncClick`、`cancelLr2SongDbSyncClick`、`cleanupLr2SongDbSyncStartupScanBlockersClick`。resource static binding は view resource として維持する。 | `OperationProgressHubViewModel` への root pass-through は、XAML 以外の root 内部参照と tests を整理してから Ticket P-4 で削除候補にする。 |
+
+手動 smoke 追加項目:
+
+- 再生パネルの大/小表示で header title/subtitle/artist が表示される。
+- 再生/一時停止 icon、停止、前/次、早送り/巻き戻し押下解除、seek slider の hover/drag/release、current-time 表示、音量 menu の percent 表示と slider 双方向更新が J-1 後も root/code-behind 経由で動く。
+- startup/install/playlist sync/maintenance/folder rename/LR2 song DB sync の status bar 表示が出る操作を少なくとも 1 種類確認する。
+- install/maintenance/LR2 song DB sync の cancel/retry/cleanup button が表示条件を満たすと表示され、クリック handler が失われていない。
+
 完了条件:
 
 - もっとも独立性の高い 2 領域が root Binding から外れる。
@@ -1752,6 +1768,7 @@ playlist 更新系は副作用と確認範囲が広いため、1 ticket では�
 1. XAML / code-behind / tests が child VM を直接参照できるようになった property から root pass-through を削除する。
 2. 削除前に `rg` で production 参照と test 参照を分類する。
 3. test-only forwarder は service 直接検証へ置き換える。
+4. J-3 棚卸しで挙げた `PlayerHeader*` / `BmsPlayerHeader*` / `MoviePlayerHeader*` と progress 系 pass-through は、code-behind / root 内部参照が外れたものから削除候補にする。
 
 確認対象:
 
@@ -1849,8 +1866,8 @@ playlist 更新系は副作用と確認範囲が広いため、1 ticket では�
 4. メイン一覧の sort、keyword filter、mode filter を操作する。
 5. プレイリストサマリ表示、一括編集、プロパティ編集を開く。
 6. 設定画面を開き、保存せず閉じる/保存する/リセットする。
-7. 再生パネルで再生、停止、次、前、音量変更を試す。
-8. インストール推定/再スキャン/フォルダリネームなど進捗表示が出る操作を 1 つ実行する。
+7. 再生パネルで大/小表示の header、再生、停止、次、前、seek、音量変更を試す。
+8. インストール推定/再スキャン/フォルダリネーム/LR2 song DB sync など進捗表示が出る操作を 1 つ実行する。cancel/retry/cleanup button は install cancel、maintenance cancel、LR2 retry/cancel/cleanup を導線別に確認する。
 9. 終了時に shutdown 例外が出ない。
 
 ## 12. リスクと対策
