@@ -117,6 +117,8 @@ public sealed class PlaylistViewPipelineTests
         string playlistStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistState.cs");
         string buildStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildState.cs");
         string playlistViewStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewState");
+        string playlistSourceSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistSourceSnapshotState");
+        string playlistViewSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewSnapshotState");
 
         foreach (string rootFieldDeclaration in new[]
         {
@@ -138,6 +140,14 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(buildStateSource, "internal readonly SemaphoreSlim BuildGate = new(1, 1);");
         StringAssert.Contains(buildStateSource, "internal PlaylistBuildRequest PendingRequest;");
         StringAssert.Contains(buildStateSource, "internal bool ShutdownCancellationRequested;");
+        StringAssert.Contains(playlistSourceSnapshotStateSource, "internal List<PlaylistDetailSourceRow> Rows = [];");
+        StringAssert.Contains(playlistSourceSnapshotStateSource, "internal PlaylistSourceIdentity? CurrentIdentity;");
+        StringAssert.Contains(playlistViewSnapshotStateSource, "internal IList Rows = new List<object>();");
+        StringAssert.Contains(playlistViewSnapshotStateSource, "internal PlaylistRequestIdentity? CurrentIdentity;");
+        StringAssert.Contains(playlistViewStateSource, "internal readonly PlaylistSourceSnapshotState Source = new();");
+        StringAssert.Contains(playlistViewStateSource, "internal readonly PlaylistViewSnapshotState View = new();");
+        Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal List<PlaylistDetailSourceRow> SourceRows", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal IList CurrentViewRows", StringComparison.Ordinal));
         StringAssert.Contains(rootSource, "private readonly PlaylistDetailBuildState playlistDetailBuildState = new();");
         StringAssert.Contains(rootSource, "CreatePlaylistBuildRequestViewSnapshotUnsafe");
         StringAssert.Contains(rootSource, "playlistDetailBuildState.ShutdownCancellationRequested || IsShutdownRequested");

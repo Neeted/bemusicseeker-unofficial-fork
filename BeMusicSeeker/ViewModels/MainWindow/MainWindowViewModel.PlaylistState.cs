@@ -346,23 +346,12 @@ public partial class MainWindowViewModel
     /// プレイリスト詳細ビューの source snapshot を保持します。
     /// source は keyword/mode/sort 適用前の正本であり、表示更新は常にこの snapshot から再計算します。
     /// </summary>
-    private sealed class PlaylistViewState
+    private sealed class PlaylistSourceSnapshotState
     {
-        /// <summary>
-        /// source snapshot の更新を直列化します。
-        /// </summary>
-        internal readonly object SyncRoot = new();
-
         /// <summary>
         /// 現在表示の正本となるプレイリスト行集合です。
         /// </summary>
-        internal List<PlaylistDetailSourceRow> SourceRows = [];
-
-        /// <summary>
-        /// 現在一覧へ反映している表示用 snapshot です。
-        /// source と別インスタンスで保持し、UI 側の retained reference と source 正本を切り分けます。
-        /// </summary>
-        internal IList CurrentViewRows = new List<object>();
+        internal List<PlaylistDetailSourceRow> Rows = [];
 
         /// <summary>
         /// 現在表示中のプレイリストです。
@@ -382,28 +371,13 @@ public partial class MainWindowViewModel
         /// <summary>
         /// 現在の source snapshot 世代です。
         /// </summary>
-        internal long SourceGenerationId;
-
-        /// <summary>
-        /// 現在採用中の view 世代です。
-        /// </summary>
-        internal long CurrentViewGenerationId;
-
-        /// <summary>
-        /// 現在採用中 view の件数です。
-        /// </summary>
-        internal int LastAppliedViewCount;
-
-        /// <summary>
-        /// 現在採用中 view の identity です。
-        /// </summary>
-        internal PlaylistRequestIdentity? CurrentViewIdentity;
+        internal long GenerationId;
 
         /// <summary>
         /// 現在採用中 source snapshot の identity です。
         /// keyword/mode/sort とは独立して、source rebuild 要否を判定します。
         /// </summary>
-        internal PlaylistSourceIdentity? CurrentSourceIdentity;
+        internal PlaylistSourceIdentity? CurrentIdentity;
 
         /// <summary>
         /// 直前に source build を完了した library index 版数です。
@@ -444,22 +418,64 @@ public partial class MainWindowViewModel
         /// <summary>
         /// 直前に置き換えた source snapshot の弱参照です。
         /// </summary>
-        internal WeakReference<List<PlaylistDetailSourceRow>> PreviousSourceRowsWeakReference;
+        internal WeakReference<List<PlaylistDetailSourceRow>> PreviousRowsWeakReference;
 
         /// <summary>
         /// 直前に置き換えた source snapshot 世代です。
         /// </summary>
-        internal long PreviousSourceGenerationId;
+        internal long PreviousGenerationId;
+    }
+
+    /// <summary>
+    /// プレイリスト詳細ビューに現在採用されている view snapshot を保持します。
+    /// </summary>
+    private sealed class PlaylistViewSnapshotState
+    {
+        /// <summary>
+        /// 現在一覧へ反映している表示用 snapshot です。
+        /// source と別インスタンスで保持し、UI 側の retained reference と source 正本を切り分けます。
+        /// </summary>
+        internal IList Rows = new List<object>();
+
+        /// <summary>
+        /// 現在採用中の view 世代です。
+        /// </summary>
+        internal long GenerationId;
+
+        /// <summary>
+        /// 現在採用中 view の件数です。
+        /// </summary>
+        internal int LastAppliedCount;
+
+        /// <summary>
+        /// 現在採用中 view の identity です。
+        /// </summary>
+        internal PlaylistRequestIdentity? CurrentIdentity;
 
         /// <summary>
         /// 直前に置き換えた view の弱参照です。
         /// </summary>
-        internal WeakReference<IList> PreviousViewRowsWeakReference;
+        internal WeakReference<IList> PreviousRowsWeakReference;
 
         /// <summary>
         /// 直前に置き換えた view 世代です。
         /// </summary>
-        internal long PreviousViewGenerationId;
+        internal long PreviousGenerationId;
+    }
+
+    /// <summary>
+    /// プレイリスト詳細ビュー全体の snapshot 状態を束ねます。
+    /// </summary>
+    private sealed class PlaylistViewState
+    {
+        /// <summary>
+        /// source / view snapshot の更新を直列化します。
+        /// </summary>
+        internal readonly object SyncRoot = new();
+
+        internal readonly PlaylistSourceSnapshotState Source = new();
+
+        internal readonly PlaylistViewSnapshotState View = new();
 
         /// <summary>
         /// 現在追跡中の playlist open interaction です。

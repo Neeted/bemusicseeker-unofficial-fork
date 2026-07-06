@@ -6,13 +6,13 @@
 
 ## Active Ticket
 
-L-3b-4: Playlist source / view snapshot state 抽出
+L-3c: Playlist detail build coordinator 化
 
 目的:
 
-- `PlaylistViewState` に残る source / view snapshot と build workflow の境界を明確にする。
-- playlist source identity / current view identity / previous snapshot retention を、後続の playlist coordinator 化へ渡せる形にする。
-- terminal apply / UI timing / root shell side effects はまだ root に残す。
+- playlist detail の request scheduling / cancellation / source build / view apply のうち、root shell に残すべき UI timing / terminal apply 以外を coordinator 境界へ寄せる。
+- `PlaylistDetailBuildState`、`PlaylistSourceSnapshotState`、`PlaylistViewSnapshotState` を root の private state から coordinator 入り口へ渡しやすい形にする。
+- root は shell state、logging、UI thread apply、dialog/lifecycle side effects を担当し、build workflow の分岐を薄くする。
 
 次に読む:
 
@@ -23,8 +23,8 @@ L-3b-4: Playlist source / view snapshot state 抽出
 
 | 順 | 候補 | 条件 |
 |---:|---|---|
-| 1 | L-3c: Playlist detail build coordinator 化 | L-3b-4 と test blocker 解消後 |
-| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3b-4 の実装を阻害する test が特定された場合 |
+| 1 | L-3c-checkpoint: coordinator 化の decision record / 実装単位再分割 | L-3c が 3 個以上の sub-ticket を必要とすると判明した場合 |
+| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3c の実装を阻害する test が特定された場合 |
 
 ## Blocked / Waiting
 
@@ -38,14 +38,14 @@ L-3b-4: Playlist source / view snapshot state 抽出
 
 | 計画 | 現在地 | 並行可否 |
 |---|---|---|
-| P0-01 | P0-01-C2 完了。active は L-3b-4 | WIP は原則 1 ticket |
+| P0-01 | L-3b-4 完了。active は L-3c | WIP は原則 1 ticket |
 | P0-02 | BMSLibrary Phase 0 は未着手 | source-text helper / reflection inventory / dependency inventory は即並行可 |
 | P0-03 | MainWindow UI Phase 0 は未着手。一部 DataContext 移行は P0-01 で先行済み | event handler inventory / `async void` 分類は即並行可 |
 | P0-04 | SDK 10 + `net472` baseline。TFM は未変更 | TFM 変更なしの棚卸しは即並行可 |
 
 ## Latest Completed Ticket
 
-P0-01-C2: playlist identity / state nested types を `MainWindowViewModel.PlaylistState.cs` partial へ移動。
+L-3b-4: playlist source / view snapshot state を `PlaylistSourceSnapshotState` / `PlaylistViewSnapshotState` として分離し、`PlaylistViewState` は snapshot state の owner に寄せた。
 
 実行した確認:
 

@@ -1462,10 +1462,10 @@ public partial class MainWindowViewModel : ViewModel
         long previousViewGenerationId;
         lock (playlistViewState.SyncRoot)
         {
-            previousSourceWeakReference = playlistViewState.PreviousSourceRowsWeakReference;
-            previousViewWeakReference = playlistViewState.PreviousViewRowsWeakReference;
-            previousSourceGenerationId = playlistViewState.PreviousSourceGenerationId;
-            previousViewGenerationId = playlistViewState.PreviousViewGenerationId;
+            previousSourceWeakReference = playlistViewState.Source.PreviousRowsWeakReference;
+            previousViewWeakReference = playlistViewState.View.PreviousRowsWeakReference;
+            previousSourceGenerationId = playlistViewState.Source.PreviousGenerationId;
+            previousViewGenerationId = playlistViewState.View.PreviousGenerationId;
         }
         List<PlaylistDetailSourceRow> previousSourceRows = null;
         IList previousViewRows = null;
@@ -1588,8 +1588,8 @@ public partial class MainWindowViewModel : ViewModel
             WeakReference<IList> previousViewWeakReference;
             lock (playlistViewState.SyncRoot)
             {
-                previousSourceWeakReference = playlistViewState.PreviousSourceRowsWeakReference;
-                previousViewWeakReference = playlistViewState.PreviousViewRowsWeakReference;
+                previousSourceWeakReference = playlistViewState.Source.PreviousRowsWeakReference;
+                previousViewWeakReference = playlistViewState.View.PreviousRowsWeakReference;
             }
             List<PlaylistDetailSourceRow> previousSourceRows = null;
             IList previousViewRows = null;
@@ -2317,8 +2317,8 @@ public partial class MainWindowViewModel : ViewModel
                     playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc = completedAtUtc;
                 }
                 playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc = completedAtUtc;
-                playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId = playlistViewState.SourceGenerationId;
-                playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId = playlistViewState.CurrentViewGenerationId;
+                playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId = playlistViewState.Source.GenerationId;
+                playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId = playlistViewState.View.GenerationId;
                 playlistViewState.CurrentOpenInteraction.ViewCount = viewCount;
                 playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged = false;
             }
@@ -2404,8 +2404,8 @@ public partial class MainWindowViewModel : ViewModel
         long nextRevision;
         lock (playlistViewState.SyncRoot)
         {
-            playlistViewState.PlaylistContentRevision++;
-            nextRevision = playlistViewState.PlaylistContentRevision;
+            playlistViewState.Source.PlaylistContentRevision++;
+            nextRevision = playlistViewState.Source.PlaylistContentRevision;
         }
         LogPlaylistWorker("playlist_revision incremented revision=" + nextRevision + " reason=" + reason);
         return nextRevision;
@@ -2417,9 +2417,9 @@ public partial class MainWindowViewModel : ViewModel
     private PlaylistBuildRequestViewSnapshot CreatePlaylistBuildRequestViewSnapshotUnsafe()
     {
         return new PlaylistBuildRequestViewSnapshot(
-            playlistViewState.PlaylistContentRevision,
-            playlistViewState.LastBuiltScoreSnapshotVersion,
-            playlistViewState.CurrentViewIdentity);
+            playlistViewState.Source.PlaylistContentRevision,
+            playlistViewState.Source.LastBuiltScoreSnapshotVersion,
+            playlistViewState.View.CurrentIdentity);
     }
 
     /// <summary>
@@ -4776,7 +4776,7 @@ public partial class MainWindowViewModel : ViewModel
 
     /// <summary>
     /// 通常一覧 / playlist 詳細の chart row view を <see cref="ChartRowsView"/> binding へ差し替えます。
-    /// playlist 詳細表示では <see cref="PlaylistViewState.CurrentViewRows"/> を先に更新してから呼び出します。
+    /// playlist 詳細表示では <see cref="PlaylistViewState.View"/> を先に更新してから呼び出します。
     /// </summary>
     /// <param name="rows">新しい表示行。</param>
     private void SetChartRowsView(IList rows)
@@ -7982,37 +7982,37 @@ public partial class MainWindowViewModel : ViewModel
         {
             lock (playlistViewState.SyncRoot)
             {
-                sourceRowsToDispose = playlistViewState.SourceRows;
-                previousGenerationId = playlistViewState.SourceGenerationId;
-                currentViewRows = playlistViewState.CurrentViewRows;
-                long previousViewGenerationId = playlistViewState.CurrentViewGenerationId;
+                sourceRowsToDispose = playlistViewState.Source.Rows;
+                previousGenerationId = playlistViewState.Source.GenerationId;
+                currentViewRows = playlistViewState.View.Rows;
+                long previousViewGenerationId = playlistViewState.View.GenerationId;
                 if (sourceRowsToDispose != null)
                 {
-                    playlistViewState.PreviousSourceRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRowsToDispose);
-                    playlistViewState.PreviousSourceGenerationId = previousGenerationId;
+                    playlistViewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRowsToDispose);
+                    playlistViewState.Source.PreviousGenerationId = previousGenerationId;
                 }
                 if (currentViewRows != null)
                 {
-                    playlistViewState.PreviousViewRowsWeakReference = new WeakReference<IList>(currentViewRows);
-                    playlistViewState.PreviousViewGenerationId = previousViewGenerationId;
+                    playlistViewState.View.PreviousRowsWeakReference = new WeakReference<IList>(currentViewRows);
+                    playlistViewState.View.PreviousGenerationId = previousViewGenerationId;
                 }
-                playlistViewState.SourceRows = [];
-                playlistViewState.CurrentViewRows = new List<object>();
-                playlistViewState.CurrentTable = null;
-                playlistViewState.CurrentFolderName = null;
-                playlistViewState.CurrentFilterType = PlaylistFilterType.PlaylistFilter;
-                playlistViewState.CurrentViewIdentity = null;
-                playlistViewState.CurrentSourceIdentity = null;
+                playlistViewState.Source.Rows = [];
+                playlistViewState.View.Rows = new List<object>();
+                playlistViewState.Source.CurrentTable = null;
+                playlistViewState.Source.CurrentFolderName = null;
+                playlistViewState.Source.CurrentFilterType = PlaylistFilterType.PlaylistFilter;
+                playlistViewState.View.CurrentIdentity = null;
+                playlistViewState.Source.CurrentIdentity = null;
                 playlistViewState.CurrentOpenInteraction = null;
-                playlistViewState.LastBuiltLibraryIndexVersion = 0L;
-                playlistViewState.LastBuiltPlaylistRevision = 0L;
-                playlistViewState.LastBuiltScoreSnapshotVersion = 0;
-                playlistViewState.LastBuiltChartInfoIndexVersion = 0;
-                playlistViewState.SourceGenerationId = 0L;
-                playlistViewState.CurrentViewGenerationId = 0L;
-                playlistViewState.LastAppliedViewCount = 0;
-                playlistViewState.IsPlaylistCellEditing = false;
-                playlistViewState.PendingScoreSnapshotRefreshVersion = 0;
+                playlistViewState.Source.LastBuiltLibraryIndexVersion = 0L;
+                playlistViewState.Source.LastBuiltPlaylistRevision = 0L;
+                playlistViewState.Source.LastBuiltScoreSnapshotVersion = 0;
+                playlistViewState.Source.LastBuiltChartInfoIndexVersion = 0;
+                playlistViewState.Source.GenerationId = 0L;
+                playlistViewState.View.GenerationId = 0L;
+                playlistViewState.View.LastAppliedCount = 0;
+                playlistViewState.Source.IsPlaylistCellEditing = false;
+                playlistViewState.Source.PendingScoreSnapshotRefreshVersion = 0;
             }
             playlistDetailBuildState.CurrentBuildRequest = null;
         }
@@ -8037,25 +8037,25 @@ public partial class MainWindowViewModel : ViewModel
         long nextGenerationId = 0L;
         lock (playlistViewState.SyncRoot)
         {
-            previousSourceRows = playlistViewState.SourceRows;
-            previousGenerationId = playlistViewState.SourceGenerationId;
+            previousSourceRows = playlistViewState.Source.Rows;
+            previousGenerationId = playlistViewState.Source.GenerationId;
             if (previousSourceRows != null)
             {
-                playlistViewState.PreviousSourceRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(previousSourceRows);
-                playlistViewState.PreviousSourceGenerationId = previousGenerationId;
+                playlistViewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(previousSourceRows);
+                playlistViewState.Source.PreviousGenerationId = previousGenerationId;
             }
-            playlistViewState.SourceRows = sourceRows ?? [];
-            playlistViewState.CurrentTable = currentTable;
-            playlistViewState.CurrentFolderName = currentFolderName;
-            playlistViewState.CurrentFilterType = currentFilterType;
-            playlistViewState.LastBuiltLibraryIndexVersion = requestIdentity.LibraryIndexVersion;
-            playlistViewState.LastBuiltPlaylistRevision = requestIdentity.PlaylistRevision;
-            playlistViewState.LastBuiltScoreSnapshotVersion = requestIdentity.ScoreSnapshotVersion;
-            playlistViewState.LastBuiltChartInfoIndexVersion = requestIdentity.ChartInfoIndexVersion;
-            playlistViewState.CurrentSourceIdentity = requestIdentity.SourceIdentity;
-            playlistViewState.SourceGenerationId++;
-            nextGenerationId = playlistViewState.SourceGenerationId;
-            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.CurrentViewRows);
+            playlistViewState.Source.Rows = sourceRows ?? [];
+            playlistViewState.Source.CurrentTable = currentTable;
+            playlistViewState.Source.CurrentFolderName = currentFolderName;
+            playlistViewState.Source.CurrentFilterType = currentFilterType;
+            playlistViewState.Source.LastBuiltLibraryIndexVersion = requestIdentity.LibraryIndexVersion;
+            playlistViewState.Source.LastBuiltPlaylistRevision = requestIdentity.PlaylistRevision;
+            playlistViewState.Source.LastBuiltScoreSnapshotVersion = requestIdentity.ScoreSnapshotVersion;
+            playlistViewState.Source.LastBuiltChartInfoIndexVersion = requestIdentity.ChartInfoIndexVersion;
+            playlistViewState.Source.CurrentIdentity = requestIdentity.SourceIdentity;
+            playlistViewState.Source.GenerationId++;
+            nextGenerationId = playlistViewState.Source.GenerationId;
+            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.View.Rows);
         }
         LogPlaylistWeakReferenceStatus("before_source_replace");
         LogPlaylistRetention("playlist_source_replace action=replace generationId=" + nextGenerationId + " previousGenerationId=" + previousGenerationId + " sourceCount=" + (sourceRows?.Count ?? 0) + " disposedCount=" + CountPlaylistSourceRows(previousSourceRows) + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive);
@@ -8077,19 +8077,19 @@ public partial class MainWindowViewModel : ViewModel
         int sourceRowsAlive = 0;
         lock (playlistViewState.SyncRoot)
         {
-            previousViewRows = playlistViewState.CurrentViewRows;
-            previousViewGenerationId = playlistViewState.CurrentViewGenerationId;
+            previousViewRows = playlistViewState.View.Rows;
+            previousViewGenerationId = playlistViewState.View.GenerationId;
             if (previousViewRows != null)
             {
-                playlistViewState.PreviousViewRowsWeakReference = new WeakReference<IList>(previousViewRows);
-                playlistViewState.PreviousViewGenerationId = previousViewGenerationId;
+                playlistViewState.View.PreviousRowsWeakReference = new WeakReference<IList>(previousViewRows);
+                playlistViewState.View.PreviousGenerationId = previousViewGenerationId;
             }
-            playlistViewState.CurrentViewRows = viewRows ?? new List<object>();
-            playlistViewState.CurrentViewGenerationId++;
-            currentViewGenerationId = playlistViewState.CurrentViewGenerationId;
-            playlistViewState.LastAppliedViewCount = playlistViewState.CurrentViewRows.Count;
-            playlistViewState.CurrentViewIdentity = requestIdentity;
-            sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.SourceRows);
+            playlistViewState.View.Rows = viewRows ?? new List<object>();
+            playlistViewState.View.GenerationId++;
+            currentViewGenerationId = playlistViewState.View.GenerationId;
+            playlistViewState.View.LastAppliedCount = playlistViewState.View.Rows.Count;
+            playlistViewState.View.CurrentIdentity = requestIdentity;
+            sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.Source.Rows);
         }
         LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(viewRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(previousViewRows) + " disposedCount=" + CountPlaylistDetailRows(previousViewRows) + " selectedIndex=" + SelectedIndexChartRowsView);
         return previousViewRows;
@@ -8458,7 +8458,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             lock (playlistViewState.SyncRoot)
             {
-                return playlistViewState.SourceGenerationId;
+                return playlistViewState.Source.GenerationId;
             }
         }
     }
@@ -8472,7 +8472,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             lock (playlistViewState.SyncRoot)
             {
-                return playlistViewState.CurrentViewGenerationId;
+                return playlistViewState.View.GenerationId;
             }
         }
     }
@@ -8496,11 +8496,11 @@ public partial class MainWindowViewModel : ViewModel
         int lastAppliedViewCount;
         lock (playlistViewState.SyncRoot)
         {
-            currentSourceGenerationId = playlistViewState.SourceGenerationId;
-            currentViewGenerationId = playlistViewState.CurrentViewGenerationId;
-            sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.SourceRows);
-            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.CurrentViewRows);
-            lastAppliedViewCount = playlistViewState.LastAppliedViewCount;
+            currentSourceGenerationId = playlistViewState.Source.GenerationId;
+            currentViewGenerationId = playlistViewState.View.GenerationId;
+            sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.Source.Rows);
+            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.View.Rows);
+            lastAppliedViewCount = playlistViewState.View.LastAppliedCount;
         }
         bool stale = currentSourceGenerationId != expectedSourceGenerationId || currentViewGenerationId != expectedViewGenerationId;
         LogPlaylistRetention("playlist_ui_retention_checkpoint checkpoint=" + checkpoint + " expectedSourceGenerationId=" + expectedSourceGenerationId + " expectedViewGenerationId=" + expectedViewGenerationId + " currentSourceGenerationId=" + currentSourceGenerationId + " currentViewGenerationId=" + currentViewGenerationId + " stale=" + stale + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + currentViewRowsAlive + " lastAppliedViewCount=" + lastAppliedViewCount);
@@ -13002,9 +13002,9 @@ public partial class MainWindowViewModel : ViewModel
         long sourceGenerationId;
         lock (playlistViewState.SyncRoot)
         {
-            sourceRows = playlistViewState.SourceRows;
-            sourceGenerationId = playlistViewState.SourceGenerationId;
-            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.CurrentViewRows);
+            sourceRows = playlistViewState.Source.Rows;
+            sourceGenerationId = playlistViewState.Source.GenerationId;
+            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.View.Rows);
         }
         sourceRows ??= [];
         sourceCount = sourceRows.Count;
@@ -13069,7 +13069,7 @@ public partial class MainWindowViewModel : ViewModel
                 return true;
             }
             cancellationStage = "view_apply";
-            LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(playlistViewState.CurrentViewRows));
+            LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(playlistViewState.View.Rows));
             finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
             int viewCount = finalRows.Count;
             LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortProfile=" + sortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows));
@@ -13163,7 +13163,7 @@ public partial class MainWindowViewModel : ViewModel
         List<PlaylistDetailSourceRow> sourceRows;
         lock (playlistViewState.SyncRoot)
         {
-            sourceRows = playlistViewState.SourceRows;
+            sourceRows = playlistViewState.Source.Rows;
         }
         if (sourceRows == null)
         {
@@ -13191,9 +13191,9 @@ public partial class MainWindowViewModel : ViewModel
         }
         lock (playlistViewState.SyncRoot)
         {
-            playlistViewState.LastBuiltChartInfoIndexVersion = request.Identity.ChartInfoIndexVersion;
-            playlistViewState.CurrentSourceIdentity = request.Identity.SourceIdentity;
-            playlistViewState.SourceGenerationId++;
+            playlistViewState.Source.LastBuiltChartInfoIndexVersion = request.Identity.ChartInfoIndexVersion;
+            playlistViewState.Source.CurrentIdentity = request.Identity.SourceIdentity;
+            playlistViewState.Source.GenerationId++;
         }
         stopwatch.Stop();
         elapsedMs = stopwatch.ElapsedMilliseconds;
@@ -13251,16 +13251,16 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistRequestIdentity? currentViewIdentity;
         lock (playlistViewState.SyncRoot)
         {
-            sourceRows = playlistViewState.SourceRows;
-            currentTable = playlistViewState.CurrentTable;
-            currentFolderName = playlistViewState.CurrentFolderName;
-            currentFilterType = playlistViewState.CurrentFilterType;
-            lastBuiltLibraryIndexVersion = playlistViewState.LastBuiltLibraryIndexVersion;
-            lastBuiltPlaylistRevision = playlistViewState.LastBuiltPlaylistRevision;
-            lastBuiltScoreSnapshotVersion = playlistViewState.LastBuiltScoreSnapshotVersion;
-            lastBuiltChartInfoIndexVersion = playlistViewState.LastBuiltChartInfoIndexVersion;
-            currentSourceIdentity = playlistViewState.CurrentSourceIdentity;
-            currentViewIdentity = playlistViewState.CurrentViewIdentity;
+            sourceRows = playlistViewState.Source.Rows;
+            currentTable = playlistViewState.Source.CurrentTable;
+            currentFolderName = playlistViewState.Source.CurrentFolderName;
+            currentFilterType = playlistViewState.Source.CurrentFilterType;
+            lastBuiltLibraryIndexVersion = playlistViewState.Source.LastBuiltLibraryIndexVersion;
+            lastBuiltPlaylistRevision = playlistViewState.Source.LastBuiltPlaylistRevision;
+            lastBuiltScoreSnapshotVersion = playlistViewState.Source.LastBuiltScoreSnapshotVersion;
+            lastBuiltChartInfoIndexVersion = playlistViewState.Source.LastBuiltChartInfoIndexVersion;
+            currentSourceIdentity = playlistViewState.Source.CurrentIdentity;
+            currentViewIdentity = playlistViewState.View.CurrentIdentity;
         }
         bool hasResolvedPlaylistSource = currentSourceIdentity.HasValue || currentTable != null || currentFilterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected;
         bool selectionChanged = !currentSourceIdentity.HasValue || currentTable != request.Identity.Table || !string.Equals(NormalizePlaylistFolderName(currentFolderName), request.Identity.FolderName, StringComparison.Ordinal) || currentFilterType != request.Identity.FilterType || currentSourceIdentity.Value.HasResolvedSelection != request.Identity.HasResolvedSelection;
@@ -16648,7 +16648,7 @@ public partial class MainWindowViewModel : ViewModel
         bool updated = false;
         lock (playlistViewState.SyncRoot)
         {
-            foreach (PlaylistDetailSourceRow sourceRow in playlistViewState.SourceRows ?? Enumerable.Empty<PlaylistDetailSourceRow>())
+            foreach (PlaylistDetailSourceRow sourceRow in playlistViewState.Source.Rows ?? Enumerable.Empty<PlaylistDetailSourceRow>())
             {
                 if (sourceRow != null && ReferenceEquals(sourceRow.Entry, playlistRow.Entry))
                 {
@@ -16672,7 +16672,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (playlistViewState.SyncRoot)
         {
-            playlistViewState.IsPlaylistCellEditing = true;
+            playlistViewState.Source.IsPlaylistCellEditing = true;
         }
     }
 
@@ -16686,12 +16686,12 @@ public partial class MainWindowViewModel : ViewModel
         int lastBuiltScoreSnapshotVersion = 0;
         lock (playlistViewState.SyncRoot)
         {
-            playlistViewState.IsPlaylistCellEditing = false;
-            pendingScoreSnapshotVersion = playlistViewState.PendingScoreSnapshotRefreshVersion;
-            lastBuiltScoreSnapshotVersion = playlistViewState.LastBuiltScoreSnapshotVersion;
+            playlistViewState.Source.IsPlaylistCellEditing = false;
+            pendingScoreSnapshotVersion = playlistViewState.Source.PendingScoreSnapshotRefreshVersion;
+            lastBuiltScoreSnapshotVersion = playlistViewState.Source.LastBuiltScoreSnapshotVersion;
             if (pendingScoreSnapshotVersion > lastBuiltScoreSnapshotVersion)
             {
-                playlistViewState.PendingScoreSnapshotRefreshVersion = 0;
+                playlistViewState.Source.PendingScoreSnapshotRefreshVersion = 0;
             }
         }
         if (!IsPlaylistDetailViewActive || pendingScoreSnapshotVersion <= lastBuiltScoreSnapshotVersion)
@@ -16716,14 +16716,14 @@ public partial class MainWindowViewModel : ViewModel
         bool deferRefresh = false;
         lock (playlistViewState.SyncRoot)
         {
-            lastBuiltScoreSnapshotVersion = playlistViewState.LastBuiltScoreSnapshotVersion;
+            lastBuiltScoreSnapshotVersion = playlistViewState.Source.LastBuiltScoreSnapshotVersion;
             if (scoreSnapshotVersion <= lastBuiltScoreSnapshotVersion)
             {
                 return;
             }
-            if (playlistViewState.IsPlaylistCellEditing)
+            if (playlistViewState.Source.IsPlaylistCellEditing)
             {
-                playlistViewState.PendingScoreSnapshotRefreshVersion = Math.Max(playlistViewState.PendingScoreSnapshotRefreshVersion, scoreSnapshotVersion);
+                playlistViewState.Source.PendingScoreSnapshotRefreshVersion = Math.Max(playlistViewState.Source.PendingScoreSnapshotRefreshVersion, scoreSnapshotVersion);
                 deferRefresh = true;
             }
         }

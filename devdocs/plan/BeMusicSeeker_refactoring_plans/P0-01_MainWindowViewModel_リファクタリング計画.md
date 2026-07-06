@@ -14,20 +14,20 @@
 
 | 項目 | 現状 |
 |---|---|
-| `MainWindowViewModel.cs` | 23,573 行。C2 で playlist identity / state nested types を partial split 済み |
-| `MainWindowViewModel.PlaylistState.cs` | 469 行。playlist source / view snapshot state の受け皿 |
-| 直近の完了 | P0-01-C2: playlist identity / state nested types の partial split |
-| 次の active ticket | L-3b-4: Playlist source / view snapshot state 抽出 |
+| `MainWindowViewModel.cs` | 23,573 行。playlist source / view snapshot state の owner を partial 側で分離済み |
+| `MainWindowViewModel.PlaylistState.cs` | 485 行。playlist identity / source snapshot / view snapshot state の受け皿 |
+| 直近の完了 | L-3b-4: Playlist source / view snapshot state 抽出 |
+| 次の active ticket | L-3c: Playlist detail build coordinator 化 |
 
 ## Now
 
-### Active Ticket L-3b-4: Playlist source / view snapshot state 抽出
+### Active Ticket L-3c: Playlist detail build coordinator 化
 
 目的:
 
-- `PlaylistViewState` に残る source / view snapshot と build workflow の境界を明確にする。
-- playlist source identity / current view identity / previous snapshot retention を、後続の playlist coordinator 化へ渡せる形にする。
-- terminal apply / UI timing / root shell side effects はまだ root に残す。
+- playlist detail の request scheduling / cancellation / source build / view apply のうち、root shell に残すべき UI timing / terminal apply 以外を coordinator 境界へ寄せる。
+- `PlaylistDetailBuildState`、`PlaylistSourceSnapshotState`、`PlaylistViewSnapshotState` を root の private state から coordinator 入り口へ渡しやすい形にする。
+- root は shell state、logging、UI thread apply、dialog/lifecycle side effects を担当し、build workflow の分岐を薄くする。
 
 制約:
 
@@ -35,12 +35,13 @@
 - XAML Binding / code-behind event handler の参照先を変えない。
 - persisted setting value、serialized name、DB schema、外部ファイル形式に触れない。
 - terminal apply callback、main table swap、timing / logging side effects は root に残す。
+- 1 ticket 内で coordinator 抽出が大きすぎる場合は、実装前に checkpoint / decision record を作り、次の active ticket を再設定する。
 - 1 ticket 内で 3 個以上の sub-ticket が必要になった場合は、実装前に checkpoint / decision record を作り直す。
 
 完了条件:
 
-- playlist source / view snapshot state の owner が `PlaylistViewState` 内でより明確になっている、または専用 helper/state に切り出されている。
-- `PlaylistViewState` の build worker state と source / view snapshot state が混ざらない。
+- playlist detail build workflow の coordinator 境界ができ、root の build scheduling / cancellation / source build / view apply 分岐が縮小している。
+- coordinator / helper へ移した範囲を root なしで直接検証できる test がある、または既存 service test へ寄せられている。
 - `SourceTextTestHelper.ReadMainWindowViewModelSourceText()` と playlist source-text tests が分割後も意図を検証できる。
 - behavior、persisted value、public user-facing text は変えない。
 
@@ -54,12 +55,12 @@
 
 ## Next
 
-次候補は最大 2 件に固定する。L-3b-4 完了時は `L-3c` / `P0-01-C3` のどちらかを次の active ticket にする。
+次候補は最大 2 件に固定する。L-3c が大きすぎると判明した場合は checkpoint を作り、次候補のどちらかを active ticket に戻す。
 
 | 候補 | 内容 | 着手条件 |
 |---|---|---|
-| L-3c | Playlist detail build coordinator 化 | L-3b-4 と test blocker 解消後 |
-| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3b-4 の実装を阻害する test が特定された場合 |
+| L-3c-checkpoint | Playlist detail build coordinator 化の decision record / 実装単位再分割 | L-3c が 3 個以上の sub-ticket を必要とすると判明した場合 |
+| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c の実装を阻害する test が特定された場合 |
 
 ## Later
 
