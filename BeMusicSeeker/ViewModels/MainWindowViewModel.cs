@@ -8425,28 +8425,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private static HashSet<int?> CreateModeFilterValueSet(ModeFilterType modeFilter)
     {
-        HashSet<int?> modeValues = [null];
-        if ((modeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
-        {
-            modeValues.Add(5);
-        }
-        if ((modeFilter & ModeFilterType._7KEYS) == ModeFilterType._7KEYS)
-        {
-            modeValues.Add(7);
-        }
-        if ((modeFilter & ModeFilterType._9KEYS) == ModeFilterType._9KEYS)
-        {
-            modeValues.Add(9);
-        }
-        if ((modeFilter & ModeFilterType._10KEYS) == ModeFilterType._10KEYS)
-        {
-            modeValues.Add(10);
-        }
-        if ((modeFilter & ModeFilterType._14KEYS) == ModeFilterType._14KEYS)
-        {
-            modeValues.Add(14);
-        }
-        return modeValues;
+        return RegularChartListFilterService.CreateModeFilterValueSet(modeFilter);
     }
 
     private ResourceHealthWarningProjection GetResourceHealthProjectionForRow(LibraryChartRow row)
@@ -14104,10 +14083,7 @@ public partial class MainWindowViewModel : ViewModel
             if (!string.IsNullOrWhiteSpace(regularRequest.KeywordFilter))
             {
                 ChartRowsKeywordFilterView = [];
-                var query = GridKeywordSearchQuery.Parse(regularRequest.KeywordFilter);
-                ChartRowsKeywordFilterView = from r in ChartRowsFolderView.AsParallel()
-                                             where query.MatchesLibraryChartRow(r)
-                                             select r;
+                ChartRowsKeywordFilterView = RegularChartListFilterService.ApplyKeywordFilter(ChartRowsFolderView, regularRequest.KeywordFilter);
             }
             else
             {
@@ -14123,28 +14099,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             if (regularRequest.ModeFilter != ModeFilterType.All)
             {
-                List<int?> modeFlag = [null];
-                if ((regularRequest.ModeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
-                {
-                    modeFlag.Add(5);
-                }
-                if ((regularRequest.ModeFilter & ModeFilterType._7KEYS) == ModeFilterType._7KEYS)
-                {
-                    modeFlag.Add(7);
-                }
-                if ((regularRequest.ModeFilter & ModeFilterType._9KEYS) == ModeFilterType._9KEYS)
-                {
-                    modeFlag.Add(9);
-                }
-                if ((regularRequest.ModeFilter & ModeFilterType._10KEYS) == ModeFilterType._10KEYS)
-                {
-                    modeFlag.Add(10);
-                }
-                if ((regularRequest.ModeFilter & ModeFilterType._14KEYS) == ModeFilterType._14KEYS)
-                {
-                    modeFlag.Add(14);
-                }
-                ChartRowsModeFilterView = ChartRowsKeywordFilterView.Where(f => modeFlag.Contains(f.mode));
+                ChartRowsModeFilterView = RegularChartListFilterService.ApplyModeFilter(ChartRowsKeywordFilterView, regularRequest.ModeFilter);
             }
             else
             {
