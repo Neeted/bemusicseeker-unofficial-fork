@@ -15,8 +15,8 @@ public sealed class RegularChartListSortCoordinatorTests
         List<LibraryChartRow> previousFolderSource = [];
         List<LibraryChartRow> previousFolderResult = [];
         RegularChartListRefreshRequest request = CreateRequest(
-            MainWindowViewModel.viewUpdateMode.UpdatedNone,
-            MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged);
+            MainViewUpdateMode.UpdatedNone,
+            MainViewUpdateMode.TreeViewFilterNotChanged);
         RegularChartListStageState stage = CreateStage(sourceRows);
         var context = new RegularChartListSortContext
         {
@@ -44,12 +44,12 @@ public sealed class RegularChartListSortCoordinatorTests
         List<LibraryChartRow> sourceRows = [];
         List<LibraryChartRow> sortedSnapshot = [];
         RegularChartListRefreshRequest request = CreateRequest(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected);
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.DuplicateFilterSelected);
         RegularChartListStageState stage = CreateStage(sourceRows);
         var context = new RegularChartListSortContext
         {
-            CurrentTreeMode = MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            CurrentTreeMode = MainViewUpdateMode.FolderFilterSelected,
             FolderSortSourceSnapshot = sourceRows,
             FolderSortResultSnapshot = sortedSnapshot,
             FolderSortColumnName = nameof(LibraryChartRow.Title),
@@ -75,12 +75,12 @@ public sealed class RegularChartListSortCoordinatorTests
         var cacheKey = new NormalLibrarySortCacheKey(1, 2, nameof(LibraryChartRow.Title), ListSortDirection.Ascending, cachedRows.Count);
         bool logged = false;
         RegularChartListRefreshRequest request = CreateRequest(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected);
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.DuplicateFilterSelected);
         RegularChartListStageState stage = CreateStage(sourceRows);
         var context = new RegularChartListSortContext
         {
-            CurrentTreeMode = MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            CurrentTreeMode = MainViewUpdateMode.FolderFilterSelected,
             FolderSortResultSnapshot = previousFolderResult,
             CreateSortCacheMetrics = CreateSortCacheMetrics,
             LogSortDetail = _ => logged = true,
@@ -110,12 +110,12 @@ public sealed class RegularChartListSortCoordinatorTests
         NormalLibrarySortCacheKey storedKey = default;
         List<LibraryChartRow> storedRows = [];
         RegularChartListRefreshRequest request = CreateRequest(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected);
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.DuplicateFilterSelected);
         RegularChartListStageState stage = CreateStage(sourceRows);
         var context = new RegularChartListSortContext
         {
-            CurrentTreeMode = MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            CurrentTreeMode = MainViewUpdateMode.FolderFilterSelected,
             CreateSortCacheMetrics = CreateSortCacheMetrics,
             TryGetNormalLibrarySortCache = (bool isEligible, string columnName, ListSortDirection direction, int rowCount, out List<LibraryChartRow> rows, out NormalLibrarySortCacheKey key) =>
             {
@@ -146,13 +146,13 @@ public sealed class RegularChartListSortCoordinatorTests
         Assert.AreEqual(0, storedKey.RowCount);
     }
 
-    private static RegularChartListRefreshRequest CreateRequest(MainWindowViewModel.viewUpdateMode mode, MainWindowViewModel.viewUpdateMode requestedMode)
+    private static RegularChartListRefreshRequest CreateRequest(MainViewUpdateMode mode, MainViewUpdateMode requestedMode)
     {
         return new RegularChartListRefreshRequest(
             mode,
             requestedMode,
             parameter: null,
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             treeParameter: null,
             includeBmsonRows: true,
             virtualSubsetRequiredFailure: false,

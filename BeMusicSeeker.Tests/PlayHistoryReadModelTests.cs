@@ -1505,7 +1505,7 @@ public sealed class PlayHistoryReadModelTests
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected);
+            MainViewUpdateMode.FolderFilterSelected);
 
         viewModel.ExecSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
 
@@ -1517,7 +1517,7 @@ public sealed class PlayHistoryReadModelTests
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
-            MainWindowViewModel.viewUpdateMode.PlayHistorySelected);
+            MainViewUpdateMode.PlayHistorySelected);
 
         viewModel.ExecSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
 
@@ -1535,7 +1535,7 @@ public sealed class PlayHistoryReadModelTests
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected);
+            MainViewUpdateMode.FolderFilterSelected);
 
         viewModel.ExecSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending, isPlayHistorySort: true);
 
@@ -1547,7 +1547,7 @@ public sealed class PlayHistoryReadModelTests
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
-            MainWindowViewModel.viewUpdateMode.PlayHistorySelected);
+            MainViewUpdateMode.PlayHistorySelected);
 
         viewModel.ExecSort(nameof(BMSFile.Title), ListSortDirection.Ascending, isPlayHistorySort: false);
 

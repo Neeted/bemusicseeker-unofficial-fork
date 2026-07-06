@@ -227,19 +227,19 @@ public sealed class MainWindowContextMenuResourceTests
         string playlistEntriesHydrationHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion", "listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTables");
         string state = ExtractBetween(viewModelCode, "private sealed class PlayHistoryViewState", "private readonly struct SortSnapshot");
 
-        StringAssert.Contains(applyPlayHistoryView, "requestedMode == viewUpdateMode.KeywordFilterUpdated");
+        StringAssert.Contains(applyPlayHistoryView, "requestedMode == MainViewUpdateMode.KeywordFilterUpdated");
         StringAssert.Contains(applyPlayHistoryView, "TryApplyPlayHistoryPresentationOnly");
         StringAssert.Contains(applyPlayHistoryView, "ApplyPlayHistoryDisplayTargetRows(projectedRows, displayTarget, requestId, displayTargetRevision, cancellationToken)");
         StringAssert.Contains(applyPlayHistoryView, "ApplyPlayHistoryKeywordFilterRows(targetRows");
-        StringAssert.Contains(viewModelCode, "mode == viewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest");
+        StringAssert.Contains(viewModelCode, "mode == MainViewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest");
         StringAssert.Contains(viewModelCode, "ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);");
         StringAssert.Contains(presentationOnly, "state.AllProjectedRows");
         StringAssert.Contains(presentationOnly, "ApplyPlayHistoryDisplayTargetRows(state.AllProjectedRows, displayTarget, state.RequestId, displayTargetRevision, cancellationToken)");
         StringAssert.Contains(viewModelCode, "if (SelectedPlayHistoryDisplayTarget.UsesProjection)");
         StringAssert.Contains(presentationOnly, "state.FilterSourceRows");
         StringAssert.Contains(presentationOnly, "ApplyPlayHistoryKeywordFilterRows");
-        StringAssert.Contains(presentationOnly, "requestedMode == viewUpdateMode.SortUpdated && keywordStateStale");
-        StringAssert.Contains(presentationOnly, "requestedMode == viewUpdateMode.SortUpdated && targetStateStale");
+        StringAssert.Contains(presentationOnly, "requestedMode == MainViewUpdateMode.SortUpdated && keywordStateStale");
+        StringAssert.Contains(presentationOnly, "requestedMode == MainViewUpdateMode.SortUpdated && targetStateStale");
         StringAssert.Contains(presentationOnly, "KeywordFilterIdentity");
         StringAssert.Contains(presentationOnly, "DisplayTargetIdentity");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryKeywordFilterRefresh");
@@ -1741,9 +1741,9 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(mainLibraryWorkflow, "bool virtualChartSubsetRequiredFailure = false");
         StringAssert.Contains(mainLibraryWorkflow, "IsVirtualChartSubsetRequiredForRequest(mode, treeViewFilterTypeSelected)");
-        Assert.IsFalse(mainLibraryWorkflow.Contains("case viewUpdateMode.DuplicateFilterSelected:"));
-        Assert.IsFalse(mainLibraryWorkflow.Contains("case viewUpdateMode.FileMissingFilterSelected:"));
-        Assert.IsFalse(mainLibraryWorkflow.Contains("case viewUpdateMode.NewlyInstalledFolderSelected:"));
+        Assert.IsFalse(mainLibraryWorkflow.Contains("case MainViewUpdateMode.DuplicateFilterSelected:"));
+        Assert.IsFalse(mainLibraryWorkflow.Contains("case MainViewUpdateMode.FileMissingFilterSelected:"));
+        Assert.IsFalse(mainLibraryWorkflow.Contains("case MainViewUpdateMode.NewlyInstalledFolderSelected:"));
         StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesGarbled;");
         StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesGarbledFixed;");
         StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesUnregistered;");

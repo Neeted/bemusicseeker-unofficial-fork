@@ -106,7 +106,7 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.AreEqual(-1, rootSource.IndexOf("private sealed class PlaylistBuildRequest", StringComparison.Ordinal));
         StringAssert.Contains(requestSource, "internal sealed class PlaylistBuildRequest");
-        StringAssert.Contains(requestSource, "internal MainWindowViewModel.viewUpdateMode Mode;");
+        StringAssert.Contains(requestSource, "internal MainViewUpdateMode Mode;");
         StringAssert.Contains(requestSource, "internal MainWindowViewModel.PlaylistRequestIdentity Identity;");
     }
 
@@ -2017,43 +2017,43 @@ public sealed class PlaylistViewPipelineTests
     public void MainViewOperationContext_MapsViewModeToRowOperationScope()
     {
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected,
+            MainViewUpdateMode.PendingInstallFolderSelected,
             MainWindowViewModel.MainViewOperationSection.InstallPending,
             ChartOperationSourceScope.PendingPackage);
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.NewlyInstalledFolderSelected,
+            MainViewUpdateMode.NewlyInstalledFolderSelected,
             MainWindowViewModel.MainViewOperationSection.InstallInstalled,
             ChartOperationSourceScope.NewlyInstalledPackage);
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
             MainWindowViewModel.MainViewOperationSection.Playlist,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.PlaylistNotOwnedFilterSelected,
+            MainViewUpdateMode.PlaylistNotOwnedFilterSelected,
             MainWindowViewModel.MainViewOperationSection.Playlist,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected,
+            MainViewUpdateMode.FullScanAllChartsFilterSelected,
             MainWindowViewModel.MainViewOperationSection.FullScanCheck,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.FileMissingFilterSelected,
+            MainViewUpdateMode.FileMissingFilterSelected,
             MainWindowViewModel.MainViewOperationSection.FullScanCheck,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.FileMissingIgnoredFilterSelected,
+            MainViewUpdateMode.FileMissingIgnoredFilterSelected,
             MainWindowViewModel.MainViewOperationSection.FullScanCheck,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.ChartInfoParseErrorFilterSelected,
+            MainViewUpdateMode.ChartInfoParseErrorFilterSelected,
             MainWindowViewModel.MainViewOperationSection.ChartInfoParseError,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.PlayHistorySelected,
             MainWindowViewModel.MainViewOperationSection.PlayHistory,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             MainWindowViewModel.MainViewOperationSection.Library,
             ChartOperationSourceScope.Library);
     }
@@ -2065,7 +2065,7 @@ public sealed class PlaylistViewPipelineTests
         file.ApplySnapshot("abababababababababababababababab", "Pending Bms", 7);
         var row = LibraryChartRow.FromBmsFile(file);
         ChartOperationSourceScope sourceScope = MainWindowViewModel.ResolveMainViewChartOperationSourceScope(
-            MainWindowViewModel.ResolveMainViewOperationSection(MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected));
+            MainWindowViewModel.ResolveMainViewOperationSection(MainViewUpdateMode.PendingInstallFolderSelected));
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target));
 
@@ -2359,7 +2359,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     private static void AssertMainViewOperationContext(
-        MainWindowViewModel.viewUpdateMode mode,
+        MainViewUpdateMode mode,
         MainWindowViewModel.MainViewOperationSection expectedSection,
         ChartOperationSourceScope expectedScope)
     {

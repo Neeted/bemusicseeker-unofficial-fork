@@ -33,7 +33,7 @@ internal static class RegularChartListSortCoordinator
         }
 
         List<LibraryChartRow> modeRows = stage.ModeRows as List<LibraryChartRow> ?? [.. stage.ModeRows];
-        if (request.Mode > MainWindowViewModel.viewUpdateMode.SortUpdated)
+        if (request.Mode > MainViewUpdateMode.SortUpdated)
         {
             return RegularChartListSortResult.Bypass(
                 new List<LibraryChartRow>(modeRows),
@@ -45,10 +45,10 @@ internal static class RegularChartListSortCoordinator
 
         string columnName = request.SortColumnName;
         ListSortDirection direction = request.SortDirection;
-        bool isTreeSelectionRequest = request.RequestedMode != MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged
-            && request.RequestedMode < MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated;
-        bool isFolderMode = request.Mode == MainWindowViewModel.viewUpdateMode.FolderFilterSelected;
-        bool isFullNormalLibraryResult = context.CurrentTreeMode == MainWindowViewModel.viewUpdateMode.FolderFilterSelected
+        bool isTreeSelectionRequest = request.RequestedMode != MainViewUpdateMode.TreeViewFilterNotChanged
+            && request.RequestedMode < MainViewUpdateMode.KeywordFilterUpdated;
+        bool isFolderMode = request.Mode == MainViewUpdateMode.FolderFilterSelected;
+        bool isFullNormalLibraryResult = context.CurrentTreeMode == MainViewUpdateMode.FolderFilterSelected
             && !context.HasVirtualNormalLibraryTreeFilter
             && string.IsNullOrWhiteSpace(request.KeywordFilter)
             && request.ModeFilter == MainWindowViewModel.ModeFilterType.All
@@ -159,7 +159,7 @@ internal static class RegularChartListSortCoordinator
 /// </summary>
 internal sealed class RegularChartListSortContext
 {
-    internal MainWindowViewModel.viewUpdateMode CurrentTreeMode { get; set; }
+    internal MainViewUpdateMode CurrentTreeMode { get; set; }
 
     internal bool HasVirtualNormalLibraryTreeFilter { get; set; }
 

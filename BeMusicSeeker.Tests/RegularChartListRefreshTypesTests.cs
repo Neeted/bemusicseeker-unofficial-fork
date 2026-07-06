@@ -18,10 +18,10 @@ public sealed class RegularChartListRefreshTypesTests
         };
 
         var request = new RegularChartListRefreshRequest(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.TreeViewFilterNotChanged,
             parameter: "folder",
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             treeParameter: "tree-folder",
             includeBmsonRows: true,
             virtualSubsetRequiredFailure: false,
@@ -29,8 +29,8 @@ public sealed class RegularChartListRefreshTypesTests
             MainWindowViewModel.ModeFilterType._7KEYS,
             sortParameters);
 
-        Assert.AreEqual(MainWindowViewModel.viewUpdateMode.FolderFilterSelected, request.Mode);
-        Assert.AreEqual(MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged, request.RequestedMode);
+        Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, request.Mode);
+        Assert.AreEqual(MainViewUpdateMode.TreeViewFilterNotChanged, request.RequestedMode);
         Assert.AreEqual("folder", request.Parameter);
         Assert.AreEqual("tree-folder", request.TreeParameter);
         Assert.IsTrue(request.IncludeBmsonRows);

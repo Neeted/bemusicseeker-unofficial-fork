@@ -11,30 +11,30 @@ public sealed class MainColumnSettingModeTests
     [TestMethod]
     public void ResolveMainColumnSettingMode_UsesCurrentTreeModeForIncrementalUpdates()
     {
-        int currentTreeMode = (int)MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected;
+        int currentTreeMode = (int)MainViewUpdateMode.PendingInstallFolderSelected;
 
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainWindowViewModel.viewUpdateMode.ModeFilterUpdated, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainWindowViewModel.viewUpdateMode.SortUpdated, currentTreeMode));
+        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.TreeViewFilterNotChanged, currentTreeMode));
+        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.KeywordFilterUpdated, currentTreeMode));
+        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.ModeFilterUpdated, currentTreeMode));
+        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.SortUpdated, currentTreeMode));
     }
 
     [TestMethod]
     public void ResolveMainColumnSettingMode_UsesPlayHistoryForIncrementalUpdates()
     {
-        int currentTreeMode = (int)MainWindowViewModel.viewUpdateMode.PlayHistorySelected;
+        int currentTreeMode = (int)MainViewUpdateMode.PlayHistorySelected;
 
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainWindowViewModel.viewUpdateMode.ModeFilterUpdated, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainWindowViewModel.viewUpdateMode.SortUpdated, currentTreeMode));
+        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.TreeViewFilterNotChanged, currentTreeMode));
+        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.KeywordFilterUpdated, currentTreeMode));
+        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.ModeFilterUpdated, currentTreeMode));
+        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.SortUpdated, currentTreeMode));
     }
 
     [TestMethod]
     public void ResolveMainColumnSettingMode_KeepsExplicitTreeSelection()
     {
-        int explicitMode = (int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected;
-        int currentTreeMode = (int)MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected;
+        int explicitMode = (int)MainViewUpdateMode.FolderFilterSelected;
+        int currentTreeMode = (int)MainViewUpdateMode.PendingInstallFolderSelected;
 
         Assert.AreEqual(explicitMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest(explicitMode, currentTreeMode));
     }
@@ -42,7 +42,7 @@ public sealed class MainColumnSettingModeTests
     [TestMethod]
     public void ShouldReuseMainColumnSetting_ReusesSameResolvedModeWhenSettingsAreReady()
     {
-        int resolvedMode = (int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected;
+        int resolvedMode = (int)MainViewUpdateMode.FolderFilterSelected;
 
         Assert.IsTrue(MainWindowViewModel.ShouldReuseMainColumnSettingForTest(
             resolvedMode,
@@ -57,24 +57,24 @@ public sealed class MainColumnSettingModeTests
     {
         Assert.AreEqual(
             MainWindowViewModel.MainViewOperationSection.PlayHistory,
-            MainWindowViewModel.ResolveMainViewOperationSection(MainWindowViewModel.viewUpdateMode.PlayHistorySelected));
+            MainWindowViewModel.ResolveMainViewOperationSection(MainViewUpdateMode.PlayHistorySelected));
     }
 
     [TestMethod]
     public void IsPlayHistoryMainViewMode_TreatsIncrementalUpdatesAsPlayHistoryWhenSelected()
     {
         Assert.IsTrue(MainWindowViewModel.IsPlayHistoryMainViewModeForTest(
-            MainWindowViewModel.viewUpdateMode.PlayHistorySelected,
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
+            MainViewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.FolderFilterSelected));
         Assert.IsTrue(MainWindowViewModel.IsPlayHistoryMainViewModeForTest(
-            MainWindowViewModel.viewUpdateMode.SortUpdated,
-            MainWindowViewModel.viewUpdateMode.PlayHistorySelected));
+            MainViewUpdateMode.SortUpdated,
+            MainViewUpdateMode.PlayHistorySelected));
         Assert.IsFalse(MainWindowViewModel.IsPlayHistoryMainViewModeForTest(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.PlayHistorySelected));
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.PlayHistorySelected));
         Assert.IsFalse(MainWindowViewModel.IsPlayHistoryMainViewModeForTest(
-            MainWindowViewModel.viewUpdateMode.SortUpdated,
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
+            MainViewUpdateMode.SortUpdated,
+            MainViewUpdateMode.FolderFilterSelected));
     }
 
     [TestMethod]
@@ -86,13 +86,13 @@ public sealed class MainColumnSettingModeTests
         };
 
         Assert.IsFalse(MainWindowViewModel.IsMainColumnSettingTargetReadyForTest(
-            MainWindowViewModel.viewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.PlayHistorySelected,
             settings));
 
         settings.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
 
         Assert.IsTrue(MainWindowViewModel.IsMainColumnSettingTargetReadyForTest(
-            MainWindowViewModel.viewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.PlayHistorySelected,
             settings));
     }
 
@@ -124,8 +124,8 @@ public sealed class MainColumnSettingModeTests
     [TestMethod]
     public void ShouldReuseMainColumnSetting_DoesNotReuseWhenModeChangesOrSettingsAreMissing()
     {
-        int resolvedMode = (int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected;
-        int otherMode = (int)MainWindowViewModel.viewUpdateMode.PendingInstallFolderSelected;
+        int resolvedMode = (int)MainViewUpdateMode.FolderFilterSelected;
+        int otherMode = (int)MainViewUpdateMode.PendingInstallFolderSelected;
 
         Assert.IsFalse(MainWindowViewModel.ShouldReuseMainColumnSettingForTest(
             resolvedMode,

@@ -162,17 +162,17 @@ public sealed class LibraryChartRowSortEngineTests
     [TestCategory("SortEngine")]
     public void VirtualNormalLibraryModeSupport_CoversNormalListRefreshAndFilterUpdates()
     {
-        MainWindowViewModel.viewUpdateMode[] supportedModes =
+        MainViewUpdateMode[] supportedModes =
         [
-            MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged,
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected,
-            MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
-            MainWindowViewModel.viewUpdateMode.ModeFilterUpdated,
-            MainWindowViewModel.viewUpdateMode.SortUpdated
+            MainViewUpdateMode.TreeViewFilterNotChanged,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FullScanAllChartsFilterSelected,
+            MainViewUpdateMode.KeywordFilterUpdated,
+            MainViewUpdateMode.ModeFilterUpdated,
+            MainViewUpdateMode.SortUpdated
         ];
 
-        foreach (MainWindowViewModel.viewUpdateMode mode in Enum.GetValues(typeof(MainWindowViewModel.viewUpdateMode)).Cast<MainWindowViewModel.viewUpdateMode>())
+        foreach (MainViewUpdateMode mode in Enum.GetValues(typeof(MainViewUpdateMode)).Cast<MainViewUpdateMode>())
         {
             Assert.AreEqual(
                 supportedModes.Contains(mode),
@@ -186,9 +186,9 @@ public sealed class LibraryChartRowSortEngineTests
     public void ChartListRefreshCoordinator_RoutesMissingFilesBeforeViewPipelines()
     {
         ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             hasFiles: false);
 
         Assert.AreEqual(ChartListRefreshRouteKind.MissingFiles, route.Kind);
@@ -201,9 +201,9 @@ public sealed class LibraryChartRowSortEngineTests
     public void ChartListRefreshCoordinator_RoutesPlayHistoryIncrementalUpdatesToPlayHistoryView()
     {
         ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
-            MainWindowViewModel.viewUpdateMode.SortUpdated,
-            MainWindowViewModel.viewUpdateMode.SortUpdated,
-            MainWindowViewModel.viewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.SortUpdated,
+            MainViewUpdateMode.SortUpdated,
+            MainViewUpdateMode.PlayHistorySelected,
             hasFiles: true);
 
         Assert.AreEqual(ChartListRefreshRouteKind.ApplyPlayHistoryView, route.Kind);
@@ -216,9 +216,9 @@ public sealed class LibraryChartRowSortEngineTests
     public void ChartListRefreshCoordinator_RoutesPlaylistIncrementalUpdatesToPlaylistBuild()
     {
         ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
-            MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
-            MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated,
-            MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.KeywordFilterUpdated,
+            MainViewUpdateMode.KeywordFilterUpdated,
+            MainViewUpdateMode.PlaylistFilterSelected,
             hasFiles: true);
 
         Assert.AreEqual(ChartListRefreshRouteKind.RegisterPlaylistSourceBuild, route.Kind);
@@ -231,9 +231,9 @@ public sealed class LibraryChartRowSortEngineTests
     public void ChartListRefreshCoordinator_RoutesNormalLibraryWithBmsonRows()
     {
         ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             hasFiles: true);
 
         Assert.AreEqual(ChartListRefreshRouteKind.ContinueMainLibrary, route.Kind);
@@ -386,28 +386,28 @@ public sealed class LibraryChartRowSortEngineTests
             "owned_collection_changed",
             startupReadyOperable: true,
             duplicateRefreshPriorityActive: true,
-            (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+            (int)MainViewUpdateMode.DuplicateFilterSelected));
 
         Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
             "initialize_completed",
             startupReadyOperable: true,
             duplicateRefreshPriorityActive: true,
-            (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+            (int)MainViewUpdateMode.DuplicateFilterSelected));
         Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
             "owned_collection_changed",
             startupReadyOperable: false,
             duplicateRefreshPriorityActive: true,
-            (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+            (int)MainViewUpdateMode.DuplicateFilterSelected));
         Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
             "owned_collection_changed",
             startupReadyOperable: true,
             duplicateRefreshPriorityActive: false,
-            (int)MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected));
+            (int)MainViewUpdateMode.DuplicateFilterSelected));
         Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
             "owned_collection_changed",
             startupReadyOperable: true,
             duplicateRefreshPriorityActive: true,
-            (int)MainWindowViewModel.viewUpdateMode.FolderFilterSelected));
+            (int)MainViewUpdateMode.FolderFilterSelected));
     }
 
     [TestMethod]
@@ -423,7 +423,7 @@ public sealed class LibraryChartRowSortEngineTests
         })
         {
             MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
-                MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
                 folderFilterApplied: false,
                 keywordFilter: string.Empty,
                 modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -443,7 +443,7 @@ public sealed class LibraryChartRowSortEngineTests
     public void MainViewRefreshDecision_RefreshesWhenScoreUpdateCanAffectCurrentView()
     {
         MainViewRefreshDecision scoreSortDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             folderFilterApplied: false,
             keywordFilter: string.Empty,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -452,7 +452,7 @@ public sealed class LibraryChartRowSortEngineTests
             dependency: MainViewDataDependency.Score,
             reason: "ranking_refresh_completed");
         MainViewRefreshDecision keywordDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             folderFilterApplied: false,
             keywordFilter: "rate:>90",
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -461,7 +461,7 @@ public sealed class LibraryChartRowSortEngineTests
             dependency: MainViewDataDependency.Score,
             reason: "score_hydration_completed");
         MainViewRefreshDecision unknownSortDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             folderFilterApplied: false,
             keywordFilter: string.Empty,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -480,7 +480,7 @@ public sealed class LibraryChartRowSortEngineTests
     public void MainViewRefreshDecision_RefreshesWhenInstallDestinationUpdateCanAffectCurrentView()
     {
         MainViewRefreshDecision titleSortDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             folderFilterApplied: false,
             keywordFilter: string.Empty,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -489,7 +489,7 @@ public sealed class LibraryChartRowSortEngineTests
             dependency: MainViewDataDependency.InstallDestination,
             reason: "normal_library_install_destination_changed");
         MainViewRefreshDecision installDestinationSortDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             folderFilterApplied: false,
             keywordFilter: string.Empty,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -498,7 +498,7 @@ public sealed class LibraryChartRowSortEngineTests
             dependency: MainViewDataDependency.InstallDestination,
             reason: "normal_library_install_destination_changed");
         MainViewRefreshDecision warningSortDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             folderFilterApplied: false,
             keywordFilter: string.Empty,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -529,7 +529,7 @@ public sealed class LibraryChartRowSortEngineTests
         foreach ((MainViewDataDependency dependency, string sortColumnName) in cases)
         {
             MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
-                MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
                 folderFilterApplied: false,
                 keywordFilter: string.Empty,
                 modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -549,7 +549,7 @@ public sealed class LibraryChartRowSortEngineTests
     public void MainViewRefreshDecision_UsesDisplayRefreshForDuplicateSubsetWhenMembershipIsUnaffected()
     {
         MainViewRefreshDecision warningDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            MainViewUpdateMode.DuplicateFilterSelected,
             folderFilterApplied: false,
             keywordFilter: string.Empty,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -562,7 +562,7 @@ public sealed class LibraryChartRowSortEngineTests
         Assert.AreEqual("duplicate_subset_dependency_update_does_not_affect_current_sort_or_filter", warningDecision.Detail);
 
         MainViewRefreshDecision warningSortDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            MainViewUpdateMode.DuplicateFilterSelected,
             folderFilterApplied: false,
             keywordFilter: string.Empty,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -580,7 +580,7 @@ public sealed class LibraryChartRowSortEngineTests
     public void MainViewRefreshDecision_RefreshesDuplicateSubsetWhenFiltersCanDependOnChangedData()
     {
         MainViewRefreshDecision keywordDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            MainViewUpdateMode.DuplicateFilterSelected,
             folderFilterApplied: false,
             keywordFilter: "warning",
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -589,7 +589,7 @@ public sealed class LibraryChartRowSortEngineTests
             dependency: MainViewDataDependency.Warning,
             reason: "chart_files_need_resource_fix_changed");
         MainViewRefreshDecision membershipDecision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected,
+            MainViewUpdateMode.DuplicateFilterSelected,
             folderFilterApplied: false,
             keywordFilter: string.Empty,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -607,7 +607,7 @@ public sealed class LibraryChartRowSortEngineTests
     public void MainViewRefreshDecision_RefreshesForUnknownChangedDependency()
     {
         MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
-            MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
             folderFilterApplied: false,
             keywordFilter: string.Empty,
             modeFilter: MainWindowViewModel.ModeFilterType.All,
@@ -628,7 +628,7 @@ public sealed class LibraryChartRowSortEngineTests
         foreach (MainViewDataDependency dependency in new[] { MainViewDataDependency.SourceMembership, MainViewDataDependency.IdentitySortKey })
         {
             MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
-                MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
                 folderFilterApplied: false,
                 keywordFilter: string.Empty,
                 modeFilter: MainWindowViewModel.ModeFilterType.All,

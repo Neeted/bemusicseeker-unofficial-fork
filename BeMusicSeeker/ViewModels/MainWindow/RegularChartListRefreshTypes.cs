@@ -24,10 +24,10 @@ internal readonly struct RegularChartListRefreshRequest
     /// <param name="modeFilter">Mode filter captured for the request.</param>
     /// <param name="sortParameters">Sort parameters captured for the request.</param>
     internal RegularChartListRefreshRequest(
-        MainWindowViewModel.viewUpdateMode mode,
-        MainWindowViewModel.viewUpdateMode requestedMode,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
         object parameter,
-        MainWindowViewModel.viewUpdateMode currentTreeMode,
+        MainViewUpdateMode currentTreeMode,
         object treeParameter,
         bool includeBmsonRows,
         bool virtualSubsetRequiredFailure,
@@ -60,12 +60,12 @@ internal readonly struct RegularChartListRefreshRequest
     /// <summary>
     /// Gets the mode currently used by the regular pipeline.
     /// </summary>
-    internal MainWindowViewModel.viewUpdateMode Mode { get; }
+    internal MainViewUpdateMode Mode { get; }
 
     /// <summary>
     /// Gets the mode originally requested by the caller.
     /// </summary>
-    internal MainWindowViewModel.viewUpdateMode RequestedMode { get; }
+    internal MainViewUpdateMode RequestedMode { get; }
 
     /// <summary>
     /// Gets the parameter associated with <see cref="Mode"/>.
@@ -75,7 +75,7 @@ internal readonly struct RegularChartListRefreshRequest
     /// <summary>
     /// Gets the current tree selection mode.
     /// </summary>
-    internal MainWindowViewModel.viewUpdateMode CurrentTreeMode { get; }
+    internal MainViewUpdateMode CurrentTreeMode { get; }
 
     /// <summary>
     /// Gets the parameter associated with the current tree selection.

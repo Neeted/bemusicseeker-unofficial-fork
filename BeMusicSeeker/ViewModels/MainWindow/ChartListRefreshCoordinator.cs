@@ -19,9 +19,9 @@ internal static class ChartListRefreshCoordinator
     /// <param name="hasFiles">Whether the BMS library is available.</param>
     /// <returns>Refresh route and derived flags for the shell to execute.</returns>
     internal static ChartListRefreshRoute ResolveRoute(
-        MainWindowViewModel.viewUpdateMode mode,
-        MainWindowViewModel.viewUpdateMode requestedMode,
-        MainWindowViewModel.viewUpdateMode currentTreeMode,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
+        MainViewUpdateMode currentTreeMode,
         bool hasFiles)
     {
         if (!hasFiles)
@@ -307,16 +307,16 @@ internal static class ChartListRefreshCoordinator
     /// <param name="mode">Current refresh mode.</param>
     /// <param name="currentTreeMode">Current tree selection mode.</param>
     /// <returns>Column setting mode that should be applied.</returns>
-    internal static MainWindowViewModel.viewUpdateMode ResolveMainColumnSettingMode(
-        MainWindowViewModel.viewUpdateMode mode,
-        MainWindowViewModel.viewUpdateMode currentTreeMode)
+    internal static MainViewUpdateMode ResolveMainColumnSettingMode(
+        MainViewUpdateMode mode,
+        MainViewUpdateMode currentTreeMode)
     {
         return mode switch
         {
-            MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged
-                or MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated
-                or MainWindowViewModel.viewUpdateMode.ModeFilterUpdated
-                or MainWindowViewModel.viewUpdateMode.SortUpdated => currentTreeMode,
+            MainViewUpdateMode.TreeViewFilterNotChanged
+                or MainViewUpdateMode.KeywordFilterUpdated
+                or MainViewUpdateMode.ModeFilterUpdated
+                or MainViewUpdateMode.SortUpdated => currentTreeMode,
             _ => mode,
         };
     }
@@ -328,10 +328,10 @@ internal static class ChartListRefreshCoordinator
     /// <param name="currentTreeMode">Current tree selection mode.</param>
     /// <returns>true when the play-history view should handle the request.</returns>
     internal static bool IsPlayHistoryMainViewMode(
-        MainWindowViewModel.viewUpdateMode mode,
-        MainWindowViewModel.viewUpdateMode currentTreeMode)
+        MainViewUpdateMode mode,
+        MainViewUpdateMode currentTreeMode)
     {
-        return ResolveMainColumnSettingMode(mode, currentTreeMode) == MainWindowViewModel.viewUpdateMode.PlayHistorySelected;
+        return ResolveMainColumnSettingMode(mode, currentTreeMode) == MainViewUpdateMode.PlayHistorySelected;
     }
 
     /// <summary>
@@ -341,8 +341,8 @@ internal static class ChartListRefreshCoordinator
     /// <param name="currentTreeMode">Current tree selection mode.</param>
     /// <returns>true when the playlist detail pipeline should handle the request.</returns>
     internal static bool IsPlaylistTreeActive(
-        MainWindowViewModel.viewUpdateMode mode,
-        MainWindowViewModel.viewUpdateMode currentTreeMode)
+        MainViewUpdateMode mode,
+        MainViewUpdateMode currentTreeMode)
     {
         if (IsPlaylistViewMode(mode))
         {
@@ -352,10 +352,10 @@ internal static class ChartListRefreshCoordinator
         {
             return false;
         }
-        return mode == MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged
-            || mode == MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated
-            || mode == MainWindowViewModel.viewUpdateMode.ModeFilterUpdated
-            || mode == MainWindowViewModel.viewUpdateMode.SortUpdated;
+        return mode == MainViewUpdateMode.TreeViewFilterNotChanged
+            || mode == MainViewUpdateMode.KeywordFilterUpdated
+            || mode == MainViewUpdateMode.ModeFilterUpdated
+            || mode == MainViewUpdateMode.SortUpdated;
     }
 
     /// <summary>
@@ -365,11 +365,11 @@ internal static class ChartListRefreshCoordinator
     /// <param name="currentTreeMode">Current tree selection mode.</param>
     /// <returns>true when bmson-backed normal library rows should be included.</returns>
     internal static bool ShouldIncludeBmsonLibraryRows(
-        MainWindowViewModel.viewUpdateMode mode,
-        MainWindowViewModel.viewUpdateMode currentTreeMode)
+        MainViewUpdateMode mode,
+        MainViewUpdateMode currentTreeMode)
     {
-        if (mode == MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected
-            || currentTreeMode == MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected)
+        if (mode == MainViewUpdateMode.FullScanAllChartsFilterSelected
+            || currentTreeMode == MainViewUpdateMode.FullScanAllChartsFilterSelected)
         {
             return true;
         }
@@ -388,10 +388,10 @@ internal static class ChartListRefreshCoordinator
         return true;
     }
 
-    private static bool IsPlaylistViewMode(MainWindowViewModel.viewUpdateMode mode)
+    private static bool IsPlaylistViewMode(MainViewUpdateMode mode)
     {
-        return mode == MainWindowViewModel.viewUpdateMode.PlaylistFilterSelected
-            || mode == MainWindowViewModel.viewUpdateMode.PlaylistNotOwnedFilterSelected;
+        return mode == MainViewUpdateMode.PlaylistFilterSelected
+            || mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
     }
 }
 
@@ -437,9 +437,9 @@ internal readonly struct ChartListRefreshRoute
     /// <param name="includeBmsonRows">Whether normal library rows should include bmson-backed charts.</param>
     internal ChartListRefreshRoute(
         ChartListRefreshRouteKind kind,
-        MainWindowViewModel.viewUpdateMode mode,
-        MainWindowViewModel.viewUpdateMode requestedMode,
-        MainWindowViewModel.viewUpdateMode currentTreeMode,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
+        MainViewUpdateMode currentTreeMode,
         bool isPlaylistTreeActive,
         bool includeBmsonRows)
     {
@@ -459,17 +459,17 @@ internal readonly struct ChartListRefreshRoute
     /// <summary>
     /// Gets the resolved refresh mode.
     /// </summary>
-    internal MainWindowViewModel.viewUpdateMode Mode { get; }
+    internal MainViewUpdateMode Mode { get; }
 
     /// <summary>
     /// Gets the original caller-requested mode.
     /// </summary>
-    internal MainWindowViewModel.viewUpdateMode RequestedMode { get; }
+    internal MainViewUpdateMode RequestedMode { get; }
 
     /// <summary>
     /// Gets the current tree selection mode.
     /// </summary>
-    internal MainWindowViewModel.viewUpdateMode CurrentTreeMode { get; }
+    internal MainViewUpdateMode CurrentTreeMode { get; }
 
     /// <summary>
     /// Gets a value indicating whether the playlist detail tree is active for the request.
@@ -593,9 +593,9 @@ internal readonly struct ChartListRegularRowsApplyResult
 /// </summary>
 internal sealed class RegularChartListBuildLogRequest
 {
-    internal MainWindowViewModel.viewUpdateMode Mode { get; set; }
+    internal MainViewUpdateMode Mode { get; set; }
 
-    internal MainWindowViewModel.viewUpdateMode RequestedMode { get; set; }
+    internal MainViewUpdateMode RequestedMode { get; set; }
 
     internal string ParameterType { get; set; }
 

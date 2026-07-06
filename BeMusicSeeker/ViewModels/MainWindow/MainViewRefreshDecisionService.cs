@@ -72,7 +72,7 @@ internal static class MainViewRefreshDecisionService
     /// <param name="reason">Diagnostic reason text to carry into the decision.</param>
     /// <returns>Main-view refresh decision preserving the existing refresh/display-refresh split.</returns>
     internal static MainViewRefreshDecision Build(
-        MainWindowViewModel.viewUpdateMode currentMode,
+        MainViewUpdateMode currentMode,
         bool folderFilterApplied,
         string keywordFilter,
         MainWindowViewModel.ModeFilterType modeFilter,
@@ -82,7 +82,7 @@ internal static class MainViewRefreshDecisionService
         string reason)
     {
         MainViewDataDependency sortDependency = GetSortColumnDependency(sortColumnName);
-        bool fullNormalLibraryView = currentMode == MainWindowViewModel.viewUpdateMode.FolderFilterSelected
+        bool fullNormalLibraryView = currentMode == MainViewUpdateMode.FolderFilterSelected
             && !folderFilterApplied
             && string.IsNullOrWhiteSpace(keywordFilter)
             && modeFilter == MainWindowViewModel.ModeFilterType.All
@@ -218,14 +218,14 @@ internal static class MainViewRefreshDecisionService
     /// </summary>
     /// <param name="mode">View update mode to classify.</param>
     /// <returns><see langword="true"/> when the virtual normal-library route supports the mode.</returns>
-    internal static bool IsVirtualNormalLibraryModeSupported(MainWindowViewModel.viewUpdateMode mode)
+    internal static bool IsVirtualNormalLibraryModeSupported(MainViewUpdateMode mode)
     {
-        return mode == MainWindowViewModel.viewUpdateMode.TreeViewFilterNotChanged
-            || mode == MainWindowViewModel.viewUpdateMode.FolderFilterSelected
-            || mode == MainWindowViewModel.viewUpdateMode.FullScanAllChartsFilterSelected
-            || mode == MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated
-            || mode == MainWindowViewModel.viewUpdateMode.ModeFilterUpdated
-            || mode == MainWindowViewModel.viewUpdateMode.SortUpdated;
+        return mode == MainViewUpdateMode.TreeViewFilterNotChanged
+            || mode == MainViewUpdateMode.FolderFilterSelected
+            || mode == MainViewUpdateMode.FullScanAllChartsFilterSelected
+            || mode == MainViewUpdateMode.KeywordFilterUpdated
+            || mode == MainViewUpdateMode.ModeFilterUpdated
+            || mode == MainViewUpdateMode.SortUpdated;
     }
 
     /// <summary>
@@ -238,18 +238,18 @@ internal static class MainViewRefreshDecisionService
     /// <param name="currentTreeMode">Current tree selection mode.</param>
     /// <returns><see langword="true"/> when a missing cached stage requires rebuilding from the folder stage.</returns>
     internal static bool ShouldRebuildRegularFolderStage(
-        MainWindowViewModel.viewUpdateMode mode,
+        MainViewUpdateMode mode,
         bool hasFolderView,
         bool hasKeywordView,
         bool hasModeView,
-        MainWindowViewModel.viewUpdateMode currentTreeMode)
+        MainViewUpdateMode currentTreeMode)
     {
         if (IsPlaylistTreeActive(mode, currentTreeMode))
         {
             return false;
         }
 
-        if (mode < MainWindowViewModel.viewUpdateMode.KeywordFilterUpdated)
+        if (mode < MainViewUpdateMode.KeywordFilterUpdated)
         {
             return false;
         }
@@ -258,14 +258,14 @@ internal static class MainViewRefreshDecisionService
     }
 
     private static bool IsDuplicateSubsetDisplayRefreshEnough(
-        MainWindowViewModel.viewUpdateMode currentMode,
+        MainViewUpdateMode currentMode,
         string keywordFilter,
         MainWindowViewModel.ModeFilterType modeFilter,
         bool isPlaylistDetailView,
         MainViewDataDependency sortDependency,
         MainViewDataDependency changedDependency)
     {
-        if (currentMode != MainWindowViewModel.viewUpdateMode.DuplicateFilterSelected
+        if (currentMode != MainViewUpdateMode.DuplicateFilterSelected
             || isPlaylistDetailView
             || !string.IsNullOrWhiteSpace(keywordFilter)
             || modeFilter != MainWindowViewModel.ModeFilterType.All)
@@ -363,7 +363,7 @@ internal static class MainViewRefreshDecisionService
         return string.Equals(columnName, nameof(LibraryChartRow.WarningDigestText), StringComparison.Ordinal);
     }
 
-    private static bool IsPlaylistTreeActive(MainWindowViewModel.viewUpdateMode mode, MainWindowViewModel.viewUpdateMode currentTreeMode)
+    private static bool IsPlaylistTreeActive(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
     {
         return ChartListRefreshCoordinator.IsPlaylistTreeActive(mode, currentTreeMode);
     }

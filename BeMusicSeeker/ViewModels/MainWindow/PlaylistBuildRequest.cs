@@ -7,9 +7,9 @@ internal sealed class PlaylistBuildRequest
 {
     internal int RequestVersion;
 
-    internal MainWindowViewModel.viewUpdateMode Mode;
+    internal MainViewUpdateMode Mode;
 
-    internal MainWindowViewModel.viewUpdateMode RequestedMode;
+    internal MainViewUpdateMode RequestedMode;
 
     internal object Parameter;
 

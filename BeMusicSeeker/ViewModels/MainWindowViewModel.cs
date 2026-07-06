@@ -164,30 +164,6 @@ public partial class MainWindowViewModel : ViewModel
         OwnedIncomplete
     }
 
-    internal enum viewUpdateMode
-    {
-        TreeViewFilterNotChanged = 0,
-        PlaylistFilterSelected = 1,
-        PlaylistNotOwnedFilterSelected = 2,
-        FolderFilterSelected = 17,
-        FullScanAllChartsFilterSelected = 32,
-        FileMissingFilterSelected = 33,
-        FileMissingIgnoredFilterSelected = 34,
-        DuplicateFilterSelected = 35,
-        GarbledFilterSelected = 36,
-        GarbleFixedFilterSelected = 37,
-        UnregisteredFilterSelected = 38,
-        ZeroNoteFilterSelected = 39,
-        ChartInfoParseErrorFilterSelected = 40,
-        PlayHistorySelected = 41,
-        NewlyInstalledFolderSelected = 49,
-        PendingInstallFolderSelected = 50,
-        KeywordFilterUpdated = 65,
-        ModeFilterUpdated = 66,
-        SortUpdated = 81,
-        UpdatedNone = 255
-    }
-
     internal enum MainViewOperationSection
     {
         Library,
@@ -1306,7 +1282,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private int normalLibraryRefreshHandledNotificationVersion;
 
-    private viewUpdateMode? lastAppliedMainColumnSettingMode;
+    private MainViewUpdateMode? lastAppliedMainColumnSettingMode;
 
     private readonly Dictionary<string, ChartFileTransientState> chartTransientStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
@@ -1534,7 +1510,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private int _CurrentlyPlayingLastMeasure;
 
-    private viewUpdateMode treeViewFilterTypeSelected = Settings.Default.StartupSelectInstallPending ? viewUpdateMode.PendingInstallFolderSelected : viewUpdateMode.FolderFilterSelected;
+    private MainViewUpdateMode treeViewFilterTypeSelected = Settings.Default.StartupSelectInstallPending ? MainViewUpdateMode.PendingInstallFolderSelected : MainViewUpdateMode.FolderFilterSelected;
 
     private object treeViewFilterParameterSelected;
 
@@ -1836,9 +1812,9 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// request identity に source rebuild 前の quiet window を適用するかを返します。
     /// </summary>
-    private static bool ShouldUsePlaylistBuildCoalescingWindow(viewUpdateMode mode, viewUpdateMode requestedMode)
+    private static bool ShouldUsePlaylistBuildCoalescingWindow(MainViewUpdateMode mode, MainViewUpdateMode requestedMode)
     {
-        return IsPlaylistViewMode(mode) || requestedMode == viewUpdateMode.TreeViewFilterNotChanged;
+        return IsPlaylistViewMode(mode) || requestedMode == MainViewUpdateMode.TreeViewFilterNotChanged;
     }
 
     /// <summary>
@@ -1870,9 +1846,9 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="mode">判定対象モード。</param>
     /// <returns>playlist 系であれば <see langword="true"/>。</returns>
-    private static bool IsPlaylistViewMode(viewUpdateMode mode)
+    private static bool IsPlaylistViewMode(MainViewUpdateMode mode)
     {
-        return mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected;
+        return mode == MainViewUpdateMode.PlaylistFilterSelected || mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
     }
 
     /// <summary>
@@ -1881,7 +1857,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <param name="mode">今回の更新モード。</param>
     /// <param name="currentTreeMode">現在選択中の tree モード。</param>
     /// <returns>プレイリスト詳細ビューの再描画経路を使う場合は <see langword="true"/>。</returns>
-    private static bool IsPlaylistTreeActive(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    private static bool IsPlaylistTreeActive(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
     {
         return ChartListRefreshCoordinator.IsPlaylistTreeActive(mode, currentTreeMode);
     }
@@ -1984,7 +1960,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
     }
 
     /// <summary>
@@ -2160,29 +2136,29 @@ public partial class MainWindowViewModel : ViewModel
     /// 増分更新契機ではなく、現在表示すべき playlist 列構成を明示するために使用します。
     /// </summary>
     /// <param name="filterType">playlist filter 種別。</param>
-    /// <returns>列設定に使う viewUpdateMode。</returns>
-    private static viewUpdateMode ResolvePlaylistColumnSettingMode(PlaylistFilterType filterType)
+    /// <returns>列設定に使う MainViewUpdateMode。</returns>
+    private static MainViewUpdateMode ResolvePlaylistColumnSettingMode(PlaylistFilterType filterType)
     {
-        return (filterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected) ? viewUpdateMode.PlaylistNotOwnedFilterSelected : viewUpdateMode.PlaylistFilterSelected;
+        return (filterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected) ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected : MainViewUpdateMode.PlaylistFilterSelected;
     }
 
     /// <summary>
     /// main view 更新契機を、実際に適用する列設定モードへ解決します。
     /// </summary>
-    private static viewUpdateMode ResolveMainColumnSettingMode(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    private static MainViewUpdateMode ResolveMainColumnSettingMode(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
     {
         return ChartListRefreshCoordinator.ResolveMainColumnSettingMode(mode, currentTreeMode);
     }
 
     internal static int ResolveMainColumnSettingModeForTest(int mode, int currentTreeMode)
     {
-        return (int)ResolveMainColumnSettingMode((viewUpdateMode)mode, (viewUpdateMode)currentTreeMode);
+        return (int)ResolveMainColumnSettingMode((MainViewUpdateMode)mode, (MainViewUpdateMode)currentTreeMode);
     }
 
     internal static bool ShouldReuseMainColumnSettingForTest(int resolvedMode, int? lastAppliedMode, bool targetSettingsReady, bool playlistSummarySettingsReady, bool isInit)
     {
-        viewUpdateMode? typedLastAppliedMode = lastAppliedMode.HasValue ? (viewUpdateMode?)((viewUpdateMode)lastAppliedMode.Value) : null;
-        return CanReuseMainColumnSetting((viewUpdateMode)resolvedMode, typedLastAppliedMode, targetSettingsReady, playlistSummarySettingsReady, isInit);
+        MainViewUpdateMode? typedLastAppliedMode = lastAppliedMode.HasValue ? (MainViewUpdateMode?)((MainViewUpdateMode)lastAppliedMode.Value) : null;
+        return CanReuseMainColumnSetting((MainViewUpdateMode)resolvedMode, typedLastAppliedMode, targetSettingsReady, playlistSummarySettingsReady, isInit);
     }
 
     internal static CustomTableRowDragKind ResolveChartRowsViewRowDragKindForTest(CustomTableColumnSettings settings)
@@ -2301,11 +2277,11 @@ public partial class MainWindowViewModel : ViewModel
         string reason,
         bool startupReadyOperable,
         bool duplicateRefreshPriorityActive,
-        viewUpdateMode currentTreeViewMode)
+        MainViewUpdateMode currentTreeViewMode)
     {
         return startupReadyOperable
             && duplicateRefreshPriorityActive
-            && currentTreeViewMode == viewUpdateMode.DuplicateFilterSelected
+            && currentTreeViewMode == MainViewUpdateMode.DuplicateFilterSelected
             && string.Equals(reason, "owned_collection_changed", StringComparison.OrdinalIgnoreCase);
     }
 
@@ -2319,7 +2295,7 @@ public partial class MainWindowViewModel : ViewModel
             reason,
             startupReadyOperable,
             duplicateRefreshPriorityActive,
-            (viewUpdateMode)currentTreeViewMode);
+            (MainViewUpdateMode)currentTreeViewMode);
     }
 
     private bool TryDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(long targetVersion, string reason)
@@ -2733,9 +2709,9 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// playlist 選択そのものを表す request かどうかを返します。
     /// </summary>
-    private static bool IsPlaylistOpenInteractionRequest(viewUpdateMode requestedMode)
+    private static bool IsPlaylistOpenInteractionRequest(MainViewUpdateMode requestedMode)
     {
-        return requestedMode == viewUpdateMode.PlaylistFilterSelected || requestedMode == viewUpdateMode.PlaylistNotOwnedFilterSelected;
+        return requestedMode == MainViewUpdateMode.PlaylistFilterSelected || requestedMode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
     }
 
     /// <summary>
@@ -2908,7 +2884,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// 現在の UI 条件から playlist build request を生成します。
     /// </summary>
-    private PlaylistBuildRequest CreatePlaylistBuildRequest(int requestVersion, viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, PlaylistBuildRequestViewSnapshot viewSnapshot)
+    private PlaylistBuildRequest CreatePlaylistBuildRequest(int requestVersion, MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, PlaylistBuildRequestViewSnapshot viewSnapshot)
     {
         bool hasResolvedSelection = TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistFilterType filterType);
         long libraryIndexVersion = GetPlaylistLibraryIndexVersion();
@@ -2984,7 +2960,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <param name="requestedMode">要求元モード。</param>
     /// <param name="parameter">追加パラメータ。</param>
     /// <returns>採番された要求バージョン。</returns>
-    private int RegisterPlaylistSourceBuildRequest(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter)
+    private int RegisterPlaylistSourceBuildRequest(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter)
     {
         CancellationTokenSource previousCancellation = null;
         bool startWorker = false;
@@ -3352,10 +3328,10 @@ public partial class MainWindowViewModel : ViewModel
         return mask & ~deferredChannel;
     }
 
-    private static bool CanShowStartupBasicLibraryMainView(viewUpdateMode currentTreeMode)
+    private static bool CanShowStartupBasicLibraryMainView(MainViewUpdateMode currentTreeMode)
     {
-        return currentTreeMode == viewUpdateMode.FolderFilterSelected
-            || currentTreeMode == viewUpdateMode.FullScanAllChartsFilterSelected;
+        return currentTreeMode == MainViewUpdateMode.FolderFilterSelected
+            || currentTreeMode == MainViewUpdateMode.FullScanAllChartsFilterSelected;
     }
 
     private static UiRefreshChannel GetStartupBasicPresentationChannels(bool includeLibraryMainView)
@@ -3379,7 +3355,7 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     internal static bool IsStartupPresentationDeferredForTest(
-        viewUpdateMode currentTreeMode,
+        MainViewUpdateMode currentTreeMode,
         bool startupUiSuppressFlush,
         bool libraryMainView,
         bool libraryFolderTree,
@@ -4150,7 +4126,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         else
         {
-            RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         }
     }
 
@@ -4210,7 +4186,7 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     internal static MainViewRefreshDecision BuildMainViewRefreshDecisionForTest(
-        viewUpdateMode currentMode,
+        MainViewUpdateMode currentMode,
         bool folderFilterApplied,
         string keywordFilter,
         ModeFilterType modeFilter,
@@ -4632,11 +4608,11 @@ public partial class MainWindowViewModel : ViewModel
 
     private void HandleChartPackagesInstalledCollectionChanged()
     {
-        if (treeViewFilterTypeSelected == viewUpdateMode.NewlyInstalledFolderSelected)
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.NewlyInstalledFolderSelected)
         {
             if (!TrySuppress(UiRefreshChannel.LibraryMainView))
             {
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
             }
         }
         if (TrySuppress(UiRefreshChannel.InstallTree))
@@ -4648,11 +4624,11 @@ public partial class MainWindowViewModel : ViewModel
 
     private void HandleChartPackagesPendingCollectionChanged()
     {
-        if (treeViewFilterTypeSelected == viewUpdateMode.PendingInstallFolderSelected)
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.PendingInstallFolderSelected)
         {
             if (!TrySuppress(UiRefreshChannel.LibraryMainView))
             {
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
             }
         }
         if (TrySuppress(UiRefreshChannel.InstallTree))
@@ -4770,7 +4746,7 @@ public partial class MainWindowViewModel : ViewModel
                             LogDeferredPlaylistReference("playlist_ref_deferred presentation_deferred version=" + presentationRequestVersion);
                             return;
                         }
-                        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+                        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
                     });
                     LogDeferredPlaylistReference("playlist_ref_deferred done version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " presentation=queued");
                     deferredPlaylistRefLastCompletedVersion = requestVersion;
@@ -5726,7 +5702,7 @@ public partial class MainWindowViewModel : ViewModel
             RefreshPlaylistSummaryIfVisible(reason);
             return;
         }
-        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         RefreshPlaylistSummaryIfVisible(reason);
     }
 
@@ -5911,26 +5887,26 @@ public partial class MainWindowViewModel : ViewModel
 
     public bool IsPlayHistoryViewActive => CurrentMainViewOperationSection == MainViewOperationSection.PlayHistory;
 
-    internal static MainViewOperationSection ResolveMainViewOperationSection(viewUpdateMode mode)
+    internal static MainViewOperationSection ResolveMainViewOperationSection(MainViewUpdateMode mode)
     {
         return mode switch
         {
-            viewUpdateMode.PendingInstallFolderSelected => MainViewOperationSection.InstallPending,
-            viewUpdateMode.NewlyInstalledFolderSelected => MainViewOperationSection.InstallInstalled,
-            viewUpdateMode.PlaylistFilterSelected or viewUpdateMode.PlaylistNotOwnedFilterSelected => MainViewOperationSection.Playlist,
-            viewUpdateMode.FullScanAllChartsFilterSelected or viewUpdateMode.FileMissingFilterSelected or viewUpdateMode.FileMissingIgnoredFilterSelected => MainViewOperationSection.FullScanCheck,
-            viewUpdateMode.ChartInfoParseErrorFilterSelected => MainViewOperationSection.ChartInfoParseError,
-            viewUpdateMode.PlayHistorySelected => MainViewOperationSection.PlayHistory,
+            MainViewUpdateMode.PendingInstallFolderSelected => MainViewOperationSection.InstallPending,
+            MainViewUpdateMode.NewlyInstalledFolderSelected => MainViewOperationSection.InstallInstalled,
+            MainViewUpdateMode.PlaylistFilterSelected or MainViewUpdateMode.PlaylistNotOwnedFilterSelected => MainViewOperationSection.Playlist,
+            MainViewUpdateMode.FullScanAllChartsFilterSelected or MainViewUpdateMode.FileMissingFilterSelected or MainViewUpdateMode.FileMissingIgnoredFilterSelected => MainViewOperationSection.FullScanCheck,
+            MainViewUpdateMode.ChartInfoParseErrorFilterSelected => MainViewOperationSection.ChartInfoParseError,
+            MainViewUpdateMode.PlayHistorySelected => MainViewOperationSection.PlayHistory,
             _ => MainViewOperationSection.Library,
         };
     }
 
-    private static bool IsPlayHistoryMainViewMode(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    private static bool IsPlayHistoryMainViewMode(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
     {
         return ChartListRefreshCoordinator.IsPlayHistoryMainViewMode(mode, currentTreeMode);
     }
 
-    internal static bool IsPlayHistoryMainViewModeForTest(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    internal static bool IsPlayHistoryMainViewModeForTest(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
     {
         return IsPlayHistoryMainViewMode(mode, currentTreeMode);
     }
@@ -6454,7 +6430,7 @@ public partial class MainWindowViewModel : ViewModel
         return row;
     }
 
-    private bool TryApplyVirtualDefaultNormalLibraryView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, bool includeBmsonRows, Stopwatch viewBuildStopwatch)
+    private bool TryApplyVirtualDefaultNormalLibraryView(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, bool includeBmsonRows, Stopwatch viewBuildStopwatch)
     {
         if (!TryResolveVirtualDefaultNormalLibraryRequest(mode, SortParameters, out string normalizedSortColumn, out ListSortDirection sortDirection, out string routeSkipReason))
         {
@@ -6591,9 +6567,9 @@ public partial class MainWindowViewModel : ViewModel
         return true;
     }
 
-    private bool TryApplyVirtualChartSubsetLibraryView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
+    private bool TryApplyVirtualChartSubsetLibraryView(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
     {
-        viewUpdateMode treeMode = treeViewFilterTypeSelected;
+        MainViewUpdateMode treeMode = treeViewFilterTypeSelected;
         object subsetParameter = GetVirtualChartSubsetParameter(treeMode, parameter);
         if (!IsVirtualChartSubsetRequestModeSupported(mode, treeMode)
             || !TryGetVirtualChartSubsetSourceFiles(
@@ -6754,7 +6730,7 @@ public partial class MainWindowViewModel : ViewModel
         return true;
     }
 
-    private void CompleteMainViewBuild(viewUpdateMode mode)
+    private void CompleteMainViewBuild(MainViewUpdateMode mode)
     {
         long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
         long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
@@ -6764,12 +6740,12 @@ public partial class MainWindowViewModel : ViewModel
         Volatile.Write(ref lastMainViewBuildMode, (int)mode);
     }
 
-    private object GetVirtualChartSubsetParameter(viewUpdateMode treeMode, object parameter)
+    private object GetVirtualChartSubsetParameter(MainViewUpdateMode treeMode, object parameter)
     {
-        if (treeMode != viewUpdateMode.DuplicateFilterSelected)
+        if (treeMode != MainViewUpdateMode.DuplicateFilterSelected)
         {
-            if (treeMode == viewUpdateMode.NewlyInstalledFolderSelected
-                || treeMode == viewUpdateMode.PendingInstallFolderSelected)
+            if (treeMode == MainViewUpdateMode.NewlyInstalledFolderSelected
+                || treeMode == MainViewUpdateMode.PendingInstallFolderSelected)
             {
                 return treeViewFilterParameterSelected ?? parameter;
             }
@@ -6997,7 +6973,7 @@ public partial class MainWindowViewModel : ViewModel
         IReadOnlyList<ChartListSourceRow> sourceRows,
         string columnName,
         ListSortDirection direction,
-        viewUpdateMode treeMode,
+        MainViewUpdateMode treeMode,
         string subsetName,
         long sourceRowsSignature,
         long sourceGeneration,
@@ -7089,7 +7065,7 @@ public partial class MainWindowViewModel : ViewModel
     private VirtualChartSubsetSortCacheKey CreateVirtualChartSubsetSortCacheKey(
         long sourceGeneration,
         long sortKeyGeneration,
-        viewUpdateMode treeMode,
+        MainViewUpdateMode treeMode,
         string subsetName,
         long sourceRowsSignature,
         string columnName,
@@ -7590,7 +7566,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
             }
             waitStopwatch.Stop();
-            bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode.FolderFilterSelected, viewUpdateMode.FolderFilterSelected);
+            bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(MainViewUpdateMode.FolderFilterSelected, MainViewUpdateMode.FolderFilterSelected);
             List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
                 includeBmsonRows,
                 out sourceRowsCacheHit,
@@ -7775,7 +7751,7 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void LogVirtualNormalLibraryRouteSkipped(viewUpdateMode mode, viewUpdateMode requestedMode, bool includeBmsonRows, string reason)
+    private void LogVirtualNormalLibraryRouteSkipped(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, bool includeBmsonRows, string reason)
     {
         if (string.IsNullOrWhiteSpace(reason)
             || !ShouldLogVirtualNormalLibraryRouteSkip(mode, treeViewFilterTypeSelected))
@@ -7795,7 +7771,7 @@ public partial class MainWindowViewModel : ViewModel
             + " includeBmsonRows=" + includeBmsonRows);
     }
 
-    private void LogVirtualNormalLibraryRequiredFailure(viewUpdateMode mode, viewUpdateMode requestedMode, bool includeBmsonRows)
+    private void LogVirtualNormalLibraryRequiredFailure(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, bool includeBmsonRows)
     {
         LogMainViewBuildWarning("main_view_virtual_required_failed"
             + " mode=" + mode
@@ -7809,7 +7785,7 @@ public partial class MainWindowViewModel : ViewModel
             + " includeBmsonRows=" + includeBmsonRows);
     }
 
-    private void LogVirtualChartSubsetRequiredFailure(viewUpdateMode mode, viewUpdateMode requestedMode, viewUpdateMode treeMode)
+    private void LogVirtualChartSubsetRequiredFailure(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, MainViewUpdateMode treeMode)
     {
         LogMainViewBuildWarning("main_view_virtual_required_failed"
             + " scope=chart_subset"
@@ -7822,7 +7798,7 @@ public partial class MainWindowViewModel : ViewModel
             + " modeFilter=" + ModeFilter);
     }
 
-    private void LogVirtualNormalLibrarySortReset(viewUpdateMode mode, viewUpdateMode requestedMode, bool includeBmsonRows, string reason, string appliedSortColumn, ListSortDirection appliedSortDirection)
+    private void LogVirtualNormalLibrarySortReset(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, bool includeBmsonRows, string reason, string appliedSortColumn, ListSortDirection appliedSortDirection)
     {
         if (string.IsNullOrWhiteSpace(reason)
             || !ShouldLogVirtualNormalLibraryRouteSkip(mode, treeViewFilterTypeSelected))
@@ -7843,13 +7819,13 @@ public partial class MainWindowViewModel : ViewModel
             + " includeBmsonRows=" + includeBmsonRows);
     }
 
-    private static bool ShouldLogVirtualNormalLibraryRouteSkip(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    private static bool ShouldLogVirtualNormalLibraryRouteSkip(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
     {
         return IsVirtualNormalLibraryRequestModeSupported(mode, currentTreeMode)
             && !IsPlaylistTreeActive(mode, currentTreeMode);
     }
 
-    private void LogVirtualChartSubsetSortReset(viewUpdateMode mode, viewUpdateMode requestedMode, viewUpdateMode treeMode, string reason, string appliedSortColumn, ListSortDirection appliedSortDirection)
+    private void LogVirtualChartSubsetSortReset(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, MainViewUpdateMode treeMode, string reason, string appliedSortColumn, ListSortDirection appliedSortDirection)
     {
         if (string.IsNullOrWhiteSpace(reason)
             || !IsVirtualChartSubsetRequestModeSupported(mode, treeMode))
@@ -7888,7 +7864,7 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     private bool TryResolveVirtualDefaultNormalLibraryRequest(
-        viewUpdateMode mode,
+        MainViewUpdateMode mode,
         cSortParameters sortParameters,
         out string normalizedSortColumn,
         out ListSortDirection sortDirection,
@@ -7929,22 +7905,22 @@ public partial class MainWindowViewModel : ViewModel
 
     internal static bool IsVirtualNormalLibraryModeSupportedForTest(int mode)
     {
-        return IsVirtualNormalLibraryModeSupported((viewUpdateMode)mode);
+        return IsVirtualNormalLibraryModeSupported((MainViewUpdateMode)mode);
     }
 
     internal static bool IsVirtualNormalLibraryTreeModeSupportedForTest(int mode)
     {
-        return IsVirtualNormalLibraryTreeModeSupported((viewUpdateMode)mode);
+        return IsVirtualNormalLibraryTreeModeSupported((MainViewUpdateMode)mode);
     }
 
     internal static bool IsVirtualNormalLibraryRequestModeSupportedForTest(int mode, int treeMode)
     {
-        return IsVirtualNormalLibraryRequestModeSupported((viewUpdateMode)mode, (viewUpdateMode)treeMode);
+        return IsVirtualNormalLibraryRequestModeSupported((MainViewUpdateMode)mode, (MainViewUpdateMode)treeMode);
     }
 
     internal static bool ShouldApplyVirtualNormalLibraryFolderFilterForTest(int treeMode)
     {
-        return ShouldApplyVirtualNormalLibraryFolderFilter((viewUpdateMode)treeMode);
+        return ShouldApplyVirtualNormalLibraryFolderFilter((MainViewUpdateMode)treeMode);
     }
 
     internal static Func<ChartListSourceRow, bool> CreateVirtualNormalLibraryFolderFilterForTest(FolderFilterType type, string filterKey, out string identity)
@@ -7956,22 +7932,22 @@ public partial class MainWindowViewModel : ViewModel
 
     internal static bool IsVirtualChartSubsetTreeModeSupportedForTest(int mode)
     {
-        return IsVirtualChartSubsetTreeModeSupported((viewUpdateMode)mode);
+        return IsVirtualChartSubsetTreeModeSupported((MainViewUpdateMode)mode);
     }
 
     internal static bool IsVirtualChartSubsetRequestModeSupportedForTest(int mode, int treeMode)
     {
-        return IsVirtualChartSubsetRequestModeSupported((viewUpdateMode)mode, (viewUpdateMode)treeMode);
+        return IsVirtualChartSubsetRequestModeSupported((MainViewUpdateMode)mode, (MainViewUpdateMode)treeMode);
     }
 
     internal static bool IsVirtualChartSubsetRequiredForRequestForTest(int mode, int treeMode)
     {
-        return IsVirtualChartSubsetRequiredForRequest((viewUpdateMode)mode, (viewUpdateMode)treeMode);
+        return IsVirtualChartSubsetRequiredForRequest((MainViewUpdateMode)mode, (MainViewUpdateMode)treeMode);
     }
 
     internal static bool ShouldApplyResourceHealthProjectionForVirtualSubsetForTest(int mode)
     {
-        return ShouldApplyResourceHealthProjectionForVirtualSubset((viewUpdateMode)mode);
+        return ShouldApplyResourceHealthProjectionForVirtualSubset((MainViewUpdateMode)mode);
     }
 
     internal static LibraryChartRow CreateLibraryChartRowFromPackageEntryForTest(PackageChartEntry entry)
@@ -7984,70 +7960,70 @@ public partial class MainWindowViewModel : ViewModel
         return new MainWindowViewModel().CreateVirtualChartSubsetRow(sourceRow, applyResourceHealthProjection: false);
     }
 
-    private static bool IsVirtualNormalLibraryModeSupported(viewUpdateMode mode)
+    private static bool IsVirtualNormalLibraryModeSupported(MainViewUpdateMode mode)
     {
         return MainViewRefreshDecisionService.IsVirtualNormalLibraryModeSupported(mode);
     }
 
-    private static bool IsVirtualNormalLibraryRequestModeSupported(viewUpdateMode mode, viewUpdateMode treeMode)
+    private static bool IsVirtualNormalLibraryRequestModeSupported(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
     {
         return IsVirtualNormalLibraryTreeModeSupported(treeMode)
             && (mode == treeMode
-                || mode == viewUpdateMode.TreeViewFilterNotChanged
-                || mode == viewUpdateMode.KeywordFilterUpdated
-                || mode == viewUpdateMode.ModeFilterUpdated
-                || mode == viewUpdateMode.SortUpdated);
+                || mode == MainViewUpdateMode.TreeViewFilterNotChanged
+                || mode == MainViewUpdateMode.KeywordFilterUpdated
+                || mode == MainViewUpdateMode.ModeFilterUpdated
+                || mode == MainViewUpdateMode.SortUpdated);
     }
 
-    private static bool IsVirtualNormalLibraryTreeModeSupported(viewUpdateMode mode)
+    private static bool IsVirtualNormalLibraryTreeModeSupported(MainViewUpdateMode mode)
     {
-        return mode == viewUpdateMode.FolderFilterSelected
-            || mode == viewUpdateMode.FullScanAllChartsFilterSelected;
+        return mode == MainViewUpdateMode.FolderFilterSelected
+            || mode == MainViewUpdateMode.FullScanAllChartsFilterSelected;
     }
 
-    private static bool ShouldApplyVirtualNormalLibraryFolderFilter(viewUpdateMode treeMode)
+    private static bool ShouldApplyVirtualNormalLibraryFolderFilter(MainViewUpdateMode treeMode)
     {
-        return treeMode != viewUpdateMode.FullScanAllChartsFilterSelected;
+        return treeMode != MainViewUpdateMode.FullScanAllChartsFilterSelected;
     }
 
-    private static bool IsVirtualChartSubsetRequestModeSupported(viewUpdateMode mode, viewUpdateMode treeMode)
+    private static bool IsVirtualChartSubsetRequestModeSupported(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
     {
         return IsVirtualChartSubsetTreeModeSupported(treeMode)
             && (mode == treeMode
-                || mode == viewUpdateMode.TreeViewFilterNotChanged
-                || mode == viewUpdateMode.KeywordFilterUpdated
-                || mode == viewUpdateMode.ModeFilterUpdated
-                || mode == viewUpdateMode.SortUpdated);
+                || mode == MainViewUpdateMode.TreeViewFilterNotChanged
+                || mode == MainViewUpdateMode.KeywordFilterUpdated
+                || mode == MainViewUpdateMode.ModeFilterUpdated
+                || mode == MainViewUpdateMode.SortUpdated);
     }
 
-    private static bool IsVirtualChartSubsetRequiredForRequest(viewUpdateMode mode, viewUpdateMode treeMode)
+    private static bool IsVirtualChartSubsetRequiredForRequest(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
     {
         return IsVirtualChartSubsetRequestModeSupported(mode, treeMode)
             || IsVirtualChartSubsetTreeModeSupported(mode);
     }
 
-    private static bool IsVirtualChartSubsetTreeModeSupported(viewUpdateMode mode)
+    private static bool IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode mode)
     {
-        return mode == viewUpdateMode.FileMissingFilterSelected
-            || mode == viewUpdateMode.FileMissingIgnoredFilterSelected
-            || mode == viewUpdateMode.DuplicateFilterSelected
-            || mode == viewUpdateMode.GarbledFilterSelected
-            || mode == viewUpdateMode.GarbleFixedFilterSelected
-            || mode == viewUpdateMode.UnregisteredFilterSelected
-            || mode == viewUpdateMode.ZeroNoteFilterSelected
-            || mode == viewUpdateMode.ChartInfoParseErrorFilterSelected
-            || mode == viewUpdateMode.NewlyInstalledFolderSelected
-            || mode == viewUpdateMode.PendingInstallFolderSelected;
+        return mode == MainViewUpdateMode.FileMissingFilterSelected
+            || mode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
+            || mode == MainViewUpdateMode.DuplicateFilterSelected
+            || mode == MainViewUpdateMode.GarbledFilterSelected
+            || mode == MainViewUpdateMode.GarbleFixedFilterSelected
+            || mode == MainViewUpdateMode.UnregisteredFilterSelected
+            || mode == MainViewUpdateMode.ZeroNoteFilterSelected
+            || mode == MainViewUpdateMode.ChartInfoParseErrorFilterSelected
+            || mode == MainViewUpdateMode.NewlyInstalledFolderSelected
+            || mode == MainViewUpdateMode.PendingInstallFolderSelected;
     }
 
-    private static bool IsVirtualPackageSubsetTreeMode(viewUpdateMode mode)
+    private static bool IsVirtualPackageSubsetTreeMode(MainViewUpdateMode mode)
     {
-        return mode == viewUpdateMode.NewlyInstalledFolderSelected
-            || mode == viewUpdateMode.PendingInstallFolderSelected;
+        return mode == MainViewUpdateMode.NewlyInstalledFolderSelected
+            || mode == MainViewUpdateMode.PendingInstallFolderSelected;
     }
 
     private bool TryGetVirtualChartSubsetSourceFiles(
-        viewUpdateMode treeMode,
+        MainViewUpdateMode treeMode,
         object parameter,
         out IEnumerable<ChartFile> sourceCharts,
         out IEnumerable<PackageChartEntry> sourceEntries,
@@ -8059,41 +8035,41 @@ public partial class MainWindowViewModel : ViewModel
         sourceProjectionMode = ChartListSourceProjectionMode.PreserveSourceProjection;
         switch (treeMode)
         {
-            case viewUpdateMode.FileMissingFilterSelected:
+            case MainViewUpdateMode.FileMissingFilterSelected:
                 sourceCharts = ChartFilesNeedResourceFix;
                 subsetName = "file_missing";
                 return true;
-            case viewUpdateMode.FileMissingIgnoredFilterSelected:
+            case MainViewUpdateMode.FileMissingIgnoredFilterSelected:
                 sourceCharts = ChartFilesNeedResourceFixIgnored;
                 subsetName = "file_missing_ignored";
                 return true;
-            case viewUpdateMode.DuplicateFilterSelected:
+            case MainViewUpdateMode.DuplicateFilterSelected:
                 return TryGetVirtualDuplicateSourceCharts(parameter, out sourceCharts, out subsetName);
-            case viewUpdateMode.GarbledFilterSelected:
+            case MainViewUpdateMode.GarbledFilterSelected:
                 sourceCharts = ChartFilesGarbled;
                 sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "garbled";
                 return true;
-            case viewUpdateMode.GarbleFixedFilterSelected:
+            case MainViewUpdateMode.GarbleFixedFilterSelected:
                 sourceCharts = ChartFilesGarbledFixed;
                 sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "garble_fixed";
                 return true;
-            case viewUpdateMode.UnregisteredFilterSelected:
+            case MainViewUpdateMode.UnregisteredFilterSelected:
                 sourceCharts = ChartFilesUnregistered;
                 sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "unregistered";
                 return true;
-            case viewUpdateMode.ZeroNoteFilterSelected:
+            case MainViewUpdateMode.ZeroNoteFilterSelected:
                 sourceCharts = ChartFilesZeroNote;
                 sourceProjectionMode = ChartListSourceProjectionMode.OwnerBacked;
                 subsetName = "zero_note";
                 return true;
-            case viewUpdateMode.ChartInfoParseErrorFilterSelected:
+            case MainViewUpdateMode.ChartInfoParseErrorFilterSelected:
                 sourceCharts = ChartInfoParseFailedChartFiles;
                 subsetName = "chart_info_parse_error";
                 return true;
-            case viewUpdateMode.NewlyInstalledFolderSelected:
+            case MainViewUpdateMode.NewlyInstalledFolderSelected:
                 return TryGetVirtualPackageSourceFiles(
                     ChartPackagesInstalled,
                     parameter,
@@ -8102,7 +8078,7 @@ public partial class MainWindowViewModel : ViewModel
                     out sourceCharts,
                     out sourceEntries,
                     out subsetName);
-            case viewUpdateMode.PendingInstallFolderSelected:
+            case MainViewUpdateMode.PendingInstallFolderSelected:
                 return TryGetVirtualPackageSourceFiles(
                     ChartPackagesPending,
                     parameter,
@@ -8350,11 +8326,11 @@ public partial class MainWindowViewModel : ViewModel
             .Where(chart => !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))];
     }
 
-    private static bool ShouldApplyResourceHealthProjectionForVirtualSubset(viewUpdateMode treeMode)
+    private static bool ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode treeMode)
     {
-        return treeMode == viewUpdateMode.FileMissingFilterSelected
-            || treeMode == viewUpdateMode.FileMissingIgnoredFilterSelected
-            || treeMode == viewUpdateMode.NewlyInstalledFolderSelected;
+        return treeMode == MainViewUpdateMode.FileMissingFilterSelected
+            || treeMode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
+            || treeMode == MainViewUpdateMode.NewlyInstalledFolderSelected;
     }
 
     private static string CreateVirtualNormalLibraryFilterIdentity(string folderFilterIdentity, string keywordFilter, ModeFilterType modeFilter, int scoreSnapshotVersion, int chartInfoIndexVersion)
@@ -8435,7 +8411,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="mode">今回の更新モード。</param>
     /// <returns>regular cache の再構築が必要なら <see langword="true"/>。</returns>
-    private static bool ShouldRebuildRegularFolderStage(viewUpdateMode mode, IEnumerable<LibraryChartRow> folderView, IEnumerable<LibraryChartRow> keywordView, IEnumerable<LibraryChartRow> modeView, viewUpdateMode currentTreeMode)
+    private static bool ShouldRebuildRegularFolderStage(MainViewUpdateMode mode, IEnumerable<LibraryChartRow> folderView, IEnumerable<LibraryChartRow> keywordView, IEnumerable<LibraryChartRow> modeView, MainViewUpdateMode currentTreeMode)
     {
         return MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
             mode,
@@ -8450,7 +8426,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal static bool ShouldRebuildRegularFolderStageForTest(int mode, bool hasFolderView, bool hasKeywordView, bool hasModeView, int currentTreeMode)
     {
-        return MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage((viewUpdateMode)mode, hasFolderView, hasKeywordView, hasModeView, (viewUpdateMode)currentTreeMode);
+        return MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage((MainViewUpdateMode)mode, hasFolderView, hasKeywordView, hasModeView, (MainViewUpdateMode)currentTreeMode);
     }
 
     /// <summary>
@@ -9690,7 +9666,7 @@ public partial class MainWindowViewModel : ViewModel
                 RaisePropertyChanged("ModeFilter");
                 if (value != ModeFilterType.None)
                 {
-                    RefreshChartRowsView(viewUpdateMode.ModeFilterUpdated);
+                    RefreshChartRowsView(MainViewUpdateMode.ModeFilterUpdated);
                 }
             }
         }
@@ -9709,13 +9685,13 @@ public partial class MainWindowViewModel : ViewModel
                 _KeywordFilter = value;
                 RaisePropertyChanged("KeywordFilter");
                 UpdateKeywordSearchPresentation();
-                if (treeViewFilterTypeSelected == viewUpdateMode.PlayHistorySelected)
+                if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
                 {
                     QueuePlayHistoryKeywordFilterRefresh();
                 }
                 else
                 {
-                    RefreshChartRowsView(viewUpdateMode.KeywordFilterUpdated);
+                    RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated);
                 }
             }
         }
@@ -10126,7 +10102,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private GridKeywordSearchContext GetCurrentKeywordSearchContext()
     {
-        if (treeViewFilterTypeSelected == viewUpdateMode.PlayHistorySelected)
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
         {
             return GridKeywordSearchContext.PlayHistory;
         }
@@ -10256,7 +10232,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         virtualNormalLibraryTreeFilter = filter;
         RaisePropertyChanged("FolderFilter");
-        RefreshChartRowsView(viewUpdateMode.FolderFilterSelected);
+        RefreshChartRowsView(MainViewUpdateMode.FolderFilterSelected);
     }
 
     /// <summary>
@@ -13226,8 +13202,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     private void FinalizeMainViewBuild(
         Stopwatch viewBuildStopwatch,
-        viewUpdateMode mode,
-        viewUpdateMode requestedMode,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
         object parameter,
         long folderStageMs,
         long keywordStageMs,
@@ -13381,12 +13357,12 @@ public partial class MainWindowViewModel : ViewModel
     /// <param name="folderName">解決されたプレイリストフォルダ名。</param>
     /// <param name="filterType">解決された filter 種別。</param>
     /// <returns>プレイリスト選択情報を解決できた場合は <see langword="true"/>。</returns>
-    private bool TryResolvePlaylistSelection(viewUpdateMode mode, object parameter, out BMSTable bmsTable, out string folderName, out PlaylistFilterType filterType)
+    private bool TryResolvePlaylistSelection(MainViewUpdateMode mode, object parameter, out BMSTable bmsTable, out string folderName, out PlaylistFilterType filterType)
     {
         bmsTable = null;
         folderName = null;
         filterType = PlaylistFilterType.PlaylistFilter;
-        if (mode == viewUpdateMode.PlaylistFilterSelected)
+        if (mode == MainViewUpdateMode.PlaylistFilterSelected)
         {
             if (parameter == null)
             {
@@ -13400,13 +13376,13 @@ public partial class MainWindowViewModel : ViewModel
             }
             return false;
         }
-        if (mode == viewUpdateMode.PlaylistNotOwnedFilterSelected)
+        if (mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected)
         {
             filterType = PlaylistFilterType.PlaylistNotOwnedFilterSelected;
             bmsTable = parameter as BMSTable;
             return parameter == null || bmsTable != null;
         }
-        if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected)
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected)
         {
             if (treeViewFilterParameterSelected == null)
             {
@@ -13420,7 +13396,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             return false;
         }
-        if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected)
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected)
         {
             filterType = PlaylistFilterType.PlaylistNotOwnedFilterSelected;
             bmsTable = treeViewFilterParameterSelected as BMSTable;
@@ -13478,7 +13454,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// 現在保持している playlist source snapshot から view を再計算します。
     /// </summary>
-    private IList ApplyPlaylistViewFromCurrentSource(viewUpdateMode mode, out int sourceCount, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out string sortProfile)
+    private IList ApplyPlaylistViewFromCurrentSource(MainViewUpdateMode mode, out int sourceCount, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out string sortProfile)
     {
         List<PlaylistDetailSourceRow> sourceRows;
         int currentViewRowsAlive;
@@ -13507,8 +13483,8 @@ public partial class MainWindowViewModel : ViewModel
             return false;
         }
         int requestVersion = request.RequestVersion;
-        viewUpdateMode mode = request.Mode;
-        viewUpdateMode requestedMode = request.RequestedMode;
+        MainViewUpdateMode mode = request.Mode;
+        MainViewUpdateMode requestedMode = request.RequestedMode;
         object parameter = request.Parameter;
         var viewBuildStopwatch = Stopwatch.StartNew();
         int sourceCount = 0;
@@ -13612,8 +13588,8 @@ public partial class MainWindowViewModel : ViewModel
         {
             return false;
         }
-        viewUpdateMode mode = request.Mode;
-        viewUpdateMode requestedMode = request.RequestedMode;
+        MainViewUpdateMode mode = request.Mode;
+        MainViewUpdateMode requestedMode = request.RequestedMode;
         object parameter = request.Parameter;
         var viewBuildStopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
@@ -13719,8 +13695,8 @@ public partial class MainWindowViewModel : ViewModel
         {
             return false;
         }
-        viewUpdateMode mode = request.Mode;
-        viewUpdateMode requestedMode = request.RequestedMode;
+        MainViewUpdateMode mode = request.Mode;
+        MainViewUpdateMode requestedMode = request.RequestedMode;
         object parameter = request.Parameter;
         List<PlaylistDetailSourceRow> sourceRows;
         BMSTable currentTable;
@@ -13780,16 +13756,16 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="mode">更新の契機（どのフィルタや要素が変更されたかを示す更新モード）。</param>
     /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ、無い場合は null。</param>
-    private void RefreshChartRowsView(viewUpdateMode mode, object parameter = null)
+    private void RefreshChartRowsView(MainViewUpdateMode mode, object parameter = null)
     {
         var viewBuildStopwatch = Stopwatch.StartNew();
-        viewUpdateMode requestedMode = mode;
+        MainViewUpdateMode requestedMode = mode;
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
-        if (mode == viewUpdateMode.TreeViewFilterNotChanged)
+        if (mode == MainViewUpdateMode.TreeViewFilterNotChanged)
         {
             GetTreeViewFilterSelection(out mode, out parameter);
         }
-        else if (mode == viewUpdateMode.PlayHistorySelected)
+        else if (mode == MainViewUpdateMode.PlayHistorySelected)
         {
             PlayHistoryViewRequest playHistoryRequest = parameter as PlayHistoryViewRequest;
             if (playHistoryRequest == null || !IsCurrentPlayHistoryViewRequest(playHistoryRequest.RequestId))
@@ -13804,7 +13780,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
         }
-        else if (mode == viewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest)
+        else if (mode == MainViewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest)
         {
             if (!IsCurrentPlayHistoryViewRequest(playHistoryKeywordRequest.RequestId))
             {
@@ -13824,9 +13800,9 @@ public partial class MainWindowViewModel : ViewModel
             ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);
             return;
         }
-        else if (mode < viewUpdateMode.KeywordFilterUpdated)
+        else if (mode < MainViewUpdateMode.KeywordFilterUpdated)
         {
-            if (mode == viewUpdateMode.DuplicateFilterSelected)
+            if (mode == MainViewUpdateMode.DuplicateFilterSelected)
             {
                 parameter = NormalizeDuplicateViewParameter(parameter);
             }
@@ -13860,8 +13836,8 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     private void ApplyMainLibraryChartListView(
-        viewUpdateMode mode,
-        viewUpdateMode requestedMode,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
         object parameter,
         bool includeBmsonRows,
         Stopwatch viewBuildStopwatch)
@@ -13930,8 +13906,8 @@ public partial class MainWindowViewModel : ViewModel
         {
             switch (regularRequest.Mode)
             {
-                case viewUpdateMode.FolderFilterSelected:
-                case viewUpdateMode.FullScanAllChartsFilterSelected:
+                case MainViewUpdateMode.FolderFilterSelected:
+                case MainViewUpdateMode.FullScanAllChartsFilterSelected:
                     LogVirtualNormalLibraryRequiredFailure(regularRequest.Mode, regularRequest.RequestedMode, regularRequest.IncludeBmsonRows);
                     ChartRowsFolderView = [];
                     break;
@@ -13942,7 +13918,7 @@ public partial class MainWindowViewModel : ViewModel
         folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         folderCount = regularStage.FolderCount;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (regularRequest.Mode <= viewUpdateMode.KeywordFilterUpdated)
+        if (regularRequest.Mode <= MainViewUpdateMode.KeywordFilterUpdated)
         {
             if (!string.IsNullOrWhiteSpace(regularRequest.KeywordFilter))
             {
@@ -13959,7 +13935,7 @@ public partial class MainWindowViewModel : ViewModel
         keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         keywordCount = regularStage.KeywordCount;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (regularRequest.Mode <= viewUpdateMode.ModeFilterUpdated)
+        if (regularRequest.Mode <= MainViewUpdateMode.ModeFilterUpdated)
         {
             if (regularRequest.ModeFilter != ModeFilterType.All)
             {
@@ -13975,7 +13951,7 @@ public partial class MainWindowViewModel : ViewModel
         modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         modeCount = regularStage.ModeCount;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        bool isPlaylistDetailView = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
+        bool isPlaylistDetailView = mode == MainViewUpdateMode.PlaylistFilterSelected || mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
         var sortContext = new RegularChartListSortContext
         {
             CurrentTreeMode = treeViewFilterTypeSelected,
@@ -14033,7 +14009,7 @@ public partial class MainWindowViewModel : ViewModel
         string sortDirection = regularRequest.SortDirection.ToString();
         string parameterType = parameter?.GetType().Name ?? "(null)";
         bool fastSortEnabled = true;
-        bool isPlaylistDetailForLog = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
+        bool isPlaylistDetailForLog = mode == MainViewUpdateMode.PlaylistFilterSelected || mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
         RegularChartListBuildCompletion buildCompletion = ChartListRefreshCoordinator.CreateRegularBuildCompletion(
             new RegularChartListBuildLogRequest
             {
@@ -14075,21 +14051,21 @@ public partial class MainWindowViewModel : ViewModel
         LogMainViewBuild(buildCompletion.LogMessage);
     }
 
-    private void ApplyPlayHistoryView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
+    private void ApplyPlayHistoryView(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
     {
         PlayHistoryViewRequest viewRequest = ResolvePlayHistoryViewRequest(parameter);
         PlayHistoryPeriodRequest periodRequest = viewRequest.PeriodRequest;
         long requestId = viewRequest.RequestId > 0
             ? viewRequest.RequestId
             : RegisterPlayHistoryFilterRequest();
-        if (requestedMode == viewUpdateMode.KeywordFilterUpdated
+        if (requestedMode == MainViewUpdateMode.KeywordFilterUpdated
             && viewRequest.KeywordFilterRevision > 0
             && viewRequest.KeywordFilterRevision != Interlocked.Read(ref playHistoryKeywordFilterRevision))
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
             return;
         }
-        if (requestedMode == viewUpdateMode.KeywordFilterUpdated
+        if (requestedMode == MainViewUpdateMode.KeywordFilterUpdated
             && viewRequest.DisplayTargetRevision > 0
             && viewRequest.DisplayTargetRevision != Interlocked.Read(ref playHistoryDisplayTargetRevision))
         {
@@ -14102,7 +14078,7 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
 
-        if ((requestedMode == viewUpdateMode.SortUpdated || requestedMode == viewUpdateMode.KeywordFilterUpdated)
+        if ((requestedMode == MainViewUpdateMode.SortUpdated || requestedMode == MainViewUpdateMode.KeywordFilterUpdated)
             && TryApplyPlayHistoryPresentationOnly(mode, requestedMode, parameter, viewRequest, viewBuildStopwatch))
         {
             return;
@@ -14648,8 +14624,8 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     private bool TryApplyPlayHistoryPresentationOnly(
-        viewUpdateMode mode,
-        viewUpdateMode requestedMode,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
         object parameter,
         PlayHistoryViewRequest viewRequest,
         Stopwatch viewBuildStopwatch)
@@ -14685,13 +14661,13 @@ public partial class MainWindowViewModel : ViewModel
             || !string.Equals(displayTarget?.Identity ?? string.Empty, state.DisplayTargetIdentity, StringComparison.Ordinal);
         bool keywordStateStale = keywordRevision != state.KeywordFilterRevision
             || !string.Equals(NormalizePlaylistKeywordFilter(keywordFilter), state.KeywordFilterIdentity, StringComparison.Ordinal);
-        if (requestedMode == viewUpdateMode.SortUpdated && targetStateStale)
+        if (requestedMode == MainViewUpdateMode.SortUpdated && targetStateStale)
         {
             QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
             return true;
         }
-        if (requestedMode == viewUpdateMode.SortUpdated && keywordStateStale)
+        if (requestedMode == MainViewUpdateMode.SortUpdated && keywordStateStale)
         {
             QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false);
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
@@ -14773,8 +14749,8 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     private void ApplyPlayHistorySortedRows(
-        viewUpdateMode mode,
-        viewUpdateMode requestedMode,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
         object parameter,
         Stopwatch viewBuildStopwatch,
         PlayHistoryViewState state,
@@ -15106,7 +15082,7 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void GetTreeViewFilterSelection(out viewUpdateMode mode, out object parameter)
+    private void GetTreeViewFilterSelection(out MainViewUpdateMode mode, out object parameter)
     {
         lock (playHistoryViewRequestLock)
         {
@@ -15115,18 +15091,18 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void SetTreeViewFilterSelection(viewUpdateMode mode, object parameter)
+    private void SetTreeViewFilterSelection(MainViewUpdateMode mode, object parameter)
     {
         lock (playHistoryViewRequestLock)
         {
-            if (mode != viewUpdateMode.PlayHistorySelected)
+            if (mode != MainViewUpdateMode.PlayHistorySelected)
             {
                 InvalidatePlayHistoryFilterRequestUnsafe();
             }
             treeViewFilterTypeSelected = mode;
             treeViewFilterParameterSelected = parameter;
         }
-        if (mode != viewUpdateMode.PlayHistorySelected)
+        if (mode != MainViewUpdateMode.PlayHistorySelected)
         {
             ClearPlayHistorySummaryCardFilters();
         }
@@ -15224,7 +15200,7 @@ public partial class MainWindowViewModel : ViewModel
             InvalidatePlayHistoryFilterRequestUnsafe();
             playHistoryViewRequestCancellation = new CancellationTokenSource();
             requestId = playHistoryViewRequestGeneration;
-            treeViewFilterTypeSelected = viewUpdateMode.PlayHistorySelected;
+            treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
             treeViewFilterParameterSelected = new PlayHistoryViewRequest(request ?? PlayHistoryPeriodRequest.All(), requestId);
         }
         UpdateKeywordSearchPresentation();
@@ -15247,7 +15223,7 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistoryViewRequest request = null;
         lock (playHistoryViewRequestLock)
         {
-            if (treeViewFilterTypeSelected != viewUpdateMode.PlayHistorySelected)
+            if (treeViewFilterTypeSelected != MainViewUpdateMode.PlayHistorySelected)
             {
                 return;
             }
@@ -15275,7 +15251,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             try
             {
-                RefreshChartRowsView(viewUpdateMode.KeywordFilterUpdated, request);
+                RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request);
             }
             finally
             {
@@ -15295,7 +15271,7 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistoryViewRequest request = null;
         lock (playHistoryViewRequestLock)
         {
-            if (treeViewFilterTypeSelected != viewUpdateMode.PlayHistorySelected)
+            if (treeViewFilterTypeSelected != MainViewUpdateMode.PlayHistorySelected)
             {
                 if (advanceRevision)
                 {
@@ -15328,7 +15304,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             try
             {
-                RefreshChartRowsView(viewUpdateMode.KeywordFilterUpdated, request);
+                RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request);
             }
             finally
             {
@@ -15351,7 +15327,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         return requestId > 0
             && playHistoryViewRequestGeneration == requestId
-            && treeViewFilterTypeSelected == viewUpdateMode.PlayHistorySelected
+            && treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected
             && treeViewFilterParameterSelected is PlayHistoryViewRequest selectedRequest
             && selectedRequest.RequestId == requestId
             && playHistoryViewRequestCancellation?.IsCancellationRequested != true;
@@ -15606,8 +15582,8 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     private void LogStalePlayHistoryViewRequest(
-        viewUpdateMode mode,
-        viewUpdateMode requestedMode,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
         object parameter,
         PlayHistoryPeriodRequest periodRequest,
         long requestId,
@@ -15968,20 +15944,20 @@ public partial class MainWindowViewModel : ViewModel
         return -1;
     }
 
-    private void LogResourceHealthProjection(viewUpdateMode mode, IEnumerable<LibraryChartRow> rows)
+    private void LogResourceHealthProjection(MainViewUpdateMode mode, IEnumerable<LibraryChartRow> rows)
     {
         LogResourceHealthProjection(mode, CountIfCheap(rows));
     }
 
-    private void LogResourceHealthProjection(viewUpdateMode mode, int rowCount)
+    private void LogResourceHealthProjection(MainViewUpdateMode mode, int rowCount)
     {
         ResourceHealthIndexSnapshot snapshot = files?.TryGetCurrentResourceHealthIndexSnapshotForView();
         int overlayCount = 0;
         if (snapshot != null)
         {
-            overlayCount = mode == viewUpdateMode.FileMissingFilterSelected
+            overlayCount = mode == MainViewUpdateMode.FileMissingFilterSelected
                 ? snapshot.ActiveTargets.Count
-                : mode == viewUpdateMode.FileMissingIgnoredFilterSelected
+                : mode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
                     ? snapshot.IgnoredTargets.Count
                     : snapshot.NeedFixCount;
         }
@@ -16153,7 +16129,7 @@ public partial class MainWindowViewModel : ViewModel
         return CreateLibraryChartRowFromPackageEntry(entry);
     }
 
-    private static bool ShouldIncludeBmsonLibraryRowsInMainView(viewUpdateMode mode, viewUpdateMode currentTreeMode)
+    private static bool ShouldIncludeBmsonLibraryRowsInMainView(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
     {
         return ChartListRefreshCoordinator.ShouldIncludeBmsonLibraryRows(mode, currentTreeMode);
     }
@@ -16264,7 +16240,7 @@ public partial class MainWindowViewModel : ViewModel
 
     public void LoadColumnSetting()
     {
-        loadColumnSetting(viewUpdateMode.TreeViewFilterNotChanged, isInit: true);
+        loadColumnSetting(MainViewUpdateMode.TreeViewFilterNotChanged, isInit: true);
     }
 
     /// <summary>
@@ -16277,9 +16253,9 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
     }
 
-    private bool ApplyMainColumnSettingForViewUpdate(viewUpdateMode mode)
+    private bool ApplyMainColumnSettingForViewUpdate(MainViewUpdateMode mode)
     {
-        viewUpdateMode resolvedMode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
+        MainViewUpdateMode resolvedMode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
         bool targetSettingsReady = IsMainColumnSettingTargetReady(resolvedMode);
         bool playlistSummarySettingsReady = Settings.Default.PlaylistSummaryColumnsSettings != null;
         if (CanReuseMainColumnSetting(resolvedMode, lastAppliedMainColumnSettingMode, targetSettingsReady, playlistSummarySettingsReady, isInit: false))
@@ -16291,8 +16267,8 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     private static bool CanReuseMainColumnSetting(
-        viewUpdateMode resolvedMode,
-        viewUpdateMode? lastAppliedMode,
+        MainViewUpdateMode resolvedMode,
+        MainViewUpdateMode? lastAppliedMode,
         bool targetSettingsReady,
         bool playlistSummarySettingsReady,
         bool isInit)
@@ -16304,12 +16280,12 @@ public partial class MainWindowViewModel : ViewModel
             && playlistSummarySettingsReady;
     }
 
-    private bool IsMainColumnSettingTargetReady(viewUpdateMode mode)
+    private bool IsMainColumnSettingTargetReady(MainViewUpdateMode mode)
     {
         return IsMainColumnSettingTargetReady(mode, Settings.Default);
     }
 
-    private static bool IsMainColumnSettingTargetReady(viewUpdateMode mode, Settings settings)
+    private static bool IsMainColumnSettingTargetReady(MainViewUpdateMode mode, Settings settings)
     {
         if (settings == null)
         {
@@ -16317,26 +16293,26 @@ public partial class MainWindowViewModel : ViewModel
         }
         return mode switch
         {
-            viewUpdateMode.PlaylistFilterSelected or viewUpdateMode.PlaylistNotOwnedFilterSelected => settings.PlaylistCustomTableColumnSettings != null,
-            viewUpdateMode.FolderFilterSelected => settings.StandardCustomTableColumnSettings != null,
-            viewUpdateMode.UnregisteredFilterSelected => settings.UnregisteredCustomTableColumnSettings != null,
-            viewUpdateMode.ZeroNoteFilterSelected => settings.ZeroNoteCustomTableColumnSettings != null,
-            viewUpdateMode.ChartInfoParseErrorFilterSelected => settings.ChartInfoParseErrorCustomTableColumnSettings != null,
-            viewUpdateMode.FileMissingFilterSelected or viewUpdateMode.FileMissingIgnoredFilterSelected or viewUpdateMode.FullScanAllChartsFilterSelected or viewUpdateMode.NewlyInstalledFolderSelected => settings.FullScanCustomTableColumnSettings != null,
-            viewUpdateMode.DuplicateFilterSelected => settings.DuplicateCustomTableColumnSettings != null,
-            viewUpdateMode.GarbledFilterSelected or viewUpdateMode.GarbleFixedFilterSelected => settings.EncodingCustomTableColumnSettings != null,
-            viewUpdateMode.PendingInstallFolderSelected => settings.InstallCustomTableColumnSettings != null,
-            viewUpdateMode.PlayHistorySelected => settings.PlayHistoryCustomTableColumnSettings != null,
+            MainViewUpdateMode.PlaylistFilterSelected or MainViewUpdateMode.PlaylistNotOwnedFilterSelected => settings.PlaylistCustomTableColumnSettings != null,
+            MainViewUpdateMode.FolderFilterSelected => settings.StandardCustomTableColumnSettings != null,
+            MainViewUpdateMode.UnregisteredFilterSelected => settings.UnregisteredCustomTableColumnSettings != null,
+            MainViewUpdateMode.ZeroNoteFilterSelected => settings.ZeroNoteCustomTableColumnSettings != null,
+            MainViewUpdateMode.ChartInfoParseErrorFilterSelected => settings.ChartInfoParseErrorCustomTableColumnSettings != null,
+            MainViewUpdateMode.FileMissingFilterSelected or MainViewUpdateMode.FileMissingIgnoredFilterSelected or MainViewUpdateMode.FullScanAllChartsFilterSelected or MainViewUpdateMode.NewlyInstalledFolderSelected => settings.FullScanCustomTableColumnSettings != null,
+            MainViewUpdateMode.DuplicateFilterSelected => settings.DuplicateCustomTableColumnSettings != null,
+            MainViewUpdateMode.GarbledFilterSelected or MainViewUpdateMode.GarbleFixedFilterSelected => settings.EncodingCustomTableColumnSettings != null,
+            MainViewUpdateMode.PendingInstallFolderSelected => settings.InstallCustomTableColumnSettings != null,
+            MainViewUpdateMode.PlayHistorySelected => settings.PlayHistoryCustomTableColumnSettings != null,
             _ => false,
         };
     }
 
-    internal static bool IsMainColumnSettingTargetReadyForTest(viewUpdateMode mode, Settings settings)
+    internal static bool IsMainColumnSettingTargetReadyForTest(MainViewUpdateMode mode, Settings settings)
     {
         return IsMainColumnSettingTargetReady(mode, settings);
     }
 
-    private void loadColumnSetting(viewUpdateMode mode, bool isInit = false)
+    private void loadColumnSetting(MainViewUpdateMode mode, bool isInit = false)
     {
         var stopwatch = Stopwatch.StartNew();
         long stageStartMs = stopwatch.ElapsedMilliseconds;
@@ -16345,7 +16321,7 @@ public partial class MainWindowViewModel : ViewModel
         Visibility targetColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
         string caseLabel = "none";
 
-        if (mode == viewUpdateMode.TreeViewFilterNotChanged)
+        if (mode == MainViewUpdateMode.TreeViewFilterNotChanged)
         {
             mode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
         }
@@ -16353,8 +16329,8 @@ public partial class MainWindowViewModel : ViewModel
         bool modeHandled = true;
         switch (mode)
         {
-            case viewUpdateMode.PlaylistFilterSelected:
-            case viewUpdateMode.PlaylistNotOwnedFilterSelected:
+            case MainViewUpdateMode.PlaylistFilterSelected:
+            case MainViewUpdateMode.PlaylistNotOwnedFilterSelected:
                 caseLabel = "playlist";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.PlaylistCustomTableColumnSettings == null)
@@ -16367,7 +16343,7 @@ public partial class MainWindowViewModel : ViewModel
                 targetColumnSettingsVisibilityForPlaylist = Visibility.Visible;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
-            case viewUpdateMode.FolderFilterSelected:
+            case MainViewUpdateMode.FolderFilterSelected:
                 caseLabel = "standard";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.StandardCustomTableColumnSettings == null)
@@ -16379,7 +16355,7 @@ public partial class MainWindowViewModel : ViewModel
                 ColumnsSettingsChartRowsView = Settings.Default.StandardCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
-            case viewUpdateMode.UnregisteredFilterSelected:
+            case MainViewUpdateMode.UnregisteredFilterSelected:
                 caseLabel = "unregistered";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.UnregisteredCustomTableColumnSettings == null)
@@ -16391,7 +16367,7 @@ public partial class MainWindowViewModel : ViewModel
                 ColumnsSettingsChartRowsView = Settings.Default.UnregisteredCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
-            case viewUpdateMode.ZeroNoteFilterSelected:
+            case MainViewUpdateMode.ZeroNoteFilterSelected:
                 caseLabel = "zero-note";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.ZeroNoteCustomTableColumnSettings == null)
@@ -16403,7 +16379,7 @@ public partial class MainWindowViewModel : ViewModel
                 ColumnsSettingsChartRowsView = Settings.Default.ZeroNoteCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
-            case viewUpdateMode.ChartInfoParseErrorFilterSelected:
+            case MainViewUpdateMode.ChartInfoParseErrorFilterSelected:
                 caseLabel = "chart-info-parse-error";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.ChartInfoParseErrorCustomTableColumnSettings == null)
@@ -16415,10 +16391,10 @@ public partial class MainWindowViewModel : ViewModel
                 ColumnsSettingsChartRowsView = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
-            case viewUpdateMode.FileMissingFilterSelected:
-            case viewUpdateMode.FileMissingIgnoredFilterSelected:
-            case viewUpdateMode.FullScanAllChartsFilterSelected:
-            case viewUpdateMode.NewlyInstalledFolderSelected:
+            case MainViewUpdateMode.FileMissingFilterSelected:
+            case MainViewUpdateMode.FileMissingIgnoredFilterSelected:
+            case MainViewUpdateMode.FullScanAllChartsFilterSelected:
+            case MainViewUpdateMode.NewlyInstalledFolderSelected:
                 caseLabel = "fullscan";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.FullScanCustomTableColumnSettings == null)
@@ -16430,7 +16406,7 @@ public partial class MainWindowViewModel : ViewModel
                 ColumnsSettingsChartRowsView = Settings.Default.FullScanCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
-            case viewUpdateMode.DuplicateFilterSelected:
+            case MainViewUpdateMode.DuplicateFilterSelected:
                 caseLabel = "duplicate";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.DuplicateCustomTableColumnSettings == null)
@@ -16442,8 +16418,8 @@ public partial class MainWindowViewModel : ViewModel
                 ColumnsSettingsChartRowsView = Settings.Default.DuplicateCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
-            case viewUpdateMode.GarbledFilterSelected:
-            case viewUpdateMode.GarbleFixedFilterSelected:
+            case MainViewUpdateMode.GarbledFilterSelected:
+            case MainViewUpdateMode.GarbleFixedFilterSelected:
                 caseLabel = "encoding";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.EncodingCustomTableColumnSettings == null)
@@ -16455,7 +16431,7 @@ public partial class MainWindowViewModel : ViewModel
                 ColumnsSettingsChartRowsView = Settings.Default.EncodingCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
-            case viewUpdateMode.PendingInstallFolderSelected:
+            case MainViewUpdateMode.PendingInstallFolderSelected:
                 caseLabel = "install";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.InstallCustomTableColumnSettings == null)
@@ -16467,7 +16443,7 @@ public partial class MainWindowViewModel : ViewModel
                 ColumnsSettingsChartRowsView = Settings.Default.InstallCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
-            case viewUpdateMode.PlayHistorySelected:
+            case MainViewUpdateMode.PlayHistorySelected:
                 caseLabel = "play-history";
                 stageStartMs = stopwatch.ElapsedMilliseconds;
                 if (isInit || Settings.Default.PlayHistoryCustomTableColumnSettings == null)
@@ -16527,7 +16503,7 @@ public partial class MainWindowViewModel : ViewModel
                 };
                 if (IsPlayHistoryViewActive)
                 {
-                    RefreshChartRowsView(viewUpdateMode.SortUpdated);
+                    RefreshChartRowsView(MainViewUpdateMode.SortUpdated);
                 }
             }
             return;
@@ -16542,7 +16518,7 @@ public partial class MainWindowViewModel : ViewModel
             };
             if (!IsPlayHistoryViewActive)
             {
-                RefreshChartRowsView(viewUpdateMode.SortUpdated);
+                RefreshChartRowsView(MainViewUpdateMode.SortUpdated);
             }
         }
     }
@@ -16592,10 +16568,10 @@ public partial class MainWindowViewModel : ViewModel
         switch (type)
         {
             case PlaylistFilterType.PlaylistFilter:
-                RefreshChartRowsView(viewUpdateMode.PlaylistFilterSelected, new Tuple<BMSTable, string>(bmsTable, folderName));
+                RefreshChartRowsView(MainViewUpdateMode.PlaylistFilterSelected, new Tuple<BMSTable, string>(bmsTable, folderName));
                 break;
             case PlaylistFilterType.PlaylistNotOwnedFilterSelected:
-                RefreshChartRowsView(viewUpdateMode.PlaylistNotOwnedFilterSelected, bmsTable);
+                RefreshChartRowsView(MainViewUpdateMode.PlaylistNotOwnedFilterSelected, bmsTable);
                 break;
         }
     }
@@ -16607,7 +16583,7 @@ public partial class MainWindowViewModel : ViewModel
 
     internal void ExecPlayHistoryFilter(PlayHistoryPeriodRequest request, long requestId)
     {
-        RefreshChartRowsView(viewUpdateMode.PlayHistorySelected, new PlayHistoryViewRequest(request ?? PlayHistoryPeriodRequest.All(), requestId));
+        RefreshChartRowsView(MainViewUpdateMode.PlayHistorySelected, new PlayHistoryViewRequest(request ?? PlayHistoryPeriodRequest.All(), requestId));
     }
 
     public void ExecMaintenanceFilter(MaintenanceFilterType type, object parameter = null)
@@ -16619,9 +16595,9 @@ public partial class MainWindowViewModel : ViewModel
             {
                 EnsureDuplicateChartGroupsReady("exec_maintenance_filter");
             }
-            if (Enum.IsDefined(typeof(viewUpdateMode), (int)type))
+            if (Enum.IsDefined(typeof(MainViewUpdateMode), (int)type))
             {
-                RefreshChartRowsView((viewUpdateMode)type, parameter);
+                RefreshChartRowsView((MainViewUpdateMode)type, parameter);
             }
         }
     }
@@ -16713,10 +16689,10 @@ public partial class MainWindowViewModel : ViewModel
         switch (type)
         {
             case InstallFilterType.NewlyInstalledFilter:
-                RefreshChartRowsView(viewUpdateMode.NewlyInstalledFolderSelected, parameter);
+                RefreshChartRowsView(MainViewUpdateMode.NewlyInstalledFolderSelected, parameter);
                 break;
             case InstallFilterType.PendingInstallFilter:
-                RefreshChartRowsView(viewUpdateMode.PendingInstallFolderSelected, parameter);
+                RefreshChartRowsView(MainViewUpdateMode.PendingInstallFolderSelected, parameter);
                 break;
         }
     }
@@ -16919,15 +16895,15 @@ public partial class MainWindowViewModel : ViewModel
         InvalidateNormalLibrarySortKeys(NormalLibraryMaintenanceChangedReason);
         Action refresh = delegate
         {
-            if (treeViewFilterTypeSelected == viewUpdateMode.FileMissingFilterSelected
-                || treeViewFilterTypeSelected == viewUpdateMode.FileMissingIgnoredFilterSelected
-                || treeViewFilterTypeSelected == viewUpdateMode.FullScanAllChartsFilterSelected)
+            if (treeViewFilterTypeSelected == MainViewUpdateMode.FileMissingFilterSelected
+                || treeViewFilterTypeSelected == MainViewUpdateMode.FileMissingIgnoredFilterSelected
+                || treeViewFilterTypeSelected == MainViewUpdateMode.FullScanAllChartsFilterSelected)
             {
                 if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView, filterReason))
                 {
                     return;
                 }
-                RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+                RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
                 return;
             }
             RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Maintenance, dependencyReason);
@@ -16960,7 +16936,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             RaisePropertyChanged(() => DuplicateChartGroups);
         }
-        if (treeViewFilterTypeSelected == viewUpdateMode.DuplicateFilterSelected)
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.DuplicateFilterSelected)
         {
             if (TrySuppress(UiRefreshChannel.LibraryMainView))
             {
@@ -16975,7 +16951,7 @@ public partial class MainWindowViewModel : ViewModel
                 EnsureDuplicateChartGroupsReady(refreshReason);
                 return;
             }
-            RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         }
         else
         {
@@ -17186,7 +17162,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
     }
 
     /// <summary>
@@ -17220,7 +17196,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
     }
 
     /// <summary>
@@ -19827,7 +19803,7 @@ public partial class MainWindowViewModel : ViewModel
     public void SelectPlaylistSummary()
     {
         bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
-        SetTreeViewFilterSelection(viewUpdateMode.PlaylistFilterSelected, null);
+        SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
         ClearPlayHistorySummaryCardFilters();
         PlayHistorySummaryCards = [];
         PlayHistorySummaryDiagnosticText = string.Empty;
@@ -22987,7 +22963,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         RefreshPlaylistSummaryIfVisible("playlist_entries_updated", invalidateTableCountCache: true);
         BMSTable bMSTable;
-        if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected)
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected)
         {
             if (treeViewFilterParameterSelected == null)
             {
@@ -22997,7 +22973,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         else
         {
-            if (treeViewFilterTypeSelected != viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterParameterSelected == null)
+            if (treeViewFilterTypeSelected != MainViewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterParameterSelected == null)
             {
                 return;
             }
@@ -23006,7 +22982,7 @@ public partial class MainWindowViewModel : ViewModel
         if (bMSTable != null && bMSTable == bmsTableUpdated)
         {
             IncrementPlaylistContentRevision("playlist_updated");
-            RefreshChartRowsView(viewUpdateMode.TreeViewFilterNotChanged);
+            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         }
     }
 
@@ -23016,11 +22992,11 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected && treeViewFilterParameterSelected is Tuple<BMSTable, string> tuple && tuple.Item1 == oldTable)
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected && treeViewFilterParameterSelected is Tuple<BMSTable, string> tuple && tuple.Item1 == oldTable)
         {
             treeViewFilterParameterSelected = new Tuple<BMSTable, string>(newTable, tuple.Item2);
         }
-        else if (treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected && treeViewFilterParameterSelected == oldTable)
+        else if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected && treeViewFilterParameterSelected == oldTable)
         {
             treeViewFilterParameterSelected = newTable;
         }
@@ -23032,7 +23008,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (treeViewFilterTypeSelected != viewUpdateMode.PlaylistFilterSelected || treeViewFilterParameterSelected is not Tuple<BMSTable, string> tuple || tuple.Item1 != table)
+        if (treeViewFilterTypeSelected != MainViewUpdateMode.PlaylistFilterSelected || treeViewFilterParameterSelected is not Tuple<BMSTable, string> tuple || tuple.Item1 != table)
         {
             return;
         }
