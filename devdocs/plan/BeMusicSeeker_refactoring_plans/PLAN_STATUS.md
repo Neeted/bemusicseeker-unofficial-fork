@@ -6,13 +6,13 @@
 
 ## Active Ticket
 
-L-3c-12-checkpoint: 次の playlist build execution 境界決定
+L-3c-13: Playlist view-only apply result DTO 導入
 
 目的:
 
-- L-3c-11 で導入した `PlaylistRebuildExecutionResult` を前提に、次に動かす境界を 1 ticket に絞る。
-- execution boundary を coordinator 化するか、view-only apply path へ view apply result DTO を横展開するかを decision record に残す。
-- freshness check、snapshot replace、terminal apply、finalize logging を root に残した判断を後続計画に反映する。
+- [L-3c-12 decision](./P0-01_L-3c-12_PlaylistBuildExecutionNextBoundaryDecision.md) に従い、view-only apply path に result DTO を導入する。
+- `ApplyPlaylistViewFromCurrentSource(...)` の `out` 引数を DTO 返却へ寄せる。
+- view-only path の freshness check、terminal apply、`FinalizeMainViewBuild` は root 側に残す。
 
 次に読む:
 
@@ -23,8 +23,8 @@ L-3c-12-checkpoint: 次の playlist build execution 境界決定
 
 | 順 | 候補 | 条件 |
 |---:|---|---|
-| 1 | L-3c-13: L-3c-12-checkpoint の decision に従う実装 ticket | L-3c-12-checkpoint で実装単位が確定した後 |
-| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3c-12-checkpoint で blocker が特定された場合 |
+| 1 | L-3c-14-checkpoint: rebuilt source / view-only result DTO 共通化か coordinator 化かを決める | L-3c-13 完了後 |
+| 2 | P0-01-C3: source-text / private reflection test blocker 上位数件の direct service / child VM test 化 | L-3c-13 で blocker が特定された場合 |
 
 ## Blocked / Waiting
 
@@ -38,22 +38,18 @@ L-3c-12-checkpoint: 次の playlist build execution 境界決定
 
 | 計画 | 現在地 | 並行可否 |
 |---|---|---|
-| P0-01 | L-3c-11 完了。active は L-3c-12-checkpoint | WIP は原則 1 ticket |
+| P0-01 | L-3c-12-checkpoint 完了。active は L-3c-13 | WIP は原則 1 ticket |
 | P0-02 | BMSLibrary Phase 0 は未着手 | source-text helper / reflection inventory / dependency inventory は即並行可 |
 | P0-03 | MainWindow UI Phase 0 は未着手。一部 DataContext 移行は P0-01 で先行済み | event handler inventory / `async void` 分類は即並行可 |
 | P0-04 | SDK 10 + `net472` baseline。TFM は未変更 | TFM 変更なしの棚卸しは即並行可 |
 
 ## Latest Completed Ticket
 
-L-3c-11: `PlaylistRebuildExecutionResult` を追加し、`RebuildPlaylistSource` の source build stage / rebuilt source view apply stage の結果読み取りを execution result 経由にまとめた。
+L-3c-12-checkpoint: execution boundary をすぐ coordinator 化せず、次は view-only apply path に result DTO を横展開する判断を残した。
 
 実行した確認:
 
-- `dotnet build .\BeMusicSeeker.sln /p:Configuration=Release`
-- `dotnet test .\BeMusicSeeker.Tests\BeMusicSeeker.Tests.csproj /p:Configuration=Release --filter "FullyQualifiedName~PlaylistDetailBuildState_SourceText"`
-- `dotnet test .\BeMusicSeeker.sln /p:Configuration=Release`
-- `dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal`
-- `dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path <VS2022 MSBuild> --properties Configuration=Release --severity-level warning --verbosity minimal`
+- `git diff --check`
 
 ## 次回 Codex が最初に読むべきファイル
 
