@@ -46,7 +46,7 @@
 | 2026-07-06 | 完了 | Ticket J-1: playback header DataContext 移行 | `1581fc9e` |
 | 2026-07-06 | 完了 | Ticket J-2: progress status bar DataContext 移行 | `798fe933` |
 | 2026-07-06 | 完了 | Ticket J-3: DataContext 移行後の binding 棚卸し | `4240710f` |
-| 2026-07-06 | 完了 | Ticket K-1: MainWindowRuntimeContext skeleton 導入 | このコミット |
+| 2026-07-06 | 完了 | Ticket K-1: MainWindowRuntimeContext skeleton 導入 | `d73c4c0f` |
 
 次候補: Ticket K-2: runtime context 利用候補の棚卸し。
 
