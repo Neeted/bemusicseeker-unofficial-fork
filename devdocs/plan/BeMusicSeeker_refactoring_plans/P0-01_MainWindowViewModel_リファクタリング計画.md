@@ -41,7 +41,7 @@
 | 2026-07-06 | 完了 | Ticket I-3d-4: regular materialized apply / log terminal の統合 | `ffcc7fd8` |
 | 2026-07-06 | 完了 | Ticket I-3d-5: RefreshChartRowsView facade 化完了 | `b5427fa0` |
 | 2026-07-06 | 完了 | Ticket I-4a: main chart list test dependency 棚卸し | `89db5cb6` |
-| 2026-07-06 | 完了 | Ticket I-4b: source-text helper の main chart list 範囲を明確化 | このコミット |
+| 2026-07-06 | 完了 | Ticket I-4b: source-text helper の main chart list 範囲を明確化 | `cbd6d659` |
 
 次候補: Ticket I-4c: root forwarder / reflection test の直接化。
 
