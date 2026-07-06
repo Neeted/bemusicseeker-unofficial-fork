@@ -80,6 +80,16 @@ internal static class SourceTextTestHelper
     }
 
     /// <summary>
+    /// Reads one method body from the logical <c>MainWindowViewModel</c> source set.
+    /// </summary>
+    /// <param name="signature">A unique method signature fragment.</param>
+    /// <returns>The method body including the outer braces.</returns>
+    internal static string ReadMainWindowViewModelMethodBody(string signature)
+    {
+        return ExtractMethodBody(ReadMainWindowViewModelSourceText(), signature);
+    }
+
+    /// <summary>
     /// Reads all source files that are considered part of <c>MainWindow</c> after partial splitting.
     /// </summary>
     /// <returns>The concatenated source text for MainWindow-related files.</returns>
@@ -92,6 +102,44 @@ internal static class SourceTextTestHelper
                 Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.cs")),
             Directory.EnumerateFiles(Path.Combine(root, "BeMusicSeeker", "Views"), "MainWindow*.cs", SearchOption.TopDirectoryOnly),
             EnumerateDirectoryFiles(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow")));
+    }
+
+    /// <summary>
+    /// Extracts a method body from source text using a unique signature fragment.
+    /// </summary>
+    /// <param name="text">Source text to search.</param>
+    /// <param name="signature">A unique method signature fragment.</param>
+    /// <returns>The method body including the outer braces.</returns>
+    internal static string ExtractMethodBody(string text, string signature)
+    {
+        int signatureIndex = text.IndexOf(signature, StringComparison.Ordinal);
+        if (signatureIndex < 0)
+        {
+            throw new InvalidOperationException("Method signature was not found.");
+        }
+        int braceIndex = text.IndexOf('{', signatureIndex);
+        if (braceIndex < 0)
+        {
+            throw new InvalidOperationException("Method body start was not found.");
+        }
+        int depth = 0;
+        for (int index = braceIndex; index < text.Length; index++)
+        {
+            if (text[index] == '{')
+            {
+                depth++;
+            }
+            else if (text[index] == '}')
+            {
+                depth--;
+                if (depth == 0)
+                {
+                    return text.Substring(braceIndex, index - braceIndex + 1);
+                }
+            }
+        }
+
+        throw new InvalidOperationException("Method body end was not found.");
     }
 
     private static string FindRepositoryRoot()

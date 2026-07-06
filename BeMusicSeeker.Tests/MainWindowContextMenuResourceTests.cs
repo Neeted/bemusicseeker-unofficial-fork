@@ -1646,14 +1646,11 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void DuplicateFilterViewUsesChartFileParameters()
     {
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
-        string mainLibraryWorkflow = ExtractMethodBody(viewModelCode, "private void ApplyMainLibraryChartListView");
-        string virtualSubsetSource = ExtractMethodBody(viewModelCode, "private bool TryGetVirtualChartSubsetSourceFiles");
-        string virtualDuplicateSource = ExtractBetween(
-            viewModelCode,
-            "private static bool TryGetVirtualDuplicateSourceChartsCore",
-            "private List<ChartFile> CreateDuplicateChartFileSnapshot");
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string mainLibraryWorkflow = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void ApplyMainLibraryChartListView");
+        string virtualSubsetSource = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private bool TryGetVirtualChartSubsetSourceFiles");
+        string virtualDuplicateSource = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private static bool TryGetVirtualDuplicateSourceChartsCore");
 
         StringAssert.Contains(mainLibraryWorkflow, "bool virtualChartSubsetRequiredFailure = false");
         StringAssert.Contains(mainLibraryWorkflow, "IsVirtualChartSubsetRequiredForRequest(mode, treeViewFilterTypeSelected)");

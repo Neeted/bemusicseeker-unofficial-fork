@@ -67,8 +67,7 @@ public sealed class RegularChartListRefreshTypesTests
     [TestMethod]
     public void RefreshChartRowsView_DispatchesMainLibraryWorkflow()
     {
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string refreshChartRowsView = ExtractMethodBody(viewModelCode, "private void RefreshChartRowsView");
+        string refreshChartRowsView = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void RefreshChartRowsView(");
 
         StringAssert.Contains(refreshChartRowsView, "ChartListRefreshCoordinator.ResolveRoute");
         StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
@@ -79,8 +78,7 @@ public sealed class RegularChartListRefreshTypesTests
     [TestMethod]
     public void ApplyMainLibraryChartListView_ConnectsRegularRequestAndStageState()
     {
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string mainLibraryWorkflow = ExtractMethodBody(viewModelCode, "private void ApplyMainLibraryChartListView");
+        string mainLibraryWorkflow = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void ApplyMainLibraryChartListView(");
 
         StringAssert.Contains(mainLibraryWorkflow, "new RegularChartListRefreshRequest(");
         StringAssert.Contains(mainLibraryWorkflow, "regularRequest.VirtualSubsetRequiredFailure");
@@ -88,31 +86,5 @@ public sealed class RegularChartListRefreshTypesTests
         StringAssert.Contains(mainLibraryWorkflow, "new RegularChartListSortContext");
         StringAssert.Contains(mainLibraryWorkflow, "TryGetNormalLibrarySortCache = TryGetNormalLibrarySortCacheForCoordinator");
         StringAssert.Contains(mainLibraryWorkflow, "RegularChartListSortCoordinator.ApplySort(regularRequest, regularStage, sortContext)");
-    }
-
-    private static string ExtractMethodBody(string text, string signature)
-    {
-        int signatureIndex = text.IndexOf(signature, System.StringComparison.Ordinal);
-        Assert.IsTrue(signatureIndex >= 0, "Method signature was not found.");
-        int braceIndex = text.IndexOf('{', signatureIndex);
-        Assert.IsTrue(braceIndex >= 0, "Method body start was not found.");
-        int depth = 0;
-        for (int index = braceIndex; index < text.Length; index++)
-        {
-            if (text[index] == '{')
-            {
-                depth++;
-            }
-            else if (text[index] == '}')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    return text.Substring(braceIndex, index - braceIndex + 1);
-                }
-            }
-        }
-        Assert.Fail("Method body end was not found.");
-        return string.Empty;
     }
 }
