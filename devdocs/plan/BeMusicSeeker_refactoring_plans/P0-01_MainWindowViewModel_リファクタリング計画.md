@@ -18,18 +18,18 @@
 | `MainWindowViewModel.PlaylistState.cs` | 485 行。playlist identity / source snapshot / view snapshot state の受け皿 |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
-| 直近の完了 | L-3c-4: Playlist detail terminal apply boundary 抽出 |
-| 次の active ticket | L-3c-5-checkpoint: source build execution result DTO / coordinator 化の実装単位決定 |
+| 直近の完了 | L-3c-5-checkpoint: source build execution result DTO / coordinator 化の実装単位決定 |
+| 次の active ticket | L-3c-6: Playlist source build result DTO 導入 |
 
 ## Now
 
-### Active Ticket L-3c-5-checkpoint: source build execution result DTO / coordinator 化の実装単位決定
+### Active Ticket L-3c-6: Playlist source build result DTO 導入
 
 目的:
 
-- L-3c-4 で root-local boundary 化した terminal apply を前提に、次に移すべき execution result DTO / coordinator 範囲を 1 ticket に絞る。
-- source materialize、view materialize、chart-info patch、snapshot replace、terminal apply のうち、どれを次に動かすかを decision record に残す。
-- 実装に入る前に、root に残す side effect と coordinator/service へ移す pure/worker logic を明確にする。
+- [L-3c-5 decision](./P0-01_L-3c-5_SourceBuildResultDecision.md) に従い、`BuildPlaylistSourceRows` の戻り値と `out` 引数を `PlaylistSourceBuildResult` のような DTO に束ねる。
+- source build stage の結果、timing、score probe metrics を名前付き contract として扱い、後続の root-local boundary / coordinator 化へ進める。
+- behavior、logging text、cancellation ordering、dispose safety は変えない。
 
 制約:
 
@@ -37,15 +37,16 @@
 - XAML Binding / code-behind event handler の参照先を変えない。
 - persisted setting value、serialized name、DB schema、外部ファイル形式に触れない。
 - terminal apply callback、main table swap、timing / logging side effects は root に残す。
-- BuildGate、source materialize、chart-info patch mutation、view apply UI side effects を動かす場合は、実装前に checkpoint / decision record を作る。
+- BuildGate、source materialize の処理本体、chart-info patch mutation、view apply UI side effects は動かさない。
 - 1 ticket 内で 3 個以上の sub-ticket が必要になった場合は、実装前に checkpoint / decision record を作り直す。
 
 完了条件:
 
-- 次の実装 ticket が 1 件に定まっている。
-- decision record に、動かす範囲 / 動かさない範囲 / 必要なテストが明記されている。
+- `PlaylistSourceBuildResult` 相当の DTO が `BeMusicSeeker/ViewModels/MainWindow` 配下に追加されている。
+- `BuildPlaylistSourceRows` が source rows と metrics / timing を DTO として返し、`out` 引数の束を持たない。
+- `RebuildPlaylistSource` のログ値、cancellation stage、`sourceRows` / `finalRows` dispose safety が維持されている。
 - L-3c-4 の terminal apply boundary を活かす方向になっている。
-- `SourceTextTestHelper.ReadMainWindowViewModelSourceText()` と playlist source-text tests が分割後も意図を検証できる。
+- `SourceTextTestHelper.ReadMainWindowViewModelSourceText()` と playlist source-text tests が DTO 導入後も意図を検証できる。
 - behavior、persisted value、public user-facing text は変えない。
 
 標準確認:
@@ -58,12 +59,12 @@
 
 ## Next
 
-次候補は最大 2 件に固定する。L-3c-5-checkpoint 完了後に実装 ticket へ進む。
+次候補は最大 2 件に固定する。L-3c-6 完了後に次の実装単位を判断する。
 
 | 候補 | 内容 | 着手条件 |
 |---|---|---|
-| L-3c-6 | L-3c-5-checkpoint の decision に従う実装 ticket | L-3c-5-checkpoint で実装単位が確定した後 |
-| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-5-checkpoint で blocker が特定された場合 |
+| L-3c-7 | source build stage root-local boundary / coordinator 化の次段 | L-3c-6 の DTO が入り、引数と戻り値が整理された後 |
+| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-6 で blocker が特定された場合 |
 
 ## Later
 
