@@ -35,7 +35,7 @@
 | 2026-07-06 | 完了 | Ticket I-3a: chart row swap / summary state の child 化 | `6d2518d5` |
 | 2026-07-06 | 完了 | Ticket I-3b: refresh request routing の coordinator 入り口作成 | `1a0bb56a` |
 | 2026-07-06 | 完了 | Ticket I-3c: virtual normal / virtual subset apply の coordinator 化 | `a60958c9` |
-| 2026-07-06 | 完了 | Ticket I-3d-1: regular pipeline request / stage state 型の追加 | `e706c5ad` |
+| 2026-07-06 | 完了 | Ticket I-3d-1: regular pipeline request / stage state 型の追加 | `e4b301b9` |
 
 次候補: Ticket I-3d-2: keyword / mode filter stage の service 化。
 
