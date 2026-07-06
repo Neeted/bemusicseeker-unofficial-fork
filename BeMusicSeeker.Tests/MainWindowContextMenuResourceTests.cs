@@ -1660,7 +1660,6 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(refreshChartRowsView, "bool virtualChartSubsetRequiredFailure = false");
         StringAssert.Contains(refreshChartRowsView, "IsVirtualChartSubsetRequiredForRequest(mode, treeViewFilterTypeSelected)");
-        StringAssert.Contains(refreshChartRowsView, "if (!virtualChartSubsetRequiredFailure)");
         Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.DuplicateFilterSelected:"));
         Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.FileMissingFilterSelected:"));
         Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.NewlyInstalledFolderSelected:"));

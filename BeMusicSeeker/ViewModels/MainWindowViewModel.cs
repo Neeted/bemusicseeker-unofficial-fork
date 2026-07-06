@@ -14071,27 +14071,40 @@ public partial class MainWindowViewModel : ViewModel
             mode = treeViewFilterTypeSelected;
             parameter = treeViewFilterParameterSelected;
         }
-        if (!virtualChartSubsetRequiredFailure)
+        var regularRequest = new RegularChartListRefreshRequest(
+            mode,
+            requestedMode,
+            parameter,
+            treeViewFilterTypeSelected,
+            treeViewFilterParameterSelected,
+            includeBmsonRows,
+            virtualChartSubsetRequiredFailure,
+            KeywordFilter,
+            ModeFilter,
+            SortParameters);
+        var regularStage = new RegularChartListStageState();
+        if (!regularRequest.VirtualSubsetRequiredFailure)
         {
-            switch (mode)
+            switch (regularRequest.Mode)
             {
                 case viewUpdateMode.FolderFilterSelected:
                 case viewUpdateMode.FullScanAllChartsFilterSelected:
-                    LogVirtualNormalLibraryRequiredFailure(mode, requestedMode, includeBmsonRows);
+                    LogVirtualNormalLibraryRequiredFailure(regularRequest.Mode, regularRequest.RequestedMode, regularRequest.IncludeBmsonRows);
                     ChartRowsFolderView = [];
                     break;
             }
         }
-        ChartRowsFolderView = ((ChartRowsFolderView == null) ? new List<LibraryChartRow>() : [.. ChartRowsFolderView]);
+        regularStage.FolderRows = RegularChartListStageState.Materialize(ChartRowsFolderView);
+        ChartRowsFolderView = regularStage.FolderRows;
         folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        folderCount = ChartRowsFolderView.Count();
+        folderCount = regularStage.FolderCount;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (mode <= viewUpdateMode.KeywordFilterUpdated)
+        if (regularRequest.Mode <= viewUpdateMode.KeywordFilterUpdated)
         {
-            if (!string.IsNullOrWhiteSpace(KeywordFilter))
+            if (!string.IsNullOrWhiteSpace(regularRequest.KeywordFilter))
             {
                 ChartRowsKeywordFilterView = [];
-                var query = GridKeywordSearchQuery.Parse(KeywordFilter);
+                var query = GridKeywordSearchQuery.Parse(regularRequest.KeywordFilter);
                 ChartRowsKeywordFilterView = from r in ChartRowsFolderView.AsParallel()
                                              where query.MatchesLibraryChartRow(r)
                                              select r;
@@ -14101,32 +14114,33 @@ public partial class MainWindowViewModel : ViewModel
                 ChartRowsKeywordFilterView = ChartRowsFolderView;
             }
         }
-        ChartRowsKeywordFilterView = ((ChartRowsKeywordFilterView == null) ? new List<LibraryChartRow>() : [.. ChartRowsKeywordFilterView]);
+        regularStage.KeywordRows = RegularChartListStageState.Materialize(ChartRowsKeywordFilterView);
+        ChartRowsKeywordFilterView = regularStage.KeywordRows;
         keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        keywordCount = ChartRowsKeywordFilterView.Count();
+        keywordCount = regularStage.KeywordCount;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (mode <= viewUpdateMode.ModeFilterUpdated)
+        if (regularRequest.Mode <= viewUpdateMode.ModeFilterUpdated)
         {
-            if (ModeFilter != ModeFilterType.All)
+            if (regularRequest.ModeFilter != ModeFilterType.All)
             {
                 List<int?> modeFlag = [null];
-                if ((ModeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
+                if ((regularRequest.ModeFilter & ModeFilterType._5KEYS) == ModeFilterType._5KEYS)
                 {
                     modeFlag.Add(5);
                 }
-                if ((ModeFilter & ModeFilterType._7KEYS) == ModeFilterType._7KEYS)
+                if ((regularRequest.ModeFilter & ModeFilterType._7KEYS) == ModeFilterType._7KEYS)
                 {
                     modeFlag.Add(7);
                 }
-                if ((ModeFilter & ModeFilterType._9KEYS) == ModeFilterType._9KEYS)
+                if ((regularRequest.ModeFilter & ModeFilterType._9KEYS) == ModeFilterType._9KEYS)
                 {
                     modeFlag.Add(9);
                 }
-                if ((ModeFilter & ModeFilterType._10KEYS) == ModeFilterType._10KEYS)
+                if ((regularRequest.ModeFilter & ModeFilterType._10KEYS) == ModeFilterType._10KEYS)
                 {
                     modeFlag.Add(10);
                 }
-                if ((ModeFilter & ModeFilterType._14KEYS) == ModeFilterType._14KEYS)
+                if ((regularRequest.ModeFilter & ModeFilterType._14KEYS) == ModeFilterType._14KEYS)
                 {
                     modeFlag.Add(14);
                 }
@@ -14137,37 +14151,25 @@ public partial class MainWindowViewModel : ViewModel
                 ChartRowsModeFilterView = ChartRowsKeywordFilterView;
             }
         }
-        ChartRowsModeFilterView = ((ChartRowsModeFilterView == null) ? new List<LibraryChartRow>() : [.. ChartRowsModeFilterView]);
+        regularStage.ModeRows = RegularChartListStageState.Materialize(ChartRowsModeFilterView);
+        ChartRowsModeFilterView = regularStage.ModeRows;
         modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        modeCount = ChartRowsModeFilterView.Count();
+        modeCount = regularStage.ModeCount;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         IList nextRowsView;
         if (mode <= viewUpdateMode.SortUpdated)
         {
             bool useLegacySortForMainView = false;
             bool isPlaylistDetailView = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
-            string columnName = nameof(LibraryChartRow.Title);
-            ListSortDirection direction = ListSortDirection.Ascending;
-            if (SortParameters != null)
-            {
-                direction = SortParameters.Direction;
-                columnName = SortParameters.ColumnsName;
-            }
-            if (string.IsNullOrWhiteSpace(columnName))
-            {
-                columnName = nameof(LibraryChartRow.Title);
-            }
-            if (string.Equals(columnName, nameof(LibraryChartRow.rank), StringComparison.Ordinal))
-            {
-                columnName = nameof(LibraryChartRow.rateDouble);
-            }
+            string columnName = regularRequest.SortColumnName;
+            ListSortDirection direction = regularRequest.SortDirection;
             bool isTreeSelectionRequest = requestedMode != viewUpdateMode.TreeViewFilterNotChanged && requestedMode < viewUpdateMode.KeywordFilterUpdated;
             bool isFolderMode = mode == viewUpdateMode.FolderFilterSelected;
             var modeFilterList = ChartRowsModeFilterView as List<LibraryChartRow>;
             bool isFullNormalLibraryResult = treeViewFilterTypeSelected == viewUpdateMode.FolderFilterSelected
                 && virtualNormalLibraryTreeFilter == null
-                && string.IsNullOrWhiteSpace(KeywordFilter)
-                && ModeFilter == ModeFilterType.All
+                && string.IsNullOrWhiteSpace(regularRequest.KeywordFilter)
+                && regularRequest.ModeFilter == ModeFilterType.All
                 && !isPlaylistDetailView
                 && modeFilterList != null
                 && modeFilterList.Count == folderCount
@@ -14190,7 +14192,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             else
             {
-                List<LibraryChartRow> sortedRows = LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, SortParameters, isPlaylistDetailView, useLegacySortForMainView, out sortProfile, out LibraryChartSortMetrics sortMetrics);
+                List<LibraryChartRow> sortedRows = LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, regularRequest.SortParameters, isPlaylistDetailView, useLegacySortForMainView, out sortProfile, out LibraryChartSortMetrics sortMetrics);
                 nextRowsView = sortedRows;
                 if (isFullNormalLibraryResult && TryNormalizeNormalLibrarySortCacheColumn(columnName, out string normalizedCacheColumnName))
                 {
@@ -14261,8 +14263,8 @@ public partial class MainWindowViewModel : ViewModel
         long setViewMs = viewBuildStopwatch.ElapsedMilliseconds - setViewStartMs;
         columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         callbackStageMs = 0L;
-        string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
-        string sortDirection = SortParameters?.Direction.ToString() ?? "Ascending";
+        string sortColumn = regularRequest.HasSortParameters ? (regularRequest.RequestedSortColumnName ?? "(default_title)") : "(default_title)";
+        string sortDirection = regularRequest.SortDirection.ToString();
         string parameterType = parameter?.GetType().Name ?? "(null)";
         bool fastSortEnabled = true;
         bool isPlaylistDetailForLog = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
