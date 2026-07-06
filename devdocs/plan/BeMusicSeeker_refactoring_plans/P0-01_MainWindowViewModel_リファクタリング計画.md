@@ -53,8 +53,9 @@
 | 2026-07-06 | 完了 | Ticket L-2b: PlaylistWorkspace source-text / tests 直接化 | `71a3f090` |
 | 2026-07-06 | 完了 | Ticket L-3a: Playlist detail presentation service 抽出 | `f37e4ffb` |
 | 2026-07-06 | 完了 | Ticket L-3b-1: Playlist build request contract 抽出 | `2594d7fa` |
+| 2026-07-06 | 完了 | Ticket L-3b-2: Playlist view state contract 棚卸し | このコミット |
 
-次候補: Ticket L-3b-2: Playlist view state contract 抽出。
+次候補: Ticket L-3b-3: Playlist detail worker state 抽出。
 
 ## 現在地サマリ
 
@@ -1590,11 +1591,40 @@ detail build は request scheduling、source materialize、presentation filter/s
 
 注記: L-3b-1 時点では `viewUpdateMode` と `PlaylistRequestIdentity` はまだ `MainWindowViewModel` nested type へ依存してよい。ここでは root private nested class の解消を優先し、root 非依存 contract 化は L-3b-2 以降で扱う。
 
-###### Ticket L-3b-2: Playlist view state contract 抽出
+###### Ticket L-3b-2: Playlist view state contract 棚卸し
 
-1. `PlaylistViewState` の request queue / source snapshot / current view snapshot / edit suppression を分類する。
-2. `PlaylistOpenInteractionState` と readiness snapshot の追跡は別 owner へ切るか、明示的に state contract に含める。
-3. root は tree selection と coordinator 呼び出しに寄せる。
+1. `PlaylistViewState` の request queue / worker cancellation、source snapshot、current view snapshot、playlist open timing、edit suppression を分類する。
+2. どの state が `PlaylistWorkspaceViewModel`、`PlaylistDetailBuildCoordinator`、root terminal callback に属するかを決める。
+3. 実装 sub-ticket の最小単位を決める。
+
+確認対象:
+
+- `PlaylistViewPipelineTests`
+- source-text checks
+
+完了条件:
+
+- `PlaylistViewState` を一括で外へ出すのではなく、次に切る state contract が明確になる。
+- L-3b-3 の worker state は root-owned helper から始め、source/view snapshot は read contract 越しに参照する。
+- L-3b-4 の snapshot state は root-owned helper から始め、presentation state は `PlaylistWorkspaceViewModel`、terminal apply / timing は root に残す。
+
+棚卸し初期分類:
+
+| 分類 | メンバー | 方針 |
+|---|---|---|
+| request queue / worker cancellation | `SyncRoot`、`BuildGate`、`RequestVersion`、`Cancellation`、`CurrentBuildCancellation`、`CurrentBuildRequest`、`PendingRequest`、`WorkerRunning` | `PlaylistDetailBuildCoordinator` の worker state 候補。まず L-3b-3 でここだけを `PlaylistDetailBuildState` へ分ける。 |
+| source snapshot identity / lifetime | `SourceRows`、`CurrentTable`、`CurrentFolderName`、`CurrentFilterType`、`CurrentSourceIdentity`、`LastBuiltLibraryIndexVersion`、`LastBuiltPlaylistRevision`、`LastBuiltScoreSnapshotVersion`、`LastBuiltChartInfoIndexVersion`、`SourceGenerationId`、`PreviousSourceRowsWeakReference`、`PreviousSourceGenerationId` | source rebuild / reuse 判定の正本。L-3c の source rebuild coordinator へ渡す state contract 候補。 |
+| current view identity / lifetime | `CurrentViewRows`、`CurrentViewIdentity`、`CurrentViewGenerationId`、`LastAppliedViewCount`、`PreviousViewRowsWeakReference`、`PreviousViewGenerationId` | UI table apply と retention logging に近い。`CurrentViewIdentity` は `RegisterPlaylistSourceBuildRequest` の no-op 判定でも読むため、L-3b-3 では read contract を用意して worker state へ混ぜない。terminal apply callback と `PlaylistWorkspace` の境界を確認してから移す。 |
+| playlist open timing | `CurrentOpenInteraction` と `PlaylistOpenInteractionState` | first visible timing / readiness logging 専用。build worker state へ混ぜず、`PlaylistOpenTimingTracker` 候補として別管理する。 |
+| root / UI terminal callback | `PlaylistSourceGenerationId`、`PlaylistAdoptedViewGenerationId`、`TryCreatePlaylistOpenVisibleTiming`、`TryLogPlaylistOpenVisibleCompleted`、`MainWindow` first-render callback | UI first visible timing と source/view generation をまたぐ境界。worker/coordinator state へ混ぜず、当面は root facade / terminal callback として維持する。 |
+| edit suppression / score refresh / mutation revision | `IsPlaylistCellEditing`、`PendingScoreSnapshotRefreshVersion`、`PlaylistContentRevision` | `IsPlaylistCellEditing` と `PendingScoreSnapshotRefreshVersion` は row edit / score refresh と関係する。`PlaylistContentRevision` は playlist mutation revision であり、将来の source snapshot identity 入力候補として扱う。L-5 との接続を見てから動かす。 |
+
+###### Ticket L-3b-3: Playlist detail worker state 抽出
+
+1. request queue / worker cancellation だけを `PlaylistDetailBuildState` へ分ける。
+2. `RegisterPlaylistSourceBuildRequest`、`CoalescePlaylistBuildRequest`、`DequeuePendingPlaylistBuildRequest`、`ProcessPendingPlaylistBuildRequests` の lock 対象を新 state に寄せる。
+3. shutdown cancellation / idle wait / pending request drain の挙動を state の責務として明示する。
+4. source/view snapshot、open timing、edit suppression はまだ root state に残す。`CurrentViewIdentity` 参照が必要な箇所は read contract で渡す。
 
 確認対象:
 
@@ -1604,7 +1634,25 @@ detail build は request scheduling、source materialize、presentation filter/s
 
 完了条件:
 
-- request scheduling と stale 判定が root private fields へ直接依存しない。
+- worker queue / cancellation state が source/view snapshot state から分離される。
+- source/view generation と UI first visible timing の terminal callback 境界が崩れない。
+
+###### Ticket L-3b-4: Playlist source/view snapshot state 抽出
+
+1. source snapshot identity / lifetime と current view identity / lifetime を root-owned `PlaylistDetailSnapshotState` として分ける。
+2. `ReplacePlaylistSourceRows`、`ReplacePlaylistViewRows`、`TryPatchPlaylistSourceChartInfoIndex`、reuse 判定の state access を集約する。
+3. terminal apply callback と retention logging の境界を保つ。
+
+確認対象:
+
+- `PlaylistViewPipelineTests`
+- `PlaylistReloadMergeTests`
+- `BmsPlaylistUpdateTests`
+
+完了条件:
+
+- source/view identity / lifetime access が `PlaylistDetailSnapshotState` に集約される。
+- terminal apply と retention logging の root 境界が崩れない。
 
 ##### Ticket L-3c: Playlist source rebuild / apply coordinator 化
 
