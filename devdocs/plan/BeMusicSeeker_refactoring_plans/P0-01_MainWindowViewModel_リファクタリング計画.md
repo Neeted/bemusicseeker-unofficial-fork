@@ -47,8 +47,9 @@
 | 2026-07-06 | 完了 | Ticket J-2: progress status bar DataContext 移行 | `798fe933` |
 | 2026-07-06 | 完了 | Ticket J-3: DataContext 移行後の binding 棚卸し | `4240710f` |
 | 2026-07-06 | 完了 | Ticket K-1: MainWindowRuntimeContext skeleton 導入 | `d73c4c0f` |
+| 2026-07-06 | 完了 | Ticket K-2: runtime context 利用候補の棚卸し | このコミット |
 
-次候補: Ticket K-2: runtime context 利用候補の棚卸し。
+次候補: Ticket L-1: detail / summary state contract 棚卸し。
 
 ## 現在地サマリ
 
@@ -1412,6 +1413,50 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 2. `MainChartList` / `PlaylistWorkspace` / `PlayHistoryWorkspace` / `Sidebar` のどこが context を受け取るべきか分類する。
 3. dialog request と logging callback は実装前に dedicated interface が必要か確認する。
 4. `BMSLibrary` / `BMSPlaylist` / `LR2Config` / `Dispatcher` は mutable concrete をそのまま child VM へ配らず、実利用前に provider 境界を narrow interface 化できるか確認する。
+
+棚卸し方針:
+
+- `RuntimeContext.Files` / `RuntimeContext.Tables` / `RuntimeContext.Lr2Config` / `RuntimeContext.BmsPlayer` / `RuntimeContext.UiDispatcher` は composition root の置き場として維持する。
+- child VM / coordinator へ渡すときは concrete model を直接渡さず、用途別の narrow interface / provider / callback boundary を優先する。
+- pure coordinator は `RuntimeContext` を直接参照せず、必要な snapshot / callback を引数または専用 context で受け取る。
+
+Main chart list / chart projection 候補:
+
+| 候補依存 | 現在の owner / location | 境界案 | 判断 |
+|---|---|---|---|
+| normal library source | root `files.CreateNormalLibrarySourceStorageOwnerView()` | `IMainChartLibrarySourceProvider` | `BMSLibrary` 全体ではなく、owner view と generation だけを渡す。 |
+| virtual subset source | root `TryGetVirtualChartSubsetSourceFiles` | `IMainChartSubsetSourceProvider` | missing/duplicate/garbled/unregistered/install package など read model のみ。mutation は root に残す。 |
+| chart info projection | root `ResolveChartInfoForProjection` / `GetChartInfoProjectionVersion` | `IChartInfoProjectionProvider` | row builder が必要とする lookup と version に限定する。 |
+| score snapshot projection | root `ResolveScoreSnapshotForSourceRow` / `GetScoreSnapshotProjectionVersion` | `IChartScoreSnapshotProvider` | score snapshot と version に限定する。 |
+| resource health projection | root `GetResourceHealthProjectionForSourceRow` | `IResourceHealthProjectionProvider` | subset / warning overlay に必要な projection と diagnostics に限定する。 |
+| playlist reference display | root `GetPlaylistReferenceDisplayForSourceRow` | `IPlaylistReferenceDisplayProvider` | chart row 表示用 lookup のみに限定する。 |
+| transient chart state | root `TryGetSharedChartTransientState` | `IChartTransientStateProvider` or `MainChartList` owned cache | lazy row projection に近く、library model ではなく view projection cache として扱う。 |
+| row/order/summary/sort cache | `RegularChartListSortContext` callback bundle、source row/order/summary count cache | `IMainChartListProjectionCache` + `INormalLibrarySortCache` + `IMainChartListBuildLogger` | `RuntimeContext` へ足さず、chart list projection / sort coordinator 専用 boundary にする。実装前に source row、order、summary count の owner を再確認する。 |
+| terminal apply callbacks | `ApplyRegularRows` / `ApplyVirtualRows` delegates | root 維持 or `IMainChartListTerminalApplier` | `MainTableSwapPreparing`、column settings、view refresh event は code-behind / settings と結合するため、まだ root 側。 |
+
+Playlist / PlayHistory / Sidebar / dialog 候補:
+
+| 候補依存 | 現在の owner / location | 境界案 | 判断 |
+|---|---|---|---|
+| playlist detail read access | root `tables` + `BuildPlaylistSourceRows` | `IPlaylistDetailSourceProvider` / `IPlaylistTableReadAccess` | `EnsurePlaylistEntriesLoaded`、entry enumeration、projection が混在するため、`BMSPlaylist` concrete を `PlaylistWorkspace` へ渡さない。 |
+| playlist mutation / external sync / custom folder output | root `tables` mutation、property dialog、summary external sync | `IPlaylistMutationCoordinator` | DB commit、BMT export、custom folder migration、reference update、progress/dialog が絡むため、workspace 直持ちではなく coordinator に閉じる。 |
+| playlist tree source | root `BMSTables` property と tree selection | `IPlaylistTreeSource` | sidebar が必要なのは observable table list と selection request。reader/writer lock や mutation API は渡さない。 |
+| playlist library projection | root `files` score/chart info/reference display lookup | `IPlaylistLibraryProjectionProvider` | playlist detail が必要とする owned 判定、score snapshot、chart info、reference display に限定する。 |
+| sidebar / install / maintenance source | root folder/package/installed/pending/maintenance collections | `ILibrarySidebarSource` / `IInstallTreeSource` | sidebar は tree source を読むだけにし、library mutation は root/coordinator に残す。 |
+| play history projection | root `CreatePlayHistoryProjectionResult`、score / owned chart projection | `IPlayHistoryProjectionProvider` | play history workspace は read/presentation に集中し、projection index と score snapshot は provider 経由にする。 |
+| LR2 config | root `lr2config`、settings dialog proxy、playlist property search-root mutation | `ILr2SearchRootStore` / `ILr2ScoreDbPathProvider` | `Save()` と search-root mutation は副作用が強いため、mutable concrete は root/settings coordinator に残す。 |
+| BMS player | root `bmsPlayer`、playback flow、settings replacement | root 維持 or `IPlaybackController` | player lifetime、parent handle、process close、row selection、temp install playback confirmation は shell/UI-host 責務。`PlaybackPanelViewModel` は presentation-only を維持する。 |
+| UI dispatcher | `RuntimeContext.UiDispatcher`、direct scheduling、UI event raise | `IUiScheduler` | child VM に WPF `Dispatcher` concrete を持たせず、ObservableCollection 更新 / UI event raise に必要な scheduling API に絞る。 |
+| dialog request | static `ShowUi*`、`IUiDialogService` / `UiDialogCoordinator` | `IUiDialogService` or dialog request publisher | nested dialog VM が static helper に依存しているため、future child VM には dialog request boundary を渡す。 |
+| logging / progress callback | root static log helpers、model progress callbacks | `IProgressSink` / `IWorkflowLogger` | model callbacks が root method を直接呼ぶ状態を避け、workflow coordinator へ progress/log sink を渡す。 |
+
+実装順の目安:
+
+1. Main chart list は `BMSLibrary` concrete を注入せず、normal source / projection / sort cache / terminal apply の小さな interface から始める。
+2. PlaylistWorkspace は `IPlaylistDetailSourceProvider` と `IPlaylistMutationCoordinator` を分け、read と mutation を混ぜない。
+3. PlayHistoryWorkspace は read cache と projection provider を分け、score / owned chart lookup を provider 化する。
+4. Sidebar は tree source provider から始め、mutation command は root / coordinator request にする。
+5. SettingDialog は `SettingsPostSaveCoordinator` と dialog request boundary を先に作り、`lr2config` concrete の直接共有を減らす。
 
 確認対象:
 
