@@ -111,6 +111,44 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailBuildState_SourceText_OwnsWorkerQueueState()
+    {
+        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string buildStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildState.cs");
+        int playlistViewStateStart = rootSource.IndexOf("private sealed class PlaylistViewState", StringComparison.Ordinal);
+        int playlistViewStateEnd = rootSource.IndexOf("private sealed class StartupBackgroundTaskRequest", StringComparison.Ordinal);
+        Assert.IsTrue(playlistViewStateStart >= 0);
+        Assert.IsTrue(playlistViewStateEnd > playlistViewStateStart);
+        string playlistViewStateSource = rootSource.Substring(playlistViewStateStart, playlistViewStateEnd - playlistViewStateStart);
+
+        foreach (string rootFieldDeclaration in new[]
+        {
+            "internal readonly SemaphoreSlim BuildGate = new(1, 1);",
+            "internal int RequestVersion;",
+            "internal CancellationTokenSource Cancellation = new();",
+            "internal CancellationTokenSource CurrentBuildCancellation;",
+            "internal PlaylistBuildRequest CurrentBuildRequest;",
+            "internal PlaylistBuildRequest PendingRequest;",
+            "internal bool WorkerRunning;",
+            "internal bool ShutdownCancellationRequested;"
+        })
+        {
+            Assert.AreEqual(-1, playlistViewStateSource.IndexOf(rootFieldDeclaration, StringComparison.Ordinal), rootFieldDeclaration);
+        }
+
+        StringAssert.Contains(buildStateSource, "internal sealed class PlaylistDetailBuildState");
+        StringAssert.Contains(buildStateSource, "internal readonly object SyncRoot = new();");
+        StringAssert.Contains(buildStateSource, "internal readonly SemaphoreSlim BuildGate = new(1, 1);");
+        StringAssert.Contains(buildStateSource, "internal PlaylistBuildRequest PendingRequest;");
+        StringAssert.Contains(buildStateSource, "internal bool ShutdownCancellationRequested;");
+        StringAssert.Contains(rootSource, "private readonly PlaylistDetailBuildState playlistDetailBuildState = new();");
+        StringAssert.Contains(rootSource, "CreatePlaylistBuildRequestViewSnapshotUnsafe");
+        StringAssert.Contains(rootSource, "playlistDetailBuildState.ShutdownCancellationRequested || IsShutdownRequested");
+        StringAssert.Contains(rootSource, "playlistDetailBuildState.ShutdownCancellationRequested = true;");
+        StringAssert.Contains(rootSource, "lock (playlistDetailBuildState.SyncRoot)");
+    }
+
+    [TestMethod]
     public void ApplyPlaylistVirtualViewFromSource_DoesNotMaterializeRowsUntilIndexed()
     {
         PlaylistDetailSourceRow zetaRow = CreateSourceRow("11111111111111111111111111111111", "Zeta", 7);

@@ -54,6 +54,7 @@
 | 2026-07-06 | 完了 | Ticket L-3a: Playlist detail presentation service 抽出 | `f37e4ffb` |
 | 2026-07-06 | 完了 | Ticket L-3b-1: Playlist build request contract 抽出 | `2594d7fa` |
 | 2026-07-06 | 完了 | Ticket L-3b-2: Playlist view state contract 棚卸し | `2590b2b8` |
+| 2026-07-06 | 進行中 | Ticket L-3b-3: Playlist detail worker state 抽出 | このコミット |
 
 次候補: Ticket L-3b-3: Playlist detail worker state 抽出。
 

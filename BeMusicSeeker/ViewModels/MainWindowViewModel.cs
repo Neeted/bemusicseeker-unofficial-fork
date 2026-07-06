@@ -797,21 +797,32 @@ public partial class MainWindowViewModel : ViewModel
         internal long TotalMs;
     }
 
+    private readonly struct PlaylistBuildRequestViewSnapshot
+    {
+        internal PlaylistBuildRequestViewSnapshot(long playlistRevision, int lastBuiltScoreSnapshotVersion, PlaylistRequestIdentity? currentViewIdentity)
+        {
+            PlaylistRevision = playlistRevision;
+            LastBuiltScoreSnapshotVersion = lastBuiltScoreSnapshotVersion;
+            CurrentViewIdentity = currentViewIdentity;
+        }
+
+        internal long PlaylistRevision { get; }
+
+        internal int LastBuiltScoreSnapshotVersion { get; }
+
+        internal PlaylistRequestIdentity? CurrentViewIdentity { get; }
+    }
+
     /// <summary>
-    /// プレイリスト詳細ビューの source snapshot と build 制御状態を保持します。
+    /// プレイリスト詳細ビューの source snapshot を保持します。
     /// source は keyword/mode/sort 適用前の正本であり、表示更新は常にこの snapshot から再計算します。
     /// </summary>
     private sealed class PlaylistViewState
     {
         /// <summary>
-        /// source snapshot の更新や要求バージョン採番を直列化します。
+        /// source snapshot の更新を直列化します。
         /// </summary>
         internal readonly object SyncRoot = new();
-
-        /// <summary>
-        /// プレイリスト source build を単一実行に制限します。
-        /// </summary>
-        internal readonly SemaphoreSlim BuildGate = new(1, 1);
 
         /// <summary>
         /// 現在表示の正本となるプレイリスト行集合です。
@@ -838,37 +849,6 @@ public partial class MainWindowViewModel : ViewModel
         /// 現在表示中のプレイリスト filter 種別です。
         /// </summary>
         internal PlaylistFilterType CurrentFilterType = PlaylistFilterType.PlaylistFilter;
-
-        /// <summary>
-        /// 最新要求のみ反映するための要求バージョンです。
-        /// </summary>
-        internal int RequestVersion;
-
-        /// <summary>
-        /// 現在の source build をキャンセルするための token source です。
-        /// </summary>
-        internal CancellationTokenSource Cancellation = new();
-
-        /// <summary>
-        /// 現在 build 中の要求に紐づく token source です。
-        /// </summary>
-        internal CancellationTokenSource CurrentBuildCancellation;
-
-        /// <summary>
-        /// 現在 worker が処理対象として保持している要求です。
-        /// quiet window 中の候補も含みます。
-        /// </summary>
-        internal PlaylistBuildRequest CurrentBuildRequest;
-
-        /// <summary>
-        /// 最新要求として待機中の playlist build 要求です。
-        /// </summary>
-        internal PlaylistBuildRequest PendingRequest;
-
-        /// <summary>
-        /// playlist build worker が起動中かどうかです。
-        /// </summary>
-        internal bool WorkerRunning;
 
         /// <summary>
         /// 現在の source snapshot 世代です。
@@ -1144,6 +1124,7 @@ public partial class MainWindowViewModel : ViewModel
     private readonly object lockDeferredPlaylistRef = new();
 
     private readonly PlaylistViewState playlistViewState = new();
+    private readonly PlaylistDetailBuildState playlistDetailBuildState = new();
 
     private readonly object playlistLibraryIndexSync = new();
 
@@ -2896,14 +2877,6 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// 現在の playlist 内容更新版数を返します。
     /// </summary>
-    private long GetPlaylistContentRevision()
-    {
-        lock (playlistViewState.SyncRoot)
-        {
-            return playlistViewState.PlaylistContentRevision;
-        }
-    }
-
     /// <summary>
     /// playlist 内容更新版数を進めます。
     /// </summary>
@@ -2922,13 +2895,23 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
+    /// build request 採番時に必要な view-owned state を同一 lock 内で読み取ります。
+    /// </summary>
+    private PlaylistBuildRequestViewSnapshot CreatePlaylistBuildRequestViewSnapshotUnsafe()
+    {
+        return new PlaylistBuildRequestViewSnapshot(
+            playlistViewState.PlaylistContentRevision,
+            playlistViewState.LastBuiltScoreSnapshotVersion,
+            playlistViewState.CurrentViewIdentity);
+    }
+
+    /// <summary>
     /// 現在の UI 条件から playlist build request を生成します。
     /// </summary>
-    private PlaylistBuildRequest CreatePlaylistBuildRequest(int requestVersion, viewUpdateMode mode, viewUpdateMode requestedMode, object parameter)
+    private PlaylistBuildRequest CreatePlaylistBuildRequest(int requestVersion, viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, PlaylistBuildRequestViewSnapshot viewSnapshot)
     {
         bool hasResolvedSelection = TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistFilterType filterType);
         long libraryIndexVersion = GetPlaylistLibraryIndexVersion();
-        long playlistRevision = GetPlaylistContentRevision();
         int scoreSnapshotVersion = GetPlaylistScoreSnapshotVersion();
         int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
         return new PlaylistBuildRequest
@@ -2937,7 +2920,7 @@ public partial class MainWindowViewModel : ViewModel
             Mode = mode,
             RequestedMode = requestedMode,
             Parameter = parameter,
-            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, KeywordFilter, ModeFilter, SortParameters, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
+            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, KeywordFilter, ModeFilter, SortParameters, libraryIndexVersion, viewSnapshot.PlaylistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
             UseCoalescingWindow = ShouldUsePlaylistBuildCoalescingWindow(mode, requestedMode)
         };
     }
@@ -2956,7 +2939,7 @@ public partial class MainWindowViewModel : ViewModel
         var stopwatch = Stopwatch.StartNew();
         int coalescedCount = 0;
         LogPlaylistWorker("playlist_request_coalescing_wait started version=" + request.RequestVersion + " durationMs=" + PlaylistBuildCoalescingWindowMs);
-        lock (playlistViewState.SyncRoot)
+        lock (playlistDetailBuildState.SyncRoot)
         {
             while (true)
             {
@@ -2965,16 +2948,26 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     break;
                 }
-                Monitor.Wait(playlistViewState.SyncRoot, remainingMs);
-                if (playlistViewState.PendingRequest == null)
+                Monitor.Wait(playlistDetailBuildState.SyncRoot, remainingMs);
+                if (playlistDetailBuildState.ShutdownCancellationRequested)
+                {
+                    request = null;
+                    break;
+                }
+                if (playlistDetailBuildState.PendingRequest == null)
                 {
                     continue;
                 }
-                request = playlistViewState.PendingRequest;
-                playlistViewState.PendingRequest = null;
-                playlistViewState.CurrentBuildRequest = request;
+                request = playlistDetailBuildState.PendingRequest;
+                playlistDetailBuildState.PendingRequest = null;
+                playlistDetailBuildState.CurrentBuildRequest = request;
                 coalescedCount++;
             }
+        }
+        if (request == null)
+        {
+            LogPlaylistWorker("playlist_request_coalescing_wait cancelled reason=shutdown");
+            return null;
         }
         LogPlaylistWorker("playlist_request_coalescing_wait completed version=" + request.RequestVersion + " durationMs=" + stopwatch.ElapsedMilliseconds);
         if (coalescedCount > 0)
@@ -2996,47 +2989,61 @@ public partial class MainWindowViewModel : ViewModel
         CancellationTokenSource previousCancellation = null;
         bool startWorker = false;
         string deduplicatedTarget = null;
-        bool ignoredAsNoop = false;
+        string ignoredReason = null;
         int lastBuiltScoreSnapshotVersion = 0;
         PlaylistBuildRequest request;
-        lock (playlistViewState.SyncRoot)
+        lock (playlistDetailBuildState.SyncRoot)
         {
-            int nextRequestVersion = playlistViewState.RequestVersion + 1;
-            request = CreatePlaylistBuildRequest(nextRequestVersion, mode, requestedMode, parameter);
-            lastBuiltScoreSnapshotVersion = playlistViewState.LastBuiltScoreSnapshotVersion;
-            if (playlistViewState.PendingRequest != null && playlistViewState.PendingRequest.Identity == request.Identity)
+            int nextRequestVersion = playlistDetailBuildState.RequestVersion + 1;
+            PlaylistBuildRequestViewSnapshot viewSnapshot;
+            lock (playlistViewState.SyncRoot)
+            {
+                viewSnapshot = CreatePlaylistBuildRequestViewSnapshotUnsafe();
+            }
+            request = CreatePlaylistBuildRequest(nextRequestVersion, mode, requestedMode, parameter, viewSnapshot);
+            lastBuiltScoreSnapshotVersion = viewSnapshot.LastBuiltScoreSnapshotVersion;
+            if (playlistDetailBuildState.PendingRequest != null && playlistDetailBuildState.PendingRequest.Identity == request.Identity)
             {
                 deduplicatedTarget = "pending";
             }
-            else if (playlistViewState.CurrentBuildRequest != null && playlistViewState.CurrentBuildRequest.Identity == request.Identity)
+            else if (playlistDetailBuildState.CurrentBuildRequest != null && playlistDetailBuildState.CurrentBuildRequest.Identity == request.Identity)
             {
                 deduplicatedTarget = "running";
             }
-            else if (playlistViewState.PendingRequest == null && playlistViewState.CurrentBuildRequest == null && playlistViewState.CurrentViewIdentity.HasValue && playlistViewState.CurrentViewIdentity.Value == request.Identity)
+            else if (playlistDetailBuildState.PendingRequest == null && playlistDetailBuildState.CurrentBuildRequest == null && viewSnapshot.CurrentViewIdentity.HasValue && viewSnapshot.CurrentViewIdentity.Value == request.Identity)
             {
                 deduplicatedTarget = "current_view";
-                ignoredAsNoop = true;
+                ignoredReason = "noop_same_view";
             }
             else
             {
-                playlistViewState.RequestVersion = nextRequestVersion;
-                previousCancellation = playlistViewState.CurrentBuildCancellation;
-                playlistViewState.PendingRequest = request;
-                if (!playlistViewState.WorkerRunning)
+                if (playlistDetailBuildState.ShutdownCancellationRequested || IsShutdownRequested)
                 {
-                    playlistViewState.WorkerRunning = true;
-                    startWorker = true;
+                    deduplicatedTarget = "shutdown";
+                    ignoredReason = "shutdown_requested";
                 }
-                Monitor.PulseAll(playlistViewState.SyncRoot);
+                else
+                {
+                    playlistDetailBuildState.RequestVersion = nextRequestVersion;
+                    previousCancellation = playlistDetailBuildState.CurrentBuildCancellation;
+                    playlistDetailBuildState.PendingRequest = request;
+                    playlistDetailBuildState.ShutdownCancellationRequested = false;
+                    if (!playlistDetailBuildState.WorkerRunning)
+                    {
+                        playlistDetailBuildState.WorkerRunning = true;
+                        startWorker = true;
+                    }
+                    Monitor.PulseAll(playlistDetailBuildState.SyncRoot);
+                }
             }
         }
         LogPlaylistSourceBuild("requested version=" + request.RequestVersion + " mode=" + mode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + lastBuiltScoreSnapshotVersion);
         if (deduplicatedTarget != null)
         {
             LogPlaylistWorker("playlist_request_deduplicated target=" + deduplicatedTarget + " version=" + request.RequestVersion + " mode=" + mode + " requestedMode=" + requestedMode);
-            if (ignoredAsNoop)
+            if (ignoredReason != null)
             {
-                LogPlaylistWorker("playlist_request_ignored reason=noop_same_view version=" + request.RequestVersion + " mode=" + mode + " requestedMode=" + requestedMode);
+                LogPlaylistWorker("playlist_request_ignored reason=" + ignoredReason + " version=" + request.RequestVersion + " mode=" + mode + " requestedMode=" + requestedMode);
             }
             return request.RequestVersion;
         }
@@ -3067,9 +3074,9 @@ public partial class MainWindowViewModel : ViewModel
     /// <returns>最新要求であれば <see langword="true"/>。</returns>
     private bool IsLatestPlaylistSourceBuildRequest(int requestVersion)
     {
-        lock (playlistViewState.SyncRoot)
+        lock (playlistDetailBuildState.SyncRoot)
         {
-            return requestVersion == playlistViewState.RequestVersion;
+            return requestVersion == playlistDetailBuildState.RequestVersion;
         }
     }
 
@@ -3079,12 +3086,29 @@ public partial class MainWindowViewModel : ViewModel
     /// <returns>pending request。無い場合は null。</returns>
     private PlaylistBuildRequest DequeuePendingPlaylistBuildRequest()
     {
-        lock (playlistViewState.SyncRoot)
+        lock (playlistDetailBuildState.SyncRoot)
         {
-            PlaylistBuildRequest request = playlistViewState.PendingRequest;
-            playlistViewState.PendingRequest = null;
-            playlistViewState.CurrentBuildRequest = request;
+            PlaylistBuildRequest request = playlistDetailBuildState.PendingRequest;
+            playlistDetailBuildState.PendingRequest = null;
+            playlistDetailBuildState.CurrentBuildRequest = request;
             return request;
+        }
+    }
+
+    private void StopPlaylistBuildWorkerAfterCancellation()
+    {
+        lock (playlistDetailBuildState.SyncRoot)
+        {
+            playlistDetailBuildState.WorkerRunning = false;
+            playlistDetailBuildState.CurrentBuildCancellation?.Dispose();
+            playlistDetailBuildState.CurrentBuildCancellation = null;
+            playlistDetailBuildState.CurrentBuildRequest = null;
+            playlistDetailBuildState.Cancellation = new CancellationTokenSource();
+            if (!IsShutdownRequested)
+            {
+                playlistDetailBuildState.ShutdownCancellationRequested = false;
+            }
+            LogPlaylistWorker("playlist_worker_stopped");
         }
     }
 
@@ -3099,31 +3123,54 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistBuildRequest request = DequeuePendingPlaylistBuildRequest();
             if (request == null)
             {
-                lock (playlistViewState.SyncRoot)
+                bool stopWorker;
+                lock (playlistDetailBuildState.SyncRoot)
                 {
-                    if (playlistViewState.PendingRequest == null)
+                    stopWorker = playlistDetailBuildState.PendingRequest == null;
+                    if (!stopWorker)
                     {
-                        playlistViewState.WorkerRunning = false;
-                        playlistViewState.CurrentBuildCancellation?.Dispose();
-                        playlistViewState.CurrentBuildCancellation = null;
-                        playlistViewState.CurrentBuildRequest = null;
-                        playlistViewState.Cancellation = new CancellationTokenSource();
-                        LogPlaylistWorker("playlist_worker_stopped");
-                        return;
+                        request = playlistDetailBuildState.PendingRequest;
+                        playlistDetailBuildState.PendingRequest = null;
+                        playlistDetailBuildState.CurrentBuildRequest = request;
                     }
-                    request = playlistViewState.PendingRequest;
-                    playlistViewState.PendingRequest = null;
-                    playlistViewState.CurrentBuildRequest = request;
+                }
+                if (stopWorker)
+                {
+                    StopPlaylistBuildWorkerAfterCancellation();
+                    return;
+                }
+                if (request == null)
+                {
+                    continue;
                 }
             }
             request = CoalescePlaylistBuildRequest(request);
-            var buildCancellation = new CancellationTokenSource();
-            lock (playlistViewState.SyncRoot)
+            if (request == null)
             {
-                playlistViewState.CurrentBuildCancellation?.Dispose();
-                playlistViewState.CurrentBuildCancellation = buildCancellation;
-                playlistViewState.Cancellation = buildCancellation;
-                playlistViewState.CurrentBuildRequest = request;
+                StopPlaylistBuildWorkerAfterCancellation();
+                return;
+            }
+            var buildCancellation = new CancellationTokenSource();
+            bool stopForShutdown = false;
+            lock (playlistDetailBuildState.SyncRoot)
+            {
+                if (playlistDetailBuildState.ShutdownCancellationRequested || IsShutdownRequested)
+                {
+                    stopForShutdown = true;
+                }
+                else
+                {
+                    playlistDetailBuildState.CurrentBuildCancellation?.Dispose();
+                    playlistDetailBuildState.CurrentBuildCancellation = buildCancellation;
+                    playlistDetailBuildState.Cancellation = buildCancellation;
+                    playlistDetailBuildState.CurrentBuildRequest = request;
+                }
+            }
+            if (stopForShutdown)
+            {
+                buildCancellation.Dispose();
+                StopPlaylistBuildWorkerAfterCancellation();
+                return;
             }
             LogPlaylistWorker("playlist_worker_iteration_started version=" + request.RequestVersion + " mode=" + request.Mode + " requestedMode=" + request.RequestedMode);
             try
@@ -3146,15 +3193,15 @@ public partial class MainWindowViewModel : ViewModel
             finally
             {
                 buildCancellation.Dispose();
-                lock (playlistViewState.SyncRoot)
+                lock (playlistDetailBuildState.SyncRoot)
                 {
-                    if (ReferenceEquals(playlistViewState.CurrentBuildCancellation, buildCancellation))
+                    if (ReferenceEquals(playlistDetailBuildState.CurrentBuildCancellation, buildCancellation))
                     {
-                        playlistViewState.CurrentBuildCancellation = null;
+                        playlistDetailBuildState.CurrentBuildCancellation = null;
                     }
-                    if (ReferenceEquals(playlistViewState.CurrentBuildRequest, request))
+                    if (ReferenceEquals(playlistDetailBuildState.CurrentBuildRequest, request))
                     {
-                        playlistViewState.CurrentBuildRequest = null;
+                        playlistDetailBuildState.CurrentBuildRequest = null;
                     }
                 }
             }
@@ -8414,40 +8461,43 @@ public partial class MainWindowViewModel : ViewModel
         List<PlaylistDetailSourceRow> sourceRowsToDispose = null;
         IList currentViewRows = null;
         long previousGenerationId = 0L;
-        lock (playlistViewState.SyncRoot)
+        lock (playlistDetailBuildState.SyncRoot)
         {
-            sourceRowsToDispose = playlistViewState.SourceRows;
-            previousGenerationId = playlistViewState.SourceGenerationId;
-            currentViewRows = playlistViewState.CurrentViewRows;
-            long previousViewGenerationId = playlistViewState.CurrentViewGenerationId;
-            if (sourceRowsToDispose != null)
+            lock (playlistViewState.SyncRoot)
             {
-                playlistViewState.PreviousSourceRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRowsToDispose);
-                playlistViewState.PreviousSourceGenerationId = previousGenerationId;
+                sourceRowsToDispose = playlistViewState.SourceRows;
+                previousGenerationId = playlistViewState.SourceGenerationId;
+                currentViewRows = playlistViewState.CurrentViewRows;
+                long previousViewGenerationId = playlistViewState.CurrentViewGenerationId;
+                if (sourceRowsToDispose != null)
+                {
+                    playlistViewState.PreviousSourceRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRowsToDispose);
+                    playlistViewState.PreviousSourceGenerationId = previousGenerationId;
+                }
+                if (currentViewRows != null)
+                {
+                    playlistViewState.PreviousViewRowsWeakReference = new WeakReference<IList>(currentViewRows);
+                    playlistViewState.PreviousViewGenerationId = previousViewGenerationId;
+                }
+                playlistViewState.SourceRows = [];
+                playlistViewState.CurrentViewRows = new List<object>();
+                playlistViewState.CurrentTable = null;
+                playlistViewState.CurrentFolderName = null;
+                playlistViewState.CurrentFilterType = PlaylistFilterType.PlaylistFilter;
+                playlistViewState.CurrentViewIdentity = null;
+                playlistViewState.CurrentSourceIdentity = null;
+                playlistViewState.CurrentOpenInteraction = null;
+                playlistViewState.LastBuiltLibraryIndexVersion = 0L;
+                playlistViewState.LastBuiltPlaylistRevision = 0L;
+                playlistViewState.LastBuiltScoreSnapshotVersion = 0;
+                playlistViewState.LastBuiltChartInfoIndexVersion = 0;
+                playlistViewState.SourceGenerationId = 0L;
+                playlistViewState.CurrentViewGenerationId = 0L;
+                playlistViewState.LastAppliedViewCount = 0;
+                playlistViewState.IsPlaylistCellEditing = false;
+                playlistViewState.PendingScoreSnapshotRefreshVersion = 0;
             }
-            if (currentViewRows != null)
-            {
-                playlistViewState.PreviousViewRowsWeakReference = new WeakReference<IList>(currentViewRows);
-                playlistViewState.PreviousViewGenerationId = previousViewGenerationId;
-            }
-            playlistViewState.SourceRows = [];
-            playlistViewState.CurrentViewRows = new List<object>();
-            playlistViewState.CurrentTable = null;
-            playlistViewState.CurrentFolderName = null;
-            playlistViewState.CurrentFilterType = PlaylistFilterType.PlaylistFilter;
-            playlistViewState.CurrentBuildRequest = null;
-            playlistViewState.CurrentViewIdentity = null;
-            playlistViewState.CurrentSourceIdentity = null;
-            playlistViewState.CurrentOpenInteraction = null;
-            playlistViewState.LastBuiltLibraryIndexVersion = 0L;
-            playlistViewState.LastBuiltPlaylistRevision = 0L;
-            playlistViewState.LastBuiltScoreSnapshotVersion = 0;
-            playlistViewState.LastBuiltChartInfoIndexVersion = 0;
-            playlistViewState.SourceGenerationId = 0L;
-            playlistViewState.CurrentViewGenerationId = 0L;
-            playlistViewState.LastAppliedViewCount = 0;
-            playlistViewState.IsPlaylistCellEditing = false;
-            playlistViewState.PendingScoreSnapshotRefreshVersion = 0;
+            playlistDetailBuildState.CurrentBuildRequest = null;
         }
         LogPlaylistWeakReferenceStatus("before_source_clear");
         LogPlaylistRetention("playlist_source_replace action=clear generationId=" + previousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(sourceRowsToDispose) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(currentViewRows));
@@ -10967,12 +11017,13 @@ public partial class MainWindowViewModel : ViewModel
 
     private void CancelPlaylistBuildRequestsForShutdown()
     {
-        lock (playlistViewState.SyncRoot)
+        lock (playlistDetailBuildState.SyncRoot)
         {
-            playlistViewState.PendingRequest = null;
-            playlistViewState.CurrentBuildCancellation?.Cancel();
-            playlistViewState.Cancellation?.Cancel();
-            Monitor.PulseAll(playlistViewState.SyncRoot);
+            playlistDetailBuildState.PendingRequest = null;
+            playlistDetailBuildState.ShutdownCancellationRequested = true;
+            playlistDetailBuildState.CurrentBuildCancellation?.Cancel();
+            playlistDetailBuildState.Cancellation?.Cancel();
+            Monitor.PulseAll(playlistDetailBuildState.SyncRoot);
         }
     }
 
@@ -11038,11 +11089,11 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool IsPlaylistBuildIdle()
     {
-        lock (playlistViewState.SyncRoot)
+        lock (playlistDetailBuildState.SyncRoot)
         {
-            return !playlistViewState.WorkerRunning
-                && playlistViewState.PendingRequest == null
-                && playlistViewState.CurrentBuildRequest == null;
+            return !playlistDetailBuildState.WorkerRunning
+                && playlistDetailBuildState.PendingRequest == null
+                && playlistDetailBuildState.CurrentBuildRequest == null;
         }
     }
 
@@ -11267,11 +11318,11 @@ public partial class MainWindowViewModel : ViewModel
 
     private string DescribePlaylistBuildWaitState()
     {
-        lock (playlistViewState.SyncRoot)
+        lock (playlistDetailBuildState.SyncRoot)
         {
-            return "workerRunning=" + FormatBool(playlistViewState.WorkerRunning)
-                + " pendingRequest=" + FormatBool(playlistViewState.PendingRequest != null)
-                + " currentBuildRequest=" + FormatBool(playlistViewState.CurrentBuildRequest != null);
+            return "workerRunning=" + FormatBool(playlistDetailBuildState.WorkerRunning)
+                + " pendingRequest=" + FormatBool(playlistDetailBuildState.PendingRequest != null)
+                + " currentBuildRequest=" + FormatBool(playlistDetailBuildState.CurrentBuildRequest != null);
         }
     }
 
@@ -13468,7 +13519,7 @@ public partial class MainWindowViewModel : ViewModel
         string cancellationStage = "before_start";
         try
         {
-            playlistViewState.BuildGate.Wait(cancellationToken);
+            playlistDetailBuildState.BuildGate.Wait(cancellationToken);
             gateEntered = true;
             if (!IsLatestPlaylistSourceBuildRequest(requestVersion))
             {
@@ -13547,7 +13598,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             if (gateEntered)
             {
-                playlistViewState.BuildGate.Release();
+                playlistDetailBuildState.BuildGate.Release();
             }
         }
     }
