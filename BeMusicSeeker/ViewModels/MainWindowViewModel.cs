@@ -12933,19 +12933,8 @@ public partial class MainWindowViewModel : ViewModel
             bool onlyNotOwned = filterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected;
             LogPlaylistSourceBuild("started version=" + requestVersion + " mode=" + mode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
             PlaylistSourceBuildStageResult sourceBuildStageResult = BuildPlaylistSourceForRequest(request, bmsTable, folderName, onlyNotOwned, viewBuildStopwatch, cancellationToken, ref cancellationStage);
-            PlaylistSourceBuildResult sourceBuildResult = sourceBuildStageResult.SourceBuild;
-            sourceRows = sourceBuildResult.SourceRows;
-            long folderStageMs = sourceBuildStageResult.FolderStageMs;
-            int folderCount = sourceBuildResult.FolderCount;
-            sourceCount = sourceBuildResult.SourceCount;
-            int scoreUpdateTargetCount = sourceBuildResult.ScoreUpdateTargetCount;
-            long entryResolveMs = sourceBuildResult.EntryResolveMs;
-            long scoreProbeMs = sourceBuildResult.ScoreProbeMs;
-            long sourceMaterializeMs = sourceBuildResult.SourceMaterializeMs;
-            PlaylistScoreProbeMetrics scoreProbeMetrics = sourceBuildResult.ScoreProbeMetrics;
-            long libraryIndexMs = sourceBuildStageResult.LibraryIndexMs;
-            string libraryIndexAccess = sourceBuildStageResult.LibraryIndexAccess;
-            long libraryIndexBuildMs = sourceBuildStageResult.LibraryIndexBuildMs;
+            sourceRows = sourceBuildStageResult.SourceBuild.SourceRows;
+            sourceCount = sourceBuildStageResult.SourceBuild.SourceCount;
             if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
             {
                 LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_build mode=" + mode + " sourceCount=" + sourceCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
@@ -12953,14 +12942,8 @@ public partial class MainWindowViewModel : ViewModel
             }
             cancellationStage = "view_apply";
             PlaylistRebuiltSourceViewApplyResult rebuiltSourceViewApplyResult = ApplyPlaylistViewFromRebuiltSource(mode, sourceRows, sourceCount, ref finalRows);
-            int viewCount = rebuiltSourceViewApplyResult.ViewCount;
-            string sortProfile = rebuiltSourceViewApplyResult.SortProfile;
-            int keywordCount = rebuiltSourceViewApplyResult.KeywordCount;
-            int modeCount = rebuiltSourceViewApplyResult.ModeCount;
-            long keywordStageMs = rebuiltSourceViewApplyResult.KeywordStageMs;
-            long modeStageMs = rebuiltSourceViewApplyResult.ModeStageMs;
-            long sortStageMs = rebuiltSourceViewApplyResult.SortStageMs;
-            long viewMaterializeMs = rebuiltSourceViewApplyResult.ViewMaterializeMs;
+            var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, rebuiltSourceViewApplyResult);
+            int viewCount = executionResult.ViewCount;
             if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
             {
                 LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_apply mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
@@ -12980,8 +12963,8 @@ public partial class MainWindowViewModel : ViewModel
             finalRows = null;
             int disposedSourceRowsCount = CountPlaylistSourceRows(previousSourceRows);
             previousSourceRows = null;
-            FinalizeMainViewBuild(viewBuildStopwatch, mode, requestedMode, parameter, folderStageMs, keywordStageMs, modeStageMs, sortStageMs, sortReuse: false, sortProfile, folderCount, keywordCount, modeCount, viewCount, columnStageMs, callbackStageMs);
-            LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + scoreUpdateTargetCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown") + " libraryIndexMs=" + libraryIndexMs + " libraryIndexAccess=" + libraryIndexAccess + " libraryIndexBuildMs=" + libraryIndexBuildMs + " entryResolveMs=" + entryResolveMs + " scoreProbeMs=" + scoreProbeMs + " scoreProbeMatchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " sourceMaterializeMs=" + sourceMaterializeMs + " viewMaterializeMs=" + viewMaterializeMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
+            FinalizeMainViewBuild(viewBuildStopwatch, mode, requestedMode, parameter, executionResult.FolderStageMs, executionResult.KeywordStageMs, executionResult.ModeStageMs, executionResult.SortStageMs, sortReuse: false, executionResult.SortProfile, executionResult.FolderCount, executionResult.KeywordCount, executionResult.ModeCount, viewCount, columnStageMs, callbackStageMs);
+            LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + executionResult.ScoreUpdateTargetCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown") + " libraryIndexMs=" + executionResult.LibraryIndexMs + " libraryIndexAccess=" + executionResult.LibraryIndexAccess + " libraryIndexBuildMs=" + executionResult.LibraryIndexBuildMs + " entryResolveMs=" + executionResult.EntryResolveMs + " scoreProbeMs=" + executionResult.ScoreProbeMs + " scoreProbeMatchedScoreCount=" + executionResult.ScoreProbeMetrics.MatchedScoreCount + " sourceMaterializeMs=" + executionResult.SourceMaterializeMs + " viewMaterializeMs=" + executionResult.ViewMaterializeMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
             return true;
         }
         catch (OperationCanceledException)

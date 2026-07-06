@@ -129,3 +129,63 @@ internal sealed class PlaylistRebuiltSourceViewApplyResult
 
     internal long ViewMaterializeMs { get; }
 }
+
+/// <summary>
+/// RebuildPlaylistSource の worker stages が返す読み取り用の結果です。
+/// </summary>
+internal sealed class PlaylistRebuildExecutionResult
+{
+    internal PlaylistRebuildExecutionResult(
+        PlaylistSourceBuildStageResult sourceBuildStage,
+        PlaylistRebuiltSourceViewApplyResult rebuiltSourceViewApply)
+    {
+        SourceBuildStage = sourceBuildStage ?? throw new System.ArgumentNullException(nameof(sourceBuildStage));
+        RebuiltSourceViewApply = rebuiltSourceViewApply ?? throw new System.ArgumentNullException(nameof(rebuiltSourceViewApply));
+    }
+
+    internal PlaylistSourceBuildStageResult SourceBuildStage { get; }
+
+    internal PlaylistSourceBuildResult SourceBuild => SourceBuildStage.SourceBuild;
+
+    internal PlaylistRebuiltSourceViewApplyResult RebuiltSourceViewApply { get; }
+
+    internal List<PlaylistDetailSourceRow> SourceRows => SourceBuild.SourceRows;
+
+    internal int SourceCount => SourceBuild.SourceCount;
+
+    internal int FolderCount => SourceBuild.FolderCount;
+
+    internal int ScoreUpdateTargetCount => SourceBuild.ScoreUpdateTargetCount;
+
+    internal long EntryResolveMs => SourceBuild.EntryResolveMs;
+
+    internal long ScoreProbeMs => SourceBuild.ScoreProbeMs;
+
+    internal long SourceMaterializeMs => SourceBuild.SourceMaterializeMs;
+
+    internal PlaylistScoreProbeMetrics ScoreProbeMetrics => SourceBuild.ScoreProbeMetrics;
+
+    internal long FolderStageMs => SourceBuildStage.FolderStageMs;
+
+    internal long LibraryIndexMs => SourceBuildStage.LibraryIndexMs;
+
+    internal string LibraryIndexAccess => SourceBuildStage.LibraryIndexAccess;
+
+    internal long LibraryIndexBuildMs => SourceBuildStage.LibraryIndexBuildMs;
+
+    internal int ViewCount => RebuiltSourceViewApply.ViewCount;
+
+    internal string SortProfile => RebuiltSourceViewApply.SortProfile;
+
+    internal int KeywordCount => RebuiltSourceViewApply.KeywordCount;
+
+    internal int ModeCount => RebuiltSourceViewApply.ModeCount;
+
+    internal long KeywordStageMs => RebuiltSourceViewApply.KeywordStageMs;
+
+    internal long ModeStageMs => RebuiltSourceViewApply.ModeStageMs;
+
+    internal long SortStageMs => RebuiltSourceViewApply.SortStageMs;
+
+    internal long ViewMaterializeMs => RebuiltSourceViewApply.ViewMaterializeMs;
+}
