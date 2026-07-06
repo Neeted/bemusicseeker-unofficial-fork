@@ -40,8 +40,9 @@
 | 2026-07-06 | 完了 | Ticket I-3d-3: regular sort / cache stage の coordinator 化 | `c32cb023` |
 | 2026-07-06 | 完了 | Ticket I-3d-4: regular materialized apply / log terminal の統合 | `ffcc7fd8` |
 | 2026-07-06 | 完了 | Ticket I-3d-5: RefreshChartRowsView facade 化完了 | `b5427fa0` |
+| 2026-07-06 | 完了 | Ticket I-4a: main chart list test dependency 棚卸し | このコミット |
 
-次候補: Ticket I-4: MainChartList 関連 test 移行。
+次候補: Ticket I-4b: source-text helper の main chart list 範囲を明確化。
 
 ## 現在地サマリ
 
@@ -1257,13 +1258,64 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 
 ### Ticket I-4: MainChartList 関連 test 移行
 
-1. Main chart list 関連の source-text / reflection test を棚卸しする。
-2. root forwarder 経由の test を、抽出した service / child VM を直接検証する形へ寄せる。
-3. 互換 forwarder は production code から不要になった段階で削除候補にする。
+`Ticket I-4` は test 移行の範囲が広いため、以下へ分割する。
+
+#### Ticket I-4a: main chart list test dependency 棚卸し
+
+1. `MainChartList` / `RefreshChartRowsView` / `ChartListRefreshCoordinator` / `RegularChartList*` に関係する source-text / reflection / root forwarder test を一覧化する。
+2. 各 test を「coordinator/service 直接検証へ移せる」「root integration として残す」「後続 XAML/DataContext 移行まで保留」に分類する。
+3. 分類結果をこの計画書の I-4 表へ残す。
+
+確認対象:
+
+- `rg` による test 棚卸し
+- 変更が資料のみなら `dotnet format whitespace --verify-no-changes`
+
+完了条件:
+
+- I-4 の移行対象と保留対象が前提知識なしに読める。
+
+#### Ticket I-4b: source-text helper の main chart list 範囲を明確化
+
+1. Main chart list 関連の source-text test で、`MainWindowViewModel` 全体や広すぎる `ExtractBetween` に依存している箇所を method/helper 単位の検証へ狭める。
+2. 既に抽出済みの `ChartListRefreshCoordinator` / `RegularChartList*` で直接検証できるものはそちらへ寄せる。
+3. root facade の dispatch 契約だけは root method body で確認する。
+
+確認対象:
+
+- `RegularChartListRefreshTypesTests`
+- `MainWindowContextMenuResourceTests`
+- `ChartListVirtualViewTests`
+
+完了条件:
+
+- source-text test が facade 本体と helper/coordinator 本体を取り違えない。
+
+#### Ticket I-4c: root forwarder / reflection test の直接化
+
+1. `MainWindowViewModel` の互換 forwarder 経由で child VM / coordinator を確認している test を、可能なものから直接 test へ移す。
+2. root integration として残す必要がある test は理由を I-4 表へ残す。
+3. production API 削除候補は、XAML / code-behind 参照が外れた後の Ticket P/Q へ送る。
 
 完了条件:
 
 - メイン一覧の主要テストが root VM の巨大 class 形状に依存しない。
+
+#### I-4 test dependency inventory
+
+| test / file | 現在の依存 | 分類 | 移行方針 |
+|---|---|---|---|
+| `RegularChartListRefreshTypesTests` | `MainWindowViewModel` source-text | coordinator/service 直接検証 + root facade dispatch | root は dispatch 契約のみ。regular pipeline 接続は `ApplyMainLibraryChartListView` / `RegularChartList*` へ範囲を狭める |
+| `MainWindowContextMenuResourceTests.DuplicateFilterViewUsesChartFileParameters` | `MainWindowViewModel` source-text | helper 範囲明確化 | duplicate/subset の実体は `ApplyMainLibraryChartListView` / virtual helper の method body を確認する |
+| `ChartListVirtualViewTests.VirtualChartSubsetUnsupportedSort_ResetsToDefaultVirtualSort` | private `RefreshChartRowsView` reflection + root state setup | root integration として残す | virtual subset route、sort reset、bound rows までを横断するため、coordinator 直接化は追加 test で補完しつつ当面維持 |
+| `ChartListVirtualViewTests.SummaryFormatter_OmitsUnknownFolderCount` | root static forwarder | child VM / formatter 直接検証 | `MainChartListViewModel` または summary formatter へ寄せ、root wrapper は削除候補にする |
+| `ChartListVirtualViewTests.MainChartList_*` | root forwarder behavior | child VM 直接検証 + root relay smoke | `MainChartListViewModel` 直接 test を厚くし、root は relay 互換だけ確認する |
+| `ChartListVirtualViewTests.VirtualNormalLibraryRequestModes_*` | root forwarder behavior | coordinator / decision service 直接検証 | support matrix は `ChartListRefreshCoordinator` または小さな decision service へ寄せる |
+| `ChartListVirtualViewTests.VirtualChartSubsetRequestModes_*` | root forwarder behavior | coordinator / decision service 直接検証 | subset request mode の support matrix は root wrapper から外す |
+| `ChartListVirtualViewTests.DuplicateVirtualSourceRows_PreserveBmsonStorageRowsWithoutCompatibilityFiles` | root forwarder behavior | 保留 | duplicate virtual source-row builder 抽出後に直接化する |
+| `BmsLibraryMutationBoundaryTests.MainWindowViewModel_UsesChartPackageMutationBoundary` | `MainWindowViewModel` source-text | main chart list 対象外寄り | chart package mutation 境界のため I-4 では保留。後続 Shell 化監査で再分類 |
+| `RegularChartListFilterServiceTests` / `RegularChartListSortCoordinatorTests` | direct service/coordinator | 移行不要 | 既に root class 形状に依存しない |
+| `ChartListRefreshCoordinator_Apply*` / `Create*Metrics*` tests | direct coordinator | 整理候補 | 必要なら `ChartListRefreshCoordinatorTests` へファイル分離する |
 
 ### Ticket J: XAML の playback/progress DataContext 移行
 
