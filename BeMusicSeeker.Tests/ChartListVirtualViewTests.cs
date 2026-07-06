@@ -459,8 +459,8 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void SummaryFormatter_OmitsUnknownFolderCount()
     {
-        string unknown = MainWindowViewModel.FormatMainGridSummaryTextForTest(3, -1);
-        string known = MainWindowViewModel.FormatMainGridSummaryTextForTest(3, 2);
+        string unknown = MainChartListViewModel.FormatSummaryTextForTest(3, -1);
+        string known = MainChartListViewModel.FormatSummaryTextForTest(3, 2);
 
         StringAssert.StartsWith(unknown, "[3");
         Assert.IsFalse(unknown.Contains("/"));
@@ -468,14 +468,27 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void MainChartList_SetRowsUpdatesRootSummaryRelay()
+    public void MainChartList_SetRowsUpdatesSummaryDirectly()
+    {
+        var mainChartList = new MainChartListViewModel();
+        var rows = CreateSummaryRows();
+        var propertyNames = new List<string>();
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+
+        mainChartList.SetRows(rows, updateSummary: true);
+
+        Assert.AreSame(rows, mainChartList.Rows);
+        StringAssert.StartsWith(mainChartList.SummaryText, "[2");
+        StringAssert.Contains(mainChartList.SummaryText, "/ 2");
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.Rows));
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SummaryText));
+    }
+
+    [TestMethod]
+    public void MainChartList_RootRelayPreservesLegacyRowsAndSummaryProperties()
     {
         var viewModel = new MainWindowViewModel();
-        var rows = new List<LibraryChartRow>
-        {
-            LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(CreateFile(@"D:\Charts\A\alpha.bms", "Alpha", @"D:\Charts\A"))),
-            LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(CreateFile(@"D:\Charts\B\bravo.bms", "Bravo", @"D:\Charts\B"))),
-        };
+        List<LibraryChartRow> rows = CreateSummaryRows();
         var propertyNames = new List<string>();
         viewModel.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
@@ -486,6 +499,15 @@ public sealed class ChartListVirtualViewTests
         StringAssert.Contains(viewModel.GridSummaryText, "/ 2");
         CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.ChartRowsView));
         CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.GridSummaryText));
+    }
+
+    private static List<LibraryChartRow> CreateSummaryRows()
+    {
+        return
+        [
+            LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(CreateFile(@"D:\Charts\A\alpha.bms", "Alpha", @"D:\Charts\A"))),
+            LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(CreateFile(@"D:\Charts\B\bravo.bms", "Bravo", @"D:\Charts\B"))),
+        ];
     }
 
     [TestMethod]

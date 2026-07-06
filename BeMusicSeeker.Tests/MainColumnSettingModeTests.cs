@@ -108,17 +108,17 @@ public sealed class MainColumnSettingModeTests
     }
 
     [TestMethod]
-    public void ResolveChartRowsViewRowDragKind_UsesPlaylistDropCandidateRowsForPlayHistorySettings()
+    public void MainChartListViewModel_ResolveRowDragKind_UsesPlaylistDropCandidateRowsForPlayHistorySettings()
     {
         Assert.AreEqual(
             CustomTableRowDragKind.PlaylistDropCandidateRows,
-            MainWindowViewModel.ResolveChartRowsViewRowDragKindForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY)));
+            MainChartListViewModel.ResolveRowDragKindForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY)));
         Assert.AreEqual(
             CustomTableRowDragKind.PlaylistDropCandidateRows,
-            MainWindowViewModel.ResolveChartRowsViewRowDragKindForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)));
+            MainChartListViewModel.ResolveRowDragKindForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)));
         Assert.AreEqual(
             CustomTableRowDragKind.PlaylistDropCandidateRows,
-            MainWindowViewModel.ResolveChartRowsViewRowDragKindForTest(null));
+            MainChartListViewModel.ResolveRowDragKindForTest(null));
     }
 
     [TestMethod]
