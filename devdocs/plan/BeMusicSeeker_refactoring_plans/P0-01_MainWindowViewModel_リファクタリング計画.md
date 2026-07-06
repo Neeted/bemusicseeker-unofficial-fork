@@ -43,8 +43,9 @@
 | 2026-07-06 | 完了 | Ticket I-4a: main chart list test dependency 棚卸し | `89db5cb6` |
 | 2026-07-06 | 完了 | Ticket I-4b: source-text helper の main chart list 範囲を明確化 | `cbd6d659` |
 | 2026-07-06 | 完了 | Ticket I-4c: root forwarder / reflection test の直接化 | `689518ba` |
+| 2026-07-06 | 着手中 | Ticket J-1: playback header DataContext 移行 | 作業中 |
 
-次候補: Ticket J: XAML の playback/progress DataContext 移行。
+次候補: Ticket J-1: playback header DataContext 移行。
 
 ## 現在地サマリ
 
@@ -1321,12 +1322,45 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 
 ### Ticket J: XAML の playback/progress DataContext 移行
 
-1. 上部再生パネルの DataContext を `PlaybackPanel` にする。
-2. 進捗表示領域の DataContext を `ProgressHub` にする。
+`Ticket J` は XAML binding の blast radius が大きいため、以下へ分割する。
+
+#### Ticket J-1: playback header DataContext 移行
+
+1. 上部再生パネルの header 表示領域だけを `PlaybackPanel` DataContext へ移す。
+2. `NowPlayingBMS`、`CurrentlyPlayingTime`、player host / command handler など root 所有の binding / event handler は移さない。
 3. root pass-through はまだ削除しない。
-4. `dotnet build` で XAML compile を確認。
-5. 対象領域の binding path 棚卸しを行い、`ContextMenu` / `StaticResource vm` / code-behind からの root 参照を分類する。
-6. 手動 smoke test では起動進捗、install 進捗、LR2 song DB sync status、再生パネル操作を確認する。
+
+確認対象:
+
+- `dotnet build` で XAML compile
+- `PlaylistViewPipelineTests`
+- `MainWindowContextMenuResourceTests` の playback/header 周辺 source-text checks
+
+完了条件:
+
+- `PlayerHeaderTitle` / `PlayerHeaderSubtitle` / `PlayerHeaderArtist` の XAML binding が `PlaybackPanel` を DataContext にして解決される。
+
+#### Ticket J-2: progress status bar DataContext 移行
+
+1. status bar の進捗表示領域を `ProgressHub` DataContext へ移す。
+2. retry/cancel/cleanup click handler は root/code-behind のまま維持する。
+3. root pass-through はまだ削除しない。
+
+確認対象:
+
+- `dotnet build` で XAML compile
+- `Lr2SongDbSyncStatusServiceTests`
+- `MainWindowContextMenuResourceTests` の progress/status bar source-text checks
+
+完了条件:
+
+- startup / install / LR2 song DB sync status の表示 binding が `ProgressHub` を DataContext にして解決される。
+
+#### Ticket J-3: DataContext 移行後の binding 棚卸し
+
+1. playback/progress 領域に残った root binding と code-behind event handler を一覧化する。
+2. root pass-through 削除候補を Ticket P/Q へ送る。
+3. 手動 smoke test 項目を更新する。
 
 完了条件:
 
