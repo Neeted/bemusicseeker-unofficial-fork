@@ -131,6 +131,55 @@ internal sealed class PlaylistRebuiltSourceViewApplyResult
 }
 
 /// <summary>
+/// 既存 playlist source から view rows だけを再計算する stage の結果です。
+/// </summary>
+internal sealed class PlaylistViewOnlyApplyResult
+{
+    internal PlaylistViewOnlyApplyResult(
+        IList finalRows,
+        int sourceCount,
+        string sortProfile,
+        int keywordCount,
+        int modeCount,
+        long keywordStageMs,
+        long modeStageMs,
+        long sortStageMs,
+        long viewMaterializeMs)
+    {
+        FinalRows = finalRows ?? throw new System.ArgumentNullException(nameof(finalRows));
+        SourceCount = sourceCount;
+        ViewCount = FinalRows.Count;
+        SortProfile = sortProfile;
+        KeywordCount = keywordCount;
+        ModeCount = modeCount;
+        KeywordStageMs = keywordStageMs;
+        ModeStageMs = modeStageMs;
+        SortStageMs = sortStageMs;
+        ViewMaterializeMs = viewMaterializeMs;
+    }
+
+    internal IList FinalRows { get; }
+
+    internal int SourceCount { get; }
+
+    internal int ViewCount { get; }
+
+    internal string SortProfile { get; }
+
+    internal int KeywordCount { get; }
+
+    internal int ModeCount { get; }
+
+    internal long KeywordStageMs { get; }
+
+    internal long ModeStageMs { get; }
+
+    internal long SortStageMs { get; }
+
+    internal long ViewMaterializeMs { get; }
+}
+
+/// <summary>
 /// RebuildPlaylistSource の worker stages が返す読み取り用の結果です。
 /// </summary>
 internal sealed class PlaylistRebuildExecutionResult
