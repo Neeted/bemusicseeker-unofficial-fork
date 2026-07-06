@@ -14151,38 +14151,64 @@ public partial class MainWindowViewModel : ViewModel
         sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         viewCount = nextRowsView?.Count ?? 0;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        long prepareSwapMs = 0L;
-        if (!ReferenceEquals(ChartRowsView, nextRowsView))
-        {
-            long prepareStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            RaiseMainTableSwapPreparing();
-            prepareSwapMs = viewBuildStopwatch.ElapsedMilliseconds - prepareStartMs;
-        }
-        long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        bool columnSettingReuse = ApplyMainColumnSettingForViewUpdate(mode);
-        long columnSettingMs = viewBuildStopwatch.ElapsedMilliseconds - columnSettingStartMs;
-        long setViewStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        SetChartRowsView(nextRowsView);
-        long setViewMs = viewBuildStopwatch.ElapsedMilliseconds - setViewStartMs;
-        columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        ChartListRegularRowsApplyResult applyResult = ChartListRefreshCoordinator.ApplyRegularRows(
+            ChartRowsView,
+            nextRowsView,
+            stageStartMs,
+            viewBuildStopwatch,
+            RaiseMainTableSwapPreparing,
+            () => ApplyMainColumnSettingForViewUpdate(mode),
+            SetChartRowsView);
+        long prepareSwapMs = applyResult.PrepareSwapMs;
+        long columnSettingMs = applyResult.ColumnSettingMs;
+        long setViewMs = applyResult.SetViewMs;
+        bool columnSettingReuse = applyResult.ColumnSettingReuse;
+        columnStageMs = applyResult.ColumnStageMs;
         callbackStageMs = 0L;
         string sortColumn = regularRequest.HasSortParameters ? (regularRequest.RequestedSortColumnName ?? "(default_title)") : "(default_title)";
         string sortDirection = regularRequest.SortDirection.ToString();
         string parameterType = parameter?.GetType().Name ?? "(null)";
         bool fastSortEnabled = true;
         bool isPlaylistDetailForLog = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
-        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
-        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
-        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
-        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
-        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
+        RegularChartListBuildCompletion buildCompletion = ChartListRefreshCoordinator.CreateRegularBuildCompletion(
+            new RegularChartListBuildLogRequest
+            {
+                Mode = mode,
+                RequestedMode = requestedMode,
+                ParameterType = parameterType,
+                FolderMs = folderStageMs,
+                KeywordMs = keywordStageMs,
+                ModeMs = modeStageMs,
+                SortMs = sortStageMs,
+                SortReuse = sortReuse,
+                SortProfile = sortProfile,
+                FastSortEnabled = fastSortEnabled,
+                IsPlaylistDetailView = isPlaylistDetailForLog,
+                ColumnMs = columnStageMs,
+                PrepareSwapMs = prepareSwapMs,
+                ColumnSettingMs = columnSettingMs,
+                SetViewMs = setViewMs,
+                ColumnSettingReuse = columnSettingReuse,
+                CallbackMs = callbackStageMs,
+                FolderCount = folderCount,
+                KeywordCount = keywordCount,
+                ModeCount = modeCount,
+                ViewCount = viewCount,
+                SortColumn = sortColumn,
+                SortDirection = sortDirection
+            },
+            viewBuildStopwatch,
+            () => Interlocked.Increment(ref mainViewBuildRequestIdSeed));
+        Interlocked.Exchange(ref lastMainViewBuildRequestId, buildCompletion.RequestId);
+        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, buildCompletion.EndTimestamp);
+        Volatile.Write(ref lastMainViewBuildThreadId, buildCompletion.ThreadId);
         Volatile.Write(ref lastMainViewBuildMode, (int)mode);
-        if (isPlaylistDetailForLog)
+        if (buildCompletion.IsPlaylistDetailView)
         {
-            Interlocked.Exchange(ref lastPlaylistDetailBuildCompletedTimestamp, mainViewBuildEndTimestamp);
-            Interlocked.Exchange(ref lastPlaylistDetailBuildElapsedMs, viewBuildStopwatch.ElapsedMilliseconds);
+            Interlocked.Exchange(ref lastPlaylistDetailBuildCompletedTimestamp, buildCompletion.EndTimestamp);
+            Interlocked.Exchange(ref lastPlaylistDetailBuildElapsedMs, buildCompletion.ElapsedMs);
         }
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " prepareSwapMs=" + prepareSwapMs + " columnSettingMs=" + columnSettingMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + columnSettingReuse + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
+        LogMainViewBuild(buildCompletion.LogMessage);
     }
 
     private void ApplyPlayHistoryView(viewUpdateMode mode, viewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)

@@ -566,6 +566,110 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void ChartListRefreshCoordinator_ApplyRegularRowsPreservesSwapOrderAndMetrics()
+    {
+        var currentRows = new List<object>();
+        var nextRows = new List<object>();
+        var calls = new List<string>();
+        object assignedRows = new object();
+        var stopwatch = Stopwatch.StartNew();
+        long stageStartMs = stopwatch.ElapsedMilliseconds;
+
+        ChartListRegularRowsApplyResult result = ChartListRefreshCoordinator.ApplyRegularRows(
+            currentRows,
+            nextRows,
+            stageStartMs,
+            stopwatch,
+            prepareSwap: () => calls.Add("prepare"),
+            applyColumnSetting: () =>
+            {
+                calls.Add("columns");
+                return true;
+            },
+            setRowsView: rows =>
+            {
+                calls.Add("set");
+                assignedRows = rows;
+            });
+
+        CollectionAssert.AreEqual(new[] { "prepare", "columns", "set" }, calls);
+        Assert.AreSame(nextRows, assignedRows);
+        Assert.IsTrue(result.ColumnSettingReuse);
+        Assert.IsTrue(result.PrepareSwapMs >= 0);
+        Assert.IsTrue(result.ColumnSettingMs >= 0);
+        Assert.IsTrue(result.SetViewMs >= 0);
+        Assert.IsTrue(result.ColumnStageMs >= 0);
+    }
+
+    [TestMethod]
+    public void ChartListRefreshCoordinator_ApplyRegularRowsSkipsPrepareForSameReference()
+    {
+        var rows = new List<object>();
+        var calls = new List<string>();
+
+        ChartListRefreshCoordinator.ApplyRegularRows(
+            rows,
+            rows,
+            terminalStageStartMs: 0,
+            Stopwatch.StartNew(),
+            prepareSwap: () => calls.Add("prepare"),
+            applyColumnSetting: () =>
+            {
+                calls.Add("columns");
+                return false;
+            },
+            setRowsView: _ => calls.Add("set"));
+
+        CollectionAssert.AreEqual(new[] { "columns", "set" }, calls);
+    }
+
+    [TestMethod]
+    public void ChartListRefreshCoordinator_CreateRegularBuildCompletionFormatsTerminalLog()
+    {
+        var request = new RegularChartListBuildLogRequest
+        {
+            Mode = MainWindowViewModel.viewUpdateMode.FolderFilterSelected,
+            RequestedMode = MainWindowViewModel.viewUpdateMode.SortUpdated,
+            ParameterType = "String",
+            FolderMs = 1,
+            KeywordMs = 2,
+            ModeMs = 3,
+            SortMs = 4,
+            SortReuse = true,
+            SortProfile = "reuse",
+            FastSortEnabled = true,
+            IsPlaylistDetailView = true,
+            ColumnMs = 5,
+            PrepareSwapMs = 6,
+            ColumnSettingMs = 7,
+            SetViewMs = 8,
+            ColumnSettingReuse = true,
+            CallbackMs = 9,
+            FolderCount = 10,
+            KeywordCount = 11,
+            ModeCount = 12,
+            ViewCount = 13,
+            SortColumn = nameof(LibraryChartRow.Title),
+            SortDirection = ListSortDirection.Descending.ToString()
+        };
+
+        RegularChartListBuildCompletion completion = ChartListRefreshCoordinator.CreateRegularBuildCompletion(
+            request,
+            Stopwatch.StartNew(),
+            () => 42);
+
+        Assert.AreEqual(42, completion.RequestId);
+        Assert.IsTrue(completion.EndTimestamp > 0);
+        Assert.IsTrue(completion.ThreadId > 0);
+        Assert.IsTrue(completion.ElapsedMs >= 0);
+        Assert.IsTrue(completion.IsPlaylistDetailView);
+        StringAssert.StartsWith(completion.LogMessage, "main_view_build mode=FolderFilterSelected requestedMode=SortUpdated");
+        StringAssert.Contains(completion.LogMessage, "prepareSwapMs=6 columnSettingMs=7 setViewMs=8");
+        StringAssert.Contains(completion.LogMessage, "folderCount=10 keywordCount=11 modeCount=12 viewCount=13");
+        StringAssert.Contains(completion.LogMessage, "sortColumn=Title sortDirection=Descending");
+    }
+
+    [TestMethod]
     public void ChartListRefreshCoordinator_CreateVirtualSortMetricsPreservesOrderFields()
     {
         List<BMSFile> files =
