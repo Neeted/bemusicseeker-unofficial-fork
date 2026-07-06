@@ -13929,19 +13929,6 @@ public partial class MainWindowViewModel : ViewModel
     private void RefreshChartRowsView(viewUpdateMode mode, object parameter = null)
     {
         var viewBuildStopwatch = Stopwatch.StartNew();
-        long stageStartMs = 0L;
-        long folderStageMs = 0L;
-        long keywordStageMs = 0L;
-        long modeStageMs = 0L;
-        long sortStageMs = 0L;
-        long columnStageMs = 0L;
-        long callbackStageMs = 0L;
-        bool sortReuse = false;
-        string sortProfile = "not_sorted";
-        int folderCount = 0;
-        int keywordCount = 0;
-        int modeCount = 0;
-        int viewCount = 0;
         viewUpdateMode requestedMode = mode;
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
         if (mode == viewUpdateMode.TreeViewFilterNotChanged)
@@ -14015,7 +14002,30 @@ public partial class MainWindowViewModel : ViewModel
             RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter);
             return;
         }
-        bool includeBmsonRows = route.IncludeBmsonRows;
+        ApplyMainLibraryChartListView(route.Mode, route.RequestedMode, parameter, route.IncludeBmsonRows, viewBuildStopwatch);
+    }
+
+    private void ApplyMainLibraryChartListView(
+        viewUpdateMode mode,
+        viewUpdateMode requestedMode,
+        object parameter,
+        bool includeBmsonRows,
+        Stopwatch viewBuildStopwatch)
+    {
+        long stageStartMs = 0L;
+        long folderStageMs = 0L;
+        long keywordStageMs = 0L;
+        long modeStageMs = 0L;
+        long sortStageMs = 0L;
+        long columnStageMs = 0L;
+        long callbackStageMs = 0L;
+        bool sortReuse = false;
+        string sortProfile = "not_sorted";
+        int folderCount = 0;
+        int keywordCount = 0;
+        int modeCount = 0;
+        int viewCount = 0;
+
         ClearPlaylistSourceRows();
         if (includeBmsonRows)
         {

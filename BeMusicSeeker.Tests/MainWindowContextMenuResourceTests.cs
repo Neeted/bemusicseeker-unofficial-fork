@@ -1648,21 +1648,18 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
-        string refreshChartRowsView = ExtractBetween(
-            viewModelCode,
-            "private void RefreshChartRowsView",
-            "private static bool TryNormalizeNormalLibrarySortCacheColumn");
+        string mainLibraryWorkflow = ExtractMethodBody(viewModelCode, "private void ApplyMainLibraryChartListView");
         string virtualSubsetSource = ExtractMethodBody(viewModelCode, "private bool TryGetVirtualChartSubsetSourceFiles");
         string virtualDuplicateSource = ExtractBetween(
             viewModelCode,
             "private static bool TryGetVirtualDuplicateSourceChartsCore",
             "private List<ChartFile> CreateDuplicateChartFileSnapshot");
 
-        StringAssert.Contains(refreshChartRowsView, "bool virtualChartSubsetRequiredFailure = false");
-        StringAssert.Contains(refreshChartRowsView, "IsVirtualChartSubsetRequiredForRequest(mode, treeViewFilterTypeSelected)");
-        Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.DuplicateFilterSelected:"));
-        Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.FileMissingFilterSelected:"));
-        Assert.IsFalse(refreshChartRowsView.Contains("case viewUpdateMode.NewlyInstalledFolderSelected:"));
+        StringAssert.Contains(mainLibraryWorkflow, "bool virtualChartSubsetRequiredFailure = false");
+        StringAssert.Contains(mainLibraryWorkflow, "IsVirtualChartSubsetRequiredForRequest(mode, treeViewFilterTypeSelected)");
+        Assert.IsFalse(mainLibraryWorkflow.Contains("case viewUpdateMode.DuplicateFilterSelected:"));
+        Assert.IsFalse(mainLibraryWorkflow.Contains("case viewUpdateMode.FileMissingFilterSelected:"));
+        Assert.IsFalse(mainLibraryWorkflow.Contains("case viewUpdateMode.NewlyInstalledFolderSelected:"));
         StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesGarbled;");
         StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesGarbledFixed;");
         StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesUnregistered;");

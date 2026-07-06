@@ -39,8 +39,9 @@
 | 2026-07-06 | 完了 | Ticket I-3d-2: keyword / mode filter stage の service 化 | `b7be45e1` |
 | 2026-07-06 | 完了 | Ticket I-3d-3: regular sort / cache stage の coordinator 化 | `c32cb023` |
 | 2026-07-06 | 完了 | Ticket I-3d-4: regular materialized apply / log terminal の統合 | `ffcc7fd8` |
+| 2026-07-06 | 完了 | Ticket I-3d-5: RefreshChartRowsView facade 化完了 | このコミット |
 
-次候補: Ticket I-3d-5: RefreshChartRowsView facade 化完了。
+次候補: Ticket I-4: MainChartList 関連 test 移行。
 
 ## 現在地サマリ
 
