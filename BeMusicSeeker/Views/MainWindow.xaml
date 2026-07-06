@@ -955,7 +955,7 @@
   <Border Name="windowBorder" BorderThickness="0" Margin="0" BorderBrush="{DynamicResource App.AccentBrush}">
     <Grid>
       <DockPanel Margin="0">
-        <StatusBar Height="28" DockPanel.Dock="Bottom" Background="{DynamicResource App.SurfaceBrush}" Foreground="{DynamicResource App.TextBrush}">
+        <StatusBar Height="28" DockPanel.Dock="Bottom" DataContext="{Binding ProgressHub}" Background="{DynamicResource App.SurfaceBrush}" Foreground="{DynamicResource App.TextBrush}">
           <StatusBar.Style>
             <Style TargetType="{x:Type StatusBar}">
               <Setter Property="Visibility" Value="Collapsed" />

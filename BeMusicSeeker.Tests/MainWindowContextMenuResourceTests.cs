@@ -400,6 +400,58 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ProgressStatusBar_BindsThroughProgressHubDataContextAndKeepsRootClickHandlers()
+    {
+        XDocument document = LoadMainWindowXamlDocument();
+        XElement statusBar = document.Descendants().Single(element => element.Name.LocalName == "StatusBar");
+
+        Assert.AreEqual("{Binding ProgressHub}", GetAttributeValue(statusBar, "DataContext"));
+        AssertStatusBarBinding(statusBar, "IsStartupProgressActive");
+        AssertStatusBarBinding(statusBar, "StartupProgressLabel");
+        AssertStatusBarBinding(statusBar, "StartupProgressSubLabel");
+        AssertStatusBarBinding(statusBar, "StartupProgressMaximum");
+        AssertStatusBarBinding(statusBar, "StartupProgressValue");
+        AssertStatusBarBinding(statusBar, "IsInstallPipelineStatusActive");
+        AssertStatusBarBinding(statusBar, "InstallPipelineLabel");
+        AssertStatusBarBinding(statusBar, "InstallPipelineSubLabel");
+        AssertStatusBarBinding(statusBar, "InstallPipelineMaximum");
+        AssertStatusBarBinding(statusBar, "InstallPipelineValue");
+        AssertStatusBarBinding(statusBar, "InstallPipelineCanCancel");
+        AssertStatusBarBinding(statusBar, "IsPlaylistSyncProgressActive");
+        AssertStatusBarBinding(statusBar, "PlaylistSyncProgressLabel");
+        AssertStatusBarBinding(statusBar, "PlaylistSyncProgressSubLabel");
+        AssertStatusBarBinding(statusBar, "PlaylistSyncProgressMaximum");
+        AssertStatusBarBinding(statusBar, "PlaylistSyncProgressValue");
+        AssertStatusBarBinding(statusBar, "IsMaintenanceRescanProgressActive");
+        AssertStatusBarBinding(statusBar, "MaintenanceRescanLabel");
+        AssertStatusBarBinding(statusBar, "MaintenanceRescanSubLabel");
+        AssertStatusBarBinding(statusBar, "MaintenanceRescanMaximum");
+        AssertStatusBarBinding(statusBar, "MaintenanceRescanValue");
+        AssertStatusBarBinding(statusBar, "MaintenanceRescanCanCancel");
+        AssertStatusBarBinding(statusBar, "IsFolderAutoRenameProgressActive");
+        AssertStatusBarBinding(statusBar, "FolderAutoRenameProgressLabel");
+        AssertStatusBarBinding(statusBar, "FolderAutoRenameProgressSubLabel");
+        AssertStatusBarBinding(statusBar, "FolderAutoRenameProgressMaximum");
+        AssertStatusBarBinding(statusBar, "FolderAutoRenameProgressValue");
+        AssertStatusBarBinding(statusBar, "IsLr2SongDbSyncStatusActive");
+        AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusLabel");
+        AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusSubLabel");
+        AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusToolTip");
+        AssertStatusBarBinding(statusBar, "IsLr2SongDbSyncRetryVisible");
+        AssertStatusBarBinding(statusBar, "IsLr2SongDbSyncCancelVisible");
+        AssertStatusBarBinding(statusBar, "IsLr2SongDbSyncCleanupVisible");
+        AssertStatusBarBinding(statusBar, "IsLr2SongDbSyncStatusProgressVisible");
+        AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusProgressMaximum");
+        AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusProgressValue");
+
+        Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cancelDropInstallQueueClick\""));
+        Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cancelMaintenanceRescanClick\""));
+        Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"retryLr2SongDbSyncClick\""));
+        Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cancelLr2SongDbSyncClick\""));
+        Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cleanupLr2SongDbSyncStartupScanBlockersClick\""));
+    }
+
+    [TestMethod]
     public void SidebarLayout_SplittersCoverResizableRegionsAndExposeWideHitAreas()
     {
         XDocument document = LoadMainWindowXamlDocument();
@@ -3530,6 +3582,16 @@ public sealed class MainWindowContextMenuResourceTests
                 && GetAttributeValue(element, "TargetName") == "SeparatorLine"
                 && GetAttributeValue(element, "Property") == "Height");
         return GetNumericAttribute(heightSetter, "Value");
+    }
+
+    private static void AssertStatusBarBinding(XElement statusBar, string path)
+    {
+        string statusBarText = statusBar.ToString(SaveOptions.DisableFormatting);
+        Assert.IsTrue(
+            statusBarText.IndexOf("{" + "Binding " + path, StringComparison.Ordinal) >= 0
+                || statusBar.Descendants().Any(element => element.Name.LocalName == "Binding"
+                    && GetAttributeValue(element, "Path") == path),
+            "StatusBar should bind " + path + " through its ProgressHub DataContext.");
     }
 
     private static void AssertLogPlayHistoryEventContract(string source, string eventName, params string[] requiredFragments)
