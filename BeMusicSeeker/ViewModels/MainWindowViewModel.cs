@@ -119,6 +119,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public MainChartListViewModel MainChartList { get; } = new();
 
+    internal MainWindowRuntimeContext RuntimeContext { get; }
+
 
 
 
@@ -10790,6 +10792,12 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public MainWindowViewModel()
     {
+        RuntimeContext = new MainWindowRuntimeContext(
+            () => files,
+            () => tables,
+            () => lr2config,
+            () => bmsPlayer,
+            () => DispatcherHelper.UIDispatcher);
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;

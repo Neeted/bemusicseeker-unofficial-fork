@@ -46,8 +46,9 @@
 | 2026-07-06 | 完了 | Ticket J-1: playback header DataContext 移行 | `1581fc9e` |
 | 2026-07-06 | 完了 | Ticket J-2: progress status bar DataContext 移行 | `798fe933` |
 | 2026-07-06 | 完了 | Ticket J-3: DataContext 移行後の binding 棚卸し | `4240710f` |
+| 2026-07-06 | 完了 | Ticket K-1: MainWindowRuntimeContext skeleton 導入 | このコミット |
 
-次候補: Ticket K: MainWindowRuntimeContext 導入。
+次候補: Ticket K-2: runtime context 利用候補の棚卸し。
 
 ## 現在地サマリ
 
@@ -1386,10 +1387,12 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 
 ### Ticket K: MainWindowRuntimeContext 導入
 
-1. `MainWindowRuntimeContext` を追加し、子 VM / coordinator が必要とする横断依存を明示する。
-2. 初期段階では `BMSLibrary`、`BMSPlaylist`、`LR2Config`、`IBMSPlayer`、dispatcher、dialog request、logging callback をすべて移さず、read-only provider / callback interface から始める。
-3. root から child VM へ model 参照を直接ばらまいている箇所を棚卸しする。
-4. runtime context は意味の変わる fallback を持たず、未初期化なら明示的に失敗させる。
+#### Ticket K-1: MainWindowRuntimeContext skeleton 導入
+
+1. `MainWindowRuntimeContext` を追加し、root が所有する横断依存の read-only provider を集約する。
+2. 初期段階では `BMSLibrary`、`BMSPlaylist`、`LR2Config`、`IBMSPlayer`、dispatcher を provider として公開するだけに留め、既存処理の呼び出し先は変えない。
+3. provider が null を返す場合は fallback せず、未初期化を明示する例外にする。
+4. `MainWindowViewModel` が constructor で context を構成し、後続 ticket の composition root を作る。
 
 確認対象:
 
@@ -1401,7 +1404,24 @@ XAML と code-behind の参照が子 VM へ移ったら、root の pass-through 
 完了条件:
 
 - child VM / service へ渡す横断依存の置き場ができる。
-- root の constructor / initialize が composition root として読めるようになる。
+- 未初期化依存が fallback で隠れないことを test で固定する。
+
+#### Ticket K-2: runtime context 利用候補の棚卸し
+
+1. root から child VM / coordinator / service へ直接渡している model 参照、dispatcher、dialog/logging callback を一覧化する。
+2. `MainChartList` / `PlaylistWorkspace` / `PlayHistoryWorkspace` / `Sidebar` のどこが context を受け取るべきか分類する。
+3. dialog request と logging callback は実装前に dedicated interface が必要か確認する。
+4. `BMSLibrary` / `BMSPlaylist` / `LR2Config` / `Dispatcher` は mutable concrete をそのまま child VM へ配らず、実利用前に provider 境界を narrow interface 化できるか確認する。
+
+確認対象:
+
+- `MainWindowContextMenuResourceTests`
+- `SourceTextTestHelper` を使った source-text checks
+
+完了条件:
+
+- context を実際に注入する対象と順序が明確になる。
+- root の constructor / initialize が composition root として読める方向になる。
 
 ### Ticket L: PlaylistWorkspaceViewModel 導入
 
