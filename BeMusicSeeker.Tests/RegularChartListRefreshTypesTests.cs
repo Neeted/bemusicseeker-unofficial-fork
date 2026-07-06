@@ -72,6 +72,8 @@ public sealed class RegularChartListRefreshTypesTests
         StringAssert.Contains(viewModelCode, "new RegularChartListRefreshRequest(");
         StringAssert.Contains(viewModelCode, "regularRequest.VirtualSubsetRequiredFailure");
         StringAssert.Contains(viewModelCode, "RegularChartListStageState.Materialize(ChartRowsFolderView)");
-        StringAssert.Contains(viewModelCode, "LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, regularRequest.SortParameters");
+        StringAssert.Contains(viewModelCode, "new RegularChartListSortContext");
+        StringAssert.Contains(viewModelCode, "TryGetNormalLibrarySortCache = TryGetNormalLibrarySortCacheForCoordinator");
+        StringAssert.Contains(viewModelCode, "RegularChartListSortCoordinator.ApplySort(regularRequest, regularStage, sortContext)");
     }
 }

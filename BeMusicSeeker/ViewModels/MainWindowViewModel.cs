@@ -14111,95 +14111,43 @@ public partial class MainWindowViewModel : ViewModel
         modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         modeCount = regularStage.ModeCount;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        IList nextRowsView;
-        if (mode <= viewUpdateMode.SortUpdated)
+        bool isPlaylistDetailView = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
+        var sortContext = new RegularChartListSortContext
         {
-            bool useLegacySortForMainView = false;
-            bool isPlaylistDetailView = mode == viewUpdateMode.PlaylistFilterSelected || mode == viewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == viewUpdateMode.PlaylistNotOwnedFilterSelected;
-            string columnName = regularRequest.SortColumnName;
-            ListSortDirection direction = regularRequest.SortDirection;
-            bool isTreeSelectionRequest = requestedMode != viewUpdateMode.TreeViewFilterNotChanged && requestedMode < viewUpdateMode.KeywordFilterUpdated;
-            bool isFolderMode = mode == viewUpdateMode.FolderFilterSelected;
-            var modeFilterList = ChartRowsModeFilterView as List<LibraryChartRow>;
-            bool isFullNormalLibraryResult = treeViewFilterTypeSelected == viewUpdateMode.FolderFilterSelected
-                && virtualNormalLibraryTreeFilter == null
-                && string.IsNullOrWhiteSpace(regularRequest.KeywordFilter)
-                && regularRequest.ModeFilter == ModeFilterType.All
-                && !isPlaylistDetailView
-                && modeFilterList != null
-                && modeFilterList.Count == folderCount
-                && modeFilterList.Count == keywordCount
-                && modeFilterList.Count == modeCount;
-            if (isFolderMode && isTreeSelectionRequest && modeFilterList != null && folderSortSourceSnapshot != null && folderSortResultSnapshot != null && string.Equals(folderSortColumnName, columnName, StringComparison.Ordinal) && folderSortDirection == direction && IsSameReferenceSequence(modeFilterList, folderSortSourceSnapshot))
+            CurrentTreeMode = treeViewFilterTypeSelected,
+            HasVirtualNormalLibraryTreeFilter = virtualNormalLibraryTreeFilter != null,
+            IsPlaylistDetailView = isPlaylistDetailView,
+            FolderSortSourceSnapshot = folderSortSourceSnapshot,
+            FolderSortResultSnapshot = folderSortResultSnapshot,
+            FolderSortColumnName = folderSortColumnName,
+            FolderSortDirection = folderSortDirection,
+            TryGetNormalLibrarySortCache = TryGetNormalLibrarySortCacheForCoordinator,
+            TryNormalizeSortCacheColumn = TryNormalizeNormalLibrarySortCacheColumn,
+            CreateSortCacheKey = (normalizedColumnName, direction, rowCount) =>
             {
-                nextRowsView = folderSortResultSnapshot;
-                sortReuse = true;
-                sortProfile = "reuse";
-            }
-            else if (TryGetNormalLibrarySortCache(isFullNormalLibraryResult, columnName, direction, modeFilterList?.Count ?? modeCount, out List<LibraryChartRow> cachedRows, out NormalLibrarySortCacheKey sortCacheKey, out _))
-            {
-                var sortCacheStopwatch = Stopwatch.StartNew();
-                nextRowsView = cachedRows;
-                sortCacheStopwatch.Stop();
-                sortReuse = true;
-                sortProfile = "reuse";
-                LogMainSortDetail(CreateNormalLibrarySortCacheMetrics(sortCacheKey, sortCacheStopwatch.ElapsedMilliseconds, cacheHit: true));
-            }
-            else
-            {
-                List<LibraryChartRow> sortedRows = LibraryChartRowSortEngine.SortForMainView(ChartRowsModeFilterView, regularRequest.SortParameters, isPlaylistDetailView, useLegacySortForMainView, out sortProfile, out LibraryChartSortMetrics sortMetrics);
-                nextRowsView = sortedRows;
-                if (isFullNormalLibraryResult && TryNormalizeNormalLibrarySortCacheColumn(columnName, out string normalizedCacheColumnName))
+                lock (normalLibrarySortCacheLock)
                 {
-                    NormalLibrarySortCacheKey newCacheKey;
-                    lock (normalLibrarySortCacheLock)
-                    {
-                        newCacheKey = CreateNormalLibrarySortCacheKey(
-                            normalLibrarySourceGeneration,
-                            normalLibrarySortKeyGeneration,
-                            normalizedCacheColumnName,
-                            direction,
-                            sortedRows.Count);
-                    }
-                    StoreNormalLibrarySortCache(newCacheKey, sortedRows);
-                    sortMetrics = new LibraryChartSortMetrics(
-                        sortMetrics.RowCount,
-                        sortMetrics.ColumnName,
-                        sortMetrics.Direction,
-                        sortMetrics.PropertyTypeName,
-                        sortMetrics.SortProfile,
-                        sortMetrics.StringSortKind,
-                        sortMetrics.SortMs,
-                        sortReuse: false,
-                        sortCacheKey: normalizedCacheColumnName,
-                        sortCacheGeneration: GetSortCacheGenerationForLog(newCacheKey),
-                        sortCacheHit: false);
+                    return CreateNormalLibrarySortCacheKey(
+                        normalLibrarySourceGeneration,
+                        normalLibrarySortKeyGeneration,
+                        normalizedColumnName,
+                        direction,
+                        rowCount);
                 }
-                LogMainSortDetail(sortMetrics);
-                if (isFolderMode)
-                {
-                    folderSortResultSnapshot = sortedRows;
-                }
-            }
-            if (isFolderMode)
-            {
-                if (modeFilterList != null)
-                {
-                    folderSortSourceSnapshot = modeFilterList;
-                }
-                else
-                {
-                    folderSortSourceSnapshot = [.. ChartRowsModeFilterView];
-                }
-                folderSortColumnName = columnName;
-                folderSortDirection = direction;
-            }
-        }
-        else
-        {
-            nextRowsView = ChartRowsModeFilterView.ToList();
-            sortProfile = "bypass";
-        }
+            },
+            StoreSortCache = StoreNormalLibrarySortCache,
+            CreateSortCacheMetrics = CreateNormalLibrarySortCacheMetrics,
+            GetSortCacheGenerationForLog = GetSortCacheGenerationForLog,
+            LogSortDetail = LogMainSortDetail
+        };
+        RegularChartListSortResult sortResult = RegularChartListSortCoordinator.ApplySort(regularRequest, regularStage, sortContext);
+        IList nextRowsView = sortResult.RowsView;
+        sortReuse = sortResult.SortReuse;
+        sortProfile = sortResult.SortProfile;
+        folderSortSourceSnapshot = sortResult.FolderSortSourceSnapshot;
+        folderSortResultSnapshot = sortResult.FolderSortResultSnapshot;
+        folderSortColumnName = sortResult.FolderSortColumnName;
+        folderSortDirection = sortResult.FolderSortDirection;
         sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         viewCount = nextRowsView?.Count ?? 0;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
@@ -16202,6 +16150,17 @@ public partial class MainWindowViewModel : ViewModel
             cacheKey = CreateNormalLibrarySortCacheKey(normalLibrarySourceGeneration, normalLibrarySortKeyGeneration, cacheColumnName, direction, rowCount);
             return normalLibrarySortCache.TryGetValue(cacheKey, out rows);
         }
+    }
+
+    private bool TryGetNormalLibrarySortCacheForCoordinator(
+        bool isEligible,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount,
+        out List<LibraryChartRow> rows,
+        out NormalLibrarySortCacheKey cacheKey)
+    {
+        return TryGetNormalLibrarySortCache(isEligible, columnName, direction, rowCount, out rows, out cacheKey, out _);
     }
 
     private void StoreNormalLibrarySortCache(NormalLibrarySortCacheKey cacheKey, List<LibraryChartRow> rows)
