@@ -19,18 +19,18 @@
 | `PlaylistSourceBuildResult.cs` | 195 行。source build / view apply / rebuild execution result contract |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
-| 直近の完了 | L-3c-15: Playlist view apply result DTO 共通化 |
-| 次の active ticket | L-3c-16-checkpoint: playlist build execution boundary の次候補決定 |
+| 直近の完了 | L-3c-16-checkpoint: playlist build execution boundary の次候補決定 |
+| 次の active ticket | L-3c-17: Playlist main view apply result DTO 導入 |
 
 ## Now
 
-### Active Ticket L-3c-16-checkpoint: playlist build execution boundary の次候補決定
+### Active Ticket L-3c-17: Playlist main view apply result DTO 導入
 
 目的:
 
-- L-3c-15 で共通化した `PlaylistViewApplyResult` を前提に、次に動かす playlist build execution boundary を 1 ticket に絞る。
-- `RebuildPlaylistSource` の coordinator 化へ進むか、source build / view apply / UI apply の小さな adapter を先に作るかを decision record に残す。
-- root に残す side effect と dependencies を明確にする。
+- [L-3c-16 decision](./P0-01_L-3c-16_PlaylistBuildExecutionNextBoundaryDecision.md) に従い、`ApplyPlaylistDetailViewRowsToMainView` の `out` timing metrics を internal result DTO に束ねる。
+- source build、view apply、main view apply の各 stage が値を返す形を揃え、後続 coordinator 化の surface を単純にする。
+- UI side effect の順序と `FinalizeMainViewBuild` の呼び出し位置は変えない。
 
 制約:
 
@@ -39,16 +39,16 @@
 - persisted setting value、serialized name、DB schema、外部ファイル形式に触れない。
 - terminal apply callback、main table swap、timing / logging side effects は root に残す。
 - 挙動変更を入れない。
-- BuildGate、source materialize の処理本体、chart-info patch mutation、view apply UI side effects を動かす場合は、実装前に checkpoint / decision record を作る。
+- BuildGate、source materialize の処理本体、chart-info patch mutation、view apply UI side effects は動かさない。
 - `PlaylistSourceBuildResult` の public / serialized contract 化はしない。internal worker contract のまま扱う。
 - rebuilt source path の `finalRows` cleanup ownership と view-only path の ownership 差分は変えない。
 - 1 ticket 内で 3 個以上の sub-ticket が必要になった場合は、実装前に checkpoint / decision record を作り直す。
 
 完了条件:
 
-- 次の実装 ticket が 1 件に定まっている。
-- decision record に、動かす範囲 / 動かさない範囲 / root に残す side effect / 必要なテストが明記されている。
-- L-3c-4 の terminal apply boundary と L-3c-15 の common view apply result を活かす方向になっている。
+- `PlaylistMainViewApplyResult` のような internal DTO が追加され、`ApplyPlaylistDetailViewRowsToMainView` の `out` 引数がなくなっている。
+- rebuilt source / view-only path の `FinalizeMainViewBuild` が DTO の timing metrics を使っている。
+- `ReplacePlaylistViewRows`、`SetChartRowsView`、`TryMarkPlaylistOpenBuildCompleted` の順序が変わっていない。
 - behavior、persisted value、public user-facing text は変えない。
 
 標準確認:
@@ -61,12 +61,12 @@
 
 ## Next
 
-次候補は最大 2 件に固定する。L-3c-16-checkpoint 完了後に次の実装単位を判断する。
+次候補は最大 2 件に固定する。L-3c-17 完了後に次の実装単位を判断する。
 
 | 候補 | 内容 | 着手条件 |
 |---|---|---|
-| L-3c-17 | L-3c-16-checkpoint の decision に従う実装 ticket | L-3c-16-checkpoint で実装単位が確定した後 |
-| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-16-checkpoint で blocker が特定された場合 |
+| L-3c-18-checkpoint | main view apply result 導入後、playlist build execution boundary の次候補を決める | L-3c-17 完了後 |
+| P0-01-C3 | source-text / private reflection test blocker の上位数件を direct service / child VM test へ移す | L-3c-17 で blocker が特定された場合 |
 
 ## Later
 

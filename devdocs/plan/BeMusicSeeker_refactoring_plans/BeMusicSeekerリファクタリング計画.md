@@ -25,7 +25,7 @@
 
 | 計画 | 状態 | 次に見る場所 |
 |---|---|---|
-| P0-01 | L-3c-15 まで完了。次は L-3c-16-checkpoint で playlist build execution boundary の次候補を決める | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
+| P0-01 | L-3c-16-checkpoint まで完了。次は L-3c-17 で playlist main view apply result DTO を導入する | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | P0-02 | P0-01 完了待ちではない。source-text helper / reflection inventory / dependency inventory / partial split 計画は即並行可 | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | P0-03 | P0-01 の root pass-through 削除に必要な前提。event handler inventory と XAML DataContext 移行準備は早期着手可 | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
 | P0-04 | TFM 変更なしの棚卸しは即並行可。本格的な `net10.0-windows` 移行は後続計画 | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
@@ -34,7 +34,7 @@
 
 | 優先度 | 計画書 | 主対象 | 現時点の実装プラン粒度 | 着手条件 |
 |---|---|---|---|---|
-| P0-01 | [MainWindowViewModel リファクタリング計画](./P0-01_MainWindowViewModel_リファクタリング計画.md) | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | active ticket 1 件 + 次候補 2 件へ整理済み | 継続中。次は L-3c-16-checkpoint |
+| P0-01 | [MainWindowViewModel リファクタリング計画](./P0-01_MainWindowViewModel_リファクタリング計画.md) | `BeMusicSeeker/ViewModels/MainWindowViewModel.cs` | active ticket 1 件 + 次候補 2 件へ整理済み | 継続中。次は L-3c-17 |
 | P0-02 | [BMSLibrary ドメイン facade 化計画](./P0-02_BMSLibrary_ドメインFacade化計画.md) | `BeMusicSeeker/Models/BMSLibrary.cs` | Phase 0 は着手可。後半は P0-01 / P0-04 の結果を見て再計画 | BMSLIB-0A/0B と依存棚卸しは即並行可 |
 | P0-03 | [MainWindow UI / code-behind MVVM 移行計画](./P0-03_MainWindow_UI_MVVM移行計画.md) | `BeMusicSeeker/Views/MainWindow.cs`, `MainWindow.xaml` | Phase 0 は着手可。XAML 分割は child VM 境界に合わせて段階化 | MWUI-0B と DataContext 移行準備は即並行可 |
 | P0-04 | [.NET 10 移行準備と依存関係整理計画](./P0-04_DotNet10_移行準備と依存関係整理計画.md) | `*.csproj`, `libs/`, `native/`, `app.config` | 棚卸しは詳細化済み。本移行は後続計画 | TFM を変えない inventory は即並行可 |
