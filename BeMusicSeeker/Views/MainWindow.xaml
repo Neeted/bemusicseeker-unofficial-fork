@@ -1287,7 +1287,7 @@
                     </Style>
                   </FrameworkElement.Style>
                 </Image>
-                <Grid Name="gridPlayerTitle" Height="80" DockPanel.Dock="Bottom" VerticalAlignment="Bottom" ClipToBounds="True" Visibility="{qc:MultiBinding '$P0 == Visibility.Visible || $P1 == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible', P0={Binding Visibility, ElementName=windowsFormsHost}, P1={Binding Visibility, ElementName=webBrowser}}">
+                <Grid Name="gridPlayerTitle" DataContext="{Binding PlaybackPanel}" Height="80" DockPanel.Dock="Bottom" VerticalAlignment="Bottom" ClipToBounds="True" Visibility="{qc:MultiBinding '$P0 == Visibility.Visible || $P1 == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible', P0={Binding Visibility, ElementName=windowsFormsHost}, P1={Binding Visibility, ElementName=webBrowser}}">
                   <DockPanel Height="40" LastChildFill="False" VerticalAlignment="Bottom" Background="#80000000">
                     <FrameworkElement.Style>
                       <Style TargetType="{x:Type DockPanel}">
@@ -1665,7 +1665,7 @@
                     </MultiBinding>
                   </TextBlock.Text>
                 </TextBlock>
-                <TextBlock Name="gridBMSPlayerControlsTitle2" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="5,0,10,0" FontWeight="Bold" Foreground="#FFFFFFFF" TextTrimming="CharacterEllipsis">
+                <TextBlock Name="gridBMSPlayerControlsTitle2" DataContext="{Binding PlaybackPanel}" DockPanel.Dock="Left" FontFamily="Meiryo" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="5,0,10,0" FontWeight="Bold" Foreground="#FFFFFFFF" TextTrimming="CharacterEllipsis">
                   <UIElement.Visibility>
                     <MultiBinding Converter="{StaticResource panelStateToVisibilityConverter}">
                       <Binding Path="Visibility" ElementName="gridPlayerTitle" />

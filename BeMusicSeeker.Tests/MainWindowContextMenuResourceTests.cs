@@ -365,6 +365,41 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaybackHeaderTextBlocks_BindThroughPlaybackPanelDataContext()
+    {
+        XDocument document = LoadMainWindowXamlDocument();
+        XElement header = FindElementByAttribute(document, "Name", "gridPlayerTitle");
+        XElement compactHeader = FindElementByAttribute(document, "Name", "gridBMSPlayerControlsTitle2");
+        XElement slider = FindElementByAttribute(document, "Name", "sliderPlayer");
+        XElement playButton = FindElementByAttribute(document, "Name", "buttonBMSPlayerControlsPlayAndPauseButton");
+
+        Assert.AreEqual("{Binding PlaybackPanel}", GetAttributeValue(header, "DataContext"));
+        Assert.AreEqual("{Binding PlaybackPanel}", GetAttributeValue(compactHeader, "DataContext"));
+        Assert.AreEqual(string.Empty, GetAttributeValue(slider, "DataContext"));
+        Assert.AreEqual(string.Empty, GetAttributeValue(playButton, "DataContext"));
+        Assert.AreEqual("{Binding CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}", GetAttributeValue(slider, "Value"));
+        Assert.AreEqual("{Binding NowPlayingBMS.status, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}", GetAttributeValue(playButton, "Content"));
+
+        Assert.AreEqual("{Binding PlayerHeaderArtist}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsArtist"), "Text"));
+        Assert.AreEqual("{Binding PlayerHeaderTitle}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsTitle"), "Text"));
+        Assert.AreEqual("{Binding PlayerHeaderSubtitle}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsSubtitle"), "Text"));
+        Assert.AreEqual("{Binding PlayerHeaderArtist}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsArtistForMovie"), "Text"));
+        Assert.AreEqual("{Binding PlayerHeaderTitle}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsTitleForMovie"), "Text"));
+        Assert.AreEqual("{Binding PlayerHeaderSubtitle}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsSubtitleForMovie"), "Text"));
+
+        CollectionAssert.AreEquivalent(
+            new[] { "PlayerHeaderTitle", "PlayerHeaderSubtitle", "PlayerHeaderArtist" },
+            compactHeader.Descendants()
+                .Where(element => element.Name.LocalName == "Binding")
+                .Select(element => GetAttributeValue(element, "Path"))
+                .Where(path => path.StartsWith("PlayerHeader", StringComparison.Ordinal))
+                .ToArray());
+        Assert.IsTrue(compactHeader.Descendants().Any(element => element.Name.LocalName == "Binding"
+            && GetAttributeValue(element, "Path") == "Visibility"
+            && GetAttributeValue(element, "ElementName") == "gridPlayerTitle"));
+    }
+
+    [TestMethod]
     public void SidebarLayout_SplittersCoverResizableRegionsAndExposeWideHitAreas()
     {
         XDocument document = LoadMainWindowXamlDocument();

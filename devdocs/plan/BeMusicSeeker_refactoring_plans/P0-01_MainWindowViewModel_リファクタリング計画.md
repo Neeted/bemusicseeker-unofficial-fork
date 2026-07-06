@@ -43,9 +43,9 @@
 | 2026-07-06 | 完了 | Ticket I-4a: main chart list test dependency 棚卸し | `89db5cb6` |
 | 2026-07-06 | 完了 | Ticket I-4b: source-text helper の main chart list 範囲を明確化 | `cbd6d659` |
 | 2026-07-06 | 完了 | Ticket I-4c: root forwarder / reflection test の直接化 | `689518ba` |
-| 2026-07-06 | 着手中 | Ticket J-1: playback header DataContext 移行 | 作業中 |
+| 2026-07-06 | 完了 | Ticket J-1: playback header DataContext 移行 | このコミット |
 
-次候補: Ticket J-1: playback header DataContext 移行。
+次候補: Ticket J-2: progress status bar DataContext 移行。
 
 ## 現在地サマリ
 
