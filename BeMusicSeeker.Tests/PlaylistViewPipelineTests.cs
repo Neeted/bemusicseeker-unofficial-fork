@@ -161,8 +161,11 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
         StringAssert.Contains(rootSource, "ApplyPlaylistDetailViewRowsToMainView(");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");
+        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildStageResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistScoreProbeMetrics");
+        StringAssert.Contains(rootSource, "private PlaylistSourceBuildStageResult BuildPlaylistSourceForRequest(");
         StringAssert.Contains(rootSource, "PlaylistSourceBuildResult sourceBuildResult = BuildPlaylistSourceRows");
+        StringAssert.Contains(rootSource, "PlaylistSourceBuildStageResult sourceBuildStageResult = BuildPlaylistSourceForRequest");
         Assert.AreEqual(-1, rootSource.IndexOf("out int scoreUpdateTargetCount", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistStateSource.IndexOf("private sealed class PlaylistScoreProbeMetrics", StringComparison.Ordinal));
     }

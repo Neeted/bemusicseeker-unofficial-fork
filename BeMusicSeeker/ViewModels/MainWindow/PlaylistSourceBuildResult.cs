@@ -53,3 +53,33 @@ internal sealed class PlaylistSourceBuildResult
 
     internal PlaylistScoreProbeMetrics ScoreProbeMetrics { get; }
 }
+
+/// <summary>
+/// playlist source build stage の実行結果です。
+/// </summary>
+internal sealed class PlaylistSourceBuildStageResult
+{
+    internal PlaylistSourceBuildStageResult(
+        PlaylistSourceBuildResult sourceBuild,
+        long folderStageMs,
+        long libraryIndexMs,
+        string libraryIndexAccess,
+        long libraryIndexBuildMs)
+    {
+        SourceBuild = sourceBuild;
+        FolderStageMs = folderStageMs;
+        LibraryIndexMs = libraryIndexMs;
+        LibraryIndexAccess = libraryIndexAccess;
+        LibraryIndexBuildMs = libraryIndexBuildMs;
+    }
+
+    internal PlaylistSourceBuildResult SourceBuild { get; }
+
+    internal long FolderStageMs { get; }
+
+    internal long LibraryIndexMs { get; }
+
+    internal string LibraryIndexAccess { get; }
+
+    internal long LibraryIndexBuildMs { get; }
+}

@@ -12737,6 +12737,33 @@ public partial class MainWindowViewModel : ViewModel
         return new PlaylistSourceBuildResult(playlistRows, scoreUpdateTargetCount, entryResolveMs, scoreProbeMs, sourceMaterializeMs, scoreProbeMetrics);
     }
 
+    private PlaylistSourceBuildStageResult BuildPlaylistSourceForRequest(
+        PlaylistBuildRequest request,
+        BMSTable bmsTable,
+        string folderName,
+        bool onlyNotOwned,
+        Stopwatch viewBuildStopwatch,
+        CancellationToken cancellationToken,
+        ref string cancellationStage)
+    {
+        int requestVersion = request.RequestVersion;
+        cancellationStage = "hash_index";
+        long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        PlaylistLibraryIndexSnapshot libraryIndexSnapshot = GetOrCreatePlaylistLibraryIndexSnapshot(cancellationToken, out string libraryIndexAccess, out long libraryIndexBuildMs);
+        long libraryIndexMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        PlaylistSourceBuildResult sourceBuildResult = BuildPlaylistSourceRows(bmsTable, folderName, onlyNotOwned, libraryIndexSnapshot, requestVersion, cancellationToken, ref cancellationStage);
+        long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        PlaylistScoreProbeMetrics scoreProbeMetrics = sourceBuildResult.ScoreProbeMetrics;
+        LogPlaylistWorker("playlist_score_probe_summary requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs);
+        if (scoreProbeMetrics.TotalMs >= PlaylistScoreProbeSlowLogThresholdMs)
+        {
+            LogPlaylistWorker("playlist_score_probe_detail requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs + " thresholdMs=" + PlaylistScoreProbeSlowLogThresholdMs);
+        }
+
+        return new PlaylistSourceBuildStageResult(sourceBuildResult, folderStageMs, libraryIndexMs, libraryIndexAccess, libraryIndexBuildMs);
+    }
+
     /// <summary>
     /// 現在のモード/パラメータからプレイリスト選択情報を解決します。
     /// </summary>
@@ -12896,14 +12923,10 @@ public partial class MainWindowViewModel : ViewModel
             }
             bool onlyNotOwned = filterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected;
             LogPlaylistSourceBuild("started version=" + requestVersion + " mode=" + mode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
-            cancellationStage = "hash_index";
-            long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            PlaylistLibraryIndexSnapshot libraryIndexSnapshot = GetOrCreatePlaylistLibraryIndexSnapshot(cancellationToken, out string libraryIndexAccess, out long libraryIndexBuildMs);
-            long libraryIndexMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-            stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            PlaylistSourceBuildResult sourceBuildResult = BuildPlaylistSourceRows(bmsTable, folderName, onlyNotOwned, libraryIndexSnapshot, requestVersion, cancellationToken, ref cancellationStage);
+            PlaylistSourceBuildStageResult sourceBuildStageResult = BuildPlaylistSourceForRequest(request, bmsTable, folderName, onlyNotOwned, viewBuildStopwatch, cancellationToken, ref cancellationStage);
+            PlaylistSourceBuildResult sourceBuildResult = sourceBuildStageResult.SourceBuild;
             sourceRows = sourceBuildResult.SourceRows;
-            long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+            long folderStageMs = sourceBuildStageResult.FolderStageMs;
             int folderCount = sourceBuildResult.FolderCount;
             sourceCount = sourceBuildResult.SourceCount;
             int scoreUpdateTargetCount = sourceBuildResult.ScoreUpdateTargetCount;
@@ -12911,11 +12934,9 @@ public partial class MainWindowViewModel : ViewModel
             long scoreProbeMs = sourceBuildResult.ScoreProbeMs;
             long sourceMaterializeMs = sourceBuildResult.SourceMaterializeMs;
             PlaylistScoreProbeMetrics scoreProbeMetrics = sourceBuildResult.ScoreProbeMetrics;
-            LogPlaylistWorker("playlist_score_probe_summary requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs);
-            if (scoreProbeMetrics.TotalMs >= PlaylistScoreProbeSlowLogThresholdMs)
-            {
-                LogPlaylistWorker("playlist_score_probe_detail requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs + " thresholdMs=" + PlaylistScoreProbeSlowLogThresholdMs);
-            }
+            long libraryIndexMs = sourceBuildStageResult.LibraryIndexMs;
+            string libraryIndexAccess = sourceBuildStageResult.LibraryIndexAccess;
+            long libraryIndexBuildMs = sourceBuildStageResult.LibraryIndexBuildMs;
             if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
             {
                 LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_build mode=" + mode + " sourceCount=" + sourceCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
