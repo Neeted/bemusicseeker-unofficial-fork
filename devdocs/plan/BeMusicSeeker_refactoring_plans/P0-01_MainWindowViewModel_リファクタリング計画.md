@@ -48,8 +48,9 @@
 | 2026-07-06 | 完了 | Ticket J-3: DataContext 移行後の binding 棚卸し | `4240710f` |
 | 2026-07-06 | 完了 | Ticket K-1: MainWindowRuntimeContext skeleton 導入 | `d73c4c0f` |
 | 2026-07-06 | 完了 | Ticket K-2: runtime context 利用候補の棚卸し | `5eca5da8` |
+| 2026-07-06 | 完了 | Ticket L-1: detail / summary state contract 棚卸し | このコミット |
 
-次候補: Ticket L-1: detail / summary state contract 棚卸し。
+次候補: Ticket L-2a: PlaylistWorkspaceViewModel skeleton と summary/detail 表示 state pass-through。
 
 ## 現在地サマリ
 
@@ -60,7 +61,7 @@
 | Playback | `PlaybackPanelViewModel` 導入済み。header 表示 XAML は `PlaybackPanel` DataContext へ移行済み。再生制御/seek/volume は root/code-behind 所有として残る。 | root facade 削除、UI handle 非依存 API へ寄せる。 |
 | Progress | `OperationProgressHubViewModel` 導入済み。StatusBar XAML は `ProgressHub` DataContext へ移行済み。cancel/retry/cleanup click handler は root/code-behind 所有として残る。 | startup reducer / status presentation の service 化、root pass-through 削除候補を P-4/Q で整理する。 |
 | Main chart list | `MainChartListViewModel`、`ChartListRefreshCoordinator`、`MainViewRefreshDecisionService` 導入済み。仮想一覧終端処理は coordinator 化済み。 | 通常一覧 pipeline、sort/filter state、column settings、keyword presentation を child/coordinator へ移す。 |
-| Playlist detail / summary | `PlaylistRequestFactory` と dialog partial 移動は完了。detail build、summary build、bulk mutation は root に大きく残る。 | `PlaylistWorkspaceViewModel` と detail/summary service を導入し、root を facade にする。 |
+| Playlist detail / summary | `PlaylistRequestFactory` と dialog partial 移動は完了。L-1 で presentation state / shell API / build coordinator / mutation service の境界を棚卸し済み。detail build、summary build、bulk mutation は root に大きく残る。 | `PlaylistWorkspaceViewModel` を state pass-through から導入し、detail/summary service を後続 ticket で切る。 |
 | Play history | 読み取り、表示行構築、summary card、sort/filter が root に残る。 | `PlayHistoryWorkspaceViewModel` と presentation/read coordinator へ分ける。 |
 | Settings | nested partial は別ファイル化済みだが 6,697 行あり、service 化は未着手。 | validation、snapshot/store、post-save coordinator を切り出す。 |
 | Sidebar / tree | XAML と code-behind が root の tree state / handlers に強く依存。 | `SidebarNavigationViewModel` 導入、tree DataContext と command bridge を段階移行。 |
@@ -1487,12 +1488,32 @@ Playlist / PlayHistory / Sidebar / dialog 候補:
 
 - `PlaylistWorkspaceViewModel` が持つ state と root facade に残す API が明確になる。
 
-#### Ticket L-2: PlaylistWorkspaceViewModel state pass-through
+棚卸し結果:
+
+| 分類 | 所有方針 | 代表メンバー / 参照 |
+|---|---|---|
+| `PlaylistWorkspaceViewModel` が持つ presentation state | detail / summary の表示状態、検索 UI、列設定、summary rows は child が所有し、root は既存 Binding path の pass-through にする。`ColumnSettingsVisibilityForPlaylist` は main table column settings と結合しているが、playlist detail/summary の表示モード切替 state として child 側が正本を持つ。 | `PlaylistViewState` の source/view snapshot、`PlaylistSummaryView`、`IsPlaylistSummaryMode`、`IsPlaylistDetailViewActive`、`UseAsyncChartRowsViewBinding`、`PlaylistSummarySortParameters`、`PlaylistSummaryColumnsSettings`、`ColumnSettingsVisibilityForPlaylist`、`GridHeaderText`、`GridSummaryText`、`PlaylistSummaryKeywordFilter`、`PlaylistSummaryOwnedFilter`、summary keyword suggestion/help/warning state |
+| root facade に残す shell / side-effect API | `BMSLibrary` / `BMSPlaylist` / listener、main table shell、dialog 表示、UI tree 実体化、再生開始、global progress は root が orchestration する。 | `files`、`tables`、playlist listeners、`ProgressHub` pass-through、`playlistPropertyDialog`、`playlistSummaryBulkEditDialog`、`RefreshChartRowsView`、`SelectPlaylistSummary`、`SetChartRowsView`、`ShowUi*`、`FlushPlaylistOperationNotifications` |
+| coordinator / service に切る build / cache | detail source build、view materialize、library index snapshot、summary rows build/cache/presentation は dedicated coordinator / service に切る。 | `PlaylistBuildRequest`、`RegisterPlaylistSourceBuildRequest`、`ProcessPendingPlaylistBuildRequests`、`BuildPlaylistSourceRows`、`ApplyPlaylistViewFromSource`、`RebuildPlaylistSource`、`TryPatchPlaylistSourceChartInfoIndex`、`BuildPlaylistSummaryRows`、`ApplyPlaylistSummaryPresentation`、`BuildPlaylistSummaryPresentationRows`、summary row/table count cache |
+| mutation / sync / progress service に切る API | bulk edit、external sync、custom folder output、BMT sort、row edit commit は state VM へ混ぜず、structured request/result を返す coordinator にする。progress は `ProgressHub` / root bridge を通す。 | `ApplyPlaylistSummaryExternalPropertyInitializationAsync`、`ApplyPlaylistSummaryCustomFolderOutputTypes`、`ApplyPlaylistSummaryExternalSync`、`ApplyPlaylistSummaryFlags`、`ApplyPlaylistSummaryPropertyEditAsync`、BMT sort helpers、`ResyncPlaylistsAsync`、`CommitPlaylistRow`、`UpdatePlaylistSyncProgressStatus` |
+| XAML / code-behind 制約 | XAML は root Binding が多く、code-behind は selection / sort / edit / drag-drop / tree realization を直接扱う。L-2 では XAML DataContext を変えず、root pass-through と source-text tests を先に整える。 | `MainWindow.xaml` の playlist detail/search/summary table bindings、`MainWindow.cs` の `customTableView_SortRequested`、summary D&D、detail edit、summary activate、context menu、playlist tree drop |
+| test 制約 | root static helper / XAML 文字列固定が多い。移動時はテスト意図を直接対象の service / child VM へ寄せる。 | `PlaylistViewPipelineTests`、`PlaylistSummaryAggregationTests`、`PlaylistSummaryBulkEditTests`、`MainWindowContextMenuResourceTests`、`SourceTextTestHelper` |
+
+L-2 実装方針:
+
+1. 初手は `PlaylistWorkspaceViewModel` skeleton と presentation state pass-through に限定する。
+2. summary rows / mode / columns / sort / keyword / owned filter は child 所有へ移しやすいが、summary D&D selection restore と code-behind action は root に残す。`PlaylistSummaryViewApplied` は child の summary view apply event を root が relay する形にする。
+3. detail は `customTableView` を通常一覧 / play history と共有しているため、L-2 では `IsPlaylistDetailViewActive`、`UseAsyncChartRowsViewBinding`、retention timing などの state bridge までに留め、detail table の DataContext 移行は後続に回す。
+4. dialog VM は partial 移動済みだが、生成と表示は root shell 責務として残す。mutation service 化前に child へ直接持たせない。
+5. XAML DataContext 移行は state pass-through が通り、source-text tests が child path を検証できるようになってから別 ticket で行う。
+
+#### Ticket L-2a: PlaylistWorkspaceViewModel skeleton と summary/detail 表示 state pass-through
 
 1. `PlaylistWorkspaceViewModel` を追加する。
-2. playlist detail rows、summary rows、summary mode、summary columns、summary sort/filter/owned filter、dialog state のうち副作用が小さいものから child に移す。
-3. root の既存 property は pass-through と property relay を維持する。
-4. XAML はまだ変更しない。
+2. `PlaylistSummaryView`、`IsPlaylistSummaryMode`、`PlaylistSummarySortParameters`、`PlaylistSummaryColumnsSettings`、`ColumnSettingsVisibilityForPlaylist`、`PlaylistSummaryKeywordFilter`、`PlaylistSummaryOwnedFilter`、summary keyword suggestion/help/warning state を child 所有にする。
+3. `IsPlaylistDetailViewActive`、`UseAsyncChartRowsViewBinding`、playlist source/view generation read state を child へ寄せる。ただし `ChartRowsView` / `customTableView` の DataContext は維持する。
+4. root の既存 property は pass-through と property relay を維持する。
+5. XAML はまだ変更しない。
 
 確認対象:
 
@@ -1505,6 +1526,23 @@ Playlist / PlayHistory / Sidebar / dialog 候補:
 
 - playlist detail / summary の表示 state が root から child VM へ移り始める。
 - root Binding path は維持される。
+
+#### Ticket L-2b: PlaylistWorkspace source-text / tests 直接化
+
+1. `SourceTextTestHelper` の logical source に `PlaylistWorkspaceViewModel` を追加し、root-only 前提の文字列テストを責務単位へ寄せる。
+2. playlist summary state / keyword state / column settings の pass-through を直接 child VM テストで検証する。
+3. root facade tests は root Binding path 互換性と property relay に限定する。
+
+確認対象:
+
+- `MainWindowContextMenuResourceTests`
+- `PlaylistViewPipelineTests`
+- `PlaylistSummaryAggregationTests`
+
+完了条件:
+
+- L-2a の移動先が source-text / direct tests で検証される。
+- 後続 XAML DataContext 移行で root-only 文字列テストが不要に肥大化しない。
 
 #### Ticket L-3: Playlist detail build coordinator 化
 
