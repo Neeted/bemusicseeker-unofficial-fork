@@ -246,6 +246,37 @@ subtasks:
 - build / package install 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+## Completed Checkpoint: `REF-MVP-C8`
+
+### Normal library refresh publisher extraction
+
+状態: completed checkpoint。
+
+目的:
+
+- normal library refresh notification の queue / version / reset barrier / batch aggregation を publisher seam へ移す。
+- `BMSLibrary` には public/internal surface と `OwnedChartCollectionMutationResult` から publisher input を組み立てる bridge を残す。
+- LR2 sync、maintenance hydration、file operation、MainWindowViewModel 側の notification consumption は今回触らない。
+
+主対象:
+
+- `BeMusicSeeker/Models/BMSLibrary.cs`
+- 新規候補: `BeMusicSeeker/Models/BmsLibraryInternal/NormalLibraryRefreshPublisher.cs`
+- normal refresh 関連 tests: `OwnedChartCollectionStateTests`, `BmsLibraryFolderRenameRefreshTests`, `BmsLibraryMaintenanceServiceTests`, `BmsLibraryZeroNoteRefreshTests`, `ChartInfoMetadataTests`
+
+subtasks:
+
+1. publisher を追加し、queue / version / batch aggregation / clear を移す。
+2. root `BMSLibrary` の `NormalLibraryRefreshNotificationVersion` / `GetNormalLibraryRefreshNotificationsAfter` / publish / clear bridge を publisher 委譲にする。
+3. normal refresh 関連 tests と標準確認を実行する。
+
+完了条件:
+
+- `NormalLibraryRefreshNotificationVersion` と `GetNormalLibraryRefreshNotificationsAfter` の public/internal surface が維持されている。
+- reset barrier、effect aggregation、install-destination changed charts の distinct、remove-only storage row delta、clear-on-failure、property notification timing が維持されている。
+- build / normal refresh 関連 tests / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ## Target Architecture
 
 ```text
@@ -295,7 +326,7 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C7` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
+`REF-MVP-C8` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
 
 - LR2 song.db sync coordinator。
 - package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。

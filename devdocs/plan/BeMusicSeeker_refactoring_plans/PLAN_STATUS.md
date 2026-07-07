@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C7: Pending zero-note rename coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C8: Normal library refresh publisher extraction` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -177,6 +177,23 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 - build / package install 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+### `REF-MVP-C8: Normal library refresh publisher extraction`
+
+状態: completed checkpoint。
+
+目的:
+
+- normal library refresh notification の queue / version / reset barrier / batch aggregation を publisher seam へ移す。
+- root `BMSLibrary` は `NormalLibraryRefreshNotificationVersion`、`GetNormalLibraryRefreshNotificationsAfter`、`RaisePropertyChanged` timing、`OwnedChartCollectionMutationResult` から publisher input を組み立てる bridge を提供する。
+- LR2 sync、maintenance hydration、file operation、MainWindowViewModel 側の notification consumption は触らない。
+
+完了条件:
+
+- `NormalLibraryRefreshNotificationVersion` と `GetNormalLibraryRefreshNotificationsAfter` の public/internal surface が維持されている。
+- reset barrier、effect aggregation、install-destination changed charts の distinct、remove-only storage row delta、clear-on-failure、property notification timing が維持されている。
+- build / normal refresh 関連 tests / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ### `REF-MVP-D1: .NET 10 blocker inventory in devdocs`
 
 状態: completed checkpoint。後続は [REF-MVP-D1 inventory](./inventory/REF-MVP-D1_dotnet10_blockers.md) を見て、Settings boundary、native load layout、WPF / WinForms boundary のいずれか 1 件だけを active ticket 化する。
@@ -217,7 +234,7 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-C7` として `RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions` の snapshot fallback / lock / service execution / failure dialog / pending chart removal / summary logging / deferred progress flush を coordinator seam へ移した。`BMSLibrary.PackageInstall.cs` は 1,634 行、`BMSLibrary.PendingZeroNoteRenameHost.cs` は 62 行、`PendingZeroNoteRenameCoordinator.cs` は 74 行。build、package install 関連 tests、full test、format、diff check、Roslynator 対象確認、静的レビューは完了。
+`REF-MVP-C8` として normal library refresh notification の queue / version / reset barrier / batch aggregation / clear を `NormalLibraryRefreshPublisher` へ移した。`BMSLibrary.cs` は 19,436 行、`NormalLibraryRefreshPublisher.cs` は 176 行。build、normal refresh 関連 tests、source-text 代表 tests、full test、format、diff check、Roslynator 対象確認、静的レビューは完了。
 
 次にやる 1 件: Lane C / B / A / D の後続候補から、Refactoring MVP Gate に最も近い workflow を 1 件だけ active ticket 化してから実装する。候補は各 P0 計画書の「後続候補」を正本とする。
 

@@ -855,13 +855,7 @@ public partial class BMSLibrary : NotificationObject
 
     private int bmsonStorageRowsVersion;
 
-    private NormalLibraryRefreshNotification latestNormalLibraryRefreshNotification = NormalLibraryRefreshNotification.Empty;
-
-    private readonly List<NormalLibraryRefreshNotification> normalLibraryRefreshNotifications = [];
-
-    private readonly object latestNormalLibraryRefreshNotificationLock = new();
-
-    private int latestNormalLibraryRefreshNotificationVersion;
+    private readonly NormalLibraryRefreshPublisher normalLibraryRefreshPublisher = new();
 
     private readonly object installDestinationRuntimeStatesLock = new();
 
@@ -1086,65 +1080,11 @@ public partial class BMSLibrary : NotificationObject
     internal IEnumerable<ChartFile> ChartFilesUnregistered => CreateBmsChartSubsetSnapshot(
         BMSFiles.Where(file => file?.HasWarningCategory(ChartWarningCategory.Lr2Compatibility) == true));
 
-    internal int NormalLibraryRefreshNotificationVersion => Volatile.Read(ref latestNormalLibraryRefreshNotificationVersion);
+    internal int NormalLibraryRefreshNotificationVersion => normalLibraryRefreshPublisher.Version;
 
     internal NormalLibraryRefreshNotificationBatch GetNormalLibraryRefreshNotificationsAfter(int handledVersion)
     {
-        lock (latestNormalLibraryRefreshNotificationLock)
-        {
-            normalLibraryRefreshNotifications.RemoveAll(notification => notification == null || notification.Version <= handledVersion);
-            List<NormalLibraryRefreshNotification> notifications = [.. normalLibraryRefreshNotifications
-                .Where(notification => notification != null && notification.Version > handledVersion)];
-            int resetIndex = notifications.FindLastIndex(notification => notification.ResetsPriorNotifications);
-            if (resetIndex >= 0)
-            {
-                notifications = [.. notifications.Skip(resetIndex)];
-            }
-            if (notifications.Count == 0)
-            {
-                return new NormalLibraryRefreshNotificationBatch(
-                    handledVersion,
-                    0,
-                    LibraryChartRefreshEffects.None,
-                    [],
-                    notifiesStorageRows: false,
-                    resetsPriorNotifications: false);
-            }
-            bool resetsPriorNotifications = resetIndex >= 0;
-            int latestVersion = notifications[notifications.Count - 1].Version;
-            int ownedCollectionVersion = notifications[notifications.Count - 1].OwnedCollectionVersion;
-            LibraryChartRefreshEffects effects = notifications.Aggregate(
-                LibraryChartRefreshEffects.None,
-                (current, notification) => current | notification.Effects);
-            bool notifiesStorageRows = notifications.Any(notification => notification.NotifiesStorageRows);
-            bool notifiesBmsFiles = notifications.Any(notification => notification.NotifiesBmsFiles);
-            bool notifiesBmsonSongs = notifications.Any(notification => notification.NotifiesBmsonSongs);
-            bool storageRowsRemoveDeltaComplete = notifiesStorageRows
-                && notifications
-                    .Where(notification => notification.NotifiesStorageRows)
-                    .All(notification => notification.StorageRowsRemoveDeltaComplete);
-            List<BMSFile> removedBmsFiles = storageRowsRemoveDeltaComplete
-                ? [.. notifications.SelectMany(notification => notification.RemovedBmsFiles ?? []).Where(file => file != null).Distinct()]
-                : [];
-            List<LR2SongDBExtended.bmson_song> removedBmsonSongs = storageRowsRemoveDeltaComplete
-                ? [.. notifications.SelectMany(notification => notification.RemovedBmsonSongs ?? []).Where(song => song != null).Distinct()]
-                : [];
-            List<ChartFile> installDestinationChangedCharts = [.. notifications
-                .SelectMany(notification => notification.InstallDestinationChangedCharts ?? [])
-                .Where(chart => chart != null)];
-            return new NormalLibraryRefreshNotificationBatch(
-                latestVersion,
-                ownedCollectionVersion,
-                effects,
-                DistinctChartsByNotificationKey(installDestinationChangedCharts),
-                notifiesStorageRows,
-                resetsPriorNotifications,
-                notifiesBmsFiles,
-                notifiesBmsonSongs,
-                removedBmsFiles,
-                removedBmsonSongs,
-                storageRowsRemoveDeltaComplete);
-        }
+        return normalLibraryRefreshPublisher.GetNotificationsAfter(handledVersion);
     }
 
     internal int OwnedChartCollectionVersion => Volatile.Read(ref ownedChartCollectionVersion);
@@ -19295,7 +19235,6 @@ completeFileEnumerationOnce,
         {
             return;
         }
-        int version = Interlocked.Increment(ref latestNormalLibraryRefreshNotificationVersion);
         int ownedCollectionVersion = result.OwnedCollectionVersion > 0 ? result.OwnedCollectionVersion : OwnedChartCollectionVersion;
         bool storageRowsRemoveDeltaComplete = IsCompleteRemoveOnlyStorageRowsMutation(result);
         IReadOnlyList<BMSFile> removedBmsFiles = storageRowsRemoveDeltaComplete
@@ -19304,24 +19243,20 @@ completeFileEnumerationOnce,
         IReadOnlyList<LR2SongDBExtended.bmson_song> removedBmsonSongs = storageRowsRemoveDeltaComplete
             ? CreateRemovedBmsonStorageRowDelta(result.StorageMutation)
             : [];
-        var notification = new NormalLibraryRefreshNotification(
-            version,
-            ownedCollectionVersion,
-            effects,
-            installDestinationChangedCharts,
-            result.StorageRowsChanged,
-            resetsPriorNotifications: false,
-            notifiesBmsFiles: result.BmsFilesStorageRowsChanged,
-            notifiesBmsonSongs: result.BmsonSongsStorageRowsChanged,
-            removedBmsFiles: removedBmsFiles,
-            removedBmsonSongs: removedBmsonSongs,
-            storageRowsRemoveDeltaComplete: storageRowsRemoveDeltaComplete);
-        lock (latestNormalLibraryRefreshNotificationLock)
+        int version = normalLibraryRefreshPublisher.Publish(new NormalLibraryRefreshPublishRequest
         {
-            latestNormalLibraryRefreshNotification = notification;
-            normalLibraryRefreshNotifications.Add(notification);
-            result.NormalLibraryRefreshNotificationVersion = version;
-        }
+            OwnedCollectionVersion = ownedCollectionVersion,
+            Effects = effects,
+            InstallDestinationChangedCharts = installDestinationChangedCharts,
+            NotifiesStorageRows = result.StorageRowsChanged,
+            ResetsPriorNotifications = false,
+            NotifiesBmsFiles = result.BmsFilesStorageRowsChanged,
+            NotifiesBmsonSongs = result.BmsonSongsStorageRowsChanged,
+            RemovedBmsFiles = removedBmsFiles,
+            RemovedBmsonSongs = removedBmsonSongs,
+            StorageRowsRemoveDeltaComplete = storageRowsRemoveDeltaComplete
+        });
+        result.NormalLibraryRefreshNotificationVersion = version;
     }
 
     private static bool IsCompleteRemoveOnlyStorageRowsMutation(OwnedChartCollectionMutationResult result)
@@ -19387,22 +19322,17 @@ completeFileEnumerationOnce,
 
     private void PublishNormalLibraryRefreshResetNotification(bool notifiesBmsFiles, bool notifiesBmsonSongs)
     {
-        int version = Interlocked.Increment(ref latestNormalLibraryRefreshNotificationVersion);
         bool notifiesStorageRows = notifiesBmsFiles || notifiesBmsonSongs;
-        var notification = new NormalLibraryRefreshNotification(
-            version,
-            OwnedChartCollectionVersion,
-            LibraryChartRefreshEffects.SourceChanged | LibraryChartRefreshEffects.InstallDestinationOverlayChanged,
-            [],
-            notifiesStorageRows: notifiesStorageRows,
-            resetsPriorNotifications: true,
-            notifiesBmsFiles: notifiesBmsFiles,
-            notifiesBmsonSongs: notifiesBmsonSongs);
-        lock (latestNormalLibraryRefreshNotificationLock)
+        normalLibraryRefreshPublisher.Publish(new NormalLibraryRefreshPublishRequest
         {
-            latestNormalLibraryRefreshNotification = notification;
-            normalLibraryRefreshNotifications.Add(notification);
-        }
+            OwnedCollectionVersion = OwnedChartCollectionVersion,
+            Effects = LibraryChartRefreshEffects.SourceChanged | LibraryChartRefreshEffects.InstallDestinationOverlayChanged,
+            InstallDestinationChangedCharts = [],
+            NotifiesStorageRows = notifiesStorageRows,
+            ResetsPriorNotifications = true,
+            NotifiesBmsFiles = notifiesBmsFiles,
+            NotifiesBmsonSongs = notifiesBmsonSongs
+        });
         RaisePropertyChanged(() => NormalLibraryRefreshNotificationVersion);
     }
 
@@ -19411,53 +19341,13 @@ completeFileEnumerationOnce,
         PublishNormalLibraryRefreshResetNotification(notifiesBmsFiles, notifiesBmsonSongs);
     }
 
-    private static IReadOnlyList<ChartFile> DistinctChartsByNotificationKey(IEnumerable<ChartFile> charts)
-    {
-        var result = new List<ChartFile>();
-        var resultIndexByKey = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile chart in charts ?? [])
-        {
-            if (chart == null)
-            {
-                continue;
-            }
-            string key = CreateNormalLibraryRefreshNotificationKey(chart);
-            if (resultIndexByKey.TryGetValue(key, out int index))
-            {
-                result[index] = chart;
-            }
-            else
-            {
-                resultIndexByKey[key] = result.Count;
-                result.Add(chart);
-            }
-        }
-        return result;
-    }
-
-    private static string CreateNormalLibraryRefreshNotificationKey(ChartFile chart)
-    {
-        string kind = chart?.Kind.ToString() ?? string.Empty;
-        string path = chart?.Path ?? string.Empty;
-        string md5 = chart?.Md5 ?? string.Empty;
-        string sha256 = chart?.Sha256 ?? string.Empty;
-        return kind + "\n" + path + "\n" + md5 + "\n" + sha256;
-    }
-
     private void ClearNormalLibraryRefreshNotification(OwnedChartCollectionMutationResult result)
     {
         if (result == null || result.NormalLibraryRefreshNotificationVersion <= 0)
         {
             return;
         }
-        lock (latestNormalLibraryRefreshNotificationLock)
-        {
-            if (latestNormalLibraryRefreshNotification.Version == result.NormalLibraryRefreshNotificationVersion)
-            {
-                latestNormalLibraryRefreshNotification = NormalLibraryRefreshNotification.Empty;
-            }
-            normalLibraryRefreshNotifications.RemoveAll(notification => notification.Version == result.NormalLibraryRefreshNotificationVersion);
-        }
+        normalLibraryRefreshPublisher.Clear(result.NormalLibraryRefreshNotificationVersion);
     }
 
     private void RaiseNormalLibraryRefreshNotificationVersionChanged(OwnedChartCollectionMutationResult result)
