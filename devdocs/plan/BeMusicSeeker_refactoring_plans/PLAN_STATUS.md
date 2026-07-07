@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C8: Normal library refresh publisher extraction` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C9: Playlist reference index manager seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -194,6 +194,23 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 - build / normal refresh 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+### `REF-MVP-C9: Playlist reference index manager seam`
+
+状態: completed checkpoint。
+
+目的:
+
+- playlist reference display の index state / lock / table replace / remove / synchronize を manager seam へ移す。
+- root `BMSLibrary` は既存 public/internal API、playlist reference apply workflow、pending/package/library snapshot bridge を提供する。
+- playlist apply workflow 全体、MainWindowViewModel consumption、BMSTable persistence、source text tests の意図は触らない。
+
+完了条件:
+
+- `GetPlaylistReferenceDisplay` overloads、`AddReferenceBMSTables*`、`ReplaceReferenceBMSTable`、`RemoveReferenceBMSTables*`、`SynchronizeReferenceBMSTables` の surface と挙動が維持されている。
+- root `BMSLibrary` が `playlistReferenceIndexLock` / `playlistReferenceIndex` を直接持たない。
+- playlist reference 関連 tests / source-text 代表 tests / build / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ### `REF-MVP-D1: .NET 10 blocker inventory in devdocs`
 
 状態: completed checkpoint。後続は [REF-MVP-D1 inventory](./inventory/REF-MVP-D1_dotnet10_blockers.md) を見て、Settings boundary、native load layout、WPF / WinForms boundary のいずれか 1 件だけを active ticket 化する。
@@ -234,7 +251,7 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-C8` として normal library refresh notification の queue / version / reset barrier / batch aggregation / clear を `NormalLibraryRefreshPublisher` へ移した。`BMSLibrary.cs` は 19,436 行、`NormalLibraryRefreshPublisher.cs` は 176 行。build、normal refresh 関連 tests、source-text 代表 tests、full test、format、diff check、Roslynator 対象確認、静的レビューは完了。
+`REF-MVP-C9` として playlist reference display index の state / lock / find / replace / remove / synchronize を `PlaylistReferenceManager` へ移した。`BMSLibrary.cs` は 19,380 行、`PlaylistReferenceManager.cs` は 99 行。build、playlist reference 関連 tests、full test、format、diff check、Roslynator 対象確認、静的レビューは完了。
 
 次にやる 1 件: Lane C / B / A / D の後続候補から、Refactoring MVP Gate に最も近い workflow を 1 件だけ active ticket 化してから実装する。候補は各 P0 計画書の「後続候補」を正本とする。
 

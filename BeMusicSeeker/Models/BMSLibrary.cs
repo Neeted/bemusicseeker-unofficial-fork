@@ -2509,9 +2509,7 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryPlaylistReferenceService playlistReferenceService = new(playlistReferenceApplyChunkSize);
 
-    private readonly object playlistReferenceIndexLock = new();
-
-    private PlaylistReferenceIndex playlistReferenceIndex = PlaylistReferenceIndex.Empty;
+    private readonly PlaylistReferenceManager playlistReferenceManager = new();
 
     private readonly BmsLibraryPackageInstallService packageInstallService = new();
 
@@ -17153,75 +17151,37 @@ completeFileEnumerationOnce,
 
     internal PlaylistReferenceDisplay GetPlaylistReferenceDisplay(string md5, string sha256)
     {
-        lock (playlistReferenceIndexLock)
-        {
-            return (playlistReferenceIndex ?? PlaylistReferenceIndex.Empty).Find(md5, sha256);
-        }
+        return playlistReferenceManager.Find(md5, sha256);
     }
 
     internal PlaylistReferenceDisplay GetPlaylistReferenceDisplay(ChartFile chart)
     {
-        lock (playlistReferenceIndexLock)
-        {
-            return (playlistReferenceIndex ?? PlaylistReferenceIndex.Empty).Find(chart);
-        }
+        return playlistReferenceManager.Find(chart);
     }
 
     internal PlaylistReferenceDisplay GetPlaylistReferenceDisplay(LibraryChartRef chart)
     {
-        lock (playlistReferenceIndexLock)
-        {
-            return (playlistReferenceIndex ?? PlaylistReferenceIndex.Empty).Find(chart);
-        }
+        return playlistReferenceManager.Find(chart);
     }
 
     private void ReplacePlaylistReferenceIndexTable(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
     {
-        if (table == null)
-        {
-            return;
-        }
-        List<BMSTableEntry> entrySnapshot = SnapshotPlaylistReferenceEntries(table, entries);
-        lock (playlistReferenceIndexLock)
-        {
-            playlistReferenceIndex ??= PlaylistReferenceIndex.Empty;
-            playlistReferenceIndex.ReplaceTable(table, entrySnapshot);
-        }
+        playlistReferenceManager.ReplaceTable(table, entries);
     }
 
     private void RemovePlaylistReferenceIndexTable(BMSTable table)
     {
-        if (table == null)
-        {
-            return;
-        }
-        lock (playlistReferenceIndexLock)
-        {
-            playlistReferenceIndex?.RemoveTable(table);
-        }
+        playlistReferenceManager.RemoveTable(table);
     }
 
     private void RemovePlaylistReferenceIndexTables(IEnumerable<BMSTable> tables)
     {
-        if (tables == null)
-        {
-            return;
-        }
-        lock (playlistReferenceIndexLock)
-        {
-            foreach (BMSTable table in tables.Where(table => table != null).Distinct())
-            {
-                playlistReferenceIndex?.RemoveTable(table);
-            }
-        }
+        playlistReferenceManager.RemoveTables(tables);
     }
 
     private void SynchronizePlaylistReferenceIndex(IEnumerable<BMSTable> tables)
     {
-        lock (playlistReferenceIndexLock)
-        {
-            playlistReferenceIndex = PlaylistReferenceIndex.FromTables(tables);
-        }
+        playlistReferenceManager.Synchronize(tables);
     }
 
     public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
@@ -17480,8 +17440,8 @@ completeFileEnumerationOnce,
 
     internal void ReplaceReferenceBMSTable(BMSTable oldTable, BMSTable newTable, IEnumerable<BMSTableEntry> oldEntries = null, IEnumerable<BMSTableEntry> newEntries = null)
     {
-        List<BMSTableEntry> oldEntriesSnapshot = SnapshotPlaylistReferenceEntries(oldTable, oldEntries);
-        List<BMSTableEntry> newEntriesSnapshot = SnapshotPlaylistReferenceEntries(newTable, newEntries);
+        List<BMSTableEntry> oldEntriesSnapshot = PlaylistReferenceManager.SnapshotEntries(oldTable, oldEntries);
+        List<BMSTableEntry> newEntriesSnapshot = PlaylistReferenceManager.SnapshotEntries(newTable, newEntries);
         BuildPlaylistReferenceHashSets(oldEntriesSnapshot, out HashSet<string> oldMd5Hashes, out HashSet<string> oldSha256Hashes);
         BuildPlaylistReferenceHashSets(newEntriesSnapshot, out HashSet<string> newMd5Hashes, out HashSet<string> newSha256Hashes);
         List<LibraryChartRef> libraryChartsSnapshot = SnapshotLibraryChartRefsForPlaylistReferenceApply(
@@ -17499,22 +17459,6 @@ completeFileEnumerationOnce,
         if (newTable != null)
         {
             ReplacePlaylistReferenceIndexTable(newTable, newEntriesSnapshot);
-        }
-    }
-
-    private List<BMSTableEntry> SnapshotPlaylistReferenceEntries(BMSTable table, IEnumerable<BMSTableEntry> entries)
-    {
-        if (entries != null)
-        {
-            return [.. entries.Where(entry => entry != null && !entry.is_removed)];
-        }
-        if (table == null)
-        {
-            return [];
-        }
-        using (table.ReaderWriterLock.GetReaderGuard())
-        {
-            return [.. table.entries.Where(entry => entry != null && !entry.is_removed)];
         }
     }
 

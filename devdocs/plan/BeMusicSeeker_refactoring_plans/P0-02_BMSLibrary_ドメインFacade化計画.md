@@ -277,6 +277,37 @@ subtasks:
 - build / normal refresh 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+## Completed Checkpoint: `REF-MVP-C9`
+
+### Playlist reference index manager seam
+
+状態: completed checkpoint。
+
+目的:
+
+- playlist reference display の index state / lock / table replace / remove / synchronize を manager seam へ移す。
+- `BMSLibrary` には既存 public/internal API と playlist reference apply workflow、pending/package/library snapshot bridge を残す。
+- MainWindowViewModel consumption、BMSTable persistence、playlist apply workflow 全体は今回触らない。
+
+主対象:
+
+- `BeMusicSeeker/Models/BMSLibrary.cs`
+- 新規候補: `BeMusicSeeker/Models/BmsLibraryInternal/PlaylistReferenceManager.cs`
+- playlist reference 関連 tests: `BmsLibraryFolderRenameRefreshTests`, `BmsLibraryPlaylistReferenceServiceTests`, `MainWindowContextMenuResourceTests`, `PlaylistConcurrencyArchitectureTests`
+
+subtasks:
+
+1. manager を追加し、`playlistReferenceIndexLock` / `playlistReferenceIndex` と find / replace / remove / synchronize を移す。
+2. root `BMSLibrary` の `GetPlaylistReferenceDisplay` overloads と index mutation helpers を manager 委譲にする。
+3. playlist reference 関連 tests と標準確認を実行する。
+
+完了条件:
+
+- `GetPlaylistReferenceDisplay` overloads、`AddReferenceBMSTables*`、`ReplaceReferenceBMSTable`、`RemoveReferenceBMSTables*`、`SynchronizeReferenceBMSTables` の surface と挙動が維持されている。
+- root `BMSLibrary` が `playlistReferenceIndexLock` / `playlistReferenceIndex` を直接持たない。
+- playlist reference 関連 tests / source-text 代表 tests / build / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ## Target Architecture
 
 ```text
@@ -326,11 +357,10 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C8` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
+`REF-MVP-C9` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
 
 - LR2 song.db sync coordinator。
 - package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。
 - maintenance coordinator。
-- normal library refresh publisher。
 - playlist reference coordinator。
 - file operation / folder rename coordinator。
