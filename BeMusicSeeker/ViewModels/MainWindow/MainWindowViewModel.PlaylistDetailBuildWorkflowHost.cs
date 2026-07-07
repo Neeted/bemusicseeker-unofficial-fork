@@ -1,6 +1,8 @@
 using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -18,7 +20,53 @@ public partial class MainWindowViewModel : IPlaylistDetailBuildWorkflowHost
 
     bool IPlaylistDetailBuildWorkflowHost.RebuildPlaylistSource(PlaylistBuildRequest request, CancellationToken cancellationToken)
     {
-        return RebuildPlaylistSource(request, cancellationToken);
+        return PlaylistDetailBuildWorkflowCoordinator.RebuildPlaylistSource(this, request, cancellationToken);
+    }
+
+    void IPlaylistDetailBuildWorkflowHost.WaitPlaylistDetailBuildGate(CancellationToken cancellationToken)
+    {
+        playlistDetailBuildState.BuildGate.Wait(cancellationToken);
+    }
+
+    void IPlaylistDetailBuildWorkflowHost.ReleasePlaylistDetailBuildGate()
+    {
+        playlistDetailBuildState.BuildGate.Release();
+    }
+
+    bool IPlaylistDetailBuildWorkflowHost.TryResolvePlaylistSelection(
+        MainViewUpdateMode mode,
+        object parameter,
+        out BMSTable bmsTable,
+        out string folderName,
+        out PlaylistFilterType filterType)
+    {
+        return TryResolvePlaylistSelection(mode, parameter, out bmsTable, out folderName, out filterType);
+    }
+
+    void IPlaylistDetailBuildWorkflowHost.LogPlaylistSourceBuild(string message)
+    {
+        LogPlaylistSourceBuild(message);
+    }
+
+    PlaylistSourceBuildStageResult IPlaylistDetailBuildWorkflowHost.BuildPlaylistSourceForRequest(
+        PlaylistBuildRequest request,
+        BMSTable bmsTable,
+        string folderName,
+        bool onlyNotOwned,
+        Stopwatch viewBuildStopwatch,
+        CancellationToken cancellationToken,
+        ref string cancellationStage)
+    {
+        return BuildPlaylistSourceForRequest(request, bmsTable, folderName, onlyNotOwned, viewBuildStopwatch, cancellationToken, ref cancellationStage);
+    }
+
+    PlaylistViewApplyResult IPlaylistDetailBuildWorkflowHost.ApplyPlaylistViewFromRebuiltSource(
+        MainViewUpdateMode mode,
+        List<PlaylistDetailSourceRow> sourceRows,
+        int sourceCount,
+        ref IList finalRows)
+    {
+        return ApplyPlaylistViewFromRebuiltSource(mode, sourceRows, sourceCount, ref finalRows);
     }
 
     PlaylistViewApplyResult IPlaylistDetailBuildWorkflowHost.ApplyPlaylistViewFromCurrentSource(MainViewUpdateMode mode)
@@ -49,6 +97,26 @@ public partial class MainWindowViewModel : IPlaylistDetailBuildWorkflowHost
     MainViewUpdateMode IPlaylistDetailBuildWorkflowHost.ResolvePlaylistColumnSettingMode(PlaylistFilterType filterType)
     {
         return ResolvePlaylistColumnSettingMode(filterType);
+    }
+
+    List<PlaylistDetailSourceRow> IPlaylistDetailBuildWorkflowHost.ReplacePlaylistSourceRows(
+        List<PlaylistDetailSourceRow> sourceRows,
+        BMSTable currentTable,
+        string currentFolderName,
+        PlaylistFilterType currentFilterType,
+        PlaylistRequestIdentity requestIdentity)
+    {
+        return ReplacePlaylistSourceRows(sourceRows, currentTable, currentFolderName, currentFilterType, requestIdentity);
+    }
+
+    int IPlaylistDetailBuildWorkflowHost.CountPlaylistSourceRows(IEnumerable<PlaylistDetailSourceRow> rows)
+    {
+        return CountPlaylistSourceRows(rows);
+    }
+
+    void IPlaylistDetailBuildWorkflowHost.DisposePlaylistViewRows(IEnumerable viewRows)
+    {
+        DisposePlaylistViewRows(viewRows);
     }
 
     void IPlaylistDetailBuildWorkflowHost.FinalizePlaylistDetailBuild(Stopwatch viewBuildStopwatch, PlaylistDetailBuildCompletionResult completionResult)

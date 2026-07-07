@@ -14,13 +14,13 @@ playlist、main chart list、play history、playback、settings save、library r
 
 | 項目 | 現状 |
 |---|---|
-| `MainWindowViewModel.cs` | 23,502 行。playlist build の helper / DTO 抽出は進み、view-only apply workflow は coordinator へ移ったが、source rebuild 本体は root に残っている |
+| `MainWindowViewModel.cs` | 23,413 行。playlist build の helper / DTO 抽出は進み、view-only / source rebuild workflow 本体は coordinator へ移ったが、source build stage helper は root に残っている |
 | `MainWindowViewModel.PlaylistState.cs` | 473 行。playlist identity / source snapshot / view snapshot state の受け皿 |
 | `PlaylistSourceBuildResult.cs` | 249 行。source build / view apply / main view apply / build completion result contract |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
-| `PlaylistDetailBuildWorkflowCoordinator.cs` | 168 行。decision result に基づく patch / rebuild / view-only workflow、completion creation、finalize bridge を担当 |
-| `MainWindowViewModel.PlaylistDetailBuildWorkflowHost.cs` | 76 行。root private method と finalize wrapper を workflow coordinator へ明示的に bridge |
+| `PlaylistDetailBuildWorkflowCoordinator.cs` | 300 行。decision result に基づく patch / rebuild / view-only workflow、completion creation、finalize bridge を担当 |
+| `MainWindowViewModel.PlaylistDetailBuildWorkflowHost.cs` | 154 行。root private method、BuildGate、source replace、finalize wrapper を workflow coordinator へ明示的に bridge |
 | 旧 active | `L-3c-17: Playlist main view apply result DTO 導入` は独立 ticket から外し、`REF-MVP-A1` の subtask に格下げ |
 | active lane | `REF-MVP-A1: Playlist detail build workflow extraction` |
 
@@ -51,7 +51,7 @@ subtasks:
 4. 完了: completion contract の finalize 呼び出しを `PlaylistDetailBuildWorkflowCoordinator` / host bridge 経由へ寄せた。
 5. 完了: rebuild / view-only の completion creation を `PlaylistDetailBuildWorkflowCoordinator` へ寄せた。
 6. 完了: view-only apply workflow 本体を `PlaylistDetailBuildWorkflowCoordinator` へ移した。
-7. BuildGate / cancellation / freshness check / cleanup ownership の順序を変えずに、source rebuild workflow 本体を root から移す。
+7. 完了: BuildGate / cancellation / freshness check / cleanup ownership の順序を変えずに、source rebuild workflow 本体を root から `PlaylistDetailBuildWorkflowCoordinator` へ移した。
 8. root に残すものを request 発行、lifecycle、UI thread bridge、dialog / progress bridge として説明できる状態にする。
 
 完了条件:

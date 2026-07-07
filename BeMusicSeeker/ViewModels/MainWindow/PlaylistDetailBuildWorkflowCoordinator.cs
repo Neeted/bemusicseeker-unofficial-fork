@@ -1,7 +1,9 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -12,6 +14,34 @@ internal interface IPlaylistDetailBuildWorkflowHost
     bool ApplyPlaylistViewWithoutSourceRebuild(PlaylistBuildRequest request, CancellationToken cancellationToken);
 
     bool RebuildPlaylistSource(PlaylistBuildRequest request, CancellationToken cancellationToken);
+
+    void WaitPlaylistDetailBuildGate(CancellationToken cancellationToken);
+
+    void ReleasePlaylistDetailBuildGate();
+
+    bool TryResolvePlaylistSelection(
+        MainViewUpdateMode mode,
+        object parameter,
+        out BMSTable bmsTable,
+        out string folderName,
+        out MainWindowViewModel.PlaylistFilterType filterType);
+
+    void LogPlaylistSourceBuild(string message);
+
+    PlaylistSourceBuildStageResult BuildPlaylistSourceForRequest(
+        PlaylistBuildRequest request,
+        BMSTable bmsTable,
+        string folderName,
+        bool onlyNotOwned,
+        Stopwatch viewBuildStopwatch,
+        CancellationToken cancellationToken,
+        ref string cancellationStage);
+
+    PlaylistViewApplyResult ApplyPlaylistViewFromRebuiltSource(
+        MainViewUpdateMode mode,
+        List<PlaylistDetailSourceRow> sourceRows,
+        int sourceCount,
+        ref IList finalRows);
 
     PlaylistViewApplyResult ApplyPlaylistViewFromCurrentSource(MainViewUpdateMode mode);
 
@@ -27,6 +57,17 @@ internal interface IPlaylistDetailBuildWorkflowHost
     MainViewUpdateMode GetCurrentTreeViewFilterTypeSelected();
 
     MainViewUpdateMode ResolvePlaylistColumnSettingMode(MainWindowViewModel.PlaylistFilterType filterType);
+
+    List<PlaylistDetailSourceRow> ReplacePlaylistSourceRows(
+        List<PlaylistDetailSourceRow> sourceRows,
+        BMSTable currentTable,
+        string currentFolderName,
+        MainWindowViewModel.PlaylistFilterType currentFilterType,
+        MainWindowViewModel.PlaylistRequestIdentity requestIdentity);
+
+    int CountPlaylistSourceRows(IEnumerable<PlaylistDetailSourceRow> rows);
+
+    void DisposePlaylistViewRows(IEnumerable viewRows);
 
     void FinalizePlaylistDetailBuild(Stopwatch viewBuildStopwatch, PlaylistDetailBuildCompletionResult completionResult);
 
@@ -161,5 +202,99 @@ internal static class PlaylistDetailBuildWorkflowCoordinator
         MainViewUpdateMode currentTreeViewFilterTypeSelected = host.GetCurrentTreeViewFilterTypeSelected();
         FinalizeViewOnlyPlaylistDetailBuild(host, viewBuildStopwatch, currentTreeViewFilterTypeSelected, requestedMode, parameter, viewApplyResult, mainViewApplyResult);
         return true;
+    }
+
+    internal static bool RebuildPlaylistSource(
+        IPlaylistDetailBuildWorkflowHost host,
+        PlaylistBuildRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request == null)
+        {
+            return false;
+        }
+        if (host == null)
+        {
+            throw new ArgumentNullException(nameof(host));
+        }
+
+        int requestVersion = request.RequestVersion;
+        MainViewUpdateMode mode = request.Mode;
+        MainViewUpdateMode requestedMode = request.RequestedMode;
+        object parameter = request.Parameter;
+        var viewBuildStopwatch = Stopwatch.StartNew();
+        int sourceCount = 0;
+        List<PlaylistDetailSourceRow> sourceRows = null;
+        IList finalRows = null;
+        bool gateEntered = false;
+        string cancellationStage = "before_start";
+        try
+        {
+            host.WaitPlaylistDetailBuildGate(cancellationToken);
+            gateEntered = true;
+            if (!host.IsLatestPlaylistSourceBuildRequest(requestVersion))
+            {
+                host.LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=stale_before_start mode=" + mode + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "stale_before_start"));
+                return true;
+            }
+            if (!host.TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out MainWindowViewModel.PlaylistFilterType filterType))
+            {
+                return false;
+            }
+            bool onlyNotOwned = filterType == MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected;
+            host.LogPlaylistSourceBuild("started version=" + requestVersion + " mode=" + mode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
+            PlaylistSourceBuildStageResult sourceBuildStageResult = host.BuildPlaylistSourceForRequest(request, bmsTable, folderName, onlyNotOwned, viewBuildStopwatch, cancellationToken, ref cancellationStage);
+            sourceRows = sourceBuildStageResult.SourceBuild.SourceRows;
+            sourceCount = sourceBuildStageResult.SourceBuild.SourceCount;
+            if (cancellationToken.IsCancellationRequested || !host.IsLatestPlaylistSourceBuildRequest(requestVersion))
+            {
+                host.LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_build mode=" + mode + " sourceCount=" + sourceCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
+                return true;
+            }
+            cancellationStage = "view_apply";
+            PlaylistViewApplyResult viewApplyResult = host.ApplyPlaylistViewFromRebuiltSource(mode, sourceRows, sourceCount, ref finalRows);
+            var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, viewApplyResult);
+            int viewCount = executionResult.ViewCount;
+            if (cancellationToken.IsCancellationRequested || !host.IsLatestPlaylistSourceBuildRequest(requestVersion))
+            {
+                host.LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_apply mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
+                return true;
+            }
+            cancellationStage = "ui_apply";
+            List<PlaylistDetailSourceRow> previousSourceRows = host.ReplacePlaylistSourceRows(sourceRows, bmsTable, folderName, filterType, request.Identity);
+            sourceRows = null;
+            PlaylistMainViewApplyResult mainViewApplyResult = host.ApplyPlaylistDetailViewRowsToMainView(
+                request,
+                finalRows,
+                viewCount,
+                host.ResolvePlaylistColumnSettingMode(filterType),
+                viewBuildStopwatch);
+            finalRows = null;
+            int disposedSourceRowsCount = host.CountPlaylistSourceRows(previousSourceRows);
+            previousSourceRows = null;
+            FinalizeRebuiltPlaylistDetailBuild(host, viewBuildStopwatch, mode, requestedMode, parameter, executionResult, mainViewApplyResult);
+            host.LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + executionResult.ScoreUpdateTargetCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown") + " libraryIndexMs=" + executionResult.LibraryIndexMs + " libraryIndexAccess=" + executionResult.LibraryIndexAccess + " libraryIndexBuildMs=" + executionResult.LibraryIndexBuildMs + " entryResolveMs=" + executionResult.EntryResolveMs + " scoreProbeMs=" + executionResult.ScoreProbeMs + " scoreProbeMatchedScoreCount=" + executionResult.ScoreProbeMetrics.MatchedScoreCount + " sourceMaterializeMs=" + executionResult.SourceMaterializeMs + " viewMaterializeMs=" + executionResult.ViewMaterializeMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            host.LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=" + cancellationStage + " mode=" + mode + " sourceCount=" + sourceCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
+            return true;
+        }
+        finally
+        {
+            if (sourceRows != null)
+            {
+                host.LogPlaylistSourceBuild("discarded version=" + requestVersion + " mode=" + mode + " discardedRows=" + sourceCount);
+            }
+            if (finalRows != null)
+            {
+                host.DisposePlaylistViewRows(finalRows);
+            }
+            if (gateEntered)
+            {
+                host.ReleasePlaylistDetailBuildGate();
+            }
+        }
     }
 }
