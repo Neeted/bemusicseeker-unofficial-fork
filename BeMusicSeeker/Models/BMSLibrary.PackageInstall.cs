@@ -1653,58 +1653,13 @@ public partial class BMSLibrary
     /// </summary>
     public void DeletePendingPackageSources(IEnumerable<ChartPackage> packages, bool sendToRecycleBin = true, CancellationToken token = default, Action onEachProcessed = null)
     {
-        if (packages == null)
-        {
-            throw new ArgumentNullException("packages");
-        }
-        int deferredProcessedCount = 0;
-        try
-        {
-            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-            {
-                using (rwlockPendingInstallCharts.GetWriterGuard())
-                {
-                    using (rwlockSongDBInstall.GetWriterGuard())
-                    {
-                        List<ChartPackage> list = packageInstallService.DeduplicatePackagesByPathOrReference(packages);
-                        bool flag2 = !sendToRecycleBin;
-                        NLogWrapper.FileLogger?.Info("advanced_pending_cleanup start requested=" + list.Count + " permanent=" + flag2);
-                        PendingPackageSourceDeletionResult result = packageInstallService.DeletePendingPackageSources(
-                            list,
-                            ChartPackagesPending,
-                            sendToRecycleBin,
-                            fileMutationService,
-                            targetOnlyFileMutationOptions,
-                            recursiveDirectoryTreeFileMutationOptions,
-                            token,
-                            () => deferredProcessedCount++,
-                            info => NLogWrapper.FileLogger?.Info(info));
-                        foreach (PendingPackageSourceDeletionFailure failure in result.Failures)
-                        {
-                            if (failure?.Package == null)
-                            {
-                                continue;
-                            }
-                            NLogWrapper.FileLogger?.Warn(failure.Exception, "advanced_pending_cleanup failed path=" + failure.Package.path + " kind=" + (failure.IsDirectory ? "directory" : "file") + " error=" + GetDisplayedExceptionMessage(failure.Exception));
-                            if (failure.IsDirectory)
-                            {
-                                ShowOperationDialog(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Package.path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            }
-                            else
-                            {
-                                ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Package.path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            }
-                        }
-                        RemovePendingPackagesFromPendingListAndInstallRows(result.PackagesToRemove);
-                        NLogWrapper.FileLogger?.Info("advanced_pending_cleanup summary requested=" + result.Requested + " processed=" + result.Processed + " removed=" + result.Removed + " failed=" + result.Failed + " skipped=" + result.Skipped + " canceled=" + result.Canceled);
-                    }
-                }
-            }
-        }
-        finally
-        {
-            InvokeDeferredProcessedCallbacks(onEachProcessed, deferredProcessedCount);
-        }
+        PendingPackageSourceDeletionCoordinator.DeletePendingPackageSources(
+            packageInstallService,
+            this,
+            packages,
+            sendToRecycleBin,
+            token,
+            onEachProcessed);
     }
 
     private static void InvokeDeferredProcessedCallbacks(Action onEachProcessed, int count)

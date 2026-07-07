@@ -107,6 +107,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         string pendingOverwriteCoordinatorMethod = ExtractMethodBody(librarySource, "internal static PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(");
         string pendingZeroNoteRenameMethod = ExtractMethodBody(librarySource, "internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(");
         string pendingSourceDeleteMethod = ExtractMethodBody(librarySource, "public void DeletePendingPackageSources(");
+        string pendingSourceDeleteCoordinatorMethod = ExtractMethodBody(librarySource, "internal static void DeletePendingPackageSources(");
         string autoRenameMethod = ExtractMethodBody(librarySource, "internal void AutoRenameChartFolders(");
         string autoRenameAllMethod = ExtractMethodBody(librarySource, "internal bool AutoRenameAllChartFolders(");
         string dialogEnqueueMethod = ExtractMethodBody(librarySource, "internal void Enqueue(OperationDialogMessage message)");
@@ -134,7 +135,8 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(pendingOverwriteCoordinatorMethod, "() => deferredProcessedCount++");
         StringAssert.Contains(pendingOverwriteCoordinatorMethod, "InvokeDeferredProcessedCallbacks");
         StringAssert.Contains(pendingZeroNoteRenameMethod, "InvokeDeferredProcessedCallbacks");
-        StringAssert.Contains(pendingSourceDeleteMethod, "InvokeDeferredProcessedCallbacks");
+        StringAssert.Contains(pendingSourceDeleteMethod, "PendingPackageSourceDeletionCoordinator");
+        StringAssert.Contains(pendingSourceDeleteCoordinatorMethod, "InvokeDeferredProcessedCallbacks");
         StringAssert.Contains(autoRenameMethod, "deferredProgressReporter");
         StringAssert.Contains(autoRenameMethod, "FlushAutoRenameProgressReports");
         StringAssert.Contains(autoRenameAllMethod, "deferredProgressReporter");
