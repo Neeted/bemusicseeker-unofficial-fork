@@ -6946,20 +6946,14 @@ completeFileEnumerationOnce,
         Lr2TextMetadataCandidateSnapshot textMetadataCandidates = folderInfoCandidateSelection.TextMetadataCandidates;
         folderInfoCandidatesStopwatch.Stop();
         var directoryEntriesStopwatch = Stopwatch.StartNew();
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
-            ? CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
-                OverlayLr2DirectoryEntrySurface(
-                    MergeMissingLr2DirectoryEntrySurface(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
-                    preparedSurface.DirectoryEntries),
+        Lr2SongDbSyncDirectoryEntrySelection directoryEntrySelection =
+            CreateLr2SongDbSyncDirectoryEntrySelection(
+                scanSurface,
                 rootSnapshot.Lr2FolderDiscoveryDirectories,
-                directoryEntryTargets)
-            : OverlayLr2DirectoryEntrySurface(
-                CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(
-                    rootSnapshot.Lr2FolderDiscoveryDirectories,
-                    directoryEntryTargets),
-                preparedSurface.DirectoryEntries);
+                directoryEntryTargets,
+                preparedSurface);
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = directoryEntrySelection.Entries;
         directoryEntriesStopwatch.Stop();
-        int missingDirectoryEntries = Math.Max(0, directoryEntryTargets.Count - directoryEntries.Count);
         var textFileDirsStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection =
             CreateLr2SongDbSyncTextFileDirectorySelection(
@@ -6983,7 +6977,7 @@ completeFileEnumerationOnce,
             + " lr2FolderParentDirectoryTargets=" + lr2FolderParentDirectoryTargets.Count
             + " directoryTargets=" + directoryEntryTargets.Count
             + " directoryEntries=" + directoryEntries.Count
-            + " missingDirectoryEntries=" + missingDirectoryEntries
+            + " missingDirectoryEntries=" + directoryEntrySelection.MissingCount
             + " directoryEntriesMs=" + directoryEntriesStopwatch.ElapsedMilliseconds
             + " folderInfoCandidates=" + folderInfoCandidates.Paths.Count
             + " lr2FolderCandidates=" + lr2FolderFileCandidates.Paths.Count
@@ -7317,6 +7311,30 @@ completeFileEnumerationOnce,
         return new Lr2SongDbSyncFolderInfoCandidateSelection(
             folderInfoCandidates,
             textMetadataCandidates);
+    }
+
+    private static Lr2SongDbSyncDirectoryEntrySelection CreateLr2SongDbSyncDirectoryEntrySelection(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        IEnumerable<string> lr2FolderDiscoveryDirectories,
+        IReadOnlyCollection<string> directoryEntryTargets,
+        Lr2SongDbSyncPreparedDataSurface preparedSurface)
+    {
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
+            ? CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
+                OverlayLr2DirectoryEntrySurface(
+                    MergeMissingLr2DirectoryEntrySurface(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
+                    preparedSurface.DirectoryEntries),
+                lr2FolderDiscoveryDirectories,
+                directoryEntryTargets)
+            : OverlayLr2DirectoryEntrySurface(
+                CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(
+                    lr2FolderDiscoveryDirectories,
+                    directoryEntryTargets),
+                preparedSurface.DirectoryEntries);
+
+        return new Lr2SongDbSyncDirectoryEntrySelection(
+            directoryEntries,
+            Math.Max(0, directoryEntryTargets.Count - directoryEntries.Count));
     }
 
     private bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)

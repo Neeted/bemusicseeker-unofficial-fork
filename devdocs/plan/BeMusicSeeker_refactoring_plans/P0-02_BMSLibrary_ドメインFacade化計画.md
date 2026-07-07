@@ -708,3 +708,27 @@ BMSLibrary                         // public facade / compatibility API
 - scan surface / enumeration の優先順、prepared folderInfo merge の条件と引数順、後段 text file directory selection への null/非 null 入力は維持した。
 - 静的レビューの指摘は新規 DTO の add 漏れ注意のみで、commit 対象に含めることで解消する。
 - DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C23`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` の directory entry selection と missing count を top-level internal DTO 境界へ寄せる。
+- 後続の input builder 化で、directory entries / missing count を選択済み入力として扱える状態にする。
+- scan surface / grouped scan の優先順、prepared overlay、ログ項目、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- directory entries と missing count が dedicated selection DTO / helper 経由になる。
+- `directoryEntries` と `missingDirectoryEntries` のログ意味が維持される。
+- full builder 化、scan surface helper 移動は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncDirectoryEntrySelection` を追加し、directory entries / missing count を dedicated DTO 経由へ移した。
+- scan surface / grouped scan の優先順、prepared overlay、missing count の計算式は維持した。
+- 初回 full test で `CreateLr2SongDbSyncInputWithoutScanSurface_ExcludesManagedOutputDirectoryFiles` が 1 回失敗したが、同テスト単体 rerun、LR2 targeted rerun、full test rerun は pass した。
+- DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
