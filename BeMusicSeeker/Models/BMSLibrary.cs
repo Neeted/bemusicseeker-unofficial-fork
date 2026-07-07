@@ -6934,35 +6934,16 @@ completeFileEnumerationOnce,
         IReadOnlyCollection<string> directoryEntryTargets = MergeLr2DirectoryMetadataTargets(
             directoryMetadataTargets,
             lr2FolderParentDirectoryTargets);
-        Lr2TextMetadataCandidateSnapshot textMetadataCandidates = null;
         var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
-        Lr2FolderInfoCandidateSnapshot folderInfoCandidates;
-        if (scanSurface != null)
-        {
-            folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
-                scanSurface.FolderInfoFilePaths,
-                scanSurface.FolderInfoFileEntries.Values,
-                directoryEntryTargets);
-        }
-        else
-        {
-            textMetadataCandidates = CreateLr2SongDbSyncTextMetadataCandidates(rootSnapshot.Lr2FolderDiscoveryDirectories, directoryEntryTargets);
-            folderInfoCandidates = textMetadataCandidates.FolderInfoCandidates;
-        }
-        if (hasPreparedSurface && preparedSurface.FolderInfoFilePaths.Count > 0)
-        {
-            IReadOnlyList<string> folderInfoPaths = MergePreparedFileSurface(
-                folderInfoCandidates.Paths,
-                folderInfoCandidates.EntriesByPath,
-                preparedSurface.FolderInfoFilePaths,
-                preparedSurface.FolderInfoFileEntries,
-                preparedSurface.Lr2FolderScopeDirectories,
-                out IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoEntries);
-            folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
-                folderInfoPaths,
-                folderInfoEntries.Values,
-                directoryEntryTargets);
-        }
+        Lr2SongDbSyncFolderInfoCandidateSelection folderInfoCandidateSelection =
+            CreateLr2SongDbSyncFolderInfoCandidateSelection(
+                scanSurface,
+                rootSnapshot.Lr2FolderDiscoveryDirectories,
+                directoryEntryTargets,
+                preparedSurface,
+                hasPreparedSurface);
+        Lr2FolderInfoCandidateSnapshot folderInfoCandidates = folderInfoCandidateSelection.Candidates;
+        Lr2TextMetadataCandidateSnapshot textMetadataCandidates = folderInfoCandidateSelection.TextMetadataCandidates;
         folderInfoCandidatesStopwatch.Stop();
         var directoryEntriesStopwatch = Stopwatch.StartNew();
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
@@ -7295,6 +7276,47 @@ completeFileEnumerationOnce,
             hasPreparedSurface
                 ? "prepared_only"
                 : "empty");
+    }
+
+    private static Lr2SongDbSyncFolderInfoCandidateSelection CreateLr2SongDbSyncFolderInfoCandidateSelection(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        IEnumerable<string> lr2FolderDiscoveryDirectories,
+        IReadOnlyCollection<string> directoryEntryTargets,
+        Lr2SongDbSyncPreparedDataSurface preparedSurface,
+        bool hasPreparedSurface)
+    {
+        Lr2TextMetadataCandidateSnapshot textMetadataCandidates = null;
+        Lr2FolderInfoCandidateSnapshot folderInfoCandidates;
+        if (scanSurface != null)
+        {
+            folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
+                scanSurface.FolderInfoFilePaths,
+                scanSurface.FolderInfoFileEntries.Values,
+                directoryEntryTargets);
+        }
+        else
+        {
+            textMetadataCandidates = CreateLr2SongDbSyncTextMetadataCandidates(lr2FolderDiscoveryDirectories, directoryEntryTargets);
+            folderInfoCandidates = textMetadataCandidates.FolderInfoCandidates;
+        }
+        if (hasPreparedSurface && preparedSurface.FolderInfoFilePaths.Count > 0)
+        {
+            IReadOnlyList<string> folderInfoPaths = MergePreparedFileSurface(
+                folderInfoCandidates.Paths,
+                folderInfoCandidates.EntriesByPath,
+                preparedSurface.FolderInfoFilePaths,
+                preparedSurface.FolderInfoFileEntries,
+                preparedSurface.Lr2FolderScopeDirectories,
+                out IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoEntries);
+            folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
+                folderInfoPaths,
+                folderInfoEntries.Values,
+                directoryEntryTargets);
+        }
+
+        return new Lr2SongDbSyncFolderInfoCandidateSelection(
+            folderInfoCandidates,
+            textMetadataCandidates);
     }
 
     private bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)

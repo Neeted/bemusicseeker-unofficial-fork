@@ -684,3 +684,27 @@ BMSLibrary                         // public facade / compatibility API
 - scan surface / enumeration / prepared-only / empty の優先順と prepared merge の引数順は維持した。
 - 初回 full test で `QueueLr2SongDbSync_DiscoversRootCustomFolderOutputAsRootRow` が 1 回失敗したが、同テスト単体 rerun と full test rerun は pass した。
 - DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C22`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` の folderInfo candidate selection と enumeration 時の text metadata candidate capture を top-level internal DTO 境界へ寄せる。
+- 後続の input builder 化で、folderInfo candidates と text metadata candidates を選択済み入力として扱える状態にする。
+- scan surface / enumeration の優先順、prepared merge、ログ項目、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- folderInfo candidates と text metadata candidates が dedicated selection DTO / helper 経由になる。
+- `folderInfoCandidates` ログ値と後段 text file directory selection の入力意味が維持される。
+- directory entry builder 化、full builder 化、scan surface helper 移動は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncFolderInfoCandidateSelection` を追加し、folderInfo candidates / text metadata candidates を dedicated DTO 経由へ移した。
+- scan surface / enumeration の優先順、prepared folderInfo merge の条件と引数順、後段 text file directory selection への null/非 null 入力は維持した。
+- 静的レビューの指摘は新規 DTO の add 漏れ注意のみで、commit 対象に含めることで解消する。
+- DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
