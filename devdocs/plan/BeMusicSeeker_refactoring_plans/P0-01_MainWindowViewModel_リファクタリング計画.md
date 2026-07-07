@@ -14,9 +14,9 @@ playlist、main chart list、play history、playback、settings save、library r
 
 | 項目 | 現状 |
 |---|---|
-| `MainWindowViewModel.cs` | 23,533 行。playlist build の helper / DTO 抽出は進み、workflow decision / dispatch は coordinator 化を開始したが、source build / apply 本体は root に残っている |
+| `MainWindowViewModel.cs` | 23,558 行。playlist build の helper / DTO 抽出は進み、workflow decision / dispatch は coordinator 化を開始したが、source build / apply 本体は root に残っている |
 | `MainWindowViewModel.PlaylistState.cs` | 473 行。playlist identity / source snapshot / view snapshot state の受け皿 |
-| `PlaylistSourceBuildResult.cs` | 211 行。source build / view apply / main view apply / rebuild execution result contract |
+| `PlaylistSourceBuildResult.cs` | 249 行。source build / view apply / main view apply / build completion result contract |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
 | `PlaylistDetailBuildWorkflowCoordinator.cs` | 52 行。decision result に基づく patch / rebuild / view-only dispatch を担当 |
@@ -46,8 +46,8 @@ playlist、main chart list、play history、playback、settings save、library r
 subtasks:
 
 1. 完了: `PlaylistDetailBuildWorkflowCoordinator` を追加し、`TryBuildPlaylistViewAndApply` の decision / dispatch を root から移した。
-2. 進行中: `ApplyPlaylistDetailViewRowsToMainView` の timing result DTO 化として `PlaylistMainViewApplyResult` を追加し、rebuild / view-only 両経路が戻り値 contract を読む形へ揃えた。
-3. `RebuildPlaylistSource` と `ApplyPlaylistViewWithoutSourceRebuild` の重複する build/apply/finalize flow を coordinator に寄せる。
+2. 完了: `ApplyPlaylistDetailViewRowsToMainView` の timing result DTO 化として `PlaylistMainViewApplyResult` を追加し、rebuild / view-only 両経路が戻り値 contract を読む形へ揃えた。
+3. 進行中: `PlaylistDetailBuildCompletionResult` と `FinalizePlaylistDetailBuild` を追加し、rebuild / view-only 両経路が同じ finalize contract を通る形へ揃えた。
 4. BuildGate / cancellation / freshness check / cleanup ownership の順序を変えずに、root から workflow 本体を移す。
 5. root に残すものを request 発行、lifecycle、UI thread bridge、dialog / progress bridge として説明できる状態にする。
 

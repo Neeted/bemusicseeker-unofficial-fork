@@ -151,6 +151,44 @@ internal sealed class PlaylistMainViewApplyResult
 }
 
 /// <summary>
+/// playlist detail build の main view finalize に必要な完了情報です。
+/// </summary>
+internal sealed class PlaylistDetailBuildCompletionResult
+{
+    internal PlaylistDetailBuildCompletionResult(
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
+        object parameter,
+        long folderStageMs,
+        PlaylistViewApplyResult viewApply,
+        PlaylistMainViewApplyResult mainViewApply,
+        bool sortReuse = false)
+    {
+        Mode = mode;
+        RequestedMode = requestedMode;
+        Parameter = parameter;
+        FolderStageMs = folderStageMs;
+        ViewApply = viewApply ?? throw new System.ArgumentNullException(nameof(viewApply));
+        MainViewApply = mainViewApply ?? throw new System.ArgumentNullException(nameof(mainViewApply));
+        SortReuse = sortReuse;
+    }
+
+    internal MainViewUpdateMode Mode { get; }
+
+    internal MainViewUpdateMode RequestedMode { get; }
+
+    internal object Parameter { get; }
+
+    internal long FolderStageMs { get; }
+
+    internal PlaylistViewApplyResult ViewApply { get; }
+
+    internal PlaylistMainViewApplyResult MainViewApply { get; }
+
+    internal bool SortReuse { get; }
+}
+
+/// <summary>
 /// RebuildPlaylistSource の worker stages が返す読み取り用の結果です。
 /// </summary>
 internal sealed class PlaylistRebuildExecutionResult

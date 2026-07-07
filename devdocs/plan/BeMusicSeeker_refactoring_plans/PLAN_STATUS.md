@@ -91,7 +91,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 
 | 対象 | 現状目安 | Guardrail | 次の extraction 候補 |
 |---|---:|---:|---|
-| `MainWindowViewModel.cs` | 23,533 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
+| `MainWindowViewModel.cs` | 23,558 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
 | `BMSLibrary.cs` | 21,542 行 | 12,000 行以下 | LR2 sync、package install、maintenance、folder/file operation |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
@@ -109,9 +109,9 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-A1` の続きとして、`PlaylistMainViewApplyResult` を追加し、`ApplyPlaylistDetailViewRowsToMainView` の `out` timing を戻り値 contract に変えた。rebuild / view-only 両経路が同じ main view apply result を読めるようになり、次 slice の finalize 共通化に進みやすくなった。
+`REF-MVP-A1` の続きとして、`PlaylistDetailBuildCompletionResult` と `FinalizePlaylistDetailBuild` を追加し、rebuild / view-only 両経路が同じ completion contract を経由して `FinalizeMainViewBuild` へ到達する形へ揃えた。
 
-次にやる 1 件: 標準確認とサブエージェントレビューで重大指摘がなければこの slice を commit し、次 slice で rebuild / view-only finalize 共通化を進める。
+次にやる 1 件: 標準確認とサブエージェントレビューで重大指摘がなければこの slice を commit し、次 slice で completion contract を `PlaylistDetailBuildWorkflowCoordinator` / host bridge へ寄せる。
 
 ## 次回 Codex が最初に読むべきファイル
 
