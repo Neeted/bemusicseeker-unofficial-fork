@@ -508,6 +508,28 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PendingInstallPackageOperationRequest_RequiresTargetsAndPreservesKind()
+    {
+        ChartOperationTarget target = CreateContextMenuTarget(
+            ChartFileKind.Bms,
+            ChartOperationCapabilities.UpdateInstallDestination);
+
+        PendingInstallPackageOperationRequest forceInstall = PendingInstallPackageOperationRequest.CreateForceInstall([target]);
+        PendingInstallPackageOperationRequest manualInstall = PendingInstallPackageOperationRequest.CreateManualInstall([target]);
+
+        Assert.AreEqual(PendingInstallPackageOperationKind.ForceInstall, forceInstall.Kind);
+        Assert.IsTrue(forceInstall.IsForceInstall);
+        Assert.IsFalse(forceInstall.IsManualInstall);
+        Assert.AreEqual(1, forceInstall.SelectedRowCount);
+        Assert.AreSame(target, forceInstall.Targets[0]);
+        Assert.AreEqual(PendingInstallPackageOperationKind.ManualInstall, manualInstall.Kind);
+        Assert.IsFalse(manualInstall.IsForceInstall);
+        Assert.IsTrue(manualInstall.IsManualInstall);
+        Assert.ThrowsException<ArgumentException>(() => PendingInstallPackageOperationRequest.CreateForceInstall([]));
+        Assert.ThrowsException<ArgumentException>(() => PendingInstallPackageOperationRequest.CreateManualInstall([null!]));
+    }
+
+    [TestMethod]
     public void TableContextMenuOpened_UsesContextMenuStateBuilderForUiIndependentState()
     {
         string code = SourceTextTestHelper.ReadMainWindowSourceText();
@@ -2019,11 +2041,13 @@ public sealed class MainWindowContextMenuResourceTests
             "private void treeViewInstallPackageContextMenuOpenInstallDestinationClick");
 
         StringAssert.Contains(forceInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
-        StringAssert.Contains(forceInstall, "viewModel.ForceInstallPendingCharts(targets)");
+        StringAssert.Contains(forceInstall, "PendingInstallPackageOperationRequest.CreateForceInstall(targets)");
+        StringAssert.Contains(forceInstall, "viewModel.InstallPendingCharts(request)");
         StringAssert.Contains(forceInstall, "private async Task ForceInstallSelectedPendingChartsAsync");
         Assert.IsFalse(forceInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(manualInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
-        StringAssert.Contains(manualInstall, "viewModel.ManualInstallPendingCharts(targets)");
+        StringAssert.Contains(manualInstall, "PendingInstallPackageOperationRequest.CreateManualInstall(targets)");
+        StringAssert.Contains(manualInstall, "viewModel.InstallPendingCharts(request)");
         StringAssert.Contains(manualInstall, "private async Task ManualInstallSelectedPendingChartsAsync");
         Assert.IsFalse(manualInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
@@ -2031,6 +2055,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(deletePackages, "DeleteInstallPackageRecordsRequest.CreateInstalled(selectedInstalledTargets)");
         StringAssert.Contains(deletePackages, "viewModel.DeleteInstallPackageRecords(request)");
         StringAssert.Contains(viewModelCode, "internal void DeleteInstallPackageRecords(DeleteInstallPackageRecordsRequest request)");
+        StringAssert.Contains(viewModelCode, "internal void InstallPendingCharts(PendingInstallPackageOperationRequest request)");
         StringAssert.Contains(deletePackages, "private async Task DeleteInstallPackageRecordsFromContextMenuAsync");
         Assert.IsFalse(deletePackages.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         Assert.IsFalse(deletePackages.Contains("CreateChartOperationTargetSnapshot"));

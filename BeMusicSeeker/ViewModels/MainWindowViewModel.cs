@@ -16434,7 +16434,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (targets == null)
         {
-            throw new ArgumentNullException("targets");
+            throw new ArgumentNullException(nameof(targets));
         }
         if (!targets.HasTargets)
         {
@@ -16462,7 +16462,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (targets == null)
         {
-            throw new ArgumentNullException("targets");
+            throw new ArgumentNullException(nameof(targets));
         }
         if (!targets.HasTargets)
         {
@@ -19116,7 +19116,7 @@ public partial class MainWindowViewModel : ViewModel
         }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
-    internal void ForceInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    private void ForceInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
     {
         if (targets == null)
         {
@@ -20817,7 +20817,7 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    internal void ManualInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
+    private void ManualInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
     {
         if (targets == null)
         {
@@ -20826,6 +20826,26 @@ public partial class MainWindowViewModel : ViewModel
         List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
         List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
         ManualInstallPendingPackages(chartPackages);
+    }
+
+    internal void InstallPendingCharts(PendingInstallPackageOperationRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        switch (request.Kind)
+        {
+            case PendingInstallPackageOperationKind.ForceInstall:
+                ForceInstallPendingCharts(request.Targets);
+                return;
+            case PendingInstallPackageOperationKind.ManualInstall:
+                ManualInstallPendingCharts(request.Targets);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unsupported pending install package operation.");
+        }
     }
 
     public void RemovePendingPackagesAll()

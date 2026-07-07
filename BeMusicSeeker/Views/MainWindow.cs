@@ -9301,6 +9301,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        PendingInstallPackageOperationRequest request = PendingInstallPackageOperationRequest.CreateForceInstall(targets);
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         ClearMainGridSelection();
@@ -9310,7 +9311,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ForceInstallPendingCharts(targets);
+            viewModel.InstallPendingCharts(request);
         }).Logging("forceInstallSelectedPendingCharts");
     }
 
@@ -9342,6 +9343,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        PendingInstallPackageOperationRequest request = PendingInstallPackageOperationRequest.CreateManualInstall(targets);
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
         if (Settings.Default.ShowDiffBMSInstallConfirmMsg && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), GetManualInstallConfirmationMessage(), BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Asterisk) != MessageBoxResult.OK)
@@ -9355,7 +9357,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ManualInstallPendingCharts(targets);
+            viewModel.InstallPendingCharts(request);
         }).Logging("manualInstallSelectedPendingCharts");
     }
 
