@@ -9401,35 +9401,28 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<ChartOperationTarget> selectedPendingTargets = isPendingSelected
-            ? GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)
-            : null;
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        List<ChartOperationTarget> selectedInstalledTargets = isInstalledSelected
-            ? GetSelectedChartTargets(ChartOperationCapabilities.None)
-            : [];
-        int selectedRowCount = isPendingSelected ? selectedPendingTargets.Count : selectedInstalledTargets.Count;
-        if (selectedRowCount == 0)
+        if (!TryCreateDeleteInstallPackageRecordsRequest(isPendingSelected, isInstalledSelected, out DeleteInstallPackageRecordsRequest request))
         {
             return;
         }
-        string confirmationMessage = isPendingSelected ? BeMusicSeeker.Properties.Resources.Msg_clear_selected_pendings : BeMusicSeeker.Properties.Resources.Msg_clear_selected_installed;
+        string confirmationMessage = request.IsPending ? BeMusicSeeker.Properties.Resources.Msg_clear_selected_pendings : BeMusicSeeker.Properties.Resources.Msg_clear_selected_installed;
         if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), confirmationMessage, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
         {
             return;
         }
-        NLogWrapper.FileLogger?.Info("table_delete_install_packages requested section=" + section + " treeSection=" + _currentTreeSelectionSection + " selectedRows=" + selectedRowCount);
+        NLogWrapper.FileLogger?.Info("table_delete_install_packages requested section=" + section + " treeSection=" + _currentTreeSelectionSection + " selectedRows=" + request.SelectedRowCount);
         e.Handled = true;
         ClearMainGridSelection();
-        if (isPendingSelected)
+        if (request.IsPending)
         {
             SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
             await Task.Run(delegate
             {
-                viewModel.RemovePendingPackages(selectedPendingTargets);
+                viewModel.RemovePendingPackages(request.Targets);
             }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
             if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
             {
@@ -9443,7 +9436,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
         await Task.Run(delegate
         {
-            viewModel.RemoveInstalledPackageRecords(selectedInstalledTargets);
+            viewModel.RemoveInstalledPackageRecords(request.Targets);
         }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
@@ -9452,6 +9445,35 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter);
             }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
         }
+    }
+
+    private bool TryCreateDeleteInstallPackageRecordsRequest(bool isPendingSelected, bool isInstalledSelected, out DeleteInstallPackageRecordsRequest request)
+    {
+        request = null;
+        if (isPendingSelected)
+        {
+            List<ChartOperationTarget> selectedPendingTargets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
+            if (selectedPendingTargets.Count == 0)
+            {
+                return false;
+            }
+
+            request = DeleteInstallPackageRecordsRequest.CreatePending(selectedPendingTargets);
+            return true;
+        }
+        if (isInstalledSelected)
+        {
+            List<ChartOperationTarget> selectedInstalledTargets = GetSelectedChartTargets(ChartOperationCapabilities.None);
+            if (selectedInstalledTargets.Count == 0)
+            {
+                return false;
+            }
+
+            request = DeleteInstallPackageRecordsRequest.CreateInstalled(selectedInstalledTargets);
+            return true;
+        }
+
+        return false;
     }
 
     private async void searchMergeDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)

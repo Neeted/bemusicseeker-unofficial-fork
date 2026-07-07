@@ -486,6 +486,28 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void DeleteInstallPackageRecordsRequest_RequiresTargetsAndPreservesKind()
+    {
+        ChartOperationTarget target = CreateContextMenuTarget(
+            ChartFileKind.Bms,
+            ChartOperationCapabilities.UpdateInstallDestination);
+
+        DeleteInstallPackageRecordsRequest pending = DeleteInstallPackageRecordsRequest.CreatePending([target]);
+        DeleteInstallPackageRecordsRequest installed = DeleteInstallPackageRecordsRequest.CreateInstalled([target]);
+
+        Assert.AreEqual(DeleteInstallPackageRecordsKind.Pending, pending.Kind);
+        Assert.IsTrue(pending.IsPending);
+        Assert.IsFalse(pending.IsInstalled);
+        Assert.AreEqual(1, pending.SelectedRowCount);
+        Assert.AreSame(target, pending.Targets[0]);
+        Assert.AreEqual(DeleteInstallPackageRecordsKind.Installed, installed.Kind);
+        Assert.IsFalse(installed.IsPending);
+        Assert.IsTrue(installed.IsInstalled);
+        Assert.ThrowsException<ArgumentException>(() => DeleteInstallPackageRecordsRequest.CreatePending([]));
+        Assert.ThrowsException<ArgumentException>(() => DeleteInstallPackageRecordsRequest.CreateInstalled([null!]));
+    }
+
+    [TestMethod]
     public void TableContextMenuOpened_UsesContextMenuStateBuilderForUiIndependentState()
     {
         string code = SourceTextTestHelper.ReadMainWindowSourceText();
@@ -2002,8 +2024,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(manualInstall, "viewModel.ManualInstallPendingCharts(targets)");
         Assert.IsFalse(manualInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
-        StringAssert.Contains(deletePackages, "viewModel.RemovePendingPackages(selectedPendingTargets)");
-        StringAssert.Contains(deletePackages, "viewModel.RemoveInstalledPackageRecords(selectedInstalledTargets)");
+        StringAssert.Contains(deletePackages, "DeleteInstallPackageRecordsRequest.CreatePending(selectedPendingTargets)");
+        StringAssert.Contains(deletePackages, "DeleteInstallPackageRecordsRequest.CreateInstalled(selectedInstalledTargets)");
+        StringAssert.Contains(deletePackages, "viewModel.RemovePendingPackages(request.Targets)");
+        StringAssert.Contains(deletePackages, "viewModel.RemoveInstalledPackageRecords(request.Targets)");
         StringAssert.Contains(deletePackages, "private async Task DeleteInstallPackageRecordsFromContextMenuAsync");
         Assert.IsFalse(deletePackages.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         Assert.IsFalse(deletePackages.Contains("CreateChartOperationTargetSnapshot"));
