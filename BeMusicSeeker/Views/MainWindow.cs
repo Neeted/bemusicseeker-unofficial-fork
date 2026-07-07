@@ -2143,9 +2143,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     internal static bool ShouldShowResourceHealthContextMenu(bool isPlaylistContext, IEnumerable<ChartOperationTarget> selectedTargets)
     {
-        return !isPlaylistContext
-            && (selectedTargets ?? [])
-                .Any(target => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+        return ChartContextMenuStateBuilder.ShouldShowResourceHealthContextMenu(isPlaylistContext, selectedTargets);
     }
 
     internal static bool ShouldUsePlaylistMissingContextMenu(object row, ChartOperationSourceScope sourceScope)
@@ -6327,7 +6325,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
         }
         bool flag = false;
-        bool hasScoreViewerTarget = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UseScoreViewer));
+        bool hasScoreViewerTarget = contextMenuState.HasScoreViewerTarget;
         if (menuItem18 != null && selectedTargets.Count > 1)
         {
             menuItem18.Header = BeMusicSeeker.Properties.Resources.Register_chart_with_viewer;
@@ -6352,7 +6350,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItemOpenLr2Ir != null)
         {
-            bool canOpenLr2Ir = rowTarget != null && rowTarget.HasCapability(ChartOperationCapabilities.UseLr2Ir);
+            bool canOpenLr2Ir = contextMenuState.CanOpenLr2Ir;
             menuItemOpenLr2Ir.Visibility = canOpenLr2Ir ? Visibility.Visible : Visibility.Collapsed;
             menuItemOpenLr2Ir.IsEnabled = canOpenLr2Ir;
         }
@@ -6370,16 +6368,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem7 != null)
         {
-            bool hasRankingTarget = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UpdateRanking));
+            bool hasRankingTarget = contextMenuState.HasRankingTarget;
             menuItem7.Visibility = hasRankingTarget ? Visibility.Visible : Visibility.Collapsed;
-            if (mainWindowViewModel.LR2ID == 0 || !hasRankingTarget)
-            {
-                menuItem7.IsEnabled = false;
-            }
-            else
-            {
-                menuItem7.IsEnabled = true;
-            }
+            menuItem7.IsEnabled = mainWindowViewModel.LR2ID != 0 && hasRankingTarget;
         }
         MenuItem menuItemDeleteInstallPackages = contextMenu.Items.OfType<MenuItem>().FirstOrDefault(item => item.Name == "tableContextMenuItemDeleteInstallPackages");
         List<string> selectedChartInfoParseFailureMd5s = GetSelectedChartInfoParseFailureMd5s();
@@ -6393,7 +6384,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         NLogWrapper.FileLogger?.Info("playlist_context_menu rowType=" + row?.GetType().FullName + " isPlaylistRow=" + isPlaylistRow + " isPlaylistContext=" + isPlaylistContext + " isNotOwned=" + isNotOwnedPlaylistRow + " section=" + effectiveSection + " treeSection=" + _currentTreeSelectionSection + " sourceScope=" + sourceScope + " kind=" + rowTarget?.Chart.Kind + " path=" + (chartPath ?? string.Empty));
         if (menuItemOpenInstallDestination != null)
         {
-            bool canOpenInstallDestination = rowTarget != null && rowTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination) && !isPlaylistRow;
+            bool canOpenInstallDestination = contextMenuState.CanOpenInstallDestination;
             menuItemOpenInstallDestination.Visibility = (canOpenInstallDestination ? Visibility.Visible : Visibility.Collapsed);
             menuItemOpenInstallDestination.IsEnabled = canOpenInstallDestination;
         }
@@ -6404,13 +6395,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem10 != null)
         {
-            bool isFullScanMenuVisible = ShouldShowResourceHealthContextMenu(isPlaylistContext, selectedTargets);
+            bool isFullScanMenuVisible = contextMenuState.CanShowResourceHealthMenu;
             menuItem10.Visibility = ((!isFullScanMenuVisible) ? Visibility.Collapsed : Visibility.Visible);
             menuItem10.IsEnabled = isFullScanMenuVisible;
         }
         if (menuItem13 != null)
         {
-            bool canMoveSelectedFiles = !isPendingSelected;
+            bool canMoveSelectedFiles = contextMenuState.CanMoveSelectedFiles;
             menuItem13.Visibility = ((!canMoveSelectedFiles) ? Visibility.Collapsed : Visibility.Visible);
             menuItem13.IsEnabled = canMoveSelectedFiles && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart.Path) && LongPathFileSystem.FileExists(target.Chart.Path));
         }
@@ -6421,32 +6412,31 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem15 != null)
         {
-            bool canDeleteFiles = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary))
-                || (isPendingSelected && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)));
+            bool canDeleteFiles = contextMenuState.CanDeleteFiles;
             menuItem15.Visibility = ((!canDeleteFiles) ? Visibility.Collapsed : Visibility.Visible);
             menuItem15.IsEnabled = canDeleteFiles;
             if (menuItemRenameInvalidExt != null)
             {
-                bool canRenameInvalidExt = canDeleteFiles && selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.RenameInvalidExtension));
+                bool canRenameInvalidExt = contextMenuState.CanRenameInvalidExtension;
                 menuItemRenameInvalidExt.Visibility = canRenameInvalidExt ? Visibility.Visible : Visibility.Collapsed;
                 menuItemRenameInvalidExt.IsEnabled = canRenameInvalidExt;
             }
         }
         if (separator != null)
         {
-            bool isFolderViewSeparatorVisible = !isPlaylistContext && !isPendingSelected;
+            bool isFolderViewSeparatorVisible = contextMenuState.CanShowFolderViewSeparator;
             separator.Visibility = ((!isFolderViewSeparatorVisible) ? Visibility.Collapsed : Visibility.Visible);
             separator.IsEnabled = isFolderViewSeparatorVisible;
         }
         if (menuItem16 != null)
         {
-            bool canAutoRenameFolders = !isPlaylistContext && !isPendingSelected && (hasBmsSelection || hasBmsonSelection);
+            bool canAutoRenameFolders = contextMenuState.CanAutoRenameFolders;
             menuItem16.Visibility = ((!canAutoRenameFolders) ? Visibility.Collapsed : Visibility.Visible);
             menuItem16.IsEnabled = canAutoRenameFolders;
         }
         if (menuItem17 != null)
         {
-            bool canFixEncoding = !isPlaylistContext && hasBmsSelection;
+            bool canFixEncoding = contextMenuState.CanFixEncoding;
             menuItem17.Visibility = ((!canFixEncoding) ? Visibility.Collapsed : Visibility.Visible);
             menuItem17.IsEnabled = canFixEncoding;
         }
@@ -6459,14 +6449,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (menuItem11 != null)
         {
             bool isSelected = treeViewItemFullScanCheck.IsSelected;
-            bool hasResourceHealthTarget = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+            bool hasResourceHealthTarget = contextMenuState.HasResourceHealthTarget;
             menuItem11.Visibility = ((!isSelected) ? Visibility.Collapsed : Visibility.Visible);
             menuItem11.IsEnabled = isSelected && hasResourceHealthTarget;
         }
         if (menuItem12 != null)
         {
             bool isSelected2 = treeViewItemFullScanCheckIgnored.IsSelected;
-            bool hasResourceHealthTarget = selectedTargets.Any(target => target.HasCapability(ChartOperationCapabilities.RunResourceHealthCheck));
+            bool hasResourceHealthTarget = contextMenuState.HasResourceHealthTarget;
             menuItem12.Visibility = ((!isSelected2) ? Visibility.Collapsed : Visibility.Visible);
             menuItem12.IsEnabled = isSelected2 && hasResourceHealthTarget;
         }
@@ -6479,7 +6469,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem19 != null && separator2 != null)
         {
-            bool canConvertToAudio = !isPendingSelected;
+            bool canConvertToAudio = contextMenuState.CanConvertToAudio;
             Separator convertSeparator = separator2;
             Visibility visibility = (menuItem19.Visibility = ((!canConvertToAudio) ? Visibility.Collapsed : Visibility.Visible));
             convertSeparator.Visibility = visibility;
@@ -6526,7 +6516,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (menuItemDeleteInstallPackages != null)
         {
             menuItemDeleteInstallPackages.Visibility = (isInstallListSelected ? Visibility.Visible : Visibility.Collapsed);
-            menuItemDeleteInstallPackages.IsEnabled = isInstallListSelected && selectedTargets.Count > 0;
+            menuItemDeleteInstallPackages.IsEnabled = contextMenuState.CanDeleteInstallPackages;
         }
         if (isNotOwnedPlaylistRow)
         {

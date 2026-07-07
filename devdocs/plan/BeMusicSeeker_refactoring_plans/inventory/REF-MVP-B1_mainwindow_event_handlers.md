@@ -39,7 +39,7 @@
 ## tableContextMenuOpened extraction checkpoints
 
 1. 完了: row / section / selected chart targets から作る UI 非依存 state を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ移す。
-2. 次候補: score viewer / ranking / resource health / install destination の boolean policy を state 側へ追加する。
+2. 完了: score viewer / ranking / resource health / install destination の boolean policy を state 側へ追加する。
 3. 次候補: click handler 側の selected target resolution を command request DTO へ移す。
 4. 後続: `MenuItem` / `ContextMenu` 更新は UserControl / behavior / command bridge の方針が決まるまで view adapter に残す。
 

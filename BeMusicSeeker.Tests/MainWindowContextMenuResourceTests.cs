@@ -379,6 +379,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(state.IsBmsonContextRow);
         Assert.IsFalse(state.HasBmsonSelection);
         Assert.IsTrue(state.HasBmsSelection);
+        Assert.IsFalse(state.CanMoveSelectedFiles);
+        Assert.IsFalse(state.CanConvertToAudio);
+        Assert.IsTrue(state.CanDeleteInstallPackages);
     }
 
     [TestMethod]
@@ -408,8 +411,51 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, state.SelectedTargets.Count);
         Assert.AreSame(selectedTarget, state.SelectedTargets[0]);
         Assert.IsFalse(state.IsBmsonContextRow);
+        Assert.IsTrue(state.HasResourceHealthTarget);
+        Assert.IsFalse(state.CanShowResourceHealthMenu);
         Assert.IsTrue(state.HasBmsonSelection);
         Assert.IsFalse(state.HasBmsSelection);
+        Assert.IsFalse(state.CanAutoRenameFolders);
+        Assert.IsFalse(state.CanFixEncoding);
+    }
+
+    [TestMethod]
+    public void ChartContextMenuStateBuilder_ResolvesCapabilityPolicy()
+    {
+        ChartOperationTarget rowTarget = CreateContextMenuTarget(
+            ChartFileKind.Bms,
+            ChartOperationCapabilities.UseLr2Ir
+                | ChartOperationCapabilities.UpdateRanking
+                | ChartOperationCapabilities.RunResourceHealthCheck
+                | ChartOperationCapabilities.UpdateInstallDestination
+                | ChartOperationCapabilities.RemoveFromLibrary
+                | ChartOperationCapabilities.RenameInvalidExtension
+                | ChartOperationCapabilities.UseScoreViewer);
+
+        ChartContextMenuState state = ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(
+            isPlaylistRow: false,
+            rowUrl: null!,
+            rowUrlDiff: null!,
+            isPendingSelected: false,
+            isInstalledSelected: false,
+            isPlaylistSelected: false,
+            rowTarget: rowTarget,
+            selectedTargets: [rowTarget]));
+
+        Assert.IsTrue(state.HasScoreViewerTarget);
+        Assert.IsTrue(state.HasRankingTarget);
+        Assert.IsTrue(state.HasResourceHealthTarget);
+        Assert.IsTrue(state.CanOpenLr2Ir);
+        Assert.IsTrue(state.CanOpenInstallDestination);
+        Assert.IsTrue(state.CanShowResourceHealthMenu);
+        Assert.IsTrue(state.CanMoveSelectedFiles);
+        Assert.IsTrue(state.CanDeleteFiles);
+        Assert.IsTrue(state.CanRenameInvalidExtension);
+        Assert.IsTrue(state.CanShowFolderViewSeparator);
+        Assert.IsTrue(state.CanAutoRenameFolders);
+        Assert.IsTrue(state.CanFixEncoding);
+        Assert.IsTrue(state.CanConvertToAudio);
+        Assert.IsFalse(state.CanDeleteInstallPackages);
     }
 
     [TestMethod]
@@ -1605,6 +1651,7 @@ public sealed class MainWindowContextMenuResourceTests
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string bmsLibraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string contextMenuStateBuilderCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "ChartContextMenuStateBuilder.cs"));
         string autoRenameClick = ExtractBetween(
             mainWindowCode,
             "private void tableContextMenuItemAutoRenameFolderClick",
@@ -1633,7 +1680,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(autoRenameClick, "AutoRenameChartFolders(targetSnapshot)");
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
-        StringAssert.Contains(contextMenuOpening, "hasBmsSelection || hasBmsonSelection");
+        StringAssert.Contains(contextMenuOpening, "contextMenuState.CanAutoRenameFolders");
+        StringAssert.Contains(contextMenuStateBuilderCode, "hasBmsSelection || hasBmsonSelection");
         StringAssert.Contains(autoRenameAll, "files?.HasAutoRenameAllChartFolderTargets(parentDir) != true");
         StringAssert.Contains(autoRenameAll, "files?.AutoRenameAllChartFolders(parentDir, UpdateFolderAutoRenameProgressStatus) == true");
         Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
