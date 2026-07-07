@@ -12953,18 +12953,16 @@ public partial class MainWindowViewModel : ViewModel
             cancellationStage = "ui_apply";
             List<PlaylistDetailSourceRow> previousSourceRows = ReplacePlaylistSourceRows(sourceRows, bmsTable, folderName, filterType, request.Identity);
             sourceRows = null;
-            ApplyPlaylistDetailViewRowsToMainView(
+            PlaylistMainViewApplyResult mainViewApplyResult = ApplyPlaylistDetailViewRowsToMainView(
                 request,
                 finalRows,
                 viewCount,
                 ResolvePlaylistColumnSettingMode(filterType),
-                viewBuildStopwatch,
-                out long columnStageMs,
-                out long callbackStageMs);
+                viewBuildStopwatch);
             finalRows = null;
             int disposedSourceRowsCount = CountPlaylistSourceRows(previousSourceRows);
             previousSourceRows = null;
-            FinalizeMainViewBuild(viewBuildStopwatch, mode, requestedMode, parameter, executionResult.FolderStageMs, executionResult.KeywordStageMs, executionResult.ModeStageMs, executionResult.SortStageMs, sortReuse: false, executionResult.SortProfile, executionResult.FolderCount, executionResult.KeywordCount, executionResult.ModeCount, viewCount, columnStageMs, callbackStageMs);
+            FinalizeMainViewBuild(viewBuildStopwatch, mode, requestedMode, parameter, executionResult.FolderStageMs, executionResult.KeywordStageMs, executionResult.ModeStageMs, executionResult.SortStageMs, sortReuse: false, executionResult.SortProfile, executionResult.FolderCount, executionResult.KeywordCount, executionResult.ModeCount, viewCount, mainViewApplyResult.ColumnStageMs, mainViewApplyResult.CallbackStageMs);
             LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + executionResult.ScoreUpdateTargetCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown") + " libraryIndexMs=" + executionResult.LibraryIndexMs + " libraryIndexAccess=" + executionResult.LibraryIndexAccess + " libraryIndexBuildMs=" + executionResult.LibraryIndexBuildMs + " entryResolveMs=" + executionResult.EntryResolveMs + " scoreProbeMs=" + executionResult.ScoreProbeMs + " scoreProbeMatchedScoreCount=" + executionResult.ScoreProbeMetrics.MatchedScoreCount + " sourceMaterializeMs=" + executionResult.SourceMaterializeMs + " viewMaterializeMs=" + executionResult.ViewMaterializeMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
             return true;
         }
@@ -13011,36 +13009,33 @@ public partial class MainWindowViewModel : ViewModel
         {
             return true;
         }
-        ApplyPlaylistDetailViewRowsToMainView(
+        PlaylistMainViewApplyResult mainViewApplyResult = ApplyPlaylistDetailViewRowsToMainView(
             request,
             finalRows,
             viewCount,
             ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
-            viewBuildStopwatch,
-            out long columnStageMs,
-            out long callbackStageMs);
-        FinalizeMainViewBuild(viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, folderStageMs: 0L, viewApplyResult.KeywordStageMs, viewApplyResult.ModeStageMs, viewApplyResult.SortStageMs, sortReuse: false, viewApplyResult.SortProfile, folderCount: viewApplyResult.SourceCount, viewApplyResult.KeywordCount, viewApplyResult.ModeCount, viewCount, columnStageMs, callbackStageMs);
+            viewBuildStopwatch);
+        FinalizeMainViewBuild(viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, folderStageMs: 0L, viewApplyResult.KeywordStageMs, viewApplyResult.ModeStageMs, viewApplyResult.SortStageMs, sortReuse: false, viewApplyResult.SortProfile, folderCount: viewApplyResult.SourceCount, viewApplyResult.KeywordCount, viewApplyResult.ModeCount, viewCount, mainViewApplyResult.ColumnStageMs, mainViewApplyResult.CallbackStageMs);
         return true;
     }
 
-    private void ApplyPlaylistDetailViewRowsToMainView(
+    private PlaylistMainViewApplyResult ApplyPlaylistDetailViewRowsToMainView(
         PlaylistBuildRequest request,
         IList finalRows,
         int viewCount,
         MainViewUpdateMode columnSettingMode,
-        Stopwatch viewBuildStopwatch,
-        out long columnStageMs,
-        out long callbackStageMs)
+        Stopwatch viewBuildStopwatch)
     {
         SelectedIndexChartRowsView = -1;
         RaiseMainTableSwapPreparing();
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         loadColumnSetting(columnSettingMode);
-        columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        callbackStageMs = 0L;
+        long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        long callbackStageMs = 0L;
         ReplacePlaylistViewRows(finalRows, request.Identity);
         SetChartRowsView(finalRows);
         TryMarkPlaylistOpenBuildCompleted(request, viewCount);
+        return new PlaylistMainViewApplyResult(columnStageMs, callbackStageMs);
     }
 
     private bool TryPatchPlaylistSourceChartInfoIndex(PlaylistBuildRequest request, CancellationToken cancellationToken, out int sourceCount, out int dependencyCount, out int patchedCount, out long elapsedMs)

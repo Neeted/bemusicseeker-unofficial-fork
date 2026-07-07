@@ -166,15 +166,18 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildStageResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistViewApplyResult");
+        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistMainViewApplyResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistRebuildExecutionResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistScoreProbeMetrics");
         StringAssert.Contains(rootSource, "private PlaylistSourceBuildStageResult BuildPlaylistSourceForRequest(");
         StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromCurrentSource(");
         StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)");
+        StringAssert.Contains(rootSource, "private PlaylistMainViewApplyResult ApplyPlaylistDetailViewRowsToMainView(");
         StringAssert.Contains(rootSource, "PlaylistSourceBuildResult sourceBuildResult = BuildPlaylistSourceRows");
         StringAssert.Contains(rootSource, "PlaylistSourceBuildStageResult sourceBuildStageResult = BuildPlaylistSourceForRequest");
         StringAssert.Contains(rootSource, "PlaylistViewApplyResult viewApplyResult = ApplyPlaylistViewFromRebuiltSource");
         StringAssert.Contains(rootSource, "var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, viewApplyResult);");
+        StringAssert.Contains(rootSource, "PlaylistMainViewApplyResult mainViewApplyResult = ApplyPlaylistDetailViewRowsToMainView");
         StringAssert.Contains(workflowCoordinatorSource, "internal static class PlaylistDetailBuildWorkflowCoordinator");
         StringAssert.Contains(workflowCoordinatorSource, "PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot)");
         StringAssert.Contains(workflowCoordinatorSource, "host.TryPatchPlaylistSourceChartInfoIndex");
@@ -182,6 +185,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(workflowHostSource, "public partial class MainWindowViewModel : IPlaylistDetailBuildWorkflowHost");
         StringAssert.Contains(workflowHostSource, "return RebuildPlaylistSource(request, cancellationToken);");
         Assert.AreEqual(-1, rootSource.IndexOf("out int scoreUpdateTargetCount", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("out long columnStageMs", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistStateSource.IndexOf("private sealed class PlaylistScoreProbeMetrics", StringComparison.Ordinal));
     }
 

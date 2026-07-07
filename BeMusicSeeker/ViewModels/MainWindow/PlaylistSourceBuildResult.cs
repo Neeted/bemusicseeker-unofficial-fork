@@ -135,6 +135,22 @@ internal sealed class PlaylistViewApplyResult
 }
 
 /// <summary>
+/// playlist detail view rows を main view へ反映した結果です。
+/// </summary>
+internal sealed class PlaylistMainViewApplyResult
+{
+    internal PlaylistMainViewApplyResult(long columnStageMs, long callbackStageMs)
+    {
+        ColumnStageMs = columnStageMs;
+        CallbackStageMs = callbackStageMs;
+    }
+
+    internal long ColumnStageMs { get; }
+
+    internal long CallbackStageMs { get; }
+}
+
+/// <summary>
 /// RebuildPlaylistSource の worker stages が返す読み取り用の結果です。
 /// </summary>
 internal sealed class PlaylistRebuildExecutionResult
