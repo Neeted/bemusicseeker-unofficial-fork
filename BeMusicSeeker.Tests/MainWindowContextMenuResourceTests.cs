@@ -589,6 +589,25 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void RepairInstalledLocationSearchRequest_TryCreatePreservesRepairTargets()
+    {
+        ChartOperationTarget target = CreateContextMenuTarget(
+            ChartFileKind.Bms,
+            ChartOperationCapabilities.RepairInstalledLocation);
+
+        Assert.IsTrue(RepairInstalledLocationSearchRequest.TryCreate([target], out RepairInstalledLocationSearchRequest request));
+
+        Assert.IsTrue(request.HasTargets);
+        Assert.AreEqual(1, request.Targets.Count);
+        Assert.AreSame(target, request.Targets[0]);
+        request.MaterializeRepairEntries();
+        Assert.AreEqual(1, request.RepairEntries.Count);
+        Assert.AreEqual(target.Chart.Path, request.RepairEntries[0].Chart.Path);
+        Assert.IsFalse(RepairInstalledLocationSearchRequest.TryCreate([], out RepairInstalledLocationSearchRequest emptyRequest));
+        Assert.IsNull(emptyRequest);
+    }
+
+    [TestMethod]
     public void TableContextMenuOpened_UsesContextMenuStateBuilderForUiIndependentState()
     {
         string code = SourceTextTestHelper.ReadMainWindowSourceText();
@@ -2197,9 +2216,11 @@ public sealed class MainWindowContextMenuResourceTests
             "private void tableContextMenuItemDeleteEntryClick");
 
         StringAssert.Contains(searchRepair, "GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation)");
-        StringAssert.Contains(searchRepair, "viewModel.CreateRepairInstalledLocationTargetSnapshot(targets)");
-        StringAssert.Contains(searchRepair, "repairTargets.MaterializeRepairEntries()");
-        StringAssert.Contains(searchRepair, "viewModel.SearchCorrectInstallationDirectoryCharts(repairTargets)");
+        StringAssert.Contains(searchRepair, "RepairInstalledLocationSearchRequest.TryCreate(targets, out RepairInstalledLocationSearchRequest request)");
+        StringAssert.Contains(searchRepair, "base.DataContext is not MainWindowViewModel viewModel");
+        StringAssert.Contains(searchRepair, "request.MaterializeRepairEntries()");
+        StringAssert.Contains(searchRepair, "viewModel.SearchCorrectInstallationDirectoryCharts(request)");
+        Assert.IsFalse(searchRepair.Contains("IRepairInstalledLocationTargetSnapshot"));
         Assert.IsFalse(searchRepair.Contains("GetSelectedChartCompatibilityAdapters"));
         StringAssert.Contains(fixRepair, "GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation)");
         StringAssert.Contains(fixRepair, "viewModel.CreateRepairInstalledLocationTargetSnapshot(targets)");

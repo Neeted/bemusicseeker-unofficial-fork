@@ -21046,6 +21046,19 @@ public partial class MainWindowViewModel : ViewModel
         SearchCorrectInstallationDirectoryCharts(snapshot.RepairEntries);
     }
 
+    internal void SearchCorrectInstallationDirectoryCharts(RepairInstalledLocationSearchRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (!request.HasTargets)
+        {
+            return;
+        }
+        SearchCorrectInstallationDirectoryCharts(request.RepairEntries);
+    }
+
     public void ClearInstallDestinationForPendingPackages(IEnumerable<ChartPackage> packages)
     {
         if (packages == null)

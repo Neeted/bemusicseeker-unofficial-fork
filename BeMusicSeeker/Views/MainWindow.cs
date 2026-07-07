@@ -8934,14 +8934,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
-        if (targets.Count != 0)
+        if (RepairInstalledLocationSearchRequest.TryCreate(targets, out RepairInstalledLocationSearchRequest request))
         {
-            var viewModel = base.DataContext as MainWindowViewModel;
-            MainWindowViewModel.IRepairInstalledLocationTargetSnapshot repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
-            repairTargets.MaterializeRepairEntries();
+            if (base.DataContext is not MainWindowViewModel viewModel)
+            {
+                return;
+            }
+            request.MaterializeRepairEntries();
             Task.Run(delegate
             {
-                viewModel.SearchCorrectInstallationDirectoryCharts(repairTargets);
+                viewModel.SearchCorrectInstallationDirectoryCharts(request);
             }).Logging("tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
             e.Handled = true;
         }
