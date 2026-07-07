@@ -109,7 +109,7 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-B1` の実装 slice として、`MainWindow` event handler inventory を作成し、`tableContextMenuOpened` の UI 非依存な chart context-menu state calculation と capability-based boolean policy を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ抽出した。静的レビューで重大指摘なし。
 
-次にやる 1 件: `REF-MVP-B1` の残りとして、pending install destination search handlers の snapshot / request 境界を整理し、次の click handler へ同じ形を展開する。
+次にやる 1 件: `REF-MVP-B1` の残りとして、pending install 系 handlers の request 境界を整理し、次の click handler へ同じ形を展開する。
 
 ## 次回 Codex が最初に読むべきファイル
 

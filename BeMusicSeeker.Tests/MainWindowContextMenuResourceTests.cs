@@ -2020,9 +2020,11 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(forceInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(forceInstall, "viewModel.ForceInstallPendingCharts(targets)");
+        StringAssert.Contains(forceInstall, "private async Task ForceInstallSelectedPendingChartsAsync");
         Assert.IsFalse(forceInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(manualInstall, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(manualInstall, "viewModel.ManualInstallPendingCharts(targets)");
+        StringAssert.Contains(manualInstall, "private async Task ManualInstallSelectedPendingChartsAsync");
         Assert.IsFalse(manualInstall.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(deletePackages, "DeleteInstallPackageRecordsRequest.CreatePending(selectedPendingTargets)");

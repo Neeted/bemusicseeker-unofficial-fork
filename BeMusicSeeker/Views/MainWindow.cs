@@ -9282,6 +9282,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void forceInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
+        await ForceInstallSelectedPendingChartsAsync(e);
+    }
+
+    private async Task ForceInstallSelectedPendingChartsAsync(RoutedEventArgs e)
+    {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_force_install_pending"))
         {
             e.Handled = true;
@@ -9317,6 +9322,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
 
     private async void manualInstallSelectedPendingCharts(object sender, RoutedEventArgs e)
+    {
+        await ManualInstallSelectedPendingChartsAsync(e);
+    }
+
+    private async Task ManualInstallSelectedPendingChartsAsync(RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_manual_install_pending"))
         {
