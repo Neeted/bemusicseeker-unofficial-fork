@@ -6881,27 +6881,20 @@ completeFileEnumerationOnce,
         rowSnapshotStopwatch.Stop();
 
         var rootsStopwatch = Stopwatch.StartNew();
-        DateTime nowUtc = DateTime.UtcNow;
-        List<string> roots = getBMSDirectories();
-        List<string> lr2FolderDiscoveryDirectories = CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots);
-        string lr2RootPath = Settings.Default.LR2RootPath;
+        Lr2SongDbSyncInputRootSnapshot rootSnapshot = CreateLr2SongDbSyncInputRootSnapshot();
         rootsStopwatch.Stop();
 
         var builtinSettingsStopwatch = Stopwatch.StartNew();
-        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = CreateLr2BuiltinCustomFolderSettings(rowSnapshot.SongRows, nowUtc);
-        List<string> lr2BuiltinFolderSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories();
-        string lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
-        IReadOnlyList<string> lr2AdditionalNormalCustomFolderOutputBaseDirs = CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories();
-        string lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        List<string> lr2FolderPruneDirectories = CreateLr2SongDbSyncLr2FolderPruneDirectories(
-            roots,
-            lr2BuiltinFolderSourceDirectories);
+        Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot = CreateLr2SongDbSyncInputSettingsSnapshot(
+            rowSnapshot.SongRows,
+            rootSnapshot.CapturedAtUtc,
+            rootSnapshot.RootDirectories);
         builtinSettingsStopwatch.Stop();
 
         var scanSurfaceStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface = GetCurrentLr2SongDbSyncScanSurface(
-            roots,
-            lr2FolderDiscoveryDirectories,
+            rootSnapshot.RootDirectories,
+            rootSnapshot.Lr2FolderDiscoveryDirectories,
             rowSnapshot,
             out string scanSurfaceMissReason);
         scanSurfaceStopwatch.Stop();
@@ -6909,7 +6902,7 @@ completeFileEnumerationOnce,
         var directoryTargetsStopwatch = Stopwatch.StartNew();
         IReadOnlyCollection<string> directoryMetadataTargets = scanSurface?.NormalFolderDirectoryPaths?.Count > 0
             ? scanSurface.NormalFolderDirectoryPaths
-            : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, rowSnapshot.ChartPaths);
+            : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootSnapshot.RootDirectories, rowSnapshot.ChartPaths);
         directoryTargetsStopwatch.Stop();
 
         Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface =
@@ -6980,9 +6973,9 @@ completeFileEnumerationOnce,
                     ? "enumeration_prepared_merge"
                     : "enumeration";
                 lr2FolderFileCandidates = CreateLr2SongDbSyncLr2FolderFileCandidates(
-                    CreateLr2FolderDiscoveryDirectoriesForEnumeration(lr2FolderDiscoveryDirectories, preparedSurface),
-                    lr2RootPath,
-                    builtinCustomFolderSettings,
+                    CreateLr2FolderDiscoveryDirectoriesForEnumeration(rootSnapshot.Lr2FolderDiscoveryDirectories, preparedSurface),
+                    rootSnapshot.Lr2RootPath,
+                    settingsSnapshot.Lr2BuiltinCustomFolderSettings,
                     appManagedOutputScope.Directories);
                 lr2FolderFileCandidates =
                     Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
@@ -7025,11 +7018,11 @@ completeFileEnumerationOnce,
         lr2FolderCandidatesStopwatch.Stop();
         IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
             lr2FolderFileCandidates.Paths,
-            roots,
-            lr2NormalCustomFolderOutputBaseDir,
-            lr2AdditionalNormalCustomFolderOutputBaseDirs,
-            lr2RootCustomFolderOutputBaseDir,
-            lr2BuiltinFolderSourceDirectories);
+            rootSnapshot.RootDirectories,
+            settingsSnapshot.Lr2NormalCustomFolderOutputBaseDir,
+            settingsSnapshot.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
+            settingsSnapshot.Lr2RootCustomFolderOutputBaseDir,
+            settingsSnapshot.Lr2BuiltinFolderSourceDirectories);
         IReadOnlyCollection<string> directoryEntryTargets = MergeLr2DirectoryMetadataTargets(
             directoryMetadataTargets,
             lr2FolderParentDirectoryTargets);
@@ -7045,7 +7038,7 @@ completeFileEnumerationOnce,
         }
         else
         {
-            textMetadataCandidates = CreateLr2SongDbSyncTextMetadataCandidates(lr2FolderDiscoveryDirectories, directoryEntryTargets);
+            textMetadataCandidates = CreateLr2SongDbSyncTextMetadataCandidates(rootSnapshot.Lr2FolderDiscoveryDirectories, directoryEntryTargets);
             folderInfoCandidates = textMetadataCandidates.FolderInfoCandidates;
         }
         if (hasPreparedSurface && preparedSurface.FolderInfoFilePaths.Count > 0)
@@ -7069,11 +7062,11 @@ completeFileEnumerationOnce,
                 OverlayLr2DirectoryEntrySurface(
                     MergeMissingLr2DirectoryEntrySurface(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
                     preparedSurface.DirectoryEntries),
-                lr2FolderDiscoveryDirectories,
+                rootSnapshot.Lr2FolderDiscoveryDirectories,
                 directoryEntryTargets)
             : OverlayLr2DirectoryEntrySurface(
                 CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(
-                    lr2FolderDiscoveryDirectories,
+                    rootSnapshot.Lr2FolderDiscoveryDirectories,
                     directoryEntryTargets),
                 preparedSurface.DirectoryEntries);
         directoryEntriesStopwatch.Stop();
@@ -7123,10 +7116,10 @@ completeFileEnumerationOnce,
             + " reusedScanSurface=" + (scanSurface != null).ToString().ToLowerInvariant()
             + " scanSurfaceMissReason=" + (scanSurfaceMissReason ?? string.Empty)
             + " scanSurfaceGeneration=" + (scanSurface?.Generation ?? 0)
-            + " rootDirs=" + roots.Count
-            + " lr2FolderDiscoveryDirs=" + lr2FolderDiscoveryDirectories.Count
-            + " lr2BuiltinFolderSourceDirs=" + lr2BuiltinFolderSourceDirectories.Count
-            + " lr2FolderPruneDirs=" + lr2FolderPruneDirectories.Count
+            + " rootDirs=" + rootSnapshot.RootDirectories.Count
+            + " lr2FolderDiscoveryDirs=" + rootSnapshot.Lr2FolderDiscoveryDirectories.Count
+            + " lr2BuiltinFolderSourceDirs=" + settingsSnapshot.Lr2BuiltinFolderSourceDirectories.Count
+            + " lr2FolderPruneDirs=" + settingsSnapshot.Lr2FolderPruneDirectories.Count
             + " scanSurfaceNormalFolderDirs=" + (scanSurface?.NormalFolderDirectoryPaths?.Count ?? 0)
             + " normalDirectoryTargets=" + directoryMetadataTargets.Count
             + " lr2FolderParentDirectoryTargets=" + lr2FolderParentDirectoryTargets.Count
@@ -7166,22 +7159,22 @@ completeFileEnumerationOnce,
             + " textFileDirsMs=" + textFileDirsStopwatch.ElapsedMilliseconds
             + " totalMs=" + inputStopwatch.ElapsedMilliseconds);
         return new Lr2SongDbSyncInput(
-            roots,
+            rootSnapshot.RootDirectories,
             rowSnapshot.ChartPaths,
             [.. directoryMetadataTargets],
             folderInfoCandidates.Paths,
             folderInfoCandidates.EntriesByPath,
             directoryEntries,
-            lr2FolderDiscoveryDirectories,
-            lr2FolderPruneDirectories,
+            rootSnapshot.Lr2FolderDiscoveryDirectories,
+            settingsSnapshot.Lr2FolderPruneDirectories,
             appManagedOutputScope.Directories,
             appManagedOutputScope.PruneExcludedPaths,
-            lr2RootPath,
-            lr2NormalCustomFolderOutputBaseDir,
-            lr2AdditionalNormalCustomFolderOutputBaseDirs,
-            lr2RootCustomFolderOutputBaseDir,
-            lr2BuiltinFolderSourceDirectories,
-            builtinCustomFolderSettings,
+            rootSnapshot.Lr2RootPath,
+            settingsSnapshot.Lr2NormalCustomFolderOutputBaseDir,
+            settingsSnapshot.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
+            settingsSnapshot.Lr2RootCustomFolderOutputBaseDir,
+            settingsSnapshot.Lr2BuiltinFolderSourceDirectories,
+            settingsSnapshot.Lr2BuiltinCustomFolderSettings,
             lr2FolderFileCandidates.Paths,
             lr2FolderFileCandidates.EntriesByPath,
             lr2FolderFileCandidates.DiscoveryComplete,
@@ -7225,6 +7218,34 @@ completeFileEnumerationOnce,
             ownedCollectionVersion,
             storageRowsVersion.BmsRowsVersion,
             storageRowsVersion.BmsonRowsVersion);
+    }
+
+    private Lr2SongDbSyncInputRootSnapshot CreateLr2SongDbSyncInputRootSnapshot()
+    {
+        DateTime capturedAtUtc = DateTime.UtcNow;
+        List<string> rootDirectories = getBMSDirectories();
+        return new Lr2SongDbSyncInputRootSnapshot(
+            capturedAtUtc,
+            rootDirectories,
+            CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(rootDirectories),
+            Settings.Default.LR2RootPath);
+    }
+
+    private Lr2SongDbSyncInputSettingsSnapshot CreateLr2SongDbSyncInputSettingsSnapshot(
+        IEnumerable<BMSFile> songRows,
+        DateTime nowUtc,
+        IEnumerable<string> rootDirectories)
+    {
+        List<string> lr2BuiltinFolderSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories();
+        return new Lr2SongDbSyncInputSettingsSnapshot(
+            CreateLr2BuiltinCustomFolderSettings(songRows, nowUtc),
+            lr2BuiltinFolderSourceDirectories,
+            Settings.Default.LR2CustomFolderOutputBaseDir,
+            CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories(),
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+            CreateLr2SongDbSyncLr2FolderPruneDirectories(
+                rootDirectories,
+                lr2BuiltinFolderSourceDirectories));
     }
 
     private bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)

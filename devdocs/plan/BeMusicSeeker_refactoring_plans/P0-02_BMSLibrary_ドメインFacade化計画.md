@@ -582,9 +582,32 @@ BMSLibrary                         // public facade / compatibility API
 
 `BMSLibrary.cs` は最終 12,000 行以下を目標にする。超過する場合は `PLAN_STATUS.md` に、残す責務、残す理由、次の extraction 候補、サブエージェントレビュー結果を記録する。
 
+## Completed Checkpoint: `REF-MVP-C18`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` の root discovery と LR2 settings / builtin settings capture を top-level internal DTO 境界へ寄せる。
+- C17 の row snapshot と合わせ、後続の input builder 化で必要な入力面を private root state から分離しやすくする。
+- `rootsMs` / `builtinSettingsMs` の計測範囲、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- root directories / LR2 discovery directories / LR2 root path が dedicated snapshot DTO 経由で `CreateLr2SongDbSyncInput` に渡る。
+- builtin custom folder settings / builtin source directories / custom folder output base / prune directories が dedicated snapshot DTO 経由で `CreateLr2SongDbSyncInput` に渡る。
+- `CreateLr2SongDbSyncInput` 本体の full builder 化、scan surface helper 移動、DB schema / setting name 変更は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncInputRootSnapshot` と `Lr2SongDbSyncInputSettingsSnapshot` を追加し、root discovery / LR2 settings capture を dedicated DTO 経由へ移した。
+- `DateTime.UtcNow` は従来どおり root discovery 前に capture し、recent 判定の cutoff が遅延しないようにした。
+- 新規 DTO には意味を変える null fallback を追加していない。
+
 ## 後続候補
 
-`REF-MVP-C17` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
+`REF-MVP-C18` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
 
 - LR2 song.db sync input builder / scan surface helper follow-up。
 - package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。
