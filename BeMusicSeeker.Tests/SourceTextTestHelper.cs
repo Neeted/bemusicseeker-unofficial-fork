@@ -114,6 +114,22 @@ internal static class SourceTextTestHelper
     }
 
     /// <summary>
+    /// Reads all source files that are considered part of <c>BMSLibrary</c> after facade splitting.
+    /// </summary>
+    /// <returns>The concatenated source text for BMSLibrary-related files.</returns>
+    internal static string ReadBmsLibrarySourceText()
+    {
+        string root = FindRepositoryRoot();
+        string modelsDirectory = Path.Combine(root, "BeMusicSeeker", "Models");
+        return ReadSourceFileSet(
+            root,
+            EnumerateExistingFiles(Path.Combine(modelsDirectory, "BMSLibrary.cs")),
+            Directory.EnumerateFiles(modelsDirectory, "BMSLibrary*.cs", SearchOption.TopDirectoryOnly),
+            EnumerateDirectoryFiles(Path.Combine(modelsDirectory, "BmsLibrary")),
+            EnumerateDirectoryFiles(Path.Combine(modelsDirectory, "BmsLibraryInternal")));
+    }
+
+    /// <summary>
     /// Extracts a method body from source text using a unique signature fragment.
     /// </summary>
     /// <param name="text">Source text to search.</param>

@@ -38,13 +38,13 @@
 
 subtasks:
 
-1. `ReadBmsLibrarySourceText()` を追加し、少なくとも次を連結して読む。
+1. 完了: `ReadBmsLibrarySourceText()` を追加し、少なくとも次を連結して読む。
    - `BeMusicSeeker/Models/BMSLibrary.cs`
    - `BeMusicSeeker/Models/BMSLibrary*.cs`
    - `BeMusicSeeker/Models/BmsLibrary/**/*.cs`
    - 必要な test では `BeMusicSeeker/Models/BmsLibraryInternal/**/*.cs`
-2. `File.ReadAllText` で `BMSLibrary.cs` 単体を読む test を helper 経由に置き換える。
-3. private reflection / source-text test の主要 blocker を `devdocs/plan/BeMusicSeeker_refactoring_plans/inventory/REF-MVP-C1_bmslibrary_test_blockers.md` に記録する。
+2. 完了: `File.ReadAllText` で `BMSLibrary.cs` 単体を読む test を helper 経由に置き換える。
+3. 完了: private reflection / source-text test の主要 blocker を `devdocs/plan/BeMusicSeeker_refactoring_plans/inventory/REF-MVP-C1_bmslibrary_test_blockers.md` に記録する。
 4. 可能なら同じ ticket 内で、挙動変更なしの最初の partial split または既存 internal service への小さな workflow 移動に進む。
 
 完了条件:

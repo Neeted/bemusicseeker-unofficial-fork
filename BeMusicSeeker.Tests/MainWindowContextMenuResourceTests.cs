@@ -1120,7 +1120,7 @@ public sealed class MainWindowContextMenuResourceTests
             "Changing the folder prefix is a local playlist property edit and must not trigger an external reload by itself.");
         Assert.IsTrue(lr2CustomFolderIndex > headerCommitIndex);
         Assert.IsTrue(lr2CustomFolderIndex > fullCommitIndex);
-        StringAssert.Contains(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs")), "public List<string> SearchTargets { get; set; } = [];");
+        StringAssert.Contains(SourceTextTestHelper.ReadBmsLibrarySourceText(), "public List<string> SearchTargets { get; set; } = [];");
         Assert.IsFalse(viewModelCode.Contains("throw new NotImplementedException();"));
     }
 
@@ -1800,7 +1800,7 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string bmsLibraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string bmsLibraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string contextMenuStateBuilderCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "ChartContextMenuStateBuilder.cs"));
         string autoRenameClick = ExtractBetween(
             mainWindowCode,
@@ -1861,7 +1861,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string bmsLibraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string bmsLibraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string createPlaylistLibraryIndex = ExtractBetween(
             viewModelCode,
             "private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot",
@@ -1883,7 +1883,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string bmsLibraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string bmsLibraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string notificationHandler = ExtractBetween(
             viewModelCode,
             "private NormalLibraryRefreshNotificationBatch ApplyNormalLibraryRefreshNotification",
@@ -1922,7 +1922,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string notificationVersionHandler = ExtractBetween(
             viewModelCode,
             "listenerForBMSLibrary.RegisterHandler(() => files.NormalLibraryRefreshNotificationVersion",
@@ -1970,7 +1970,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void Lr2SongDbRuntimeWritesUseLr2SongDbSyncStatusBoundary()
     {
-        string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string[] lines = libraryCode.Split(["\r\n", "\n"], StringSplitOptions.None);
         for (int i = 0; i < lines.Length; i++)
         {
@@ -1988,7 +1988,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void OwnedMutationDispatcherDoesNotUseLegacyInvalidationSuppressions()
     {
-        string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string[] removedSuppressions =
         [
             "SuppressInstalledChartLookupInvalidation",
@@ -2010,7 +2010,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void DuplicateFilterViewUsesChartFileParameters()
     {
-        string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string mainLibraryWorkflow = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void ApplyMainLibraryChartListView");
         string virtualSubsetSource = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private bool TryGetVirtualChartSubsetSourceFiles");
@@ -2181,7 +2181,7 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "internal void AddChartRowsToFolderBMSTable",
             "internal static bool ShouldPreservePlaylistEntryForRootFolderDrop");
-        string libraryCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string addReferenceCharts = ExtractBetween(
             libraryCode,
             "internal void AddReferenceBMSTablesToCharts",
@@ -3188,7 +3188,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void StartupRankingRefresh_IsQueuedOnlyWhenIrScoreOrRankingCacheStartupUpdateIsEnabled()
     {
         string root = FindRepositoryRoot();
-        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string initializeTail = ExtractBetween(
             libraryCode,
             "if (updateIrScore && activeScoreSource != ActiveScoreSource.None)",
@@ -3336,7 +3336,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void EstimatedInstallPostProcessing_IsBatchedAndUsesResourceHealthDelta()
     {
         string root = FindRepositoryRoot();
-        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string resourceHealthCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "ResourceHealthWarningProjection.cs"));
         string installEstimationDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "install-estimation-current-logic.md"));
 
@@ -3379,7 +3379,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void DuplicateMergeMaintenanceDefersResourceHealthIndexRebuildAndLogsDuplicateSearchStages()
     {
         string root = FindRepositoryRoot();
-        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string mergeMethod = ExtractMethodBody(libraryCode, "internal void MergeChartDirectory(string src, string dst, long operationId)");
         string duplicateSearchMethod = ExtractMethodBody(libraryCode, "public void SearchDuplicateChartGroups()");
 
@@ -3428,7 +3428,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void ResourceHealthForceFilter_ReusesFullOwnedMaintenanceTargets()
     {
         string root = FindRepositoryRoot();
-        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string method = ExtractMethodBody(libraryCode, "internal List<ChartFile> GetChartsNeedResourceFix");
         string setOwnedMethod = ExtractMethodBody(libraryCode, "private MaintenanceWorkflowResult setOwnedMaintenanceInfo");
         string buildMutationMethod = ExtractMethodBody(libraryCode, "private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthIndexMutation");
@@ -3463,7 +3463,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void MaintenanceHydrationUsesOwnedStorageOwnerView()
     {
         string root = FindRepositoryRoot();
-        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string applyMethod = ExtractMethodBody(libraryCode, "private void ApplyMaintenanceHydrationResult");
         string countMethod = ExtractMethodBody(libraryCode, "private int CountInstallableMaintenanceSnapshotTargets");
         string queueMethod = ExtractMethodBody(libraryCode, "private void QueueDeferredInstallableMaintenance");
@@ -3494,7 +3494,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void FileScanMutationUsesOwnedCollectionForRemovedCharts()
     {
         string root = FindRepositoryRoot();
-        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string ownedCollectionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "OwnedChartCollectionState.cs"));
         string applyMethod = ExtractMethodBody(libraryCode, "private void ApplyLibraryFileScanStorageMutation");
         string buildMethod = ExtractMethodBody(libraryCode, "private OwnedChartCollectionMutationResult BuildOwnedChartCollectionFileScanMutationResult");
@@ -3547,7 +3547,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void InstallEstimationParallelism_UsesUnifiedBatchPolicy()
     {
         string root = FindRepositoryRoot();
-        string libraryCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string batchSourceCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "PendingInstallEstimateBatchSource.cs"));
         string installEstimationDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "install-estimation-current-logic.md"));
 

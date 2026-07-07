@@ -109,9 +109,9 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-B1` の checkpoint を完了した。`MainWindow` event handler inventory を作成し、`tableContextMenuOpened` の state calculation を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ移し、chart table context menu の主要 mutation handler を top-level request DTO 経由にした。`MainWindow.cs` から `ChartOperationTargetSnapshot` / `RenameChartFolderTargetSnapshot` / pending install destination snapshot / repair installed location snapshot の直接依存は消えている。`IRepairInstalledLocationTargetSnapshot` / `PendingInstallDestinationTargetSnapshot` / `PendingInstallDestinationEditTargetSnapshot` は直接テストと既存互換 API として root 側に残る。
+`REF-MVP-C1` の最初の slice として、`SourceTextTestHelper.ReadBmsLibrarySourceText()` を追加し、`BMSLibrary.cs` 単体配置に依存していた source-text tests を helper 経由へ移した。private reflection / source-text test blocker inventory も `devdocs/plan/BeMusicSeeker_refactoring_plans/inventory/REF-MVP-C1_bmslibrary_test_blockers.md` に作成した。
 
-次にやる 1 件: `REF-MVP-C1` として、`SourceTextTestHelper.ReadBmsLibrarySourceText()` を追加し、`BMSLibrary.cs` 単体配置に依存する source-text test を helper 経由へ移す。
+次にやる 1 件: `REF-MVP-C1` の続きとして、挙動変更なしの最初の BMSLibrary partial split または既存 `BmsLibraryInternal` service への小さな workflow 移動候補を選定する。
 
 ## 次回 Codex が最初に読むべきファイル
 

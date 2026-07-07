@@ -97,7 +97,7 @@ public sealed class BmsLibraryMutationBoundaryTests
     public void MainWindowViewModel_UsesChartPackageMutationBoundary()
     {
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string librarySource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string runMethod = ExtractMethodBody(source, "private void RunChartPackageMutation(");
         string autoInstallMethod = ExtractMethodBody(source, "public void InstallChartPackages(");
         string forceInstallMethod = ExtractMethodBody(source, "public void ForceInstallPendingPackages(");
