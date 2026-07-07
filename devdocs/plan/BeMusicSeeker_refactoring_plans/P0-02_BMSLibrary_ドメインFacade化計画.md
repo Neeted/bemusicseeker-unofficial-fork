@@ -660,3 +660,27 @@ BMSLibrary                         // public facade / compatibility API
 - `Lr2SongDbSyncFolderCandidateSelection` を追加し、LR2 folder candidates / source / app-managed counts を dedicated DTO 経由へ移した。
 - scan surface / enumeration、app-managed complete / incomplete、prepared merge、discoveryComplete false 化、二段階 app-managed filtering の順序は維持した。
 - DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C21`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` の text file directory selection と `textFileDirsSource` を top-level internal DTO 境界へ寄せる。
+- 後続の input builder 化で、text file directories / source を選択済み入力として扱える状態にする。
+- scan surface / enumeration / prepared-only の優先順、prepared merge、ログ項目、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- text file directories と source が dedicated selection DTO / helper 経由になる。
+- `textFileDirs` と `textFileDirsSource` のログ意味が維持される。
+- directory entry / folderInfo candidate builder 化、full builder 化、scan surface helper 移動は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncTextFileDirectorySelection` を追加し、text file directories / source を dedicated DTO 経由へ移した。
+- scan surface / enumeration / prepared-only / empty の優先順と prepared merge の引数順は維持した。
+- 初回 full test で `QueueLr2SongDbSync_DiscoversRootCustomFolderOutputAsRootRow` が 1 回失敗したが、同テスト単体 rerun と full test rerun は pass した。
+- DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。

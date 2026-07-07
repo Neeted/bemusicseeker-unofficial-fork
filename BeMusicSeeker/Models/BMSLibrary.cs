@@ -6979,45 +6979,14 @@ completeFileEnumerationOnce,
                 preparedSurface.DirectoryEntries);
         directoryEntriesStopwatch.Stop();
         int missingDirectoryEntries = Math.Max(0, directoryEntryTargets.Count - directoryEntries.Count);
-        string textFileDirsSource;
         var textFileDirsStopwatch = Stopwatch.StartNew();
-        IReadOnlyList<string> textFileDirectories;
-        if (scanSurface?.TextFileDirectories != null)
-        {
-            textFileDirsSource = hasPreparedSurface
-                ? "scan_surface_prepared_merge"
-                : "scan_surface_direct";
-            textFileDirectories = hasPreparedSurface
-                ? MergePreparedDirectoryList(
-                    scanSurface.TextFileDirectories,
-                    preparedSurface.TextFileDirectories,
-                    preparedSurface.Lr2FolderScopeDirectories)
-                : scanSurface.TextFileDirectories;
-        }
-        else if (textMetadataCandidates?.TextFileDirectories != null)
-        {
-            textFileDirsSource = hasPreparedSurface
-                ? "enumeration_prepared_merge"
-                : "enumeration";
-            textFileDirectories = hasPreparedSurface
-                ? MergePreparedDirectoryList(
-                    textMetadataCandidates.TextFileDirectories,
-                    preparedSurface.TextFileDirectories,
-                    preparedSurface.Lr2FolderScopeDirectories)
-                : textMetadataCandidates.TextFileDirectories;
-        }
-        else
-        {
-            textFileDirsSource = hasPreparedSurface
-                ? "prepared_only"
-                : "empty";
-            textFileDirectories = hasPreparedSurface
-                ? MergePreparedDirectoryList(
-                    [],
-                    preparedSurface.TextFileDirectories,
-                    preparedSurface.Lr2FolderScopeDirectories)
-                : [];
-        }
+        Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection =
+            CreateLr2SongDbSyncTextFileDirectorySelection(
+                scanSurface,
+                textMetadataCandidates,
+                preparedSurface,
+                hasPreparedSurface);
+        IReadOnlyList<string> textFileDirectories = textFileDirectorySelection.Directories;
         textFileDirsStopwatch.Stop();
         inputStopwatch.Stop();
         LogInstallPerformance("lr2_song_db_sync_input_surface"
@@ -7056,7 +7025,7 @@ completeFileEnumerationOnce,
             + " lr2FolderDiscoveryComplete=" + lr2FolderFileCandidates.DiscoveryComplete.ToString().ToLowerInvariant()
             + " textFileDirs=" + textFileDirectories.Count
             + " lr2FolderCandidatesSource=" + lr2FolderCandidateSelection.Source
-            + " textFileDirsSource=" + textFileDirsSource
+            + " textFileDirsSource=" + textFileDirectorySelection.Source
             + " rowSnapshotMs=" + rowSnapshotStopwatch.ElapsedMilliseconds
             + " rootsMs=" + rootsStopwatch.ElapsedMilliseconds
             + " builtinSettingsMs=" + builtinSettingsStopwatch.ElapsedMilliseconds
@@ -7281,6 +7250,51 @@ completeFileEnumerationOnce,
             source,
             enumeratedAppManagedCandidateCount,
             enumeratedAppManagedExactFileCount);
+    }
+
+    private static Lr2SongDbSyncTextFileDirectorySelection CreateLr2SongDbSyncTextFileDirectorySelection(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        Lr2TextMetadataCandidateSnapshot textMetadataCandidates,
+        Lr2SongDbSyncPreparedDataSurface preparedSurface,
+        bool hasPreparedSurface)
+    {
+        if (scanSurface?.TextFileDirectories != null)
+        {
+            return new Lr2SongDbSyncTextFileDirectorySelection(
+                hasPreparedSurface
+                    ? MergePreparedDirectoryList(
+                        scanSurface.TextFileDirectories,
+                        preparedSurface.TextFileDirectories,
+                        preparedSurface.Lr2FolderScopeDirectories)
+                    : scanSurface.TextFileDirectories,
+                hasPreparedSurface
+                    ? "scan_surface_prepared_merge"
+                    : "scan_surface_direct");
+        }
+        if (textMetadataCandidates?.TextFileDirectories != null)
+        {
+            return new Lr2SongDbSyncTextFileDirectorySelection(
+                hasPreparedSurface
+                    ? MergePreparedDirectoryList(
+                        textMetadataCandidates.TextFileDirectories,
+                        preparedSurface.TextFileDirectories,
+                        preparedSurface.Lr2FolderScopeDirectories)
+                    : textMetadataCandidates.TextFileDirectories,
+                hasPreparedSurface
+                    ? "enumeration_prepared_merge"
+                    : "enumeration");
+        }
+
+        return new Lr2SongDbSyncTextFileDirectorySelection(
+            hasPreparedSurface
+                ? MergePreparedDirectoryList(
+                    [],
+                    preparedSurface.TextFileDirectories,
+                    preparedSurface.Lr2FolderScopeDirectories)
+                : [],
+            hasPreparedSurface
+                ? "prepared_only"
+                : "empty");
     }
 
     private bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)
