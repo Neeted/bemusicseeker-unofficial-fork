@@ -42,6 +42,7 @@
 2. 完了: score viewer / ranking / resource health / install destination の boolean policy を state 側へ追加する。
 3. 進行中: click handler 側の selected target resolution を `ChartOperationTargetSelectionRequest` / `ChartOperationTargetSelectionResolver` へ移す。
 4. 進行中: selected target resolution を使う click handler 本体を command request DTO / `Task` method へ移す。`tableContextMenuItemDeleteInstallPackagesClick` は `DeleteInstallPackageRecordsRequest` で pending / installed と targets の境界を作り、mutation 分岐を `MainWindowViewModel.DeleteInstallPackageRecords` へ移した。`forceInstallSelectedPendingCharts` / `manualInstallSelectedPendingCharts` は `PendingInstallPackageOperationRequest` を介して `MainWindowViewModel.InstallPendingCharts` へ渡す形にした。`searchInstallDestinationSelectedPendingCharts` / `searchMergeDestinationSelectedPendingCharts` は `PendingInstallDestinationSearchRequest` を介して `MainWindowViewModel.SearchPendingInstallDestination` へ渡す形にした。
+   - `tableContextMenuRemoveInstallDestinationClick` の pending install destination clear 側は `PendingInstallDestinationClearRequest` を介して `MainWindowViewModel.ClearPendingInstallDestination` へ渡す形にした。full-scan repair 側は `IRepairInstalledLocationTargetSnapshot` のまま残す。
 5. 後続: `MenuItem` / `ContextMenu` 更新は UserControl / behavior / command bridge の方針が決まるまで view adapter に残す。
 
 ## 注意

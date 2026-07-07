@@ -8898,17 +8898,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             List<ChartOperationTarget> targets = GetSelectedChartTargets(capability);
             repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
         }
-        List<ChartOperationTarget> pendingTargets = isInstalledLocationRepair
-            ? null
-            : GetSelectedChartTargets(capability, isPendingSection: true);
-        MainWindowViewModel.PendingInstallDestinationTargetSnapshot pendingInstallTargets = isInstalledLocationRepair
-            ? null
-            : viewModel.CreatePendingInstallDestinationTargetSnapshot(pendingTargets);
-        if ((repairTargets?.HasTargets == true) || (pendingInstallTargets?.HasTargets == true))
+        PendingInstallDestinationClearRequest pendingInstallRequest = null;
+        if (!isInstalledLocationRepair)
+        {
+            List<ChartOperationTarget> pendingTargets = GetSelectedChartTargets(capability, isPendingSection: true);
+            PendingInstallDestinationClearRequest.TryCreate(pendingTargets, out pendingInstallRequest);
+        }
+        if ((repairTargets?.HasTargets == true) || (pendingInstallRequest?.HasTargets == true))
         {
             e.Handled = true;
             repairTargets?.MaterializeRepairEntries();
-            pendingInstallTargets?.MaterializeLooseEntries();
+            pendingInstallRequest?.MaterializeLooseEntries();
             Task.Run(delegate
             {
                 if (isInstalledLocationRepair)
@@ -8917,7 +8917,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 }
                 else
                 {
-                    viewModel.ClearInstallDestinationForPendingCharts(pendingInstallTargets);
+                    viewModel.ClearPendingInstallDestination(pendingInstallRequest);
                 }
             }).Logging("tableContextMenuRemoveInstallDestinationClick");
         }

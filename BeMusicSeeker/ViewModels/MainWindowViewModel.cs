@@ -19126,7 +19126,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            throw new ArgumentNullException("packages");
+            throw new ArgumentNullException(nameof(packages));
         }
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
         HashSet<ChartPackage> approvedNormalInstallOverridePackages = [];
@@ -19154,7 +19154,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (targets == null)
         {
-            throw new ArgumentNullException("targets");
+            throw new ArgumentNullException(nameof(targets));
         }
         List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
         List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
@@ -19165,7 +19165,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            throw new ArgumentNullException("packages");
+            throw new ArgumentNullException(nameof(packages));
         }
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
         RunPendingInstallMutation(delegate
@@ -20894,7 +20894,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            throw new ArgumentNullException("packages");
+            throw new ArgumentNullException(nameof(packages));
         }
         RunPendingInstallMutation(delegate
         {
@@ -20906,7 +20906,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (targets == null)
         {
-            throw new ArgumentNullException("targets");
+            throw new ArgumentNullException(nameof(targets));
         }
         List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
         List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets);
@@ -20957,7 +20957,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            throw new ArgumentNullException("packages");
+            throw new ArgumentNullException(nameof(packages));
         }
         RunPendingInstallMutation(delegate
         {
@@ -20997,7 +20997,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            throw new ArgumentNullException("packages");
+            throw new ArgumentNullException(nameof(packages));
         }
         List<ChartPackage> packageList = [.. packages.Where(package => package != null)];
         RunChartPackageMutation(delegate
@@ -21010,7 +21010,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (targets == null)
         {
-            throw new ArgumentNullException("targets");
+            throw new ArgumentNullException(nameof(targets));
         }
         List<ChartOperationTarget> remainingTargets = [.. targets.Where(target => target?.Chart != null)];
         List<ChartPackage> chartPackages = ExtractChartPackagesFromChartTargets(ref remainingTargets, isInstalled: true);
@@ -21050,7 +21050,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            throw new ArgumentNullException("packages");
+            throw new ArgumentNullException(nameof(packages));
         }
         List<ChartPackage> list = [.. packages.Where(f => f != null)];
         List<PackageChartEntry> changedEntries = [.. list.SelectMany(package => package.ChartEntries ?? []).Where(entry => entry?.Chart != null)];
@@ -21069,7 +21069,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (targets == null)
         {
-            throw new ArgumentNullException("targets");
+            throw new ArgumentNullException(nameof(targets));
         }
         if (files == null)
         {
@@ -21079,18 +21079,40 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
+        ClearPendingInstallDestination(targets.PackageTargets, targets.LooseEntries);
+    }
+
+    internal void ClearPendingInstallDestination(PendingInstallDestinationClearRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (files == null)
+        {
+            return;
+        }
+        if (!request.HasTargets)
+        {
+            return;
+        }
+        ClearPendingInstallDestination(request.PackageTargets, request.LooseEntries);
+    }
+
+    private void ClearPendingInstallDestination(IReadOnlyList<ChartOperationTarget> packageTargets, IReadOnlyList<PackageChartEntry> looseEntries)
+    {
         RunChartPackageMutation(delegate
         {
-            List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
-            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
+            List<ChartOperationTarget> mutablePackageTargets = packageTargets.ToList();
+            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref mutablePackageTargets);
             for (int num = 0; num < packages.Count; num++)
             {
                 ClearChartPackageInstallDestinations(packages[num]);
             }
-            if (targets.LooseEntries.Count > 0)
+            if (looseEntries.Count > 0)
             {
-                files.RemoveInstallDestination(targets.LooseEntries);
-                UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+                files.RemoveInstallDestination(looseEntries);
+                UpdateSharedChartTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
