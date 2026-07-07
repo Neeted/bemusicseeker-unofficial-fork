@@ -15,13 +15,13 @@ Release Freeze: active。
 | Lane | Active ticket | 状態 | 次に読む |
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | active | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
-| B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | recommended first implementation | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C1: BMSLibrary source-text helper and facade split foundation` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C1: BMSLibrary source-text helper and facade split foundation` | recommended next implementation | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | active docs/inventory lane | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
-Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane B → Lane C → Lane A → Lane D。
+Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane A → Lane D → Lane B 後続候補。
 
-## Active Ticket Details
+## Ticket Details
 
 ### `REF-MVP-A1: Playlist detail build workflow extraction`
 
@@ -40,6 +40,8 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 - サブエージェントレビューで重大な指摘がない。
 
 ### `REF-MVP-B1: MainWindow event handler inventory and first command bridge`
+
+状態: completed checkpoint。Lane B 後続は workflow 単位で再計画する。
 
 目的:
 
@@ -107,13 +109,13 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-B1` の実装 slice として、chart table context menu handler の mutation request DTO 化を進めている。pending install package 操作、install destination search / clear / edit、repair installed location search / fix / clear、resource health rescan / ignore / unignore、folder auto rename、move selected chart、folder cell edit rename は root nested snapshot 型ではなく top-level request DTO を介して ViewModel へ渡す形にした。
+`REF-MVP-B1` の checkpoint を完了した。`MainWindow` event handler inventory を作成し、`tableContextMenuOpened` の state calculation を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ移し、chart table context menu の主要 mutation handler を top-level request DTO 経由にした。`MainWindow.cs` から `ChartOperationTargetSnapshot` / `RenameChartFolderTargetSnapshot` / pending install destination snapshot / repair installed location snapshot の直接依存は消えている。`IRepairInstalledLocationTargetSnapshot` / `PendingInstallDestinationTargetSnapshot` / `PendingInstallDestinationEditTargetSnapshot` は直接テストと既存互換 API として root 側に残る。
 
-次にやる 1 件: `REF-MVP-B1` の残りとして、`IRepairInstalledLocationTargetSnapshot` / `PendingInstallDestinationTargetSnapshot` の残存が test/backcompat 限定かを確認し、B1 checkpoint として完了扱いにできるか判定する。
+次にやる 1 件: `REF-MVP-C1` として、`SourceTextTestHelper.ReadBmsLibrarySourceText()` を追加し、`BMSLibrary.cs` 単体配置に依存する source-text test を helper 経由へ移す。
 
 ## 次回 Codex が最初に読むべきファイル
 
 1. [00_Codex共通実行ルール.md](./00_Codex共通実行ルール.md)
 2. [PLAN_STATUS.md](./PLAN_STATUS.md)
-3. 推奨最初の実装: [P0-03_MainWindow_UI_MVVM移行計画.md](./P0-03_MainWindow_UI_MVVM移行計画.md)
+3. 推奨最初の実装: [P0-02_BMSLibrary_ドメインFacade化計画.md](./P0-02_BMSLibrary_ドメインFacade化計画.md)
 4. [99_調査メモ_現状メトリクス.md](./99_調査メモ_現状メトリクス.md)

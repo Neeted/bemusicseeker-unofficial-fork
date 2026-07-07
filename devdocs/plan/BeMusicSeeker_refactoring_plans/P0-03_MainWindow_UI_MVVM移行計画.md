@@ -18,7 +18,7 @@
 | 最大 method | `tableContextMenuOpened` 約 566 行。context menu state calculation と UI 操作が混在 |
 | WPF + WinForms | `UseWPF=True`, `UseWindowsForms=True`。player panel / WindowsFormsHost 周辺は .NET 10 移行時の注意点 |
 
-## Active Ticket: `REF-MVP-B1`
+## Completed Checkpoint: `REF-MVP-B1`
 
 ### MainWindow event handler inventory and first command bridge
 
@@ -44,6 +44,13 @@ subtasks:
 2. `async void` を WPF event entry point / 処理本体あり / command bridge 候補へ分類する。
 3. `tableContextMenuOpened` から、UI 型に依存しない state calculation を `ChartContextMenuStateBuilder` などへ移す。
 4. code-behind は UI control から必要な値を抽出し、request DTO を作って command / presentation service を呼ぶ形へ寄せる。
+
+完了結果:
+
+- `MainWindow` event handler inventory を作成した。
+- `tableContextMenuOpened` の UI 非依存な state calculation と capability-based boolean policy を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ抽出した。
+- chart table context menu の主要 mutation handler を `DeleteInstallPackageRecordsRequest`、`PendingInstallPackageOperationRequest`、`PendingInstallDestinationSearchRequest`、`PendingInstallDestinationClearRequest`、`PendingInstallDestinationEditRequest`、`RepairInstalledLocationRequest`、`ChartResourceHealthRequest`、`ChartFolderAutoRenameRequest`、`ChartLibraryMoveRequest`、`RenameChartFolderRequest` 経由へ移した。
+- `MainWindow.cs` から root nested snapshot 型への直接依存を外した。残る `IRepairInstalledLocationTargetSnapshot` / `PendingInstallDestinationTargetSnapshot` / `PendingInstallDestinationEditTargetSnapshot` は直接テストと既存互換 API の範囲に限定する。
 
 完了条件:
 
@@ -103,7 +110,7 @@ MainWindow code-behind から出すもの:
 
 ## 後続候補
 
-`REF-MVP-B1` 完了後に、次を workflow / responsibility boundary 単位で選ぶ。
+次に Lane B を再開するときは、次を workflow / responsibility boundary 単位で選ぶ。Refactoring MVP の直近実装は `REF-MVP-C1` を優先する。
 
 - chart table context menu command bridge の残り。
 - duplicate group interaction service。

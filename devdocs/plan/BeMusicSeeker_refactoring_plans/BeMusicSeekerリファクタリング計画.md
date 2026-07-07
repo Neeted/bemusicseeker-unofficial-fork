@@ -68,16 +68,16 @@ Guardrail を超える場合は `PLAN_STATUS.md` に、残す責務、残す理�
 | Lane | 計画 | 目的 | 直近 ticket |
 |---|---|---|---|
 | A | [P0-01 MainWindowViewModel](./P0-01_MainWindowViewModel_リファクタリング計画.md) | root ViewModel を shell / composition / lifecycle に寄せる | `REF-MVP-A1` |
-| B | [P0-03 MainWindow UI / code-behind](./P0-03_MainWindow_UI_MVVM移行計画.md) | code-behind を view-host / command bridge に寄せる | `REF-MVP-B1` |
+| B | [P0-03 MainWindow UI / code-behind](./P0-03_MainWindow_UI_MVVM移行計画.md) | code-behind を view-host / command bridge に寄せる | `REF-MVP-B1` completed checkpoint / 後続は workflow 単位で再計画 |
 | C | [P0-02 BMSLibrary facade](./P0-02_BMSLibrary_ドメインFacade化計画.md) | `BMSLibrary` を compatibility facade として薄くする | `REF-MVP-C1` |
 | D | [P0-04 .NET 10 readiness](./P0-04_DotNet10_移行準備と依存関係整理計画.md) | TFM を変えず migration blocker を devdocs に inventory 化する | `REF-MVP-D1` |
 
 推奨する最初の実装順:
 
-1. `REF-MVP-B1`: MainWindow event handler inventory and first command bridge。
-2. `REF-MVP-C1`: BMSLibrary source-text helper and facade split foundation。
-3. `REF-MVP-A1`: Playlist detail build workflow extraction。
-4. `REF-MVP-D1`: .NET 10 blocker inventory in devdocs。
+1. `REF-MVP-C1`: BMSLibrary source-text helper and facade split foundation。
+2. `REF-MVP-A1`: Playlist detail build workflow extraction。
+3. `REF-MVP-D1`: .NET 10 blocker inventory in devdocs。
+4. Lane B 後続候補: `REF-MVP-B1` 完了後の duplicate / external URL / score viewer / drag-drop / CustomTable adapter などを workflow 単位で再計画。
 
 ## Ticket 粒度
 

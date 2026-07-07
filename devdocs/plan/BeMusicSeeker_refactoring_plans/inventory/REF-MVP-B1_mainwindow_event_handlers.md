@@ -6,7 +6,7 @@
 
 ## 現在の結論
 
-`MainWindow.cs` は WPF event entry point と処理本体がまだ混在している。最初の実装 slice は `tableContextMenuOpened` から UI 型に依存しない state calculation を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ移し、後続の command bridge 化に必要な状態境界を作る。
+`REF-MVP-B1` checkpoint は完了。`MainWindow.cs` は WPF event entry point と処理本体がまだ混在しているが、`tableContextMenuOpened` の UI 型に依存しない state calculation と chart table context menu の主要 mutation payload は request DTO 境界へ移した。後続では個別 workflow ごとに command bridge / UserControl 化を選ぶ。
 
 ## XAML event handler 分類
 
@@ -40,8 +40,8 @@
 
 1. 完了: row / section / selected chart targets から作る UI 非依存 state を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ移す。
 2. 完了: score viewer / ranking / resource health / install destination の boolean policy を state 側へ追加する。
-3. 進行中: click handler 側の selected target resolution を `ChartOperationTargetSelectionRequest` / `ChartOperationTargetSelectionResolver` へ移す。
-4. 進行中: selected target resolution を使う click handler 本体を command request DTO / `Task` method へ移す。`tableContextMenuItemDeleteInstallPackagesClick` は `DeleteInstallPackageRecordsRequest` で pending / installed と targets の境界を作り、mutation 分岐を `MainWindowViewModel.DeleteInstallPackageRecords` へ移した。`forceInstallSelectedPendingCharts` / `manualInstallSelectedPendingCharts` は `PendingInstallPackageOperationRequest` を介して `MainWindowViewModel.InstallPendingCharts` へ渡す形にした。`searchInstallDestinationSelectedPendingCharts` / `searchMergeDestinationSelectedPendingCharts` は `PendingInstallDestinationSearchRequest` を介して `MainWindowViewModel.SearchPendingInstallDestination` へ渡す形にした。
+3. 完了: click handler 側の selected target resolution を `ChartOperationTargetSelectionRequest` / `ChartOperationTargetSelectionResolver` へ移す。
+4. 完了: selected target resolution を使う click handler 本体を command request DTO / `Task` method へ移す。`tableContextMenuItemDeleteInstallPackagesClick` は `DeleteInstallPackageRecordsRequest` で pending / installed と targets の境界を作り、mutation 分岐を `MainWindowViewModel.DeleteInstallPackageRecords` へ移した。`forceInstallSelectedPendingCharts` / `manualInstallSelectedPendingCharts` は `PendingInstallPackageOperationRequest` を介して `MainWindowViewModel.InstallPendingCharts` へ渡す形にした。`searchInstallDestinationSelectedPendingCharts` / `searchMergeDestinationSelectedPendingCharts` は `PendingInstallDestinationSearchRequest` を介して `MainWindowViewModel.SearchPendingInstallDestination` へ渡す形にした。
    - `tableContextMenuRemoveInstallDestinationClick` の pending install destination clear 側は `PendingInstallDestinationClearRequest` を介して `MainWindowViewModel.ClearPendingInstallDestination` へ渡す形にした。full-scan repair 側は `RepairInstalledLocationRequest` を介して `MainWindowViewModel.ClearInstallDestinationForCharts` へ渡す形にした。
    - pending install destination cell edit 側は `PendingInstallDestinationEditRequest` を介して `MainWindowViewModel.SetPendingInstallDestination` へ渡す形にした。既存 `PendingInstallDestinationEditTargetSnapshot` API は直接テストと既存互換のため残す。
    - repair installed location search / fix / clear 側は `RepairInstalledLocationRequest` を介して `MainWindowViewModel.SearchCorrectInstallationDirectoryCharts` / `FixInstallationDirectoryCharts` / `ClearInstallDestinationForCharts` へ渡す形にした。既存 `IRepairInstalledLocationTargetSnapshot` API は直接テストと既存互換のため残す。
@@ -50,6 +50,12 @@
    - move selected chart 側は `ChartLibraryMoveRequest` を介して `MainWindowViewModel.MoveLibraryCharts` へ渡す形にした。
    - folder cell edit rename 側は `RenameChartFolderRequest` を介して `MainWindowViewModel.RenameChartFolder` へ渡す形にし、旧 `RenameChartFolderTargetSnapshot` API は削除した。
 5. 後続: `MenuItem` / `ContextMenu` 更新は UserControl / behavior / command bridge の方針が決まるまで view adapter に残す。
+
+## 完了時点の残存
+
+- production の `MainWindow.cs` から `ChartOperationTargetSnapshot` / `RenameChartFolderTargetSnapshot` / `PendingInstallDestinationTargetSnapshot` / `PendingInstallDestinationEditTargetSnapshot` / `IRepairInstalledLocationTargetSnapshot` への直接依存は消えている。
+- `PendingInstallDestinationTargetSnapshot` / `PendingInstallDestinationEditTargetSnapshot` / `IRepairInstalledLocationTargetSnapshot` は `MainWindowViewModel` の既存互換 API と直接テスト用に残る。次に触る場合は削除そのものを目的にせず、対応する service / request 直接テストへ移す blocker がある場合に限定する。
+- `MainWindow.cs` には UI event entry point、dialog 表示、WPF control 値の抽出、未着手 workflow の処理本体が残る。次の Lane B は chart table 全体の続きではなく、duplicate / external URL / score viewer / drag-drop / CustomTable adapter のような workflow 単位で再計画する。
 
 ## 注意
 
