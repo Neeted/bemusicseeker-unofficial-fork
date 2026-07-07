@@ -637,3 +637,26 @@ BMSLibrary                         // public facade / compatibility API
 - `Lr2SongDbSyncPreparedSurfaceSelection` を追加し、pending prepared surface と active prepared surface の選択結果を dedicated DTO 経由へ移した。
 - `preparedSurfaceAlreadyAppliedToScanSurface` と `preparedSurfaceAppliedScanGeneration` のログ意味は維持した。
 - DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C20`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` の LR2 folder candidate selection と app-managed filtering count/source を top-level internal DTO 境界へ寄せる。
+- 後続の input builder 化で、LR2 folder candidates / source / app-managed counts を選択済み入力として扱える状態にする。
+- candidate 生成順、prepared merge、ログ項目、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- scan surface / enumeration / prepared surface / app-managed scope からの `Lr2FolderFileCandidateSnapshot` 選択が dedicated selection DTO / helper 経由になる。
+- `lr2FolderCandidatesSource`、`enumeratedAppManagedFiltered`、`enumeratedAppManagedExactFiles` のログ意味が維持される。
+- full builder 化、directory/folderInfo/text metadata candidate builder 化、scan surface helper 移動は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncFolderCandidateSelection` を追加し、LR2 folder candidates / source / app-managed counts を dedicated DTO 経由へ移した。
+- scan surface / enumeration、app-managed complete / incomplete、prepared merge、discoveryComplete false 化、二段階 app-managed filtering の順序は維持した。
+- DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
