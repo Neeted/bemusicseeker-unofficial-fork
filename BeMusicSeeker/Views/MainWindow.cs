@@ -9056,14 +9056,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel.ChartOperationTargetSnapshot targetSnapshot = viewModel.CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary);
-        if (targetSnapshot.Charts.Count > 0)
+        if (ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request))
         {
             Task.Run(delegate
             {
                 try
                 {
-                    viewModel.AutoRenameChartFolders(targetSnapshot);
+                    viewModel.AutoRenameChartFolders(request);
                 }
                 finally
                 {

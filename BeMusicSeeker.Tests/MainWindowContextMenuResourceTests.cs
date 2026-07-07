@@ -1824,10 +1824,10 @@ public sealed class MainWindowContextMenuResourceTests
             "private static bool IsCustomTablePlaylistEditableProperty");
 
         StringAssert.Contains(autoRenameClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
-        StringAssert.Contains(autoRenameClick, "CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.MoveInLibrary)");
-        StringAssert.Contains(autoRenameClick, "targetSnapshot.Charts.Count > 0");
-        Assert.IsFalse(autoRenameClick.Contains("targetSnapshot.ChartFiles.Count"));
-        StringAssert.Contains(autoRenameClick, "AutoRenameChartFolders(targetSnapshot)");
+        StringAssert.Contains(autoRenameClick, "ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request)");
+        StringAssert.Contains(autoRenameClick, "AutoRenameChartFolders(request)");
+        Assert.IsFalse(autoRenameClick.Contains("CreateChartOperationTargetSnapshot"));
+        Assert.IsFalse(autoRenameClick.Contains("targetSnapshot"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
         StringAssert.Contains(contextMenuOpening, "contextMenuState.CanAutoRenameFolders");

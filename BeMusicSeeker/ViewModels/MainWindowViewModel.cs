@@ -16120,15 +16120,6 @@ public partial class MainWindowViewModel : ViewModel
         RefreshResourceHealthViewsAfterMaintenanceChanged();
     }
 
-    internal void ForceResourceHealthCheckCharts(ChartOperationTargetSnapshot targets)
-    {
-        if (targets?.HasTargets != true)
-        {
-            return;
-        }
-        ForceResourceHealthCheckCharts(targets.Charts);
-    }
-
     internal void ForceResourceHealthCheckCharts(ChartResourceHealthRequest request)
     {
         if (request?.HasTargets != true)
@@ -16391,15 +16382,6 @@ public partial class MainWindowViewModel : ViewModel
     private void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)
     {
         files.SetChartResourceWarningsIgnored(charts, unset);
-    }
-
-    internal void SetChartResourceWarningsIgnored(ChartOperationTargetSnapshot targets, bool unset = false)
-    {
-        if (targets?.HasTargets != true)
-        {
-            return;
-        }
-        SetChartResourceWarningsIgnored(targets.Charts, unset);
     }
 
     internal void SetChartResourceWarningsIgnored(ChartResourceHealthRequest request, bool unset = false)
@@ -22995,13 +22977,13 @@ public partial class MainWindowViewModel : ViewModel
         }, charts, UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
     }
 
-    internal void AutoRenameChartFolders(ChartOperationTargetSnapshot targets)
+    internal void AutoRenameChartFolders(ChartFolderAutoRenameRequest request)
     {
-        if (targets?.Charts.Count > 0 != true)
+        if (request?.HasTargets != true)
         {
             return;
         }
-        AutoRenameChartFolders(targets.Charts);
+        AutoRenameChartFolders(request.Charts);
     }
 
     internal void MoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, string newParentDirectory)
@@ -23121,25 +23103,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             return PackageEntry ?? chartEntry.Value;
         }
-    }
-
-    internal ChartOperationTargetSnapshot CreateChartOperationTargetSnapshot(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)
-    {
-        List<ChartOperationTarget> targetList = [.. (targets ?? []).Where(target => target != null && target.HasCapability(requiredCapability))];
-        List<ChartFile> charts = [.. targetList.Select(target => target.Chart).Where(chart => chart != null)];
-        return new ChartOperationTargetSnapshot(charts);
-    }
-
-    internal sealed class ChartOperationTargetSnapshot
-    {
-        internal ChartOperationTargetSnapshot(IEnumerable<ChartFile> charts)
-        {
-            Charts = [.. (charts ?? []).Where(chart => chart != null)];
-        }
-
-        internal IReadOnlyList<ChartFile> Charts { get; }
-
-        internal bool HasTargets => Charts.Count > 0;
     }
 
     internal interface IRepairInstalledLocationTargetSnapshot

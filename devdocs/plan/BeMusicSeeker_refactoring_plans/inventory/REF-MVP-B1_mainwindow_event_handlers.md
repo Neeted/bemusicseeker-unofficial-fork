@@ -45,7 +45,8 @@
    - `tableContextMenuRemoveInstallDestinationClick` の pending install destination clear 側は `PendingInstallDestinationClearRequest` を介して `MainWindowViewModel.ClearPendingInstallDestination` へ渡す形にした。full-scan repair 側は `RepairInstalledLocationRequest` を介して `MainWindowViewModel.ClearInstallDestinationForCharts` へ渡す形にした。
    - pending install destination cell edit 側は `PendingInstallDestinationEditRequest` を介して `MainWindowViewModel.SetPendingInstallDestination` へ渡す形にした。既存 `PendingInstallDestinationEditTargetSnapshot` API は直接テストと既存互換のため残す。
    - repair installed location search / fix / clear 側は `RepairInstalledLocationRequest` を介して `MainWindowViewModel.SearchCorrectInstallationDirectoryCharts` / `FixInstallationDirectoryCharts` / `ClearInstallDestinationForCharts` へ渡す形にした。既存 `IRepairInstalledLocationTargetSnapshot` API は直接テストと既存互換のため残す。
-   - resource health rescan / ignore / unignore 側は `ChartResourceHealthRequest` を介して `MainWindowViewModel.ForceResourceHealthCheckCharts` / `SetChartResourceWarningsIgnored` へ渡す形にした。既存 `ChartOperationTargetSnapshot` API は直接テストと move/rename 系 handler のため残す。
+   - resource health rescan / ignore / unignore 側は `ChartResourceHealthRequest` を介して `MainWindowViewModel.ForceResourceHealthCheckCharts` / `SetChartResourceWarningsIgnored` へ渡す形にした。
+   - folder auto rename 側は `ChartFolderAutoRenameRequest` を介して `MainWindowViewModel.AutoRenameChartFolders` へ渡す形にし、旧 `ChartOperationTargetSnapshot` API は削除した。
 5. 後続: `MenuItem` / `ContextMenu` 更新は UserControl / behavior / command bridge の方針が決まるまで view adapter に残す。
 
 ## 注意
