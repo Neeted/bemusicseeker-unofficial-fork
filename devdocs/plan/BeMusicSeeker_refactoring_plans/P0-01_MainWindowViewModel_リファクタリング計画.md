@@ -22,9 +22,9 @@ playlist、main chart list、play history、playback、settings save、library r
 | `PlaylistDetailBuildWorkflowCoordinator.cs` | 300 行。decision result に基づく patch / rebuild / view-only workflow、completion creation、finalize bridge を担当 |
 | `MainWindowViewModel.PlaylistDetailBuildWorkflowHost.cs` | 154 行。root private method、BuildGate、source replace、finalize wrapper を workflow coordinator へ明示的に bridge |
 | 旧 active | `L-3c-17: Playlist main view apply result DTO 導入` は独立 ticket から外し、`REF-MVP-A1` の subtask に格下げ |
-| active lane | `REF-MVP-A1: Playlist detail build workflow extraction` |
+| active lane | `REF-MVP-A1: Playlist detail build workflow extraction` completed checkpoint。後続は P0-03 連動条件と root helper 残存状況を見て再計画 |
 
-## Active Ticket: `REF-MVP-A1`
+## Completed Checkpoint: `REF-MVP-A1`
 
 ### Playlist detail build workflow extraction
 
@@ -52,7 +52,7 @@ subtasks:
 5. 完了: rebuild / view-only の completion creation を `PlaylistDetailBuildWorkflowCoordinator` へ寄せた。
 6. 完了: view-only apply workflow 本体を `PlaylistDetailBuildWorkflowCoordinator` へ移した。
 7. 完了: BuildGate / cancellation / freshness check / cleanup ownership の順序を変えずに、source rebuild workflow 本体を root から `PlaylistDetailBuildWorkflowCoordinator` へ移した。
-8. root に残すものを request 発行、lifecycle、UI thread bridge、dialog / progress bridge として説明できる状態にする。
+8. 完了: root に残すものを request 発行、lifecycle、UI thread bridge、dialog / progress bridge として説明できる状態にした。source build stage helper は root private helper として残るが、workflow coordinator から host bridge 経由で呼ぶ。
 
 完了条件:
 
@@ -93,3 +93,7 @@ root pass-through 削除は、P0-03 / Lane B の XAML / code-behind DataContext 
 ## 完了履歴の扱い
 
 旧 `L-*` の詳細履歴は [P0-01 完了履歴](./P0-01_MainWindowViewModel_完了履歴.md) と各 decision file に残す。今後の active plan では `REF-MVP-A1` の workflow extraction を正本とし、DTO / checkpoint 単位の ticket へ戻さない。
+
+## 次候補
+
+P0-01 の次 ticket は今すぐ切らない。`REF-MVP-D1` の blocker inventory と P0-03 の DataContext / command bridge 前提を確認した後、playlist source build stage、play history、playback、settings save、library refresh のうち MVP Gate に最も効く workflow を 1 件だけ active ticket にする。
