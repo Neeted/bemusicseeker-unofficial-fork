@@ -6964,6 +6964,84 @@ completeFileEnumerationOnce,
         IReadOnlyList<string> textFileDirectories = textFileDirectorySelection.Directories;
         textFileDirsStopwatch.Stop();
         inputStopwatch.Stop();
+        LogLr2SongDbSyncInputSurface(
+            scanSurface,
+            scanSurfaceMissReason,
+            rootSnapshot,
+            settingsSnapshot,
+            directoryMetadataTargets,
+            lr2FolderParentDirectoryTargets,
+            directoryEntryTargets,
+            directoryEntries,
+            directoryEntrySelection,
+            folderInfoCandidates,
+            lr2FolderFileCandidates,
+            appManagedOutputScope,
+            lr2FolderCandidateSelection,
+            reusedLr2FolderSurface,
+            hasPreparedSurface,
+            hasPreparedLr2FolderSurface,
+            preparedSurfaceSelection,
+            pendingPreparedSurface,
+            preparedSurface,
+            textFileDirectories,
+            textFileDirectorySelection,
+            rowSnapshotStopwatch,
+            rootsStopwatch,
+            builtinSettingsStopwatch,
+            scanSurfaceStopwatch,
+            directoryTargetsStopwatch,
+            directoryEntriesStopwatch,
+            lr2FolderCandidatesStopwatch,
+            folderInfoCandidatesStopwatch,
+            textFileDirsStopwatch,
+            inputStopwatch);
+        return Lr2SongDbSyncInputFactory.Create(
+            rootSnapshot,
+            rowSnapshot,
+            directoryMetadataTargets,
+            folderInfoCandidates,
+            directoryEntries,
+            settingsSnapshot,
+            appManagedOutputScope,
+            lr2FolderFileCandidates,
+            textFileDirectories,
+            scanSurface?.Generation ?? 0);
+    }
+
+    private void LogLr2SongDbSyncInputSurface(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        string scanSurfaceMissReason,
+        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
+        Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot,
+        IReadOnlyCollection<string> directoryMetadataTargets,
+        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets,
+        IReadOnlyCollection<string> directoryEntryTargets,
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
+        Lr2SongDbSyncDirectoryEntrySelection directoryEntrySelection,
+        Lr2FolderInfoCandidateSnapshot folderInfoCandidates,
+        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
+        Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope,
+        Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection,
+        bool reusedLr2FolderSurface,
+        bool hasPreparedSurface,
+        bool hasPreparedLr2FolderSurface,
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
+        Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface,
+        Lr2SongDbSyncPreparedDataSurface preparedSurface,
+        IReadOnlyList<string> textFileDirectories,
+        Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection,
+        Stopwatch rowSnapshotStopwatch,
+        Stopwatch rootsStopwatch,
+        Stopwatch builtinSettingsStopwatch,
+        Stopwatch scanSurfaceStopwatch,
+        Stopwatch directoryTargetsStopwatch,
+        Stopwatch directoryEntriesStopwatch,
+        Stopwatch lr2FolderCandidatesStopwatch,
+        Stopwatch folderInfoCandidatesStopwatch,
+        Stopwatch textFileDirsStopwatch,
+        Stopwatch inputStopwatch)
+    {
         LogInstallPerformance("lr2_song_db_sync_input_surface"
             + " reusedScanSurface=" + (scanSurface != null).ToString().ToLowerInvariant()
             + " scanSurfaceMissReason=" + (scanSurfaceMissReason ?? string.Empty)
@@ -7010,17 +7088,6 @@ completeFileEnumerationOnce,
             + " folderInfoCandidatesMs=" + folderInfoCandidatesStopwatch.ElapsedMilliseconds
             + " textFileDirsMs=" + textFileDirsStopwatch.ElapsedMilliseconds
             + " totalMs=" + inputStopwatch.ElapsedMilliseconds);
-        return Lr2SongDbSyncInputFactory.Create(
-            rootSnapshot,
-            rowSnapshot,
-            directoryMetadataTargets,
-            folderInfoCandidates,
-            directoryEntries,
-            settingsSnapshot,
-            appManagedOutputScope,
-            lr2FolderFileCandidates,
-            textFileDirectories,
-            scanSurface?.Generation ?? 0);
     }
 
     private Lr2SongDbSyncInputRowSnapshot CreateLr2SongDbSyncInputRowSnapshot()
