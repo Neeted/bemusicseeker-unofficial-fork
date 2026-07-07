@@ -20,7 +20,7 @@ Refactoring MVP Gate 通過前に `net10.0-windows` への本移行は行わな�
 | config | root `app.config` に userSettings, probing privatePath, AppContextSwitchOverrides |
 | risk | WPF + WinForms 同時参照、`MenuItem` / `ContextMenu` ambiguity、System.Configuration、assembly probing、native load path、古い UI behavior libraries |
 
-## Active Ticket: `REF-MVP-D1`
+## Completed Checkpoint: `REF-MVP-D1`
 
 ### .NET 10 blocker inventory in devdocs
 
@@ -49,11 +49,11 @@ rg "System\.Configuration|ConfigurationManager|Settings\.Default|System\.Deploym
 
 完了条件:
 
-- blocker inventory が git 管理下にある。
-- 各 blocker について、該当箇所、影響、refactor 前にできる対処、.NET 10 移行時に検討する対処が書かれている。
-- TFM 変更や release 作業をしていない。
-- docs のリンクが壊れていない。
-- `git diff --check` が通る。
+- 完了: blocker inventory が git 管理下にある。
+- 完了: 各 blocker について、該当箇所、影響、refactor 前にできる対処、.NET 10 移行時に検討する対処が書かれている。
+- 完了: TFM 変更や release 作業をしていない。
+- 完了: docs のリンクが壊れていない。
+- 確認対象: `git diff --check`。
 
 ## Migration Readiness Scope
 
@@ -75,7 +75,7 @@ rg "System\.Configuration|ConfigurationManager|Settings\.Default|System\.Deploym
 
 ## 後続候補
 
-`REF-MVP-D1` 完了後に、次を Refactoring MVP の進捗に合わせて選ぶ。
+`REF-MVP-D1` 完了後に、次を Refactoring MVP の進捗に合わせて選ぶ。詳細化は active ticket 化するときに行う。
 
 - WPF / WinForms ambiguous type を明示する。
 - `Settings.Default` / `System.Configuration` 依存を wrapper / options snapshot へ寄せる。
