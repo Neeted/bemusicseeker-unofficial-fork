@@ -1584,96 +1584,12 @@ public partial class BMSLibrary
 
     public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(IEnumerable<ChartPackage> packages, CancellationToken token = default, Action onEachProcessed = null)
     {
-        if (packages == null)
-        {
-            throw new ArgumentNullException("packages");
-        }
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        int deferredProcessedCount = 0;
-        try
-        {
-            using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-            {
-                using (rwlockPendingInstallCharts.GetWriterGuard())
-                {
-                    using (rwlockBMSFiles.GetWriterGuard())
-                    {
-                        using (rwlockSongDBInstall.GetWriterGuard())
-                        {
-                            bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
-                            InstalledChartLookupIndexSnapshot installedDirectoryIndexSnapshot = CreateInstalledChartLookupSnapshotUnsafe();
-                            NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite scan pendingTotal=" + ChartPackagesPending.Count + " eligible=" + packageInstallService.DeduplicatePackagesByPathOrReference(packages).Count);
-                            NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite index_ready hashes=" + installedDirectoryIndexSnapshot.HashCount);
-                            PendingResourceOverwriteExecutionResult executionResult = packageInstallService.ExecuteInstalledOnlyResourceOverwrite(
-                                packages,
-                                ChartPackagesPending,
-                                deletePendingPackageSourceAfterInstall,
-                                (pendingPackage) => CreateInstallEstimationService().TryPrepareInstalledOnlyPackageDestination(pendingPackage, installedDirectoryIndexSnapshot),
-                                delegate (InstalledOnlyPackageResolutionResult resolution, ChartPackage pendingPackage)
-                                {
-                                    if (pendingPackage == null)
-                                    {
-                                        return null;
-                                    }
-                                    switch (resolution.Reason)
-                                    {
-                                        case InstalledDirectoryResolveReason.ChartHasMultipleInstalledDirectories:
-                                            ChartFile multipleDirectoryChart = BmsLibraryInstallEstimationService.FindChartWithMultipleInstalledDirectories(pendingPackage, installedDirectoryIndexSnapshot);
-                                            return "advanced_pending_resource_overwrite skip_chart_multi_dst path=" + pendingPackage.path + " chartPath=" + (multipleDirectoryChart?.Path ?? "(null)") + " hash=" + (ChartLookupKey.GetPrimaryHash(multipleDirectoryChart) ?? "(null)") + " dirCount=" + ((multipleDirectoryChart == null) ? 0 : BmsLibraryInstallEstimationService.GetDistinctInstalledDirectoriesForChart(installedDirectoryIndexSnapshot, multipleDirectoryChart).Count);
-                                        case InstalledDirectoryResolveReason.PackageHasSplitInstalledDirectories:
-                                            return "advanced_pending_resource_overwrite skip_package_split_dst path=" + pendingPackage.path + " dirCount=" + BmsLibraryInstallEstimationService.CountDistinctInstalledDirectoriesForPackage(pendingPackage, installedDirectoryIndexSnapshot);
-                                        default:
-                                            ChartFile missingDirectoryChart = BmsLibraryInstallEstimationService.FindChartWithMissingInstalledDirectory(pendingPackage, installedDirectoryIndexSnapshot);
-                                            return "advanced_pending_resource_overwrite skip_missing_instl_dst path=" + pendingPackage.path + " chartPath=" + (missingDirectoryChart?.Path ?? "(null)") + " hash=" + (ChartLookupKey.GetPrimaryHash(missingDirectoryChart) ?? "(null)");
-                                    }
-                                },
-                                (pendingPackage, destinationDir) => HasResourceOverwriteTargetsForInstalledOnlyPackage(pendingPackage, destinationDir),
-                                delegate (ChartPackage pendingPackage, string destinationDir)
-                                {
-                                    try
-                                    {
-                                        InstallPendingPackagesToEstimatedDestinations([pendingPackage]);
-                                        return true;
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        string displayedExceptionMessage = GetDisplayedExceptionMessage(ex);
-                                        NLogWrapper.FileLogger?.Warn(ex, "advanced_pending_resource_overwrite install_failed_exception path=" + pendingPackage.path + " dst=" + destinationDir + " error=" + displayedExceptionMessage);
-                                        ShowOperationDialog(string.Format(Resources.Error_InstallFailed, pendingPackage.path, destinationDir, displayedExceptionMessage), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                                        return false;
-                                    }
-                                },
-                                (cleanupPackage) =>
-                                {
-                                    bool cleanupSucceeded = TryCleanupPendingPackageSourceForEstimatedInstall(cleanupPackage, out CleanupSourceKind sourceKind);
-                                    return (cleanupSucceeded, sourceKind);
-                                },
-                                (pendingPackage) => IsPackageStillPending(pendingPackage),
-                                token,
-                                () => deferredProcessedCount++,
-                                info =>
-                                {
-                                    if (!string.IsNullOrWhiteSpace(info))
-                                    {
-                                        NLogWrapper.FileLogger?.Info(info);
-                                    }
-                                });
-                            if (executionResult.PendingPackagesToRemove.Count > 0)
-                            {
-                                RemovePendingPackagesFromPendingListAndInstallRows(executionResult.PendingPackagesToRemove);
-                            }
-                            PendingInstalledOnlyResourceOverwriteResult publicResult = executionResult.ToPublicResult();
-                            NLogWrapper.FileLogger?.Info("advanced_pending_resource_overwrite summary requested=" + publicResult.Requested + " processed=" + publicResult.Processed + " succeededInstall=" + publicResult.SucceededInstall + " succeededCleanupOnly=" + publicResult.SucceededCleanupOnly + " skippedNotPending=" + publicResult.SkippedNotPending + " skippedMissingInstlDst=" + publicResult.SkippedMissingInstlDst + " skippedMultiDst=" + publicResult.SkippedMultiDestination + " skippedNoComponentTarget=" + publicResult.SkippedNoComponentTarget + " failed=" + publicResult.Failed + " canceled=" + publicResult.Canceled);
-                            return publicResult;
-                        }
-                    }
-                }
-            }
-        }
-        finally
-        {
-            InvokeDeferredProcessedCallbacks(onEachProcessed, deferredProcessedCount);
-        }
+        return PendingResourceOverwriteCoordinator.OverwritePendingInstalledOnlyPackagesResources(
+            packageInstallService,
+            this,
+            packages,
+            token,
+            onEachProcessed);
     }
 
     internal List<ChartFile> GetPendingBmsFormatChartFilesSnapshot()

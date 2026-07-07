@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C4: Pending estimated install coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C5: Advanced pending resource overwrite coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -126,6 +126,23 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 - build / package install 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+### `REF-MVP-C5: Advanced pending resource overwrite coordinator seam`
+
+状態: completed checkpoint。
+
+目的:
+
+- `OverwritePendingInstalledOnlyPackagesResources` の lock / installed lookup snapshot / skip detail / estimated install callback / cleanup callback / pending removal / summary logging / deferred progress flush を coordinator seam へ移す。
+- root `BMSLibrary` は public API entry、install estimation bridge、estimated install delegate、cleanup bridge、dialog / logging / pending mutation bridge を提供する。
+- `InstallPendingPackagesToEstimatedDestinations` 本体、pending source cleanup、zero-note rename は触らない。
+
+完了条件:
+
+- `OverwritePendingInstalledOnlyPackagesResources` public API、null guard、options snapshot timing、lock 順序、deferred progress flush、summary log 文言が維持されている。
+- install failure exception handling と dialog timing が維持されている。
+- build / package install 関連 tests / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ### `REF-MVP-D1: .NET 10 blocker inventory in devdocs`
 
 状態: completed checkpoint。後続は [REF-MVP-D1 inventory](./inventory/REF-MVP-D1_dotnet10_blockers.md) を見て、Settings boundary、native load layout、WPF / WinForms boundary のいずれか 1 件だけを active ticket 化する。
@@ -166,7 +183,7 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-C4` として `InstallPendingPackagesToEstimatedDestinations` の lock / LR2 sync block / batch plan / DB row delete / pending and installed collection apply / maintenance / inline chart_info / cleanup warning / performance logging を coordinator seam へ移した。`BMSLibrary.PackageInstall.cs` は 1,810 行、`BMSLibrary.PendingEstimatedInstallHost.cs` は 190 行、`PendingEstimatedInstallCoordinator.cs` は 177 行。build、package install 関連 tests、full test、format、diff check、Roslynator 対象確認、静的レビューは完了。
+`REF-MVP-C5` として `OverwritePendingInstalledOnlyPackagesResources` の lock / installed lookup snapshot / skip detail / estimated install callback / cleanup callback / pending removal / summary logging / deferred progress flush を coordinator seam へ移した。`BMSLibrary.PackageInstall.cs` は 1,726 行、`BMSLibrary.PendingResourceOverwriteHost.cs` は 131 行、`PendingResourceOverwriteCoordinator.cs` は 115 行。build、package install 関連 tests、full test、format、diff check、Roslynator 対象確認、静的レビューは完了。
 
 次にやる 1 件: Lane C の次 workflow を 1 件だけ選び、active ticket 化してから実装する。候補は P0-02 の「後続候補」を正本とする。
 

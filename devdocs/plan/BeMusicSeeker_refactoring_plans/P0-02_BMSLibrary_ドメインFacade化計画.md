@@ -151,6 +151,39 @@ subtasks:
 - build / package install 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+## Completed Checkpoint: `REF-MVP-C5`
+
+### Advanced pending resource overwrite coordinator seam
+
+状態: completed checkpoint。
+
+目的:
+
+- `OverwritePendingInstalledOnlyPackagesResources` の lock / installed lookup snapshot / skip detail / estimated install callback / cleanup callback / pending removal / summary logging / deferred progress flush を coordinator seam へ移す。
+- `InstallPendingPackagesToEstimatedDestinations` 本体は移さず delegate 境界として残す。
+- pending source cleanup、zero-note rename は今回触らない。
+
+主対象:
+
+- `BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs`
+- 新規候補: `BeMusicSeeker/Models/BmsLibraryInternal/PendingResourceOverwriteCoordinator.cs`
+- 新規候補: `BeMusicSeeker/Models/BMSLibrary.PendingResourceOverwriteHost.cs`
+- package install 関連 tests: `BmsLibraryPackageInstallServiceTests`, `BmsLibraryMutationBoundaryTests`, source-text architecture tests
+
+subtasks:
+
+1. coordinator / host contract を追加し、`OverwritePendingInstalledOnlyPackagesResources` 本体を移す。
+2. root `BMSLibrary` には public API entry と host bridge を残す。
+3. package install 関連 tests と標準確認を実行する。
+
+完了条件:
+
+- `OverwritePendingInstalledOnlyPackagesResources` public API、null guard、options snapshot timing、lock 順序、deferred progress flush、summary log 文言が維持されている。
+- install failure exception handling と dialog timing が維持されている。
+- `InstallPendingPackagesToEstimatedDestinations` は今回移さず delegate 境界に留める。
+- build / package install 関連 tests / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ## Target Architecture
 
 ```text
@@ -200,7 +233,7 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C4` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
+`REF-MVP-C5` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
 
 - LR2 song.db sync coordinator。
 - package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。

@@ -104,6 +104,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         string repairInstallDestinationMethod = ExtractMethodBody(source, "private void SearchCorrectInstallationDirectoryCharts(");
         string autoInstallLibraryMethod = ExtractMethodBody(librarySource, "public List<ChartPackage> InstallChartPackagesAuto(");
         string pendingOverwriteMethod = ExtractMethodBody(librarySource, "public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(");
+        string pendingOverwriteCoordinatorMethod = ExtractMethodBody(librarySource, "internal static PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(");
         string pendingZeroNoteRenameMethod = ExtractMethodBody(librarySource, "internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(");
         string pendingSourceDeleteMethod = ExtractMethodBody(librarySource, "public void DeletePendingPackageSources(");
         string autoRenameMethod = ExtractMethodBody(librarySource, "internal void AutoRenameChartFolders(");
@@ -128,9 +129,10 @@ public sealed class BmsLibraryMutationBoundaryTests
         Assert.IsTrue(
             autoInstallLibraryMethod.IndexOf("packageInstallService.ExpandInstallSources", StringComparison.Ordinal) < autoInstallLibraryMethod.IndexOf("rwlockBMSFilesInitializedAll.GetReaderGuard", StringComparison.Ordinal),
             "Archive expansion progress callbacks should be emitted before BMS state locks are acquired.");
-        StringAssert.Contains(pendingOverwriteMethod, "deferredProcessedCount");
-        StringAssert.Contains(pendingOverwriteMethod, "() => deferredProcessedCount++");
-        StringAssert.Contains(pendingOverwriteMethod, "InvokeDeferredProcessedCallbacks");
+        StringAssert.Contains(pendingOverwriteMethod, "PendingResourceOverwriteCoordinator");
+        StringAssert.Contains(pendingOverwriteCoordinatorMethod, "deferredProcessedCount");
+        StringAssert.Contains(pendingOverwriteCoordinatorMethod, "() => deferredProcessedCount++");
+        StringAssert.Contains(pendingOverwriteCoordinatorMethod, "InvokeDeferredProcessedCallbacks");
         StringAssert.Contains(pendingZeroNoteRenameMethod, "InvokeDeferredProcessedCallbacks");
         StringAssert.Contains(pendingSourceDeleteMethod, "InvokeDeferredProcessedCallbacks");
         StringAssert.Contains(autoRenameMethod, "deferredProgressReporter");
