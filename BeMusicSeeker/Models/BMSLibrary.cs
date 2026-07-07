@@ -6336,8 +6336,7 @@ completeFileEnumerationOnce,
     private Lr2SongDbSyncScanSurfaceSnapshot GetCurrentLr2SongDbSyncScanSurface(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> lr2FolderDiscoveryDirectories,
-        int ownedCollectionVersion,
-        StorageRowsVersionSnapshot storageRowsVersion,
+        Lr2SongDbSyncInputRowSnapshot rowSnapshot,
         out string missReason)
     {
         missReason = string.Empty;
@@ -6351,17 +6350,22 @@ completeFileEnumerationOnce,
             missReason = "none";
             return null;
         }
-        if (snapshot.OwnedCollectionVersion != ownedCollectionVersion)
+        if (rowSnapshot == null)
+        {
+            missReason = "row_snapshot";
+            return null;
+        }
+        if (snapshot.OwnedCollectionVersion != rowSnapshot.OwnedCollectionVersion)
         {
             missReason = "owned_collection_version";
             return null;
         }
-        if (snapshot.BmsRowsVersion != storageRowsVersion.BmsRowsVersion)
+        if (snapshot.BmsRowsVersion != rowSnapshot.BmsRowsVersion)
         {
             missReason = "bms_rows_version";
             return null;
         }
-        if (snapshot.BmsonRowsVersion != storageRowsVersion.BmsonRowsVersion)
+        if (snapshot.BmsonRowsVersion != rowSnapshot.BmsonRowsVersion)
         {
             missReason = "bmson_rows_version";
             return null;
@@ -6872,31 +6876,8 @@ completeFileEnumerationOnce,
     private Lr2SongDbSyncInput CreateLr2SongDbSyncInput()
     {
         var inputStopwatch = Stopwatch.StartNew();
-        List<string> chartPaths;
-        List<BMSFile> songRows;
-        int ownedCollectionVersion;
-        StorageRowsVersionSnapshot storageRowsVersion;
         var rowSnapshotStopwatch = Stopwatch.StartNew();
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            var chartPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            chartPaths = [];
-            songRows = [];
-            foreach (BMSFile file in _BMSFiles ?? [])
-            {
-                if (file == null || string.IsNullOrWhiteSpace(file.path))
-                {
-                    continue;
-                }
-                songRows.Add(file);
-                if (chartPathSet.Add(file.path))
-                {
-                    chartPaths.Add(file.path);
-                }
-            }
-            ownedCollectionVersion = OwnedChartCollectionVersion;
-            storageRowsVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
-        }
+        Lr2SongDbSyncInputRowSnapshot rowSnapshot = CreateLr2SongDbSyncInputRowSnapshot();
         rowSnapshotStopwatch.Stop();
 
         var rootsStopwatch = Stopwatch.StartNew();
@@ -6907,7 +6888,7 @@ completeFileEnumerationOnce,
         rootsStopwatch.Stop();
 
         var builtinSettingsStopwatch = Stopwatch.StartNew();
-        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = CreateLr2BuiltinCustomFolderSettings(songRows, nowUtc);
+        Lr2BuiltinCustomFolderSettings builtinCustomFolderSettings = CreateLr2BuiltinCustomFolderSettings(rowSnapshot.SongRows, nowUtc);
         List<string> lr2BuiltinFolderSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories();
         string lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
         IReadOnlyList<string> lr2AdditionalNormalCustomFolderOutputBaseDirs = CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories();
@@ -6921,15 +6902,14 @@ completeFileEnumerationOnce,
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface = GetCurrentLr2SongDbSyncScanSurface(
             roots,
             lr2FolderDiscoveryDirectories,
-            ownedCollectionVersion,
-            storageRowsVersion,
+            rowSnapshot,
             out string scanSurfaceMissReason);
         scanSurfaceStopwatch.Stop();
 
         var directoryTargetsStopwatch = Stopwatch.StartNew();
         IReadOnlyCollection<string> directoryMetadataTargets = scanSurface?.NormalFolderDirectoryPaths?.Count > 0
             ? scanSurface.NormalFolderDirectoryPaths
-            : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, chartPaths);
+            : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(roots, rowSnapshot.ChartPaths);
         directoryTargetsStopwatch.Stop();
 
         Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface =
@@ -7187,7 +7167,7 @@ completeFileEnumerationOnce,
             + " totalMs=" + inputStopwatch.ElapsedMilliseconds);
         return new Lr2SongDbSyncInput(
             roots,
-            chartPaths,
+            rowSnapshot.ChartPaths,
             [.. directoryMetadataTargets],
             folderInfoCandidates.Paths,
             folderInfoCandidates.EntriesByPath,
@@ -7205,9 +7185,43 @@ completeFileEnumerationOnce,
             lr2FolderFileCandidates.Paths,
             lr2FolderFileCandidates.EntriesByPath,
             lr2FolderFileCandidates.DiscoveryComplete,
-            songRows,
+            rowSnapshot.SongRows,
             textFileDirectories,
             scanSurface?.Generation ?? 0,
+            rowSnapshot.OwnedCollectionVersion,
+            rowSnapshot.BmsRowsVersion,
+            rowSnapshot.BmsonRowsVersion);
+    }
+
+    private Lr2SongDbSyncInputRowSnapshot CreateLr2SongDbSyncInputRowSnapshot()
+    {
+        List<string> chartPaths;
+        List<BMSFile> songRows;
+        int ownedCollectionVersion;
+        StorageRowsVersionSnapshot storageRowsVersion;
+        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
+        {
+            var chartPathSet = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            chartPaths = [];
+            songRows = [];
+            foreach (BMSFile file in _BMSFiles ?? [])
+            {
+                if (file == null || string.IsNullOrWhiteSpace(file.path))
+                {
+                    continue;
+                }
+                songRows.Add(file);
+                if (chartPathSet.Add(file.path))
+                {
+                    chartPaths.Add(file.path);
+                }
+            }
+            ownedCollectionVersion = OwnedChartCollectionVersion;
+            storageRowsVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
+        }
+        return new Lr2SongDbSyncInputRowSnapshot(
+            chartPaths,
+            songRows,
             ownedCollectionVersion,
             storageRowsVersion.BmsRowsVersion,
             storageRowsVersion.BmsonRowsVersion);

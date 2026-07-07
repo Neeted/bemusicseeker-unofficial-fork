@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C16: LR2 song.db sync file-diff freshness DTO boundary` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C17: LR2 song.db sync input row snapshot boundary` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -332,6 +332,24 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 - LR2 sync 関連 tests / build / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+### `REF-MVP-C17: LR2 song.db sync input row snapshot boundary`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` から `_BMSFiles` / `rwlockBMSFilesInitializedAll` / `StorageRowsVersionSnapshot` の直接扱いを外し、top-level input row snapshot DTO へ閉じ込める。
+- row snapshot の chart path distinct、song row capture、owned collection / storage row version capture の順序と lock 範囲は変えない。
+- `CreateLr2SongDbSyncInput` 本体の builder 化は今回の完了条件に含めず、C17 完了後に再計画する。
+
+完了条件:
+
+- `Lr2SongDbSyncInputRowSnapshot` が top-level internal DTO として追加されている。
+- `CreateLr2SongDbSyncInput` が row snapshot DTO 経由で chart paths / song rows / version を読む。
+- `GetCurrentLr2SongDbSyncScanSurface` が private `StorageRowsVersionSnapshot` ではなく row snapshot DTO から version を判定できる。
+- LR2 sync 関連 tests / build / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ### `REF-MVP-D1: .NET 10 blocker inventory in devdocs`
 
 状態: completed checkpoint。後続は [REF-MVP-D1 inventory](./inventory/REF-MVP-D1_dotnet10_blockers.md) を見て、Settings boundary、native load layout、WPF / WinForms boundary のいずれか 1 件だけを active ticket 化する。
@@ -356,7 +374,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 |---|---:|---:|---|
 | `MainWindowViewModel.cs` | 23,413 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
-| `BMSLibrary.cs` | 18,213 行 | 12,000 行以下 | LR2 sync input builder / scan surface follow-up、maintenance、folder/file operation、package install follow-up |
+| `BMSLibrary.cs` | 18,228 行 | 12,000 行以下 | LR2 sync input builder / scan surface follow-up、maintenance、folder/file operation、package install follow-up |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
 
 Guardrail 超過は現時点では既知。残す理由は「MVP active lanes の extraction 前であるため」。次の extraction 候補は上表を正本とする。
@@ -372,7 +390,7 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-C16` として `BMSLibrary` nested `Lr2SongDbSyncFileDiffFreshnessSnapshot` を `BmsLibraryInternal/Lr2SongDbSyncFileDiffFreshnessSnapshot.cs` の top-level internal DTO へ移した。`BMSLibrary.cs` は 18,213 行、`Lr2SongDbSyncFileDiffFreshnessSnapshot.cs` は 78 行。build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+`REF-MVP-C17` として `CreateLr2SongDbSyncInput` の row capture を `BmsLibraryInternal/Lr2SongDbSyncInputRowSnapshot.cs` の top-level internal DTO 境界へ切り、scan surface lookup も row snapshot DTO から version 判定する形にした。`BMSLibrary.cs` は 18,228 行、`Lr2SongDbSyncInputRowSnapshot.cs` は 21 行。build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
 次にやる 1 件: Lane C を続ける場合は `CreateLr2SongDbSyncInput` 本体の builder 化 / scan surface helper follow-up を 1 ticket だけ active 化する。重すぎる場合は maintenance、folder/file operation、package install follow-up のいずれか 1 件を workflow 単位で active 化する。
 
