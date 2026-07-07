@@ -8494,21 +8494,6 @@ completeFileEnumerationOnce,
         return CreateLr2SongDbSyncAppManagedOutputScope().Directories;
     }
 
-    private sealed class Lr2SongDbSyncAppManagedOutputScope(
-        IReadOnlyList<string> directories,
-        IReadOnlyList<string> filePaths,
-        IReadOnlyList<string> pruneExcludedPaths,
-        bool isComplete)
-    {
-        public IReadOnlyList<string> Directories { get; } = directories ?? [];
-
-        public IReadOnlyList<string> FilePaths { get; } = filePaths ?? [];
-
-        public IReadOnlyList<string> PruneExcludedPaths { get; } = pruneExcludedPaths ?? [];
-
-        public bool IsComplete { get; } = isComplete;
-    }
-
     private Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope()
     {
         var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

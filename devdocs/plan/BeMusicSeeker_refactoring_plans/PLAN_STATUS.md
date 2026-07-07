@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C14: LR2 song.db sync scan surface DTO boundary` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C15: LR2 song.db sync app-managed output scope DTO boundary` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -297,6 +297,24 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 - LR2 sync 関連 tests / build / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+### `REF-MVP-C15: LR2 song.db sync app-managed output scope DTO boundary`
+
+状態: completed checkpoint。
+
+目的:
+
+- `BMSLibrary` nested `Lr2SongDbSyncAppManagedOutputScope` を top-level internal DTO に移し、input builder follow-up の前提を作る。
+- private `CreateLr2SongDbSyncAppManagedOutputScope` 入口、public property 名、playlist / DB schema / setting name は変えない。
+- app-managed output scope の生成ロジック自体は今回移さない。
+
+完了条件:
+
+- `Lr2SongDbSyncAppManagedOutputScope` が `BMSLibrary` nested type ではなく top-level internal DTO になっている。
+- `Directories` / `FilePaths` / `PruneExcludedPaths` / `IsComplete` の property surface と null fallback が維持されている。
+- 既存 reflection tests が private `CreateLr2SongDbSyncAppManagedOutputScope` 入口と public property surface 経由で通る。
+- LR2 sync 関連 tests / build / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ### `REF-MVP-D1: .NET 10 blocker inventory in devdocs`
 
 状態: completed checkpoint。後続は [REF-MVP-D1 inventory](./inventory/REF-MVP-D1_dotnet10_blockers.md) を見て、Settings boundary、native load layout、WPF / WinForms boundary のいずれか 1 件だけを active ticket 化する。
@@ -321,7 +339,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 |---|---:|---:|---|
 | `MainWindowViewModel.cs` | 23,413 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
-| `BMSLibrary.cs` | 18,301 行 | 12,000 行以下 | LR2 sync input builder / scan surface follow-up、maintenance、folder/file operation、package install follow-up |
+| `BMSLibrary.cs` | 18,286 行 | 12,000 行以下 | LR2 sync input builder / scan surface follow-up、maintenance、folder/file operation、package install follow-up |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
 
 Guardrail 超過は現時点では既知。残す理由は「MVP active lanes の extraction 前であるため」。次の extraction 候補は上表を正本とする。
@@ -337,7 +355,7 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-C14` として `BMSLibrary` nested `Lr2SongDbSyncScanSurfaceSnapshot` を `BmsLibraryInternal/Lr2SongDbSyncScanSurfaceSnapshot.cs` の top-level internal DTO へ移した。`BMSLibrary.cs` は 18,301 行、`Lr2SongDbSyncScanSurfaceSnapshot.cs` は 57 行。build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+`REF-MVP-C15` として `BMSLibrary` nested `Lr2SongDbSyncAppManagedOutputScope` を `BmsLibraryInternal/Lr2SongDbSyncAppManagedOutputScope.cs` の top-level internal DTO へ移した。`BMSLibrary.cs` は 18,286 行、`Lr2SongDbSyncAppManagedOutputScope.cs` は 18 行。build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
 次にやる 1 件: Lane C を続ける場合は `CreateLr2SongDbSyncInput` 本体の builder 化 / scan surface helper follow-up を 1 ticket だけ active 化する。重すぎる場合は maintenance、folder/file operation、package install follow-up のいずれか 1 件を workflow 単位で active 化する。
 
