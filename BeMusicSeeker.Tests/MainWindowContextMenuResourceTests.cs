@@ -1806,6 +1806,10 @@ public sealed class MainWindowContextMenuResourceTests
             mainWindowCode,
             "private void tableContextMenuItemAutoRenameFolderClick",
             "private void tableContextMenuItemRenameBMSFileClick");
+        string moveFileClick = ExtractBetween(
+            mainWindowCode,
+            "private async void tableContextMenuItemMoveFileClick",
+            "private void fixEncodingSelectedBMS");
         string contextMenuOpening = ExtractBetween(
             mainWindowCode,
             "bool canAutoRenameFolders =",
@@ -1830,6 +1834,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameClick.Contains("targetSnapshot"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
+        StringAssert.Contains(moveFileClick, "GetSelectedChartTargets().Where(target => target.HasCapability(ChartOperationCapabilities.MoveInLibrary)");
+        StringAssert.Contains(moveFileClick, "ChartLibraryMoveRequest.TryCreate(targets, dstDir, out ChartLibraryMoveRequest request)");
+        StringAssert.Contains(moveFileClick, "viewModel.MoveLibraryCharts(request)");
+        Assert.IsFalse(moveFileClick.Contains("viewModel.MoveLibraryCharts(targets, dstDir)"));
         StringAssert.Contains(contextMenuOpening, "contextMenuState.CanAutoRenameFolders");
         StringAssert.Contains(contextMenuStateBuilderCode, "hasBmsSelection || hasBmsonSelection");
         StringAssert.Contains(autoRenameAll, "files?.HasAutoRenameAllChartFolderTargets(parentDir) != true");

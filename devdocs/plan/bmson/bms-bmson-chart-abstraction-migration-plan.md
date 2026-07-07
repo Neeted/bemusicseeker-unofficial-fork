@@ -387,7 +387,7 @@ F-3 で進める候補 / 進捗:
 - playlist reference apply の library target は参照 map の md5 / sha256 に一致する owned refs だけを current owner hash で抽出し、全 owned refs snapshot を毎回複製しない
 - full resource maintenance target は owned collection の resource maintenance target view から作り、pathless bmson を projection 前に除外する。full target は `CreateFullOwnedResourceMaintenanceTargetSet(reason)` で reason 付き log と currentness metadata を束ね、install/merge/repair 後の subset target は `CreateResourceMaintenanceTargetSet(...)` で明示的に作る。単なる list 正規化が必要な内部処理だけ `NormalizeResourceMaintenanceTargetCharts(...)` を使い、full-owned / subset contract として `List<ChartFile> + bool + nullable version` の引数列を戻さない
 - install estimation snapshot の代表譜面は `RepresentativeChart` として `ChartFile` を持つ。`ChartPackage.ChartFiles` 自体は compatibility adapter list のままだが、推定中の読み取り専用代表情報は BMS / bmson 共通の domain read model へ寄せる
-- library mutation 用 `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。ViewModel は `ChartFileKind` / `CompatibilityBmsFile` / `BmsonSong` の分岐を直接持たず、operation target から mutation ref へ変換する
+- library mutation 用 `LibraryChartRef` は `ChartOperationTarget.ToLibraryChartRef()` で作る。ViewModel / request DTO は `ChartFileKind` / `CompatibilityBmsFile` / `BmsonSong` の分岐を直接持たず、operation target から mutation ref へ変換する
 - playlist 未所持 row は local file operation を持たない一方、entry / chart_info に有効な sha256 があれば repository link capability を持つことをテストで固定する
 - BMS 専用 context menu handler は `GetSelectedBmsChartFiles`、chart 共通 resource health handler は `GetSelectedChartTargets` + `ChartResourceHealthRequest` 境界を使うことを source-level test で固定する
 - folder move mutation は同一 delta 内で BMS の `FilePathChanges` と bmson の `BmsonSongPathChanges` を同時に持てることをテストで固定する

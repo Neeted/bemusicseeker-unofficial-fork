@@ -9225,9 +9225,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel viewModel && menuItem.DataContext is string dstDir && targets.Count > 0 && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_other_root, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
+            if (!ChartLibraryMoveRequest.TryCreate(targets, dstDir, out ChartLibraryMoveRequest request))
+            {
+                return;
+            }
             await Task.Run(delegate
             {
-                viewModel.MoveLibraryCharts(targets, dstDir);
+                viewModel.MoveLibraryCharts(request);
             }).Logging("tableContextMenuItemMoveFileClick");
         }
     }

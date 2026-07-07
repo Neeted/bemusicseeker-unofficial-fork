@@ -22986,19 +22986,18 @@ public partial class MainWindowViewModel : ViewModel
         AutoRenameChartFolders(request.Charts);
     }
 
-    internal void MoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, string newParentDirectory)
+    internal void MoveLibraryCharts(ChartLibraryMoveRequest request)
     {
-        List<LibraryChartRef> charts = [.. ToLibraryChartRefs(targets, ChartOperationCapabilities.MoveInLibrary).Where(chart => !string.IsNullOrWhiteSpace(chart.Path))];
-        if (charts.Count == 0 || string.IsNullOrWhiteSpace(newParentDirectory))
+        if (request?.HasTargets != true || string.IsNullOrWhiteSpace(request.NewParentDirectory))
         {
             return;
         }
         RunChartPackageMutation(delegate
         {
-            files.MoveLibraryRootFolder(charts, newParentDirectory, false);
+            files.MoveLibraryRootFolder(request.Charts, request.NewParentDirectory, false);
             ApplyLatestNormalLibraryRefreshNotification();
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree, stopPlayback: () => stopPlayingLibraryCharts(charts));
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree, stopPlayback: () => stopPlayingLibraryCharts(request.Charts));
     }
 
     private static IEnumerable<LibraryChartRef> ToLibraryChartRefs(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)

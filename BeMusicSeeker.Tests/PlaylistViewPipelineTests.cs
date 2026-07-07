@@ -1547,6 +1547,29 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void ChartLibraryMoveRequest_UsesLibraryChartRefWithoutMaterializingBmsonCompatibilityAdapter()
+    {
+        var bmson = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Songs\\Bmson\\move.bmson",
+            folder = "C:\\Songs\\Bmson",
+            title = "Move Bmson",
+            artist = "Artist",
+            md5 = "68686868686868686868686868686868",
+            sha256 = new string('8', 64)
+        };
+        var row = LibraryChartRow.FromBmsonSong(bmson);
+
+        Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target));
+        Assert.IsTrue(ChartLibraryMoveRequest.TryCreate([target], "D:\\Songs", out ChartLibraryMoveRequest request));
+
+        Assert.AreEqual(1, request.Charts.Count);
+        Assert.IsTrue(request.HasTargets);
+        Assert.AreEqual("D:\\Songs", request.NewParentDirectory);
+        Assert.AreSame(bmson, request.Charts[0].GetBmsonStorageOwner());
+    }
+
+    [TestMethod]
     public void RepairInstalledLocationTargetSnapshot_HasInstallDestinationDoesNotMaterializeLooseBmsonCompatibilityAdapter()
     {
         var bmson = new LR2SongDBExtended.bmson_song

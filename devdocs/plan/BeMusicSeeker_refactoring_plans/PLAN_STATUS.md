@@ -107,9 +107,9 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-B1` の実装 slice として、chart table context menu handler の mutation request DTO 化を進めている。pending install package 操作、install destination search / clear / edit、repair installed location search / fix / clear、resource health rescan / ignore / unignore、folder auto rename は root nested snapshot 型ではなく top-level request DTO を介して ViewModel へ渡す形にした。
+`REF-MVP-B1` の実装 slice として、chart table context menu handler の mutation request DTO 化を進めている。pending install package 操作、install destination search / clear / edit、repair installed location search / fix / clear、resource health rescan / ignore / unignore、folder auto rename、move selected chart は root nested snapshot 型ではなく top-level request DTO を介して ViewModel へ渡す形にした。
 
-次にやる 1 件: `REF-MVP-B1` の残りとして、`MainWindow` の move selected chart handler を request DTO 化するか、B1 checkpoint として残る `RenameChartFolderTargetSnapshot` / move handler を後続へ送るか判定する。
+次にやる 1 件: `REF-MVP-B1` の残りとして、`RenameChartFolderTargetSnapshot` / `IRepairInstalledLocationTargetSnapshot` の production 依存を棚卸しし、B1 checkpoint として完了扱いにできるか判定する。
 
 ## 次回 Codex が最初に読むべきファイル
 
