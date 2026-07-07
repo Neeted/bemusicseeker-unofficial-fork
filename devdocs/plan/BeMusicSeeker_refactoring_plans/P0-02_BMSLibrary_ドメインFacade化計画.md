@@ -732,3 +732,26 @@ BMSLibrary                         // public facade / compatibility API
 - scan surface / grouped scan の優先順、prepared overlay、missing count の計算式は維持した。
 - 初回 full test で `CreateLr2SongDbSyncInputWithoutScanSurface_ExcludesManagedOutputDirectoryFiles` が 1 回失敗したが、同テスト単体 rerun、LR2 targeted rerun、full test rerun は pass した。
 - DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C24`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` の最終 `Lr2SongDbSyncInput` composition を top-level internal factory 境界へ寄せる。
+- C17-C23 で分けた snapshot / selection DTO を、後続 builder 化で直接渡せる composition surface にする。
+- ログ項目、selection 順序、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- `new Lr2SongDbSyncInput(...)` の組み立てが dedicated factory 経由になる。
+- constructor 引数の値と順序が維持される。
+- log string builder 化、scan surface helper 移動、private entry point 移動は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncInputFactory` を追加し、最終 `Lr2SongDbSyncInput` constructor composition を dedicated factory 経由へ移した。
+- constructor に渡す値と順序は維持した。
+- DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。

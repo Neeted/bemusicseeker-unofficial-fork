@@ -7010,32 +7010,17 @@ completeFileEnumerationOnce,
             + " folderInfoCandidatesMs=" + folderInfoCandidatesStopwatch.ElapsedMilliseconds
             + " textFileDirsMs=" + textFileDirsStopwatch.ElapsedMilliseconds
             + " totalMs=" + inputStopwatch.ElapsedMilliseconds);
-        return new Lr2SongDbSyncInput(
-            rootSnapshot.RootDirectories,
-            rowSnapshot.ChartPaths,
-            [.. directoryMetadataTargets],
-            folderInfoCandidates.Paths,
-            folderInfoCandidates.EntriesByPath,
+        return Lr2SongDbSyncInputFactory.Create(
+            rootSnapshot,
+            rowSnapshot,
+            directoryMetadataTargets,
+            folderInfoCandidates,
             directoryEntries,
-            rootSnapshot.Lr2FolderDiscoveryDirectories,
-            settingsSnapshot.Lr2FolderPruneDirectories,
-            appManagedOutputScope.Directories,
-            appManagedOutputScope.PruneExcludedPaths,
-            rootSnapshot.Lr2RootPath,
-            settingsSnapshot.Lr2NormalCustomFolderOutputBaseDir,
-            settingsSnapshot.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
-            settingsSnapshot.Lr2RootCustomFolderOutputBaseDir,
-            settingsSnapshot.Lr2BuiltinFolderSourceDirectories,
-            settingsSnapshot.Lr2BuiltinCustomFolderSettings,
-            lr2FolderFileCandidates.Paths,
-            lr2FolderFileCandidates.EntriesByPath,
-            lr2FolderFileCandidates.DiscoveryComplete,
-            rowSnapshot.SongRows,
+            settingsSnapshot,
+            appManagedOutputScope,
+            lr2FolderFileCandidates,
             textFileDirectories,
-            scanSurface?.Generation ?? 0,
-            rowSnapshot.OwnedCollectionVersion,
-            rowSnapshot.BmsRowsVersion,
-            rowSnapshot.BmsonRowsVersion);
+            scanSurface?.Generation ?? 0);
     }
 
     private Lr2SongDbSyncInputRowSnapshot CreateLr2SongDbSyncInputRowSnapshot()
