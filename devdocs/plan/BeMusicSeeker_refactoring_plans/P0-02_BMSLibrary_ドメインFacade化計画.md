@@ -308,6 +308,38 @@ subtasks:
 - playlist reference 関連 tests / source-text 代表 tests / build / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+## Completed Checkpoint: `REF-MVP-C10`
+
+### Playlist reference apply coordinator seam
+
+状態: completed checkpoint。
+
+目的:
+
+- playlist reference map build / library chart apply / pending chart apply / package chart apply / replace target logging を coordinator seam へ移す。
+- `BMSLibrary` には既存 public/internal API、playlist reference manager bridge、snapshot / lock bridge、logging bridge を残す。
+- MainWindowViewModel consumption、BMSTable persistence、playlist database 更新、chart row refresh は今回触らない。
+
+主対象:
+
+- `BeMusicSeeker/Models/BMSLibrary.cs`
+- 新規候補: `BeMusicSeeker/Models/BMSLibrary.PlaylistReferenceHost.cs`
+- 新規候補: `BeMusicSeeker/Models/BmsLibraryInternal/PlaylistReferenceApplyCoordinator.cs`
+- playlist reference 関連 tests: `BmsLibraryFolderRenameRefreshTests`, `BmsLibraryPlaylistReferenceServiceTests`, `MainWindowContextMenuResourceTests`, `PlaylistConcurrencyArchitectureTests`
+
+subtasks:
+
+1. coordinator / host contract を追加し、`AddReferenceBMSTables*` / `ReplaceReferenceBMSTable` / remove / synchronize orchestration を移す。
+2. root `BMSLibrary` の public/internal API entry は維持し、snapshot / lock / logging / index bridge は host 経由にする。
+3. playlist reference 関連 tests と標準確認を実行する。
+
+完了条件:
+
+- `AddReferenceBMSTables*`、`ReplaceReferenceBMSTable`、`RemoveReferenceBMSTables*`、`SynchronizeReferenceBMSTables` の public/internal surface と log key が維持されている。
+- pending bmson entry を materialize しない既存挙動が維持されている。
+- playlist reference 関連 tests / source-text 代表 tests / build / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ## Target Architecture
 
 ```text
@@ -357,10 +389,10 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C9` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
+`REF-MVP-C10` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
 
 - LR2 song.db sync coordinator。
 - package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。
 - maintenance coordinator。
-- playlist reference coordinator。
+- playlist reference follow-up coordinator。
 - file operation / folder rename coordinator。

@@ -17164,171 +17164,19 @@ completeFileEnumerationOnce,
         return playlistReferenceManager.Find(chart);
     }
 
-    private void ReplacePlaylistReferenceIndexTable(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
-    {
-        playlistReferenceManager.ReplaceTable(table, entries);
-    }
-
-    private void RemovePlaylistReferenceIndexTable(BMSTable table)
-    {
-        playlistReferenceManager.RemoveTable(table);
-    }
-
-    private void RemovePlaylistReferenceIndexTables(IEnumerable<BMSTable> tables)
-    {
-        playlistReferenceManager.RemoveTables(tables);
-    }
-
-    private void SynchronizePlaylistReferenceIndex(IEnumerable<BMSTable> tables)
-    {
-        playlistReferenceManager.Synchronize(tables);
-    }
-
     public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
     {
-        if (table == null)
-        {
-            return;
-        }
-        var stopwatchBuildMap = Stopwatch.StartNew();
-        IEnumerable<BMSTableEntry> sourceEntries = entries;
-        if (sourceEntries == null)
-        {
-            using (table.ReaderWriterLock.GetReaderGuard())
-            {
-                sourceEntries = [.. table.entries];
-            }
-        }
-        else
-        {
-            sourceEntries = [.. sourceEntries];
-        }
-        PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(table, sourceEntries);
-        ReplacePlaylistReferenceIndexTable(table, sourceEntries);
-        stopwatchBuildMap.Stop();
-        int matchedLibraryCharts = 0;
-        int matchedPendingFiles = 0;
-        int appliedLibraryCharts = 0;
-        int appliedPendingCharts = 0;
-        PlaylistReferenceApplyStats songApplyStats = default;
-        var stopwatchApplySong = Stopwatch.StartNew();
-        List<LibraryChartRef> libraryChartsSnapshot = null;
-        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
-        {
-            libraryChartsSnapshot = SnapshotLibraryChartRefsForPlaylistReferenceApply(referenceMaps);
-        }
-        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0 && libraryChartsSnapshot != null && libraryChartsSnapshot.Count > 0)
-        {
-            appliedLibraryCharts = playlistReferenceService.ApplyReferenceMap(libraryChartsSnapshot, referenceMaps, out matchedLibraryCharts, out songApplyStats);
-        }
-        stopwatchApplySong.Stop();
-        PlaylistReferenceApplyStats pendingApplyStats = default;
-        var stopwatchApplyPending = Stopwatch.StartNew();
-        List<PackageChartEntry> pendingEntriesSnapshot = null;
-        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
-        {
-            pendingEntriesSnapshot = SnapshotPendingChartEntriesForPlaylistReferenceApply(referenceMaps);
-        }
-        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0 && pendingEntriesSnapshot != null && pendingEntriesSnapshot.Count > 0)
-        {
-            appliedPendingCharts = playlistReferenceService.ApplyReferenceMap(pendingEntriesSnapshot, referenceMaps, out matchedPendingFiles, out pendingApplyStats);
-        }
-        stopwatchApplyPending.Stop();
-        int tableCount = 1;
-        LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + stopwatchApplySong.ElapsedMilliseconds + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + stopwatchApplyPending.ElapsedMilliseconds + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + tableCount + " matchedLibraryCharts=" + matchedLibraryCharts + " appliedLibraryCharts=" + appliedLibraryCharts + " matchedPendingFiles=" + matchedPendingFiles + " appliedPendingCharts=" + appliedPendingCharts);
+        PlaylistReferenceApplyCoordinator.AddReferenceBMSTables(playlistReferenceService, this, table, entries);
     }
 
     public void AddReferenceBMSTables(IEnumerable<BMSTable> tables)
     {
-        if (tables == null)
-        {
-            return;
-        }
-        List<BMSTable> list = [.. tables.Where(t => t != null)];
-        if (list.Count == 0)
-        {
-            return;
-        }
-        var stopwatchBuildMap = Stopwatch.StartNew();
-        PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(list);
-        SynchronizePlaylistReferenceIndex(list);
-        stopwatchBuildMap.Stop();
-        long applySongMs = 0L;
-        long applyPendingMs = 0L;
-        int matchedLibraryCharts = 0;
-        int matchedPendingFiles = 0;
-        int appliedLibraryCharts = 0;
-        int appliedPendingCharts = 0;
-        PlaylistReferenceApplyStats songApplyStats = default;
-        PlaylistReferenceApplyStats pendingApplyStats = default;
-        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
-        {
-            var stopwatchApplySong = Stopwatch.StartNew();
-            List<LibraryChartRef> libraryChartsSnapshot = SnapshotLibraryChartRefsForPlaylistReferenceApply(referenceMaps);
-            if (libraryChartsSnapshot != null && libraryChartsSnapshot.Count > 0)
-            {
-                appliedLibraryCharts = playlistReferenceService.ApplyReferenceMap(libraryChartsSnapshot, referenceMaps, out matchedLibraryCharts, out songApplyStats);
-            }
-            stopwatchApplySong.Stop();
-            applySongMs = stopwatchApplySong.ElapsedMilliseconds;
-            var stopwatchApplyPending = Stopwatch.StartNew();
-            List<PackageChartEntry> pendingEntriesSnapshot = SnapshotPendingChartEntriesForPlaylistReferenceApply(referenceMaps);
-            if (pendingEntriesSnapshot != null && pendingEntriesSnapshot.Count > 0)
-            {
-                appliedPendingCharts = playlistReferenceService.ApplyReferenceMap(pendingEntriesSnapshot, referenceMaps, out matchedPendingFiles, out pendingApplyStats);
-            }
-            stopwatchApplyPending.Stop();
-            applyPendingMs = stopwatchApplyPending.ElapsedMilliseconds;
-        }
-        LogInstallPerformance("playlist_ref_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + applySongMs + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + applyPendingMs + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + list.Count + " matchedLibraryCharts=" + matchedLibraryCharts + " appliedLibraryCharts=" + appliedLibraryCharts + " matchedPendingFiles=" + matchedPendingFiles + " appliedPendingCharts=" + appliedPendingCharts);
+        PlaylistReferenceApplyCoordinator.AddReferenceBMSTables(playlistReferenceService, this, tables);
     }
 
     public void AddReferenceBMSTablesIncremental(IEnumerable<BMSTable> tables)
     {
-        if (tables == null)
-        {
-            return;
-        }
-        List<BMSTable> list = [.. tables.Where(table => table != null).Distinct()];
-        if (list.Count == 0)
-        {
-            return;
-        }
-        var stopwatchBuildMap = Stopwatch.StartNew();
-        PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(list);
-        foreach (BMSTable table in list)
-        {
-            ReplacePlaylistReferenceIndexTable(table);
-        }
-        stopwatchBuildMap.Stop();
-        long applySongMs = 0L;
-        long applyPendingMs = 0L;
-        int matchedLibraryCharts = 0;
-        int matchedPendingFiles = 0;
-        int appliedLibraryCharts = 0;
-        int appliedPendingCharts = 0;
-        PlaylistReferenceApplyStats songApplyStats = default;
-        PlaylistReferenceApplyStats pendingApplyStats = default;
-        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
-        {
-            var stopwatchApplySong = Stopwatch.StartNew();
-            List<LibraryChartRef> libraryChartsSnapshot = SnapshotLibraryChartRefsForPlaylistReferenceApply(referenceMaps);
-            if (libraryChartsSnapshot != null && libraryChartsSnapshot.Count > 0)
-            {
-                appliedLibraryCharts = playlistReferenceService.ApplyReferenceMap(libraryChartsSnapshot, referenceMaps, out matchedLibraryCharts, out songApplyStats);
-            }
-            stopwatchApplySong.Stop();
-            applySongMs = stopwatchApplySong.ElapsedMilliseconds;
-            var stopwatchApplyPending = Stopwatch.StartNew();
-            List<PackageChartEntry> pendingEntriesSnapshot = SnapshotPendingChartEntriesForPlaylistReferenceApply(referenceMaps);
-            if (pendingEntriesSnapshot != null && pendingEntriesSnapshot.Count > 0)
-            {
-                appliedPendingCharts = playlistReferenceService.ApplyReferenceMap(pendingEntriesSnapshot, referenceMaps, out matchedPendingFiles, out pendingApplyStats);
-            }
-            stopwatchApplyPending.Stop();
-            applyPendingMs = stopwatchApplyPending.ElapsedMilliseconds;
-        }
-        LogInstallPerformance("playlist_ref_incremental_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applySongMs=" + applySongMs + " applySongChunks=" + songApplyStats.Chunks + " applySongChunkMaxMs=" + songApplyStats.MaxChunkMs + " applySongYieldCount=" + songApplyStats.YieldCount + " applyPendingMs=" + applyPendingMs + " applyPendingChunks=" + pendingApplyStats.Chunks + " applyPendingChunkMaxMs=" + pendingApplyStats.MaxChunkMs + " applyPendingYieldCount=" + pendingApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + list.Count + " matchedLibraryCharts=" + matchedLibraryCharts + " appliedLibraryCharts=" + appliedLibraryCharts + " matchedPendingFiles=" + matchedPendingFiles + " appliedPendingCharts=" + appliedPendingCharts);
+        PlaylistReferenceApplyCoordinator.AddReferenceBMSTablesIncremental(playlistReferenceService, this, tables);
     }
 
     /// <summary>
@@ -17338,282 +17186,27 @@ completeFileEnumerationOnce,
     /// <param name="packages">Packages containing newly installed chart entries.</param>
     public void AddReferenceBMSTablesToPackageCharts(IEnumerable<BMSTable> tables, IEnumerable<ChartPackage> packages)
     {
-        if (tables == null || packages == null)
-        {
-            return;
-        }
-        List<BMSTable> tableList = [.. tables.Where(table => table != null)];
-        List<ChartPackage> packageList = [.. packages.Where(package => package != null)];
-        if (tableList.Count == 0 || packageList.Count == 0)
-        {
-            return;
-        }
-
-        var stopwatchBuildMap = Stopwatch.StartNew();
-        PlaylistReferenceMaps referenceMaps = playlistReferenceService.BuildReferenceMaps(tableList);
-        stopwatchBuildMap.Stop();
-
-        int matchedPackageFiles = 0;
-        int appliedPackageCharts = 0;
-        PlaylistReferenceApplyStats packageApplyStats = default;
-        long applyPackageMs = 0L;
-        if ((referenceMaps.Md5ToTablesMap.Count + referenceMaps.Sha256ToTablesMap.Count) > 0)
-        {
-            var stopwatchApplyPackage = Stopwatch.StartNew();
-            using (rwlockPendingInstallCharts.GetReaderGuard())
-            {
-                using (rwlockBMSFiles.GetReaderGuard())
-                {
-                    List<PackageChartEntry> packageEntriesSnapshot = FilterPackagePlaylistReferenceTargets(SnapshotPackageChartEntriesForPlaylistReferenceApply(packageList), referenceMaps);
-                    if (packageEntriesSnapshot.Count > 0)
-                    {
-                        appliedPackageCharts = playlistReferenceService.ApplyReferenceMap(packageEntriesSnapshot, referenceMaps, out matchedPackageFiles, out packageApplyStats);
-                    }
-                }
-            }
-            stopwatchApplyPackage.Stop();
-            applyPackageMs = stopwatchApplyPackage.ElapsedMilliseconds;
-        }
-        LogInstallPerformance("playlist_ref_package_batch buildMapMs=" + stopwatchBuildMap.ElapsedMilliseconds + " applyPackageMs=" + applyPackageMs + " applyPackageChunks=" + packageApplyStats.Chunks + " applyPackageChunkMaxMs=" + packageApplyStats.MaxChunkMs + " applyPackageYieldCount=" + packageApplyStats.YieldCount + " mapMd5Count=" + referenceMaps.Md5ToTablesMap.Count + " mapSha256Count=" + referenceMaps.Sha256ToTablesMap.Count + " tableCount=" + tableList.Count + " packageCount=" + packageList.Count + " matchedPackageFiles=" + matchedPackageFiles + " appliedPackageCharts=" + appliedPackageCharts);
-    }
-
-    private List<LibraryChartRef> SnapshotLibraryChartRefsForPlaylistReferenceApply(PlaylistReferenceMaps referenceMaps)
-    {
-        return SnapshotLibraryChartRefsForPlaylistReferenceApply(
-            CreatePlaylistReferenceHashSet(referenceMaps?.Md5ToTablesMap?.Keys),
-            CreatePlaylistReferenceHashSet(referenceMaps?.Sha256ToTablesMap?.Keys));
-    }
-
-    private List<LibraryChartRef> SnapshotLibraryChartRefsForPlaylistReferenceApply(
-        ISet<string> md5Hashes,
-        ISet<string> sha256Hashes)
-    {
-        if ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0)
-        {
-            return null;
-        }
-        using (rwlockBMSFiles.GetReaderGuard())
-        {
-            EnsureOwnedChartCollectionBuiltUnsafe();
-            List<LibraryChartRef> charts;
-            lock (lockOwnedChartCollection)
-            {
-                charts = ownedChartCollection.CreateLibraryChartRefsForHashes(md5Hashes, sha256Hashes);
-            }
-            return charts.Count == 0 ? null : charts;
-        }
-    }
-
-    private List<PackageChartEntry> SnapshotPendingChartEntriesForPlaylistReferenceApply(PlaylistReferenceMaps referenceMaps)
-    {
-        if (ChartPackagesPending == null || ChartPackagesPending.Count == 0)
-        {
-            return null;
-        }
-        if ((referenceMaps?.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps?.Sha256ToTablesMap?.Count ?? 0) == 0)
-        {
-            return null;
-        }
-        using (rwlockPendingInstallCharts.GetReaderGuard())
-        {
-            List<PackageChartEntry> matchedEntries = [];
-            foreach (PackageChartEntry entry in ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.ChartEntries))
-            {
-                ChartFile chart = entry?.Chart;
-                if (chart == null || !HasPlaylistReferenceMapMatch(chart, referenceMaps))
-                {
-                    continue;
-                }
-                matchedEntries.Add(entry);
-            }
-            return [.. matchedEntries.Distinct()];
-        }
-    }
-
-    private static List<PackageChartEntry> SnapshotPackageChartEntriesForPlaylistReferenceApply(IEnumerable<ChartPackage> packages)
-    {
-        return [.. (packages ?? [])
-            .Where(package => package != null)
-            .SelectMany(package => package.ChartEntries)
-            .Where(entry => entry?.Chart != null)];
+        PlaylistReferenceApplyCoordinator.AddReferenceBMSTablesToPackageCharts(playlistReferenceService, this, tables, packages);
     }
 
     internal void ReplaceReferenceBMSTable(BMSTable oldTable, BMSTable newTable, IEnumerable<BMSTableEntry> oldEntries = null, IEnumerable<BMSTableEntry> newEntries = null)
     {
-        List<BMSTableEntry> oldEntriesSnapshot = PlaylistReferenceManager.SnapshotEntries(oldTable, oldEntries);
-        List<BMSTableEntry> newEntriesSnapshot = PlaylistReferenceManager.SnapshotEntries(newTable, newEntries);
-        BuildPlaylistReferenceHashSets(oldEntriesSnapshot, out HashSet<string> oldMd5Hashes, out HashSet<string> oldSha256Hashes);
-        BuildPlaylistReferenceHashSets(newEntriesSnapshot, out HashSet<string> newMd5Hashes, out HashSet<string> newSha256Hashes);
-        List<LibraryChartRef> libraryChartsSnapshot = SnapshotLibraryChartRefsForPlaylistReferenceApply(
-            CreateCombinedPlaylistReferenceHashSet(oldMd5Hashes, newMd5Hashes),
-            CreateCombinedPlaylistReferenceHashSet(oldSha256Hashes, newSha256Hashes));
-        List<LibraryChartRef> oldLibraryCharts = FilterPlaylistReferenceTargets(libraryChartsSnapshot, oldMd5Hashes, oldSha256Hashes);
-        List<PackageChartEntry> oldPendingEntries = FilterPendingPlaylistReferenceTargetEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply(), oldMd5Hashes, oldSha256Hashes);
-        List<LibraryChartRef> newLibraryCharts = FilterPlaylistReferenceTargets(libraryChartsSnapshot, newMd5Hashes, newSha256Hashes);
-        List<PackageChartEntry> newPendingEntries = FilterPendingPlaylistReferenceTargetEntries(SnapshotPendingChartEntriesForPlaylistReferenceApply(), newMd5Hashes, newSha256Hashes);
-        LogInstallPerformance("playlist_ref_replace targetsOldLibraryCharts=" + oldLibraryCharts.Count + " targetsOldPending=" + oldPendingEntries.Count + " targetsNewLibraryCharts=" + newLibraryCharts.Count + " targetsNewPending=" + newPendingEntries.Count + " oldEntryCount=" + oldEntriesSnapshot.Count + " newEntryCount=" + newEntriesSnapshot.Count);
-        if (oldTable != null)
-        {
-            RemovePlaylistReferenceIndexTable(oldTable);
-        }
-        if (newTable != null)
-        {
-            ReplacePlaylistReferenceIndexTable(newTable, newEntriesSnapshot);
-        }
-    }
-
-    private List<PackageChartEntry> SnapshotPendingChartEntriesForPlaylistReferenceApply()
-    {
-        if (ChartPackagesPending == null || ChartPackagesPending.Count == 0)
-        {
-            return null;
-        }
-        using (rwlockPendingInstallCharts.GetReaderGuard())
-        {
-            return [.. ChartPackagesPending.Where(pkg => pkg != null).SelectMany(pkg => pkg.ChartEntries).Where(entry => entry?.Chart != null)];
-        }
-    }
-
-    private static List<LibraryChartRef> FilterPlaylistReferenceTargets(IEnumerable<LibraryChartRef> charts, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
-    {
-        if (charts == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
-        {
-            return [];
-        }
-        return [.. charts.Where(delegate (LibraryChartRef chart)
-        {
-            if (chart == null)
-            {
-                return false;
-            }
-            if (!string.IsNullOrWhiteSpace(chart.Md5) && md5Hashes.Contains(chart.Md5))
-            {
-                return true;
-            }
-            return !string.IsNullOrWhiteSpace(chart.Sha256) && sha256Hashes.Contains(chart.Sha256);
-        }).Distinct()];
-    }
-
-    private static List<PackageChartEntry> FilterPendingPlaylistReferenceTargetEntries(IEnumerable<PackageChartEntry> entries, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
-    {
-        if (entries == null || ((md5Hashes?.Count ?? 0) == 0 && (sha256Hashes?.Count ?? 0) == 0))
-        {
-            return [];
-        }
-        List<PackageChartEntry> matchedEntries = [];
-        foreach (PackageChartEntry entry in entries)
-        {
-            ChartFile chart = entry?.Chart;
-            if (chart == null || !HasPlaylistReferenceHashMatch(chart, md5Hashes, sha256Hashes))
-            {
-                continue;
-            }
-            matchedEntries.Add(entry);
-        }
-        return [.. matchedEntries.Distinct()];
-    }
-
-    private static List<PackageChartEntry> FilterPackagePlaylistReferenceTargets(IEnumerable<PackageChartEntry> entries, PlaylistReferenceMaps referenceMaps)
-    {
-        if (entries == null || ((referenceMaps?.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps?.Sha256ToTablesMap?.Count ?? 0) == 0))
-        {
-            return [];
-        }
-        List<PackageChartEntry> matchedEntries = [];
-        foreach (PackageChartEntry entry in entries)
-        {
-            ChartFile chart = entry?.Chart;
-            if (chart == null || !HasPlaylistReferenceMapMatch(chart, referenceMaps))
-            {
-                continue;
-            }
-            matchedEntries.Add(entry);
-        }
-        return [.. matchedEntries.Distinct()];
-    }
-
-    private static bool HasPlaylistReferenceMapMatch(ChartFile chart, PlaylistReferenceMaps referenceMaps)
-    {
-        return chart != null
-            && referenceMaps != null
-            && ((!string.IsNullOrWhiteSpace(chart.Md5) && referenceMaps.Md5ToTablesMap != null && referenceMaps.Md5ToTablesMap.ContainsKey(chart.Md5))
-                || (!string.IsNullOrWhiteSpace(chart.Sha256) && referenceMaps.Sha256ToTablesMap != null && referenceMaps.Sha256ToTablesMap.ContainsKey(chart.Sha256)));
-    }
-
-    private static bool HasPlaylistReferenceHashMatch(ChartFile chart, HashSet<string> md5Hashes, HashSet<string> sha256Hashes)
-    {
-        return chart != null
-            && ((!string.IsNullOrWhiteSpace(chart.Md5) && md5Hashes != null && md5Hashes.Contains(chart.Md5))
-                || (!string.IsNullOrWhiteSpace(chart.Sha256) && sha256Hashes != null && sha256Hashes.Contains(chart.Sha256)));
-    }
-
-    private static HashSet<string> CreatePlaylistReferenceHashSet(IEnumerable<string> hashes)
-    {
-        return new HashSet<string>(
-            (hashes ?? []).Where(hash => !string.IsNullOrWhiteSpace(hash)),
-            StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static HashSet<string> CreateCombinedPlaylistReferenceHashSet(params IEnumerable<string>[] hashSets)
-    {
-        var combined = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (IEnumerable<string> hashes in hashSets ?? [])
-        {
-            foreach (string hash in hashes ?? [])
-            {
-                if (!string.IsNullOrWhiteSpace(hash))
-                {
-                    combined.Add(hash);
-                }
-            }
-        }
-        return combined;
-    }
-
-    private static void BuildPlaylistReferenceHashSets(IEnumerable<BMSTableEntry> entries, out HashSet<string> md5Hashes, out HashSet<string> sha256Hashes)
-    {
-        md5Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        sha256Hashes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSTableEntry entry in entries ?? [])
-        {
-            PlaylistEntryLookupKey lookupKey = PlaylistEntryLookupKey.FromEntry(entry);
-            if (!lookupKey.HasValue)
-            {
-                continue;
-            }
-            if (lookupKey.Kind == PlaylistEntryLookupKeyKind.Md5)
-            {
-                md5Hashes.Add(lookupKey.Hash);
-            }
-            else
-            {
-                sha256Hashes.Add(lookupKey.Hash);
-            }
-        }
+        PlaylistReferenceApplyCoordinator.ReplaceReferenceBMSTable(this, oldTable, newTable, oldEntries, newEntries);
     }
 
     internal void AddReferenceBMSTablesToCharts(BMSTable table, IEnumerable<ChartFile> charts)
     {
-        if (table == null || charts == null)
-        {
-            return;
-        }
-        ReplacePlaylistReferenceIndexTable(table);
+        PlaylistReferenceApplyCoordinator.AddReferenceBMSTablesToCharts(this, table, charts);
     }
 
     internal void RefreshReferenceDisplayForTable(BMSTable table)
     {
-        if (table == null)
-        {
-            return;
-        }
-        ReplacePlaylistReferenceIndexTable(table);
+        PlaylistReferenceApplyCoordinator.RefreshReferenceDisplayForTable(this, table);
     }
 
     internal void SynchronizeReferenceBMSTables(IEnumerable<BMSTable> tables)
     {
-        List<BMSTable> list = ((tables != null) ? [.. tables.Where(table => table != null).Distinct()] : new List<BMSTable>());
-        SynchronizePlaylistReferenceIndex(list);
+        PlaylistReferenceApplyCoordinator.SynchronizeReferenceBMSTables(this, tables);
     }
 
     /// <summary>
@@ -17621,26 +17214,12 @@ completeFileEnumerationOnce,
     /// </summary>
     public void RemoveReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
     {
-        if (table == null)
-        {
-            return;
-        }
-        if (entries == null)
-        {
-            RemovePlaylistReferenceIndexTable(table);
-            return;
-        }
-        ReplacePlaylistReferenceIndexTable(table);
+        PlaylistReferenceApplyCoordinator.RemoveReferenceBMSTables(this, table, entries);
     }
 
     public void RemoveReferenceBMSTables(IEnumerable<BMSTable> tables)
     {
-        var list = tables?.Where(table => table != null).Distinct().ToList();
-        if (list == null || list.Count == 0)
-        {
-            return;
-        }
-        RemovePlaylistReferenceIndexTables(list);
+        PlaylistReferenceApplyCoordinator.RemoveReferenceBMSTables(this, tables);
     }
 
     internal List<string> GetPlaylistOrgMd5sForChart(ChartFile chart)
