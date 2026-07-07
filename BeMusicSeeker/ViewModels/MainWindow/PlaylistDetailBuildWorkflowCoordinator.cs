@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 
 namespace BeMusicSeeker.ViewModels;
@@ -10,6 +11,8 @@ internal interface IPlaylistDetailBuildWorkflowHost
     bool ApplyPlaylistViewWithoutSourceRebuild(PlaylistBuildRequest request, CancellationToken cancellationToken);
 
     bool RebuildPlaylistSource(PlaylistBuildRequest request, CancellationToken cancellationToken);
+
+    void FinalizePlaylistDetailBuild(Stopwatch viewBuildStopwatch, PlaylistDetailBuildCompletionResult completionResult);
 
     void LogPlaylistViewApply(string message);
 }
@@ -48,5 +51,18 @@ internal static class PlaylistDetailBuildWorkflowCoordinator
 
         host.LogPlaylistViewApply("source_reuse requestVersion=" + request.RequestVersion + " presentationChanged=" + decision.PresentationIdentityChanged + " sourceIdentityChanged=false keyword=\"" + (request.Identity.KeywordFilter ?? string.Empty).Replace("\"", "\"\"") + "\" modeFilter=" + request.Identity.ModeFilter + " sortColumn=" + (request.Identity.SortColumnName ?? string.Empty) + " sortDirection=" + request.Identity.SortDirection);
         return host.ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
+    }
+
+    internal static void FinalizePlaylistDetailBuild(
+        IPlaylistDetailBuildWorkflowHost host,
+        Stopwatch viewBuildStopwatch,
+        PlaylistDetailBuildCompletionResult completionResult)
+    {
+        if (host == null)
+        {
+            throw new ArgumentNullException(nameof(host));
+        }
+
+        host.FinalizePlaylistDetailBuild(viewBuildStopwatch, completionResult);
     }
 }

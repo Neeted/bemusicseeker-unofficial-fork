@@ -14,13 +14,13 @@ playlist、main chart list、play history、playback、settings save、library r
 
 | 項目 | 現状 |
 |---|---|
-| `MainWindowViewModel.cs` | 23,558 行。playlist build の helper / DTO 抽出は進み、workflow decision / dispatch は coordinator 化を開始したが、source build / apply 本体は root に残っている |
+| `MainWindowViewModel.cs` | 23,535 行。playlist build の helper / DTO 抽出は進み、workflow decision / dispatch / finalize bridge は coordinator 化を開始したが、source build / apply 本体は root に残っている |
 | `MainWindowViewModel.PlaylistState.cs` | 473 行。playlist identity / source snapshot / view snapshot state の受け皿 |
 | `PlaylistSourceBuildResult.cs` | 249 行。source build / view apply / main view apply / build completion result contract |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
-| `PlaylistDetailBuildWorkflowCoordinator.cs` | 52 行。decision result に基づく patch / rebuild / view-only dispatch を担当 |
-| `MainWindowViewModel.PlaylistDetailBuildWorkflowHost.cs` | 26 行。root private method を workflow coordinator へ明示的に bridge |
+| `PlaylistDetailBuildWorkflowCoordinator.cs` | 68 行。decision result に基づく patch / rebuild / view-only dispatch と finalize bridge を担当 |
+| `MainWindowViewModel.PlaylistDetailBuildWorkflowHost.cs` | 55 行。root private method と finalize wrapper を workflow coordinator へ明示的に bridge |
 | 旧 active | `L-3c-17: Playlist main view apply result DTO 導入` は独立 ticket から外し、`REF-MVP-A1` の subtask に格下げ |
 | active lane | `REF-MVP-A1: Playlist detail build workflow extraction` |
 
@@ -41,15 +41,16 @@ playlist、main chart list、play history、playback、settings save、library r
 - `BeMusicSeeker/ViewModels/MainWindow/PlaylistDetailBuildDecisionService.cs`
 - `BeMusicSeeker/ViewModels/MainWindow/PlaylistDetailBuildQueueCoordinator.cs`
 - `BeMusicSeeker/ViewModels/MainWindow/PlaylistSourceBuildResult.cs`
-- 新規候補: `PlaylistDetailBuildWorkflowCoordinator`, `PlaylistDetailBuildWorkspace`, `PlaylistMainViewApplyResult`
+- 新規候補: `PlaylistDetailBuildWorkspace`
 
 subtasks:
 
 1. 完了: `PlaylistDetailBuildWorkflowCoordinator` を追加し、`TryBuildPlaylistViewAndApply` の decision / dispatch を root から移した。
 2. 完了: `ApplyPlaylistDetailViewRowsToMainView` の timing result DTO 化として `PlaylistMainViewApplyResult` を追加し、rebuild / view-only 両経路が戻り値 contract を読む形へ揃えた。
-3. 進行中: `PlaylistDetailBuildCompletionResult` と `FinalizePlaylistDetailBuild` を追加し、rebuild / view-only 両経路が同じ finalize contract を通る形へ揃えた。
-4. BuildGate / cancellation / freshness check / cleanup ownership の順序を変えずに、root から workflow 本体を移す。
-5. root に残すものを request 発行、lifecycle、UI thread bridge、dialog / progress bridge として説明できる状態にする。
+3. 完了: `PlaylistDetailBuildCompletionResult` と `FinalizePlaylistDetailBuild` を追加し、rebuild / view-only 両経路が同じ finalize contract を通る形へ揃えた。
+4. 完了: completion contract の finalize 呼び出しを `PlaylistDetailBuildWorkflowCoordinator` / host bridge 経由へ寄せた。
+5. BuildGate / cancellation / freshness check / cleanup ownership の順序を変えずに、root から workflow 本体を移す。
+6. root に残すものを request 発行、lifecycle、UI thread bridge、dialog / progress bridge として説明できる状態にする。
 
 完了条件:
 
