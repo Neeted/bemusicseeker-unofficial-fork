@@ -2045,17 +2045,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ChartOperationSourceScope sourceScope = isPendingSection
             ? ChartOperationSourceScope.PendingPackage
             : GetCurrentChartOperationSourceScope();
-        return [.. GetSelectedGridRowsSnapshot()
-            .Select(delegate (object row)
-            {
-                return GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget target) ? target : null;
-            })
-            .Where(target => target != null)];
+        return ResolveSelectedChartTargets(sourceScope, ChartOperationCapabilities.None);
     }
 
     private List<ChartOperationTarget> GetSelectedChartTargets(ChartOperationCapabilities capability, bool isPendingSection = false)
     {
-        return [.. GetSelectedChartTargets(isPendingSection).Where(target => HasRequiredCapability(target, capability))];
+        ChartOperationSourceScope sourceScope = isPendingSection
+            ? ChartOperationSourceScope.PendingPackage
+            : GetCurrentChartOperationSourceScope();
+        return ResolveSelectedChartTargets(sourceScope, capability);
+    }
+
+    private List<ChartOperationTarget> ResolveSelectedChartTargets(ChartOperationSourceScope sourceScope, ChartOperationCapabilities capability)
+    {
+        return ChartOperationTargetSelectionResolver.Resolve(new ChartOperationTargetSelectionRequest(
+            GetSelectedGridRowsSnapshot(),
+            sourceScope,
+            capability));
     }
 
     private ChartOperationSourceScope GetCurrentChartOperationSourceScope()
@@ -2091,11 +2097,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private static bool IsChartInfoParseErrorMainViewSection(MainWindowViewModel.MainViewOperationSection section)
     {
         return section == MainWindowViewModel.MainViewOperationSection.ChartInfoParseError;
-    }
-
-    private static bool HasRequiredCapability(ChartOperationTarget target, ChartOperationCapabilities capability)
-    {
-        return target != null && (capability == ChartOperationCapabilities.None || target.HasCapability(capability));
     }
 
     private List<ChartFile> GetSelectedBmsFormatCharts(ChartOperationCapabilities capability, bool isPendingSection = false)

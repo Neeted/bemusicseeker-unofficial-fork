@@ -459,6 +459,33 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ChartOperationTargetSelectionResolver_FiltersRowsByCapability()
+    {
+        LibraryChartRow row = LibraryChartRow.FromBmsFile(CreateContextMenuBmsFile());
+
+        List<ChartOperationTarget> openFileTargets = ChartOperationTargetSelectionResolver.Resolve(new ChartOperationTargetSelectionRequest(
+            [row, new object()],
+            ChartOperationSourceScope.Library,
+            ChartOperationCapabilities.OpenFile));
+        List<ChartOperationTarget> pendingInstallTargets = ChartOperationTargetSelectionResolver.Resolve(new ChartOperationTargetSelectionRequest(
+            [row],
+            ChartOperationSourceScope.Library,
+            ChartOperationCapabilities.UpdateInstallDestination));
+
+        Assert.AreEqual(1, openFileTargets.Count);
+        Assert.AreSame(row.Chart, openFileTargets[0].Chart);
+        Assert.AreEqual(0, pendingInstallTargets.Count);
+    }
+
+    [TestMethod]
+    public void ChartOperationTargetSelectionResolver_RejectsNullRows()
+    {
+        Assert.ThrowsException<ArgumentException>(() => ChartOperationTargetSelectionResolver.Resolve(new ChartOperationTargetSelectionRequest(
+            [null!],
+            ChartOperationSourceScope.Library)));
+    }
+
+    [TestMethod]
     public void TableContextMenuOpened_UsesContextMenuStateBuilderForUiIndependentState()
     {
         string code = SourceTextTestHelper.ReadMainWindowSourceText();
