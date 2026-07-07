@@ -91,7 +91,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 
 | 対象 | 現状目安 | Guardrail | 次の extraction 候補 |
 |---|---:|---:|---|
-| `MainWindowViewModel.cs` | 23,535 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
+| `MainWindowViewModel.cs` | 23,533 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
 | `BMSLibrary.cs` | 21,542 行 | 12,000 行以下 | LR2 sync、package install、maintenance、folder/file operation |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
@@ -109,9 +109,9 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-A1` の続きとして、`FinalizePlaylistDetailBuild` を host bridge partial へ移し、`PlaylistDetailBuildWorkflowCoordinator.FinalizePlaylistDetailBuild` 経由で completion contract を finalize する形へ寄せた。
+`REF-MVP-A1` の続きとして、rebuild / view-only の completion creation を `PlaylistDetailBuildWorkflowCoordinator` へ寄せ、root は apply 後の result を coordinator に渡す形へ薄くした。
 
-次にやる 1 件: 標準確認とサブエージェントレビューで重大指摘がなければこの slice を commit し、次 slice で view-only apply workflow の completion 作成を coordinator 側へさらに寄せるか判断する。
+次にやる 1 件: 標準確認とサブエージェントレビューで重大指摘がなければこの slice を commit し、次 slice で view-only apply workflow 本体を coordinator / workspace へ移すか、ここで `REF-MVP-A1` の次 checkpoint を再評価する。
 
 ## 次回 Codex が最初に読むべきファイル
 

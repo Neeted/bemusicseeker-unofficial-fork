@@ -12962,8 +12962,7 @@ public partial class MainWindowViewModel : ViewModel
             finalRows = null;
             int disposedSourceRowsCount = CountPlaylistSourceRows(previousSourceRows);
             previousSourceRows = null;
-            var completionResult = new PlaylistDetailBuildCompletionResult(mode, requestedMode, parameter, executionResult.FolderStageMs, executionResult.ViewApply, mainViewApplyResult);
-            PlaylistDetailBuildWorkflowCoordinator.FinalizePlaylistDetailBuild(this, viewBuildStopwatch, completionResult);
+            PlaylistDetailBuildWorkflowCoordinator.FinalizeRebuiltPlaylistDetailBuild(this, viewBuildStopwatch, mode, requestedMode, parameter, executionResult, mainViewApplyResult);
             LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode + " sourceCount=" + sourceCount + " viewCount=" + viewCount + " disposedSourceRows=" + disposedSourceRowsCount + " scoreTargets=" + executionResult.ScoreUpdateTargetCount + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown") + " libraryIndexMs=" + executionResult.LibraryIndexMs + " libraryIndexAccess=" + executionResult.LibraryIndexAccess + " libraryIndexBuildMs=" + executionResult.LibraryIndexBuildMs + " entryResolveMs=" + executionResult.EntryResolveMs + " scoreProbeMs=" + executionResult.ScoreProbeMs + " scoreProbeMatchedScoreCount=" + executionResult.ScoreProbeMetrics.MatchedScoreCount + " sourceMaterializeMs=" + executionResult.SourceMaterializeMs + " viewMaterializeMs=" + executionResult.ViewMaterializeMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
             return true;
         }
@@ -13016,8 +13015,7 @@ public partial class MainWindowViewModel : ViewModel
             viewCount,
             ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
             viewBuildStopwatch);
-        var completionResult = new PlaylistDetailBuildCompletionResult(treeViewFilterTypeSelected, requestedMode, parameter, folderStageMs: 0L, viewApplyResult, mainViewApplyResult);
-        PlaylistDetailBuildWorkflowCoordinator.FinalizePlaylistDetailBuild(this, viewBuildStopwatch, completionResult);
+        PlaylistDetailBuildWorkflowCoordinator.FinalizeViewOnlyPlaylistDetailBuild(this, viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, viewApplyResult, mainViewApplyResult);
         return true;
     }
 

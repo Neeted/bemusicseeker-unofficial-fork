@@ -65,4 +65,47 @@ internal static class PlaylistDetailBuildWorkflowCoordinator
 
         host.FinalizePlaylistDetailBuild(viewBuildStopwatch, completionResult);
     }
+
+    internal static void FinalizeRebuiltPlaylistDetailBuild(
+        IPlaylistDetailBuildWorkflowHost host,
+        Stopwatch viewBuildStopwatch,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
+        object parameter,
+        PlaylistRebuildExecutionResult executionResult,
+        PlaylistMainViewApplyResult mainViewApplyResult)
+    {
+        if (executionResult == null)
+        {
+            throw new ArgumentNullException(nameof(executionResult));
+        }
+
+        var completionResult = new PlaylistDetailBuildCompletionResult(
+            mode,
+            requestedMode,
+            parameter,
+            executionResult.FolderStageMs,
+            executionResult.ViewApply,
+            mainViewApplyResult);
+        FinalizePlaylistDetailBuild(host, viewBuildStopwatch, completionResult);
+    }
+
+    internal static void FinalizeViewOnlyPlaylistDetailBuild(
+        IPlaylistDetailBuildWorkflowHost host,
+        Stopwatch viewBuildStopwatch,
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
+        object parameter,
+        PlaylistViewApplyResult viewApplyResult,
+        PlaylistMainViewApplyResult mainViewApplyResult)
+    {
+        var completionResult = new PlaylistDetailBuildCompletionResult(
+            mode,
+            requestedMode,
+            parameter,
+            folderStageMs: 0L,
+            viewApplyResult,
+            mainViewApplyResult);
+        FinalizePlaylistDetailBuild(host, viewBuildStopwatch, completionResult);
+    }
 }
