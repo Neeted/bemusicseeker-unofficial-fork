@@ -3340,9 +3340,10 @@ public sealed class MainWindowContextMenuResourceTests
         string resourceHealthCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "ResourceHealthWarningProjection.cs"));
         string installEstimationDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "install-estimation-current-logic.md"));
 
-        StringAssert.Contains(libraryCode, "private sealed class EstimatedInstallBatchApplyContext");
-        StringAssert.Contains(libraryCode, "ApplyEstimatedInstallBatchLibraryState(batchApplyContext)");
-        string batchContext = ExtractBetween(libraryCode, "private sealed class EstimatedInstallBatchApplyContext", "private List<ChartPackage> installChartPackages");
+        StringAssert.Contains(libraryCode, "internal sealed class EstimatedInstallBatchApplyContext");
+        StringAssert.Contains(libraryCode, "host.ApplyEstimatedInstallBatchLibraryState(batchApplyContext, canUseResourceHealthIndexDelta)");
+        StringAssert.Contains(libraryCode, "ApplyEstimatedInstallBatchLibraryState(context)");
+        string batchContext = ExtractBetween(libraryCode, "internal sealed class EstimatedInstallBatchApplyContext", "internal sealed class PendingEstimatedInstallCollectionApplyResult");
         StringAssert.Contains(batchContext, "public List<ChartFile> AddedCharts { get; } = [];");
         Assert.IsFalse(batchContext.Contains("AddedBmsFiles"));
         Assert.IsFalse(batchContext.Contains("AddedBmsonSongs"));
@@ -3354,12 +3355,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
         Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
         Assert.IsFalse(libraryCode.Contains("CreateAddedBmsonChartProjectionsFromInstalledPackages"));
-        string estimatedInstallMethod = ExtractMethodBody(libraryCode, "public void InstallPendingPackagesToEstimatedDestinations");
-        Assert.IsFalse(estimatedInstallMethod.Contains("foreach (LR2SongDBExtended.bmson_song song in BmsonSongs"));
-        StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjections(batchApplyContext.AddedCharts)");
-        StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceCharts)");
-        Assert.IsFalse(estimatedInstallMethod.Contains("ResourceHealthIndexUpdateMode.FullOnUpdates"));
-        StringAssert.Contains(estimatedInstallMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates");
+        string estimatedInstallCoordinator = ExtractMethodBody(libraryCode, "internal static void InstallPendingPackagesToEstimatedDestinations");
+        string estimatedInstallMaintenanceBridge = ExtractMethodBody(libraryCode, "int IPendingEstimatedInstallHost.ApplyEstimatedInstallMaintenanceAndInlineChartInfo");
+        Assert.IsFalse(estimatedInstallCoordinator.Contains("foreach (LR2SongDBExtended.bmson_song song in BmsonSongs"));
+        StringAssert.Contains(estimatedInstallCoordinator, "batchApplyContext.AddedCharts");
+        StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjections(addedCharts)");
+        StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(deferredMaintenanceCharts)");
+        Assert.IsFalse(estimatedInstallMaintenanceBridge.Contains("ResourceHealthIndexUpdateMode.FullOnUpdates"));
+        StringAssert.Contains(estimatedInstallMaintenanceBridge, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates");
         StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
         StringAssert.Contains(libraryCode, "resource_health_index_delta reason=");
         StringAssert.Contains(libraryCode, "if (estimatedInstallMaintenanceTargets.Count > 0)");

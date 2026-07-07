@@ -291,32 +291,6 @@ public partial class BMSLibrary
             excludedComponentPaths);
     }
 
-    private sealed class EstimatedInstallBatchApplyContext
-    {
-        public List<ChartFile> AddedCharts { get; } = [];
-
-        public HashSet<string> AffectedDirectories { get; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        public void AddInstalledTargets(ChartStorageTargetSet addedTargets, string destinationDirectory)
-        {
-            AddedCharts.AddRange((addedTargets?.Charts ?? []).Where(chart => chart != null));
-            AddAffectedDirectory(destinationDirectory);
-            foreach (ChartFile addedChart in addedTargets?.Charts ?? [])
-            {
-                AddAffectedDirectory(DirectoryExt.GetDirectoryNameSimple(addedChart.Path));
-            }
-        }
-
-        private void AddAffectedDirectory(string directoryPath)
-        {
-            if (!string.IsNullOrWhiteSpace(directoryPath))
-            {
-                AffectedDirectories.Add(directoryPath);
-            }
-        }
-
-    }
-
     private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
     {
         ThrowIfLr2SongDbSyncMutationBlocked(nameof(installChartPackages));
@@ -1219,119 +1193,10 @@ public partial class BMSLibrary
     /// </summary>
     public void InstallPendingPackagesToEstimatedDestinations(IEnumerable<ChartPackage> packages)
     {
-        if (packages == null)
-        {
-            throw new ArgumentNullException("packages");
-        }
-        if (TryBlockLr2SongDbSyncMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
-        {
-            return;
-        }
-        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
-        var totalStopwatch = Stopwatch.StartNew();
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockBMSFiles.GetWriterGuard())
-                {
-                    using (rwlockSongDBInstall.GetWriterGuard())
-                    {
-                        bool deletePendingPackageSourceAfterInstall = options.DeletePendingPackageSourceAfterInstall;
-                        PendingInstallBatchPlan installPlan = packageInstallService.BuildEstimatedInstallBatchPlan(
-                            packages,
-                            ChartPackagesPending,
-                            CreateInstalledChartKeySnapshotExcludingChartsUnsafe([], "install_pending_estimated_filter", 0L),
-                            deletePendingPackageSourceAfterInstall,
-                            CountComponentMoveTargetsForPackage);
-                        if (installPlan.SelectedPendingPackages.Count == 0)
-                        {
-                            totalStopwatch.Stop();
-                            LogInstallPerformance("install_pending_packages_to_estimated_destinations skipped reason=no_pending_target filterMs=" + installPlan.FilterMs + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                            return;
-                        }
-                        if (installPlan.Groups.Count == 0 && installPlan.DeferredManualHoldCount > 0)
-                        {
-                            totalStopwatch.Stop();
-                            LogInstallPerformance("install_pending_packages_to_estimated_destinations skipped reason=deferred_manual_merge_hold deferredManualHold=" + installPlan.DeferredManualHoldCount + " selected=" + installPlan.SelectedPendingCount + " filterMs=" + installPlan.FilterMs + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                            return;
-                        }
-                        LogInstallPerformance("install_pending_packages_to_estimated_destinations start selected=" + installPlan.SelectedPendingCount + " groups=" + installPlan.Groups.Count + " groupedPackages=" + installPlan.GroupedPackageCount + " installTargets=" + installPlan.InstallTargetFileCount + " deferredManualHold=" + installPlan.DeferredManualHoldCount + " deleteSourceContents=" + deletePendingPackageSourceAfterInstall + " filterMs=" + installPlan.FilterMs + " groupBuildMs=" + installPlan.GroupBuildMs + " planBuildMs=" + installPlan.PlanBuildMs);
-                        var batchApplyContext = new EstimatedInstallBatchApplyContext();
-                        PendingInstallBatchResult batchResult = packageInstallService.ExecuteEstimatedInstallBatchPlan(
-                            installPlan,
-                            deletePendingPackageSourceAfterInstall,
-                            (installPackages, destinationDirectory, deferredMaintenanceCharts, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall) => installChartPackages(installPackages, destinationDirectory, deferredMaintenanceCharts, deferredInstalledPackages, excludedComponentPathsByPackage, existingHashes, skipInstalledPackageWhenNoBms, deleteSourceContentsAfterSuccessfulInstall, batchApplyContext),
-                            CreateInstalledDisplayPackageForResourceOnlyMerge,
-                            (cleanupOnlyPackage) =>
-                            {
-                                bool cleanupSucceeded = TryCleanupPendingPackageSourceForEstimatedInstall(cleanupOnlyPackage, out CleanupSourceKind sourceKind);
-                                return (cleanupSucceeded, sourceKind);
-                            },
-                            LogInstallPerformance);
-                        dbGateway.DeleteInstallRows(batchResult.InstallRowsToDelete);
-                        bool canUseResourceHealthIndexDelta = IsResourceHealthIndexCurrent();
-                        var libraryStateApplyStopwatch = Stopwatch.StartNew();
-                        using (canUseResourceHealthIndexDelta ? SuppressResourceHealthIndexInvalidation() : null)
-                        {
-                            ApplyEstimatedInstallBatchLibraryState(batchApplyContext);
-                        }
-                        libraryStateApplyStopwatch.Stop();
-                        var pendingApplyStopwatch = Stopwatch.StartNew();
-                        int pendingCountBeforeApply = ChartPackagesPending.Count;
-                        int pendingRemovedTotal = batchResult.PendingPackagesToRemove.Count;
-                        if (pendingRemovedTotal > 0)
-                        {
-                            List<ChartPackage> remainingPending = [.. ChartPackagesPending.Where(pkg => pkg != null && !batchResult.PendingPackagesToRemove.Contains(pkg))];
-                            ChartPackagesPending = new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(remainingPending), DispatcherHelper.UIDispatcher);
-                        }
-                        int pendingCountAfterApply = ChartPackagesPending.Count;
-                        pendingApplyStopwatch.Stop();
-                        var installedApplyStopwatch = Stopwatch.StartNew();
-                        int installedCountBeforeApply = ChartPackagesInstalled.Count;
-                        int installedAddedTotal = batchResult.DeferredInstalledPackages.Count;
-                        if (installedAddedTotal > 0)
-                        {
-                            var installedSet = new HashSet<ChartPackage>(ChartPackagesInstalled.Where(pkg => pkg != null));
-                            List<ChartPackage> mergedInstalled = [.. ChartPackagesInstalled.Where(pkg => pkg != null)];
-                            foreach (ChartPackage installedPackage in batchResult.DeferredInstalledPackages)
-                            {
-                                if (installedPackage != null && installedSet.Add(installedPackage))
-                                {
-                                    mergedInstalled.Add(installedPackage);
-                                }
-                            }
-                            ChartPackagesInstalled = new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(mergedInstalled), DispatcherHelper.UIDispatcher);
-                        }
-                        int installedCountAfterApply = ChartPackagesInstalled.Count;
-                        installedApplyStopwatch.Stop();
-                        var maintenanceStopwatch = Stopwatch.StartNew();
-                        List<ChartFile> estimatedInstallMaintenanceTargets = BuildEstimatedInstallMaintenanceTargets(batchResult.DeferredMaintenanceCharts);
-                        if (estimatedInstallMaintenanceTargets.Count > 0)
-                        {
-                            setMaintenanceInfo(
-                                estimatedInstallMaintenanceTargets,
-                                forceUpdate: true,
-                                resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates,
-                                resourceHealthMutationReason: "install_package_estimated");
-                        }
-                        List<ChartFile> estimatedInstallInlineTargets = BuildEstimatedInstallMaintenanceTargets(
-                            estimatedInstallMaintenanceTargets.Concat(
-                                CreateAddedBmsonChartProjections(batchApplyContext.AddedCharts)));
-                        BuildAndPersistInlineChartInfoForInstalledCharts(
-                            "install_package_estimated_inline",
-                            estimatedInstallInlineTargets);
-                        maintenanceStopwatch.Stop();
-                        if (deletePendingPackageSourceAfterInstall && batchResult.CleanupOnlySucceeded > 0)
-                        {
-                            ShowOperationDialog(string.Format(Resources.Warn_estimated_install_cleanup_only_completed, batchResult.CleanupOnlySucceeded), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                        }
-                        totalStopwatch.Stop();
-                        LogInstallPerformance("install_pending_packages_to_estimated_destinations end libraryStateApplyMs=" + libraryStateApplyStopwatch.ElapsedMilliseconds + " pendingApplyMs=" + pendingApplyStopwatch.ElapsedMilliseconds + " pendingBeforeApply=" + pendingCountBeforeApply + " pendingRemovedTotal=" + pendingRemovedTotal + " pendingAfterApply=" + pendingCountAfterApply + " installedApplyMs=" + installedApplyStopwatch.ElapsedMilliseconds + " installedBeforeApply=" + installedCountBeforeApply + " installedAddedTotal=" + installedAddedTotal + " installedAfterApply=" + installedCountAfterApply + " maintenanceTargets=" + estimatedInstallMaintenanceTargets.Count + " maintenanceMs=" + maintenanceStopwatch.ElapsedMilliseconds + " cleanupOnlyCandidates=" + installPlan.CleanupOnlyCandidates.Count + " cleanupOnlySucceeded=" + batchResult.CleanupOnlySucceeded + " cleanupOnlyFailed=" + batchResult.CleanupOnlyFailed + " cleanupOnlyMissingSource=" + batchResult.CleanupOnlyMissingSource + " deferredManualHold=" + installPlan.DeferredManualHoldCount + " totalMs=" + totalStopwatch.ElapsedMilliseconds);
-                    }
-                }
-            }
-        }
+        PendingEstimatedInstallCoordinator.InstallPendingPackagesToEstimatedDestinations(
+            packageInstallService,
+            this,
+            packages);
     }
 
     /// <summary>

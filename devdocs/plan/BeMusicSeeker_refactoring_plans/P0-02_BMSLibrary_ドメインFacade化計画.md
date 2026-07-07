@@ -118,6 +118,39 @@ subtasks:
 - build / package install 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+## Completed Checkpoint: `REF-MVP-C4`
+
+### Pending estimated install coordinator seam
+
+状態: completed checkpoint。
+
+目的:
+
+- `InstallPendingPackagesToEstimatedDestinations` の lock / LR2 sync block / batch plan / DB row delete / pending and installed collection apply / maintenance / inline chart_info / cleanup warning / performance logging を coordinator seam へ移す。
+- `installChartPackages` 本体は移さず delegate 境界として残す。
+- `InstallChartPackagesAuto`、`OverwritePendingInstalledOnlyPackagesResources`、pending cleanup / rename は今回触らない。
+
+主対象:
+
+- `BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs`
+- 新規候補: `BeMusicSeeker/Models/BmsLibraryInternal/PendingEstimatedInstallCoordinator.cs`
+- 新規候補: `BeMusicSeeker/Models/BMSLibrary.PendingEstimatedInstallHost.cs`
+- package install 関連 tests: `BmsLibraryPackageInstallServiceTests`, `BmsLibraryDialogRoutingTests`, `BmsLibraryMutationBoundaryTests`
+
+subtasks:
+
+1. coordinator / host contract を追加し、`InstallPendingPackagesToEstimatedDestinations` 本体を移す。
+2. root `BMSLibrary` には public API entry と host bridge を残す。
+3. package install 関連 tests と標準確認を実行する。
+
+完了条件:
+
+- `InstallPendingPackagesToEstimatedDestinations` public API、null guard、LR2 sync block、lock 順序、dialog timing、log 文言が維持されている。
+- post-processing の順序、特に `dbGateway.DeleteInstallRows`、resource health delta suppression、pending/installed apply、maintenance、inline chart_info、cleanup warning が維持されている。
+- `installChartPackages` は今回移さず delegate 境界に留める。
+- build / package install 関連 tests / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ## Target Architecture
 
 ```text
@@ -167,7 +200,7 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C3` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
+`REF-MVP-C4` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
 
 - LR2 song.db sync coordinator。
 - package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。
