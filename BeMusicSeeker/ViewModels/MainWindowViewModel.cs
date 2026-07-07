@@ -13143,21 +13143,7 @@ public partial class MainWindowViewModel : ViewModel
                 playlistViewState.Source.CurrentIdentity,
                 playlistViewState.View.CurrentIdentity);
         }
-        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot);
-        if (decision.Action == PlaylistDetailBuildAction.PatchChartInfoThenApplyView
-            && TryPatchPlaylistSourceChartInfoIndex(request, cancellationToken, out int patchedSourceCount, out int chartInfoDependencyCount, out int chartInfoPatchedCount, out long chartInfoPatchMs))
-        {
-            LogPlaylistViewApply("chart_info_patch requestVersion=" + request.RequestVersion + " sourceCount=" + patchedSourceCount + " dependencyCount=" + chartInfoDependencyCount + " patchedCount=" + chartInfoPatchedCount + " chartInfoIndexVersion=" + request.Identity.ChartInfoIndexVersion + " elapsedMs=" + chartInfoPatchMs);
-            return ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
-        }
-        if (decision.Action == PlaylistDetailBuildAction.RebuildSource)
-        {
-            request.LastBuiltScoreSnapshotVersion = decision.LastBuiltScoreSnapshotVersion;
-            request.SourceInvalidationReason = decision.SourceInvalidationReason;
-            return RebuildPlaylistSource(request, cancellationToken);
-        }
-        LogPlaylistViewApply("source_reuse requestVersion=" + request.RequestVersion + " presentationChanged=" + decision.PresentationIdentityChanged + " sourceIdentityChanged=false keyword=\"" + (request.Identity.KeywordFilter ?? string.Empty).Replace("\"", "\"\"") + "\" modeFilter=" + request.Identity.ModeFilter + " sortColumn=" + (request.Identity.SortColumnName ?? string.Empty) + " sortDirection=" + request.Identity.SortDirection);
-        return ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
+        return PlaylistDetailBuildWorkflowCoordinator.TryBuildPlaylistViewAndApply(this, request, stateSnapshot, cancellationToken);
     }
 
     /// <summary>

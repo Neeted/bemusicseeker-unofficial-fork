@@ -14,12 +14,12 @@ Release Freeze: active。
 
 | Lane | Active ticket | 状態 | 次に読む |
 |---|---|---|---|
-| A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | active | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
+| A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | implementation in review | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C1: BMSLibrary source-text helper and facade split foundation` | implementation in review | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C1: BMSLibrary source-text helper and facade split foundation` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | active docs/inventory lane | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
-Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane A → Lane D → Lane B 後続候補。
+Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane A → Lane D → Lane C 後続候補 → Lane B 後続候補。
 
 ## Ticket Details
 
@@ -91,7 +91,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 
 | 対象 | 現状目安 | Guardrail | 次の extraction 候補 |
 |---|---:|---:|---|
-| `MainWindowViewModel.cs` | 23,443 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
+| `MainWindowViewModel.cs` | 23,538 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
 | `BMSLibrary.cs` | 21,542 行 | 12,000 行以下 | LR2 sync、package install、maintenance、folder/file operation |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
@@ -109,13 +109,13 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-C1` の続きとして、`BMSLibrary` を `partial` 化し、operation dialog scope / message / service と scope 制御メソッドを `BeMusicSeeker/Models/BMSLibrary.OperationDialogs.cs` へ挙動変更なしで分割した。これにより、`ReadBmsLibrarySourceText()` が top-level `BMSLibrary*.cs` を含むことと、source-text architecture tests が split 後も成立することを確認した。
+`REF-MVP-A1` の最初の workflow slice として、`PlaylistDetailBuildWorkflowCoordinator` と `MainWindowViewModel.PlaylistDetailBuildWorkflowHost` を追加し、`TryBuildPlaylistViewAndApply` の decision / dispatch を root から移した。`RebuildPlaylistSource` / `ApplyPlaylistViewWithoutSourceRebuild` の本体はまだ root に残り、次 slice で build/apply/finalize の重複をさらに coordinator へ寄せる。
 
-次にやる 1 件: 標準確認とサブエージェントレビューで重大指摘がなければ `REF-MVP-C1` を完了 checkpoint として commit し、次 slice は Lane A の `REF-MVP-A1` へ戻る。
+次にやる 1 件: 標準確認とサブエージェントレビューで重大指摘がなければこの slice を commit し、次 slice で `ApplyPlaylistDetailViewRowsToMainView` の timing result DTO 化または rebuild/view-only finalize 共通化を進める。
 
 ## 次回 Codex が最初に読むべきファイル
 
 1. [00_Codex共通実行ルール.md](./00_Codex共通実行ルール.md)
 2. [PLAN_STATUS.md](./PLAN_STATUS.md)
-3. 推奨最初の実装: [P0-02_BMSLibrary_ドメインFacade化計画.md](./P0-02_BMSLibrary_ドメインFacade化計画.md)
+3. 推奨最初の実装: [P0-01_MainWindowViewModel_リファクタリング計画.md](./P0-01_MainWindowViewModel_リファクタリング計画.md)
 4. [99_調査メモ_現状メトリクス.md](./99_調査メモ_現状メトリクス.md)

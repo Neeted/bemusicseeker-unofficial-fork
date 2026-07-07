@@ -14,11 +14,13 @@ playlist、main chart list、play history、playback、settings save、library r
 
 | 項目 | 現状 |
 |---|---|
-| `MainWindowViewModel.cs` | 23,443 行。playlist build の helper / DTO 抽出は進んだが、workflow 責務は root に残っている |
+| `MainWindowViewModel.cs` | 23,538 行。playlist build の helper / DTO 抽出は進み、workflow decision / dispatch は coordinator 化を開始したが、source build / apply 本体は root に残っている |
 | `MainWindowViewModel.PlaylistState.cs` | 473 行。playlist identity / source snapshot / view snapshot state の受け皿 |
 | `PlaylistSourceBuildResult.cs` | 195 行。source build / view apply / rebuild execution result contract |
 | `PlaylistDetailBuildDecisionService.cs` | 210 行。source rebuild / chart-info patch / view-only apply 判定を担当 |
 | `PlaylistDetailBuildQueueCoordinator.cs` | 264 行。request queue / coalescing / cancellation / worker state mutation を担当 |
+| `PlaylistDetailBuildWorkflowCoordinator.cs` | 52 行。decision result に基づく patch / rebuild / view-only dispatch を担当 |
+| `MainWindowViewModel.PlaylistDetailBuildWorkflowHost.cs` | 26 行。root private method を workflow coordinator へ明示的に bridge |
 | 旧 active | `L-3c-17: Playlist main view apply result DTO 導入` は独立 ticket から外し、`REF-MVP-A1` の subtask に格下げ |
 | active lane | `REF-MVP-A1: Playlist detail build workflow extraction` |
 
@@ -43,10 +45,11 @@ playlist、main chart list、play history、playback、settings save、library r
 
 subtasks:
 
-1. `ApplyPlaylistDetailViewRowsToMainView` の timing result DTO 化は、単独 ticket ではなく workflow coordinator surface を整える subtask として扱う。
-2. `RebuildPlaylistSource` と `ApplyPlaylistViewWithoutSourceRebuild` の重複する build/apply/finalize flow を coordinator に寄せる。
-3. BuildGate / cancellation / freshness check / cleanup ownership の順序を変えずに、root から workflow 本体を移す。
-4. root に残すものを request 発行、lifecycle、UI thread bridge、dialog / progress bridge として説明できる状態にする。
+1. 進行中: `PlaylistDetailBuildWorkflowCoordinator` を追加し、`TryBuildPlaylistViewAndApply` の decision / dispatch を root から移した。
+2. `ApplyPlaylistDetailViewRowsToMainView` の timing result DTO 化は、単独 ticket ではなく workflow coordinator surface を整える subtask として扱う。
+3. `RebuildPlaylistSource` と `ApplyPlaylistViewWithoutSourceRebuild` の重複する build/apply/finalize flow を coordinator に寄せる。
+4. BuildGate / cancellation / freshness check / cleanup ownership の順序を変えずに、root から workflow 本体を移す。
+5. root に残すものを request 発行、lifecycle、UI thread bridge、dialog / progress bridge として説明できる状態にする。
 
 完了条件:
 

@@ -118,6 +118,8 @@ public sealed class PlaylistViewPipelineTests
         string playlistStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistState.cs");
         string buildStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildState.cs");
         string queueCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildQueueCoordinator.cs");
+        string workflowCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildWorkflowCoordinator.cs");
+        string workflowHostSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistDetailBuildWorkflowHost.cs");
         string sourceBuildResultSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSourceBuildResult.cs");
         string playlistViewStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewState");
         string playlistSourceSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistSourceSnapshotState");
@@ -159,6 +161,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "CreatePlaylistBuildRequestViewSnapshotUnsafe");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
+        StringAssert.Contains(rootSource, "PlaylistDetailBuildWorkflowCoordinator.TryBuildPlaylistViewAndApply(this, request, stateSnapshot, cancellationToken)");
         StringAssert.Contains(rootSource, "ApplyPlaylistDetailViewRowsToMainView(");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildStageResult");
@@ -172,6 +175,12 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "PlaylistSourceBuildStageResult sourceBuildStageResult = BuildPlaylistSourceForRequest");
         StringAssert.Contains(rootSource, "PlaylistViewApplyResult viewApplyResult = ApplyPlaylistViewFromRebuiltSource");
         StringAssert.Contains(rootSource, "var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, viewApplyResult);");
+        StringAssert.Contains(workflowCoordinatorSource, "internal static class PlaylistDetailBuildWorkflowCoordinator");
+        StringAssert.Contains(workflowCoordinatorSource, "PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot)");
+        StringAssert.Contains(workflowCoordinatorSource, "host.TryPatchPlaylistSourceChartInfoIndex");
+        StringAssert.Contains(workflowCoordinatorSource, "return host.RebuildPlaylistSource(request, cancellationToken);");
+        StringAssert.Contains(workflowHostSource, "public partial class MainWindowViewModel : IPlaylistDetailBuildWorkflowHost");
+        StringAssert.Contains(workflowHostSource, "return RebuildPlaylistSource(request, cancellationToken);");
         Assert.AreEqual(-1, rootSource.IndexOf("out int scoreUpdateTargetCount", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistStateSource.IndexOf("private sealed class PlaylistScoreProbeMetrics", StringComparison.Ordinal));
     }
