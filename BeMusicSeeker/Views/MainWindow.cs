@@ -9351,6 +9351,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void searchInstallDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
     {
+        await SearchInstallDestinationSelectedPendingChartsAsync(e);
+    }
+
+    private async Task SearchInstallDestinationSelectedPendingChartsAsync(RoutedEventArgs e)
+    {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_search_install_destination"))
         {
             e.Handled = true;
@@ -9477,6 +9482,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
 
     private async void searchMergeDestinationSelectedPendingCharts(object sender, RoutedEventArgs e)
+    {
+        await SearchMergeDestinationSelectedPendingChartsAsync(e);
+    }
+
+    private async Task SearchMergeDestinationSelectedPendingChartsAsync(RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_search_merge_destination"))
         {

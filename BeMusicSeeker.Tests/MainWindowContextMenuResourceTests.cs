@@ -2037,11 +2037,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(estimateSearch, "viewModel.CreatePendingInstallDestinationTargetSnapshot(targets)");
         StringAssert.Contains(estimateSearch, "snapshot.MaterializeLooseEntries()");
         StringAssert.Contains(estimateSearch, "viewModel.SearchInstallDestinationForPendingCharts(snapshot)");
+        StringAssert.Contains(estimateSearch, "private async Task SearchInstallDestinationSelectedPendingChartsAsync");
         Assert.IsFalse(estimateSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(mergeSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(mergeSearch, "viewModel.CreatePendingInstallDestinationTargetSnapshot(targets)");
         StringAssert.Contains(mergeSearch, "snapshot.MaterializeLooseEntries()");
         StringAssert.Contains(mergeSearch, "viewModel.SearchMergeDestinationForPendingCharts(snapshot)");
+        StringAssert.Contains(mergeSearch, "private async Task SearchMergeDestinationSelectedPendingChartsAsync");
         Assert.IsFalse(mergeSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(openInstallDestination, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(openInstallDestination, "TryResolveInstallDestination(targets[0].Chart");
