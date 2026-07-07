@@ -779,3 +779,27 @@ BMSLibrary                         // public facade / compatibility API
 - ログ項目名、順序、値の対応は維持した。
 - full test で LR2 sync 系テストが複数回単発失敗したが、該当テスト単体 rerun と最終 full test rerun は pass した。
 - DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C26`
+
+状態: completed checkpoint。
+
+目的:
+
+- C25 で切った `lr2_song_db_sync_input_surface` log helper を top-level internal formatter へ移す。
+- `BMSLibrary` root から長いログ文字列 composition を外し、入力作成本体を orchestration に近づける。
+- ログ項目、値、順序、selection 順序、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- `lr2_song_db_sync_input_surface` log message が `BmsLibraryInternal` の dedicated formatter で組み立てられる。
+- `BMSLibrary` は formatter の戻り値を `LogInstallPerformance` へ渡すだけになる。
+- ログ項目名、順序、値の対応が維持される。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncInputSurfaceLogFormatter` を追加し、`lr2_song_db_sync_input_surface` log message composition を top-level internal formatter へ移した。
+- `BMSLibrary` は formatter の戻り値を `LogInstallPerformance` へ渡すだけになった。
+- ログ項目名、順序、値の対応は維持した。
+- DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
