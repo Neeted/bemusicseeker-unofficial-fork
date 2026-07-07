@@ -16,10 +16,10 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C1: BMSLibrary source-text helper and facade split foundation` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C2: BMSLibrary package install facade partial split` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
-Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C 後続候補 → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
+Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
 
 ## Ticket Details
 
@@ -60,6 +60,8 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 
 ### `REF-MVP-C1: BMSLibrary source-text helper and facade split foundation`
 
+状態: completed checkpoint。`REF-MVP-C2` も completed checkpoint。
+
 目的:
 
 - `SourceTextTestHelper.ReadBmsLibrarySourceText()` を追加する。
@@ -71,6 +73,23 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 - source-text test が `BMSLibrary.cs` 単体配置に過度に依存していない。
 - `BMSLibrary` facade split の blocker が 1 つ減っている。
 - build / test / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
+### `REF-MVP-C2: BMSLibrary package install facade partial split`
+
+状態: completed checkpoint。Lane C 後続は `BMSLibrary.PackageInstall.cs` に分離した facade / orchestration を見て、package install coordinator 化を進めるか、他 workflow を先に分けるかを 1 ticket だけ active 化する。
+
+目的:
+
+- `BMSLibrary.cs` に残っている package install facade / orchestration の連続ブロックを `BMSLibrary.PackageInstall.cs` へ挙動変更なしで分離する。
+- 既存 `BmsLibraryPackageInstallService` / `BmsLibraryInstallEstimationService` への委譲関係を維持し、service extraction の reviewability を上げる。
+- public API、lock 順序、dialog / file mutation / DB mutation timing、Settings / schema / serialized value は変えない。
+
+完了条件:
+
+- package install public/internal facade と関連 helper が dedicated partial にまとまっている。
+- `BMSLibrary.cs` の package install 責務が明確に減っている。
+- build / package install 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
 ### `REF-MVP-D1: .NET 10 blocker inventory in devdocs`
@@ -97,7 +116,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 |---|---:|---:|---|
 | `MainWindowViewModel.cs` | 23,413 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
-| `BMSLibrary.cs` | 21,542 行 | 12,000 行以下 | LR2 sync、package install、maintenance、folder/file operation |
+| `BMSLibrary.cs` | 19,546 行 | 12,000 行以下 | package install follow-up、LR2 sync、maintenance、folder/file operation |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
 
 Guardrail 超過は現時点では既知。残す理由は「MVP active lanes の extraction 前であるため」。次の extraction 候補は上表を正本とする。
@@ -113,9 +132,9 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-D1` として .NET 10 blocker inventory を [REF-MVP-D1_dotnet10_blockers.md](./inventory/REF-MVP-D1_dotnet10_blockers.md) に追加した。TFM 変更、release 作業、production code 変更はしていない。
+`REF-MVP-C2` として package install facade / orchestration の連続ブロックを `BMSLibrary.PackageInstall.cs` へ分離した。`BMSLibrary.cs` は 19,546 行、`BMSLibrary.PackageInstall.cs` は 2,015 行。build、package install 関連 tests、full test、format、diff check、静的レビューは完了。
 
-次にやる 1 件: `REF-MVP-C2` 候補として BMSLibrary の LR2 sync / package install / maintenance / folder-file operation のうち、最小の workflow extraction を 1 件に絞って active ticket 化する。
+次にやる 1 件: `REF-MVP-C3` 候補として、`BMSLibrary.PackageInstall.cs` から package install coordinator 化できる最小 workflow を 1 件だけ active ticket 化する。
 
 ## 次回 Codex が最初に読むべきファイル
 

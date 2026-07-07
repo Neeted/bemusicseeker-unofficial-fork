@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 21,696 行あり、BeMusicSeeker の中核ドメイン操作が集中している。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 19,546 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
 
 `BMSLibrary` は public compatibility facade として残してよい。ただし、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling は service / coordinator へ移す。
 
@@ -12,12 +12,12 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 21,542 行 |
+| `BMSLibrary.cs` 行数 | 19,546 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行へ分離済み |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
 
-## Active Ticket: `REF-MVP-C1`
+## Completed Checkpoint: `REF-MVP-C1`
 
 ### BMSLibrary source-text helper and facade split foundation
 
@@ -54,6 +54,36 @@ subtasks:
 - 以後の partial split / service extraction が可能になっている。
 - 最初の partial split 後も `BmsLibraryMutationBoundaryTests` の source-text architecture check が logical BMSLibrary source set を読んで通る。
 - build / test / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
+## Completed Checkpoint: `REF-MVP-C2`
+
+### BMSLibrary package install facade partial split
+
+目的:
+
+- `BMSLibrary.cs` の package install facade / orchestration を `BMSLibrary.PackageInstall.cs` へ挙動変更なしで分離する。
+- 既存 `BmsLibraryPackageInstallService` / `BmsLibraryInstallEstimationService` への委譲関係を維持し、次の service extraction / coordinator 化の reviewability を上げる。
+- public API、lock 順序、dialog / file mutation / DB mutation timing、Settings / schema / serialized value は変えない。
+
+主対象:
+
+- `BeMusicSeeker/Models/BMSLibrary.cs`
+- 新規: `BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs`
+- package install 関連 tests: `BmsLibraryPackageInstallServiceTests`, `BmsLibraryInstallEstimationServiceTests`, `BmsLibraryDialogRoutingTests`, `BmsLibraryMutationBoundaryTests`
+
+subtasks:
+
+1. 完了: `InstallChartPackagesAuto` から pending package cleanup helpers までの連続ブロックを dedicated partial へ移した。
+2. 完了: 分割後の `BMSLibrary.cs` / `BMSLibrary.PackageInstall.cs` 行数と残る責務を記録した。
+3. 完了: package install 関連 tests と標準確認を実行した。
+
+完了条件:
+
+- package install public/internal facade と関連 helper が dedicated partial にまとまっている。
+- `BMSLibrary.cs` の package install 責務が明確に減っている。
+- `SourceTextTestHelper.ReadBmsLibrarySourceText()` 経由の architecture tests が partial split 後も通る。
+- build / package install 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
 ## Target Architecture
@@ -105,10 +135,10 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C1` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、Lane A の `REF-MVP-A1` または直近で選ぶ Lane C workflow の着手時に再確認する。
+`REF-MVP-C2` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。次は `REF-MVP-C3` 候補として package install coordinator 化の最小 workflow を active ticket 化できるか確認する。
 
 - LR2 song.db sync coordinator。
-- package install coordinator。
+- package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。
 - maintenance coordinator。
 - normal library refresh publisher。
 - playlist reference coordinator。
