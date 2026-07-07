@@ -86,6 +86,38 @@ subtasks:
 - build / package install 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+## Completed Checkpoint: `REF-MVP-C3`
+
+### ForceInstallPendingPackages coordinator seam
+
+状態: completed checkpoint。
+
+目的:
+
+- `ForceInstallPendingPackages` の lock / LR2 sync block / confirm callback / pending removal / installed package merge / logging を coordinator seam へ移す。
+- `installChartPackages` 本体は移さず delegate 境界として残す。
+- `InstallPendingPackagesToEstimatedDestinations`、`InstallChartPackagesAuto`、pending cleanup / rename は今回触らない。
+
+主対象:
+
+- `BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs`
+- 新規候補: `BeMusicSeeker/Models/BmsLibraryInternal/ForceInstallPendingPackagesCoordinator.cs`
+- package install 関連 tests: `BmsLibraryPackageInstallServiceTests`, `BmsLibraryDialogRoutingTests`, `BmsLibraryMutationBoundaryTests`
+
+subtasks:
+
+1. coordinator / host contract を追加し、`ForceInstallPendingPackages` 本体を移す。
+2. root `BMSLibrary` には public/internal API entry と host bridge を残す。
+3. package install 関連 tests と標準確認を実行する。
+
+完了条件:
+
+- `ForceInstallPendingPackages` public/internal API は維持されている。
+- lock 順序、LR2 sync block、dialog timing、pending removal、installed add、log 文言が維持されている。
+- `installChartPackages` は今回移さず delegate 境界に留める。
+- build / package install 関連 tests / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ## Target Architecture
 
 ```text
@@ -135,7 +167,7 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C2` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。次は `REF-MVP-C3` 候補として package install coordinator 化の最小 workflow を active ticket 化できるか確認する。
+`REF-MVP-C3` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
 
 - LR2 song.db sync coordinator。
 - package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。

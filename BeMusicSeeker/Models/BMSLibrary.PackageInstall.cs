@@ -1105,82 +1105,12 @@ public partial class BMSLibrary
 
     internal void ForceInstallPendingPackages(IEnumerable<ChartPackage> packages, bool? approveNormalInstallOverride, ISet<ChartPackage> approvedNormalInstallOverridePackages)
     {
-        if (packages == null)
-        {
-            throw new ArgumentNullException("packages");
-        }
-        if (TryBlockLr2SongDbSyncMutation(nameof(ForceInstallPendingPackages)))
-        {
-            return;
-        }
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockBMSFiles.GetWriterGuard())
-                {
-                    using (rwlockSongDBInstall.GetWriterGuard())
-                    {
-                        if (BMSFiles == null)
-                        {
-                            return;
-                        }
-                        ForceInstallBatchResult result = packageInstallService.ForceInstallPackages(
-                            packages,
-                            ChartPackagesPending,
-                            delegate (ChartPackage pendingPackage)
-                            {
-                                if (approvedNormalInstallOverridePackages?.Contains(pendingPackage) == true
-                                    || approvedNormalInstallOverridePackages?.Any(package =>
-                                        package != null
-                                        && pendingPackage != null
-                                        && !string.IsNullOrWhiteSpace(package.path)
-                                        && !string.IsNullOrWhiteSpace(pendingPackage.path)
-                                        && string.Equals(package.path, pendingPackage.path, StringComparison.OrdinalIgnoreCase)) == true)
-                                {
-                                    return true;
-                                }
-                                return approveNormalInstallOverride == false
-                                    ? false
-                                    : ShowOperationDialog(Resources.Confirm_NormalInstallOverride, Resources.Confirm_NormalInstallTitle, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
-                            },
-                            delegate (IEnumerable<ChartPackage> packagesToInstall, List<ChartPackage> deferredInstalledPackages)
-                            {
-                                return installChartPackages(packagesToInstall, null, null, deferredInstalledPackages);
-                            },
-                            info => NLogWrapper.FileLogger?.Info(info));
-                        if (result.Requested == 0)
-                        {
-                            return;
-                        }
-                        NLogWrapper.FileLogger?.Info("force_install_batch start requested=" + result.Requested);
-                        if (result.PendingPackagesToRemove.Count > 0)
-                        {
-                            stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: result.PendingPackagesToRemove));
-                        }
-                        int num5 = 0;
-                        if (result.DeferredInstalledPackages.Count > 0)
-                        {
-                            var hashSet3 = new HashSet<ChartPackage>(ChartPackagesInstalled.Where(pkg => pkg != null));
-                            List<ChartPackage> list5 = [.. ChartPackagesInstalled.Where(pkg => pkg != null)];
-                            foreach (ChartPackage deferredInstalledPackage in result.DeferredInstalledPackages)
-                            {
-                                if (deferredInstalledPackage != null && hashSet3.Add(deferredInstalledPackage))
-                                {
-                                    list5.Add(deferredInstalledPackage);
-                                    num5++;
-                                }
-                            }
-                            if (num5 > 0)
-                            {
-                                ChartPackagesInstalled = new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(list5), DispatcherHelper.UIDispatcher);
-                            }
-                        }
-                        NLogWrapper.FileLogger?.Info("force_install_batch summary requested=" + result.Requested + " processed=" + result.Processed + " succeeded=" + result.Succeeded + " failed=" + result.Failed + " skipped=" + result.Skipped + " pendingRemoved=" + result.PendingPackagesToRemove.Count + " installedAdded=" + num5);
-                    }
-                }
-            }
-        }
+        ForceInstallPendingPackagesCoordinator.ForceInstallPendingPackages(
+            packageInstallService,
+            this,
+            packages,
+            approveNormalInstallOverride,
+            approvedNormalInstallOverridePackages);
     }
 
     private int CountComponentMoveTargetsForPackage(ChartPackage package, string destinationDirectory, ISet<string> excludedComponentPaths)
