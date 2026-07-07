@@ -1799,7 +1799,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void RenameChartFolderTargetSnapshot_DoesNotMaterializeBmsonCompatibilityAdapter()
+    public void RenameChartFolderRequest_DoesNotMaterializeBmsonCompatibilityAdapter()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -1813,11 +1813,10 @@ public sealed class PlaylistViewPipelineTests
         var row = LibraryChartRow.FromBmsonSong(bmson);
 
         Assert.IsTrue(GridRowResolver.TryGetFolderEditChartOperationTarget(row, ChartOperationSourceScope.Library, out ChartOperationTarget target));
-        var viewModel = new MainWindowViewModel();
-        MainWindowViewModel.RenameChartFolderTargetSnapshot snapshot = viewModel.CreateRenameChartFolderTargetSnapshot(target);
+        Assert.IsTrue(RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request));
 
-        Assert.IsTrue(snapshot.HasTarget);
-        Assert.AreSame(bmson, snapshot.Chart.GetBmsonStorageOwner());
+        Assert.IsTrue(request.HasTarget);
+        Assert.AreSame(bmson, request.Chart.GetBmsonStorageOwner());
     }
 
     [TestMethod]

@@ -22878,21 +22878,10 @@ public partial class MainWindowViewModel : ViewModel
         }, chartList);
     }
 
-    internal RenameChartFolderTargetSnapshot CreateRenameChartFolderTargetSnapshot(ChartOperationTarget target)
+    internal void RenameChartFolder(RenameChartFolderRequest request, string newFolder)
     {
-        if (target == null
-            || !target.HasCapability(ChartOperationCapabilities.MoveInLibrary)
-            || string.IsNullOrWhiteSpace(target.Chart?.Path))
-        {
-            return RenameChartFolderTargetSnapshot.Empty;
-        }
-        return new RenameChartFolderTargetSnapshot(target.Chart);
-    }
-
-    internal void RenameChartFolder(RenameChartFolderTargetSnapshot target, string newFolder)
-    {
-        string chartPath = target?.Chart?.Path;
-        if (target == null
+        string chartPath = request?.Chart?.Path;
+        if (request?.HasTarget != true
             || string.IsNullOrWhiteSpace(chartPath)
             || string.IsNullOrWhiteSpace(newFolder))
         {
@@ -22907,21 +22896,7 @@ public partial class MainWindowViewModel : ViewModel
                 ApplyLatestNormalLibraryRefreshNotification();
                 InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             }
-        }, [target.Chart], UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
-    }
-
-    internal sealed class RenameChartFolderTargetSnapshot
-    {
-        internal static RenameChartFolderTargetSnapshot Empty { get; } = new(null);
-
-        internal RenameChartFolderTargetSnapshot(ChartFile chart)
-        {
-            Chart = chart;
-        }
-
-        internal ChartFile Chart { get; }
-
-        internal bool HasTarget => Chart != null;
+        }, [request.Chart], UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
     }
 
     public void AutoRenameAllChartFolders(string parentDir = null)

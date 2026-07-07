@@ -1849,8 +1849,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameAllModel.Contains("CreateOwnedSubtreeChartSnapshot"));
         Assert.IsFalse(autoRenameAllModel.Contains("BMSFiles ??"));
         Assert.IsFalse(autoRenameAllModel.Contains("files?.BmsonSongs"));
-        StringAssert.Contains(cellEditEnded, "viewModel.CreateRenameChartFolderTargetSnapshot(target)");
-        StringAssert.Contains(cellEditEnded, "viewModel.RenameChartFolder(targetSnapshot, newFolder)");
+        StringAssert.Contains(cellEditEnded, "RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request)");
+        StringAssert.Contains(cellEditEnded, "viewModel.RenameChartFolder(request, newFolder)");
+        Assert.IsFalse(cellEditEnded.Contains("CreateRenameChartFolderTargetSnapshot"));
+        Assert.IsFalse(cellEditEnded.Contains("targetSnapshot"));
         Assert.IsFalse(cellEditEnded.Contains("viewModel.RenameChartFolder(target, newFolder)"));
     }
 

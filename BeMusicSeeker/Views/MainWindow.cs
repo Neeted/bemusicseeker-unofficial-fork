@@ -1763,8 +1763,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     return;
                 }
-                MainWindowViewModel.RenameChartFolderTargetSnapshot targetSnapshot = viewModel.CreateRenameChartFolderTargetSnapshot(target);
-                if (!targetSnapshot.HasTarget)
+                if (!RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request))
                 {
                     return;
                 }
@@ -1773,7 +1772,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     try
                     {
-                        viewModel.RenameChartFolder(targetSnapshot, newFolder);
+                        viewModel.RenameChartFolder(request, newFolder);
                     }
                     finally
                     {

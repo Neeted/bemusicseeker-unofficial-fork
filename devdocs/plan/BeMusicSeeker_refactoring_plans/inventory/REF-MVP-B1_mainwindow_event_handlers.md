@@ -48,6 +48,7 @@
    - resource health rescan / ignore / unignore 側は `ChartResourceHealthRequest` を介して `MainWindowViewModel.ForceResourceHealthCheckCharts` / `SetChartResourceWarningsIgnored` へ渡す形にした。
    - folder auto rename 側は `ChartFolderAutoRenameRequest` を介して `MainWindowViewModel.AutoRenameChartFolders` へ渡す形にし、旧 `ChartOperationTargetSnapshot` API は削除した。
    - move selected chart 側は `ChartLibraryMoveRequest` を介して `MainWindowViewModel.MoveLibraryCharts` へ渡す形にした。
+   - folder cell edit rename 側は `RenameChartFolderRequest` を介して `MainWindowViewModel.RenameChartFolder` へ渡す形にし、旧 `RenameChartFolderTargetSnapshot` API は削除した。
 5. 後続: `MenuItem` / `ContextMenu` 更新は UserControl / behavior / command bridge の方針が決まるまで view adapter に残す。
 
 ## 注意
