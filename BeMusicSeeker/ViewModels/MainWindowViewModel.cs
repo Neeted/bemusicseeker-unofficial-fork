@@ -12988,37 +12988,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    /// <summary>
-    /// 既存の playlist source snapshot から view のみ再適用します。
-    /// </summary>
-    private bool ApplyPlaylistViewWithoutSourceRebuild(PlaylistBuildRequest request, CancellationToken cancellationToken)
-    {
-        if (request == null)
-        {
-            return false;
-        }
-        MainViewUpdateMode mode = request.Mode;
-        MainViewUpdateMode requestedMode = request.RequestedMode;
-        object parameter = request.Parameter;
-        var viewBuildStopwatch = Stopwatch.StartNew();
-        cancellationToken.ThrowIfCancellationRequested();
-        PlaylistViewApplyResult viewApplyResult = ApplyPlaylistViewFromCurrentSource(mode);
-        IList finalRows = viewApplyResult.FinalRows;
-        int viewCount = viewApplyResult.ViewCount;
-        if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(request.RequestVersion))
-        {
-            return true;
-        }
-        PlaylistMainViewApplyResult mainViewApplyResult = ApplyPlaylistDetailViewRowsToMainView(
-            request,
-            finalRows,
-            viewCount,
-            ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
-            viewBuildStopwatch);
-        PlaylistDetailBuildWorkflowCoordinator.FinalizeViewOnlyPlaylistDetailBuild(this, viewBuildStopwatch, treeViewFilterTypeSelected, requestedMode, parameter, viewApplyResult, mainViewApplyResult);
-        return true;
-    }
-
     private PlaylistMainViewApplyResult ApplyPlaylistDetailViewRowsToMainView(
         PlaylistBuildRequest request,
         IList finalRows,

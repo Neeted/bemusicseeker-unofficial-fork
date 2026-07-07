@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Diagnostics;
 using System.Threading;
 
@@ -12,12 +13,42 @@ public partial class MainWindowViewModel : IPlaylistDetailBuildWorkflowHost
 
     bool IPlaylistDetailBuildWorkflowHost.ApplyPlaylistViewWithoutSourceRebuild(PlaylistBuildRequest request, CancellationToken cancellationToken)
     {
-        return ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
+        return PlaylistDetailBuildWorkflowCoordinator.ApplyPlaylistViewWithoutSourceRebuild(this, request, cancellationToken);
     }
 
     bool IPlaylistDetailBuildWorkflowHost.RebuildPlaylistSource(PlaylistBuildRequest request, CancellationToken cancellationToken)
     {
         return RebuildPlaylistSource(request, cancellationToken);
+    }
+
+    PlaylistViewApplyResult IPlaylistDetailBuildWorkflowHost.ApplyPlaylistViewFromCurrentSource(MainViewUpdateMode mode)
+    {
+        return ApplyPlaylistViewFromCurrentSource(mode);
+    }
+
+    bool IPlaylistDetailBuildWorkflowHost.IsLatestPlaylistSourceBuildRequest(int requestVersion)
+    {
+        return IsLatestPlaylistSourceBuildRequest(requestVersion);
+    }
+
+    PlaylistMainViewApplyResult IPlaylistDetailBuildWorkflowHost.ApplyPlaylistDetailViewRowsToMainView(
+        PlaylistBuildRequest request,
+        IList finalRows,
+        int viewCount,
+        MainViewUpdateMode columnSettingMode,
+        Stopwatch viewBuildStopwatch)
+    {
+        return ApplyPlaylistDetailViewRowsToMainView(request, finalRows, viewCount, columnSettingMode, viewBuildStopwatch);
+    }
+
+    MainViewUpdateMode IPlaylistDetailBuildWorkflowHost.GetCurrentTreeViewFilterTypeSelected()
+    {
+        return treeViewFilterTypeSelected;
+    }
+
+    MainViewUpdateMode IPlaylistDetailBuildWorkflowHost.ResolvePlaylistColumnSettingMode(PlaylistFilterType filterType)
+    {
+        return ResolvePlaylistColumnSettingMode(filterType);
     }
 
     void IPlaylistDetailBuildWorkflowHost.FinalizePlaylistDetailBuild(Stopwatch viewBuildStopwatch, PlaylistDetailBuildCompletionResult completionResult)

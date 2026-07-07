@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Diagnostics;
 using System.Threading;
 
@@ -11,6 +12,21 @@ internal interface IPlaylistDetailBuildWorkflowHost
     bool ApplyPlaylistViewWithoutSourceRebuild(PlaylistBuildRequest request, CancellationToken cancellationToken);
 
     bool RebuildPlaylistSource(PlaylistBuildRequest request, CancellationToken cancellationToken);
+
+    PlaylistViewApplyResult ApplyPlaylistViewFromCurrentSource(MainViewUpdateMode mode);
+
+    bool IsLatestPlaylistSourceBuildRequest(int requestVersion);
+
+    PlaylistMainViewApplyResult ApplyPlaylistDetailViewRowsToMainView(
+        PlaylistBuildRequest request,
+        IList finalRows,
+        int viewCount,
+        MainViewUpdateMode columnSettingMode,
+        Stopwatch viewBuildStopwatch);
+
+    MainViewUpdateMode GetCurrentTreeViewFilterTypeSelected();
+
+    MainViewUpdateMode ResolvePlaylistColumnSettingMode(MainWindowViewModel.PlaylistFilterType filterType);
 
     void FinalizePlaylistDetailBuild(Stopwatch viewBuildStopwatch, PlaylistDetailBuildCompletionResult completionResult);
 
@@ -107,5 +123,43 @@ internal static class PlaylistDetailBuildWorkflowCoordinator
             viewApplyResult,
             mainViewApplyResult);
         FinalizePlaylistDetailBuild(host, viewBuildStopwatch, completionResult);
+    }
+
+    internal static bool ApplyPlaylistViewWithoutSourceRebuild(
+        IPlaylistDetailBuildWorkflowHost host,
+        PlaylistBuildRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request == null)
+        {
+            return false;
+        }
+        if (host == null)
+        {
+            throw new ArgumentNullException(nameof(host));
+        }
+
+        MainViewUpdateMode mode = request.Mode;
+        MainViewUpdateMode requestedMode = request.RequestedMode;
+        object parameter = request.Parameter;
+        var viewBuildStopwatch = Stopwatch.StartNew();
+        cancellationToken.ThrowIfCancellationRequested();
+        PlaylistViewApplyResult viewApplyResult = host.ApplyPlaylistViewFromCurrentSource(mode);
+        IList finalRows = viewApplyResult.FinalRows;
+        int viewCount = viewApplyResult.ViewCount;
+        if (cancellationToken.IsCancellationRequested || !host.IsLatestPlaylistSourceBuildRequest(request.RequestVersion))
+        {
+            return true;
+        }
+
+        PlaylistMainViewApplyResult mainViewApplyResult = host.ApplyPlaylistDetailViewRowsToMainView(
+            request,
+            finalRows,
+            viewCount,
+            host.ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
+            viewBuildStopwatch);
+        MainViewUpdateMode currentTreeViewFilterTypeSelected = host.GetCurrentTreeViewFilterTypeSelected();
+        FinalizeViewOnlyPlaylistDetailBuild(host, viewBuildStopwatch, currentTreeViewFilterTypeSelected, requestedMode, parameter, viewApplyResult, mainViewApplyResult);
+        return true;
     }
 }
