@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -114,14 +116,147 @@ public partial class BMSLibrary : ILr2SongDbSyncRequestHost
         CompleteLr2SongDbSyncRequest(requestVersion, stage);
     }
 
+    void ILr2SongDbSyncRequestHost.FailLr2SongDbSyncRequest(
+        int requestVersion,
+        Lr2SongDbSyncStatusKind status,
+        string stage,
+        string message)
+    {
+        FailLr2SongDbSyncRequest(requestVersion, status, stage, message);
+    }
+
     void ILr2SongDbSyncRequestHost.RunLr2SongDbSync(string reason, string signature, int requestVersion)
     {
         RunLr2SongDbSync(reason, signature, requestVersion);
     }
 
+    CancellationToken ILr2SongDbSyncRequestHost.GetLr2SongDbSyncCancellationToken()
+    {
+        lock (lockLr2SongDbSync)
+        {
+            return lr2SongDbSyncCancellation?.Token ?? CancellationToken.None;
+        }
+    }
+
     BMSLibrary.Lr2SongDbSyncInput ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncInput()
     {
         return CreateLr2SongDbSyncInput();
+    }
+
+    TimeSpan ILr2SongDbSyncRequestHost.CurrentChartInfoParseTimeout
+    {
+        get
+        {
+            return chartInfoBuildService.CurrentParseTimeout;
+        }
+    }
+
+    void ILr2SongDbSyncRequestHost.ReportStartupBackgroundTask(
+        string name,
+        string status,
+        long elapsedMs,
+        bool failed,
+        string detail)
+    {
+        ReportStartupBackgroundTask(name, status, elapsedMs, failed, detail);
+    }
+
+    void ILr2SongDbSyncRequestHost.PublishLr2SongDbSyncPreflightStage(string stage, string reason, string runId)
+    {
+        PublishLr2SongDbSyncPreflightStage(stage, reason, runId);
+    }
+
+    void ILr2SongDbSyncRequestHost.LogLr2SongDbSyncPreflightStageDone(string stage, string reason, string runId, long elapsedMs)
+    {
+        LogLr2SongDbSyncPreflightStageDone(stage, reason, runId, elapsedMs);
+    }
+
+    void ILr2SongDbSyncRequestHost.EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason)
+    {
+        EnsureLr2SongDbSyncChartInfoIndexHydrated(reason);
+    }
+
+    Dictionary<string, BMSFile> ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncCompatibilityProjectionIndex()
+    {
+        return CreateLr2SongDbSyncCompatibilityProjectionIndex();
+    }
+
+    Func<BMSFile, LR2SongDBExtended.chart_info> ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncChartInfoResolverSnapshot()
+    {
+        return CreateLr2SongDbSyncChartInfoResolverSnapshot();
+    }
+
+    HashSet<string> ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason)
+    {
+        return CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(reason);
+    }
+
+    void ILr2SongDbSyncRequestHost.UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows)
+    {
+        UpsertChartInfoIndexRows(rows, "lr2_song_db_sync_inline_chart_info", dispatchPresentation: false);
+    }
+
+    bool ILr2SongDbSyncRequestHost.IsLr2SongDbSyncInputCurrent(BMSLibrary.Lr2SongDbSyncInput input)
+    {
+        return IsLr2SongDbSyncInputCurrent(input);
+    }
+
+    void ILr2SongDbSyncRequestHost.UpdateLr2SongDbSyncProgress(Lr2SongDbSyncProgress progress)
+    {
+        UpdateLr2SongDbSyncProgress(progress);
+    }
+
+    int ILr2SongDbSyncRequestHost.ApplyLr2SongDbSyncCompatibilityProjection(
+        IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
+        string reason,
+        IReadOnlyDictionary<string, BMSFile> bmsByPath,
+        bool logSummary,
+        bool dispatchPresentation)
+    {
+        return ApplyLr2SongDbSyncCompatibilityProjection(
+            maintenanceInfos,
+            reason,
+            bmsByPath,
+            logSummary,
+            dispatchPresentation);
+    }
+
+    ISet<string> ILr2SongDbSyncRequestHost.GetLr2SongDbSyncTransientSongRowsSkipPaths(BMSLibrary.Lr2SongDbSyncInput input, string reason)
+    {
+        return GetLr2SongDbSyncTransientSongRowsSkipPaths(input, reason);
+    }
+
+    Lr2SongDbSyncSongRowsSkipVerificationResult ILr2SongDbSyncRequestHost.VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<BMSFile> songRows,
+        BMSLibrary.Lr2SongDbSyncInput input,
+        string reason)
+    {
+        return VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(songDb, songRows, input, reason);
+    }
+
+    void ILr2SongDbSyncRequestHost.DispatchWarningPresentationChanged(string reason)
+    {
+        DispatchWarningPresentationChanged(reason);
+    }
+
+    void ILr2SongDbSyncRequestHost.MarkLr2SongDbSyncPreflightCancelled(string signature, string runId, string stage)
+    {
+        MarkLr2SongDbSyncPreflightCancelled(signature, runId, stage);
+    }
+
+    void ILr2SongDbSyncRequestHost.MarkLr2SongDbSyncFailedStatus(string signature, string runId, Exception ex)
+    {
+        using LR2SongDBExtended songDb = dbGateway.OpenSongDb();
+        Lr2SongDbSyncStatusService.MarkFailed(
+            songDb,
+            signature,
+            runId,
+            processedCursor: null,
+            totalCount: null,
+            stage: "failed",
+            error: ex.Message,
+            nowUtc: DateTime.UtcNow);
     }
 
     void ILr2SongDbSyncRequestHost.LogInstallPerformance(string message)

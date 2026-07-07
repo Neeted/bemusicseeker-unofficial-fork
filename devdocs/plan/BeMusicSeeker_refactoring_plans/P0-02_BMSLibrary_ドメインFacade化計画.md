@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 18,698 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 18,435 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
 
 `BMSLibrary` は public compatibility facade として残してよい。ただし、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling は service / coordinator へ移す。
 
@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 18,698 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request coordinator / host へ分離済み |
+| `BMSLibrary.cs` 行数 | 18,435 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam と host へ分離済み |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -373,6 +373,38 @@ subtasks:
 - LR2 sync 関連 tests / source-text 代表 tests / build / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+## Completed Checkpoint: `REF-MVP-C12`
+
+### LR2 song.db sync run coordinator seam
+
+状態: completed checkpoint。
+
+目的:
+
+- `RunLr2SongDbSync` の preflight / service request construction / result logging / completion-failure handling を `Lr2SongDbSyncRequestCoordinator` へ移す。
+- `BMSLibrary` には cancellation token / input construction / chart_info resolver / projection / status mutation / startup task reporting の host bridge を残す。
+- `CreateLr2SongDbSyncInput` 本体、scan surface、file diff freshness、chart_info hydration internals、DB schema / setting name は今回触らない。
+
+主対象:
+
+- `BeMusicSeeker/Models/BMSLibrary.cs`
+- `BeMusicSeeker/Models/BMSLibrary.Lr2SongDbSyncRequestHost.cs`
+- `BeMusicSeeker/Models/BmsLibraryInternal/Lr2SongDbSyncRequestCoordinator.cs`
+- LR2 sync 関連 tests: `BmsLibraryLr2SongDbSyncTests`, `Lr2SongDbSyncStatusServiceTests`, `MainWindowContextMenuResourceTests`
+
+subtasks:
+
+1. `RunLr2SongDbSync` 本体を coordinator へ移し、root method は entry / compatibility forwarder にする。
+2. coordinator が必要とする root state / callbacks を host contract へ追加する。
+3. LR2 sync 関連 tests と標準確認を実行する。
+
+完了条件:
+
+- `lr2_song_db_sync` の log key、preflight stage、service request fields、completion / incomplete / cancelled / failed の status transition が維持されている。
+- `CreateLr2SongDbSyncInput` と scan surface helper は今回移さず、後続 ticket で詳細化する。
+- LR2 sync 関連 tests / build / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ## Target Architecture
 
 ```text
@@ -422,9 +454,9 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C11` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
+`REF-MVP-C12` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
 
-- LR2 song.db sync input construction / run body coordinator follow-up。
+- LR2 song.db sync input construction / scan surface helper follow-up。
 - package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。
 - maintenance coordinator。
 - playlist reference follow-up coordinator。

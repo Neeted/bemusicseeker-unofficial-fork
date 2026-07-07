@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C11: LR2 song.db sync request coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C12: LR2 song.db sync run coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -245,6 +245,23 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 - LR2 sync 関連 tests / source-text 代表 tests / build / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+### `REF-MVP-C12: LR2 song.db sync run coordinator seam`
+
+状態: completed checkpoint。
+
+目的:
+
+- `RunLr2SongDbSync` の preflight / service request construction / result logging / completion-failure handling を coordinator seam へ移す。
+- `BMSLibrary` には cancellation token / input construction / chart_info resolver / projection / status mutation / startup task reporting の host bridge を残す。
+- `CreateLr2SongDbSyncInput` 本体、scan surface、file diff freshness、chart_info hydration internals、DB schema / setting name は触らない。
+
+完了条件:
+
+- `lr2_song_db_sync` の log key、preflight stage、service request fields、completion / incomplete / cancelled / failed の status transition が維持されている。
+- `CreateLr2SongDbSyncInput` と scan surface helper は今回移さず、後続 ticket で詳細化する。
+- LR2 sync 関連 tests / build / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ### `REF-MVP-D1: .NET 10 blocker inventory in devdocs`
 
 状態: completed checkpoint。後続は [REF-MVP-D1 inventory](./inventory/REF-MVP-D1_dotnet10_blockers.md) を見て、Settings boundary、native load layout、WPF / WinForms boundary のいずれか 1 件だけを active ticket 化する。
@@ -269,7 +286,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 |---|---:|---:|---|
 | `MainWindowViewModel.cs` | 23,413 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
-| `BMSLibrary.cs` | 18,698 行 | 12,000 行以下 | LR2 sync input/run follow-up、maintenance、folder/file operation、package install follow-up |
+| `BMSLibrary.cs` | 18,435 行 | 12,000 行以下 | LR2 sync input / scan surface follow-up、maintenance、folder/file operation、package install follow-up |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
 
 Guardrail 超過は現時点では既知。残す理由は「MVP active lanes の extraction 前であるため」。次の extraction 候補は上表を正本とする。
@@ -285,9 +302,9 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-C11` として LR2 song.db sync の実行要求・準備・startup scan blocker cleanup・external progress publish を `Lr2SongDbSyncRequestCoordinator` へ移した。`BMSLibrary.cs` は 18,698 行、`BMSLibrary.Lr2SongDbSyncRequestHost.cs` は 147 行、`Lr2SongDbSyncRequestCoordinator.cs` は 382 行。build、LR2 sync 関連 tests、source-text / reflection 影響確認、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+`REF-MVP-C12` として LR2 song.db sync の preflight / service request construction / result logging / completion-failure handling を `Lr2SongDbSyncRequestCoordinator` へ移した。`BMSLibrary.cs` は 18,435 行、`BMSLibrary.Lr2SongDbSyncRequestHost.cs` は 282 行、`Lr2SongDbSyncRequestCoordinator.cs` は 691 行。build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
-次にやる 1 件: Lane C / B / A / D の後続候補から、Refactoring MVP Gate に最も近い workflow を 1 件だけ active ticket 化してから実装する。Lane C を続ける場合は LR2 sync input construction / run body coordinator follow-up を候補とする。
+次にやる 1 件: Lane C / B / A / D の後続候補から、Refactoring MVP Gate に最も近い workflow を 1 件だけ active ticket 化してから実装する。Lane C を続ける場合は LR2 sync input construction / scan surface helper follow-up を候補とし、`BMSLibrary.Lr2SongDbSyncInput` の nested type 依存を DTO / builder 境界へ切る。
 
 ## 次回 Codex が最初に読むべきファイル
 

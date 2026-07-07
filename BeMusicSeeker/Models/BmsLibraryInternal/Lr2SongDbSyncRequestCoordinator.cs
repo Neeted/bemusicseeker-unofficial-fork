@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -40,9 +42,56 @@ internal interface ILr2SongDbSyncRequestHost
 
     void CompleteLr2SongDbSyncRequest(int requestVersion, string stage);
 
+    void FailLr2SongDbSyncRequest(int requestVersion, Lr2SongDbSyncStatusKind status, string stage, string message);
+
     void RunLr2SongDbSync(string reason, string signature, int requestVersion);
 
+    CancellationToken GetLr2SongDbSyncCancellationToken();
+
     BMSLibrary.Lr2SongDbSyncInput CreateLr2SongDbSyncInput();
+
+    TimeSpan CurrentChartInfoParseTimeout { get; }
+
+    void ReportStartupBackgroundTask(string name, string status, long elapsedMs, bool failed, string detail = null);
+
+    void PublishLr2SongDbSyncPreflightStage(string stage, string reason, string runId);
+
+    void LogLr2SongDbSyncPreflightStageDone(string stage, string reason, string runId, long elapsedMs);
+
+    void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason);
+
+    Dictionary<string, BMSFile> CreateLr2SongDbSyncCompatibilityProjectionIndex();
+
+    Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2SongDbSyncChartInfoResolverSnapshot();
+
+    HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason);
+
+    void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows);
+
+    bool IsLr2SongDbSyncInputCurrent(BMSLibrary.Lr2SongDbSyncInput input);
+
+    void UpdateLr2SongDbSyncProgress(Lr2SongDbSyncProgress progress);
+
+    int ApplyLr2SongDbSyncCompatibilityProjection(
+        IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
+        string reason,
+        IReadOnlyDictionary<string, BMSFile> bmsByPath,
+        bool logSummary,
+        bool dispatchPresentation);
+
+    ISet<string> GetLr2SongDbSyncTransientSongRowsSkipPaths(BMSLibrary.Lr2SongDbSyncInput input, string reason);
+
+    Lr2SongDbSyncSongRowsSkipVerificationResult VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(
+        LR2SongDBExtended songDb,
+        IReadOnlyList<BMSFile> songRows,
+        BMSLibrary.Lr2SongDbSyncInput input,
+        string reason);
+
+    void DispatchWarningPresentationChanged(string reason);
+
+    void MarkLr2SongDbSyncPreflightCancelled(string signature, string runId, string stage);
+
+    void MarkLr2SongDbSyncFailedStatus(string signature, string runId, Exception ex);
 
     void LogInstallPerformance(string message);
 }
@@ -239,6 +288,250 @@ internal static class Lr2SongDbSyncRequestCoordinator
         return status;
     }
 
+    internal static void Run(
+        ILr2SongDbSyncRequestHost host,
+        string reason,
+        string signature,
+        int requestVersion)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        string runId = Guid.NewGuid().ToString("N");
+        CancellationToken cancellationToken = host.GetLr2SongDbSyncCancellationToken();
+        bool enteredSyncService = false;
+        try
+        {
+            if (host.IsShutdownRequested || cancellationToken.IsCancellationRequested)
+            {
+                host.CompleteLr2SongDbSyncRequest(requestVersion, "shutdown_skipped");
+                host.ReportStartupBackgroundTask("lr2_song_db_sync", "skipped", stopwatch.ElapsedMilliseconds, failed: false, detail: "shutdown_requested");
+                host.LogInstallPerformance("lr2_song_db_sync skipped version=" + requestVersion + " reason=shutdown_requested");
+                return;
+            }
+            host.ReportStartupBackgroundTask("lr2_song_db_sync", "start", 0L, failed: false, detail: "runId=" + runId);
+            host.PublishLr2SongDbSyncPreflightStage("chart_info_hydration", reason, runId);
+            var preflightStageStopwatch = Stopwatch.StartNew();
+            host.EnsureLr2SongDbSyncChartInfoIndexHydrated(reason);
+            host.LogLr2SongDbSyncPreflightStageDone("chart_info_hydration", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            host.PublishLr2SongDbSyncPreflightStage("input_surface", reason, runId);
+            preflightStageStopwatch.Restart();
+            BMSLibrary.Lr2SongDbSyncInput input = host.CreateLr2SongDbSyncInput();
+            host.LogLr2SongDbSyncPreflightStageDone("input_surface", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            host.PublishLr2SongDbSyncPreflightStage("compatibility_projection_index", reason, runId);
+            preflightStageStopwatch.Restart();
+            Dictionary<string, BMSFile> compatibilityProjectionIndex = host.CreateLr2SongDbSyncCompatibilityProjectionIndex();
+            host.LogLr2SongDbSyncPreflightStageDone("compatibility_projection_index", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            host.PublishLr2SongDbSyncPreflightStage("chart_info_resolver_snapshot", reason, runId);
+            preflightStageStopwatch.Restart();
+            Func<BMSFile, LR2SongDBExtended.chart_info> chartInfoResolver = host.CreateLr2SongDbSyncChartInfoResolverSnapshot();
+            HashSet<string> currentChartInfoParseFailureMd5s = host.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(reason);
+            host.LogLr2SongDbSyncPreflightStageDone("chart_info_resolver_snapshot", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            int projectedCompatibilityWarningCount = 0;
+            int committedChartInfoRowCount = 0;
+            int committedChartInfoParseFailureChangeCount = 0;
+            Lr2SongDbSyncResult result;
+            using (LR2SongDBExtended songDb = host.OpenSongDb())
+            {
+                enteredSyncService = true;
+                result = Lr2SongDbSyncService.Run(songDb, new Lr2SongDbSyncRequest
+                {
+                    Signature = signature,
+                    RunId = runId,
+                    RootDirectories = input.RootDirectories,
+                    ChartPaths = input.ChartPaths,
+                    NormalFolderDirectoryPaths = input.NormalFolderDirectoryPaths,
+                    FolderInfoFilePaths = input.FolderInfoFilePaths,
+                    FolderInfoFileEntries = input.FolderInfoFileEntries,
+                    DirectoryEntries = input.DirectoryEntries,
+                    Lr2FolderFilePaths = input.Lr2FolderFilePaths,
+                    Lr2FolderFileEntries = input.Lr2FolderFileEntries,
+                    Lr2FolderDiscoveryDirectories = input.Lr2FolderDiscoveryDirectories,
+                    Lr2FolderPruneDirectories = input.Lr2FolderPruneDirectories,
+                    Lr2FolderPruneExcludedDirectories = input.Lr2FolderPruneExcludedDirectories,
+                    Lr2FolderPruneExcludedPaths = input.Lr2FolderPruneExcludedPaths,
+                    Lr2RootPath = input.Lr2RootPath,
+                    Lr2NormalCustomFolderOutputBaseDir = input.Lr2NormalCustomFolderOutputBaseDir,
+                    Lr2AdditionalNormalCustomFolderOutputBaseDirs = input.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
+                    Lr2RootCustomFolderOutputBaseDir = input.Lr2RootCustomFolderOutputBaseDir,
+                    Lr2BuiltinFolderSourceDirectories = input.Lr2BuiltinFolderSourceDirectories,
+                    Lr2FolderFileDiscoveryComplete = input.Lr2FolderFileDiscoveryComplete,
+                    SongRows = input.SongRows,
+                    TextFileDirectories = input.TextFileDirectories,
+                    ChartInfoResolver = chartInfoResolver,
+                    ChartInfoResolverIsThreadSafe = true,
+                    ChartInfoParseTimeout = host.CurrentChartInfoParseTimeout,
+                    CurrentChartInfoParseFailureMd5s = currentChartInfoParseFailureMd5s,
+                    ChartInfoRowsCommitted = rows =>
+                    {
+                        int count = rows?.Count ?? 0;
+                        if (count > 0)
+                        {
+                            host.UpsertLr2SongDbSyncChartInfoIndexRows(rows);
+                            Interlocked.Add(ref committedChartInfoRowCount, count);
+                        }
+                    },
+                    ChartInfoParseFailuresCommitted = (persisted, cleared) =>
+                    {
+                        int count = Math.Max(0, persisted) + Math.Max(0, cleared);
+                        if (count > 0)
+                        {
+                            Interlocked.Add(ref committedChartInfoParseFailureChangeCount, count);
+                        }
+                    },
+                    StartedAtUtc = DateTime.UtcNow,
+                    CancellationToken = cancellationToken,
+                    IsSourceCurrent = () => host.IsLr2SongDbSyncInputCurrent(input),
+                    ProgressReporter = host.UpdateLr2SongDbSyncProgress,
+                    Lr2CompatibilityFactsCommitted = infos =>
+                    {
+                        int applied = host.ApplyLr2SongDbSyncCompatibilityProjection(
+                            infos,
+                            reason,
+                            compatibilityProjectionIndex,
+                            logSummary: false,
+                            dispatchPresentation: false);
+                        if (applied > 0)
+                        {
+                            Interlocked.Add(ref projectedCompatibilityWarningCount, applied);
+                        }
+                    },
+                    TransientSongRowsSkipPaths = host.GetLr2SongDbSyncTransientSongRowsSkipPaths(input, reason),
+                    SongRowsSkipVerifier = (songRowsSongDb, songRows) =>
+                        host.VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(
+                            songRowsSongDb,
+                            songRows,
+                            input,
+                            reason),
+                    LogInstallPerformance = host.LogInstallPerformance
+                });
+            }
+            stopwatch.Stop();
+            bool completed = string.Equals(result.FinalStage, Lr2SongDbSyncService.CompletedStage, StringComparison.Ordinal);
+            host.LogInstallPerformance("lr2_song_db_sync " + (completed ? "completed" : "incomplete")
+                + " reason=" + (reason ?? "unknown")
+                + " runId=" + runId
+                + " roots=" + input.RootDirectories.Count
+                + " charts=" + input.ChartPaths.Count
+                + " normalFolderDirs=" + input.NormalFolderDirectoryPaths.Count
+                + " folderInfoCandidates=" + input.FolderInfoFilePaths.Count
+                + " lr2FolderRoots=" + input.Lr2FolderDiscoveryDirectories.Count
+                + " lr2FolderPruneRoots=" + input.Lr2FolderPruneDirectories.Count
+                + " lr2FolderPruneExcludedDirs=" + input.Lr2FolderPruneExcludedDirectories.Count
+                + " lr2FolderCandidates=" + input.Lr2FolderFilePaths.Count
+                + " lr2FolderDiscoveryComplete=" + input.Lr2FolderFileDiscoveryComplete.ToString().ToLowerInvariant()
+                + " textFileDirs=" + input.TextFileDirectories.Count
+                + " songRows=" + input.SongRows.Count
+                + " normalFolderGenerated=" + (result.NormalFolderSyncResult?.GeneratedCount ?? 0)
+                + " normalFolderUpserted=" + (result.NormalFolderSyncResult?.UpsertedCount ?? 0)
+                + " normalFolderDeleted=" + (result.NormalFolderSyncResult?.DeletedCount ?? 0)
+                + " normalFolderSkippedUnsupported=" + (result.NormalFolderSyncResult?.SkippedUnsupportedPathCount ?? 0)
+                + " normalFolderSkippedMissingMetadata=" + (result.NormalFolderSyncResult?.SkippedMissingMetadataCount ?? 0)
+                + " normalFolderSkippedIncompatibleChart=" + (result.NormalFolderSyncResult?.SkippedIncompatibleChartPathCount ?? 0)
+                + " normalFolderTargetBuildMs=" + (result.NormalFolderSyncResult?.TargetBuildMs ?? 0)
+                + " normalFolderMetadataBuildMs=" + (result.NormalFolderSyncResult?.MetadataBuildMs ?? 0)
+                + " normalFolderExistingReadMs=" + (result.NormalFolderSyncResult?.ExistingReadMs ?? 0)
+                + " normalFolderRowGenerateMs=" + (result.NormalFolderSyncResult?.RowGenerateMs ?? 0)
+                + " normalFolderPlanMs=" + (result.NormalFolderSyncResult?.PlanMs ?? 0)
+                + " normalFolderWriteMs=" + (result.NormalFolderSyncResult?.WriteMs ?? 0)
+                + " lr2FolderGenerated=" + (result.Lr2FolderFileSyncResult?.GeneratedCount ?? 0)
+                + " lr2FolderUpserted=" + (result.Lr2FolderFileSyncResult?.UpsertedCount ?? 0)
+                + " lr2FolderDeleted=" + (result.Lr2FolderFileSyncResult?.DeletedCount ?? 0)
+                + " lr2FolderExistingRows=" + (result.Lr2FolderFileSyncResult?.ExistingReadCount ?? 0)
+                + " lr2FolderSkippedUnsupported=" + (result.Lr2FolderFileSyncResult?.SkippedUnsupportedPathCount ?? 0)
+                + " lr2FolderSkippedMissingMetadata=" + (result.Lr2FolderFileSyncResult?.SkippedMissingMetadataCount ?? 0)
+                + " lr2FolderProcessed=" + result.Lr2FolderFileProcessedCount
+                + " songRowProcessed=" + result.SongRowProcessedCount
+                + " songRowSkipped=" + result.SongRowSkippedCount
+                + " songRowParseFailed=" + result.SongRowParseFailureCount
+                + " songRowChartInfoApplied=" + result.SongRowChartInfoAppliedCount
+                + " songRowLr2CompatibilityApplied=" + result.SongRowLr2CompatibilityAppliedCount
+                + " staleSongRowsPruned=" + result.StaleSongRowPrunedCount
+                + " processed=" + result.ProcessedCount
+                + " total=" + result.TotalCount
+                + " startupScanBlockers=" + (result.StartupScanDiagnosticResult?.TotalBlockerCount ?? 0)
+                + " startupScanNoRootSet=" + (result.StartupScanDiagnosticResult?.NoRootSetBlockerCount ?? 0)
+                + " startupScanMissingSongRows=" + (result.StartupScanDiagnosticResult?.MissingCurrentSongRowCount ?? 0)
+                + " startupScanDateMissingSongRows=" + (result.StartupScanDiagnosticResult?.DateMissingSongRowCount ?? 0)
+                + " startupScanUnknownRootSongRows=" + (result.StartupScanDiagnosticResult?.UnknownRootSongRowCount ?? 0)
+                + " startupScanDateMissingFolderRows=" + (result.StartupScanDiagnosticResult?.DateMissingFolderRowCount ?? 0)
+                + " startupScanDateStaleFolderRows=" + (result.StartupScanDiagnosticResult?.DateStaleFolderRowCount ?? 0)
+                + " startupScanUnknownRootFolderRows=" + (result.StartupScanDiagnosticResult?.UnknownRootFolderRowCount ?? 0)
+                + " startupScanCleanupFolderRows=" + (result.StartupScanDiagnosticResult?.CleanupFolderRowCount ?? 0)
+                + " startupScanFolderDateUpdates=" + (result.StartupScanDiagnosticResult?.FolderDateUpdateCount ?? 0)
+                + " stage=" + result.FinalStage
+                + " detail=" + (result.IncompleteReason ?? "completed")
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+            host.LogInstallPerformance("lr2_song_db_sync_compatibility_projection applied"
+                + " reason=" + (reason ?? "unknown")
+                + " input=" + result.SongRowLr2CompatibilityAppliedCount
+                + " applied=" + projectedCompatibilityWarningCount);
+            host.LogInstallPerformance("lr2_song_db_sync_chart_info_projection applied"
+                + " reason=" + (reason ?? "unknown")
+                + " rows=" + committedChartInfoRowCount
+                + " parseFailureChanges=" + committedChartInfoParseFailureChangeCount);
+            if (committedChartInfoRowCount > 0 || committedChartInfoParseFailureChangeCount > 0)
+            {
+                host.DispatchWarningPresentationChanged("lr2_song_db_sync_inline_chart_info");
+            }
+            if (projectedCompatibilityWarningCount > 0)
+            {
+                host.DispatchWarningPresentationChanged("lr2_song_db_sync_compatibility_projection");
+            }
+            if (completed)
+            {
+                host.CompleteLr2SongDbSyncRequest(requestVersion, result.FinalStage);
+            }
+            else
+            {
+                host.FailLr2SongDbSyncRequest(requestVersion, Lr2SongDbSyncStatusKind.Incomplete, result.FinalStage, BuildLr2SongDbSyncIncompleteDetail(result));
+            }
+            host.ReportStartupBackgroundTask("lr2_song_db_sync", completed ? "done" : "incomplete", stopwatch.ElapsedMilliseconds, failed: false, detail: completed ? "completed" : BuildLr2SongDbSyncIncompleteDetail(result));
+        }
+        catch (OperationCanceledException)
+        {
+            stopwatch.Stop();
+            Lr2SongDbSyncRuntimeSnapshot runtimeSnapshot = host.GetLr2SongDbSyncRuntimeSnapshot();
+            if (!enteredSyncService)
+            {
+                host.MarkLr2SongDbSyncPreflightCancelled(signature, runId, runtimeSnapshot.Stage);
+            }
+            host.LogInstallPerformance("lr2_song_db_sync cancelled reason=" + (reason ?? "unknown")
+                + " runId=" + runId
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " stage=" + (runtimeSnapshot.Stage ?? string.Empty)
+                + " processed=" + runtimeSnapshot.ProcessedCount
+                + " total=" + runtimeSnapshot.TotalCount);
+            host.FailLr2SongDbSyncRequest(requestVersion, Lr2SongDbSyncStatusKind.Cancelled, runtimeSnapshot.Stage, string.Empty);
+            host.ReportStartupBackgroundTask("lr2_song_db_sync", "cancelled", stopwatch.ElapsedMilliseconds, failed: false, detail: "cancelled");
+        }
+        catch (Exception ex)
+        {
+            stopwatch.Stop();
+            try
+            {
+                host.MarkLr2SongDbSyncFailedStatus(signature, runId, ex);
+            }
+            catch
+            {
+                // Preserve the original failure in the startup task report.
+            }
+            host.LogInstallPerformance("lr2_song_db_sync failed reason=" + (reason ?? "unknown")
+                + " runId=" + runId
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " exception=" + ex.GetType().Name
+                + " message=" + ex.Message);
+            host.FailLr2SongDbSyncRequest(requestVersion, Lr2SongDbSyncStatusKind.Failed, "failed", ex.Message);
+            host.ReportStartupBackgroundTask("lr2_song_db_sync", "failed", stopwatch.ElapsedMilliseconds, failed: true, detail: ex.Message);
+        }
+    }
+
     internal static bool TryRunDataPreparation(
         ILr2SongDbSyncRequestHost host,
         string reason,
@@ -353,6 +646,22 @@ internal static class Lr2SongDbSyncRequestCoordinator
             lastError: detail,
             stageProcessedCount: safeProcessed,
             stageTotalCount: safeTotal));
+    }
+
+    private static string BuildLr2SongDbSyncIncompleteDetail(Lr2SongDbSyncResult result)
+    {
+        if (result == null)
+        {
+            return string.Empty;
+        }
+
+        string reason = result.IncompleteReason ?? result.FinalStage ?? string.Empty;
+        if (string.Equals(result.FinalStage, Lr2SongDbSyncService.StartupScanBlockersStage, StringComparison.Ordinal)
+            && result.StartupScanDiagnosticResult != null)
+        {
+            return reason + " " + result.StartupScanDiagnosticResult.ToLogDetail();
+        }
+        return reason;
     }
 
     private static Lr2SongDbSyncStatusSnapshot CreateRuntimeLr2SongDbSyncStatus(
