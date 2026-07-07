@@ -215,6 +215,37 @@ subtasks:
 - build / package install 関連 tests / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
+## Completed Checkpoint: `REF-MVP-C7`
+
+### Pending zero-note rename coordinator seam
+
+状態: completed checkpoint。
+
+目的:
+
+- `RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions` の snapshot fallback / lock / service execution / failure dialog / pending chart removal / summary logging / deferred progress flush を coordinator seam へ移す。
+- pending source deletion、pending chart deletion、folder/file operation 全般は今回触らない。
+
+主対象:
+
+- `BeMusicSeeker/Models/BMSLibrary.PackageInstall.cs`
+- 新規候補: `BeMusicSeeker/Models/BmsLibraryInternal/PendingZeroNoteRenameCoordinator.cs`
+- 新規候補: `BeMusicSeeker/Models/BMSLibrary.PendingZeroNoteRenameHost.cs`
+- package install 関連 tests: `BmsLibraryPackageInstallServiceTests`, `BmsLibraryMutationBoundaryTests`
+
+subtasks:
+
+1. coordinator / host contract を追加し、`RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions` 本体を移す。
+2. root `BMSLibrary` には internal API entry と host bridge を残す。
+3. package install 関連 tests と標準確認を実行する。
+
+完了条件:
+
+- `RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions` internal API、target null fallback、lock 順序、failure dialogs、pending chart removal、summary log、deferred progress flush が維持されている。
+- `ProcessInvalidExtensionRename(..., removeFromLibraryOnSuccess: false)` の呼び方が維持されている。
+- build / package install 関連 tests / format / `git diff --check` が通る。
+- サブエージェントレビューで重大な指摘がない。
+
 ## Target Architecture
 
 ```text
@@ -264,7 +295,7 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C6` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
+`REF-MVP-C7` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、直近で選ぶ Lane C workflow の着手時に再確認する。
 
 - LR2 song.db sync coordinator。
 - package install coordinator。C2 では partial split までに留め、本格 coordinator 化は C2 後に詳細化する。

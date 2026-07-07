@@ -106,6 +106,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         string pendingOverwriteMethod = ExtractMethodBody(librarySource, "public PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(");
         string pendingOverwriteCoordinatorMethod = ExtractMethodBody(librarySource, "internal static PendingInstalledOnlyResourceOverwriteResult OverwritePendingInstalledOnlyPackagesResources(");
         string pendingZeroNoteRenameMethod = ExtractMethodBody(librarySource, "internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(");
+        string pendingZeroNoteRenameCoordinatorMethod = ExtractMethodBody(librarySource, "internal static void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(");
         string pendingSourceDeleteMethod = ExtractMethodBody(librarySource, "public void DeletePendingPackageSources(");
         string pendingSourceDeleteCoordinatorMethod = ExtractMethodBody(librarySource, "internal static void DeletePendingPackageSources(");
         string autoRenameMethod = ExtractMethodBody(librarySource, "internal void AutoRenameChartFolders(");
@@ -134,7 +135,8 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(pendingOverwriteCoordinatorMethod, "deferredProcessedCount");
         StringAssert.Contains(pendingOverwriteCoordinatorMethod, "() => deferredProcessedCount++");
         StringAssert.Contains(pendingOverwriteCoordinatorMethod, "InvokeDeferredProcessedCallbacks");
-        StringAssert.Contains(pendingZeroNoteRenameMethod, "InvokeDeferredProcessedCallbacks");
+        StringAssert.Contains(pendingZeroNoteRenameMethod, "PendingZeroNoteRenameCoordinator");
+        StringAssert.Contains(pendingZeroNoteRenameCoordinatorMethod, "InvokeDeferredProcessedCallbacks");
         StringAssert.Contains(pendingSourceDeleteMethod, "PendingPackageSourceDeletionCoordinator");
         StringAssert.Contains(pendingSourceDeleteCoordinatorMethod, "InvokeDeferredProcessedCallbacks");
         StringAssert.Contains(autoRenameMethod, "deferredProgressReporter");

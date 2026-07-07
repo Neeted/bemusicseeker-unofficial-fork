@@ -1605,47 +1605,12 @@ public partial class BMSLibrary
 
     internal void RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(IEnumerable<ChartFile> targetCharts, CancellationToken token = default, Action onEachProcessed = null)
     {
-        int deferredProcessedCount = 0;
-        try
-        {
-            using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-            {
-                using (rwlockPendingInstallCharts.GetWriterGuard())
-                {
-                    using (rwlockSongDBInstall.GetWriterGuard())
-                    {
-                        IEnumerable<ChartFile> enumerable = targetCharts ?? packageInstallService.GetPendingBmsFormatChartFilesSnapshot(ChartPackagesPending);
-                        PendingZeroNoteRenameResult result = packageInstallService.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
-                            enumerable,
-                            (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false),
-                            token,
-                            () => deferredProcessedCount++,
-                            info => NLogWrapper.FileLogger?.Info(info));
-                        foreach (PendingZeroNoteRenameFailure failure in result.Failures)
-                        {
-                            if (failure?.Outcome?.FailureException == null || failure.File == null)
-                            {
-                                continue;
-                            }
-                            if (failure.Outcome.FailedDuringDelete)
-                            {
-                                ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.File.path, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            }
-                            else
-                            {
-                                ShowOperationDialog(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                            }
-                        }
-                        RemovePendingChartsFromPendingPackagesAndInstallRows(result.ChartPathsToRemove);
-                        NLogWrapper.FileLogger?.Info("advanced_pending_zero_note_rename summary total=" + result.Total + " processed=" + result.Processed + " zeroNote=" + result.ZeroNote + " renamed=" + result.Renamed + " duplicateDeleted=" + result.DuplicateDeleted + " skipped=" + result.Skipped + " failed=" + result.Failed + " canceled=" + result.Canceled);
-                    }
-                }
-            }
-        }
-        finally
-        {
-            InvokeDeferredProcessedCallbacks(onEachProcessed, deferredProcessedCount);
-        }
+        PendingZeroNoteRenameCoordinator.RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions(
+            packageInstallService,
+            this,
+            targetCharts,
+            token,
+            onEachProcessed);
     }
 
     /// <summary>
@@ -1660,18 +1625,6 @@ public partial class BMSLibrary
             sendToRecycleBin,
             token,
             onEachProcessed);
-    }
-
-    private static void InvokeDeferredProcessedCallbacks(Action onEachProcessed, int count)
-    {
-        if (onEachProcessed == null || count <= 0)
-        {
-            return;
-        }
-        for (int i = 0; i < count; i++)
-        {
-            onEachProcessed();
-        }
     }
 
     private void RemovePendingPackagesFromPendingListAndInstallRows(IEnumerable<ChartPackage> packages)
