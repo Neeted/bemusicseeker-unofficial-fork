@@ -6028,7 +6028,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void calcelAllContextMenuTasks()
     {
-        if (new Task[1] { changeSubmenuOpenDocumentTask }.Where(t => t != null).Any(t => !t.IsCompleted) && tableContextMenuTaskTokenSource != null)
+        if (changeSubmenuOpenDocumentTask?.IsCompleted == false && tableContextMenuTaskTokenSource != null)
         {
             tableContextMenuTaskTokenSource.Cancel();
             NLogWrapper.DebuggerLogger?.Trace("Cancel data grid context menu async tasks");
@@ -6073,9 +6073,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         MainWindowViewModel.MainViewOperationSection effectiveSection = mainWindowViewModel.CurrentMainViewOperationSection;
         bool isPendingSelected = IsPendingMainViewSection(effectiveSection);
         bool isInstalledSelected = IsInstalledMainViewSection(effectiveSection);
-        bool isInstallListSelected = isPendingSelected || isInstalledSelected;
         bool isPlaylistSelected = IsPlaylistMainViewSection(effectiveSection);
-        bool isPlaylistContext = isPlaylistSelected || isPlaylistRow;
         ChartOperationSourceScope sourceScope = mainWindowViewModel.CurrentMainViewChartOperationSourceScope;
         if (!GridRowResolver.TryGetChartOperationTarget(row, sourceScope, out ChartOperationTarget rowTarget))
         {
@@ -6086,15 +6084,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
         }
-        string chartPath = rowTarget?.Chart?.Path;
-        List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(isPendingSelected);
-        if (rowTarget != null && selectedTargets.Count == 0)
-        {
-            selectedTargets.Add(rowTarget);
-        }
-        bool isBmsonContextRow = rowTarget?.Chart.Kind == ChartFileKind.Bmson;
-        bool hasBmsonSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bmson);
-        bool hasBmsSelection = selectedTargets.Any(target => target.Chart.Kind == ChartFileKind.Bms);
+        ChartContextMenuState contextMenuState = ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(
+            isPlaylistRow,
+            rowUrl,
+            rowUrlDiff,
+            isPendingSelected,
+            isInstalledSelected,
+            isPlaylistSelected,
+            rowTarget,
+            GetSelectedChartTargets(isPendingSelected)));
+        bool isInstallListSelected = contextMenuState.IsInstallListSelected;
+        bool isPlaylistContext = contextMenuState.IsPlaylistContext;
+        string chartPath = contextMenuState.ChartPath;
+        IReadOnlyList<ChartOperationTarget> selectedTargets = contextMenuState.SelectedTargets;
+        bool isBmsonContextRow = contextMenuState.IsBmsonContextRow;
+        bool hasBmsonSelection = contextMenuState.HasBmsonSelection;
+        bool hasBmsSelection = contextMenuState.HasBmsSelection;
         calcelAllContextMenuTasks();
         initContextMenuTasks();
         MenuItem menuItem = null;

@@ -354,6 +354,75 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ChartContextMenuStateBuilder_UsesRowTargetAsSelectionFallback()
+    {
+        ChartOperationTarget rowTarget = CreateContextMenuTarget(
+            ChartFileKind.Bms,
+            ChartOperationCapabilities.OpenFile);
+
+        ChartContextMenuState state = ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(
+            isPlaylistRow: false,
+            rowUrl: null!,
+            rowUrlDiff: null!,
+            isPendingSelected: true,
+            isInstalledSelected: false,
+            isPlaylistSelected: false,
+            rowTarget: rowTarget,
+            selectedTargets: []));
+
+        Assert.IsTrue(state.IsInstallListSelected);
+        Assert.IsFalse(state.IsPlaylistContext);
+        Assert.AreSame(rowTarget, state.RowTarget);
+        Assert.AreEqual(rowTarget.Chart.Path, state.ChartPath);
+        Assert.AreEqual(1, state.SelectedTargets.Count);
+        Assert.AreSame(rowTarget, state.SelectedTargets[0]);
+        Assert.IsFalse(state.IsBmsonContextRow);
+        Assert.IsFalse(state.HasBmsonSelection);
+        Assert.IsTrue(state.HasBmsSelection);
+    }
+
+    [TestMethod]
+    public void ChartContextMenuStateBuilder_PreservesSelectionWhenItExists()
+    {
+        ChartOperationTarget rowTarget = CreateContextMenuTarget(
+            ChartFileKind.Bms,
+            ChartOperationCapabilities.OpenFile);
+        ChartOperationTarget selectedTarget = CreateContextMenuTarget(
+            ChartFileKind.Bmson,
+            ChartOperationCapabilities.RunResourceHealthCheck);
+
+        ChartContextMenuState state = ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(
+            isPlaylistRow: true,
+            rowUrl: new Uri("https://example.test/main"),
+            rowUrlDiff: new Uri("https://example.test/diff"),
+            isPendingSelected: false,
+            isInstalledSelected: false,
+            isPlaylistSelected: false,
+            rowTarget: rowTarget,
+            selectedTargets: [selectedTarget]));
+
+        Assert.IsFalse(state.IsInstallListSelected);
+        Assert.IsTrue(state.IsPlaylistContext);
+        Assert.AreEqual(new Uri("https://example.test/main"), state.RowUrl);
+        Assert.AreEqual(new Uri("https://example.test/diff"), state.RowUrlDiff);
+        Assert.AreEqual(1, state.SelectedTargets.Count);
+        Assert.AreSame(selectedTarget, state.SelectedTargets[0]);
+        Assert.IsFalse(state.IsBmsonContextRow);
+        Assert.IsTrue(state.HasBmsonSelection);
+        Assert.IsFalse(state.HasBmsSelection);
+    }
+
+    [TestMethod]
+    public void TableContextMenuOpened_UsesContextMenuStateBuilderForUiIndependentState()
+    {
+        string code = SourceTextTestHelper.ReadMainWindowSourceText();
+        string method = ExtractBetween(code, "private void tableContextMenuOpened", "private void tableContextMenuPlaylistMissingOpened");
+
+        StringAssert.Contains(method, "ChartContextMenuStateBuilder.Build(new ChartContextMenuRequest(");
+        Assert.IsFalse(method.Contains("selectedTargets.Add(rowTarget)"));
+    }
+
+    [TestMethod]
     public void LibraryFolderContextMenus_ExposeLightReloadAndFullReinitialize()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));

@@ -107,7 +107,9 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`b6754435 docs: decide playlist main view apply boundary` まで完了済み。旧 `L-3c-16-checkpoint` で決めた `L-3c-17` は、今回の計画更新により `REF-MVP-A1` の subtask へ格下げする。
+`REF-MVP-B1` の最初の実装 slice として、`MainWindow` event handler inventory を作成し、`tableContextMenuOpened` の UI 非依存な chart context-menu state calculation を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ抽出した。静的レビューで重大指摘なし。
+
+次にやる 1 件: `REF-MVP-B1` の残りとして、score viewer / ranking / resource health / install destination の boolean policy を state builder 側へ寄せるか、click handler の selected target resolution を command request DTO へ移すかを diff とレビュー結果で決める。
 
 ## 次回 Codex が最初に読むべきファイル
 
