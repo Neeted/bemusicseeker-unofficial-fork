@@ -570,6 +570,25 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PendingInstallDestinationEditRequest_TryCreatePreservesLazyLooseTarget()
+    {
+        ChartOperationTarget target = CreateContextMenuTarget(
+            ChartFileKind.Bms,
+            ChartOperationCapabilities.UpdateInstallDestination);
+
+        Assert.IsTrue(PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest request));
+
+        Assert.IsTrue(request.HasTarget);
+        Assert.IsNull(request.PackageEntry);
+        Assert.AreSame(target.Chart, request.ChartFile);
+        PackageChartEntry entry = request.GetOrCreateChartEntry();
+        Assert.IsNotNull(entry);
+        Assert.AreEqual(target.Chart.Path, entry.Chart.Path);
+        Assert.IsFalse(PendingInstallDestinationEditRequest.TryCreate(null, out PendingInstallDestinationEditRequest nullRequest));
+        Assert.IsNull(nullRequest);
+    }
+
+    [TestMethod]
     public void TableContextMenuOpened_UsesContextMenuStateBuilderForUiIndependentState()
     {
         string code = SourceTextTestHelper.ReadMainWindowSourceText();
@@ -2158,8 +2177,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(editBeginning, "target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)");
         Assert.IsFalse(editBeginning.Contains("GetCompatibilityBmsFile"));
         StringAssert.Contains(editEnded, "GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)");
-        StringAssert.Contains(editEnded, "viewModel.CreatePendingInstallDestinationEditTargetSnapshot(target)");
-        StringAssert.Contains(editEnded, "viewModel.SetPendingInstallDestination(targetSnapshot, destinationDirectory)");
+        StringAssert.Contains(editEnded, "PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest request)");
+        StringAssert.Contains(editEnded, "viewModel.SetPendingInstallDestination(request, destinationDirectory)");
+        Assert.IsFalse(editEnded.Contains("PendingInstallDestinationEditTargetSnapshot"));
         Assert.IsFalse(editEnded.Contains("GetCompatibilityBmsFile"));
     }
 

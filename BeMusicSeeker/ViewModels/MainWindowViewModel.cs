@@ -21167,17 +21167,35 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (target == null)
         {
-            throw new ArgumentNullException("target");
+            throw new ArgumentNullException(nameof(target));
         }
+        return SetPendingInstallDestination(target.PackageEntry, target.GetOrCreateChartEntry, destinationDirectory);
+    }
+
+    internal bool SetPendingInstallDestination(PendingInstallDestinationEditRequest request, string destinationDirectory)
+    {
+        if (files == null)
+        {
+            return false;
+        }
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        return SetPendingInstallDestination(request.PackageEntry, request.GetOrCreateChartEntry, destinationDirectory);
+    }
+
+    private bool SetPendingInstallDestination(PackageChartEntry packageEntry, Func<PackageChartEntry> chartEntryFactory, string destinationDirectory)
+    {
         PackageChartEntry changedEntry = null;
         bool changed = RunChartPackageMutation(delegate
         {
-            if (target.PackageEntry != null)
+            if (packageEntry != null)
             {
-                changedEntry = target.PackageEntry;
+                changedEntry = packageEntry;
                 return files.SetPendingInstallDestination(changedEntry, destinationDirectory);
             }
-            PackageChartEntry chartEntry = target.GetOrCreateChartEntry();
+            PackageChartEntry chartEntry = chartEntryFactory?.Invoke();
             if (chartEntry == null)
             {
                 return false;

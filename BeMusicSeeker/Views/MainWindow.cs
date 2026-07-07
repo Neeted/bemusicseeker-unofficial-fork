@@ -1797,15 +1797,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 {
                     return;
                 }
-                MainWindowViewModel.PendingInstallDestinationEditTargetSnapshot targetSnapshot = viewModel.CreatePendingInstallDestinationEditTargetSnapshot(target);
-                if (!targetSnapshot.HasTarget)
+                if (!PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest request))
                 {
                     return;
                 }
                 string destinationDirectory = e.Text;
                 Task.Run(delegate
                 {
-                    viewModel.SetPendingInstallDestination(targetSnapshot, destinationDirectory);
+                    viewModel.SetPendingInstallDestination(request, destinationDirectory);
                     base.Dispatcher.BeginInvoke((Action)delegate
                     {
                         if (_isClosingOrClosed)
