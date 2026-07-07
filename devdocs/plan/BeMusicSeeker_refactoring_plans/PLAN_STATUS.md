@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | active | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C1: BMSLibrary source-text helper and facade split foundation` | recommended next implementation | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C1: BMSLibrary source-text helper and facade split foundation` | implementation in review | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | active docs/inventory lane | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane A → Lane D → Lane B 後続候補。
@@ -93,7 +93,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 |---|---:|---:|---|
 | `MainWindowViewModel.cs` | 23,443 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
-| `BMSLibrary.cs` | 21,696 行 | 12,000 行以下 | source-text helper 後の partial split、LR2 sync、package install、maintenance |
+| `BMSLibrary.cs` | 21,542 行 | 12,000 行以下 | LR2 sync、package install、maintenance、folder/file operation |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
 
 Guardrail 超過は現時点では既知。残す理由は「MVP active lanes の extraction 前であるため」。次の extraction 候補は上表を正本とする。
@@ -109,9 +109,9 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-C1` の最初の slice として、`SourceTextTestHelper.ReadBmsLibrarySourceText()` を追加し、`BMSLibrary.cs` 単体配置に依存していた source-text tests を helper 経由へ移した。private reflection / source-text test blocker inventory も `devdocs/plan/BeMusicSeeker_refactoring_plans/inventory/REF-MVP-C1_bmslibrary_test_blockers.md` に作成した。
+`REF-MVP-C1` の続きとして、`BMSLibrary` を `partial` 化し、operation dialog scope / message / service と scope 制御メソッドを `BeMusicSeeker/Models/BMSLibrary.OperationDialogs.cs` へ挙動変更なしで分割した。これにより、`ReadBmsLibrarySourceText()` が top-level `BMSLibrary*.cs` を含むことと、source-text architecture tests が split 後も成立することを確認した。
 
-次にやる 1 件: `REF-MVP-C1` の続きとして、挙動変更なしの最初の BMSLibrary partial split または既存 `BmsLibraryInternal` service への小さな workflow 移動候補を選定する。
+次にやる 1 件: 標準確認とサブエージェントレビューで重大指摘がなければ `REF-MVP-C1` を完了 checkpoint として commit し、次 slice は Lane A の `REF-MVP-A1` へ戻る。
 
 ## 次回 Codex が最初に読むべきファイル
 

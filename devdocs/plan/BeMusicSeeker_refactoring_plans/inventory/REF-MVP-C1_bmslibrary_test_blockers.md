@@ -8,11 +8,14 @@
 
 `BMSLibrary.cs` 単体配置に依存していた source-text tests は `SourceTextTestHelper.ReadBmsLibrarySourceText()` 経由へ移した。これにより、`BMSLibrary.cs` の partial split や `BmsLibraryInternal` service への移動で source-text architecture check が壊れにくくなった。
 
+その確認 slice として、`BMSLibrary` を `partial` 化し、operation dialog scope / message / service と scope 制御メソッドを `BMSLibrary.OperationDialogs.cs` へ移した。`BmsLibraryMutationBoundaryTests.MainWindowViewModel_UsesChartPackageMutationBoundary` は split 後の logical source set から `internal void Enqueue(OperationDialogMessage message)` を抽出できる。
+
 ## 解消した blocker
 
 - `BmsLibraryMutationBoundaryTests.MainWindowViewModel_UsesChartPackageMutationBoundary` は `BMSLibrary.cs` 単体ではなく logical BMSLibrary source set を読む。
 - `MainWindowContextMenuResourceTests` 内の BMSLibrary source-text assertions は logical BMSLibrary source set を読む。
 - `ReadBmsLibrarySourceText()` は `BeMusicSeeker/Models/BMSLibrary.cs`、top-level `BMSLibrary*.cs`、`Models/BmsLibrary/`、`Models/BmsLibraryInternal/` を deterministic order で連結する。
+- `OperationDialogScope` / `OperationDialogMessage` / `ScopedOperationDialogService` は `BMSLibrary.OperationDialogs.cs` に移動済み。nested type surface と dialog batching semantics は維持する。
 
 ## 残存 blocker
 

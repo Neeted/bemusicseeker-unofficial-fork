@@ -56,7 +56,7 @@ MVP Gate は「リファクタリングがある程度完了し、その後は�
 |---|---:|---:|
 | `MainWindowViewModel.cs` | 23,443 行 | 8,000 行以下 |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 |
-| `BMSLibrary.cs` | 21,696 行 | 12,000 行以下 |
+| `BMSLibrary.cs` | 21,542 行 | 12,000 行以下 |
 | `BMSPlaylist.cs` | P1 対象 | P0/P1 境界で 6,000 行以下 |
 
 Guardrail を超える場合は `PLAN_STATUS.md` に、残す責務、残す理由、次の extraction 候補、サブエージェントレビュー結果を記録する。
@@ -74,7 +74,7 @@ Guardrail を超える場合は `PLAN_STATUS.md` に、残す責務、残す理�
 
 推奨する最初の実装順:
 
-1. `REF-MVP-C1`: BMSLibrary source-text helper and facade split foundation。
+1. `REF-MVP-C1`: BMSLibrary source-text helper and facade split foundation。標準確認とレビュー完了後に checkpoint commit。
 2. `REF-MVP-A1`: Playlist detail build workflow extraction。
 3. `REF-MVP-D1`: .NET 10 blocker inventory in devdocs。
 4. Lane B 後続候補: `REF-MVP-B1` 完了後の duplicate / external URL / score viewer / drag-drop / CustomTable adapter などを workflow 単位で再計画。

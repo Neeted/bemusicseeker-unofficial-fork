@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 21,696 行 |
+| `BMSLibrary.cs` 行数 | 21,542 行 |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -45,13 +45,14 @@ subtasks:
    - 必要な test では `BeMusicSeeker/Models/BmsLibraryInternal/**/*.cs`
 2. 完了: `File.ReadAllText` で `BMSLibrary.cs` 単体を読む test を helper 経由に置き換える。
 3. 完了: private reflection / source-text test の主要 blocker を `devdocs/plan/BeMusicSeeker_refactoring_plans/inventory/REF-MVP-C1_bmslibrary_test_blockers.md` に記録する。
-4. 可能なら同じ ticket 内で、挙動変更なしの最初の partial split または既存 internal service への小さな workflow 移動に進む。
+4. 完了: `BMSLibrary` を `partial` 化し、operation dialog scope / message / service と scope 制御メソッドを `BMSLibrary.OperationDialogs.cs` へ挙動変更なしで分割する。
 
 完了条件:
 
 - source-text test が `BMSLibrary.cs` 単体配置に過度に依存していない。
 - `BMSLibrary` facade split の blocker が 1 つ以上減っている。
 - 以後の partial split / service extraction が可能になっている。
+- 最初の partial split 後も `BmsLibraryMutationBoundaryTests` の source-text architecture check が logical BMSLibrary source set を読んで通る。
 - build / test / format / `git diff --check` が通る。
 - サブエージェントレビューで重大な指摘がない。
 
@@ -104,7 +105,7 @@ BMSLibrary                         // public facade / compatibility API
 
 ## 後続候補
 
-`REF-MVP-C1` 完了後に、次を workflow 単位で選ぶ。
+`REF-MVP-C1` 完了後に、次を workflow 単位で選ぶ。詳細な実装プランは、Lane A の `REF-MVP-A1` または直近で選ぶ Lane C workflow の着手時に再確認する。
 
 - LR2 song.db sync coordinator。
 - package install coordinator。
