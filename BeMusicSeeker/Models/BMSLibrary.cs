@@ -6905,16 +6905,12 @@ completeFileEnumerationOnce,
             : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootSnapshot.RootDirectories, rowSnapshot.ChartPaths);
         directoryTargetsStopwatch.Stop();
 
-        Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface =
-            TakeLr2SongDbSyncPreparedDataSurface(out int preparedSurfaceAppliedScanGeneration);
-        bool preparedSurfaceAlreadyAppliedToScanSurface = scanSurface != null
-            && pendingPreparedSurface?.HasPreparedDataSurface == true
-            && preparedSurfaceAppliedScanGeneration == scanSurface.Generation;
-        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceAlreadyAppliedToScanSurface
-            ? Lr2SongDbSyncPreparedDataSurface.Empty
-            : pendingPreparedSurface;
-        bool hasPreparedSurface = preparedSurface?.HasPreparedDataSurface == true;
-        bool hasPreparedLr2FolderSurface = preparedSurface?.HasLr2FolderSurface == true;
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection =
+            CreateLr2SongDbSyncPreparedSurfaceSelection(scanSurface);
+        Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface = preparedSurfaceSelection.PendingSurface;
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
+        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
+        bool hasPreparedLr2FolderSurface = preparedSurfaceSelection.HasActiveLr2FolderSurface;
         bool reusedLr2FolderSurface = scanSurface?.Lr2FolderFileDiscoveryComplete == true;
         string lr2FolderCandidatesSource;
         var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
@@ -7135,8 +7131,8 @@ completeFileEnumerationOnce,
             + " reusedLr2FolderSurface=" + reusedLr2FolderSurface.ToString().ToLowerInvariant()
             + " hasPreparedSurface=" + hasPreparedSurface.ToString().ToLowerInvariant()
             + " hasPreparedLr2FolderSurface=" + hasPreparedLr2FolderSurface.ToString().ToLowerInvariant()
-            + " preparedSurfaceAlreadyAppliedToScanSurface=" + preparedSurfaceAlreadyAppliedToScanSurface.ToString().ToLowerInvariant()
-            + " preparedSurfaceAppliedScanGeneration=" + preparedSurfaceAppliedScanGeneration
+            + " preparedSurfaceAlreadyAppliedToScanSurface=" + preparedSurfaceSelection.AlreadyAppliedToScanSurface.ToString().ToLowerInvariant()
+            + " preparedSurfaceAppliedScanGeneration=" + preparedSurfaceSelection.AppliedScanGeneration
             + " pendingPreparedScopeDirs=" + (pendingPreparedSurface?.Lr2FolderScopeDirectories?.Count ?? 0)
             + " pendingPreparedLr2FolderCandidates=" + (pendingPreparedSurface?.Lr2FolderFilePaths?.Count ?? 0)
             + " pendingPreparedDirectoryEntries=" + (pendingPreparedSurface?.DirectoryEntries?.Count ?? 0)
@@ -7246,6 +7242,21 @@ completeFileEnumerationOnce,
             CreateLr2SongDbSyncLr2FolderPruneDirectories(
                 rootDirectories,
                 lr2BuiltinFolderSourceDirectories));
+    }
+
+    private Lr2SongDbSyncPreparedSurfaceSelection CreateLr2SongDbSyncPreparedSurfaceSelection(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface)
+    {
+        Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface =
+            TakeLr2SongDbSyncPreparedDataSurface(out int appliedScanGeneration);
+        bool alreadyAppliedToScanSurface = scanSurface != null
+            && pendingPreparedSurface?.HasPreparedDataSurface == true
+            && appliedScanGeneration == scanSurface.Generation;
+        return new Lr2SongDbSyncPreparedSurfaceSelection(
+            pendingPreparedSurface,
+            alreadyAppliedToScanSurface ? Lr2SongDbSyncPreparedDataSurface.Empty : pendingPreparedSurface,
+            appliedScanGeneration,
+            alreadyAppliedToScanSurface);
     }
 
     private bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)

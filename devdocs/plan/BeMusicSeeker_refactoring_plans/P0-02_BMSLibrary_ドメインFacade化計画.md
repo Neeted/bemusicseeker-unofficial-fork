@@ -614,3 +614,26 @@ BMSLibrary                         // public facade / compatibility API
 - maintenance coordinator。
 - playlist reference follow-up coordinator。
 - file operation / folder rename coordinator。
+
+## Completed Checkpoint: `REF-MVP-C19`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` の pending prepared surface 取得と scan surface 適用済み判定を top-level internal DTO 境界へ寄せる。
+- 後続の input builder 化で、scan surface / prepared surface の選択済み入力を明示的に渡せる状態にする。
+- prepared surface の merge 挙動、ログ項目、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- `TakeLr2SongDbSyncPreparedDataSurface` と `preparedSurfaceAlreadyAppliedToScanSurface` 判定が dedicated selection DTO / helper 経由になる。
+- `CreateLr2SongDbSyncInput` で使う active prepared surface、pending prepared surface、prepared flags、applied generation が同じ意味で残る。
+- full builder 化、LR2 folder candidate builder 化、scan surface helper 移動は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncPreparedSurfaceSelection` を追加し、pending prepared surface と active prepared surface の選択結果を dedicated DTO 経由へ移した。
+- `preparedSurfaceAlreadyAppliedToScanSurface` と `preparedSurfaceAppliedScanGeneration` のログ意味は維持した。
+- DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
