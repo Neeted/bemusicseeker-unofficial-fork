@@ -2004,6 +2004,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(deletePackages, "viewModel.RemovePendingPackages(selectedPendingTargets)");
         StringAssert.Contains(deletePackages, "viewModel.RemoveInstalledPackageRecords(selectedInstalledTargets)");
+        StringAssert.Contains(deletePackages, "private async Task DeleteInstallPackageRecordsFromContextMenuAsync");
         Assert.IsFalse(deletePackages.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         Assert.IsFalse(deletePackages.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));

@@ -9380,6 +9380,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void tableContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)
     {
+        await DeleteInstallPackageRecordsFromContextMenuAsync(e);
+    }
+
+    private async Task DeleteInstallPackageRecordsFromContextMenuAsync(RoutedEventArgs e)
+    {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_delete_install_package_records"))
         {
             e.Handled = true;
