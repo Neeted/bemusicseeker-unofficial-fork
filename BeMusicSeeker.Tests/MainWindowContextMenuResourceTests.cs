@@ -2235,7 +2235,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void FullScanInstallDestinationClearUsesRepairTargetSnapshot()
+    public void FullScanInstallDestinationClearUsesRepairRequest()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string clearInstallDestination = ExtractBetween(
@@ -2244,15 +2244,16 @@ public sealed class MainWindowContextMenuResourceTests
             "private void tableContextMenuSearchCorrectInstallationDirectoryChartsClick");
 
         StringAssert.Contains(clearInstallDestination, "GetSelectedChartTargets(capability)");
-        StringAssert.Contains(clearInstallDestination, "CreateRepairInstalledLocationTargetSnapshot(targets)");
-        StringAssert.Contains(clearInstallDestination, "repairTargets?.MaterializeRepairEntries()");
+        StringAssert.Contains(clearInstallDestination, "RepairInstalledLocationRequest.TryCreate(targets, out repairRequest)");
+        StringAssert.Contains(clearInstallDestination, "repairRequest?.MaterializeRepairEntries()");
         StringAssert.Contains(clearInstallDestination, "pendingInstallRequest?.MaterializeLooseEntries()");
         StringAssert.Contains(clearInstallDestination, "PendingInstallDestinationClearRequest.TryCreate(pendingTargets, out pendingInstallRequest)");
         StringAssert.Contains(clearInstallDestination, "viewModel.ClearPendingInstallDestination(pendingInstallRequest)");
-        StringAssert.Contains(clearInstallDestination, "viewModel.ClearInstallDestinationForCharts(repairTargets)");
+        StringAssert.Contains(clearInstallDestination, "viewModel.ClearInstallDestinationForCharts(repairRequest)");
         Assert.IsFalse(clearInstallDestination.Contains("PendingInstallDestinationTargetSnapshot"));
-        Assert.IsFalse(clearInstallDestination.Contains("viewModel.ClearInstallDestinationForCharts(repairTargets.ChartFiles)"));
-        Assert.IsFalse(clearInstallDestination.Contains("repairTargets.ChartFiles"));
+        Assert.IsFalse(clearInstallDestination.Contains("IRepairInstalledLocationTargetSnapshot"));
+        Assert.IsFalse(clearInstallDestination.Contains("viewModel.ClearInstallDestinationForCharts(repairRequest.ChartFiles)"));
+        Assert.IsFalse(clearInstallDestination.Contains("repairRequest.ChartFiles"));
         Assert.IsFalse(clearInstallDestination.Contains("GetSelectedChartCompatibilityAdapters"));
     }
 

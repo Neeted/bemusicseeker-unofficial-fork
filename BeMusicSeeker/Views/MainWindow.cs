@@ -8891,11 +8891,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ChartOperationCapabilities capability = isInstalledLocationRepair
             ? ChartOperationCapabilities.RepairInstalledLocation
             : ChartOperationCapabilities.UpdateInstallDestination;
-        MainWindowViewModel.IRepairInstalledLocationTargetSnapshot repairTargets = null;
+        RepairInstalledLocationRequest repairRequest = null;
         if (isInstalledLocationRepair)
         {
             List<ChartOperationTarget> targets = GetSelectedChartTargets(capability);
-            repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
+            RepairInstalledLocationRequest.TryCreate(targets, out repairRequest);
         }
         PendingInstallDestinationClearRequest pendingInstallRequest = null;
         if (!isInstalledLocationRepair)
@@ -8903,16 +8903,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             List<ChartOperationTarget> pendingTargets = GetSelectedChartTargets(capability, isPendingSection: true);
             PendingInstallDestinationClearRequest.TryCreate(pendingTargets, out pendingInstallRequest);
         }
-        if ((repairTargets?.HasTargets == true) || (pendingInstallRequest?.HasTargets == true))
+        if ((repairRequest?.HasTargets == true) || (pendingInstallRequest?.HasTargets == true))
         {
             e.Handled = true;
-            repairTargets?.MaterializeRepairEntries();
+            repairRequest?.MaterializeRepairEntries();
             pendingInstallRequest?.MaterializeLooseEntries();
             Task.Run(delegate
             {
                 if (isInstalledLocationRepair)
                 {
-                    viewModel.ClearInstallDestinationForCharts(repairTargets);
+                    viewModel.ClearInstallDestinationForCharts(repairRequest);
                 }
                 else
                 {

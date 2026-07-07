@@ -21141,6 +21141,19 @@ public partial class MainWindowViewModel : ViewModel
         ClearInstallDestinationForCharts(snapshot.RepairEntries);
     }
 
+    internal void ClearInstallDestinationForCharts(RepairInstalledLocationRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (!request.HasTargets)
+        {
+            return;
+        }
+        ClearInstallDestinationForCharts(request.RepairEntries);
+    }
+
     private void ClearInstallDestinationForCharts(IEnumerable<PackageChartEntry> chartEntries)
     {
         if (files != null)
