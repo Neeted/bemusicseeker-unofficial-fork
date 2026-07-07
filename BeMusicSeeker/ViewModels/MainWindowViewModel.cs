@@ -20859,6 +20859,22 @@ public partial class MainWindowViewModel : ViewModel
         RemovePendingPackages(chartPackages);
     }
 
+    internal void DeleteInstallPackageRecords(DeleteInstallPackageRecordsRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        if (request.IsPending)
+        {
+            RemovePendingPackages(request.Targets);
+            return;
+        }
+
+        RemoveInstalledPackageRecords(request.Targets);
+    }
+
     public List<ChartPackage> GetPendingPackagesContainingOnlyInstalledCharts()
     {
         if (files == null)

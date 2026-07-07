@@ -1992,6 +1992,7 @@ public sealed class MainWindowContextMenuResourceTests
     public void PendingPackageChartHandlersUseChartTargetsForPackageOperations()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string forceInstall = ExtractBetween(
             mainWindowCode,
             "private async void forceInstallSelectedPendingCharts",
@@ -2026,8 +2027,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(deletePackages, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(deletePackages, "DeleteInstallPackageRecordsRequest.CreatePending(selectedPendingTargets)");
         StringAssert.Contains(deletePackages, "DeleteInstallPackageRecordsRequest.CreateInstalled(selectedInstalledTargets)");
-        StringAssert.Contains(deletePackages, "viewModel.RemovePendingPackages(request.Targets)");
-        StringAssert.Contains(deletePackages, "viewModel.RemoveInstalledPackageRecords(request.Targets)");
+        StringAssert.Contains(deletePackages, "viewModel.DeleteInstallPackageRecords(request)");
+        StringAssert.Contains(viewModelCode, "internal void DeleteInstallPackageRecords(DeleteInstallPackageRecordsRequest request)");
         StringAssert.Contains(deletePackages, "private async Task DeleteInstallPackageRecordsFromContextMenuAsync");
         Assert.IsFalse(deletePackages.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         Assert.IsFalse(deletePackages.Contains("CreateChartOperationTargetSnapshot"));

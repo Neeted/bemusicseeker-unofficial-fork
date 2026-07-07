@@ -9422,7 +9422,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             SelectNextSiblingOrRoot(treeViewItemInstallPending, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
             await Task.Run(delegate
             {
-                viewModel.RemovePendingPackages(request.Targets);
+                viewModel.DeleteInstallPackageRecords(request);
             }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
             if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
             {
@@ -9436,7 +9436,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         SelectNextSiblingOrRoot(newlyInstalledTreeViewItem, treeView.SelectedItem, "tableContextMenuItemDeleteInstallPackagesClick");
         await Task.Run(delegate
         {
-            viewModel.RemoveInstalledPackageRecords(request.Targets);
+            viewModel.DeleteInstallPackageRecords(request);
         }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {

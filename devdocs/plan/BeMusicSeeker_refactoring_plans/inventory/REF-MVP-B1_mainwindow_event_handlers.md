@@ -41,7 +41,7 @@
 1. 完了: row / section / selected chart targets から作る UI 非依存 state を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ移す。
 2. 完了: score viewer / ranking / resource health / install destination の boolean policy を state 側へ追加する。
 3. 進行中: click handler 側の selected target resolution を `ChartOperationTargetSelectionRequest` / `ChartOperationTargetSelectionResolver` へ移す。
-4. 進行中: selected target resolution を使う click handler 本体を command request DTO / `Task` method へ移す。最初の対象は `tableContextMenuItemDeleteInstallPackagesClick`。`DeleteInstallPackageRecordsRequest` で pending / installed と targets の境界を作った。
+4. 進行中: selected target resolution を使う click handler 本体を command request DTO / `Task` method へ移す。最初の対象は `tableContextMenuItemDeleteInstallPackagesClick`。`DeleteInstallPackageRecordsRequest` で pending / installed と targets の境界を作り、mutation 分岐を `MainWindowViewModel.DeleteInstallPackageRecords` へ移した。
 5. 後続: `MenuItem` / `ContextMenu` 更新は UserControl / behavior / command bridge の方針が決まるまで view adapter に残す。
 
 ## 注意
