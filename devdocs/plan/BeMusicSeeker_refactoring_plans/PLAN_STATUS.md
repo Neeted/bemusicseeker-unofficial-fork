@@ -107,9 +107,9 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 ## Latest Completed Work
 
-`REF-MVP-B1` の実装 slice として、`MainWindow` event handler inventory を作成し、`tableContextMenuOpened` の UI 非依存な chart context-menu state calculation と capability-based boolean policy を `ChartContextMenuRequest` / `ChartContextMenuStateBuilder` へ抽出した。静的レビューで重大指摘なし。
+`REF-MVP-B1` の実装 slice として、chart table context menu handler の mutation request DTO 化を進めている。pending install package 操作、install destination search / clear / edit、repair installed location search / fix / clear、resource health rescan / ignore / unignore は root nested snapshot 型ではなく top-level request DTO を介して ViewModel へ渡す形にした。
 
-次にやる 1 件: `REF-MVP-B1` の残りとして、MainWindow の残存 `IRepairInstalledLocationTargetSnapshot` / nested target snapshot 依存を棚卸しし、B1 完了条件に届いたか判定する。
+次にやる 1 件: `REF-MVP-B1` の残りとして、`MainWindow` の `CreateChartOperationTargetSnapshot(...MoveInLibrary)` 依存を棚卸しし、move / auto-rename 系 handler を request DTO 化するか B1 checkpoint として後続に送るか判定する。
 
 ## 次回 Codex が最初に読むべきファイル
 

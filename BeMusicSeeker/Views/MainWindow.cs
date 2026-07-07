@@ -8861,12 +8861,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
-        if (targets.Count != 0)
+        if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
         {
-            MainWindowViewModel.ChartOperationTargetSnapshot resourceTargets = viewModel.CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
             Task.Run(delegate
             {
-                viewModel.ForceResourceHealthCheckCharts(resourceTargets);
+                viewModel.ForceResourceHealthCheckCharts(request);
             }).Logging("tableContextMenuItemForceFileScanCheckSelectedCharts");
             e.Handled = true;
         }
@@ -9256,10 +9255,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
             List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
-            if (targets.Count != 0)
+            if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
             {
-                MainWindowViewModel.ChartOperationTargetSnapshot resourceTargets = viewModel.CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
-                viewModel.SetChartResourceWarningsIgnored(resourceTargets);
+                viewModel.SetChartResourceWarningsIgnored(request);
                 e.Handled = true;
             }
         }
@@ -9274,10 +9272,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 return;
             }
             List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RunResourceHealthCheck);
-            if (targets.Count != 0)
+            if (ChartResourceHealthRequest.TryCreate(targets, out ChartResourceHealthRequest request))
             {
-                MainWindowViewModel.ChartOperationTargetSnapshot resourceTargets = viewModel.CreateChartOperationTargetSnapshot(targets, ChartOperationCapabilities.RunResourceHealthCheck);
-                viewModel.SetChartResourceWarningsIgnored(resourceTargets, unset: true);
+                viewModel.SetChartResourceWarningsIgnored(request, unset: true);
                 e.Handled = true;
             }
         }

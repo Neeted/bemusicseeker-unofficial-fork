@@ -16129,6 +16129,15 @@ public partial class MainWindowViewModel : ViewModel
         ForceResourceHealthCheckCharts(targets.Charts);
     }
 
+    internal void ForceResourceHealthCheckCharts(ChartResourceHealthRequest request)
+    {
+        if (request?.HasTargets != true)
+        {
+            return;
+        }
+        ForceResourceHealthCheckCharts(request.Charts);
+    }
+
     public void StartRescanAllOwnedChartMaintenance()
     {
         if (files == null || IsMaintenanceRescanProgressActive)
@@ -16391,6 +16400,15 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         SetChartResourceWarningsIgnored(targets.Charts, unset);
+    }
+
+    internal void SetChartResourceWarningsIgnored(ChartResourceHealthRequest request, bool unset = false)
+    {
+        if (request?.HasTargets != true)
+        {
+            return;
+        }
+        SetChartResourceWarningsIgnored(request.Charts, unset);
     }
 
     /// <summary>
