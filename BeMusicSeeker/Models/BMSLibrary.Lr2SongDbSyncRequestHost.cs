@@ -138,7 +138,7 @@ public partial class BMSLibrary : ILr2SongDbSyncRequestHost
         }
     }
 
-    BMSLibrary.Lr2SongDbSyncInput ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncInput()
+    Lr2SongDbSyncInput ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncInput()
     {
         return CreateLr2SongDbSyncInput();
     }
@@ -196,7 +196,7 @@ public partial class BMSLibrary : ILr2SongDbSyncRequestHost
         UpsertChartInfoIndexRows(rows, "lr2_song_db_sync_inline_chart_info", dispatchPresentation: false);
     }
 
-    bool ILr2SongDbSyncRequestHost.IsLr2SongDbSyncInputCurrent(BMSLibrary.Lr2SongDbSyncInput input)
+    bool ILr2SongDbSyncRequestHost.IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)
     {
         return IsLr2SongDbSyncInputCurrent(input);
     }
@@ -221,7 +221,7 @@ public partial class BMSLibrary : ILr2SongDbSyncRequestHost
             dispatchPresentation);
     }
 
-    ISet<string> ILr2SongDbSyncRequestHost.GetLr2SongDbSyncTransientSongRowsSkipPaths(BMSLibrary.Lr2SongDbSyncInput input, string reason)
+    ISet<string> ILr2SongDbSyncRequestHost.GetLr2SongDbSyncTransientSongRowsSkipPaths(Lr2SongDbSyncInput input, string reason)
     {
         return GetLr2SongDbSyncTransientSongRowsSkipPaths(input, reason);
     }
@@ -229,7 +229,7 @@ public partial class BMSLibrary : ILr2SongDbSyncRequestHost
     Lr2SongDbSyncSongRowsSkipVerificationResult ILr2SongDbSyncRequestHost.VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(
         LR2SongDBExtended songDb,
         IReadOnlyList<BMSFile> songRows,
-        BMSLibrary.Lr2SongDbSyncInput input,
+        Lr2SongDbSyncInput input,
         string reason)
     {
         return VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(songDb, songRows, input, reason);

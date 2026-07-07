@@ -48,7 +48,7 @@ internal interface ILr2SongDbSyncRequestHost
 
     CancellationToken GetLr2SongDbSyncCancellationToken();
 
-    BMSLibrary.Lr2SongDbSyncInput CreateLr2SongDbSyncInput();
+    Lr2SongDbSyncInput CreateLr2SongDbSyncInput();
 
     TimeSpan CurrentChartInfoParseTimeout { get; }
 
@@ -68,7 +68,7 @@ internal interface ILr2SongDbSyncRequestHost
 
     void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows);
 
-    bool IsLr2SongDbSyncInputCurrent(BMSLibrary.Lr2SongDbSyncInput input);
+    bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input);
 
     void UpdateLr2SongDbSyncProgress(Lr2SongDbSyncProgress progress);
 
@@ -79,12 +79,12 @@ internal interface ILr2SongDbSyncRequestHost
         bool logSummary,
         bool dispatchPresentation);
 
-    ISet<string> GetLr2SongDbSyncTransientSongRowsSkipPaths(BMSLibrary.Lr2SongDbSyncInput input, string reason);
+    ISet<string> GetLr2SongDbSyncTransientSongRowsSkipPaths(Lr2SongDbSyncInput input, string reason);
 
     Lr2SongDbSyncSongRowsSkipVerificationResult VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(
         LR2SongDBExtended songDb,
         IReadOnlyList<BMSFile> songRows,
-        BMSLibrary.Lr2SongDbSyncInput input,
+        Lr2SongDbSyncInput input,
         string reason);
 
     void DispatchWarningPresentationChanged(string reason);
@@ -316,7 +316,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
 
             host.PublishLr2SongDbSyncPreflightStage("input_surface", reason, runId);
             preflightStageStopwatch.Restart();
-            BMSLibrary.Lr2SongDbSyncInput input = host.CreateLr2SongDbSyncInput();
+            Lr2SongDbSyncInput input = host.CreateLr2SongDbSyncInput();
             host.LogLr2SongDbSyncPreflightStageDone("input_surface", reason, runId, preflightStageStopwatch.ElapsedMilliseconds);
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -595,7 +595,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
             return null;
         }
 
-        BMSLibrary.Lr2SongDbSyncInput input = host.CreateLr2SongDbSyncInput();
+        Lr2SongDbSyncInput input = host.CreateLr2SongDbSyncInput();
         string signature = Lr2SongDbSyncSignatureBuilder.Build(options);
         Lr2StartupScanBlockerCleanupResult result;
         Lr2SongDbSyncStatusSnapshot status;
