@@ -8934,7 +8934,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
-        if (RepairInstalledLocationSearchRequest.TryCreate(targets, out RepairInstalledLocationSearchRequest request))
+        if (RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest request))
         {
             if (base.DataContext is not MainWindowViewModel viewModel)
             {
@@ -8961,14 +8961,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.RepairInstalledLocation);
-        if (targets.Count == 0)
+        if (!RepairInstalledLocationRequest.TryCreate(targets, out RepairInstalledLocationRequest request))
         {
             return;
         }
-        var viewModel = base.DataContext as MainWindowViewModel;
-        MainWindowViewModel.IRepairInstalledLocationTargetSnapshot repairTargets = viewModel.CreateRepairInstalledLocationTargetSnapshot(targets);
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
         e.Handled = true;
-        if (!repairTargets.HasInstallDestination)
+        if (!request.HasInstallDestination)
         {
             UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_fix_installation_warning, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
         }
@@ -8976,7 +8978,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.FixInstallationDirectoryCharts(repairTargets);
+                viewModel.FixInstallationDirectoryCharts(request);
             }).Logging("tableContextMenuFixInstallationDirectoryClick");
         }
     }

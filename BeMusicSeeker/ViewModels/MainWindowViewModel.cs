@@ -21046,7 +21046,7 @@ public partial class MainWindowViewModel : ViewModel
         SearchCorrectInstallationDirectoryCharts(snapshot.RepairEntries);
     }
 
-    internal void SearchCorrectInstallationDirectoryCharts(RepairInstalledLocationSearchRequest request)
+    internal void SearchCorrectInstallationDirectoryCharts(RepairInstalledLocationRequest request)
     {
         if (request == null)
         {
@@ -22748,6 +22748,24 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         IReadOnlyList<ChartFile> repairCharts = snapshot.RepairCharts;
+        List<string> approvedDuplicateRemovalChartPaths = ConfirmDuplicateInstallRepairRemovals(repairCharts);
+        RunChartPackageMutation(delegate
+        {
+            files.FixInstallationDirectoryCharts(repairCharts, approvedDuplicateRemovalChartPaths);
+        }, GetBmsFormatCharts(repairCharts), UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
+    }
+
+    internal void FixInstallationDirectoryCharts(RepairInstalledLocationRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (!request.HasTargets)
+        {
+            return;
+        }
+        IReadOnlyList<ChartFile> repairCharts = request.RepairCharts;
         List<string> approvedDuplicateRemovalChartPaths = ConfirmDuplicateInstallRepairRemovals(repairCharts);
         RunChartPackageMutation(delegate
         {
