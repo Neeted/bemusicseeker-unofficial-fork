@@ -530,6 +530,27 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PendingInstallDestinationSearchRequest_MaterializesLooseTargetsAndPreservesKind()
+    {
+        ChartOperationTarget target = CreateContextMenuTarget(
+            ChartFileKind.Bms,
+            ChartOperationCapabilities.UpdateInstallDestination);
+
+        PendingInstallDestinationSearchRequest installSearch = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([target]);
+        PendingInstallDestinationSearchRequest mergeSearch = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([target]);
+
+        Assert.AreEqual(PendingInstallDestinationSearchKind.InstallDestination, installSearch.Kind);
+        Assert.IsTrue(installSearch.HasTargets);
+        Assert.AreEqual(1, installSearch.SelectedRowCount);
+        Assert.AreEqual(0, installSearch.PackageTargets.Count);
+        Assert.AreEqual(1, installSearch.LooseEntries.Count);
+        Assert.AreEqual(target.Chart.Path, installSearch.LooseEntries[0].Chart.Path);
+        Assert.AreEqual(PendingInstallDestinationSearchKind.MergeDestination, mergeSearch.Kind);
+        Assert.ThrowsException<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch([]));
+        Assert.ThrowsException<ArgumentException>(() => PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch([null!]));
+    }
+
+    [TestMethod]
     public void TableContextMenuOpened_UsesContextMenuStateBuilderForUiIndependentState()
     {
         string code = SourceTextTestHelper.ReadMainWindowSourceText();
@@ -2061,17 +2082,18 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(deletePackages.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(deletePackages.Contains("GetSelectedChartCompatibilityAdapters"));
         StringAssert.Contains(estimateSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
-        StringAssert.Contains(estimateSearch, "viewModel.CreatePendingInstallDestinationTargetSnapshot(targets)");
-        StringAssert.Contains(estimateSearch, "snapshot.MaterializeLooseEntries()");
-        StringAssert.Contains(estimateSearch, "viewModel.SearchInstallDestinationForPendingCharts(snapshot)");
+        StringAssert.Contains(estimateSearch, "PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets)");
+        StringAssert.Contains(estimateSearch, "viewModel.SearchPendingInstallDestination(request)");
         StringAssert.Contains(estimateSearch, "private async Task SearchInstallDestinationSelectedPendingChartsAsync");
+        Assert.IsFalse(estimateSearch.Contains("PendingInstallDestinationTargetSnapshot"));
         Assert.IsFalse(estimateSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
         StringAssert.Contains(mergeSearch, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
-        StringAssert.Contains(mergeSearch, "viewModel.CreatePendingInstallDestinationTargetSnapshot(targets)");
-        StringAssert.Contains(mergeSearch, "snapshot.MaterializeLooseEntries()");
-        StringAssert.Contains(mergeSearch, "viewModel.SearchMergeDestinationForPendingCharts(snapshot)");
+        StringAssert.Contains(mergeSearch, "PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch(targets)");
+        StringAssert.Contains(mergeSearch, "viewModel.SearchPendingInstallDestination(request)");
         StringAssert.Contains(mergeSearch, "private async Task SearchMergeDestinationSelectedPendingChartsAsync");
+        Assert.IsFalse(mergeSearch.Contains("PendingInstallDestinationTargetSnapshot"));
         Assert.IsFalse(mergeSearch.Contains("GetSelectedPendingChartCompatibilityAdapters"));
+        StringAssert.Contains(viewModelCode, "internal void SearchPendingInstallDestination(PendingInstallDestinationSearchRequest request)");
         StringAssert.Contains(openInstallDestination, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
         StringAssert.Contains(openInstallDestination, "TryResolveInstallDestination(targets[0].Chart");
         Assert.IsFalse(openInstallDestination.Contains("GetSelectedPendingChartCompatibilityAdapters"));

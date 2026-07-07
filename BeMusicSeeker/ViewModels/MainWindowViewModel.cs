@@ -16402,7 +16402,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            throw new ArgumentNullException("packages");
+            throw new ArgumentNullException(nameof(packages));
         }
         RunChartPackageMutation(delegate
         {
@@ -16416,7 +16416,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            throw new ArgumentNullException("packages");
+            throw new ArgumentNullException(nameof(packages));
         }
         List<ChartPackage> list = [.. packages.Where(pkg => pkg != null)];
         RunChartPackageMutation(delegate
@@ -16440,22 +16440,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        RunChartPackageMutation(delegate
-        {
-            List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
-            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
-            if (packages.Count > 0)
-            {
-                files.SearchEstimatedInstallationDirectory(packages);
-            }
-            if (targets.LooseEntries.Count > 0)
-            {
-                files.SearchEstimatedInstallationDirectoryForLooseCharts(targets.LooseEntries);
-                UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
-            }
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
-        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
+        SearchInstallDestinationForPendingCharts(targets.PackageTargets, targets.LooseEntries);
     }
 
     internal void SearchMergeDestinationForPendingCharts(PendingInstallDestinationTargetSnapshot targets)
@@ -16468,18 +16453,67 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
+        SearchMergeDestinationForPendingCharts(targets.PackageTargets, targets.LooseEntries);
+    }
+
+    internal void SearchPendingInstallDestination(PendingInstallDestinationSearchRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (!request.HasTargets)
+        {
+            return;
+        }
+
+        switch (request.Kind)
+        {
+            case PendingInstallDestinationSearchKind.InstallDestination:
+                SearchInstallDestinationForPendingCharts(request.PackageTargets, request.LooseEntries);
+                return;
+            case PendingInstallDestinationSearchKind.MergeDestination:
+                SearchMergeDestinationForPendingCharts(request.PackageTargets, request.LooseEntries);
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(request), request.Kind, "Unsupported pending install destination search operation.");
+        }
+    }
+
+    private void SearchInstallDestinationForPendingCharts(IReadOnlyList<ChartOperationTarget> packageTargets, IReadOnlyList<PackageChartEntry> looseEntries)
+    {
         RunChartPackageMutation(delegate
         {
-            List<ChartOperationTarget> packageTargets = targets.PackageTargets.ToList();
-            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref packageTargets);
+            List<ChartOperationTarget> mutablePackageTargets = packageTargets.ToList();
+            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref mutablePackageTargets);
+            if (packages.Count > 0)
+            {
+                files.SearchEstimatedInstallationDirectory(packages);
+            }
+            if (looseEntries.Count > 0)
+            {
+                files.SearchEstimatedInstallationDirectoryForLooseCharts(looseEntries);
+                UpdateSharedChartTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+            }
+        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
+        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
+    }
+
+    private void SearchMergeDestinationForPendingCharts(IReadOnlyList<ChartOperationTarget> packageTargets, IReadOnlyList<PackageChartEntry> looseEntries)
+    {
+        RunChartPackageMutation(delegate
+        {
+            List<ChartOperationTarget> mutablePackageTargets = packageTargets.ToList();
+            List<ChartPackage> packages = ExtractChartPackagesFromChartTargets(ref mutablePackageTargets);
             for (int num = 0; num < packages.Count; num++)
             {
                 files.SearchMergeDestinationForPendingPackage(packages[num]);
             }
-            if (targets.LooseEntries.Count > 0)
+            if (looseEntries.Count > 0)
             {
-                files.SearchMergeDestinationForPendingCharts(targets.LooseEntries);
-                UpdateSharedChartTransientStates(targets.LooseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+                files.SearchMergeDestinationForPendingCharts(looseEntries);
+                UpdateSharedChartTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);

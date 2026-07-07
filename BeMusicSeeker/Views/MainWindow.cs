@@ -9378,21 +9378,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true);
-        if (targets != null && targets.Count != 0)
+        if (targets == null || targets.Count == 0)
         {
-            var viewModel = base.DataContext as MainWindowViewModel;
-            MainWindowViewModel.PendingInstallDestinationTargetSnapshot snapshot = viewModel.CreatePendingInstallDestinationTargetSnapshot(targets);
-            if (!snapshot.HasTargets)
-            {
-                return;
-            }
-            e.Handled = true;
-            snapshot.MaterializeLooseEntries();
-            await Task.Run(delegate
-            {
-                viewModel.SearchInstallDestinationForPendingCharts(snapshot);
-            }).Logging("searchInstallDestinationSelectedPendingCharts");
+            return;
         }
+        PendingInstallDestinationSearchRequest request = PendingInstallDestinationSearchRequest.CreateInstallDestinationSearch(targets);
+        var viewModel = base.DataContext as MainWindowViewModel;
+        e.Handled = true;
+        await Task.Run(delegate
+        {
+            viewModel.SearchPendingInstallDestination(request);
+        }).Logging("searchInstallDestinationSelectedPendingCharts");
     }
 
     private async void tableContextMenuItemDeleteInstallPackagesClick(object sender, RoutedEventArgs e)
@@ -9514,17 +9510,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
+        PendingInstallDestinationSearchRequest request = PendingInstallDestinationSearchRequest.CreateMergeDestinationSearch(targets);
         var viewModel = base.DataContext as MainWindowViewModel;
-        MainWindowViewModel.PendingInstallDestinationTargetSnapshot snapshot = viewModel.CreatePendingInstallDestinationTargetSnapshot(targets);
-        if (!snapshot.HasTargets)
-        {
-            return;
-        }
         e.Handled = true;
-        snapshot.MaterializeLooseEntries();
         await Task.Run(delegate
         {
-            viewModel.SearchMergeDestinationForPendingCharts(snapshot);
+            viewModel.SearchPendingInstallDestination(request);
         }).Logging("searchMergeDestinationSelectedPendingCharts");
     }
 
