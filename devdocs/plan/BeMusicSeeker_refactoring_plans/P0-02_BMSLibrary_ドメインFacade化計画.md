@@ -2473,3 +2473,34 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C85: maintenance resource health reflection aftermath review` として、C84 後に残る maintenance / resource health private reflection test と `OwnedChartCollectionMutationResult` 境界を再確認し、次に削るべき root-only seam を 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C85`
+
+状態: completed checkpoint。
+
+目的:
+
+- C84 後に残る maintenance / resource health private reflection test と `OwnedChartCollectionMutationResult` 境界を再確認する。
+- 次に削るべき root-only seam を 1 件に絞る。
+- production code 変更は行わず、次の実装単位を decision record と active plan に残す。
+
+調査結果:
+
+- `SetCurrentResourceHealthIndexSnapshot` は `PublishResourceHealthIndexSnapshotUnsafe` を private reflection で呼んでいる。C84 の internal full rebuild host で置き換え可能だが、主に test seam cleanup であり production root の責務削減効果は小さい。
+- `InvokeDispatchOwnedChartDigestChanges` は `DispatchOwnedChartDigestChanges` を private reflection で呼び、warning presentation producer と digest producer が混在しても normal refresh warning effect が維持されることを確認している。
+- `InvokeApplyMaintenanceHydrationResult` は owner attach、resource health input mutation、cleanup DB write、hydration dispatch を含む広い private 経路を呼んでいる。scope は大きいが、maintenance / resource health 境界として最も意味が大きい。
+- `OwnedChartCollectionMutationResult` は複数 workflow の dispatch 結果を抱えているため、全体 contract 化はまだ行わない。
+
+サブエージェント静的レビュー:
+
+- 次 ticket として最も意味のある root-only seam は `ApplyMaintenanceHydrationResult` である、という指摘を受けた。
+- `DispatchOwnedChartDigestChanges` は次点候補、snapshot publish reflection は test seam cleanup 寄り、`OwnedChartCollectionMutationResult` 全体の top-level 化はまだ広すぎると判断した。
+
+決定:
+
+- `decisions/REF-MVP-C85_maintenance_resource_health_reflection_aftermath.md` を追加した。
+- 次の実装 ticket は `REF-MVP-C86: maintenance hydration apply workflow seam` とする。
+
+次にやる 1 件:
+
+- `ApplyMaintenanceHydrationResult` の owner attach、resource health input mutation、full-owned target capture、stale maintenance row cleanup、dispatch handoff を top-level coordinator / host 境界へ移し、`InvokeApplyMaintenanceHydrationResult` を private reflection なしの direct test または public behavior test へ移す。

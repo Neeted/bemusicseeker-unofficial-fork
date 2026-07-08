@@ -69,12 +69,12 @@ Guardrail を超える場合は `PLAN_STATUS.md` に、残す責務、残す理�
 |---|---|---|---|
 | A | [P0-01 MainWindowViewModel](./P0-01_MainWindowViewModel_リファクタリング計画.md) | root ViewModel を shell / composition / lifecycle に寄せる | `REF-MVP-A1` completed checkpoint / 後続は workflow 単位で再計画 |
 | B | [P0-03 MainWindow UI / code-behind](./P0-03_MainWindow_UI_MVVM移行計画.md) | code-behind を view-host / command bridge に寄せる | `REF-MVP-B1` completed checkpoint / 後続は workflow 単位で再計画 |
-| C | [P0-02 BMSLibrary facade](./P0-02_BMSLibrary_ドメインFacade化計画.md) | `BMSLibrary` を compatibility facade として薄くする | `REF-MVP-C84` completed checkpoint / 次は `REF-MVP-C85` maintenance resource health reflection aftermath review |
+| C | [P0-02 BMSLibrary facade](./P0-02_BMSLibrary_ドメインFacade化計画.md) | `BMSLibrary` を compatibility facade として薄くする | `REF-MVP-C85` completed checkpoint / 次は `REF-MVP-C86` maintenance hydration apply workflow seam |
 | D | [P0-04 .NET 10 readiness](./P0-04_DotNet10_移行準備と依存関係整理計画.md) | TFM を変えず migration blocker を devdocs に inventory 化する | `REF-MVP-D1` completed checkpoint / 後続は boundary 単位で再計画 |
 
 推奨する最初の実装順:
 
-1. Lane C 後続候補: `REF-MVP-C85` として C84 後に残る maintenance / resource health private reflection test と `OwnedChartCollectionMutationResult` 境界を再確認し、次に削るべき root-only seam を 1 件に絞る。
+1. Lane C 後続候補: `REF-MVP-C86` として `ApplyMaintenanceHydrationResult` の owner attach、resource health input mutation、full-owned target capture、stale maintenance row cleanup、dispatch handoff を top-level coordinator / host 境界へ移し、private reflection なしで確認する。
 2. Lane B 後続候補: `REF-MVP-B1` 完了後の duplicate / external URL / score viewer / drag-drop / CustomTable adapter などを workflow 単位で再計画。
 3. Lane A 後続候補: `REF-MVP-A1` 完了後の playlist source build stage、play history、playback、settings save、library refresh などを P0-03 連動条件も見て再計画。
 4. Lane D 後続候補: `REF-MVP-D1` inventory 完了後の Settings boundary、native load layout、WPF / WinForms boundary などを 1 件だけ active ticket 化。

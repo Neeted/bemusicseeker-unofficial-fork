@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C85: maintenance resource health reflection aftermath review` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C86: maintenance hydration apply workflow seam` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -508,9 +508,15 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C84` として resource health full rebuild workflow を `BmsLibraryInternal/ResourceHealthIndexFullRebuildCoordinator.cs` へ移した。root `RebuildResourceHealthIndexSnapshotLocked` は internal adapter host 経由の bridge になり、direct tests で stale full-owned target / fresh full-owned target / unspecified target fallback / specified subset fallback を private reflection なしで確認した。actual `BMSLibrary.ResourceHealthIndexFullRebuildHost` 経由でも stale full-owned target が publish されないことを private reflection なしで確認した。`DispatchMaintenanceHydrationResult_StaleFullTargetInvalidatesInsteadOfPublishing` と専用 helper `InvokeDispatchMaintenanceHydrationResult` は削除した。`BMSLibrary.cs` は 16,461 行、coordinator は 48 行、host interface は 21 行、result contracts は各 16 行、direct tests は 178 行。build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-現在の active ticket: `REF-MVP-C85: maintenance resource health reflection aftermath review`。
+C84 完了時点の次 ticket: `REF-MVP-C85: maintenance resource health reflection aftermath review`。
 
-次にやる 1 件: C84 後に残る maintenance / resource health private reflection test と `OwnedChartCollectionMutationResult` 境界を再確認し、次に削るべき root-only seam を 1 件に絞る。
+C84 完了時点の次にやる 1 件: C84 後に残る maintenance / resource health private reflection test と `OwnedChartCollectionMutationResult` 境界を再確認し、次に削るべき root-only seam を 1 件に絞る。
+
+`REF-MVP-C85` として [maintenance resource health reflection aftermath](./decisions/REF-MVP-C85_maintenance_resource_health_reflection_aftermath.md) をレビューした。C84 後に残る private reflection は、snapshot publish test seam、digest dispatch seam、maintenance hydration apply seam に分かれる。サブエージェント静的レビューを踏まえ、次は test helper 置き換えだけでなく production root の責務も減る `ApplyMaintenanceHydrationResult` の owner attach / cleanup / dispatch 境界を外へ出す判断にした。production code は変更していない。
+
+現在の active ticket: `REF-MVP-C86: maintenance hydration apply workflow seam`。
+
+次にやる 1 件: `ApplyMaintenanceHydrationResult` の owner attach、resource health input mutation、full-owned target capture、stale maintenance row cleanup、dispatch handoff を top-level coordinator / host 境界へ移し、private reflection なしで確認する。
 
 ## 次回 Codex が最初に読むべきファイル
 
