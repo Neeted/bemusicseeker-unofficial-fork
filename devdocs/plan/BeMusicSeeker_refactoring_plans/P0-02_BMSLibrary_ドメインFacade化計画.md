@@ -2923,3 +2923,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `_BMSFiles` / `_BmsonSongs` direct field set を、storage row version 更新と owned collection invalidation の意味を持つ internal diagnostics seam へ置き換える。
+
+## Completed Ticket: `REF-MVP-C101`
+
+状態: completed implementation。
+
+目的:
+
+- `_BMSFiles` / `_BmsonSongs` direct field set helper を production 側 diagnostics seam へ置き換える。
+- storage row version 更新、owned collection invalidation、関連 snapshot / cache invalidation の意味を test helper ではなく `BMSLibrary` 側へ閉じる。
+- まず `OwnedChartCollectionStateTests`、`BmsLibraryFolderRenameRefreshTests`、`PlaylistSummaryAggregationTests` の storage row seed helper を対象にする。
+
+実装結果:
+
+- `BMSLibrary.SetStorageRowsForDiagnostics` を追加した。
+- `SetStorageRowsForDiagnostics` は `SetStorageRowsFromInternalMutationUnsafe` を通し、storage row version 更新と owned collection / playlist summary / resolve / installed lookup / parent folder / install estimation / duplicate / resource health / install destination runtime state の invalidation を明示的に行う。
+- 3 test file の `SetLibraryFilesWithoutNotification` / `SetLibraryBmsonSongsWithoutNotification` は private field set ではなく diagnostics seam 経由になった。
+
+確認:
+
+- build 0 warning。
+- targeted tests: `OwnedChartCollectionStateTests` / `BmsLibraryFolderRenameRefreshTests` / `PlaylistSummaryAggregationTests` 161 passed。
+- full test: 2403 passed / 13 skipped。
+- format whitespace verify passed。
+- Roslynator warning: 0 diagnostics。
+- 静的レビューは commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C102: owned helper aftermath checkpoint` として、C101 後に残る `resourceHealthIndexInvalidated` / `ownedChartCollectionInitialized` / `_DuplicateChartGroups`、remaining read-only diagnostics、`ApplyAutoRenamePlans`、`BeginOwnedDigestMutationWindow`、LR2 sync private workflow 群を再確認し、次に実装する 1 seam だけを選ぶ。

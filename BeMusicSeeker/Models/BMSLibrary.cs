@@ -10871,6 +10871,29 @@ completeFileEnumerationOnce,
         return OverlayInstallDestinationRuntimeStates(CreateOwnedChartInfoFullBackfillTargetSnapshot());
     }
 
+    /// <summary>
+    /// Seeds storage rows for diagnostics without raising public collection notifications.
+    /// </summary>
+    /// <param name="files">The BMS storage rows.</param>
+    /// <param name="songs">The bmson storage rows.</param>
+    internal void SetStorageRowsForDiagnostics(
+        IEnumerable<BMSFile> files,
+        IEnumerable<LR2SongDBExtended.bmson_song> songs)
+    {
+        SetStorageRowsFromInternalMutationUnsafe(
+            files?.ToList(),
+            songs?.ToList());
+        InvalidateOwnedChartCollection();
+        InvalidatePlaylistSummaryOwnedHashSnapshot();
+        InvalidatePlaylistLibraryResolveIndexSnapshot();
+        InvalidateInstalledDirectoryIndex();
+        InvalidateBMSParentFolderListCache();
+        InvalidateInstallEstimationMetadataProfileCache();
+        InvalidateDuplicateChartGroupsCache();
+        InvalidateResourceHealthIndex("diagnostics_storage_rows_seeded");
+        PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+    }
+
     private ILibraryChartCanonicalLookup CreateOwnedCanonicalChartLookupUnsafe()
     {
         EnsureOwnedChartCollectionBuiltUnsafe();

@@ -587,16 +587,12 @@ public sealed class PlaylistSummaryAggregationTests
 
     private static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)
     {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BMSFiles", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        fieldInfo.SetValue(library, files.ToList());
+        library.SetStorageRowsForDiagnostics(files, library.BmsonSongs);
     }
 
     private static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
     {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("_BmsonSongs", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        fieldInfo.SetValue(library, songs.ToList());
+        library.SetStorageRowsForDiagnostics(library.BMSFiles, songs);
     }
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)

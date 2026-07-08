@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C101: diagnostics storage row seed seam` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C102: owned helper aftermath checkpoint` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -607,6 +607,12 @@ C99 完了時点の次にやる 1 件: C99 後に残る `BeginOwnedDigestMutatio
 C100 完了時点の次 ticket: `REF-MVP-C101: diagnostics storage row seed seam`。
 
 C100 完了時点の次にやる 1 件: `_BMSFiles` / `_BmsonSongs` direct field set を、storage row version 更新と owned collection invalidation の意味を持つ internal diagnostics seam へ置き換える。対象はまず `OwnedChartCollectionStateTests` / `BmsLibraryFolderRenameRefreshTests` / `PlaylistSummaryAggregationTests` の `SetLibraryFilesWithoutNotification` / `SetLibraryBmsonSongsWithoutNotification` とする。
+
+`REF-MVP-C101` として storage row seed 用の `BMSLibrary.SetStorageRowsForDiagnostics` を追加した。`OwnedChartCollectionStateTests`、`BmsLibraryFolderRenameRefreshTests`、`PlaylistSummaryAggregationTests` の `SetLibraryFilesWithoutNotification` / `SetLibraryBmsonSongsWithoutNotification` は `_BMSFiles` / `_BmsonSongs` private field set ではなく diagnostics seam 経由になった。seam は storage row version 更新、owned collection invalidation、playlist summary / resolve snapshot invalidation、installed lookup / parent folder / install estimation / duplicate / resource health invalidation、install destination runtime state prune を production 側へ閉じ込める。
+
+C101 完了時点の次 ticket: `REF-MVP-C102: owned helper aftermath checkpoint`。
+
+C101 完了時点の次にやる 1 件: C101 後に残る `resourceHealthIndexInvalidated` / `ownedChartCollectionInitialized` / `_DuplicateChartGroups`、remaining read-only diagnostics、`ApplyAutoRenamePlans`、`BeginOwnedDigestMutationWindow`、LR2 sync private workflow 群を再確認し、次に実装する 1 seam だけを選ぶ。production code 変更は次の implementation ticket が明確になるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 
