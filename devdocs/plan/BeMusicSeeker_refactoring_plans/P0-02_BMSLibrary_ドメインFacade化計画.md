@@ -2599,3 +2599,28 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C89: maintenance storage row private state seeding review` として、maintenance / resource health tests に残る `_BMSFiles` / `_BmsonSongs` / `resourceHealthIndexInvalidated` private field seeding を分類し、public setter へ寄せられるもの、actual host seam が必要なもの、今は維持するものを 1 ticket に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C89`
+
+状態: completed checkpoint。
+
+目的:
+
+- C88 後に残る maintenance / resource health tests の private state seeding を分類する。
+- public setter へ寄せられるもの、actual host seam が必要なもの、今は維持するものを分ける。
+- production code 変更は行わず、次の実装単位を 1 件に絞る。
+
+調査結果:
+
+- `BmsLibraryMaintenanceServiceTests` には `_BMSFiles` / `_BmsonSongs` private field seeding が 9 組、`resourceHealthIndexInvalidated` direct set が 2 箇所残る。
+- これらは maintenance hydration、resource health rescan、warning ignore、garbled / unregistered chart list の setup であり、多くは public `BMSFiles` / `BmsonSongs` setter を使っても handled notification version / snapshot 取得順を調整すれば意味を保てる見込みがある。
+- `OwnedChartCollectionStateTests` には storage row seeding 以外にも installed lookup、storage mutation、file scan、owned collection state の private reflection helper が多く残るため、次の 1 ticket には含めない。
+
+決定:
+
+- `decisions/REF-MVP-C89_maintenance_storage_row_private_state_seeding.md` を追加した。
+- 次の実装 ticket は `REF-MVP-C90: maintenance tests storage row setup public setter cleanup` とする。
+
+次にやる 1 件:
+
+- `BmsLibraryMaintenanceServiceTests` の `_BMSFiles` / `_BmsonSongs` private field setup を public `BMSFiles` / `BmsonSongs` setter へ寄せ、`resourceHealthIndexInvalidated` direct set も public setter side effect など private field set なしの表現へ置き換える。
