@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C51: folder/file operation boundary after root folder move` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C52: RemoveLibraryCharts coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -374,7 +374,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 |---|---:|---:|---|
 | `MainWindowViewModel.cs` | 23,413 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
-| `BMSLibrary.cs` | 17,093 行 | 12,000 行以下 | folder/file operation follow-up、maintenance result apply contract prep、package install follow-up |
+| `BMSLibrary.cs` | 17,048 行 | 12,000 行以下 | folder/file operation follow-up、maintenance result apply contract prep、package install follow-up |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
 
 Guardrail 超過は現時点では既知。残す理由は「MVP active lanes の extraction 前であるため」。次の extraction 候補は上表を正本とする。
@@ -442,9 +442,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C51` として [folder/file operation boundary after root folder move](./decisions/REF-MVP-C51_folder_file_operation_boundary_after_root_move.md) をレビューした。次は `RemoveLibraryCharts` の LR2 sync block、lock boundary、confirmation、service call、log、reverse lookup warmup、delta apply、failure dialog を dedicated coordinator seam へ移す。`MergeChartDirectory`、`MoveChartPackageFiles`、`RenameBMSFilesExtensions` は C52 後に再評価する。production code は変更していない。
 
-現在の active ticket: なし。`REF-MVP-C51` completed checkpoint。
+`REF-MVP-C52` として `RemoveLibraryCharts` の orchestration を `BmsLibraryInternal/LibraryChartRemovalCoordinator.cs` へ移した。root `BMSLibrary` は `BMSLibrary.LibraryChartRemovalHost.cs` で LR2 sync block、lock boundary、`DeleteLibraryCharts` service call、whole-folder confirmation、log、reverse lookup warmup、delta apply、failure dialogs を提供する host になっている。`DeleteLibraryCharts` service、`MergeChartDirectory`、`MoveChartPackageFiles`、`RenameBMSFilesExtensions`、package install、maintenance result apply、resource health mutation は触っていない。`BMSLibrary.cs` は 17,048 行、coordinator は 69 行、host は 81 行。build、deletion targeted tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
-次にやる 1 件: `REF-MVP-C52: RemoveLibraryCharts coordinator seam` として、`RemoveLibraryCharts` の LR2 sync block、approved whole-folder delete path handling、lock boundary、whole-folder confirmation、`DeleteLibraryCharts` service call、`delete_library_result` log、reverse lookup mutation warmup、delta apply、failure dialogs を dedicated coordinator seam へ移す。`MergeChartDirectory`、`MoveChartPackageFiles`、`RenameBMSFilesExtensions`、package install、maintenance result apply、resource health mutation は触らない。
+現在の active ticket: なし。`REF-MVP-C52` completed checkpoint。
+
+次にやる 1 件: `REF-MVP-C53: file rename operation boundary after removal seam` として、`RenameBMSFilesExtensions`、pending invalid extension rename、`MoveChartPackageFiles`、`MergeChartDirectory`、package install follow-up のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 

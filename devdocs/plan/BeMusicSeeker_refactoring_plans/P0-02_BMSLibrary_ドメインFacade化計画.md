@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,093 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,048 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
 
 `BMSLibrary` は public compatibility facade として残してよい。ただし、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling は service / coordinator へ移す。
 
@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 17,093 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration と installable maintenance deferred の queue / worker lifecycle、`RenameChartFolder` / `MoveLibraryRootFolder` folder move workflow を coordinator seam へ分離済み |
+| `BMSLibrary.cs` 行数 | 17,048 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration と installable maintenance deferred の queue / worker lifecycle、`RenameChartFolder` / `MoveLibraryRootFolder` folder move workflow、`RemoveLibraryCharts` delete workflow を coordinator seam へ分離済み |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -1486,3 +1486,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C52: RemoveLibraryCharts coordinator seam` として、`RemoveLibraryCharts` の LR2 sync block、approved whole-folder delete path handling、lock boundary、whole-folder confirmation、`DeleteLibraryCharts` service call、`delete_library_result` log、reverse lookup mutation warmup、delta apply、failure dialogs を dedicated coordinator seam へ移す。`MergeChartDirectory`、`MoveChartPackageFiles`、`RenameBMSFilesExtensions`、package install、maintenance result apply、resource health mutation は触らない。
+
+## Completed Checkpoint: `REF-MVP-C52`
+
+状態: completed checkpoint。
+
+目的:
+
+- `RemoveLibraryCharts` の orchestration を dedicated coordinator seam へ移す。
+- root `BMSLibrary` は LR2 sync block、lock boundary、`DeleteLibraryCharts` service call、whole-folder confirmation、log、reverse lookup warmup、delta apply、failure dialogs を host として提供する。
+- `DeleteLibraryCharts` service、`MergeChartDirectory`、`MoveChartPackageFiles`、`RenameBMSFilesExtensions`、package install、maintenance result apply、resource health mutation は触らない。
+
+完了条件:
+
+- `RemoveLibraryCharts` の internal surface、LR2 sync block、lock order が維持されている。
+- `approvedWholeFolderDeletePaths == null` は確認 dialog、空配列は whole-folder delete を承認しない既存挙動を維持している。
+- `delete_library_result` log、`LogReverseLookupMutationAndQueueWarmupIfNeeded("delete_library", ...)`、`ApplyLibraryMutationDelta(...)`、delete failure dialogs の順序と文言が維持されている。
+- build / deletion 関連 tests / format / diff check / Roslynator 対象確認 / 静的レビュー / full test が完了している。
+
+実装結果:
+
+- `LibraryChartRemovalCoordinator` と `ILibraryChartRemovalHost` を追加し、`RemoveLibraryCharts` の LR2 sync block、approved whole-folder delete path handling、lock boundary、whole-folder confirmation、`DeleteLibraryCharts` service call、`delete_library_result` log、reverse lookup mutation warmup、delta apply、failure dialogs を coordinator へ移した。
+- `BMSLibrary.LibraryChartRemovalHost.cs` を追加し、削除 workflow 用の host bridge を提供する形にした。
+- `BMSLibrary.RemoveLibraryCharts` は coordinator 呼び出しだけになった。
+- `DeleteLibraryCharts` service、`MergeChartDirectory`、`MoveChartPackageFiles`、`RenameBMSFilesExtensions`、package install、maintenance result apply、resource health mutation は未変更。
+- `BMSLibrary.cs` は 17,048 行、coordinator は 69 行、host は 81 行。
+- build、deletion targeted tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C53: file rename operation boundary after removal seam` として、`RenameBMSFilesExtensions`、pending invalid extension rename、`MoveChartPackageFiles`、`MergeChartDirectory`、package install follow-up のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

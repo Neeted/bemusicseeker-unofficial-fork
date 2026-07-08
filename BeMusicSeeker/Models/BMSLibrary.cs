@@ -16536,56 +16536,11 @@ completeFileEnumerationOnce,
 
     internal void RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null)
     {
-        if (TryBlockLr2SongDbSyncMutation(nameof(RemoveLibraryCharts)))
-        {
-            return;
-        }
-        HashSet<string> approvedWholeFolderDeletes = approvedWholeFolderDeletePaths == null
-            ? null
-            : new HashSet<string>(approvedWholeFolderDeletePaths.Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockBMSFiles.GetWriterGuard())
-                {
-                    LibraryRemovalResult result = libraryFileOperationsService.DeleteLibraryCharts(
-                        charts,
-                        CreateOwnedCanonicalChartLookupUnsafe(),
-                        CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
-                        ChartPackagesPending,
-                        directoryResourceLookupCache,
-                        sendToRecycleBin,
-                        (folderPath) => approvedWholeFolderDeletes != null
-                            ? approvedWholeFolderDeletes.Contains(folderPath)
-                            : ShowOperationDialog(string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderPath), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes,
-                        fileMutationService,
-                        targetOnlyFileMutationOptions,
-                        recursiveDirectoryTreeFileMutationOptions);
-                    LogInstallPerformance("delete_library_result input=" + result.InputChartCount
-                        + " canonical=" + result.CanonicalChartCount
-                        + " unresolved=" + result.UnresolvedChartCount
-                        + " pathOnly=" + result.PathOnlyInputCount
-                        + " removed=" + result.RemovedCharts.Count
-                        + " failures=" + result.Failures.Count
-                        + " folderDeletes=" + result.FolderDeleteCount
-                        + " fileDeletes=" + result.FileDeleteCount);
-                    LogReverseLookupMutationAndQueueWarmupIfNeeded("delete_library", result.ResourceIndexMutation);
-                    ApplyLibraryMutationDelta(result.MutationDelta);
-                    foreach (LibraryDeleteFailure failure in result.Failures)
-                    {
-                        if (failure.IsDirectory)
-                        {
-                            ShowOperationDialog(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        }
-                        else
-                        {
-                            ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        }
-                    }
-                }
-            }
-        }
+        LibraryChartRemovalCoordinator.RemoveLibraryCharts(
+            this,
+            charts,
+            sendToRecycleBin,
+            approvedWholeFolderDeletePaths);
     }
 
     internal void RemovePendingCharts(IEnumerable<ChartFile> charts, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
