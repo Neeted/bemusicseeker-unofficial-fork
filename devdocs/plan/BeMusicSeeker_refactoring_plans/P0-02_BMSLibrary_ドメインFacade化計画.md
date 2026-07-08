@@ -2205,3 +2205,37 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C76: maintenance hydration dispatch coordinator seam` として、`MaintenanceHydrationDispatchCoordinator` と host seam を追加し、root `DispatchMaintenanceHydrationResult` を coordinator 呼び出しに寄せる。coordinator direct tests を追加し、stale full target の root private reflection test は同じ意味を保つため残してよい。
+
+## Completed Checkpoint: `REF-MVP-C76`
+
+状態: completed checkpoint。
+
+目的:
+
+- `MaintenanceHydrationDispatchCoordinator` のような top-level internal coordinator を追加する。
+- coordinator は `ResourceMaintenanceTargetSet` から `MaintenanceHydrationDispatchPlan` を作り、host へ dispatch を依頼し、`MaintenanceTableHydrationResult.ResourceHealthIndexMs` を更新する。
+- root `BMSLibrary` は host bridge として `MaintenanceHydrationDispatchPlan` を private `OwnedChartCollectionMutationResult` に変換して `DispatchOwnedChartCollectionMutation` を呼ぶ。
+- coordinator の direct unit test を追加し、plan creation と `ResourceHealthIndexMs` update を private reflection なしで確認する。
+
+完了条件:
+
+- `DispatchMaintenanceHydrationResult` は coordinator 呼び出しの薄い bridge になっている。
+- root private `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` はまだ root に残している。
+- stale full target の既存 private reflection test は、同じ意味を保つため C76 では残してよい。
+- coordinator direct tests が追加され、少なくとも plan dispatch と index ms propagation を reflection なしで検証している。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/IMaintenanceHydrationDispatchHost.cs` を追加した。
+- `BmsLibraryInternal/MaintenanceHydrationDispatchCoordinator.cs` を追加した。
+- root `DispatchMaintenanceHydrationResult` は coordinator 呼び出しだけになった。
+- `BMSLibrary` は private nested adapter で `IMaintenanceHydrationDispatchHost` を実装し、plan を private `OwnedChartCollectionMutationResult` に変換して `DispatchOwnedChartCollectionMutation` を実行し、resource health index ms を返す。
+- `MaintenanceHydrationDispatchCoordinatorTests` を追加し、plan dispatch と `ResourceHealthIndexMs` propagation を private reflection なしで確認した。
+- stale full target の root private reflection test は同じ意味を保つため残している。
+- `BMSLibrary.cs` は 16,478 行、coordinator は 23 行、host interface は 6 行、coordinator tests は 56 行。
+- build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C77: maintenance dispatch reflection follow-up review` として、C76 後に残る stale full target private reflection test を direct seam / integration test へ移せるか、または `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を先に整理すべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

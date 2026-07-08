@@ -12349,19 +12349,23 @@ completeFileEnumerationOnce,
         MaintenanceTableHydrationResult hydrationResult,
         ResourceMaintenanceTargetSet fullOwnedTargets)
     {
-        OwnedChartCollectionMutationResult mutationResult = BuildMaintenanceHydrationMutationResult(fullOwnedTargets);
-        DispatchOwnedChartCollectionMutation(mutationResult, "maintenance_hydration");
-        if (hydrationResult != null)
+        var coordinator = new MaintenanceHydrationDispatchCoordinator(new MaintenanceHydrationDispatchHost(this));
+        coordinator.Dispatch(hydrationResult, fullOwnedTargets);
+    }
+
+    private sealed class MaintenanceHydrationDispatchHost(BMSLibrary owner) : IMaintenanceHydrationDispatchHost
+    {
+        public long DispatchMaintenanceHydration(MaintenanceHydrationDispatchPlan plan)
         {
-            hydrationResult.ResourceHealthIndexMs = mutationResult.ResourceHealthDispatchResult?.IndexMs ?? 0L;
+            return owner.DispatchMaintenanceHydration(plan);
         }
     }
 
-    private static OwnedChartCollectionMutationResult BuildMaintenanceHydrationMutationResult(
-        ResourceMaintenanceTargetSet fullOwnedTargets)
+    private long DispatchMaintenanceHydration(MaintenanceHydrationDispatchPlan plan)
     {
-        return CreateMaintenanceHydrationMutationResult(
-            ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationDispatchPlan(fullOwnedTargets));
+        OwnedChartCollectionMutationResult mutationResult = CreateMaintenanceHydrationMutationResult(plan);
+        DispatchOwnedChartCollectionMutation(mutationResult, "maintenance_hydration");
+        return mutationResult.ResourceHealthDispatchResult?.IndexMs ?? 0L;
     }
 
     private static OwnedChartCollectionMutationResult CreateMaintenanceHydrationMutationResult(

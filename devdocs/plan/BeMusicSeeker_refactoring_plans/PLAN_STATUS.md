@@ -490,9 +490,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C75` として [maintenance dispatch reflection boundary](./decisions/REF-MVP-C75_maintenance_dispatch_reflection_boundary.md) をレビューした。stale full target の private reflection test は root resource health dispatch state に依存するため今は直接削除せず、次は maintenance hydration dispatch coordinator / host seam を追加して root `DispatchMaintenanceHydrationResult` を薄くする判断にした。production code は変更していない。
 
-現在の active ticket: `REF-MVP-C76: maintenance hydration dispatch coordinator seam`。
+`REF-MVP-C76` として `MaintenanceHydrationDispatchCoordinator` と `IMaintenanceHydrationDispatchHost` を追加した。root `DispatchMaintenanceHydrationResult` は coordinator 呼び出しの薄い bridge になり、host implementation が `MaintenanceHydrationDispatchPlan` を private `OwnedChartCollectionMutationResult` に変換して `DispatchOwnedChartCollectionMutation` を実行し、resource health index ms を返す。coordinator direct tests で plan dispatch と `ResourceHealthIndexMs` propagation を private reflection なしで確認した。stale full target の root private reflection test は同じ意味を保つため残している。`BMSLibrary.cs` は 16,478 行、coordinator は 23 行、host interface は 6 行、coordinator tests は 56 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-次にやる 1 件: `MaintenanceHydrationDispatchCoordinator` と host seam を追加し、root `DispatchMaintenanceHydrationResult` を coordinator 呼び出しに寄せる。coordinator direct tests を追加し、stale full target の root private reflection test は同じ意味を保つため残してよい。
+現在の active ticket: `REF-MVP-C77: maintenance dispatch reflection follow-up review`。
+
+次にやる 1 件: C76 後に残る stale full target private reflection test を direct seam / integration test へ移せるか、または `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を先に整理すべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 
