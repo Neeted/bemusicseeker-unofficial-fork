@@ -2404,7 +2404,7 @@ BMSLibrary                         // public facade / compatibility API
 - `BmsLibraryInternal/IResourceHealthIndexMutationDispatchHost.cs` を追加した。
 - `BmsLibraryInternal/ResourceHealthIndexMutationDispatcher.cs` を追加し、invalidate / defer / delta success / delta fallback invalidate / full rebuild / stale full rebuild の branch orchestration を移した。
 - root `DispatchResourceHealthIndexMutation` は private adapter host を作って dispatcher に委譲する bridge になった。
-- `ResourceHealthIndexMutationDispatcherTests` を追加し、stale full rebuild、fresh full rebuild、delta success、delta failure invalidate、defer を private reflection なしで確認した。
+- `ResourceHealthIndexMutationDispatcherTests` を追加し、stale full rebuild、fresh full rebuild、invalidate priority、delta success、delta failure invalidate、defer を private reflection なしで確認した。
 - `DispatchMaintenanceHydrationResult_StaleFullTargetInvalidatesInsteadOfPublishing` は残している。C82 で dispatcher branch は direct test 可能になったが、root `RebuildResourceHealthIndexSnapshotLocked` の stale target publish 抑止 / stale result integration はまだ root integration として残っているため。
 - `BMSLibrary.cs` は 16,443 行、dispatcher は 66 行、host interface は 29 行、direct tests は 248 行。
 - build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
@@ -2412,3 +2412,30 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C83: resource health full rebuild stale integration review` として、C82 後に残る stale full target private reflection test を削除するために `RebuildResourceHealthIndexSnapshotLocked` の stale publish suppression を次に seam 化すべきか、または `OwnedChartCollectionMutationResult` 境界へ戻るべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C83`
+
+状態: completed checkpoint。
+
+目的:
+
+- C82 後に残る stale full target private reflection test を削除するために `RebuildResourceHealthIndexSnapshotLocked` の stale publish suppression を次に seam 化すべきか、または `OwnedChartCollectionMutationResult` 境界へ戻るべきかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- stale full target private reflection test を削除する/残すための次の実装境界が明記されている。
+- P0-02、総合計画、`PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C83 Resource Health Full Rebuild Stale Integration](./decisions/REF-MVP-C83_resource_health_full_rebuild_stale_integration.md) を追加した。
+- C82 後も stale full target private reflection test は root full rebuild stale handling を間接確認しているため、次は full rebuild workflow の coordinator seam を切る判断にした。
+- `OwnedChartCollectionMutationResult` 全体の整理より先に、`RebuildResourceHealthIndexSnapshotLocked` の target resolution / snapshot build / stale publish suppression / publish result decision を移す。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C84: resource health full rebuild coordinator seam` として、`RebuildResourceHealthIndexSnapshotLocked(reason, fullOwnedTargetSet, out staleFullOwnedTarget)` の branch orchestration を top-level coordinator へ移し、stale full-owned target branch を private reflection なしで direct test する。
