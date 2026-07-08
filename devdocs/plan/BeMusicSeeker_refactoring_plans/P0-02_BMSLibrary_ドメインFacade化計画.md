@@ -2178,3 +2178,30 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C75: maintenance dispatch reflection boundary review` として、C74 後に残る `DispatchMaintenanceHydrationResult` private reflection test を direct plan / adapter test へ寄せるか、dispatch bridge 自体を service seam にするかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C75`
+
+状態: completed checkpoint。
+
+目的:
+
+- C74 後に残る `DispatchMaintenanceHydrationResult` private reflection test を direct plan / adapter test へ寄せるか、dispatch bridge 自体を service seam にするかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- stale full target の private reflection test を今直接削除しない理由が明記されている。
+- P0-02、総合計画、`PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C75 Maintenance Dispatch Reflection Boundary](./decisions/REF-MVP-C75_maintenance_dispatch_reflection_boundary.md) を追加した。
+- `DispatchMaintenanceHydrationResult_StaleFullTargetInvalidatesInsteadOfPublishing` は stale full-owned target が root resource health dispatch で publish されないことを確認しており、C75 時点で direct plan test へ置き換えると同じ意味を保てないと判断した。
+- 次は `DispatchMaintenanceHydrationResult` 本体を直接移動するのではなく、maintenance hydration dispatch coordinator / host seam を追加し、root bridge を薄くする。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C76: maintenance hydration dispatch coordinator seam` として、`MaintenanceHydrationDispatchCoordinator` と host seam を追加し、root `DispatchMaintenanceHydrationResult` を coordinator 呼び出しに寄せる。coordinator direct tests を追加し、stale full target の root private reflection test は同じ意味を保つため残してよい。
