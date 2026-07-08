@@ -12049,47 +12049,42 @@ completeFileEnumerationOnce,
         IEnumerable<LibraryChartDigestChange> digestChanges,
         bool resourceHealthIndexInvalidated = true)
     {
-        List<LibraryChartDigestChange> changes = [.. (digestChanges ?? []).Where(change => change?.HasDigestChange == true)];
-        bool anyChanges = changes.Count > 0;
-        bool primaryHashChanged = changes.Any(change => change.PrimaryHashChanged);
-        bool md5Changed = changes.Any(change => change.Md5Changed);
-        var result = new OwnedChartCollectionMutationResult
-        {
-            InstalledLookupMutation = BuildInstalledChartLookupDigestMutation(changes),
-            InstallEstimationMetadataProfileCacheInvalidated = anyChanges,
-            DuplicateCacheInvalidated = primaryHashChanged,
-            PlaylistSummaryOwnedHashInvalidated = anyChanges,
-            OwnedCollectionChanged = anyChanges,
-            ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated && md5Changed,
-            WarningPresentationChanged = primaryHashChanged || (resourceHealthIndexInvalidated && md5Changed),
-            BmsFilesStorageRowsChanged = changes.Any(change => change.Kind == LibraryChartKind.Bms),
-            BmsonSongsStorageRowsChanged = changes.Any(change => change.Kind == LibraryChartKind.Bmson)
-        };
-        result.DigestChanges.AddRange(changes);
-        return result;
+        return CreateOwnedChartCollectionDigestMutationResult(
+            OwnedChartDigestMutationDispatchCoordinator.BuildDigestMutationPlan(
+                digestChanges,
+                resourceHealthIndexInvalidated));
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionPotentialDigestMutationResult(
         IEnumerable<ChartFile> charts,
         bool resourceHealthIndexInvalidated = true)
     {
-        List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart != null)];
-        if (targetCharts.Count == 0)
+        return CreateOwnedChartCollectionDigestMutationResult(
+            OwnedChartDigestMutationDispatchCoordinator.BuildPotentialDigestMutationPlan(
+                charts,
+                resourceHealthIndexInvalidated));
+    }
+
+    private OwnedChartCollectionMutationResult CreateOwnedChartCollectionDigestMutationResult(
+        OwnedChartDigestMutationPlan plan)
+    {
+        plan ??= OwnedChartDigestMutationPlan.Empty;
+        var result = new OwnedChartCollectionMutationResult
         {
-            return new OwnedChartCollectionMutationResult();
-        }
-        return new OwnedChartCollectionMutationResult
-        {
-            InstalledLookupMutation = new InstalledChartLookupMutation { RequiresFullInvalidate = true },
-            InstallEstimationMetadataProfileCacheInvalidated = true,
-            DuplicateCacheInvalidated = true,
-            PlaylistSummaryOwnedHashInvalidated = true,
-            OwnedCollectionChanged = true,
-            ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated,
-            WarningPresentationChanged = resourceHealthIndexInvalidated,
-            BmsFilesStorageRowsChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bms),
-            BmsonSongsStorageRowsChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bmson)
+            InstalledLookupMutation = plan.RequiresInstalledLookupFullInvalidate
+                ? new InstalledChartLookupMutation { RequiresFullInvalidate = true }
+                : BuildInstalledChartLookupDigestMutation(plan.DigestChanges),
+            InstallEstimationMetadataProfileCacheInvalidated = plan.InstallEstimationMetadataProfileCacheInvalidated,
+            DuplicateCacheInvalidated = plan.DuplicateCacheInvalidated,
+            PlaylistSummaryOwnedHashInvalidated = plan.PlaylistSummaryOwnedHashInvalidated,
+            OwnedCollectionChanged = plan.OwnedCollectionChanged,
+            ResourceHealthIndexInvalidated = plan.ResourceHealthIndexInvalidated,
+            WarningPresentationChanged = plan.WarningPresentationChanged,
+            BmsFilesStorageRowsChanged = plan.BmsFilesStorageRowsChanged,
+            BmsonSongsStorageRowsChanged = plan.BmsonSongsStorageRowsChanged
         };
+        result.DigestChanges.AddRange(plan.DigestChanges);
+        return result;
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMaintenanceMutationResult(
@@ -12309,10 +12304,8 @@ completeFileEnumerationOnce,
         string reason,
         bool resourceHealthIndexInvalidated = true)
     {
-        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionDigestMutationResult(
-            digestChanges,
-            resourceHealthIndexInvalidated);
-        DispatchOwnedChartCollectionMutation(mutationResult, reason);
+        var coordinator = new OwnedChartDigestMutationDispatchCoordinator(new OwnedChartDigestMutationDispatchHost(this));
+        coordinator.DispatchDigestChanges(digestChanges, reason, resourceHealthIndexInvalidated);
     }
 
     private void DispatchOwnedPotentialDigestChanges(
@@ -12320,10 +12313,17 @@ completeFileEnumerationOnce,
         string reason,
         bool resourceHealthIndexInvalidated = true)
     {
-        OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionPotentialDigestMutationResult(
-            charts,
-            resourceHealthIndexInvalidated);
-        DispatchOwnedChartCollectionMutation(mutationResult, reason);
+        var coordinator = new OwnedChartDigestMutationDispatchCoordinator(new OwnedChartDigestMutationDispatchHost(this));
+        coordinator.DispatchPotentialDigestChanges(charts, reason, resourceHealthIndexInvalidated);
+    }
+
+    internal sealed class OwnedChartDigestMutationDispatchHost(BMSLibrary owner) : IOwnedChartDigestMutationDispatchHost
+    {
+        public void DispatchOwnedChartDigestMutation(OwnedChartDigestMutationPlan plan, string reason)
+        {
+            OwnedChartCollectionMutationResult mutationResult = owner.CreateOwnedChartCollectionDigestMutationResult(plan);
+            owner.DispatchOwnedChartCollectionMutation(mutationResult, reason);
+        }
     }
 
     private void DispatchWarningPresentationChanged(string reason)

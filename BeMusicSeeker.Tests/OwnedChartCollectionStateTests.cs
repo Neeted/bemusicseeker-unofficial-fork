@@ -3016,9 +3016,10 @@ public sealed class OwnedChartCollectionStateTests
             Assert.IsTrue(IsInstalledPrimaryHashLookupInitialized(library));
             Assert.IsFalse(IsInstalledChartLookupIndexInitialized(library));
 
-            InvokeDispatchOwnedPotentialDigestChanges(
-                library,
-                [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false)],
+            OwnedChartDigestMutationPlan plan = OwnedChartDigestMutationDispatchCoordinator.BuildPotentialDigestMutationPlan(
+                [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false, includeResourceReferences: false)]);
+            new BMSLibrary.OwnedChartDigestMutationDispatchHost(library).DispatchOwnedChartDigestMutation(
+                plan,
                 "test_potential_digest");
 
             Assert.IsFalse(IsInstalledPrimaryHashLookupInitialized(library));
@@ -3238,9 +3239,10 @@ public sealed class OwnedChartCollectionStateTests
             SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
             bmsFile.SetSha256(newSha256);
 
-            InvokeDispatchOwnedChartDigestChanges(
-                library,
-                [new LibraryChartDigestChange(LibraryChartKind.Bms, chartPath, md5, oldSha256, md5, newSha256)],
+            OwnedChartDigestMutationPlan plan = OwnedChartDigestMutationDispatchCoordinator.BuildDigestMutationPlan(
+                [new LibraryChartDigestChange(LibraryChartKind.Bms, chartPath, md5, oldSha256, md5, newSha256)]);
+            new BMSLibrary.OwnedChartDigestMutationDispatchHost(library).DispatchOwnedChartDigestMutation(
+                plan,
                 "test_sha_only_digest");
 
             InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
@@ -3550,26 +3552,6 @@ public sealed class OwnedChartCollectionStateTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BuildAndPersistInlineChartInfoForInstalledCharts", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (ChartInfoInlineBuildResult)methodInfo.Invoke(library, [reason, charts]);
-    }
-
-    private static void InvokeDispatchOwnedChartDigestChanges(
-        BMSLibrary library,
-        IEnumerable<LibraryChartDigestChange> digestChanges,
-        string reason)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedChartDigestChanges", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [digestChanges, reason, true]);
-    }
-
-    private static void InvokeDispatchOwnedPotentialDigestChanges(
-        BMSLibrary library,
-        IEnumerable<ChartFile> charts,
-        string reason)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedPotentialDigestChanges", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [charts, reason, true]);
     }
 
     private static IDisposable InvokeSuppressResourceHealthIndexInvalidation(BMSLibrary library)

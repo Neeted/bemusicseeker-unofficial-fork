@@ -2537,3 +2537,36 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C87: owned chart digest mutation dispatch seam` として、`DispatchOwnedChartDigestChanges` / `DispatchOwnedPotentialDigestChanges` の digest 起点 mutation plan を top-level coordinator / plan 境界へ移し、`InvokeDispatchOwnedChartDigestChanges` を private reflection なしの direct test または public behavior test へ移す。
+
+## Completed Checkpoint: `REF-MVP-C87`
+
+状態: completed checkpoint。
+
+目的:
+
+- `DispatchOwnedChartDigestChanges` / `DispatchOwnedPotentialDigestChanges` の digest 起点 mutation plan を top-level coordinator / plan 境界へ移す。
+- root `BMSLibrary` は digest mutation plan を private `OwnedChartCollectionMutationResult` に変換し、既存 dispatcher へ渡す bridge に寄せる。
+- `InvokeDispatchOwnedChartDigestChanges` private reflection helper を削除する。
+
+完了条件:
+
+- digest changed / primary hash changed / md5 changed / resource health invalidation flag / storage row kind flag の plan 化が direct test されている。
+- potential digest failure path の installed lookup full invalidate / warning presentation / storage row kind flag が direct test されている。
+- `InvokeDispatchOwnedChartDigestChanges` が削除されている。
+- DB schema、setting name、serialized/public surface、log 文言、notification effect は変更していない。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/OwnedChartDigestMutationPlan.cs` を追加した。
+- `BmsLibraryInternal/OwnedChartDigestMutationDispatchCoordinator.cs` と `IOwnedChartDigestMutationDispatchHost.cs` を追加し、digest / potential digest の plan 作成と host dispatch を移した。
+- root `DispatchOwnedChartDigestChanges` / `DispatchOwnedPotentialDigestChanges` は coordinator + private adapter host 経由の bridge になった。
+- root は `OwnedChartDigestMutationPlan` を既存 private `OwnedChartCollectionMutationResult` へ変換する責務だけを持つ。
+- `OwnedChartDigestMutationDispatchCoordinatorTests` を追加し、digest plan、sha-only digest、empty potential digest、potential digest full invalidate、resource health flag suppression を private reflection なしで確認した。
+- `NormalLibraryRefreshNotificationBatch_MixedWarningProducersKeepWarningRefreshEffect` は digest plan の direct test へ移し、`InvokeDispatchOwnedChartDigestChanges` helper を削除した。
+- `BMSLibrary.cs` は 16,465 行、digest coordinator は 78 行、plan は 52 行、host interface は 6 行、direct tests は 163 行。
+- build、targeted tests、format、diff check、Roslynator warning、full test は完了。静的レビューはこの checkpoint の commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C88: resource health snapshot publish test seam cleanup` として、`SetCurrentResourceHealthIndexSnapshot` が `PublishResourceHealthIndexSnapshotUnsafe` を private reflection で呼ぶ箇所を、C84 の actual `BMSLibrary.ResourceHealthIndexFullRebuildHost.PublishSnapshot` など private reflection なしの seam へ置き換える。

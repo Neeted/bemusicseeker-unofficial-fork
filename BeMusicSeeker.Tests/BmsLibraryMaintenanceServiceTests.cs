@@ -1146,9 +1146,10 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
             library.SetChartResourceWarningsIgnored([chart], unset: false);
             file.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-            InvokeDispatchOwnedChartDigestChanges(
-                library,
-                [new LibraryChartDigestChange(LibraryChartKind.Bms, file.path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, file.hash, null)],
+            OwnedChartDigestMutationPlan plan = OwnedChartDigestMutationDispatchCoordinator.BuildDigestMutationPlan(
+                [new LibraryChartDigestChange(LibraryChartKind.Bms, file.path, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null, file.hash, null)]);
+            new BMSLibrary.OwnedChartDigestMutationDispatchHost(library).DispatchOwnedChartDigestMutation(
+                plan,
                 "test_warning_property_covered_digest");
 
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
@@ -2903,16 +2904,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("PublishResourceHealthIndexSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [snapshot]);
-    }
-
-    private static void InvokeDispatchOwnedChartDigestChanges(
-        BMSLibrary library,
-        IEnumerable<LibraryChartDigestChange> digestChanges,
-        string reason)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedChartDigestChanges", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [digestChanges, reason, true]);
     }
 
     private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthMutation(

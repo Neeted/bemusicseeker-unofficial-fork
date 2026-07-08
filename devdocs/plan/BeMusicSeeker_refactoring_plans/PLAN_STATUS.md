@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C87: owned chart digest mutation dispatch seam` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C88: resource health snapshot publish test seam cleanup` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -520,9 +520,15 @@ C85 完了時点の次にやる 1 件: `ApplyMaintenanceHydrationResult` の own
 
 `REF-MVP-C86` として maintenance hydration apply workflow を `BmsLibraryInternal/MaintenanceHydrationApplyCoordinator.cs` へ移した。root `ApplyMaintenanceHydrationResult` は private adapter host 経由の bridge になり、direct tests で null result、attach / cleanup / dispatch order、cleanup failure invalidate / rethrow を private reflection なしで確認した。`ApplyMaintenanceHydrationResult_PublishesMaintenanceRefreshThroughOwnedDispatcher` は `IMaintenanceHydrationHost` 経由の integration test へ移し、`InvokeApplyMaintenanceHydrationResult` helper は削除した。`BMSLibrary.cs` は 16,465 行、apply coordinator は 58 行、host interface は 23 行、direct tests は 211 行。build、targeted tests、format、diff check、Roslynator warning、full test は完了。静的レビューは commit 前に実施する。
 
-現在の active ticket: `REF-MVP-C87: owned chart digest mutation dispatch seam`。
+C86 完了時点の次 ticket: `REF-MVP-C87: owned chart digest mutation dispatch seam`。
 
-次にやる 1 件: `DispatchOwnedChartDigestChanges` / `DispatchOwnedPotentialDigestChanges` の digest 起点 mutation plan を top-level coordinator / plan 境界へ移し、`InvokeDispatchOwnedChartDigestChanges` を private reflection なしの direct test または public behavior test へ移す。
+C86 完了時点の次にやる 1 件: `DispatchOwnedChartDigestChanges` / `DispatchOwnedPotentialDigestChanges` の digest 起点 mutation plan を top-level coordinator / plan 境界へ移し、`InvokeDispatchOwnedChartDigestChanges` を private reflection なしの direct test または public behavior test へ移す。
+
+`REF-MVP-C87` として digest / potential digest mutation plan を `BmsLibraryInternal/OwnedChartDigestMutationDispatchCoordinator.cs` と `OwnedChartDigestMutationPlan.cs` へ移した。root `DispatchOwnedChartDigestChanges` / `DispatchOwnedPotentialDigestChanges` は private adapter host 経由の bridge になり、root は plan を既存 private `OwnedChartCollectionMutationResult` へ変換する責務だけを持つ。direct tests で digest plan、sha-only digest、empty potential digest、potential digest full invalidate、resource health flag suppression を private reflection なしで確認した。`InvokeDispatchOwnedChartDigestChanges` helper は削除した。`BMSLibrary.cs` は 16,465 行、digest coordinator は 78 行、plan は 52 行、host interface は 6 行、direct tests は 163 行。build、targeted tests、format、diff check、Roslynator warning、full test は完了。静的レビューは commit 前に実施する。
+
+現在の active ticket: `REF-MVP-C88: resource health snapshot publish test seam cleanup`。
+
+次にやる 1 件: `SetCurrentResourceHealthIndexSnapshot` が `PublishResourceHealthIndexSnapshotUnsafe` を private reflection で呼ぶ箇所を、C84 の actual `BMSLibrary.ResourceHealthIndexFullRebuildHost.PublishSnapshot` など private reflection なしの seam へ置き換える。
 
 ## 次回 Codex が最初に読むべきファイル
 
