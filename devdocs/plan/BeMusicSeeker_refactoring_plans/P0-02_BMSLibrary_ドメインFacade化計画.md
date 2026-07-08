@@ -2978,3 +2978,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `ApplyAutoRenamePlans` の batch workflow を top-level coordinator + host seam へ移し、`BmsLibraryFolderRenameRefreshTests.InvokeApplyAutoRenamePlans` private reflection helper を置き換える。
+
+## Completed Ticket: `REF-MVP-C103`
+
+状態: completed implementation。
+
+目的:
+
+- `ApplyAutoRenamePlans` の batch workflow を `BMSLibrary` root から top-level coordinator へ移す。
+- file move、failed plan skip、batch mutation aggregation、reverse lookup update、normal refresh notification、progress reporting、dialog / log の既存挙動を維持する。
+- `InvokeApplyAutoRenamePlans` private reflection helper を実 workflow の coordinator + host route へ置き換える。
+
+実装結果:
+
+- `AutoRenameBatchCoordinator` / `IAutoRenameBatchHost` を追加した。
+- `BMSLibrary.AutoRenameBatchHost` が folder move delta build、file move、reverse lookup update、library mutation apply、dialog、performance log へ bridge する構造にした。
+- `BmsLibraryFolderRenameRefreshTests.InvokeApplyAutoRenamePlans` は private reflection ではなく coordinator 経由にした。
+
+確認:
+
+- build 0 warning。
+- targeted tests: `BmsLibraryFolderRenameRefreshTests` 36 passed。
+- full test: 2403 passed / 13 skipped。
+- format whitespace verify passed。
+- Roslynator warning: 0 diagnostics。
+- 静的レビューは commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C104: owned helper aftermath checkpoint` として、C103 後に残る `BeginOwnedDigestMutationWindow`、remaining read-only diagnostics、remaining private field observation、LR2 sync private workflow 群を再確認し、次に実装する 1 seam だけを選ぶ。

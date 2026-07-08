@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Threading;
 using System.Windows;
@@ -1657,9 +1656,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
     private static bool InvokeApplyAutoRenamePlans(BMSLibrary library, IEnumerable<FolderAutoRenamePlan> plans)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyAutoRenamePlans", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (bool)methodInfo.Invoke(library, [plans, null]);
+        var coordinator = new AutoRenameBatchCoordinator(new BMSLibrary.AutoRenameBatchHost(library));
+        return coordinator.Apply(plans);
     }
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets, string reason)
