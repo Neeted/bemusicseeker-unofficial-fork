@@ -849,3 +849,27 @@ BMSLibrary                         // public facade / compatibility API
 - `Lr2SongDbSyncDirectoryTargetSelection` を追加し、normal directory metadata targets / LR2 folder parent directory targets / merged directory entry targets を dedicated DTO 経由へ移した。
 - normal directory metadata target 作成は既存と同じ `directoryTargetsMs` 範囲に残し、LR2 folder parent target と merged target の comparer / dedupe / sort semantics は既存 helper をそのまま使って維持した。
 - directory entry enumeration、folder info candidate selection、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C29`
+
+状態: completed checkpoint。
+
+目的:
+
+- C18-C28 で切った selection DTO のうち scan surface selection / directory target selection を log formatter 入力として直接扱う。
+- `CreateLr2SongDbSyncInput` に残る log 専用 local alias を減らし、snapshot / selection / candidate / factory の流れを読みやすくする。
+- ログ項目名、ログ値、ログ順序、selection 順序、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- `LogLr2SongDbSyncInputSurface` / `Lr2SongDbSyncInputSurfaceLogFormatter` が scan surface selection / directory target selection を直接受け取る。
+- `CreateLr2SongDbSyncInput` の log 専用 alias が減っている。
+- input builder 化、private entry point 移動、service 化は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `LogLr2SongDbSyncInputSurface` / `Lr2SongDbSyncInputSurfaceLogFormatter` が scan surface selection / directory target selection を直接受け取る形にした。
+- `CreateLr2SongDbSyncInput` から log 専用の `reusedLr2FolderSurface` / LR2 folder parent target alias などを減らした。
+- ログ項目名、ログ値、ログ順序、selection 順序、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+- 初回 LR2 sync 関連 tests で `ApplyFileScanDiff_PopulatesLr2FolderSurfaceFromProducerDiscoveryRoots` が 1 回失敗したが、同テスト単体 rerun と LR2 targeted rerun は pass した。最終 full test は pass した。

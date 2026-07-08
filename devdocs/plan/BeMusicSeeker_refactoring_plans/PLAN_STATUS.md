@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C28: LR2 sync directory target selection boundary` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C29: LR2 sync input log selection DTO wiring` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -396,9 +396,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C28` として `CreateLr2SongDbSyncInput` の normal directory metadata targets / LR2 folder parent directory targets / merged directory entry targets を `BmsLibraryInternal/Lr2SongDbSyncDirectoryTargetSelection.cs` の dedicated selection DTO 経由へ移した。`directoryTargetsMs` は normal directory metadata target 作成部分の計測として維持した。`BMSLibrary.cs` は 18,416 行、追加 DTO は 15 行。build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
-現在の active ticket: なし。`REF-MVP-C28` completed checkpoint。
+`REF-MVP-C29` として `LogLr2SongDbSyncInputSurface` / `Lr2SongDbSyncInputSurfaceLogFormatter` が scan surface selection / directory target selection を直接受け取る形にした。`CreateLr2SongDbSyncInput` の log 専用 alias は減り、ログ項目名・順序・値は維持した。`BMSLibrary.cs` は 18,402 行、formatter は 90 行。build、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。初回 LR2 sync 関連 tests で `ApplyFileScanDiff_PopulatesLr2FolderSurfaceFromProducerDiscoveryRoots` が 1 回失敗したが、同テスト単体 rerun と LR2 targeted rerun は pass した。
 
-次にやる 1 件: Lane C を続ける場合は `REF-MVP-C29: LR2 sync input orchestration cleanup` として、C18-C28 で切った snapshot / selection DTO 群を使い、`CreateLr2SongDbSyncInput` 内の local alias と helper 呼び出し順を整理する。挙動変更、ログ項目変更、private entry point 移動、service 化は含めない。重すぎる場合は maintenance、folder/file operation、package install follow-up のいずれか 1 件を workflow 単位で active 化する。
+現在の active ticket: なし。`REF-MVP-C29` completed checkpoint。
+
+次にやる 1 件: Lane C を続ける場合は `REF-MVP-C30: LR2 sync input factory selection DTO wiring` として、`Lr2SongDbSyncInputFactory.Create` が directory target selection / scan surface selection を直接受け取れるかを小さく検討する。挙動変更、constructor 値変更、ログ項目変更、private entry point 移動、service 化は含めない。重すぎる場合は maintenance、folder/file operation、package install follow-up のいずれか 1 件を workflow 単位で active 化する。
 
 ## 次回 Codex が最初に読むべきファイル
 

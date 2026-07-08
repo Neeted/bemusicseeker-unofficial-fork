@@ -6908,7 +6908,6 @@ completeFileEnumerationOnce,
         Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
         bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
         bool hasPreparedLr2FolderSurface = preparedSurfaceSelection.HasActiveLr2FolderSurface;
-        bool reusedLr2FolderSurface = scanSurfaceSelection.ReusedLr2FolderSurface;
         var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
         Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection =
@@ -6927,7 +6926,6 @@ completeFileEnumerationOnce,
                 lr2FolderFileCandidates,
                 rootSnapshot,
                 settingsSnapshot);
-        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = directoryTargetSelection.Lr2FolderParentDirectoryTargets;
         IReadOnlyCollection<string> directoryEntryTargets = directoryTargetSelection.DirectoryEntryTargets;
         var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncFolderInfoCandidateSelection folderInfoCandidateSelection =
@@ -6960,20 +6958,16 @@ completeFileEnumerationOnce,
         textFileDirsStopwatch.Stop();
         inputStopwatch.Stop();
         LogLr2SongDbSyncInputSurface(
-            scanSurface,
-            scanSurfaceSelection.MissReason,
+            scanSurfaceSelection,
             rootSnapshot,
             settingsSnapshot,
-            directoryMetadataTargets,
-            lr2FolderParentDirectoryTargets,
-            directoryEntryTargets,
+            directoryTargetSelection,
             directoryEntries,
             directoryEntrySelection,
             folderInfoCandidates,
             lr2FolderFileCandidates,
             appManagedOutputScope,
             lr2FolderCandidateSelection,
-            reusedLr2FolderSurface,
             hasPreparedSurface,
             hasPreparedLr2FolderSurface,
             preparedSurfaceSelection,
@@ -7005,20 +6999,16 @@ completeFileEnumerationOnce,
     }
 
     private void LogLr2SongDbSyncInputSurface(
-        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
-        string scanSurfaceMissReason,
+        Lr2SongDbSyncScanSurfaceSelection scanSurfaceSelection,
         Lr2SongDbSyncInputRootSnapshot rootSnapshot,
         Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot,
-        IReadOnlyCollection<string> directoryMetadataTargets,
-        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets,
-        IReadOnlyCollection<string> directoryEntryTargets,
+        Lr2SongDbSyncDirectoryTargetSelection directoryTargetSelection,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
         Lr2SongDbSyncDirectoryEntrySelection directoryEntrySelection,
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates,
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope,
         Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection,
-        bool reusedLr2FolderSurface,
         bool hasPreparedSurface,
         bool hasPreparedLr2FolderSurface,
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
@@ -7038,20 +7028,16 @@ completeFileEnumerationOnce,
         Stopwatch inputStopwatch)
     {
         LogInstallPerformance(Lr2SongDbSyncInputSurfaceLogFormatter.Format(
-            scanSurface,
-            scanSurfaceMissReason,
+            scanSurfaceSelection,
             rootSnapshot,
             settingsSnapshot,
-            directoryMetadataTargets,
-            lr2FolderParentDirectoryTargets,
-            directoryEntryTargets,
+            directoryTargetSelection,
             directoryEntries,
             directoryEntrySelection,
             folderInfoCandidates,
             lr2FolderFileCandidates,
             appManagedOutputScope,
             lr2FolderCandidateSelection,
-            reusedLr2FolderSurface,
             hasPreparedSurface,
             hasPreparedLr2FolderSurface,
             preparedSurfaceSelection,

@@ -7,20 +7,16 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 internal static class Lr2SongDbSyncInputSurfaceLogFormatter
 {
     public static string Format(
-        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
-        string scanSurfaceMissReason,
+        Lr2SongDbSyncScanSurfaceSelection scanSurfaceSelection,
         Lr2SongDbSyncInputRootSnapshot rootSnapshot,
         Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot,
-        IReadOnlyCollection<string> directoryMetadataTargets,
-        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets,
-        IReadOnlyCollection<string> directoryEntryTargets,
+        Lr2SongDbSyncDirectoryTargetSelection directoryTargetSelection,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
         Lr2SongDbSyncDirectoryEntrySelection directoryEntrySelection,
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates,
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope,
         Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection,
-        bool reusedLr2FolderSurface,
         bool hasPreparedSurface,
         bool hasPreparedLr2FolderSurface,
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
@@ -39,10 +35,15 @@ internal static class Lr2SongDbSyncInputSurfaceLogFormatter
         Stopwatch textFileDirsStopwatch,
         Stopwatch inputStopwatch)
     {
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface = scanSurfaceSelection.Surface;
+        IReadOnlyCollection<string> directoryMetadataTargets = directoryTargetSelection.DirectoryMetadataTargets;
+        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = directoryTargetSelection.Lr2FolderParentDirectoryTargets;
+        IReadOnlyCollection<string> directoryEntryTargets = directoryTargetSelection.DirectoryEntryTargets;
+
         return "lr2_song_db_sync_input_surface"
-            + " reusedScanSurface=" + (scanSurface != null).ToString().ToLowerInvariant()
-            + " scanSurfaceMissReason=" + (scanSurfaceMissReason ?? string.Empty)
-            + " scanSurfaceGeneration=" + (scanSurface?.Generation ?? 0)
+            + " reusedScanSurface=" + scanSurfaceSelection.ReusedScanSurface.ToString().ToLowerInvariant()
+            + " scanSurfaceMissReason=" + scanSurfaceSelection.MissReason
+            + " scanSurfaceGeneration=" + scanSurfaceSelection.Generation
             + " rootDirs=" + rootSnapshot.RootDirectories.Count
             + " lr2FolderDiscoveryDirs=" + rootSnapshot.Lr2FolderDiscoveryDirectories.Count
             + " lr2BuiltinFolderSourceDirs=" + settingsSnapshot.Lr2BuiltinFolderSourceDirectories.Count
@@ -59,7 +60,7 @@ internal static class Lr2SongDbSyncInputSurfaceLogFormatter
             + " appManagedScopeDirs=" + appManagedOutputScope.Directories.Count
             + " enumeratedAppManagedFiltered=" + lr2FolderCandidateSelection.EnumeratedAppManagedCandidateCount
             + " enumeratedAppManagedExactFiles=" + lr2FolderCandidateSelection.EnumeratedAppManagedExactFileCount
-            + " reusedLr2FolderSurface=" + reusedLr2FolderSurface.ToString().ToLowerInvariant()
+            + " reusedLr2FolderSurface=" + scanSurfaceSelection.ReusedLr2FolderSurface.ToString().ToLowerInvariant()
             + " hasPreparedSurface=" + hasPreparedSurface.ToString().ToLowerInvariant()
             + " hasPreparedLr2FolderSurface=" + hasPreparedLr2FolderSurface.ToString().ToLowerInvariant()
             + " preparedSurfaceAlreadyAppliedToScanSurface=" + preparedSurfaceSelection.AlreadyAppliedToScanSurface.ToString().ToLowerInvariant()
