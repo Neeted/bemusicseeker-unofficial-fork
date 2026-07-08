@@ -1875,3 +1875,31 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C65: maintenance result apply contract planning` として、C45 で保留した `ApplyMaintenanceHydrationResult` / `DispatchMaintenanceHydrationResult` の blocker を再確認し、resource health mutation contract、owner view / maintenance attach contract、または reflection / source-text test 移行のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C65`
+
+状態: completed checkpoint。
+
+目的:
+
+- C45 で保留した `ApplyMaintenanceHydrationResult` / `DispatchMaintenanceHydrationResult` の blocker を再確認する。
+- resource health mutation contract、owner view / maintenance attach contract、reflection / source-text test 移行のうち、次の実装 ticket を 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `DispatchMaintenanceHydrationResult` / resource health mutation contract / reflection tests 全面移行を今触らない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C65 Maintenance Result Apply Contract Planning](./decisions/REF-MVP-C65_maintenance_result_apply_contract_planning.md) を追加した。
+- `ApplyMaintenanceHydrationResult` 前半の BMS / bmson maintenance snapshot attach と stale path selection は、`OwnedChartStorageOwnerView` と `MaintenanceTableHydrationResult` を入力にできるため、次の小さい seam として妥当と判断した。
+- `DispatchMaintenanceHydrationResult` は `ResourceMaintenanceTargetSet` / `OwnedChartCollectionMutationResult` / `ResourceHealthMutation` / `StorageRowsVersionSnapshot` と private reflection tests が強く絡むため、C66 では触らない判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C66: maintenance hydration owner attach service seam` として、maintenance hydration owner attach / stale path selection を dedicated service seam へ移す。dispatch / resource health mutation / nested target contract は触らない。
