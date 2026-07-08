@@ -8,19 +8,19 @@ internal static class Lr2SongDbSyncInputFactory
     public static Lr2SongDbSyncInput Create(
         Lr2SongDbSyncInputRootSnapshot rootSnapshot,
         Lr2SongDbSyncInputRowSnapshot rowSnapshot,
-        IReadOnlyCollection<string> directoryMetadataTargets,
+        Lr2SongDbSyncDirectoryTargetSelection directoryTargetSelection,
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
         Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot,
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope,
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
         IReadOnlyList<string> textFileDirectories,
-        int scanSurfaceGeneration)
+        Lr2SongDbSyncScanSurfaceSelection scanSurfaceSelection)
     {
         return new Lr2SongDbSyncInput(
             rootSnapshot.RootDirectories,
             rowSnapshot.ChartPaths,
-            [.. directoryMetadataTargets],
+            [.. directoryTargetSelection.DirectoryMetadataTargets],
             folderInfoCandidates.Paths,
             folderInfoCandidates.EntriesByPath,
             directoryEntries,
@@ -39,7 +39,7 @@ internal static class Lr2SongDbSyncInputFactory
             lr2FolderFileCandidates.DiscoveryComplete,
             rowSnapshot.SongRows,
             textFileDirectories,
-            scanSurfaceGeneration,
+            scanSurfaceSelection.Generation,
             rowSnapshot.OwnedCollectionVersion,
             rowSnapshot.BmsRowsVersion,
             rowSnapshot.BmsonRowsVersion);

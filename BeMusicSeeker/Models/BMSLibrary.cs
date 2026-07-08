@@ -6988,14 +6988,14 @@ completeFileEnumerationOnce,
         return Lr2SongDbSyncInputFactory.Create(
             rootSnapshot,
             rowSnapshot,
-            directoryMetadataTargets,
+            directoryTargetSelection,
             folderInfoCandidates,
             directoryEntries,
             settingsSnapshot,
             appManagedOutputScope,
             lr2FolderFileCandidates,
             textFileDirectories,
-            scanSurfaceSelection.Generation);
+            scanSurfaceSelection);
     }
 
     private void LogLr2SongDbSyncInputSurface(

@@ -873,3 +873,26 @@ BMSLibrary                         // public facade / compatibility API
 - `CreateLr2SongDbSyncInput` から log 専用の `reusedLr2FolderSurface` / LR2 folder parent target alias などを減らした。
 - ログ項目名、ログ値、ログ順序、selection 順序、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
 - 初回 LR2 sync 関連 tests で `ApplyFileScanDiff_PopulatesLr2FolderSurfaceFromProducerDiscoveryRoots` が 1 回失敗したが、同テスト単体 rerun と LR2 targeted rerun は pass した。最終 full test は pass した。
+
+## Completed Checkpoint: `REF-MVP-C30`
+
+状態: completed checkpoint。
+
+目的:
+
+- `Lr2SongDbSyncInputFactory.Create` が scan surface selection / directory target selection を直接受け取る形にする。
+- C18-C29 で切った selection DTO を log と final input composition の両方で同じ境界として扱う。
+- constructor に渡す値、selection 順序、ログ項目、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- `Lr2SongDbSyncInputFactory.Create` の引数から standalone `directoryMetadataTargets` と `scanSurfaceGeneration` が消え、selection DTO 経由になる。
+- `CreateLr2SongDbSyncInput` の factory 呼び出しが selection DTO ベースになっている。
+- input builder 化、private entry point 移動、service 化は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncInputFactory.Create` が scan surface selection / directory target selection を直接受け取る形にした。
+- constructor に渡す directory metadata target copy と scan surface generation は、既存と同じ値を selection DTO 経由で渡す形にした。
+- constructor 値、selection 順序、ログ項目、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
