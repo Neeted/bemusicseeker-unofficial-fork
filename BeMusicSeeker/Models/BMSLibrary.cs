@@ -16447,75 +16447,19 @@ completeFileEnumerationOnce,
 
     internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt, bool? unregister = false)
     {
-        List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart?.GetBmsStorageOwner() != null)];
-        if (TryBlockLr2SongDbSyncMutation(nameof(RenameBMSFilesExtensions)))
-        {
-            return;
-        }
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetWriterGuard())
-            {
-                LibraryMutationDelta delta = libraryFileOperationsService.RenameLibraryFileExtensions(
-                    targetCharts,
-                    newExt,
-                    unregister == true,
-                    (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, unregister == true));
-                foreach (LibraryDeleteFailure failure in delta.Failures)
-                {
-                    if (failure.Exception == null)
-                    {
-                        continue;
-                    }
-                    ShowOperationDialog(
-                        string.Format(Resources.Error_BmsFileMoveFailed, failure.Path, newExt, GetDisplayedExceptionMessage(failure.Exception)),
-                        Resources.MessageBoxTitle_Error,
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Hand,
-                        MessageBoxResult.OK);
-                }
-                ApplyLibraryMutationDelta(delta);
-                NLogWrapper.FileLogger?.Info("invalid_ext_rename summary scope=normal total=" + targetCharts.Count + " renamed=" + delta.RenamedCount + " deleted=" + delta.DuplicateDeletedCount + " skipped=" + delta.SkippedCount);
-            }
-        }
+        InvalidExtensionRenameCoordinator.RenameBMSFilesExtensions(
+            this,
+            charts,
+            newExt,
+            unregister);
     }
 
     internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt)
     {
-        if (charts == null)
-        {
-            throw new ArgumentNullException("charts");
-        }
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockSongDBInstall.GetWriterGuard())
-                {
-                    PendingExtensionRenameResult result = packageInstallService.RenamePendingBmsFormatChartFileExtensions(
-                        charts,
-                        newExt,
-                        (file, requestedPath) => ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false));
-                    foreach (PendingExtensionRenameFailure failure in result.Failures)
-                    {
-                        if (failure?.Outcome?.FailureException == null || failure.File == null)
-                        {
-                            continue;
-                        }
-                        if (failure.Outcome.FailedDuringDelete)
-                        {
-                            ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.File.path, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        }
-                        else
-                        {
-                            ShowOperationDialog(string.Format(Resources.Error_BmsFileMoveFailed, failure.File.path, failure.Outcome.FinalPath, GetDisplayedExceptionMessage(failure.Outcome.FailureException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        }
-                    }
-                    RemovePendingChartsFromPendingPackagesAndInstallRows(result.ChartPathsToRemove);
-                    NLogWrapper.FileLogger?.Info("invalid_ext_rename summary scope=pending total=" + result.Total + " renamed=" + result.Renamed + " deleted=" + result.DuplicateDeleted + " skipped=" + result.Skipped + " failed=" + result.Failed + " totalMs=" + result.TotalMs);
-                }
-            }
-        }
+        InvalidExtensionRenameCoordinator.RenamePendingBmsFormatChartFileExtensions(
+            this,
+            charts,
+            newExt);
     }
 
     /// <summary>

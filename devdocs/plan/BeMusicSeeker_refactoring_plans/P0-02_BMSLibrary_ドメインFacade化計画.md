@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,048 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 16,992 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
 
 `BMSLibrary` は public compatibility facade として残してよい。ただし、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling は service / coordinator へ移す。
 
@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 17,048 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration と installable maintenance deferred の queue / worker lifecycle、`RenameChartFolder` / `MoveLibraryRootFolder` folder move workflow、`RemoveLibraryCharts` delete workflow を coordinator seam へ分離済み |
+| `BMSLibrary.cs` 行数 | 16,992 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration と installable maintenance deferred の queue / worker lifecycle、`RenameChartFolder` / `MoveLibraryRootFolder` folder move workflow、`RemoveLibraryCharts` delete workflow、invalid extension rename workflow を coordinator seam へ分離済み |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -1545,3 +1545,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C54: invalid extension rename coordinator seam` として、`RenameBMSFilesExtensions` と `RenamePendingBmsFormatChartFileExtensions` の LR2 sync block、lock boundary、service call、failure dialogs、normal delta apply、pending chart removal、summary logs を dedicated coordinator seam へ移す。`MoveChartPackageFiles`、`MergeChartDirectory`、`installChartPackages`、pending zero-note rename behavior、maintenance result apply、resource health mutation は触らない。
+
+## Completed Checkpoint: `REF-MVP-C54`
+
+状態: completed checkpoint。
+
+目的:
+
+- `RenameBMSFilesExtensions` と `RenamePendingBmsFormatChartFileExtensions` の orchestration を dedicated coordinator seam へ移す。
+- root `BMSLibrary` は LR2 sync block、normal/pending lock boundary、service calls、failure dialogs、normal delta apply、pending chart removal、summary logs を host として提供する。
+- `MoveChartPackageFiles`、`MergeChartDirectory`、`installChartPackages`、pending zero-note rename behavior、maintenance result apply、resource health mutation は触らない。
+
+完了条件:
+
+- normal rename の LR2 sync block、lock order、`unregister` 時の remove / path change、duplicate delete、failure dialog、`ApplyLibraryMutationDelta`、`invalid_ext_rename summary scope=normal` が維持されている。
+- manual pending rename の null guard、lock order、BMS-format 限定、bmson 除外、failure dialog、`RemovePendingChartsFromPendingPackagesAndInstallRows`、`invalid_ext_rename summary scope=pending` が維持されている。
+- `RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions` の coordinator / deferred progress behavior が変わっていない。
+- build / rename 関連 tests / format / diff check / Roslynator 対象確認 / 静的レビュー / full test が完了している。
+
+実装結果:
+
+- `InvalidExtensionRenameCoordinator` と `IInvalidExtensionRenameHost` を追加し、normal library / manual pending invalid extension rename workflow を coordinator へ移した。
+- `BMSLibrary.InvalidExtensionRenameHost.cs` を追加し、service calls、lock boundary、dialog、state apply / pending removal、summary log を host bridge として提供する形にした。
+- `BMSLibrary.RenameBMSFilesExtensions` と `BMSLibrary.RenamePendingBmsFormatChartFileExtensions` は coordinator 呼び出しだけになった。
+- pending zero-note rename、`MoveChartPackageFiles`、`MergeChartDirectory`、`installChartPackages`、maintenance result apply、resource health mutation は未変更。
+- `BMSLibrary.cs` は 16,992 行、coordinator は 78 行、host は 108 行。
+- build、rename targeted tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C55: package move / merge boundary after rename seams` として、`MoveChartPackageFiles` adapter、`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` follow-up、maintenance result apply contract prep のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
