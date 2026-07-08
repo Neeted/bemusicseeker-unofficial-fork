@@ -2952,3 +2952,29 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C102: owned helper aftermath checkpoint` として、C101 後に残る `resourceHealthIndexInvalidated` / `ownedChartCollectionInitialized` / `_DuplicateChartGroups`、remaining read-only diagnostics、`ApplyAutoRenamePlans`、`BeginOwnedDigestMutationWindow`、LR2 sync private workflow 群を再確認し、次に実装する 1 seam だけを選ぶ。
+
+## Completed Checkpoint: `REF-MVP-C102`
+
+状態: completed checkpoint。
+
+目的:
+
+- C101 後に残る auto rename workflow、digest window、read-only diagnostics、remaining private field observation、LR2 sync private workflow 群を再分類する。
+- 次に実装する 1 seam を決める。
+- production code 変更は行わない。
+
+調査結果:
+
+- `ApplyAutoRenamePlans` は file move、plan ごとの失敗継続、batch mutation aggregation、reverse lookup update、normal refresh notification、progress、dialog / log を含む実 workflow である。
+- `BeginOwnedDigestMutationWindow` は小さいが、単独 seam 化すると test-only window control になりやすい。
+- remaining read-only diagnostics / private field observation は、workflow seam を減らした後にまとめて再分類する。
+- LR2 sync private workflow 群は別 checkpoint で扱う規模である。
+
+決定:
+
+- `decisions/REF-MVP-C102_owned_helper_aftermath.md` を追加した。
+- 次の実装 ticket は `REF-MVP-C103: auto rename batch workflow seam` とする。
+
+次にやる 1 件:
+
+- `ApplyAutoRenamePlans` の batch workflow を top-level coordinator + host seam へ移し、`BmsLibraryFolderRenameRefreshTests.InvokeApplyAutoRenamePlans` private reflection helper を置き換える。
