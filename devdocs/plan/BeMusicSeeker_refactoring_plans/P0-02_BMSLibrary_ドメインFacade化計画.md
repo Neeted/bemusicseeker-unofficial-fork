@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,215 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,133 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
 
 `BMSLibrary` は public compatibility facade として残してよい。ただし、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling は service / coordinator へ移す。
 
@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 17,215 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration と installable maintenance deferred の queue / worker lifecycle を coordinator seam へ分離済み |
+| `BMSLibrary.cs` 行数 | 17,133 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration と installable maintenance deferred の queue / worker lifecycle、`RenameChartFolder` 単一 folder move workflow を coordinator seam へ分離済み |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -1370,3 +1370,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C48: RenameChartFolder single-folder move coordinator seam` として、`RenameChartFolder` / `MoveLibraryChartFolderInternal` / `TryMoveLibraryChartFolder` の単一フォルダ move workflow を coordinator seam へ移す。`MergeChartDirectory`、`MoveLibraryRootFolder` の複数 folder semantics、`MoveChartPackageFiles`、package install、maintenance result apply、resource health mutation は触らない。
+
+## Completed Checkpoint: `REF-MVP-C48`
+
+状態: completed checkpoint。
+
+目的:
+
+- `RenameChartFolder` / 単一 folder move workflow を `BmsLibraryInternal` の coordinator seam へ移す。
+- root `BMSLibrary` は LR2 sync block、root folder guard、dialog、lock boundary、file move / reverse lookup、folder move delta build、delta apply を host として提供する。
+- `MergeChartDirectory`、`MoveChartPackageFiles`、package install、maintenance result apply、resource health mutation は触らない。
+
+完了条件:
+
+- `RenameChartFolder` の public surface、null guard、root folder warning、lock order、destination path、dialog timing が維持されている。
+- successful move path で reverse lookup update、warmup queue、folder move delta apply、duplicate cache invalidation が維持されている。
+- no-op / destination exists / move failure の挙動と dialogs が維持されている。
+- build / folder-file operation 関連 tests / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `LibraryFolderMoveCoordinator` と `ILibraryFolderMoveHost` を追加し、`RenameChartFolder` と単一 folder move apply を coordinator へ移した。
+- `BMSLibrary.LibraryFolderMoveHost.cs` を追加し、LR2 sync block、root folder 判定、dialog、lock boundary、file move / reverse lookup、folder move delta build、delta apply を host bridge として提供する形にした。
+- `MoveLibraryRootFolder` は plan 生成と lock semantics を維持し、各 plan の単一 move apply だけ同じ coordinator helper を呼ぶ形にした。
+- `MergeChartDirectory`、`MoveChartPackageFiles`、package install、maintenance result apply、resource health mutation は未変更。
+- `BMSLibrary.cs` は 17,133 行、coordinator は 138 行、host は 112 行。
+- build、folder/dialog/source-text targeted tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。初回 full test で `CreateLr2SongDbSyncInputWithoutScanSurface_KeepsPhysicalLr2FoldersWhenNoManagedPlaylistScopeExists` が 1 回失敗したが、同テスト単体 rerun と full test rerun は pass した。
+
+次にやる 1 件:
+
+- `REF-MVP-C49: folder/file operation follow-up boundary review` として、C48 の coordinator seam を `MoveLibraryRootFolder` 全体へ広げるか、`RemoveLibraryCharts` / `RenameBMSFilesExtensions` など別の file operation workflow へ進むかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

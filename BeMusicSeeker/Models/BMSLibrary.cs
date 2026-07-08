@@ -16383,48 +16383,7 @@ completeFileEnumerationOnce,
     /// </summary>
     public void RenameChartFolder(string srcDir, string newName, bool? unregister = false, bool renameRootFolder = false)
     {
-        if (srcDir == null)
-        {
-            throw new ArgumentNullException("srcDir");
-        }
-        if (newName == null)
-        {
-            throw new ArgumentNullException("newName");
-        }
-        if (TryBlockLr2SongDbSyncMutation(nameof(RenameChartFolder)))
-        {
-            return;
-        }
-        if (!renameRootFolder && getBMSDirectories().Contains(srcDir, StringComparer.OrdinalIgnoreCase))
-        {
-            ShowOperationDialog(string.Format(Resources.Warn_CannotRenameRootFolder, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            return;
-        }
-        newName = NormalizeAutoRenameFolderName(newName);
-        if (string.IsNullOrWhiteSpace(newName) || Path.GetPathRoot(srcDir).Equals(srcDir, StringComparison.OrdinalIgnoreCase))
-        {
-            return;
-        }
-        if (!LongPathFileSystem.DirectoryExists(srcDir))
-        {
-            ShowOperationDialog(string.Format(Resources.Warn_RenameFolderNotExists, srcDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            return;
-        }
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockBMSFiles.GetWriterGuard())
-                {
-                    string dstDir = Path.Combine(Path.GetDirectoryName(srcDir), newName);
-                    MoveLibraryChartFolderInternal(srcDir, dstDir, unregister, notifyStorageRowPathChanges: false);
-                    if (unregister == false)
-                    {
-                        InvalidateDuplicateChartGroupsCache();
-                    }
-                }
-            }
-        }
+        LibraryFolderMoveCoordinator.RenameChartFolder(this, srcDir, newName, unregister, renameRootFolder);
     }
 
     internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
@@ -16460,56 +16419,15 @@ completeFileEnumerationOnce,
                     }
                     foreach (FolderAutoRenamePlan plan in plans)
                     {
-                        MoveLibraryChartFolderInternal(plan.SourceDirectory, plan.DestinationDirectory, unregister, notifyStorageRowPathChanges: true);
+                        LibraryFolderMoveCoordinator.MoveLibraryChartFolder(
+                            this,
+                            plan.SourceDirectory,
+                            plan.DestinationDirectory,
+                            unregister,
+                            notifyStorageRowPathChanges: true);
                     }
                 }
             }
-        }
-    }
-
-    private void MoveLibraryChartFolderInternal(string srcDir, string dstDir, bool? unregister, bool notifyStorageRowPathChanges)
-    {
-        if (!TryMoveLibraryChartFolder(srcDir, dstDir))
-        {
-            return;
-        }
-        if (unregister != false && unregister != true)
-        {
-            return;
-        }
-        LibraryMutationDelta delta = libraryFileOperationsService.BuildFolderMoveDelta(
-            srcDir,
-            dstDir,
-            CreateOwnedRealPathChartRefsUnsafe(srcDir),
-            CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
-            ChartPackagesPending,
-            ChartPackagesInstalled,
-            unregister == true,
-            notifyStorageRowPathChanges: notifyStorageRowPathChanges);
-        ApplyLibraryMutationDelta(delta);
-    }
-
-    private bool TryMoveLibraryChartFolder(string srcDir, string dstDir)
-    {
-        if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-        if (LongPathFileSystem.EntryExists(dstDir))
-        {
-            ShowOperationDialog(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            return false;
-        }
-        try
-        {
-            DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = libraryFileOperationsService.MoveFolderAndUpdateReferences(srcDir, dstDir, directoryResourceLookupCache, fileMutationService, recursiveDirectoryTreeFileMutationOptions);
-            LogReverseLookupMutationAndQueueWarmupIfNeeded("move_folder", reverseLookupMutation);
-            return true;
-        }
-        catch (Exception moveException)
-        {
-            ShowOperationDialog(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            return false;
         }
     }
 

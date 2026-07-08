@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C47: Lane C boundary review after maintenance deferred seams` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C48: RenameChartFolder single-folder move coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -374,7 +374,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 |---|---:|---:|---|
 | `MainWindowViewModel.cs` | 23,413 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
-| `BMSLibrary.cs` | 17,215 行 | 12,000 行以下 | RenameChartFolder single-folder move、maintenance result apply contract prep、folder/file operation follow-up、package install follow-up |
+| `BMSLibrary.cs` | 17,133 行 | 12,000 行以下 | folder/file operation follow-up、maintenance result apply contract prep、package install follow-up |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
 
 Guardrail 超過は現時点では既知。残す理由は「MVP active lanes の extraction 前であるため」。次の extraction 候補は上表を正本とする。
@@ -434,9 +434,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C47` として [Lane C boundary after maintenance deferred seams](./decisions/REF-MVP-C47_lane_c_boundary_after_maintenance_deferred.md) をレビューした。maintenance result apply は C45 の blocker が残るためまだ移動しない。`MergeChartDirectory` と `installChartPackages` は横断範囲が大きいため初手にしない。次は `RenameChartFolder` の単一フォルダ move workflow を coordinator seam へ移す。
 
-現在の active ticket: なし。`REF-MVP-C47` completed checkpoint。
+`REF-MVP-C48` として `RenameChartFolder` / 単一 folder move workflow を `BmsLibraryInternal/LibraryFolderMoveCoordinator.cs` へ移した。root `BMSLibrary` は `BMSLibrary.LibraryFolderMoveHost.cs` で LR2 sync block、root folder guard、dialog、lock boundary、file move / reverse lookup、folder move delta build、delta apply を提供する host になっている。`MoveLibraryRootFolder` は plan 生成と lock semantics を維持し、各 plan の単一 move apply だけ同じ coordinator helper を呼ぶ形にした。`MergeChartDirectory`、`MoveChartPackageFiles`、package install、maintenance result apply、resource health mutation は触っていない。`BMSLibrary.cs` は 17,133 行、coordinator は 138 行、host は 112 行。build、folder/dialog/source-text targeted tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。初回 full test で `CreateLr2SongDbSyncInputWithoutScanSurface_KeepsPhysicalLr2FoldersWhenNoManagedPlaylistScopeExists` が 1 回失敗したが、同テスト単体 rerun と full test rerun は pass した。
 
-次にやる 1 件: `REF-MVP-C48: RenameChartFolder single-folder move coordinator seam` として、`RenameChartFolder` / `MoveLibraryChartFolderInternal` / `TryMoveLibraryChartFolder` の単一フォルダ move workflow を coordinator seam へ移す。`MergeChartDirectory`、`MoveLibraryRootFolder` の複数 folder semantics、`MoveChartPackageFiles`、package install、maintenance result apply、resource health mutation は触らない。
+現在の active ticket: なし。`REF-MVP-C48` completed checkpoint。
+
+次にやる 1 件: `REF-MVP-C49: folder/file operation follow-up boundary review` として、C48 の coordinator seam を `MoveLibraryRootFolder` 全体へ広げるか、`RemoveLibraryCharts` / `RenameBMSFilesExtensions` など別の file operation workflow へ進むかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 
