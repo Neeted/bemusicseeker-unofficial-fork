@@ -15893,49 +15893,7 @@ completeFileEnumerationOnce,
 
     internal void FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths = null)
     {
-        if (charts == null)
-        {
-            throw new ArgumentNullException("charts");
-        }
-        if (TryBlockLr2SongDbSyncMutation(nameof(FixInstallationDirectoryCharts)))
-        {
-            return;
-        }
-        HashSet<string> approvedDuplicateRemovalPaths = approvedDuplicateRemovalChartPaths == null
-            ? null
-            : new HashSet<string>(approvedDuplicateRemovalChartPaths.Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
-        using (rwlockBMSFilesInitializedAll.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetWriterGuard())
-            {
-                List<ChartFile> chartList = [.. charts.Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
-                IPrimaryHashLookup existingHashes = CreateInstalledChartKeySnapshotExcludingChartsUnsafe(chartList);
-                LibraryFixInstallationResult result = libraryFileOperationsService.FixInstallationDirectory(
-                    chartList,
-                    (package, destinationDirectory) => MoveChartPackageFiles(package, destinationDirectory, showMessageBoxOnInstallFail: true, deleteAllContents: false, existingHashes: existingHashes),
-                    delegate (ChartFile chart)
-                    {
-                        if (approvedDuplicateRemovalPaths != null)
-                        {
-                            return !string.IsNullOrWhiteSpace(chart?.Path) && approvedDuplicateRemovalPaths.Contains(chart.Path);
-                        }
-                        return ShowOperationDialog(string.Format(Resources.Confirm_DuplicateReinstallSkipped, chart.Path, string.Join(Environment.NewLine, GetDuplicateInstallRepairPaths(chart))), Resources.MessageBoxTitle_Confirm, MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes) == MessageBoxResult.Yes;
-                    });
-                ApplyLibraryMutationDelta(result.MutationDelta);
-                if (result.ChartsToRemove.Count > 0)
-                {
-                    RemoveLibraryCharts(result.ChartsToRemove, approvedWholeFolderDeletePaths: []);
-                }
-                List<ChartFile> maintenanceTargets = NormalizeResourceMaintenanceTargetCharts(result.MaintenanceCharts);
-                if (maintenanceTargets.Count > 0)
-                {
-                    setMaintenanceInfo(
-                        maintenanceTargets,
-                        forceUpdate: true,
-                        resourceHealthMutationReason: "fix_installation_directory");
-                }
-            }
-        }
+        LibraryFixInstallationCoordinator.FixInstallationDirectoryCharts(this, charts, approvedDuplicateRemovalChartPaths);
     }
 
     /// <summary>

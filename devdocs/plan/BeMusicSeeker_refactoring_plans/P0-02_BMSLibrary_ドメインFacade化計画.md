@@ -1663,3 +1663,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C58: FixInstallationDirectoryCharts coordinator seam` として、`FixInstallationDirectoryCharts` の LR2 sync block、lock boundary、installed hash snapshot、package move callback、duplicate confirmation、delta apply、duplicate source removal、maintenance apply を dedicated coordinator seam へ移す。`MergeChartDirectory`、`installChartPackages` callback 契約、`MoveChartPackageFiles` core behavior、maintenance result apply は触らない。
+
+## Completed Checkpoint: `REF-MVP-C58`
+
+状態: completed checkpoint。
+
+目的:
+
+- `FixInstallationDirectoryCharts` の LR2 sync block、lock boundary、installed hash snapshot、package move callback、duplicate confirmation、delta apply、duplicate source removal、maintenance apply を dedicated coordinator seam へ移す。
+- root `BMSLibrary` は repair workflow host として UI / state / lock / package move seam を提供する。
+- `BmsLibraryLibraryFileOperationsService.FixInstallationDirectory` core behavior、`MoveChartPackageFiles` seam、`RemoveLibraryCharts` seam、`MergeChartDirectory`、`installChartPackages` callback 契約、maintenance result apply は触らない。
+
+完了条件:
+
+- `FixInstallationDirectoryCharts` public/internal API、duplicate confirmation、approved duplicate removal path、hash snapshot、maintenance apply の意味が維持されている。
+- duplicate source removal は既存 `RemoveLibraryCharts(... approvedWholeFolderDeletePaths: [])` seam 経由のまま維持されている。
+- build / repair・package install・duplicate 関連 tests / format / diff check / Roslynator warning / 静的レビュー / full test が完了している。
+
+実装結果:
+
+- `LibraryFixInstallationCoordinator` と `ILibraryFixInstallationHost` を追加し、repair workflow の orchestration を coordinator へ移した。
+- `BMSLibrary.FixInstallationHost.cs` を追加し、LR2 sync block、lock boundary、installed hash snapshot、package move callback、duplicate confirmation、delta apply、duplicate source removal、maintenance apply を host bridge として提供する形にした。
+- `BMSLibrary.cs` の `FixInstallationDirectoryCharts` は coordinator 呼び出しだけになった。
+- `BmsLibraryLibraryFileOperationsService.FixInstallationDirectory` core behavior、`MoveChartPackageFiles` seam、`RemoveLibraryCharts` seam、`MergeChartDirectory`、`installChartPackages` callback 契約、maintenance result apply は未変更。
+- `BMSLibrary.cs` は 16,950 行、coordinator は 75 行、host は 85 行。
+- build、repair / package install / duplicate / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C59: merge / install boundary after repair seam` として、`MergeChartDirectory`、`installChartPackages` follow-up、maintenance result apply contract prep、または repair seam 追加整理のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
