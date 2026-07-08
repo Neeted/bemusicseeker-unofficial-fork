@@ -6898,11 +6898,6 @@ completeFileEnumerationOnce,
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface = scanSurfaceSelection.Surface;
         scanSurfaceStopwatch.Stop();
 
-        var directoryTargetsStopwatch = Stopwatch.StartNew();
-        IReadOnlyCollection<string> directoryMetadataTargets =
-            CreateLr2SongDbSyncDirectoryMetadataTargets(scanSurface, rootSnapshot, rowSnapshot);
-        directoryTargetsStopwatch.Stop();
-
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection =
             CreateLr2SongDbSyncPreparedSurfaceSelection(scanSurface);
         var inputBuilder = new Lr2SongDbSyncInputBuilder(
@@ -6917,7 +6912,6 @@ completeFileEnumerationOnce,
             rootSnapshot,
             settingsSnapshot,
             scanSurfaceSelection,
-            directoryMetadataTargets,
             preparedSurfaceSelection,
             appManagedOutputScope,
             inputStopwatch,
@@ -6925,7 +6919,6 @@ completeFileEnumerationOnce,
             rootsStopwatch,
             builtinSettingsStopwatch,
             scanSurfaceStopwatch,
-            directoryTargetsStopwatch,
             lr2FolderCandidatesStopwatch);
     }
 
@@ -6940,16 +6933,6 @@ completeFileEnumerationOnce,
             out string scanSurfaceMissReason);
 
         return new Lr2SongDbSyncScanSurfaceSelection(scanSurface, scanSurfaceMissReason);
-    }
-
-    private IReadOnlyCollection<string> CreateLr2SongDbSyncDirectoryMetadataTargets(
-        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
-        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
-        Lr2SongDbSyncInputRowSnapshot rowSnapshot)
-    {
-        return scanSurface?.NormalFolderDirectoryPaths?.Count > 0
-            ? scanSurface.NormalFolderDirectoryPaths
-            : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootSnapshot.RootDirectories, rowSnapshot.ChartPaths);
     }
 
     private Lr2SongDbSyncInputRowSnapshot CreateLr2SongDbSyncInputRowSnapshot()

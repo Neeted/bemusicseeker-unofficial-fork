@@ -15,7 +15,6 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         Lr2SongDbSyncInputRootSnapshot rootSnapshot,
         Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot,
         Lr2SongDbSyncScanSurfaceSelection scanSurfaceSelection,
-        IReadOnlyCollection<string> directoryMetadataTargets,
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope,
         Stopwatch inputStopwatch,
@@ -23,10 +22,15 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         Stopwatch rootsStopwatch,
         Stopwatch builtinSettingsStopwatch,
         Stopwatch scanSurfaceStopwatch,
-        Stopwatch directoryTargetsStopwatch,
         Stopwatch lr2FolderCandidatesStopwatch)
     {
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface = scanSurfaceSelection.Surface;
+        lr2FolderCandidatesStopwatch.Stop();
+        var directoryTargetsStopwatch = Stopwatch.StartNew();
+        IReadOnlyCollection<string> directoryMetadataTargets =
+            CreateDirectoryMetadataTargets(scanSurface, rootSnapshot, rowSnapshot);
+        directoryTargetsStopwatch.Stop();
+        lr2FolderCandidatesStopwatch.Start();
         Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection =
             CreateFolderCandidateSelection(
                 scanSurface,
@@ -109,6 +113,16 @@ internal sealed class Lr2SongDbSyncInputBuilder(
             lr2FolderFileCandidates,
             textFileDirectories,
             scanSurfaceSelection);
+    }
+
+    private static IReadOnlyCollection<string> CreateDirectoryMetadataTargets(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
+        Lr2SongDbSyncInputRowSnapshot rowSnapshot)
+    {
+        return scanSurface?.NormalFolderDirectoryPaths?.Count > 0
+            ? scanSurface.NormalFolderDirectoryPaths
+            : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootSnapshot.RootDirectories, rowSnapshot.ChartPaths);
     }
 
     private Lr2SongDbSyncFolderCandidateSelection CreateFolderCandidateSelection(

@@ -1194,3 +1194,34 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C42: LR2 sync input normal directory metadata target builder ownership` として、normal directory metadata target selection を builder ownership へ移し、`directoryTargetsMs` の計測範囲と log values を維持する。row/root/settings/scan/prepared/app-managed scope 採取、DB schema、setting name、private reflection entry point は触らない。
+
+## Completed Checkpoint: `REF-MVP-C42`
+
+状態: completed checkpoint。
+
+目的:
+
+- normal directory metadata target selection を `Lr2SongDbSyncInputBuilder` へ移す。
+- `CreateLr2SongDbSyncInput` から `directoryMetadataTargets` local と helper を外す。
+- `directoryTargetsMs` の計測範囲と log values を維持する。
+
+完了条件:
+
+- `Lr2SongDbSyncInputBuilder` が normal directory metadata target selection を直接担当している。
+- `CreateLr2SongDbSyncInput` から `directoryMetadataTargets` local と `CreateLr2SongDbSyncDirectoryMetadataTargets` helper が消えている。
+- `directoryTargetsMs` のログ項目名、ログ順序、ログ値の意味が維持され、`lr2FolderCandidatesMs` に directory target 作成時間が混入しない。
+- row/root/settings/scan/prepared/app-managed scope 採取、DB schema、setting name、serialized/public surface、private `CreateLr2SongDbSyncInput` entry point は変更していない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncInputBuilder` が normal directory metadata target selection を直接担当する形にした。
+- `CreateLr2SongDbSyncInput` から `directoryMetadataTargets` local と `CreateLr2SongDbSyncDirectoryMetadataTargets` helper を外した。
+- `directoryTargetsMs` は builder 内で同じ normal directory metadata target 作成時間を測る。
+- `lr2FolderCandidatesMs` には directory target 作成時間が混入しないよう、builder 内の directory target 作成中だけ `lr2FolderCandidatesStopwatch` を一時停止する。
+- `BMSLibrary.cs` は 17,577 行、builder は 394 行。
+- build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C43: LR2 sync input builder lane closure review` として、C42 後に LR2 sync input builder lane を閉じるか、Lane C の別 workflow へ移るかを判断する。production code 変更は、次の実装単位が明確に決まるまで行わない。
