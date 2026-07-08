@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C45: maintenance hydration result apply boundary review` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C46: installable maintenance deferred coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -374,7 +374,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 |---|---:|---:|---|
 | `MainWindowViewModel.cs` | 23,413 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
-| `BMSLibrary.cs` | 17,424 行 | 12,000 行以下 | installable maintenance deferred、maintenance result apply contract prep、folder/file operation、package install follow-up |
+| `BMSLibrary.cs` | 17,215 行 | 12,000 行以下 | maintenance result apply contract prep、folder/file operation、package install follow-up |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
 
 Guardrail 超過は現時点では既知。残す理由は「MVP active lanes の extraction 前であるため」。次の extraction 候補は上表を正本とする。
@@ -430,9 +430,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C45` として [maintenance hydration result apply boundary](./decisions/REF-MVP-C45_maintenance_hydration_result_apply_boundary.md) をレビューした。`ApplyMaintenanceHydrationResult` / `DispatchMaintenanceHydrationResult` は root lock、owner view、resource health nested mutation、maintenance DB cleanup、private reflection / source-text tests が重なるため、現時点では移動しない。production code は変更していない。次は `installable_maintenance_deferred` の queue / worker lifecycle を coordinator seam へ移す。
 
-現在の active ticket: なし。`REF-MVP-C45` completed checkpoint。
+`REF-MVP-C46` として `installable_maintenance_deferred` の queue / worker lifecycle を `BmsLibraryInternal/InstallableMaintenanceDeferredCoordinator.cs` へ移した。root `BMSLibrary` は `BMSLibrary.InstallableMaintenanceHost.cs` で request state、snapshot 作成、`setModeAndCommitToDB`、`setInstallableMaintenanceInfo("installable_maintenance_deferred")`、write-lock flag reset、logging を提供する host になっている。`setInstallableMaintenanceInfo` 内部、resource health index mutation、maintenance DB schema、warning projection、`ApplyMaintenanceHydrationResult` は触っていない。`BMSLibrary.cs` は 17,215 行、coordinator は 298 行、host は 161 行。build、targeted tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。初回 full test で `QueueLr2SongDbSync_RunsLr2SongDbSyncAndMarksCompletedWhenClean` が 1 回失敗したが、同テスト単体 rerun と full test rerun は pass した。
 
-次にやる 1 件: `REF-MVP-C46: installable maintenance deferred coordinator seam` として、`QueueDeferredInstallableMaintenance`、`CompleteInstallableMaintenanceForShutdown`、deferred worker lifecycle を coordinator seam へ移す。`setInstallableMaintenanceInfo` 内部、resource health index mutation、maintenance DB schema、warning projection、`ApplyMaintenanceHydrationResult` は触らない。
+現在の active ticket: なし。`REF-MVP-C46` completed checkpoint。
+
+次にやる 1 件: `REF-MVP-C47: Lane C boundary review after maintenance deferred seams` として、C44-C46 後に残る maintenance result apply / resource health mutation / folder-file operation / package install follow-up のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 

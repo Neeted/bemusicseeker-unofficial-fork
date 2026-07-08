@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,424 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,215 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
 
 `BMSLibrary` は public compatibility facade として残してよい。ただし、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling は service / coordinator へ移す。
 
@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 17,424 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration queue / worker lifecycle を coordinator seam へ分離済み |
+| `BMSLibrary.cs` 行数 | 17,215 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration と installable maintenance deferred の queue / worker lifecycle を coordinator seam へ分離済み |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -1311,3 +1311,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C46: installable maintenance deferred coordinator seam` として、`QueueDeferredInstallableMaintenance`、`CompleteInstallableMaintenanceForShutdown`、deferred worker lifecycle を coordinator seam へ移す。`setInstallableMaintenanceInfo` 内部、resource health index mutation、maintenance DB schema、warning projection、`ApplyMaintenanceHydrationResult` は触らない。
+
+## Completed Checkpoint: `REF-MVP-C46`
+
+状態: completed checkpoint。
+
+目的:
+
+- `installable_maintenance_deferred` の queue / worker lifecycle を `BmsLibraryInternal` の coordinator seam へ移す。
+- root `BMSLibrary` は request state、snapshot 作成、`setModeAndCommitToDB`、`setInstallableMaintenanceInfo`、write-lock flag reset、logging を host として提供する。
+- `setInstallableMaintenanceInfo` 内部、resource health index mutation、maintenance DB schema、warning projection、`ApplyMaintenanceHydrationResult` は触らない。
+
+完了条件:
+
+- `QueueDeferredInstallableMaintenance` が root workflow 本体ではなく coordinator 呼び出しになっている。
+- queue / skipped / run / done / failed log key、requested/completed version、running flag、critical elapsed ms の意味が維持されている。
+- `setModeAndCommitToDB` と `setInstallableMaintenanceInfo("installable_maintenance_deferred")` の順序が維持されている。
+- build / targeted tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `InstallableMaintenanceDeferredCoordinator` と `IInstallableMaintenanceDeferredHost` を追加し、installable maintenance deferred の queue / worker lifecycle を coordinator へ移した。
+- `BMSLibrary.InstallableMaintenanceHost.cs` を追加し、request state、snapshot 作成、set mode、installable maintenance info、write-lock flag reset、snapshot release、logging を host bridge として提供する形にした。
+- `QueueDeferredInstallableMaintenance` は coordinator 呼び出しだけになった。
+- `setInstallableMaintenanceInfo` 内部、resource health index mutation、maintenance DB schema、warning projection、`ApplyMaintenanceHydrationResult` は未変更。
+- `BMSLibrary.cs` は 17,215 行、coordinator は 298 行、host は 161 行。
+- build、targeted tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。初回 full test で `QueueLr2SongDbSync_RunsLr2SongDbSyncAndMarksCompletedWhenClean` が 1 回失敗したが、同テスト単体 rerun と full test rerun は pass した。
+
+次にやる 1 件:
+
+- `REF-MVP-C47: Lane C boundary review after maintenance deferred seams` として、C44-C46 後に残る maintenance result apply / resource health mutation / folder-file operation / package install follow-up のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

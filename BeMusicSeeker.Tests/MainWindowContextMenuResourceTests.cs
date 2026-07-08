@@ -3473,7 +3473,7 @@ public sealed class MainWindowContextMenuResourceTests
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string applyMethod = ExtractMethodBody(libraryCode, "private void ApplyMaintenanceHydrationResult");
         string countMethod = ExtractMethodBody(libraryCode, "private int CountInstallableMaintenanceSnapshotTargets");
-        string queueMethod = ExtractMethodBody(libraryCode, "private void QueueDeferredInstallableMaintenance");
+        string snapshotMethod = ExtractMethodBody(libraryCode, "private InstallableMaintenanceSnapshot CreateInstallableMaintenanceSnapshot");
 
         StringAssert.Contains(applyMethod, "OwnedChartStorageOwnerView ownerView = CreateOwnedChartStorageOwnerViewUnsafe()");
         StringAssert.Contains(applyMethod, "foreach (BMSFile item in ownerView.BmsFiles)");
@@ -3493,8 +3493,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(applyMethod.Contains("foreach (LR2SongDBExtended.bmson_song item in BmsonSongs"));
         StringAssert.Contains(countMethod, "(BMSFiles?.Count ?? 0) + (BmsonSongs?.Count ?? 0)");
         Assert.IsFalse(countMethod.Contains("CreateOwnedChartStorageOwnerViewUnsafe().Count"));
-        StringAssert.Contains(queueMethod, "snapshotCount = CreateOwnedChartStorageOwnerViewUnsafe().Count");
-        Assert.IsFalse(queueMethod.Contains("bmsonSnapshotCount"));
+        StringAssert.Contains(snapshotMethod, "snapshotCount = CreateOwnedChartStorageOwnerViewUnsafe().Count");
+        Assert.IsFalse(snapshotMethod.Contains("bmsonSnapshotCount"));
     }
 
     [TestMethod]
