@@ -1400,3 +1400,31 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C49: folder/file operation follow-up boundary review` として、C48 の coordinator seam を `MoveLibraryRootFolder` 全体へ広げるか、`RemoveLibraryCharts` / `RenameBMSFilesExtensions` など別の file operation workflow へ進むかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C49`
+
+状態: completed checkpoint。
+
+目的:
+
+- C48 後の folder/file operation follow-up を比較する。
+- `MoveLibraryRootFolder` 全体へ coordinator seam を広げるか、`RemoveLibraryCharts` / `RenameBMSFilesExtensions` など別 workflow へ進むかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `RemoveLibraryCharts` / `RenameBMSFilesExtensions` / `MergeChartDirectory` を今触らない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check が完了している。
+
+実装結果:
+
+- [REF-MVP-C49 Folder/File Operation Follow-up Boundary](./decisions/REF-MVP-C49_folder_file_operation_followup_boundary.md) を追加した。
+- C48 の coordinator seam が `MoveLibraryRootFolder` の plan ごとの単一 move apply で既に使われているため、次は `MoveLibraryRootFolder` 全体を同じ coordinator seam へ寄せる判断にした。
+- `RemoveLibraryCharts`、`RenameBMSFilesExtensions`、`MergeChartDirectory` は C50 後に再評価する。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C50: MoveLibraryRootFolder coordinator seam` として、`MoveLibraryRootFolder` の null guard、LR2 sync block、lock boundary、destination root guard、plan build、drive root warning、single-folder move apply を `LibraryFolderMoveCoordinator` へ寄せる。`RenameChartFolder` の挙動変更、`MergeChartDirectory`、package install、maintenance result apply、resource health mutation は触らない。
