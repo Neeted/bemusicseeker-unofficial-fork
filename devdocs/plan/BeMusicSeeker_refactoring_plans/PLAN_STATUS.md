@@ -486,9 +486,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C73` として [maintenance dispatch bridge after hydration planner](./decisions/REF-MVP-C73_maintenance_dispatch_bridge_after_hydration_planner.md) をレビューした。`OwnedChartCollectionMutationResult` は maintenance hydration 以外の workflow も多数抱える大きな private contract のため、今 top-level 化しない。次は maintenance hydration 固有の presentation flags と resource health mutation construction を top-level dispatch plan / planner へ移し、root は `OwnedChartCollectionMutationResult` adapter に寄せる判断にした。production code は変更していない。
 
-現在の active ticket: `REF-MVP-C74: maintenance hydration dispatch plan seam`。
+`REF-MVP-C74` として `MaintenanceHydrationDispatchPlan` を追加し、maintenance hydration 固有の warning presentation、maintenance presentation、resource health mutation を top-level plan / planner へ移した。root `BuildMaintenanceHydrationMutationResult` は `ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationDispatchPlan` の plan を `OwnedChartCollectionMutationResult` に変換する adapter になった。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の top-level 化は触っていない。`BMSLibrary.cs` は 16,474 行、`ResourceHealthIndexMutationPlanner.cs` は 71 行、`MaintenanceHydrationDispatchPlan.cs` は 20 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-次にやる 1 件: maintenance hydration 固有の presentation flags と resource health mutation construction を top-level dispatch plan / planner へ移し、root `BuildMaintenanceHydrationMutationResult` は plan を `OwnedChartCollectionMutationResult` に変換する adapter にする。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の top-level 化は触らない。
+現在の active ticket: `REF-MVP-C75: maintenance dispatch reflection boundary review`。
+
+次にやる 1 件: C74 後に残る `DispatchMaintenanceHydrationResult` private reflection test を direct plan / adapter test へ寄せるか、dispatch bridge 自体を service seam にするかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 

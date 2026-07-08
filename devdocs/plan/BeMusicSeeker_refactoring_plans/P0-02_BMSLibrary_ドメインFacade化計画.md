@@ -2145,3 +2145,36 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C74: maintenance hydration dispatch plan seam` として、maintenance hydration 固有の presentation flags と resource health mutation construction を top-level dispatch plan / planner へ移し、root `BuildMaintenanceHydrationMutationResult` は plan を `OwnedChartCollectionMutationResult` に変換する adapter にする。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の top-level 化は触らない。
+
+## Completed Checkpoint: `REF-MVP-C74`
+
+状態: completed checkpoint。
+
+目的:
+
+- `MaintenanceHydrationDispatchPlan` のような top-level internal contract を追加する。
+- warning presentation refresh、maintenance presentation refresh、resource health mutation を plan に閉じ込める。
+- `ResourceHealthIndexMutationPlanner` または dedicated planner に maintenance hydration dispatch plan builder を追加する。
+- root `BuildMaintenanceHydrationMutationResult` は plan を `OwnedChartCollectionMutationResult` に変換する adapter にする。
+
+完了条件:
+
+- maintenance hydration 固有の presentation flags と resource health mutation construction が top-level plan / planner に移っている。
+- `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` は root private contract のまま残している。
+- `DispatchMaintenanceHydrationResult` の dispatch order と `ResourceHealthIndexMs` update の意味が変わっていない。
+- source-text tests は root inline construction ではなく plan / adapter 境界を検査している。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/MaintenanceHydrationDispatchPlan.cs` を追加した。
+- `ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationDispatchPlan` を追加し、warning presentation、maintenance presentation、resource health full rebuild mutation を plan として返す形にした。
+- root `BuildMaintenanceHydrationMutationResult` は plan を `OwnedChartCollectionMutationResult` に変換する `CreateMaintenanceHydrationMutationResult` adapter を呼ぶ形になった。
+- `DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の top-level 化は未変更。
+- `MainWindowContextMenuResourceTests.MaintenanceHydrationUsesOwnedStorageOwnerView` は plan / adapter 境界を検査する形へ更新した。
+- `BMSLibrary.cs` は 16,474 行、`ResourceHealthIndexMutationPlanner.cs` は 71 行、`MaintenanceHydrationDispatchPlan.cs` は 20 行。
+- build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C75: maintenance dispatch reflection boundary review` として、C74 後に残る `DispatchMaintenanceHydrationResult` private reflection test を direct plan / adapter test へ寄せるか、dispatch bridge 自体を service seam にするかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

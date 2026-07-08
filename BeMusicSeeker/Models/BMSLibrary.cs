@@ -12360,11 +12360,21 @@ completeFileEnumerationOnce,
     private static OwnedChartCollectionMutationResult BuildMaintenanceHydrationMutationResult(
         ResourceMaintenanceTargetSet fullOwnedTargets)
     {
-        var result = new OwnedChartCollectionMutationResult(
-            ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationFullRebuildMutation(fullOwnedTargets))
+        return CreateMaintenanceHydrationMutationResult(
+            ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationDispatchPlan(fullOwnedTargets));
+    }
+
+    private static OwnedChartCollectionMutationResult CreateMaintenanceHydrationMutationResult(
+        MaintenanceHydrationDispatchPlan plan)
+    {
+        if (plan == null)
         {
-            WarningPresentationChanged = true,
-            MaintenancePresentationChanged = true
+            throw new ArgumentNullException(nameof(plan));
+        }
+        var result = new OwnedChartCollectionMutationResult(plan.ResourceHealthMutation)
+        {
+            WarningPresentationChanged = plan.WarningPresentationChanged,
+            MaintenancePresentationChanged = plan.MaintenancePresentationChanged
         };
         return result;
     }
