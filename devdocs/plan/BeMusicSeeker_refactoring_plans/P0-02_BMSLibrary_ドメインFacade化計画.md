@@ -919,3 +919,27 @@ BMSLibrary                         // public facade / compatibility API
 - `Lr2SongDbSyncInputSurfaceTimings` を追加し、Stopwatch 群を dedicated timing DTO 経由で formatter に渡す形にした。
 - `directoryEntriesMs`、`rowSnapshotMs`、`rootsMs`、`builtinSettingsMs`、`scanSurfaceLookupMs`、`directoryTargetsMs`、`lr2FolderCandidatesMs`、`folderInfoCandidatesMs`、`textFileDirsMs`、`totalMs` のログ項目名・順序・値対応は維持した。
 - ログ項目、selection 順序、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C32`
+
+状態: completed checkpoint。
+
+目的:
+
+- C18-C31 後の `CreateLr2SongDbSyncInput` が root orchestration として妥当かをレビューする。
+- 次に service / builder extraction へ進むか、もう 1 件だけ DTO wiring / helper placement を切るかを decision record 化する。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- まだ root に残すべき state / concurrency 境界が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check / 静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C32 LR2 Sync Input Composition Surface Decision](./decisions/REF-MVP-C32_lr2_sync_input_composition_surface.md) を追加した。
+- `CreateLr2SongDbSyncInput` は現時点では root orchestration として許容し、full service / builder extraction の前に `REF-MVP-C33: LR2 sync input prepared surface selection boundary` を 1 ticket だけ挟む判断にした。
+- root に残す state / concurrency 境界として、scan surface snapshot state access、row snapshot reader lock、root/settings compatibility boundary、prepared surface consumption timing を明記した。
+- production code は変更していない。
