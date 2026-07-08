@@ -2324,3 +2324,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C80: resource health full-owned target freshness seam` として、full-owned target が current storage rows / owned collection / resource health input version と一致しているかの判定を `BmsLibraryInternal` の top-level helper へ移し、direct unit test を追加する。
+
+## Completed Checkpoint: `REF-MVP-C80`
+
+状態: completed checkpoint。
+
+目的:
+
+- full-owned target が current storage rows / owned collection / resource health input version と一致しているかの判定を `BmsLibraryInternal` の top-level helper へ移す。
+- `BMSLibrary` の private method は root state を snapshot して helper へ渡すだけに近づける。
+- direct unit test で fresh / stale / no full-owned version / unstable input version を private reflection なしで確認する。
+
+完了条件:
+
+- full-owned target freshness の比較ロジックが root private method に残っていない。
+- `ResourceMaintenanceTargetSet` の persisted value、serialized name、DB schema、public API は変更していない。
+- stale full target private reflection test は root dispatch integration として残してよい。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/ResourceHealthFullOwnedTargetFreshness.cs` を追加した。
+- root `IsCurrentFullOwnedResourceHealthTargetVersion` は current storage rows / owned collection / resource health input version を snapshot し、top-level helper へ渡す bridge になった。
+- `ResourceHealthFullOwnedTargetFreshnessTests` を追加し、fresh、storage rows stale、owned collection stale、resource health input stale、unstable input、subset target を private reflection なしで確認した。
+- stale full target private reflection test は root dispatch integration として残している。
+- `BMSLibrary.cs` は 16,446 行、helper は 22 行、direct tests は 109 行。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C81: stale full target reflection reduction review` として、C80 後に stale full target private reflection test を direct freshness tests + narrower root integration test へ分けられるか、または `OwnedChartCollectionMutationResult` の contract 境界整理を先に進めるべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

@@ -13781,36 +13781,17 @@ completeFileEnumerationOnce,
         return targetSet.HasFullOwnedVersion;
     }
 
-    private static bool HasFullOwnedResourceHealthTargetVersion(
-        StorageRowsVersionSnapshot? storageRowsVersion,
-        int? ownedCollectionVersion,
-        int? resourceHealthInputVersion)
-    {
-        return storageRowsVersion.HasValue
-            && ownedCollectionVersion.HasValue
-            && resourceHealthInputVersion.HasValue;
-    }
-
     private bool IsCurrentFullOwnedResourceHealthTargetVersion(ResourceMaintenanceTargetSet targetSet)
     {
-        return targetSet.IsFullOwned
-            && IsCurrentFullOwnedResourceHealthTargetVersion(
-                targetSet.StorageRowsVersion,
-                targetSet.OwnedCollectionVersion,
-                targetSet.ResourceHealthInputVersion);
-    }
-
-    private bool IsCurrentFullOwnedResourceHealthTargetVersion(
-        StorageRowsVersionSnapshot? storageRowsVersion,
-        int? ownedCollectionVersion,
-        int? resourceHealthInputVersion)
-    {
-        return HasFullOwnedResourceHealthTargetVersion(storageRowsVersion, ownedCollectionVersion, resourceHealthInputVersion)
-            && Volatile.Read(ref bmsStorageRowsVersion) == storageRowsVersion.Value.BmsRowsVersion
-            && Volatile.Read(ref bmsonStorageRowsVersion) == storageRowsVersion.Value.BmsonRowsVersion
-            && OwnedChartCollectionVersion == ownedCollectionVersion.Value
-            && Volatile.Read(ref this.resourceHealthInputVersion) == resourceHealthInputVersion.Value
-            && IsStableResourceHealthInputVersion(resourceHealthInputVersion.Value);
+        int currentResourceHealthInputVersion = Volatile.Read(ref resourceHealthInputVersion);
+        return ResourceHealthFullOwnedTargetFreshness.IsCurrent(
+            targetSet,
+            new StorageRowsVersionSnapshot(
+                Volatile.Read(ref bmsStorageRowsVersion),
+                Volatile.Read(ref bmsonStorageRowsVersion)),
+            OwnedChartCollectionVersion,
+            currentResourceHealthInputVersion,
+            IsStableResourceHealthInputVersion(currentResourceHealthInputVersion));
     }
 
     private void InvalidateResourceHealthIndexIfSnapshotInputIsStaleUnsafe()
