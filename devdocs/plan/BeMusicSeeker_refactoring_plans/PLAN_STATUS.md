@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C30: LR2 sync input factory selection DTO wiring` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C31: LR2 sync input timing DTO wiring` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -400,9 +400,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C30` として `Lr2SongDbSyncInputFactory.Create` が scan surface selection / directory target selection を直接受け取る形にした。constructor に渡す directory metadata target copy と scan surface generation は維持した。build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
-現在の active ticket: なし。`REF-MVP-C30` completed checkpoint。
+`REF-MVP-C31` として `LogLr2SongDbSyncInputSurface` / `Lr2SongDbSyncInputSurfaceLogFormatter` に渡していた Stopwatch 群を `BmsLibraryInternal/Lr2SongDbSyncInputSurfaceTimings.cs` の dedicated timing DTO 経由にした。ログ timing 項目名・順序・値は維持した。`BMSLibrary.cs` は 18,386 行、formatter は 80 行、timing DTO は 36 行。build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
-次にやる 1 件: Lane C を続ける場合は `REF-MVP-C31: LR2 sync input timing DTO wiring` として、`LogLr2SongDbSyncInputSurface` / `Lr2SongDbSyncInputSurfaceLogFormatter` に渡している Stopwatch 群を dedicated timing DTO 経由にする。挙動変更、ログ項目変更、private entry point 移動、service 化は含めない。重すぎる場合は maintenance、folder/file operation、package install follow-up のいずれか 1 件を workflow 単位で active 化する。
+現在の active ticket: なし。`REF-MVP-C31` completed checkpoint。
+
+次にやる 1 件: Lane C を続ける場合は `REF-MVP-C32: LR2 sync input composition surface review` として、C18-C31 後の `CreateLr2SongDbSyncInput` が root orchestration として妥当かをレビューし、次に service 化へ進むか、もう 1 件だけ DTO wiring / helper placement を切るかを decision record 化する。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 

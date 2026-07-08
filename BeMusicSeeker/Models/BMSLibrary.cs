@@ -6957,6 +6957,17 @@ completeFileEnumerationOnce,
         IReadOnlyList<string> textFileDirectories = textFileDirectorySelection.Directories;
         textFileDirsStopwatch.Stop();
         inputStopwatch.Stop();
+        var inputSurfaceTimings = new Lr2SongDbSyncInputSurfaceTimings(
+            rowSnapshotStopwatch,
+            rootsStopwatch,
+            builtinSettingsStopwatch,
+            scanSurfaceStopwatch,
+            directoryTargetsStopwatch,
+            directoryEntriesStopwatch,
+            lr2FolderCandidatesStopwatch,
+            folderInfoCandidatesStopwatch,
+            textFileDirsStopwatch,
+            inputStopwatch);
         LogLr2SongDbSyncInputSurface(
             scanSurfaceSelection,
             rootSnapshot,
@@ -6975,16 +6986,7 @@ completeFileEnumerationOnce,
             preparedSurface,
             textFileDirectories,
             textFileDirectorySelection,
-            rowSnapshotStopwatch,
-            rootsStopwatch,
-            builtinSettingsStopwatch,
-            scanSurfaceStopwatch,
-            directoryTargetsStopwatch,
-            directoryEntriesStopwatch,
-            lr2FolderCandidatesStopwatch,
-            folderInfoCandidatesStopwatch,
-            textFileDirsStopwatch,
-            inputStopwatch);
+            inputSurfaceTimings);
         return Lr2SongDbSyncInputFactory.Create(
             rootSnapshot,
             rowSnapshot,
@@ -7016,16 +7018,7 @@ completeFileEnumerationOnce,
         Lr2SongDbSyncPreparedDataSurface preparedSurface,
         IReadOnlyList<string> textFileDirectories,
         Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection,
-        Stopwatch rowSnapshotStopwatch,
-        Stopwatch rootsStopwatch,
-        Stopwatch builtinSettingsStopwatch,
-        Stopwatch scanSurfaceStopwatch,
-        Stopwatch directoryTargetsStopwatch,
-        Stopwatch directoryEntriesStopwatch,
-        Stopwatch lr2FolderCandidatesStopwatch,
-        Stopwatch folderInfoCandidatesStopwatch,
-        Stopwatch textFileDirsStopwatch,
-        Stopwatch inputStopwatch)
+        Lr2SongDbSyncInputSurfaceTimings timings)
     {
         LogInstallPerformance(Lr2SongDbSyncInputSurfaceLogFormatter.Format(
             scanSurfaceSelection,
@@ -7045,16 +7038,7 @@ completeFileEnumerationOnce,
             preparedSurface,
             textFileDirectories,
             textFileDirectorySelection,
-            rowSnapshotStopwatch,
-            rootsStopwatch,
-            builtinSettingsStopwatch,
-            scanSurfaceStopwatch,
-            directoryTargetsStopwatch,
-            directoryEntriesStopwatch,
-            lr2FolderCandidatesStopwatch,
-            folderInfoCandidatesStopwatch,
-            textFileDirsStopwatch,
-            inputStopwatch));
+            timings));
     }
 
     private Lr2SongDbSyncScanSurfaceSelection CreateLr2SongDbSyncScanSurfaceSelection(

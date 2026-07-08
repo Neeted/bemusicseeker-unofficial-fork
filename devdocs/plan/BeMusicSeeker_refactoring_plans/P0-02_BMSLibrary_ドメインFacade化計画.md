@@ -896,3 +896,26 @@ BMSLibrary                         // public facade / compatibility API
 - `Lr2SongDbSyncInputFactory.Create` が scan surface selection / directory target selection を直接受け取る形にした。
 - constructor に渡す directory metadata target copy と scan surface generation は、既存と同じ値を selection DTO 経由で渡す形にした。
 - constructor 値、selection 順序、ログ項目、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C31`
+
+状態: completed checkpoint。
+
+目的:
+
+- `LogLr2SongDbSyncInputSurface` / `Lr2SongDbSyncInputSurfaceLogFormatter` に渡している Stopwatch 群を dedicated timing DTO 経由にする。
+- C18-C30 で切った snapshot / selection DTO と同じく、ログ計測値も named contract として扱える状態にする。
+- ログ項目名、ログ値、ログ順序、selection 順序、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- `Lr2SongDbSyncInputSurfaceTimings` が追加され、Stopwatch 群が DTO 経由で formatter に渡る。
+- `rowSnapshotMs` など既存ログ timing 値の対応が維持される。
+- input builder 化、private entry point 移動、service 化は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncInputSurfaceTimings` を追加し、Stopwatch 群を dedicated timing DTO 経由で formatter に渡す形にした。
+- `directoryEntriesMs`、`rowSnapshotMs`、`rootsMs`、`builtinSettingsMs`、`scanSurfaceLookupMs`、`directoryTargetsMs`、`lr2FolderCandidatesMs`、`folderInfoCandidatesMs`、`textFileDirsMs`、`totalMs` のログ項目名・順序・値対応は維持した。
+- ログ項目、selection 順序、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。

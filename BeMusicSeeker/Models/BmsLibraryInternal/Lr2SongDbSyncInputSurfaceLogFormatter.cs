@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Diagnostics;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -24,16 +23,7 @@ internal static class Lr2SongDbSyncInputSurfaceLogFormatter
         Lr2SongDbSyncPreparedDataSurface preparedSurface,
         IReadOnlyList<string> textFileDirectories,
         Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection,
-        Stopwatch rowSnapshotStopwatch,
-        Stopwatch rootsStopwatch,
-        Stopwatch builtinSettingsStopwatch,
-        Stopwatch scanSurfaceStopwatch,
-        Stopwatch directoryTargetsStopwatch,
-        Stopwatch directoryEntriesStopwatch,
-        Stopwatch lr2FolderCandidatesStopwatch,
-        Stopwatch folderInfoCandidatesStopwatch,
-        Stopwatch textFileDirsStopwatch,
-        Stopwatch inputStopwatch)
+        Lr2SongDbSyncInputSurfaceTimings timings)
     {
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface = scanSurfaceSelection.Surface;
         IReadOnlyCollection<string> directoryMetadataTargets = directoryTargetSelection.DirectoryMetadataTargets;
@@ -54,7 +44,7 @@ internal static class Lr2SongDbSyncInputSurfaceLogFormatter
             + " directoryTargets=" + directoryEntryTargets.Count
             + " directoryEntries=" + directoryEntries.Count
             + " missingDirectoryEntries=" + directoryEntrySelection.MissingCount
-            + " directoryEntriesMs=" + directoryEntriesStopwatch.ElapsedMilliseconds
+            + " directoryEntriesMs=" + timings.DirectoryEntries.ElapsedMilliseconds
             + " folderInfoCandidates=" + folderInfoCandidates.Paths.Count
             + " lr2FolderCandidates=" + lr2FolderFileCandidates.Paths.Count
             + " appManagedScopeDirs=" + appManagedOutputScope.Directories.Count
@@ -77,14 +67,14 @@ internal static class Lr2SongDbSyncInputSurfaceLogFormatter
             + " textFileDirs=" + textFileDirectories.Count
             + " lr2FolderCandidatesSource=" + lr2FolderCandidateSelection.Source
             + " textFileDirsSource=" + textFileDirectorySelection.Source
-            + " rowSnapshotMs=" + rowSnapshotStopwatch.ElapsedMilliseconds
-            + " rootsMs=" + rootsStopwatch.ElapsedMilliseconds
-            + " builtinSettingsMs=" + builtinSettingsStopwatch.ElapsedMilliseconds
-            + " scanSurfaceLookupMs=" + scanSurfaceStopwatch.ElapsedMilliseconds
-            + " directoryTargetsMs=" + directoryTargetsStopwatch.ElapsedMilliseconds
-            + " lr2FolderCandidatesMs=" + lr2FolderCandidatesStopwatch.ElapsedMilliseconds
-            + " folderInfoCandidatesMs=" + folderInfoCandidatesStopwatch.ElapsedMilliseconds
-            + " textFileDirsMs=" + textFileDirsStopwatch.ElapsedMilliseconds
-            + " totalMs=" + inputStopwatch.ElapsedMilliseconds;
+            + " rowSnapshotMs=" + timings.RowSnapshot.ElapsedMilliseconds
+            + " rootsMs=" + timings.Roots.ElapsedMilliseconds
+            + " builtinSettingsMs=" + timings.BuiltinSettings.ElapsedMilliseconds
+            + " scanSurfaceLookupMs=" + timings.ScanSurface.ElapsedMilliseconds
+            + " directoryTargetsMs=" + timings.DirectoryTargets.ElapsedMilliseconds
+            + " lr2FolderCandidatesMs=" + timings.Lr2FolderCandidates.ElapsedMilliseconds
+            + " folderInfoCandidatesMs=" + timings.FolderInfoCandidates.ElapsedMilliseconds
+            + " textFileDirsMs=" + timings.TextFileDirs.ElapsedMilliseconds
+            + " totalMs=" + timings.Input.ElapsedMilliseconds;
     }
 }
