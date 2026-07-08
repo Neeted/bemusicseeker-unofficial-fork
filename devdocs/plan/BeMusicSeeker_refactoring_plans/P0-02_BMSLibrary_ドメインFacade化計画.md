@@ -2624,3 +2624,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `BmsLibraryMaintenanceServiceTests` の `_BMSFiles` / `_BmsonSongs` private field setup を public `BMSFiles` / `BmsonSongs` setter へ寄せ、`resourceHealthIndexInvalidated` direct set も public setter side effect など private field set なしの表現へ置き換える。
+
+## Completed Checkpoint: `REF-MVP-C90`
+
+状態: completed checkpoint。
+
+目的:
+
+- `BmsLibraryMaintenanceServiceTests` の `_BMSFiles` / `_BmsonSongs` private field setup を public `BMSFiles` / `BmsonSongs` setter へ寄せる。
+- `resourceHealthIndexInvalidated` direct set を private field set なしの表現へ置き換える。
+- `SetPrivateField` helper の用途がなくなれば削除する。
+
+完了条件:
+
+- `BmsLibraryMaintenanceServiceTests` の maintenance / resource health setup で `_BMSFiles` / `_BmsonSongs` private field set が削除されている。
+- `resourceHealthIndexInvalidated` direct set が削除されている。
+- notification version、resource health invalidation、owned collection version、storage row side effect の意味が変わっていない。
+- DB schema、setting name、serialized/public surface、log 文言は変更していない。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryMaintenanceServiceTests` に `SetStorageRows` helper を追加し、public `BMSFiles` / `BmsonSongs` setter 経由の setup に置き換えた。
+- `resourceHealthIndexInvalidated` direct set は、snapshot publish 後に public `BMSFiles` setter を呼んで既存 invalidation side effect を使う形へ置き換えた。
+- `SetPrivateField` helper は用途がなくなったため削除した。
+- `BmsLibraryMaintenanceServiceTests.cs` は 3,005 行。
+- build、targeted tests、format、diff check、Roslynator warning、full test は完了。静的レビューはこの checkpoint の commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C91: owned chart collection private helper boundary review` として、`OwnedChartCollectionStateTests` に残る `SetLibraryFilesWithoutNotification` / `SetLibraryBmsonSongsWithoutNotification` / `resourceHealthIndexInvalidated` private field set と、installed lookup / storage mutation / file scan private reflection helper を分類し、次に削るべき 1 seam を決める。production code 変更は、次の実装単位が明確に決まるまで行わない。

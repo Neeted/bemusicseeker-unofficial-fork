@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C90: maintenance tests storage row setup public setter cleanup` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C91: owned chart collection private helper boundary review` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -538,9 +538,15 @@ C88 完了時点の次にやる 1 件: maintenance / resource health tests に�
 
 `REF-MVP-C89` として [maintenance storage row private state seeding](./decisions/REF-MVP-C89_maintenance_storage_row_private_state_seeding.md) をレビューした。`BmsLibraryMaintenanceServiceTests` の storage row setup は public `BMSFiles` / `BmsonSongs` setter へ寄せられる見込みがある一方、`OwnedChartCollectionStateTests` は installed lookup / storage mutation / file scan helper が混ざるため次 ticket から外す。production code は変更していない。
 
-現在の active ticket: `REF-MVP-C90: maintenance tests storage row setup public setter cleanup`。
+C89 完了時点の次 ticket: `REF-MVP-C90: maintenance tests storage row setup public setter cleanup`。
 
-次にやる 1 件: `BmsLibraryMaintenanceServiceTests` の `_BMSFiles` / `_BmsonSongs` private field setup を public `BMSFiles` / `BmsonSongs` setter へ寄せ、`resourceHealthIndexInvalidated` direct set も public setter side effect など private field set なしの表現へ置き換える。
+C89 完了時点の次にやる 1 件: `BmsLibraryMaintenanceServiceTests` の `_BMSFiles` / `_BmsonSongs` private field setup を public `BMSFiles` / `BmsonSongs` setter へ寄せ、`resourceHealthIndexInvalidated` direct set も public setter side effect など private field set なしの表現へ置き換える。
+
+`REF-MVP-C90` として `BmsLibraryMaintenanceServiceTests` の maintenance / resource health storage row setup を public `BMSFiles` / `BmsonSongs` setter 経由へ置き換えた。`resourceHealthIndexInvalidated` direct set は public `BMSFiles` setter の invalidation side effect で表現し、`SetPrivateField` helper は削除した。`BmsLibraryMaintenanceServiceTests.cs` は 3,005 行。build、targeted tests、format、diff check、Roslynator warning、full test は完了。静的レビューは commit 前に実施する。
+
+現在の active ticket: `REF-MVP-C91: owned chart collection private helper boundary review`。
+
+次にやる 1 件: `OwnedChartCollectionStateTests` に残る `SetLibraryFilesWithoutNotification` / `SetLibraryBmsonSongsWithoutNotification` / `resourceHealthIndexInvalidated` private field set と、installed lookup / storage mutation / file scan private reflection helper を分類し、次に削るべき 1 seam を決める。
 
 ## 次回 Codex が最初に読むべきファイル
 

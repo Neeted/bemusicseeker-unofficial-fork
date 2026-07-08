@@ -870,8 +870,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             file.path = chartPath;
             var library = new BMSLibrary(songDbPath);
-            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
-            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetStorageRows(library, [file], []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -923,8 +922,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile targetChart = ChartFileProjection.FromBmsFile(target, includeWarningSnapshot: false);
             ResourceHealthIndexSnapshot currentSnapshot = ResourceHealthIndexSnapshot.Build([targetChart], new BmsLibraryMaintenanceService(), version: 3);
             var library = new BMSLibrary(songDbPath);
-            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { target, unrelated });
-            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetStorageRows(library, [target, unrelated], []);
             SetCurrentResourceHealthIndexSnapshot(library, currentSnapshot);
 
             MaintenanceWorkflowResult result = library.RescanResourceHealthCharts([targetChart]);
@@ -954,10 +952,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             unrelated.path = unrelatedPath;
             ChartFile targetChart = ChartFileProjection.FromBmsFile(target, includeWarningSnapshot: false);
             var library = new BMSLibrary(songDbPath);
-            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { target, unrelated });
-            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetStorageRows(library, [target, unrelated], []);
             SetCurrentResourceHealthIndexSnapshot(library, ResourceHealthIndexSnapshot.Empty);
-            SetPrivateField(library, "resourceHealthIndexInvalidated", true);
+            library.BMSFiles = new List<BMSFile> { target, unrelated };
 
             List<ChartFile> result = library.GetChartsNeedResourceFix([targetChart], forceUpdate: true);
             ResourceHealthIndexSnapshot currentSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
@@ -984,8 +981,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 wav_files_existing = 1
             };
             var library = new BMSLibrary(songDbPath);
-            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
-            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetStorageRows(library, [file], []);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -1056,8 +1052,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile chart = ChartFileProjection.FromBmsFile(file);
             ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build([chart], new BmsLibraryMaintenanceService(), version: 3);
             var library = new BMSLibrary(songDbPath);
-            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
-            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetStorageRows(library, [file], []);
             SetCurrentResourceHealthIndexSnapshot(library, snapshot);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
@@ -1108,10 +1103,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
             }, suppressPropertyChanged: true);
             ChartFile targetChart = ChartFileProjection.FromBmsFile(target);
             var library = new BMSLibrary(songDbPath);
-            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { target, unrelated });
-            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetStorageRows(library, [target, unrelated], []);
             SetCurrentResourceHealthIndexSnapshot(library, ResourceHealthIndexSnapshot.Empty);
-            SetPrivateField(library, "resourceHealthIndexInvalidated", true);
+            library.BMSFiles = new List<BMSFile> { target, unrelated };
 
             library.SetChartResourceWarningsIgnored([targetChart], unset: false);
 
@@ -1139,8 +1133,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile chart = ChartFileProjection.FromBmsFile(file);
             ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build([chart], new BmsLibraryMaintenanceService(), version: 3);
             var library = new BMSLibrary(songDbPath);
-            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { file });
-            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetStorageRows(library, [file], []);
             SetCurrentResourceHealthIndexSnapshot(library, snapshot);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
@@ -1549,8 +1542,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 is_encoding_fixed = false
             }, suppressPropertyChanged: true);
             var library = new BMSLibrary(songDbPath);
-            SetPrivateField(library, "_BMSFiles", new List<BMSFile> { garbled, fixedGarbled, lr2Warning, parentBlankWithoutWarning, registered });
-            SetPrivateField(library, "_BmsonSongs", new List<LR2SongDBExtended.bmson_song>());
+            SetStorageRows(library, [garbled, fixedGarbled, lr2Warning, parentBlankWithoutWarning, registered], []);
 
             List<ChartFile> garbledCharts = [.. library.ChartFilesGarbled];
             List<ChartFile> fixedCharts = [.. library.ChartFilesGarbledFixed];
@@ -2891,11 +2883,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
         };
     }
 
-    private static void SetPrivateField(object target, string fieldName, object value)
+    private static void SetStorageRows(
+        BMSLibrary library,
+        IReadOnlyList<BMSFile> bmsFiles,
+        IReadOnlyList<LR2SongDBExtended.bmson_song> bmsonSongs)
     {
-        FieldInfo fieldInfo = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        fieldInfo.SetValue(target, value);
+        library.BMSFiles = bmsFiles;
+        library.BmsonSongs = bmsonSongs;
     }
 
     private static void SetCurrentResourceHealthIndexSnapshot(BMSLibrary library, ResourceHealthIndexSnapshot snapshot)
