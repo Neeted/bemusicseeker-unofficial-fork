@@ -287,111 +287,17 @@ public partial class BMSLibrary
 
     private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
     {
-        ThrowIfLr2SongDbSyncMutationBlocked(nameof(installChartPackages));
-        List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
-        List<ChartFile> addedChartsForChartInfo = [];
-
-        static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)
-        {
-            return ChartStorageTargetSet.FromCharts(installResult?.AddedCharts);
-        }
-
-        void UpsertInstalledChartRows(PackageInstallExecutionResult installResult)
-        {
-            ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
-            if (addedTargets.BmsFiles.Count > 0)
-            {
-                ExecuteLr2SongDbWrite(
-                    () => dbGateway.UpsertSongs(addedTargets.BmsFiles),
-                    stage: "lr2_song_db_install_upsert_failed",
-                    logReason: "install_package");
-            }
-            if (addedTargets.BmsonSongs.Count > 0)
-            {
-                dbGateway.UpsertBmsonSongs(addedTargets.BmsonSongs);
-            }
-        }
-
-        void UpdateInstalledChartMaintenance(PackageInstallExecutionResult installResult)
-        {
-            List<ChartFile> addedCharts = CreateAddedStorageTargets(installResult).Charts;
-            if (deferredMaintenanceCharts != null)
-            {
-                deferredMaintenanceCharts.AddRange(addedCharts);
-                return;
-            }
-            if (addedCharts.Count > 0)
-            {
-                setMaintenanceInfo(
-                    addedCharts,
-                    forceUpdate: true,
-                    resourceHealthMutationReason: "install_package");
-            }
-        }
-
-        void ApplyInstalledChartState(PackageInstallExecutionResult installResult)
-        {
-            ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
-            List<ChartFile> addedCharts = addedTargets.Charts;
-            addedChartsForChartInfo.AddRange(addedCharts);
-            if (estimatedInstallBatchApplyContext != null)
-            {
-                estimatedInstallBatchApplyContext.AddInstalledTargets(addedTargets, installationDirectory);
-                return;
-            }
-            ApplyInstalledChartStorageTargets(addedTargets, "install_package");
-            List<string> addedDirectories = addedTargets.GetDistinctChartDirectories();
-            if (addedDirectories.Count > 0)
-            {
-                if (ChartDirectoryScanBuilder.TryBuildFromRoots(addedDirectories, out ChartScanResult addedDirectoryScan, out string scanFailureReason))
-                {
-                    DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-                    foreach (string dir in addedDirectoryScan.ChartDirectories)
-                    {
-                        reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
-                    }
-                    LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
-                }
-                else
-                {
-                    LogInstallPerformanceWarn("install_package resource_cache_update skipped reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown") + " dirs=" + addedDirectories.Count);
-                }
-            }
-        }
-
-        PackageInstallExecutionResult result = packageInstallService.InstallPackages(
-            installPackageList,
+        return PackageInstallCoordinator.InstallChartPackages(
+            this,
+            chartPackagesInstall,
             installationDirectory,
-            (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths) => MoveChartPackageFiles(package, destinationDirectory, true, deleteAllContents, hashSnapshot, excludedComponentPaths),
-            UpsertInstalledChartRows,
-            UpdateInstalledChartMaintenance,
-            result => SetBMSScore(CreateAddedStorageTargets(result).BmsFiles),
-            ApplyInstalledChartState,
+            deferredMaintenanceCharts,
+            deferredInstalledPackages,
             excludedComponentPathsByPackage,
             existingHashes,
             skipInstalledPackageWhenNoBms,
-            deleteSourceContentsAfterSuccessfulInstall);
-        if (estimatedInstallBatchApplyContext != null && result.FailedPackages.Count < installPackageList.Count)
-        {
-            estimatedInstallBatchApplyContext.AddInstalledTargets(ChartStorageTargetSet.FromCharts([]), installationDirectory);
-        }
-        if (result.InstalledPackagesToRegister.Count > 0)
-        {
-            if (deferredInstalledPackages != null)
-            {
-                deferredInstalledPackages.AddRange(result.InstalledPackagesToRegister);
-            }
-            else
-            {
-                ChartPackagesInstalled.AddRange(result.InstalledPackagesToRegister);
-            }
-        }
-        LogInstallPerformance("install_chart_packages dst=" + (installationDirectory ?? "(auto)") + " packages=" + installPackageList.Count + " addedFiles=" + result.AddedEntries.Count + " failedPackages=" + result.FailedPackages.Count + " deleteSourceContents=" + deleteSourceContentsAfterSuccessfulInstall + " moveMs=" + result.MoveMs + " songDbMs=" + result.SongDbMs + " maintenanceMs=" + result.MaintenanceMs + " scoreMs=" + result.ScoreMs + " applyMs=" + result.ApplyMs + " totalMs=" + result.TotalMs);
-        if (deferredMaintenanceCharts == null)
-        {
-            BuildAndPersistInlineChartInfoForInstalledCharts("install_package_inline", addedChartsForChartInfo);
-        }
-        return result.FailedPackages;
+            deleteSourceContentsAfterSuccessfulInstall,
+            estimatedInstallBatchApplyContext);
     }
 
     private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context)

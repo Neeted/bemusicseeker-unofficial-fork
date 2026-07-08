@@ -1782,3 +1782,35 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C62: installChartPackages coordinator seam` として、`installChartPackages` の LR2 sync block、package filtering、InstallPackages callbacks、DB upsert、maintenance apply/defer、score update、state apply、reverse lookup add、installed package registration、performance log、inline chart_info build を dedicated coordinator seam へ移す。`BmsLibraryPackageInstallService.InstallPackages` core behavior、`MoveChartPackageFiles` seam contract、maintenance result apply は触らない。
+
+## Completed Checkpoint: `REF-MVP-C62`
+
+状態: completed checkpoint。
+
+目的:
+
+- `installChartPackages` の LR2 sync block、package filtering、InstallPackages callbacks、DB upsert、maintenance apply/defer、score update、state apply、reverse lookup add、installed package registration、performance log、inline chart_info build を dedicated coordinator seam へ移す。
+- root `BMSLibrary` は package install host として UI / DB / state / maintenance / package move seam を提供する。
+- `BmsLibraryPackageInstallService.InstallPackages` core behavior、`MoveChartPackageFiles` seam contract、pending estimated install / force install caller contract、maintenance result apply は触らない。
+
+完了条件:
+
+- `installChartPackages` signature、戻り値、deferred maintenance / deferred installed packages / estimated batch context の意味が維持されている。
+- DB upsert、maintenance apply、score update、state apply、reverse lookup add、installed package registration、inline chart_info build の順序と意味が維持されている。
+- `MoveChartPackageFiles` callback へ渡す `showMessageBoxOnInstallFail`、`deleteAllContents`、`hashSnapshot`、`excludedComponentPaths` の意味が維持されている。
+- package install / pending estimated install / force install / merge / repair 関連 tests が通る。
+- build / targeted tests / format / diff check / Roslynator warning / 静的レビュー / full test が完了している。
+
+実装結果:
+
+- `PackageInstallCoordinator` と `IPackageInstallHost` を追加し、install workflow の orchestration を coordinator へ移した。
+- `BMSLibrary.PackageInstallHost.cs` を追加し、LR2 sync block、`InstallPackages` service call、package move callback、DB upsert、maintenance apply/defer、score update、estimated batch targets、state apply、reverse lookup add、installed package registration、performance log、inline chart_info build を host bridge として提供する形にした。
+- `BMSLibrary.PackageInstall.cs` の `installChartPackages` は coordinator 呼び出しだけになった。
+- `BmsLibraryPackageInstallService.InstallPackages` core behavior、`MoveChartPackageFiles` seam contract、pending estimated install / force install caller contract、maintenance result apply は未変更。
+- `BMSLibrary.PackageInstall.cs` は 1,534 行、coordinator は 145 行、host は 136 行。
+- build、package install / pending / merge / repair / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+- 初回 full test で既知の `ApplyFileScanDiff_PopulatesLr2FolderSurfaceFromProducerDiscoveryRoots` 単発失敗があったが、単体 rerun と最終 full test rerun は pass した。
+
+次にやる 1 件:
+
+- `REF-MVP-C63: package install lane closure review` として、package install / repair / merge lane の root 残存責務を確認し、maintenance result apply contract prep、estimated install batch apply、または package install seam 追加整理のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
