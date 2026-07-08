@@ -2732,3 +2732,35 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `CreateOwnedChartInfoFullBackfillTargetSnapshot`、installed lookup snapshot、primary hash lookup snapshot、install destination overlay snapshot、initialized flag の read-only diagnostics / snapshot facade を追加し、`OwnedChartCollectionStateTests` と `BmsLibraryFolderRenameRefreshTests` の該当 private reflection helper を置き換える。
+
+## Completed Ticket: `REF-MVP-C94`
+
+状態: completed implementation。
+
+目的:
+
+- owned collection / installed lookup の read-only observation helper を private reflection から外す。
+- mutation workflow に入る前に、snapshot / initialized flag の観測口を production からも意味がある internal diagnostics facade として整える。
+- setter や test-only state mutation API は追加しない。
+
+実装結果:
+
+- `BMSLibrary` に read-only diagnostics facade を追加した。
+  - `CreateOwnedChartInfoFullBackfillTargetSnapshotForDiagnostics`
+  - `CreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlayForDiagnostics`
+  - `CreateInstalledChartLookupSnapshotForDiagnostics`
+  - `CreateInstalledChartKeySnapshotExcludingChartsForDiagnostics`
+  - `CreateInstallDestinationOverlayChartRefSnapshotForDiagnostics`
+  - `IsInstalledChartLookupIndexInitializedForDiagnostics`
+  - `IsInstalledPrimaryHashLookupInitializedForDiagnostics`
+- `OwnedChartCollectionStateTests` と `BmsLibraryFolderRenameRefreshTests` の対象 helper を diagnostics facade 経由へ置き換えた。
+
+確認:
+
+- build 0 warning。
+- targeted tests: `OwnedChartCollectionStateTests` / `BmsLibraryFolderRenameRefreshTests` 144 passed。
+- full standard checks、format、Roslynator warning、静的レビューは commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C95: installed chart storage targets apply seam` として、`ApplyInstalledChartStorageTargets` の upsert workflow を top-level coordinator + host seam へ移し、`InvokeApplyInstalledChartStorageTargets` private reflection helper を置き換える。

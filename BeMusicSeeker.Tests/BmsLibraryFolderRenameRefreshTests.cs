@@ -1675,31 +1675,22 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
     private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledChartLookupSnapshot(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartLookupSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (InstalledChartLookupIndexSnapshot)methodInfo.Invoke(library, []);
+        return library.CreateInstalledChartLookupSnapshotForDiagnostics();
     }
 
     private static bool IsInstalledChartLookupIndexInitialized(BMSLibrary library)
     {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installedChartLookupIndexInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        return (bool)fieldInfo.GetValue(library);
+        return library.IsInstalledChartLookupIndexInitializedForDiagnostics();
     }
 
     private static List<ChartFile> InvokeCreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlay(BMSLibrary library)
     {
-        List<ChartFile> snapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-        MethodInfo overlayMethodInfo = typeof(BMSLibrary).GetMethod("OverlayInstallDestinationRuntimeStates", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(overlayMethodInfo);
-        return (List<ChartFile>)overlayMethodInfo.Invoke(library, [snapshot]);
+        return library.CreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlayForDiagnostics();
     }
 
     private static List<ChartFile> InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateOwnedChartInfoFullBackfillTargetSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (List<ChartFile>)methodInfo.Invoke(library, []);
+        return library.CreateOwnedChartInfoFullBackfillTargetSnapshotForDiagnostics();
     }
 
     private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)

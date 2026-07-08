@@ -10825,6 +10825,24 @@ completeFileEnumerationOnce,
         }
     }
 
+    /// <summary>
+    /// Creates a read-only owned chart snapshot for diagnostics and tests that need the same surface as chart-info backfill.
+    /// </summary>
+    /// <returns>The owned chart snapshot.</returns>
+    internal List<ChartFile> CreateOwnedChartInfoFullBackfillTargetSnapshotForDiagnostics()
+    {
+        return CreateOwnedChartInfoFullBackfillTargetSnapshot();
+    }
+
+    /// <summary>
+    /// Creates a read-only owned chart snapshot after applying install-destination runtime overlays.
+    /// </summary>
+    /// <returns>The overlaid owned chart snapshot.</returns>
+    internal List<ChartFile> CreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlayForDiagnostics()
+    {
+        return OverlayInstallDestinationRuntimeStates(CreateOwnedChartInfoFullBackfillTargetSnapshot());
+    }
+
     private ILibraryChartCanonicalLookup CreateOwnedCanonicalChartLookupUnsafe()
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
@@ -12531,6 +12549,22 @@ completeFileEnumerationOnce,
         }
     }
 
+    /// <summary>
+    /// Gets whether the installed chart directory lookup is initialized without forcing a build.
+    /// </summary>
+    internal bool IsInstalledChartLookupIndexInitializedForDiagnostics()
+    {
+        return IsInstalledChartLookupIndexInitializedUnsafe();
+    }
+
+    /// <summary>
+    /// Gets whether the installed primary hash lookup is initialized without forcing a build.
+    /// </summary>
+    internal bool IsInstalledPrimaryHashLookupInitializedForDiagnostics()
+    {
+        return IsInstalledPrimaryHashLookupInitializedUnsafe();
+    }
+
     private static InstalledChartLookupMutationEntry CreateInstalledChartLookupMutationEntry(ChartFile chart)
     {
         return new InstalledChartLookupMutationEntry(chart?.Path, chart?.Md5, chart?.Sha256);
@@ -13042,6 +13076,15 @@ completeFileEnumerationOnce,
         }
     }
 
+    /// <summary>
+    /// Creates a read-only installed chart lookup snapshot for diagnostics and tests.
+    /// </summary>
+    /// <returns>The installed chart lookup snapshot.</returns>
+    internal InstalledChartLookupIndexSnapshot CreateInstalledChartLookupSnapshotForDiagnostics()
+    {
+        return CreateInstalledChartLookupSnapshotUnsafe();
+    }
+
     private bool ContainsInstalledChartUnsafe(ChartFile chart)
     {
         string lookupKey = ChartLookupKey.GetPrimaryHash(chart);
@@ -13169,6 +13212,16 @@ completeFileEnumerationOnce,
     private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded)
     {
         return CreateInstalledChartKeySnapshotExcludingChartsUnsafe(excluded, null, 0L);
+    }
+
+    /// <summary>
+    /// Creates a read-only installed primary hash lookup snapshot while excluding the supplied charts.
+    /// </summary>
+    /// <param name="excluded">Charts to exclude from the returned lookup.</param>
+    /// <returns>The primary hash lookup snapshot.</returns>
+    internal IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsForDiagnostics(IEnumerable<ChartFile> excluded)
+    {
+        return CreateInstalledChartKeySnapshotExcludingChartsUnsafe(excluded);
     }
 
     private IPrimaryHashLookup CreateInstalledChartKeySnapshotExcludingChartsUnsafe(IEnumerable<ChartFile> excluded, string reason, long operationId)
@@ -15894,6 +15947,15 @@ completeFileEnumerationOnce,
             return installDestinationOverlayChartRefSnapshot ??= InstallDestinationOverlayChartRefSnapshot
                 .FromCharts(CreateCurrentInstallDestinationCleanupChartsUnsafe());
         }
+    }
+
+    /// <summary>
+    /// Creates a read-only install-destination overlay chart reference snapshot for diagnostics and tests.
+    /// </summary>
+    /// <returns>The install-destination overlay chart reference snapshot.</returns>
+    internal InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlayChartRefSnapshotForDiagnostics()
+    {
+        return CreateInstallDestinationOverlayChartRefSnapshotUnsafe();
     }
 
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)

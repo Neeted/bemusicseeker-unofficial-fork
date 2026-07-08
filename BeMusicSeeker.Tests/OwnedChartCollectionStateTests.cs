@@ -3425,30 +3425,22 @@ public sealed class OwnedChartCollectionStateTests
 
     private static List<ChartFile> InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateOwnedChartInfoFullBackfillTargetSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (List<ChartFile>)methodInfo.Invoke(library, []);
+        return library.CreateOwnedChartInfoFullBackfillTargetSnapshotForDiagnostics();
     }
 
     private static InstallDestinationOverlayChartRefSnapshot InvokeCreateInstallDestinationOverlayChartRefSnapshot(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstallDestinationOverlayChartRefSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (InstallDestinationOverlayChartRefSnapshot)methodInfo.Invoke(library, []);
+        return library.CreateInstallDestinationOverlayChartRefSnapshotForDiagnostics();
     }
 
     private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledChartLookupSnapshot(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartLookupSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (InstalledChartLookupIndexSnapshot)methodInfo.Invoke(library, []);
+        return library.CreateInstalledChartLookupSnapshotForDiagnostics();
     }
 
     private static IPrimaryHashLookup InvokeCreateInstalledChartKeySnapshotExcludingCharts(BMSLibrary library, IEnumerable<ChartFile> excluded)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateInstalledChartKeySnapshotExcludingChartsUnsafe", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(IEnumerable<ChartFile>)], null);
-        Assert.IsNotNull(methodInfo);
-        return (IPrimaryHashLookup)methodInfo.Invoke(library, [excluded]);
+        return library.CreateInstalledChartKeySnapshotExcludingChartsForDiagnostics(excluded);
     }
 
     private static void InvokeResolveInstallDestinationMetadataProfile(BMSLibrary library, string destinationDirectory)
@@ -3476,16 +3468,12 @@ public sealed class OwnedChartCollectionStateTests
 
     private static bool IsInstalledChartLookupIndexInitialized(BMSLibrary library)
     {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installedChartLookupIndexInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        return (bool)fieldInfo.GetValue(library);
+        return library.IsInstalledChartLookupIndexInitializedForDiagnostics();
     }
 
     private static bool IsInstalledPrimaryHashLookupInitialized(BMSLibrary library)
     {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installedPrimaryHashLookupInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        return (bool)fieldInfo.GetValue(library);
+        return library.IsInstalledPrimaryHashLookupInitializedForDiagnostics();
     }
 
     private static bool IsOwnedLibraryChartRefIndexInitialized(BMSLibrary library)
