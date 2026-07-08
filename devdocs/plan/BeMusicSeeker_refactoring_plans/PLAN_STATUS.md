@@ -484,9 +484,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C72` として maintenance hydration full rebuild 用 resource health mutation 構築を `ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationFullRebuildMutation` へ移した。`BuildMaintenanceHydrationMutationResult` は warning / maintenance presentation refresh の `OwnedChartCollectionMutationResult` を作り、resource health mutation は constructor injection で planner から受け取る形にした。`OwnedChartCollectionMutationResult.ResourceHealthMutation` は non-null get-only の不変条件を維持している。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` の top-level 化、`ResourceHealthIndexDispatchResult` は触っていない。`BMSLibrary.cs` は 16,464 行、`ResourceHealthIndexMutationPlanner.cs` は 62 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-現在の active ticket: `REF-MVP-C73: maintenance dispatch bridge review`。
+`REF-MVP-C73` として [maintenance dispatch bridge after hydration planner](./decisions/REF-MVP-C73_maintenance_dispatch_bridge_after_hydration_planner.md) をレビューした。`OwnedChartCollectionMutationResult` は maintenance hydration 以外の workflow も多数抱える大きな private contract のため、今 top-level 化しない。次は maintenance hydration 固有の presentation flags と resource health mutation construction を top-level dispatch plan / planner へ移し、root は `OwnedChartCollectionMutationResult` adapter に寄せる判断にした。production code は変更していない。
 
-次にやる 1 件: C72 後に `DispatchMaintenanceHydrationResult` の bridge を薄くできるか、または `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を先に整理すべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+現在の active ticket: `REF-MVP-C74: maintenance hydration dispatch plan seam`。
+
+次にやる 1 件: maintenance hydration 固有の presentation flags と resource health mutation construction を top-level dispatch plan / planner へ移し、root `BuildMaintenanceHydrationMutationResult` は plan を `OwnedChartCollectionMutationResult` に変換する adapter にする。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の top-level 化は触らない。
 
 ## 次回 Codex が最初に読むべきファイル
 
