@@ -3542,12 +3542,21 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string ownedCollectionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "OwnedChartCollectionState.cs"));
+        string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "LibraryFileScanStorageMutationCoordinator.cs"));
         string applyMethod = ExtractMethodBody(libraryCode, "private void ApplyLibraryFileScanStorageMutation");
+        string coordinatorApplyMethod = ExtractMethodBody(coordinatorCode, "internal void Apply");
         string buildMethod = ExtractMethodBody(libraryCode, "private OwnedChartCollectionMutationResult BuildOwnedChartCollectionFileScanMutationResult");
 
-        StringAssert.Contains(applyMethod, "bool removedPayloadAvailable = TryCreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(fileCheckResult, out List<ChartFile> removedCharts);");
-        StringAssert.Contains(applyMethod, "mutationResult = BuildOwnedChartCollectionFileScanMutationResult(");
-        StringAssert.Contains(applyMethod, "resourceHealthMutation.BaseIndexCurrent");
+        StringAssert.Contains(applyMethod, "new LibraryFileScanStorageMutationCoordinator(new LibraryFileScanStorageMutationHost(this))");
+        StringAssert.Contains(applyMethod, "coordinator.Apply(fileCheckResult, reason)");
+        StringAssert.Contains(libraryCode, "internal sealed class LibraryFileScanStorageMutationHost(BMSLibrary owner) : ILibraryFileScanStorageMutationHost");
+        StringAssert.Contains(libraryCode, "return owner.TryCreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(");
+        StringAssert.Contains(libraryCode, "mutationResult = owner.BuildOwnedChartCollectionFileScanMutationResult(");
+        StringAssert.Contains(libraryCode, "owner.ApplyOwnedChartCollectionStorageReplacement(storageRows)");
+        StringAssert.Contains(coordinatorApplyMethod, "bool removedPayloadAvailable = host.TryCreateRemovedStorageOwnerIdentityCharts(");
+        StringAssert.Contains(coordinatorApplyMethod, "out List<ChartFile> removedCharts");
+        StringAssert.Contains(coordinatorApplyMethod, "resourceHealthMutation.BaseIndexCurrent");
+        StringAssert.Contains(coordinatorApplyMethod, "host.ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(fileCheckResult)");
         Assert.IsFalse(applyMethod.Contains("BuildOwnedChartCollectionFileScanMutationResult(fileCheckResult, BMSFiles, BmsonSongs)"));
         StringAssert.Contains(buildMethod, "if (removedPayloadAvailable)");
         StringAssert.Contains(buildMethod, "storageMutation.RemoveRequests.AddRange((removedCharts ?? [])");

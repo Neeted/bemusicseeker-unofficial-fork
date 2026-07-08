@@ -3525,9 +3525,8 @@ public sealed class OwnedChartCollectionStateTests
         SongTableFileCheckResult result,
         string reason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryFileScanStorageMutation", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [result, reason]);
+        var coordinator = new LibraryFileScanStorageMutationCoordinator(new BMSLibrary.LibraryFileScanStorageMutationHost(library));
+        coordinator.Apply(result, reason);
     }
 
     private static ChartInfoInlineBuildResult InvokeBuildAndPersistInlineChartInfoForInstalledCharts(

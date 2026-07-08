@@ -2816,3 +2816,29 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `ApplyLibraryFileScanStorageMutation` の workflow を top-level coordinator + host seam へ移し、`OwnedChartCollectionStateTests.InvokeApplyLibraryFileScanStorageMutation` private reflection helper を置き換える。
+
+## Completed Ticket: `REF-MVP-C97`
+
+状態: completed implementation。
+
+目的:
+
+- `ApplyLibraryFileScanStorageMutation` の file scan storage mutation workflow を `BMSLibrary` root から top-level coordinator へ移す。
+- writer guard、removed payload detection、resource health input mutation、storage rows replacement、owned collection replacement、library resource index / directory lookup cache update、failure fallback、dispatch reason を維持する。
+- `InvokeApplyLibraryFileScanStorageMutation` private reflection helper を実 workflow の coordinator + host route へ置き換える。
+
+実装結果:
+
+- `LibraryFileScanStorageMutationCoordinator` / `ILibraryFileScanStorageMutationHost` を追加した。
+- `BMSLibrary.LibraryFileScanStorageMutationHost` が private mutation result と storage rows snapshot を保持し、file scan storage mutation の各 private operation へ bridge する構造にした。
+- `OwnedChartCollectionStateTests` の `ApplyLibraryFileScanStorageMutation` helper は private reflection ではなく coordinator 経由にした。
+
+確認:
+
+- build 0 warning。
+- targeted tests: `OwnedChartCollectionStateTests` 108 passed。
+- full standard checks、format、Roslynator warning、静的レビューは commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C98: owned helper aftermath checkpoint` として、C97 後に残る `BuildAndPersistInlineChartInfoForInstalledCharts`、`BeginOwnedDigestMutationWindow`、setup private field seeding、remaining read-only helper、`ApplyAutoRenamePlans` を再確認し、次に実装する 1 seam だけを選ぶ。
