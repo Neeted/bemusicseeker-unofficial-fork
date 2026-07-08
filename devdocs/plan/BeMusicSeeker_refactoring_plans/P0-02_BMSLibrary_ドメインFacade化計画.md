@@ -2897,3 +2897,29 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C100: owned helper aftermath checkpoint` として、C99 後に残る `BeginOwnedDigestMutationWindow`、setup private field seeding、remaining read-only helper、`ApplyAutoRenamePlans`、LR2 sync private workflow 群を再確認し、次に実装する 1 seam だけを選ぶ。
+
+## Completed Checkpoint: `REF-MVP-C100`
+
+状態: completed checkpoint。
+
+目的:
+
+- C99 後に残る setup private field seeding、digest window、read-only diagnostics、auto rename workflow、LR2 sync private workflow 群を再分類する。
+- 次に実装する 1 seam を決める。
+- production code 変更は行わない。
+
+調査結果:
+
+- `_BMSFiles` / `_BmsonSongs` direct field set helper は `OwnedChartCollectionStateTests`、`BmsLibraryFolderRenameRefreshTests`、`PlaylistSummaryAggregationTests` にまたがり、残存 helper の中で件数が最も多い。
+- direct field set は storage row version、owned collection invalidation、duplicate warning clear などの意味をテスト側に隠している。
+- `ApplyAutoRenamePlans`、`BeginOwnedDigestMutationWindow`、remaining read-only diagnostics は C101 では触らない。
+- LR2 sync private workflow 群は別 checkpoint で扱う規模である。
+
+決定:
+
+- `decisions/REF-MVP-C100_owned_helper_aftermath.md` を追加した。
+- 次の実装 ticket は `REF-MVP-C101: diagnostics storage row seed seam` とする。
+
+次にやる 1 件:
+
+- `_BMSFiles` / `_BmsonSongs` direct field set を、storage row version 更新と owned collection invalidation の意味を持つ internal diagnostics seam へ置き換える。
