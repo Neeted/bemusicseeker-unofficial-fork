@@ -1457,3 +1457,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C51: folder/file operation boundary after root folder move` として、`RemoveLibraryCharts`、`RenameBMSFilesExtensions`、`MoveChartPackageFiles`、`MergeChartDirectory`、`LibraryFolderMoveCoordinator` 追加整理のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C51`
+
+状態: completed checkpoint。
+
+目的:
+
+- C50 後の folder/file operation follow-up を比較する。
+- `RemoveLibraryCharts`、`RenameBMSFilesExtensions`、`MoveChartPackageFiles`、`MergeChartDirectory`、`LibraryFolderMoveCoordinator` 追加整理のうち、次の実装 ticket を 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `MergeChartDirectory` / `MoveChartPackageFiles` / `RenameBMSFilesExtensions` / `LibraryFolderMoveCoordinator` 追加整理を今触らない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C51 Folder/File Operation Boundary After Root Move](./decisions/REF-MVP-C51_folder_file_operation_boundary_after_root_move.md) を追加した。
+- `RemoveLibraryCharts` は root に LR2 sync block、lock boundary、confirmation、log、reverse lookup warmup、delta apply、failure dialogs を残す一方、実削除と delta 生成は `DeleteLibraryCharts` service に寄っているため、次の coordinator seam として最も妥当と判断した。
+- `MergeChartDirectory` と `MoveChartPackageFiles` は横断範囲が大きいためまだ触らない判断にした。
+- `RenameBMSFilesExtensions` は normal / pending rename の対称性を C52 後に再評価する判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C52: RemoveLibraryCharts coordinator seam` として、`RemoveLibraryCharts` の LR2 sync block、approved whole-folder delete path handling、lock boundary、whole-folder confirmation、`DeleteLibraryCharts` service call、`delete_library_result` log、reverse lookup mutation warmup、delta apply、failure dialogs を dedicated coordinator seam へ移す。`MergeChartDirectory`、`MoveChartPackageFiles`、`RenameBMSFilesExtensions`、package install、maintenance result apply、resource health mutation は触らない。
