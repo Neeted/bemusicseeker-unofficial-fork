@@ -2059,3 +2059,31 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C71: maintenance dispatch seam review` として、C70 後に `DispatchMaintenanceHydrationResult` / `BuildMaintenanceHydrationMutationResult` へ進めるか、先に `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を整理するかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C71`
+
+状態: completed checkpoint。
+
+目的:
+
+- C70 後に `DispatchMaintenanceHydrationResult` / `BuildMaintenanceHydrationMutationResult` へ進めるか、先に `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を整理するかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `OwnedChartCollectionMutationResult` を今 top-level 化しない理由が明記されている。
+- P0-02、総合計画、`PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C71 Maintenance Dispatch Seam After Resource Health Mutation](./decisions/REF-MVP-C71_maintenance_dispatch_seam_after_resource_health_mutation.md) を追加した。
+- C70 後も `BuildMaintenanceHydrationMutationResult` は root で resource health full rebuild mutation を inline assignment していることを確認した。
+- `OwnedChartCollectionMutationResult` は file scan、digest、installed lookup、install destination runtime state、normal refresh notification、resource health dispatch result まで含むため、今 top-level 化すると maintenance hydration 以外の workflow まで巻き込むと判断した。
+- 次は `DispatchMaintenanceHydrationResult` 本体の移動ではなく、maintenance hydration 用 resource health mutation 構築を planner seam へ移す。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C72: maintenance hydration resource health mutation planner seam` として、`ResourceHealthIndexMutationPlanner` に maintenance hydration full rebuild 用 builder を追加し、`BuildMaintenanceHydrationMutationResult` から resource health mutation の inline assignment を外す。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult`、`ResourceHealthIndexDispatchResult` は触らない。

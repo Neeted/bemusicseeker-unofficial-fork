@@ -480,9 +480,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C70` として `ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` を `BMSLibrary` private nested type から `BmsLibraryInternal` top-level internal contract へ移し、旧 `BuildMaintenanceResourceHealthIndexMutation` の判断を `ResourceHealthIndexMutationPlanner.BuildMaintenanceMutation` へ移した。`BmsLibraryMaintenanceServiceTests` は private method / nested enum reflection ではなく direct planner test へ寄せた。`ResourceMaintenanceTargetSet.HasFullOwnedVersion` は旧 full-owned version 判定と同じ意味の contract property として追加した。`DispatchMaintenanceHydrationResult` 本体、`BuildMaintenanceHydrationMutationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` は触っていない。`BMSLibrary.cs` は 16,455 行、`ResourceHealthIndexMutationPlanner.cs` は 52 行、`ResourceHealthIndexMutation.cs` は 31 行、`ResourceHealthIndexUpdateMode.cs` は 8 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-現在の active ticket: `REF-MVP-C71: maintenance dispatch seam review`。
+`REF-MVP-C71` として [maintenance dispatch seam after resource health mutation](./decisions/REF-MVP-C71_maintenance_dispatch_seam_after_resource_health_mutation.md) をレビューした。C70 後も `BuildMaintenanceHydrationMutationResult` は root で resource health full rebuild mutation を inline assignment している一方、`OwnedChartCollectionMutationResult` は大きな private contract のままで、今 top-level 化すると maintenance hydration 以外の workflow まで巻き込む。次は dispatch 本体移動ではなく、maintenance hydration 用 resource health mutation 構築を planner seam へ移す判断にした。production code は変更していない。
 
-次にやる 1 件: C70 後に `DispatchMaintenanceHydrationResult` / `BuildMaintenanceHydrationMutationResult` へ進めるか、先に `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を整理するかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+現在の active ticket: `REF-MVP-C72: maintenance hydration resource health mutation planner seam`。
+
+次にやる 1 件: `ResourceHealthIndexMutationPlanner` に maintenance hydration full rebuild 用 builder を追加し、`BuildMaintenanceHydrationMutationResult` から resource health mutation の inline assignment を外す。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult`、`ResourceHealthIndexDispatchResult` は触らない。
 
 ## 次回 Codex が最初に読むべきファイル
 
