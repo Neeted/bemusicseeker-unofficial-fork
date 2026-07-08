@@ -472,9 +472,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C66` として owner view への maintenance snapshot attach / stale path selection を `BmsLibraryInternal/MaintenanceHydrationOwnerAttachService.cs` へ移した。root `ApplyMaintenanceHydrationResult` は write lock、resource health input mutation scope、full owned target creation、stale DB cleanup、dispatch timing を維持し、attach service を呼ぶ形になっている。`DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` top-level 化、resource health mutation contract は触っていない。source-text test は service / root bridge 配置を検査する形へ更新した。`BMSLibrary.cs` は 16,658 行、service は 97 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-現在の active ticket: なし。`REF-MVP-C66` completed checkpoint。
+`REF-MVP-C67` として [maintenance result dispatch boundary review](./decisions/REF-MVP-C67_maintenance_result_dispatch_boundary_review.md) を行った。C66 後に残る `DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot`、resource health mutation contract、reflection tests の絡みを再確認し、dispatch 本体を直接移動する前に private nested contract をほどく判断にした。production code は変更していない。
 
-次にやる 1 件: `REF-MVP-C67: maintenance result dispatch boundary review` として、C66 後に残る `DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot`、resource health mutation contract、reflection tests のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+現在の active ticket: なし。`REF-MVP-C67` completed checkpoint。
+
+次にやる 1 件: `REF-MVP-C68: resource maintenance target contract extraction` として、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` を `BMSLibrary` private nested type から top-level internal contract へ移し、nested type reflection test helper を direct contract 利用へ寄せる。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthMutation`、maintenance DB cleanup、resource health dispatch behavior は触らない。
 
 ## 次回 Codex が最初に読むべきファイル
 

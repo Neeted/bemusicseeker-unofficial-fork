@@ -1935,3 +1935,31 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C67: maintenance result dispatch boundary review` として、C66 後に残る `DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot`、resource health mutation contract、reflection tests のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C67`
+
+状態: completed checkpoint。
+
+目的:
+
+- C66 後に残る `DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot`、resource health mutation contract、reflection tests の結合を再確認する。
+- dispatch 本体、resource health mutation contract、private nested contract、test migration のどれを次に進めるかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `DispatchMaintenanceHydrationResult` を直接移動しない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C67 Maintenance Result Dispatch Boundary Review](./decisions/REF-MVP-C67_maintenance_result_dispatch_boundary_review.md) を追加した。
+- `DispatchMaintenanceHydrationResult` は `ResourceMaintenanceTargetSet`、`StorageRowsVersionSnapshot`、`OwnedChartCollectionMutationResult`、`ResourceHealthMutation`、private reflection tests が同時に絡むため、次に直接移動しない判断にした。
+- `ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` は private nested type であり、service seam / direct tests の妨げになっているため、先に top-level internal contract へ移す。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C68: resource maintenance target contract extraction` として、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` を `BMSLibrary` private nested type から top-level internal contract へ移し、nested type reflection test helper を direct contract 利用へ寄せる。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthMutation`、maintenance DB cleanup、resource health dispatch behavior は触らない。
