@@ -3387,7 +3387,8 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
-        string mergeMethod = ExtractMethodBody(libraryCode, "internal void MergeChartDirectory(string src, string dst, long operationId)");
+        string mergeMethod = ExtractMethodBody(libraryCode, "internal static void MergeChartDirectory(");
+        string mergeMaintenanceHostMethod = ExtractMethodBody(libraryCode, "void ILibraryMergeDirectoryHost.SetMergeFolderMaintenanceInfo");
         string duplicateSearchMethod = ExtractMethodBody(libraryCode, "public void SearchDuplicateChartGroups()");
 
         StringAssert.Contains(libraryCode, "DeferOnUpdates");
@@ -3400,11 +3401,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mergeMethod, "ChartStorageTargetSet maintenanceTargets = ChartStorageTargetSet.FromCharts");
         StringAssert.Contains(mergeMethod, "destinationMaintenanceTargets.Charts.Concat(movedTargets.Charts)");
         StringAssert.Contains(mergeMethod, "maintenanceTargets.Charts");
-        StringAssert.Contains(mergeMethod, "ApplyInstalledChartStorageTargets(movedTargets, \"merge_folder\")");
+        StringAssert.Contains(mergeMethod, "host.ApplyInstalledChartStorageTargets(movedTargets)");
         Assert.IsFalse(mergeMethod.Contains("NormalizeResourceMaintenanceTargetCharts(maintenanceTargets"));
         Assert.IsFalse(mergeMethod.Contains("ChartStorageTargetSet.FromRows(movedBmsFiles, movedBmsonSongs)"));
-        StringAssert.Contains(mergeMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");
-        StringAssert.Contains(mergeMethod, "resourceHealthMutationReason: \"merge_folder\"");
+        StringAssert.Contains(mergeMaintenanceHostMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");
+        StringAssert.Contains(mergeMaintenanceHostMethod, "resourceHealthMutationReason: \"merge_folder\"");
         StringAssert.Contains(duplicateSearchMethod, "CreateOwnedDuplicateChartRowSnapshotUnsafe()");
         StringAssert.Contains(duplicateSearchMethod, "ownedSnapshotMs=");
         StringAssert.Contains(duplicateSearchMethod, "clearDuplicateStateMs=");

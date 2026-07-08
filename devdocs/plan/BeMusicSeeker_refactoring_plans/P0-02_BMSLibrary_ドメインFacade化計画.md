@@ -1722,3 +1722,34 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C60: MergeChartDirectory coordinator seam` として、`MergeChartDirectory` の LR2 sync block、lock boundary、prepare service call、source unregister、reverse lookup remove/add、package move、destination scan、reference delta apply、DB upsert、maintenance apply、final state apply を dedicated coordinator seam へ移す。`installChartPackages` callback 契約、`MoveChartPackageFiles` core behavior、maintenance result apply は触らない。
+
+## Completed Checkpoint: `REF-MVP-C60`
+
+状態: completed checkpoint。
+
+目的:
+
+- `MergeChartDirectory` の LR2 sync block、lock boundary、prepare service call、source unregister、reverse lookup remove/add、package move、destination scan、reference delta apply、DB upsert、maintenance apply、final state apply を dedicated coordinator seam へ移す。
+- source-text test は root method body 固定ではなく、新しい coordinator / host 配置を検査する形へ更新する。
+- `PrepareMergeDirectory` core behavior、`MoveChartPackageFiles` seam、`installChartPackages` callback 契約、maintenance result apply は触らない。
+
+完了条件:
+
+- `MergeChartDirectory` public/internal surface、null guard、LR2 sync block、lock order、operationId logging が維持されている。
+- source unregister、reverse lookup remove/add、package move、destination scan、reference delta apply、DB upsert、maintenance apply、final state apply の順序と意味が維持されている。
+- source-text test は coordinator / host の責務配置を検査している。
+- build / merge・package install・repair 関連 tests / format / diff check / Roslynator warning / 静的レビュー / full test が完了している。
+
+実装結果:
+
+- `LibraryMergeDirectoryCoordinator` と `ILibraryMergeDirectoryHost` を追加し、merge workflow の orchestration を coordinator へ移した。
+- `BMSLibrary.MergeDirectoryHost.cs` を追加し、LR2 sync block、lock boundary、prepare service call、source unregister delta apply、reverse lookup remove/add、package move、failure dialog、DB upsert、maintenance apply、final state apply を host bridge として提供する形にした。
+- `BMSLibrary.cs` の `MergeChartDirectory(string src, string dst, long operationId)` は coordinator 呼び出しだけになった。
+- `MainWindowContextMenuResourceTests.DuplicateMergeMaintenanceDefersResourceHealthIndexRebuildAndLogsDuplicateSearchStages` は coordinator body と host maintenance body を検査する形へ更新した。
+- `PrepareMergeDirectory` core behavior、`MoveChartPackageFiles` seam、`installChartPackages` callback 契約、maintenance result apply は未変更。
+- `BMSLibrary.cs` は 16,724 行、coordinator は 265 行、host は 174 行。
+- build、merge / package install / repair / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C61: install / maintenance boundary after merge seam` として、`installChartPackages` follow-up、maintenance result apply contract prep、または merge seam 追加整理のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
