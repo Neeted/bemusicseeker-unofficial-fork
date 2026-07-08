@@ -2354,3 +2354,30 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C81: stale full target reflection reduction review` として、C80 後に stale full target private reflection test を direct freshness tests + narrower root integration test へ分けられるか、または `OwnedChartCollectionMutationResult` の contract 境界整理を先に進めるべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C81`
+
+状態: completed checkpoint。
+
+目的:
+
+- C80 後に stale full target private reflection test を direct freshness tests + narrower root integration test へ分けられるか、または `OwnedChartCollectionMutationResult` の contract 境界整理を先に進めるべきかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- stale full target private reflection test を削除する/残すための次の実装境界が明記されている。
+- P0-02、総合計画、`PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C81 Stale Full Target Reflection Reduction](./decisions/REF-MVP-C81_stale_full_target_reflection_reduction.md) を追加した。
+- stale full target private reflection test の主な意味は、maintenance hydration 固有処理ではなく resource health mutation dispatch の stale full rebuild branch にあると判断した。
+- `OwnedChartCollectionMutationResult` 全体より先に、`DispatchResourceHealthIndexMutation` の branch orchestration を top-level dispatcher + host seam へ移す。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C82: resource health mutation dispatcher seam` として、`DispatchResourceHealthIndexMutation` の branch orchestration を `BmsLibraryInternal` の top-level dispatcher へ移し、stale full rebuild result を private reflection なしで direct test する。

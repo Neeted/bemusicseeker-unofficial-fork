@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C81: stale full target reflection reduction review` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C82: resource health mutation dispatcher seam` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -500,9 +500,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C80` として full-owned target version freshness 判定を `BmsLibraryInternal/ResourceHealthFullOwnedTargetFreshness.cs` の top-level helper へ移した。root `IsCurrentFullOwnedResourceHealthTargetVersion` は current storage rows / owned collection / resource health input version を snapshot して helper へ渡す bridge になった。direct tests で fresh / stale / subset / unstable input を private reflection なしで確認した。stale full target private reflection test は root dispatch integration として残している。`BMSLibrary.cs` は 16,446 行、helper は 22 行、direct tests は 109 行。build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-現在の active ticket: `REF-MVP-C81: stale full target reflection reduction review`。
+`REF-MVP-C81` として [stale full target reflection reduction](./decisions/REF-MVP-C81_stale_full_target_reflection_reduction.md) をレビューした。stale full target private reflection test の主な意味は resource health mutation dispatch の stale full rebuild branch にあるため、次は `OwnedChartCollectionMutationResult` 全体ではなく `DispatchResourceHealthIndexMutation` の branch orchestration を top-level dispatcher + host seam へ移す判断にした。production code は変更していない。
 
-次にやる 1 件: C80 後に stale full target private reflection test を direct freshness tests + narrower root integration test へ分けられるか、または `OwnedChartCollectionMutationResult` の contract 境界整理を先に進めるべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+現在の active ticket: `REF-MVP-C82: resource health mutation dispatcher seam`。
+
+次にやる 1 件: `DispatchResourceHealthIndexMutation` の branch orchestration を `BmsLibraryInternal` の top-level dispatcher へ移し、stale full rebuild result を private reflection なしで direct test する。
 
 ## 次回 Codex が最初に読むべきファイル
 
