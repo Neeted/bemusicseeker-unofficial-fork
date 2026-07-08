@@ -1963,3 +1963,36 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C68: resource maintenance target contract extraction` として、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` を `BMSLibrary` private nested type から top-level internal contract へ移し、nested type reflection test helper を direct contract 利用へ寄せる。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthMutation`、maintenance DB cleanup、resource health dispatch behavior は触らない。
+
+## Completed Checkpoint: `REF-MVP-C68`
+
+状態: completed checkpoint。
+
+目的:
+
+- `StorageRowsVersionSnapshot` を top-level internal contract へ移す。
+- `ResourceMaintenanceTargetSet` を top-level internal contract へ移す。
+- `BMSLibrary` 内の利用箇所は同じ意味のまま新 contract を参照する。
+- `BmsLibraryMaintenanceServiceTests` の nested type reflection helper を direct construction / static factory call へ移す。
+
+完了条件:
+
+- `BMSLibrary` private nested type としての `StorageRowsVersionSnapshot` / `ResourceMaintenanceTargetSet` が残っていない。
+- storage row version と resource maintenance target の意味、default sentinel、full-owned / subset の判定、version carrying が変わっていない。
+- `DispatchMaintenanceHydrationResult` 自体の配置と dispatch behavior は変えていない。
+- reflection test は nested type lookup から離れている。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/StorageRowsVersionSnapshot.cs` を追加し、storage rows version snapshot を top-level internal contract にした。
+- `BmsLibraryInternal/ResourceMaintenanceTargetSet.cs` を追加し、resource maintenance target set を top-level internal contract にした。
+- `BMSLibrary.cs` から private nested `StorageRowsVersionSnapshot` / `ResourceMaintenanceTargetSet` を削除した。
+- `BmsLibraryMaintenanceServiceTests` の nested type lookup / constructor reflection helper を direct `StorageRowsVersionSnapshot` construction と `ResourceMaintenanceTargetSet.ForSubset` / `ForFullOwned` call へ移した。
+- `DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthMutation`、maintenance DB cleanup、resource health dispatch behavior は未変更。
+- `BMSLibrary.cs` は 16,541 行、`ResourceMaintenanceTargetSet.cs` は 92 行、`StorageRowsVersionSnapshot.cs` は 29 行。
+- build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C69: maintenance dispatch boundary review` として、C68 後に残る `DispatchMaintenanceHydrationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthMutation`、remaining private reflection tests のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

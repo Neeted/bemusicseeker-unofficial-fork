@@ -2931,7 +2931,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
         int ownedCollectionVersion,
         int resourceHealthInputVersion)
     {
-        object targetSet = CreateResourceMaintenanceTargetSet(
+        ResourceMaintenanceTargetSet targetSet = CreateResourceMaintenanceTargetSet(
             fullOwnedTargets,
             isFullOwned: true,
             bmsRowsVersion: bmsRowsVersion,
@@ -2955,13 +2955,13 @@ public sealed class BmsLibraryMaintenanceServiceTests
         Type updateModeType = typeof(BMSLibrary).GetNestedType("ResourceHealthIndexUpdateMode", BindingFlags.NonPublic);
         Assert.IsNotNull(updateModeType);
         object updateMode = Enum.Parse(updateModeType, updateModeName);
-        object targetSet = CreateResourceMaintenanceTargetSet(charts, isFullOwnedTarget);
+        ResourceMaintenanceTargetSet targetSet = CreateResourceMaintenanceTargetSet(charts, isFullOwnedTarget);
         object mutation = methodInfo.Invoke(null, [targetSet, updateMode, resourceHealthIndexCurrent, workflowHasUpdates, null, null]);
         Assert.IsNotNull(mutation);
         return mutation;
     }
 
-    private static object CreateResourceMaintenanceTargetSet(
+    private static ResourceMaintenanceTargetSet CreateResourceMaintenanceTargetSet(
         List<ChartFile> charts,
         bool isFullOwned,
         int bmsRowsVersion = 1,
@@ -2969,27 +2969,17 @@ public sealed class BmsLibraryMaintenanceServiceTests
         int ownedCollectionVersion = 1,
         int resourceHealthInputVersion = 1)
     {
-        Type targetSetType = typeof(BMSLibrary).GetNestedType("ResourceMaintenanceTargetSet", BindingFlags.NonPublic);
-        Assert.IsNotNull(targetSetType);
         if (!isFullOwned)
         {
-            MethodInfo forSubset = targetSetType.GetMethod("ForSubset", BindingFlags.Static | BindingFlags.NonPublic);
-            Assert.IsNotNull(forSubset);
-            return forSubset.Invoke(null, [charts]);
+            return ResourceMaintenanceTargetSet.ForSubset(charts);
         }
 
-        Type storageRowsVersionType = typeof(BMSLibrary).GetNestedType("StorageRowsVersionSnapshot", BindingFlags.NonPublic);
-        Assert.IsNotNull(storageRowsVersionType);
-        ConstructorInfo constructor = storageRowsVersionType.GetConstructor(
-            BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public,
-            null,
-            [typeof(int), typeof(int)],
-            null);
-        Assert.IsNotNull(constructor);
-        object storageRowsVersion = constructor.Invoke([bmsRowsVersion, bmsonRowsVersion]);
-        MethodInfo forFullOwned = targetSetType.GetMethod("ForFullOwned", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.IsNotNull(forFullOwned);
-        return forFullOwned.Invoke(null, [charts, storageRowsVersion, ownedCollectionVersion, resourceHealthInputVersion]);
+        var storageRowsVersion = new StorageRowsVersionSnapshot(bmsRowsVersion, bmsonRowsVersion);
+        return ResourceMaintenanceTargetSet.ForFullOwned(
+            charts,
+            storageRowsVersion,
+            ownedCollectionVersion,
+            resourceHealthInputVersion);
     }
 
     private static bool GetBoolProperty(object target, string propertyName)
