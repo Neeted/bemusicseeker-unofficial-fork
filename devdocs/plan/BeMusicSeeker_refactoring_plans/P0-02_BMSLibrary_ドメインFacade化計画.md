@@ -989,3 +989,28 @@ BMSLibrary                         // public facade / compatibility API
 - Lane C は service extraction ではなく `REF-MVP-C35: LR2 sync input builder extraction` に進む判断にした。
 - root に残す state / concurrency 境界として、sync 実行状態、host adapter snapshot / reservation、scan / prepared / file-diff mutable cache、row snapshot reader lock、freshness 判定、chart_info hydration / UI warning dispatch を明記した。
 - production code は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C35`
+
+状態: completed checkpoint。
+
+目的:
+
+- `Lr2SongDbSyncInputBuilder` を `BmsLibraryInternal` に追加し、候補選択以降の input composition を builder に移す。
+- BMSLibrary root は row/root/settings/scan/directory metadata/prepared/app-managed scope snapshot 採取と compatibility/concurrency boundary に集中させる。
+- timing、prepared surface consumption timing、ログ項目、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- `Lr2SongDbSyncInputBuilder` が追加され、LR2 folder candidates 以降の selection / log / final input factory composition を担当する。
+- `CreateLr2SongDbSyncInput` は root-state snapshot 採取と builder 呼び出しに近づいている。
+- `Queue/Run`、status、cancel、DB write、chart_info projection、private reflection entry point は変更していない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncInputBuilder` を追加し、LR2 folder candidates 以降の selection / log / final input factory composition を builder へ移した。
+- `CreateLr2SongDbSyncInput` は row/root/settings/scan/directory metadata/prepared/app-managed scope snapshot 採取と builder 呼び出しに近づいた。
+- `lr2FolderCandidatesMs` は builder 生成後に開始し、app-managed scope 作成と folder candidate selection を含む既存計測範囲を維持した。
+- `Queue/Run`、status、cancel、DB write、chart_info projection、private reflection entry point、DB schema、setting name、serialized/public surface は変更していない。
+- 初回 post-review build は並列 testhost file lock で失敗したが、再実行 build は pass した。

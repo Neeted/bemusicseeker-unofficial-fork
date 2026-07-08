@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C34: LR2 sync input extraction readiness review` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C35: LR2 sync input builder extraction` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -408,9 +408,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C34` として C33 後の extraction readiness をレビューし、decision record [REF-MVP-C34 LR2 Sync Input Builder Extraction Decision](./decisions/REF-MVP-C34_lr2_sync_input_builder_extraction.md) を追加した。次は service extraction ではなく `REF-MVP-C35: LR2 sync input builder extraction` とし、root-state / concurrency 境界は BMSLibrary に残す。production code は変更していない。diff check と静的レビューは完了。
 
-現在の active ticket: なし。`REF-MVP-C34` completed checkpoint。
+`REF-MVP-C35` として `BmsLibraryInternal/Lr2SongDbSyncInputBuilder.cs` を追加し、LR2 folder candidates 以降の selection / log / final input factory composition を builder へ移した。`CreateLr2SongDbSyncInput` は root-state snapshot 採取と builder 呼び出しに近づいた。`BMSLibrary.cs` は 18,281 行、builder は 141 行。初回 post-review build は並列 testhost file lock で失敗したが、再実行 build は pass。LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
-次にやる 1 件: `REF-MVP-C35: LR2 sync input builder extraction`。`Lr2SongDbSyncInputBuilder` を `BmsLibraryInternal` に追加し、`CreateLr2SongDbSyncInput` の orchestration を builder に移す。BMSLibrary は row/root/settings/scan/prepared/app-managed scope snapshot を採取して builder に渡す。`Queue/Run`、status、cancel、DB write、chart_info projection、private reflection entry point は触らない。
+現在の active ticket: なし。`REF-MVP-C35` completed checkpoint。
+
+次にやる 1 件: Lane C を続ける場合は `REF-MVP-C36: LR2 sync input builder aftermath review` として、builder 抽出後の root 残存責務と builder delegate surface を再評価し、Lane C を別 workflow へ移すか、builder delegate surface を 1 ticket だけ整えるかを決める。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 

@@ -6904,122 +6904,32 @@ completeFileEnumerationOnce,
 
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection =
             CreateLr2SongDbSyncPreparedSurfaceSelection(scanSurface);
+        var inputBuilder = new Lr2SongDbSyncInputBuilder(
+            CreateLr2SongDbSyncFolderCandidateSelection,
+            CreateLr2SongDbSyncDirectoryTargetSelection,
+            CreateLr2SongDbSyncFolderInfoCandidateSelection,
+            CreateLr2SongDbSyncDirectoryEntrySelection,
+            CreateLr2SongDbSyncTextFileDirectorySelection,
+            LogInstallPerformance);
+
         var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
-        Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection =
-            CreateLr2SongDbSyncFolderCandidateSelection(
-                scanSurface,
-                rootSnapshot,
-                settingsSnapshot,
-                preparedSurfaceSelection,
-                appManagedOutputScope);
-        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = lr2FolderCandidateSelection.Candidates;
-        lr2FolderCandidatesStopwatch.Stop();
-        Lr2SongDbSyncDirectoryTargetSelection directoryTargetSelection =
-            CreateLr2SongDbSyncDirectoryTargetSelection(
-                directoryMetadataTargets,
-                lr2FolderFileCandidates,
-                rootSnapshot,
-                settingsSnapshot);
-        IReadOnlyCollection<string> directoryEntryTargets = directoryTargetSelection.DirectoryEntryTargets;
-        var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
-        Lr2SongDbSyncFolderInfoCandidateSelection folderInfoCandidateSelection =
-            CreateLr2SongDbSyncFolderInfoCandidateSelection(
-                scanSurface,
-                rootSnapshot.Lr2FolderDiscoveryDirectories,
-                directoryEntryTargets,
-                preparedSurfaceSelection);
-        Lr2FolderInfoCandidateSnapshot folderInfoCandidates = folderInfoCandidateSelection.Candidates;
-        Lr2TextMetadataCandidateSnapshot textMetadataCandidates = folderInfoCandidateSelection.TextMetadataCandidates;
-        folderInfoCandidatesStopwatch.Stop();
-        var directoryEntriesStopwatch = Stopwatch.StartNew();
-        Lr2SongDbSyncDirectoryEntrySelection directoryEntrySelection =
-            CreateLr2SongDbSyncDirectoryEntrySelection(
-                scanSurface,
-                rootSnapshot.Lr2FolderDiscoveryDirectories,
-                directoryEntryTargets,
-                preparedSurfaceSelection);
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = directoryEntrySelection.Entries;
-        directoryEntriesStopwatch.Stop();
-        var textFileDirsStopwatch = Stopwatch.StartNew();
-        Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection =
-            CreateLr2SongDbSyncTextFileDirectorySelection(
-                scanSurface,
-                textMetadataCandidates,
-                preparedSurfaceSelection);
-        IReadOnlyList<string> textFileDirectories = textFileDirectorySelection.Directories;
-        textFileDirsStopwatch.Stop();
-        inputStopwatch.Stop();
-        var inputSurfaceTimings = new Lr2SongDbSyncInputSurfaceTimings(
+
+        return inputBuilder.Create(
+            rowSnapshot,
+            rootSnapshot,
+            settingsSnapshot,
+            scanSurfaceSelection,
+            directoryMetadataTargets,
+            preparedSurfaceSelection,
+            appManagedOutputScope,
+            inputStopwatch,
             rowSnapshotStopwatch,
             rootsStopwatch,
             builtinSettingsStopwatch,
             scanSurfaceStopwatch,
             directoryTargetsStopwatch,
-            directoryEntriesStopwatch,
-            lr2FolderCandidatesStopwatch,
-            folderInfoCandidatesStopwatch,
-            textFileDirsStopwatch,
-            inputStopwatch);
-        LogLr2SongDbSyncInputSurface(
-            scanSurfaceSelection,
-            rootSnapshot,
-            settingsSnapshot,
-            directoryTargetSelection,
-            directoryEntries,
-            directoryEntrySelection,
-            folderInfoCandidates,
-            lr2FolderFileCandidates,
-            appManagedOutputScope,
-            lr2FolderCandidateSelection,
-            preparedSurfaceSelection,
-            textFileDirectories,
-            textFileDirectorySelection,
-            inputSurfaceTimings);
-        return Lr2SongDbSyncInputFactory.Create(
-            rootSnapshot,
-            rowSnapshot,
-            directoryTargetSelection,
-            folderInfoCandidates,
-            directoryEntries,
-            settingsSnapshot,
-            appManagedOutputScope,
-            lr2FolderFileCandidates,
-            textFileDirectories,
-            scanSurfaceSelection);
-    }
-
-    private void LogLr2SongDbSyncInputSurface(
-        Lr2SongDbSyncScanSurfaceSelection scanSurfaceSelection,
-        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
-        Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot,
-        Lr2SongDbSyncDirectoryTargetSelection directoryTargetSelection,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries,
-        Lr2SongDbSyncDirectoryEntrySelection directoryEntrySelection,
-        Lr2FolderInfoCandidateSnapshot folderInfoCandidates,
-        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
-        Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope,
-        Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection,
-        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
-        IReadOnlyList<string> textFileDirectories,
-        Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection,
-        Lr2SongDbSyncInputSurfaceTimings timings)
-    {
-        LogInstallPerformance(Lr2SongDbSyncInputSurfaceLogFormatter.Format(
-            scanSurfaceSelection,
-            rootSnapshot,
-            settingsSnapshot,
-            directoryTargetSelection,
-            directoryEntries,
-            directoryEntrySelection,
-            folderInfoCandidates,
-            lr2FolderFileCandidates,
-            appManagedOutputScope,
-            lr2FolderCandidateSelection,
-            preparedSurfaceSelection,
-            textFileDirectories,
-            textFileDirectorySelection,
-            timings));
+            lr2FolderCandidatesStopwatch);
     }
 
     private Lr2SongDbSyncScanSurfaceSelection CreateLr2SongDbSyncScanSurfaceSelection(
