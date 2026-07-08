@@ -2654,3 +2654,29 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C91: owned chart collection private helper boundary review` として、`OwnedChartCollectionStateTests` に残る `SetLibraryFilesWithoutNotification` / `SetLibraryBmsonSongsWithoutNotification` / `resourceHealthIndexInvalidated` private field set と、installed lookup / storage mutation / file scan private reflection helper を分類し、次に削るべき 1 seam を決める。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C91`
+
+状態: completed checkpoint。
+
+目的:
+
+- `OwnedChartCollectionStateTests` に残る private helper を分類する。
+- setup helper、read-only assertion helper、mutation workflow helper を分ける。
+- production code 変更は行わず、次の実装単位を 1 件に絞る。
+
+調査結果:
+
+- `InvokeApplyLibraryMutationDelta` は unregister、path change、parent folder / duplicate cache、install destination overlay、installed lookup、resource health delta など複数の owned mutation tests から呼ばれている。
+- `InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot` / `InvokeCreateInstalledChartLookupSnapshot` / `InvokeCreateInstalledChartKeySnapshotExcludingCharts` は assertion 用の read helper として残る。
+- `SetLibraryFilesWithoutNotification` / `SetLibraryBmsonSongsWithoutNotification` は mutation event / normal refresh notification の初期 setup 通知を抑えるため、public setter へ単純置換しない。
+- `ApplyInstalledChartStorageTargets`、`ApplyLibraryFileScanStorageMutation`、inline chart info build は別 workflow として後続に回す。
+
+決定:
+
+- `decisions/REF-MVP-C91_owned_chart_collection_private_helper_boundary.md` を追加した。
+- 次の実装 ticket は `REF-MVP-C92: library mutation delta apply workflow seam` とする。
+
+次にやる 1 件:
+
+- `ApplyLibraryMutationDelta` / `ApplyLibraryMutationDeltaWithPerformanceContext` の orchestration を top-level coordinator + host seam へ移し、`OwnedChartCollectionStateTests.InvokeApplyLibraryMutationDelta` を private reflection なしに置き換える。
