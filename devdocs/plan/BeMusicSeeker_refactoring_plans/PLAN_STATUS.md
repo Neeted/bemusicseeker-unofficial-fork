@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C86: maintenance hydration apply workflow seam` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C87: owned chart digest mutation dispatch seam` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -514,9 +514,15 @@ C84 完了時点の次にやる 1 件: C84 後に残る maintenance / resource h
 
 `REF-MVP-C85` として [maintenance resource health reflection aftermath](./decisions/REF-MVP-C85_maintenance_resource_health_reflection_aftermath.md) をレビューした。C84 後に残る private reflection は、snapshot publish test seam、digest dispatch seam、maintenance hydration apply seam に分かれる。サブエージェント静的レビューを踏まえ、次は test helper 置き換えだけでなく production root の責務も減る `ApplyMaintenanceHydrationResult` の owner attach / cleanup / dispatch 境界を外へ出す判断にした。production code は変更していない。
 
-現在の active ticket: `REF-MVP-C86: maintenance hydration apply workflow seam`。
+C85 完了時点の次 ticket: `REF-MVP-C86: maintenance hydration apply workflow seam`。
 
-次にやる 1 件: `ApplyMaintenanceHydrationResult` の owner attach、resource health input mutation、full-owned target capture、stale maintenance row cleanup、dispatch handoff を top-level coordinator / host 境界へ移し、private reflection なしで確認する。
+C85 完了時点の次にやる 1 件: `ApplyMaintenanceHydrationResult` の owner attach、resource health input mutation、full-owned target capture、stale maintenance row cleanup、dispatch handoff を top-level coordinator / host 境界へ移し、private reflection なしで確認する。
+
+`REF-MVP-C86` として maintenance hydration apply workflow を `BmsLibraryInternal/MaintenanceHydrationApplyCoordinator.cs` へ移した。root `ApplyMaintenanceHydrationResult` は private adapter host 経由の bridge になり、direct tests で null result、attach / cleanup / dispatch order、cleanup failure invalidate / rethrow を private reflection なしで確認した。`ApplyMaintenanceHydrationResult_PublishesMaintenanceRefreshThroughOwnedDispatcher` は `IMaintenanceHydrationHost` 経由の integration test へ移し、`InvokeApplyMaintenanceHydrationResult` helper は削除した。`BMSLibrary.cs` は 16,465 行、apply coordinator は 58 行、host interface は 23 行、direct tests は 211 行。build、targeted tests、format、diff check、Roslynator warning、full test は完了。静的レビューは commit 前に実施する。
+
+現在の active ticket: `REF-MVP-C87: owned chart digest mutation dispatch seam`。
+
+次にやる 1 件: `DispatchOwnedChartDigestChanges` / `DispatchOwnedPotentialDigestChanges` の digest 起点 mutation plan を top-level coordinator / plan 境界へ移し、`InvokeDispatchOwnedChartDigestChanges` を private reflection なしの direct test または public behavior test へ移す。
 
 ## 次回 Codex が最初に読むべきファイル
 

@@ -996,7 +996,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 }
             };
 
-            InvokeApplyMaintenanceHydrationResult(library, hydrationResult);
+            ((IMaintenanceHydrationHost)library).ApplyMaintenanceHydrationResult(hydrationResult);
 
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             ResourceHealthIndexSnapshot currentResourceHealth = library.TryGetCurrentResourceHealthIndexSnapshotForView();
@@ -2913,15 +2913,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchOwnedChartDigestChanges", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [digestChanges, reason, true]);
-    }
-
-    private static void InvokeApplyMaintenanceHydrationResult(
-        BMSLibrary library,
-        MaintenanceTableHydrationResult result)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyMaintenanceHydrationResult", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [result]);
     }
 
     private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthMutation(

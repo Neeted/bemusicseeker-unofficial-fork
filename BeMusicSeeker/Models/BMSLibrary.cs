@@ -9354,47 +9354,51 @@ completeFileEnumerationOnce,
 
     private void ApplyMaintenanceHydrationResult(MaintenanceTableHydrationResult result)
     {
-        if (result == null)
+        var coordinator = new MaintenanceHydrationApplyCoordinator(new MaintenanceHydrationApplyHost(this));
+        coordinator.Apply(result);
+    }
+
+    private sealed class MaintenanceHydrationApplyHost(BMSLibrary owner) : IMaintenanceHydrationApplyHost
+    {
+        public IDisposable EnterOwnedStorageWriteLock()
         {
-            return;
+            return owner.rwlockBMSFiles.GetWriterGuard();
         }
-        var applyStopwatch = Stopwatch.StartNew();
-        ResourceMaintenanceTargetSet resourceHealthTargets = default;
-        using (rwlockBMSFiles.GetWriterGuard())
+
+        public OwnedChartStorageOwnerView CreateOwnedChartStorageOwnerView()
         {
-            OwnedChartStorageOwnerView ownerView = CreateOwnedChartStorageOwnerViewUnsafe();
-            var attachStopwatch = Stopwatch.StartNew();
-            using (BeginResourceHealthInputMutation())
-            {
-                MaintenanceHydrationOwnerAttachService.AttachMaintenanceSnapshots(ownerView, result);
-            }
-            attachStopwatch.Stop();
-            result.MaintenanceAttachMs = attachStopwatch.ElapsedMilliseconds;
-            resourceHealthTargets = CreateFullOwnedResourceMaintenanceTargetSet("maintenance_hydration");
-            MaintenanceHydrationOwnerAttachService.CaptureOwnerPathAndStaleMaintenancePaths(ownerView, result);
-            applyStopwatch.Stop();
-            result.MaintenanceApplyMs = applyStopwatch.ElapsedMilliseconds;
-            var cleanupStopwatch = Stopwatch.StartNew();
-            if (result.StaleMaintenancePaths.Count > 0)
-            {
-                try
-                {
-                    using (rwlockSongDBMaintenance.GetWriterGuard())
-                    {
-                        result.CleanupDeletedCount = dbGateway.DeleteMaintenanceRows(result.StaleMaintenancePaths);
-                    }
-                }
-                catch
-                {
-                    ForceInvalidateResourceHealthIndex("maintenance_hydration_cleanup_failed");
-                    throw;
-                }
-            }
-            cleanupStopwatch.Stop();
-            result.CleanupMs = cleanupStopwatch.ElapsedMilliseconds;
+            return owner.CreateOwnedChartStorageOwnerViewUnsafe();
         }
-        result.ViewRefreshQueued = true;
-        DispatchMaintenanceHydrationResult(result, resourceHealthTargets);
+
+        public IDisposable BeginResourceHealthInputMutation()
+        {
+            return owner.BeginResourceHealthInputMutation();
+        }
+
+        public ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason)
+        {
+            return owner.CreateFullOwnedResourceMaintenanceTargetSet(reason);
+        }
+
+        public int DeleteStaleMaintenanceRows(IEnumerable<string> staleMaintenancePaths)
+        {
+            using (owner.rwlockSongDBMaintenance.GetWriterGuard())
+            {
+                return owner.dbGateway.DeleteMaintenanceRows(staleMaintenancePaths);
+            }
+        }
+
+        public void ForceInvalidateResourceHealthIndex(string reason)
+        {
+            owner.ForceInvalidateResourceHealthIndex(reason);
+        }
+
+        public void DispatchMaintenanceHydrationResult(
+            MaintenanceTableHydrationResult result,
+            ResourceMaintenanceTargetSet resourceHealthTargets)
+        {
+            owner.DispatchMaintenanceHydrationResult(result, resourceHealthTargets);
+        }
     }
 
     private void QueueDeferredInstallableMaintenance(string reason, long criticalElapsedMs, string dependency = null)

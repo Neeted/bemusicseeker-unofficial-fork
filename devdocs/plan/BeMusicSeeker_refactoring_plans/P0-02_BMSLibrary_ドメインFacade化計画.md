@@ -2504,3 +2504,36 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `ApplyMaintenanceHydrationResult` の owner attach、resource health input mutation、full-owned target capture、stale maintenance row cleanup、dispatch handoff を top-level coordinator / host 境界へ移し、`InvokeApplyMaintenanceHydrationResult` を private reflection なしの direct test または public behavior test へ移す。
+
+## Completed Checkpoint: `REF-MVP-C86`
+
+状態: completed checkpoint。
+
+目的:
+
+- `ApplyMaintenanceHydrationResult` の owner attach、resource health input mutation、full-owned target capture、stale maintenance row cleanup、dispatch handoff を top-level coordinator / host 境界へ移す。
+- root `BMSLibrary` は lock、owner view、resource health input mutation、cleanup DB write、dispatch handoff を提供する host bridge に寄せる。
+- `InvokeApplyMaintenanceHydrationResult` private reflection helper を削除する。
+
+完了条件:
+
+- `ApplyMaintenanceHydrationResult` の主要 workflow が root private method だけに閉じていない。
+- writer lock、`BeginResourceHealthInputMutation`、full-owned target capture、stale maintenance row cleanup、`ViewRefreshQueued`、dispatch handoff の順序が維持されている。
+- `InvokeApplyMaintenanceHydrationResult` が削除されている。
+- DB schema、setting name、serialized/public surface、log 文言、notification effect は変更していない。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/IMaintenanceHydrationApplyHost.cs` を追加した。
+- `BmsLibraryInternal/MaintenanceHydrationApplyCoordinator.cs` を追加し、owner view 取得、maintenance snapshot attach、resource health input mutation scope、full-owned target capture、stale maintenance row cleanup、view refresh queued、dispatch handoff を移した。
+- root `ApplyMaintenanceHydrationResult` は `MaintenanceHydrationApplyHost` adapter 経由で coordinator に委譲する bridge になった。
+- `MaintenanceHydrationApplyCoordinatorTests` を追加し、null result、attach / cleanup / dispatch order、cleanup failure invalidate / rethrow を private reflection なしで確認した。
+- `ApplyMaintenanceHydrationResult_PublishesMaintenanceRefreshThroughOwnedDispatcher` は `IMaintenanceHydrationHost` 経由の integration test に移し、`InvokeApplyMaintenanceHydrationResult` helper を削除した。
+- source-text test は root private method 本体ではなく apply coordinator / host bridge 配置を確認する形へ更新した。
+- `BMSLibrary.cs` は 16,465 行、apply coordinator は 58 行、host interface は 23 行、direct tests は 211 行。
+- build、targeted tests、format、diff check、Roslynator warning、full test は完了。静的レビューはこの checkpoint の commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C87: owned chart digest mutation dispatch seam` として、`DispatchOwnedChartDigestChanges` / `DispatchOwnedPotentialDigestChanges` の digest 起点 mutation plan を top-level coordinator / plan 境界へ移し、`InvokeDispatchOwnedChartDigestChanges` を private reflection なしの direct test または public behavior test へ移す。
