@@ -53,7 +53,7 @@ internal static class ChartPackageTestExtensions
     {
         return [.. (package?.ChartEntries ?? [])
             .Select(entry => entry?.GetBmsOwnerForTest())
-            .Where(file => file != null)];
+            .OfType<BMSFile>()];
     }
 
     internal static BMSFile GetBmsOwnerForTest(this PackageChartEntry entry)

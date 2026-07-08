@@ -3245,6 +3245,7 @@ public sealed class BmsLibraryPackageInstallServiceTests
     {
         return [.. (result?.AddedCharts ?? [])
             .Select(chart => chart?.GetBmsStorageOwner())
+            .OfType<BMSFile>()
             .Where(ChartFileKindResolver.IsBmsChartFile)];
     }
 
@@ -3252,7 +3253,8 @@ public sealed class BmsLibraryPackageInstallServiceTests
     {
         return [.. (result?.AddedCharts ?? [])
             .Select(chart => chart?.GetBmsonStorageOwner())
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+            .OfType<LR2SongDBExtended.bmson_song>()
+            .Where(song => !string.IsNullOrWhiteSpace(song.path))];
     }
 
     private static PackageInstallEstimationSnapshot BuildPackageSnapshot(ChartPackage package, IEnumerable<BMSFile> targetFiles)
