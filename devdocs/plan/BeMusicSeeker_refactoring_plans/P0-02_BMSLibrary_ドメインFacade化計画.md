@@ -2087,3 +2087,34 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C72: maintenance hydration resource health mutation planner seam` として、`ResourceHealthIndexMutationPlanner` に maintenance hydration full rebuild 用 builder を追加し、`BuildMaintenanceHydrationMutationResult` から resource health mutation の inline assignment を外す。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult`、`ResourceHealthIndexDispatchResult` は触らない。
+
+## Completed Checkpoint: `REF-MVP-C72`
+
+状態: completed checkpoint。
+
+目的:
+
+- `ResourceHealthIndexMutationPlanner` に maintenance hydration full rebuild 用の builder を追加する。
+- `BuildMaintenanceHydrationMutationResult` は warning / maintenance presentation refresh の owned collection mutation result を作り、resource health mutation は planner から受け取る形にする。
+- `MainWindowContextMenuResourceTests.MaintenanceHydrationUsesOwnedStorageOwnerView` は root method body の inline mutation 固定から planner seam 検査へ寄せる。
+
+完了条件:
+
+- `BuildMaintenanceHydrationMutationResult` から `ResourceHealthMutation.RebuildFull = true` / `FullOwnedTargetSet = fullOwnedTargets` の inline assignment が消え、planner 経由になっている。
+- maintenance hydration の warning presentation / maintenance presentation / resource health full rebuild の意味が変わっていない。
+- `DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult`、`ResourceHealthIndexDispatchResult` は root に残す。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationFullRebuildMutation` を追加した。
+- `BuildMaintenanceHydrationMutationResult` は planner から受け取った `ResourceHealthIndexMutation` を `OwnedChartCollectionMutationResult` の constructor injection で保持する形にした。
+- `OwnedChartCollectionMutationResult.ResourceHealthMutation` は settable にせず、non-null get-only の不変条件を維持した。
+- `MainWindowContextMenuResourceTests.MaintenanceHydrationUsesOwnedStorageOwnerView` は `BuildMaintenanceHydrationMutationResult` 本文内の planner 呼び出しと planner method の full rebuild mutation を検査する形へ更新した。
+- `DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` の top-level 化、`ResourceHealthIndexDispatchResult` は未変更。
+- `BMSLibrary.cs` は 16,464 行、`ResourceHealthIndexMutationPlanner.cs` は 62 行。
+- build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C73: maintenance dispatch bridge review` として、C72 後に `DispatchMaintenanceHydrationResult` の bridge を薄くできるか、または `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を先に整理すべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

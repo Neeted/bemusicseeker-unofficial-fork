@@ -482,9 +482,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C71` として [maintenance dispatch seam after resource health mutation](./decisions/REF-MVP-C71_maintenance_dispatch_seam_after_resource_health_mutation.md) をレビューした。C70 後も `BuildMaintenanceHydrationMutationResult` は root で resource health full rebuild mutation を inline assignment している一方、`OwnedChartCollectionMutationResult` は大きな private contract のままで、今 top-level 化すると maintenance hydration 以外の workflow まで巻き込む。次は dispatch 本体移動ではなく、maintenance hydration 用 resource health mutation 構築を planner seam へ移す判断にした。production code は変更していない。
 
-現在の active ticket: `REF-MVP-C72: maintenance hydration resource health mutation planner seam`。
+`REF-MVP-C72` として maintenance hydration full rebuild 用 resource health mutation 構築を `ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationFullRebuildMutation` へ移した。`BuildMaintenanceHydrationMutationResult` は warning / maintenance presentation refresh の `OwnedChartCollectionMutationResult` を作り、resource health mutation は constructor injection で planner から受け取る形にした。`OwnedChartCollectionMutationResult.ResourceHealthMutation` は non-null get-only の不変条件を維持している。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` の top-level 化、`ResourceHealthIndexDispatchResult` は触っていない。`BMSLibrary.cs` は 16,464 行、`ResourceHealthIndexMutationPlanner.cs` は 62 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-次にやる 1 件: `ResourceHealthIndexMutationPlanner` に maintenance hydration full rebuild 用 builder を追加し、`BuildMaintenanceHydrationMutationResult` から resource health mutation の inline assignment を外す。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult`、`ResourceHealthIndexDispatchResult` は触らない。
+現在の active ticket: `REF-MVP-C73: maintenance dispatch bridge review`。
+
+次にやる 1 件: C72 後に `DispatchMaintenanceHydrationResult` の bridge を薄くできるか、または `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を先に整理すべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 

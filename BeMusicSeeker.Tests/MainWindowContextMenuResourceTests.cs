@@ -3492,9 +3492,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(applyMethod.Contains("resourceHealthTargetOwnedCollectionVersion"));
         Assert.IsFalse(applyMethod.Contains("resourceHealthTargetInputVersion"));
         Assert.IsFalse(applyMethod.Contains("RebuildResourceHealthIndexSnapshotLocked(\"maintenance_hydration\")"));
+        string buildHydrationMutationMethod = ExtractMethodBody(libraryCode, "private static OwnedChartCollectionMutationResult BuildMaintenanceHydrationMutationResult");
+        string hydrationMutationMethod = ExtractMethodBody(libraryCode, "internal static ResourceHealthIndexMutation BuildMaintenanceHydrationFullRebuildMutation");
         StringAssert.Contains(libraryCode, "BuildMaintenanceHydrationMutationResult");
-        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.RebuildFull = true");
-        StringAssert.Contains(libraryCode, "result.ResourceHealthMutation.FullOwnedTargetSet = fullOwnedTargets");
+        StringAssert.Contains(buildHydrationMutationMethod, "ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationFullRebuildMutation(fullOwnedTargets)");
+        StringAssert.Contains(hydrationMutationMethod, "RebuildFull = true");
+        StringAssert.Contains(hydrationMutationMethod, "FullOwnedTargetSet = fullOwnedTargets");
         StringAssert.Contains(libraryCode, "resource_health_index_full_target_stale");
         Assert.IsFalse(applyMethod.Contains("foreach (BMSFile item in BMSFiles"));
         Assert.IsFalse(applyMethod.Contains("foreach (LR2SongDBExtended.bmson_song item in BmsonSongs"));

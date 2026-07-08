@@ -49,4 +49,14 @@ internal static class ResourceHealthIndexMutationPlanner
         }
         return mutation;
     }
+
+    internal static ResourceHealthIndexMutation BuildMaintenanceHydrationFullRebuildMutation(
+        ResourceMaintenanceTargetSet fullOwnedTargets)
+    {
+        return new ResourceHealthIndexMutation
+        {
+            RebuildFull = true,
+            FullOwnedTargetSet = fullOwnedTargets
+        };
+    }
 }

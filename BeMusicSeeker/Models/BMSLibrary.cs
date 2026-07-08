@@ -10271,6 +10271,16 @@ completeFileEnumerationOnce,
 
     private sealed class OwnedChartCollectionMutationResult
     {
+        public OwnedChartCollectionMutationResult()
+            : this(new ResourceHealthIndexMutation())
+        {
+        }
+
+        public OwnedChartCollectionMutationResult(ResourceHealthIndexMutation resourceHealthMutation)
+        {
+            ResourceHealthMutation = resourceHealthMutation ?? throw new ArgumentNullException(nameof(resourceHealthMutation));
+        }
+
         public OwnedChartCollectionStorageMutation StorageMutation { get; } = new();
 
         public List<LibraryChartDigestChange> DigestChanges { get; } = [];
@@ -10309,7 +10319,7 @@ completeFileEnumerationOnce,
 
         public int NormalLibraryRefreshNotificationVersion { get; set; }
 
-        public ResourceHealthIndexMutation ResourceHealthMutation { get; } = new();
+        public ResourceHealthIndexMutation ResourceHealthMutation { get; }
 
         public ResourceHealthIndexDispatchResult ResourceHealthDispatchResult { get; set; }
 
@@ -12350,13 +12360,12 @@ completeFileEnumerationOnce,
     private static OwnedChartCollectionMutationResult BuildMaintenanceHydrationMutationResult(
         ResourceMaintenanceTargetSet fullOwnedTargets)
     {
-        var result = new OwnedChartCollectionMutationResult
+        var result = new OwnedChartCollectionMutationResult(
+            ResourceHealthIndexMutationPlanner.BuildMaintenanceHydrationFullRebuildMutation(fullOwnedTargets))
         {
             WarningPresentationChanged = true,
             MaintenancePresentationChanged = true
         };
-        result.ResourceHealthMutation.RebuildFull = true;
-        result.ResourceHealthMutation.FullOwnedTargetSet = fullOwnedTargets;
         return result;
     }
 
