@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C58: FixInstallationDirectoryCharts coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C59: merge / install boundary after repair seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -456,9 +456,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C58` として `FixInstallationDirectoryCharts` の orchestration を `BmsLibraryInternal/LibraryFixInstallationCoordinator.cs` へ移した。root `BMSLibrary` は `BMSLibrary.FixInstallationHost.cs` で LR2 sync block、lock boundary、installed hash snapshot、package move callback、duplicate confirmation、delta apply、duplicate source removal、maintenance apply を提供する host になっている。`BmsLibraryLibraryFileOperationsService.FixInstallationDirectory` core behavior、`MoveChartPackageFiles` seam、`RemoveLibraryCharts` seam、`MergeChartDirectory`、`installChartPackages` callback 契約、maintenance result apply は触っていない。`BMSLibrary.cs` は 16,950 行、coordinator は 75 行、host は 85 行。build、repair / package install / duplicate / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-現在の active ticket: なし。`REF-MVP-C58` completed checkpoint。
+`REF-MVP-C59` として [merge / install boundary after repair seam](./decisions/REF-MVP-C59_merge_install_boundary_after_repair.md) をレビューした。次は `MergeChartDirectory` の LR2 sync block、lock boundary、prepare service call、source unregister、reverse lookup remove/add、package move、destination scan、reference delta apply、DB upsert、maintenance apply、final state apply を coordinator seam へ移す。`installChartPackages` follow-up と maintenance result apply contract prep は C60 後に再評価する。production code は変更していない。
 
-次にやる 1 件: `REF-MVP-C59: merge / install boundary after repair seam` として、`MergeChartDirectory`、`installChartPackages` follow-up、maintenance result apply contract prep、または repair seam 追加整理のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+現在の active ticket: なし。`REF-MVP-C59` completed checkpoint。
+
+次にやる 1 件: `REF-MVP-C60: MergeChartDirectory coordinator seam` として、`MergeChartDirectory` の orchestration を dedicated coordinator seam へ移す。source-text test は root method body 固定ではなく、新しい coordinator 配置を検査する形へ更新する。`installChartPackages` callback 契約、`MoveChartPackageFiles` core behavior、maintenance result apply は触らない。
 
 ## 次回 Codex が最初に読むべきファイル
 

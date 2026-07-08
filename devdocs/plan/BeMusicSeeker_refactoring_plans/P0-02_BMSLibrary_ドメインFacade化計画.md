@@ -1692,3 +1692,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C59: merge / install boundary after repair seam` として、`MergeChartDirectory`、`installChartPackages` follow-up、maintenance result apply contract prep、または repair seam 追加整理のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C59`
+
+状態: completed checkpoint。
+
+目的:
+
+- C58 後の merge / install / maintenance follow-up を比較する。
+- `MergeChartDirectory`、`installChartPackages` follow-up、maintenance result apply contract prep、repair seam 追加整理のうち、次の実装 ticket を 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `installChartPackages` follow-up / maintenance result apply contract prep / repair seam 追加整理を今触らない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C59 Merge / Install Boundary After Repair Seam](./decisions/REF-MVP-C59_merge_install_boundary_after_repair.md) を追加した。
+- `MergeChartDirectory` は C56 の package move seam を使い、root に LR2 sync block、locks、prepare service call、source unregister、reverse lookup remove/add、package move、destination scan、reference delta apply、DB upsert、maintenance apply、final state apply の orchestration が残るため、次の coordinator seam として妥当と判断した。
+- `SourceTextTestHelper.ReadBmsLibrarySourceText()` は `BmsLibraryInternal` も読むため、C60 では root method body 固定の source-text test を coordinator-aware に更新できる。
+- `installChartPackages` follow-up は callback / DB / maintenance / score / state apply / inline chart_info / estimated batch context をまたぐため、C60 後に再評価する判断にした。
+- maintenance result apply contract prep は C45 の blocker が残るためまだ触らない判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C60: MergeChartDirectory coordinator seam` として、`MergeChartDirectory` の LR2 sync block、lock boundary、prepare service call、source unregister、reverse lookup remove/add、package move、destination scan、reference delta apply、DB upsert、maintenance apply、final state apply を dedicated coordinator seam へ移す。`installChartPackages` callback 契約、`MoveChartPackageFiles` core behavior、maintenance result apply は触らない。
