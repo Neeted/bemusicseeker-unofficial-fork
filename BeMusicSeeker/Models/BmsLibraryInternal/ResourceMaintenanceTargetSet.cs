@@ -35,6 +35,11 @@ internal readonly struct ResourceMaintenanceTargetSet
 
     internal int Count => Charts.Count;
 
+    internal bool HasFullOwnedVersion => IsFullOwned
+        && StorageRowsVersion.HasValue
+        && OwnedCollectionVersion.HasValue
+        && ResourceHealthInputVersion.HasValue;
+
     internal static ResourceMaintenanceTargetSet ForSubset(List<ChartFile> charts)
     {
         return new ResourceMaintenanceTargetSet(charts, false, null, null, null);

@@ -478,9 +478,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C69` として [maintenance dispatch boundary after target contracts](./decisions/REF-MVP-C69_maintenance_dispatch_boundary_after_target_contracts.md) をレビューした。C68 後も `BuildMaintenanceResourceHealthIndexMutation` / `ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` が private nested / private method として残り、`BmsLibraryMaintenanceServiceTests` が private reflection で検証しているため、`DispatchMaintenanceHydrationResult` 本体より先に resource health mutation contract をほどく判断にした。production code は変更していない。
 
-現在の active ticket: `REF-MVP-C70: resource health mutation contract extraction`。
+`REF-MVP-C70` として `ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` を `BMSLibrary` private nested type から `BmsLibraryInternal` top-level internal contract へ移し、旧 `BuildMaintenanceResourceHealthIndexMutation` の判断を `ResourceHealthIndexMutationPlanner.BuildMaintenanceMutation` へ移した。`BmsLibraryMaintenanceServiceTests` は private method / nested enum reflection ではなく direct planner test へ寄せた。`ResourceMaintenanceTargetSet.HasFullOwnedVersion` は旧 full-owned version 判定と同じ意味の contract property として追加した。`DispatchMaintenanceHydrationResult` 本体、`BuildMaintenanceHydrationMutationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` は触っていない。`BMSLibrary.cs` は 16,455 行、`ResourceHealthIndexMutationPlanner.cs` は 52 行、`ResourceHealthIndexMutation.cs` は 31 行、`ResourceHealthIndexUpdateMode.cs` は 8 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-次にやる 1 件: `ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` / `BuildMaintenanceResourceHealthIndexMutation` を top-level internal contract / planner へ移し、`BmsLibraryMaintenanceServiceTests` の private method / nested enum reflection を direct planner test へ寄せる。`DispatchMaintenanceHydrationResult` 本体、`BuildMaintenanceHydrationMutationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` は触らない。
+現在の active ticket: `REF-MVP-C71: maintenance dispatch seam review`。
+
+次にやる 1 件: C70 後に `DispatchMaintenanceHydrationResult` / `BuildMaintenanceHydrationMutationResult` へ進めるか、先に `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を整理するかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 

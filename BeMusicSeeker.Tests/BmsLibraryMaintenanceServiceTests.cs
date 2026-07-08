@@ -1306,27 +1306,27 @@ public sealed class BmsLibraryMaintenanceServiceTests
         file.path = @"C:\Library\delta.bms";
         ChartFile chart = ChartFileProjection.FromBmsFile(file);
 
-        object currentMutation = InvokeBuildMaintenanceResourceHealthIndexMutation(
+        ResourceHealthIndexMutation currentMutation = BuildMaintenanceResourceHealthMutation(
             [chart],
             isFullOwnedTarget: false,
-            updateModeName: "DeltaOnUpdates",
+            resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates,
             resourceHealthIndexCurrent: true,
             workflowHasUpdates: true);
-        Assert.IsFalse(GetBoolProperty(currentMutation, "RebuildFull"));
-        Assert.IsFalse(GetBoolProperty(currentMutation, "Invalidate"));
-        Assert.IsTrue(GetBoolProperty(currentMutation, "InvalidateIfDeltaFails"));
-        Assert.AreEqual(1, GetListCountProperty(currentMutation, "UpdatedTargets"));
+        Assert.IsFalse(currentMutation.RebuildFull);
+        Assert.IsFalse(currentMutation.Invalidate);
+        Assert.IsTrue(currentMutation.InvalidateIfDeltaFails);
+        Assert.AreEqual(1, currentMutation.UpdatedTargets.Count);
 
-        object unavailableMutation = InvokeBuildMaintenanceResourceHealthIndexMutation(
+        ResourceHealthIndexMutation unavailableMutation = BuildMaintenanceResourceHealthMutation(
             [chart],
             isFullOwnedTarget: false,
-            updateModeName: "DeltaOnUpdates",
+            resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates,
             resourceHealthIndexCurrent: false,
             workflowHasUpdates: true);
-        Assert.IsFalse(GetBoolProperty(unavailableMutation, "RebuildFull"));
-        Assert.IsTrue(GetBoolProperty(unavailableMutation, "Invalidate"));
-        Assert.IsFalse(GetBoolProperty(unavailableMutation, "InvalidateIfDeltaFails"));
-        Assert.AreEqual(0, GetListCountProperty(unavailableMutation, "UpdatedTargets"));
+        Assert.IsFalse(unavailableMutation.RebuildFull);
+        Assert.IsTrue(unavailableMutation.Invalidate);
+        Assert.IsFalse(unavailableMutation.InvalidateIfDeltaFails);
+        Assert.AreEqual(0, unavailableMutation.UpdatedTargets.Count);
     }
 
     [TestMethod]
@@ -2943,22 +2943,19 @@ public sealed class BmsLibraryMaintenanceServiceTests
         methodInfo.Invoke(library, [result, targetSet]);
     }
 
-    private static object InvokeBuildMaintenanceResourceHealthIndexMutation(
+    private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthMutation(
         List<ChartFile> charts,
         bool isFullOwnedTarget,
-        string updateModeName,
+        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
         bool resourceHealthIndexCurrent,
         bool workflowHasUpdates)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BuildMaintenanceResourceHealthIndexMutation", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        Type updateModeType = typeof(BMSLibrary).GetNestedType("ResourceHealthIndexUpdateMode", BindingFlags.NonPublic);
-        Assert.IsNotNull(updateModeType);
-        object updateMode = Enum.Parse(updateModeType, updateModeName);
         ResourceMaintenanceTargetSet targetSet = CreateResourceMaintenanceTargetSet(charts, isFullOwnedTarget);
-        object mutation = methodInfo.Invoke(null, [targetSet, updateMode, resourceHealthIndexCurrent, workflowHasUpdates, null, null]);
-        Assert.IsNotNull(mutation);
-        return mutation;
+        return ResourceHealthIndexMutationPlanner.BuildMaintenanceMutation(
+            targetSet,
+            resourceHealthIndexUpdateMode,
+            resourceHealthIndexCurrent,
+            workflowHasUpdates);
     }
 
     private static ResourceMaintenanceTargetSet CreateResourceMaintenanceTargetSet(

@@ -3440,7 +3440,7 @@ public sealed class MainWindowContextMenuResourceTests
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string method = ExtractMethodBody(libraryCode, "internal List<ChartFile> GetChartsNeedResourceFix");
         string setOwnedMethod = ExtractMethodBody(libraryCode, "private MaintenanceWorkflowResult setOwnedMaintenanceInfo");
-        string buildMutationMethod = ExtractMethodBody(libraryCode, "private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthIndexMutation");
+        string buildMutationMethod = ExtractMethodBody(libraryCode, "internal static ResourceHealthIndexMutation BuildMaintenanceMutation");
         string dispatchMethod = ExtractMethodBody(libraryCode, "private void DispatchOwnedChartCollectionMutation");
         string alignMethod = ExtractMethodBody(libraryCode, "private static void AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification");
 
@@ -3462,6 +3462,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(coreMethod, "maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);");
         StringAssert.Contains(coreMethod, "maintenanceTargets = maintenanceTargets.WithCharts(maintenanceTargetCharts);");
         StringAssert.Contains(buildMutationMethod, "List<ChartFile> maintenanceTargetCharts = maintenanceTargets.Charts");
+        StringAssert.Contains(buildMutationMethod, "maintenanceTargets.HasFullOwnedVersion");
         StringAssert.Contains(buildMutationMethod, "mutation.FullOwnedTargetSet = maintenanceTargets;");
         StringAssert.Contains(dispatchMethod, "PublishOwnedCollectionChangeNotification(result);");
         StringAssert.Contains(dispatchMethod, "AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(result);");

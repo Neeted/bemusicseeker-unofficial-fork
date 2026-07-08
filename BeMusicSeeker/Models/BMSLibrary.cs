@@ -10351,33 +10351,6 @@ completeFileEnumerationOnce,
             || InstalledLookupMutation?.HasChanges == true;
     }
 
-    private sealed class ResourceHealthIndexMutation
-    {
-        public List<ChartFile> UpdatedTargets { get; } = [];
-
-        public List<ChartFile> RemovedTargets { get; } = [];
-
-        public ResourceMaintenanceTargetSet FullOwnedTargetSet { get; set; }
-
-        public int? DeltaBaseResourceHealthInputVersion { get; set; }
-
-        public int? DeltaTargetResourceHealthInputVersion { get; set; }
-
-        public bool Invalidate { get; set; }
-
-        public bool RebuildFull { get; set; }
-
-        public bool Defer { get; set; }
-
-        public bool InvalidateIfDeltaFails { get; set; }
-
-        public int UpdateTargetCount => UpdatedTargets.Count + RemovedTargets.Count;
-
-        public bool HasDeltaTargets => UpdatedTargets.Count > 0 || RemovedTargets.Count > 0;
-
-        public bool HasChanges => Invalidate || RebuildFull || Defer || HasDeltaTargets;
-    }
-
     private sealed class ResourceHealthIndexDispatchResult
     {
         public ResourceHealthIndexSnapshot Snapshot { get; set; }
@@ -13795,11 +13768,7 @@ completeFileEnumerationOnce,
 
     private static bool HasFullOwnedResourceHealthTargetVersion(ResourceMaintenanceTargetSet targetSet)
     {
-        return targetSet.IsFullOwned
-            && HasFullOwnedResourceHealthTargetVersion(
-                targetSet.StorageRowsVersion,
-                targetSet.OwnedCollectionVersion,
-                targetSet.ResourceHealthInputVersion);
+        return targetSet.HasFullOwnedVersion;
     }
 
     private static bool HasFullOwnedResourceHealthTargetVersion(
@@ -13849,13 +13818,6 @@ completeFileEnumerationOnce,
     {
         resourceHealthIndexState = new ResourceHealthIndexSnapshotState(snapshot, resourceHealthInputVersion);
         Volatile.Write(ref resourceHealthIndexInvalidated, false);
-    }
-
-    private enum ResourceHealthIndexUpdateMode
-    {
-        FullOnUpdates,
-        DeltaOnUpdates,
-        DeferOnUpdates
     }
 
     private bool TryApplyResourceHealthIndexDeltaLocked(
@@ -13983,54 +13945,6 @@ completeFileEnumerationOnce,
             result.IndexMs = result.Snapshot.BuildMs;
         }
         return result;
-    }
-
-    private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthIndexMutation(
-        ResourceMaintenanceTargetSet maintenanceTargets,
-        ResourceHealthIndexUpdateMode resourceHealthIndexUpdateMode,
-        bool resourceHealthIndexCurrent,
-        bool workflowHasUpdates,
-        int? deltaBaseResourceHealthInputVersion = null,
-        int? deltaTargetResourceHealthInputVersion = null)
-    {
-        var mutation = new ResourceHealthIndexMutation();
-        List<ChartFile> maintenanceTargetCharts = maintenanceTargets.Charts;
-        bool forceResourceHealthDelta = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent;
-        bool shouldUpdateIndex = workflowHasUpdates || !resourceHealthIndexCurrent || forceResourceHealthDelta;
-        if (!shouldUpdateIndex)
-        {
-            return mutation;
-        }
-        if (resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeferOnUpdates)
-        {
-            mutation.Defer = true;
-            mutation.UpdatedTargets.AddRange(maintenanceTargetCharts ?? []);
-            return mutation;
-        }
-        if (resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates)
-        {
-            if (resourceHealthIndexCurrent)
-            {
-                mutation.UpdatedTargets.AddRange(maintenanceTargetCharts ?? []);
-                mutation.DeltaBaseResourceHealthInputVersion = deltaBaseResourceHealthInputVersion;
-                mutation.DeltaTargetResourceHealthInputVersion = deltaTargetResourceHealthInputVersion;
-                mutation.InvalidateIfDeltaFails = true;
-            }
-            else
-            {
-                mutation.Invalidate = true;
-            }
-            return mutation;
-        }
-        mutation.RebuildFull = true;
-        if (maintenanceTargets.IsFullOwned)
-        {
-            if (HasFullOwnedResourceHealthTargetVersion(maintenanceTargets))
-            {
-                mutation.FullOwnedTargetSet = maintenanceTargets;
-            }
-        }
-        return mutation;
     }
 
     internal ResourceHealthWarningProjection TryGetCurrentResourceHealthWarningProjection(ChartFile chart)
@@ -14283,7 +14197,7 @@ completeFileEnumerationOnce,
             throw;
         }
         currentMaintenanceTargetCharts = maintenanceTargetCharts;
-        ResourceHealthIndexMutation resourceHealthMutation = BuildMaintenanceResourceHealthIndexMutation(
+        ResourceHealthIndexMutation resourceHealthMutation = ResourceHealthIndexMutationPlanner.BuildMaintenanceMutation(
             maintenanceTargets.WithResourceHealthInputVersion(deltaTargetResourceHealthInputVersion),
             resourceHealthIndexUpdateMode,
             resourceHealthIndexCurrentBeforeUpdate,

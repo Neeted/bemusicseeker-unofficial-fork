@@ -2024,3 +2024,38 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C70: resource health mutation contract extraction` として、`ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` / `BuildMaintenanceResourceHealthIndexMutation` を top-level internal contract / planner へ移し、`BmsLibraryMaintenanceServiceTests` の private method / nested enum reflection を direct planner test へ寄せる。`DispatchMaintenanceHydrationResult` 本体、`BuildMaintenanceHydrationMutationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` は触らない。
+
+## Completed Checkpoint: `REF-MVP-C70`
+
+状態: completed checkpoint。
+
+目的:
+
+- `ResourceHealthIndexUpdateMode` を `BmsLibraryInternal` の top-level internal enum に移す。
+- `ResourceHealthIndexMutation` を `BmsLibraryInternal` の top-level internal contract に移す。
+- `BuildMaintenanceResourceHealthIndexMutation` の判断を top-level internal planner / builder へ移す。
+- `BmsLibraryMaintenanceServiceTests` の `BuildMaintenanceResourceHealthIndexMutation` / `ResourceHealthIndexUpdateMode` private reflection を direct planner test へ寄せる。
+
+完了条件:
+
+- `BMSLibrary` private nested `ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` が残っていない。
+- maintenance resource health mutation の `Defer`、`DeltaOnUpdates`、`FullOnUpdates`、`InvalidateIfDeltaFails`、full-owned target carrying の意味が変わっていない。
+- `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` / `DispatchMaintenanceHydrationResult` 本体は root に残している。
+- `BmsLibraryMaintenanceServiceTests` の mutation builder coverage が private method / nested enum reflection から離れている。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/ResourceHealthIndexUpdateMode.cs` を追加し、resource health index update mode を top-level internal enum にした。
+- `BmsLibraryInternal/ResourceHealthIndexMutation.cs` を追加し、resource health index mutation を top-level internal contract にした。
+- `BmsLibraryInternal/ResourceHealthIndexMutationPlanner.cs` を追加し、旧 `BuildMaintenanceResourceHealthIndexMutation` の判断を `BuildMaintenanceMutation` へ移した。
+- `ResourceMaintenanceTargetSet.HasFullOwnedVersion` を追加し、旧 full-owned version 判定と同じ意味を contract 側で表せるようにした。
+- `BmsLibraryMaintenanceServiceTests` は private method / nested enum reflection ではなく direct planner test へ移した。
+- `MainWindowContextMenuResourceTests.ResourceHealthForceFilter_ReusesFullOwnedMaintenanceTargets` は planner method を検査する形へ更新した。
+- `DispatchMaintenanceHydrationResult` 本体、`BuildMaintenanceHydrationMutationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` は未変更。
+- `BMSLibrary.cs` は 16,455 行、`ResourceHealthIndexMutationPlanner.cs` は 52 行、`ResourceHealthIndexMutation.cs` は 31 行、`ResourceHealthIndexUpdateMode.cs` は 8 行。
+- build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C71: maintenance dispatch seam review` として、C70 後に `DispatchMaintenanceHydrationResult` / `BuildMaintenanceHydrationMutationResult` へ進めるか、先に `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を整理するかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
