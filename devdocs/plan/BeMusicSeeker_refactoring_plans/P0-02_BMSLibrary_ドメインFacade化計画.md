@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 17,866 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み |
+| `BMSLibrary.cs` 行数 | 17,577 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -1225,3 +1225,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C43: LR2 sync input builder lane closure review` として、C42 後に LR2 sync input builder lane を閉じるか、Lane C の別 workflow へ移るかを判断する。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C43`
+
+状態: completed checkpoint。
+
+目的:
+
+- C42 後の `CreateLr2SongDbSyncInput` と `Lr2SongDbSyncInputBuilder` boundary を再評価する。
+- LR2 sync input builder lane を閉じるか、追加で進めるべき builder ownership cleanup があるかを判断する。
+- 次の Lane C workflow を 1 件に絞る。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `CreateLr2SongDbSyncInput` に残すべき root-state / concurrency / mutable cache / DB / Settings 境界が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check / 静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C43 LR2 Sync Input Builder Lane Closure](./decisions/REF-MVP-C43_lr2_input_builder_lane_closure.md) を追加した。
+- C42 後に追加で進めるべき明確な builder ownership cleanup はないため、LR2 sync input builder lane を閉じる判断にした。
+- `CreateLr2SongDbSyncInput` の private entry point、row/root/settings/scan/prepared/app-managed scope 採取、mutable cache / generation 判定、DB / Settings boundary は `BMSLibrary` に残す。
+- 次は `REF-MVP-C44: maintenance hydration coordinator seam` に進む判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C44: maintenance hydration coordinator seam` として、`QueueDeferredMaintenanceHydration`、`CompleteMaintenanceHydrationForShutdown`、`ProcessDeferredMaintenanceHydrationRequests` の queue / worker lifecycle を coordinator seam へ移す。`ApplyMaintenanceHydrationResult` 内部、resource health index mutation、maintenance DB schema、warning projection、`installable_maintenance_deferred` は触らない。
