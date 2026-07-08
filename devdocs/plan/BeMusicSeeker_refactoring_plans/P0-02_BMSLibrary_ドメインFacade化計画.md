@@ -943,3 +943,26 @@ BMSLibrary                         // public facade / compatibility API
 - `CreateLr2SongDbSyncInput` は現時点では root orchestration として許容し、full service / builder extraction の前に `REF-MVP-C33: LR2 sync input prepared surface selection boundary` を 1 ticket だけ挟む判断にした。
 - root に残す state / concurrency 境界として、scan surface snapshot state access、row snapshot reader lock、root/settings compatibility boundary、prepared surface consumption timing を明記した。
 - production code は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C33`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` で展開している prepared surface alias を減らし、prepared surface selection DTO を helper / formatter へ直接渡す。
+- C32 decision に従い、full service / builder extraction の前に prepared surface boundary を安定させる。
+- prepared surface consumption timing、ログ項目名、ログ値、selection 順序、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- `LogLr2SongDbSyncInputSurface` / `Lr2SongDbSyncInputSurfaceLogFormatter` が prepared surface selection を直接受け取る。
+- folder candidate / folder info / directory entry / text file directory selection helpers が、可能な範囲で prepared surface selection 経由になる。
+- `CreateLr2SongDbSyncInput` に残る prepared surface local alias が減っている。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `LogLr2SongDbSyncInputSurface` / `Lr2SongDbSyncInputSurfaceLogFormatter` が prepared surface selection を直接受け取る形にした。
+- folder candidate / folder info / directory entry / text file directory selection helpers も prepared surface selection 経由に寄せ、`CreateLr2SongDbSyncInput` から prepared surface log/helper 専用 alias を減らした。
+- prepared surface consumption timing、ログ項目名、ログ値、selection 順序、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。

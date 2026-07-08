@@ -16,11 +16,7 @@ internal static class Lr2SongDbSyncInputSurfaceLogFormatter
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope,
         Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection,
-        bool hasPreparedSurface,
-        bool hasPreparedLr2FolderSurface,
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
-        Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface,
-        Lr2SongDbSyncPreparedDataSurface preparedSurface,
         IReadOnlyList<string> textFileDirectories,
         Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection,
         Lr2SongDbSyncInputSurfaceTimings timings)
@@ -29,6 +25,8 @@ internal static class Lr2SongDbSyncInputSurfaceLogFormatter
         IReadOnlyCollection<string> directoryMetadataTargets = directoryTargetSelection.DirectoryMetadataTargets;
         IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = directoryTargetSelection.Lr2FolderParentDirectoryTargets;
         IReadOnlyCollection<string> directoryEntryTargets = directoryTargetSelection.DirectoryEntryTargets;
+        Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface = preparedSurfaceSelection.PendingSurface;
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
 
         return "lr2_song_db_sync_input_surface"
             + " reusedScanSurface=" + scanSurfaceSelection.ReusedScanSurface.ToString().ToLowerInvariant()
@@ -51,8 +49,8 @@ internal static class Lr2SongDbSyncInputSurfaceLogFormatter
             + " enumeratedAppManagedFiltered=" + lr2FolderCandidateSelection.EnumeratedAppManagedCandidateCount
             + " enumeratedAppManagedExactFiles=" + lr2FolderCandidateSelection.EnumeratedAppManagedExactFileCount
             + " reusedLr2FolderSurface=" + scanSurfaceSelection.ReusedLr2FolderSurface.ToString().ToLowerInvariant()
-            + " hasPreparedSurface=" + hasPreparedSurface.ToString().ToLowerInvariant()
-            + " hasPreparedLr2FolderSurface=" + hasPreparedLr2FolderSurface.ToString().ToLowerInvariant()
+            + " hasPreparedSurface=" + preparedSurfaceSelection.HasActivePreparedSurface.ToString().ToLowerInvariant()
+            + " hasPreparedLr2FolderSurface=" + preparedSurfaceSelection.HasActiveLr2FolderSurface.ToString().ToLowerInvariant()
             + " preparedSurfaceAlreadyAppliedToScanSurface=" + preparedSurfaceSelection.AlreadyAppliedToScanSurface.ToString().ToLowerInvariant()
             + " preparedSurfaceAppliedScanGeneration=" + preparedSurfaceSelection.AppliedScanGeneration
             + " pendingPreparedScopeDirs=" + (pendingPreparedSurface?.Lr2FolderScopeDirectories?.Count ?? 0)

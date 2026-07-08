@@ -6904,10 +6904,6 @@ completeFileEnumerationOnce,
 
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection =
             CreateLr2SongDbSyncPreparedSurfaceSelection(scanSurface);
-        Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface = preparedSurfaceSelection.PendingSurface;
-        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
-        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
-        bool hasPreparedLr2FolderSurface = preparedSurfaceSelection.HasActiveLr2FolderSurface;
         var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
         Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection =
@@ -6915,8 +6911,7 @@ completeFileEnumerationOnce,
                 scanSurface,
                 rootSnapshot,
                 settingsSnapshot,
-                preparedSurface,
-                hasPreparedLr2FolderSurface,
+                preparedSurfaceSelection,
                 appManagedOutputScope);
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = lr2FolderCandidateSelection.Candidates;
         lr2FolderCandidatesStopwatch.Stop();
@@ -6933,8 +6928,7 @@ completeFileEnumerationOnce,
                 scanSurface,
                 rootSnapshot.Lr2FolderDiscoveryDirectories,
                 directoryEntryTargets,
-                preparedSurface,
-                hasPreparedSurface);
+                preparedSurfaceSelection);
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates = folderInfoCandidateSelection.Candidates;
         Lr2TextMetadataCandidateSnapshot textMetadataCandidates = folderInfoCandidateSelection.TextMetadataCandidates;
         folderInfoCandidatesStopwatch.Stop();
@@ -6944,7 +6938,7 @@ completeFileEnumerationOnce,
                 scanSurface,
                 rootSnapshot.Lr2FolderDiscoveryDirectories,
                 directoryEntryTargets,
-                preparedSurface);
+                preparedSurfaceSelection);
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = directoryEntrySelection.Entries;
         directoryEntriesStopwatch.Stop();
         var textFileDirsStopwatch = Stopwatch.StartNew();
@@ -6952,8 +6946,7 @@ completeFileEnumerationOnce,
             CreateLr2SongDbSyncTextFileDirectorySelection(
                 scanSurface,
                 textMetadataCandidates,
-                preparedSurface,
-                hasPreparedSurface);
+                preparedSurfaceSelection);
         IReadOnlyList<string> textFileDirectories = textFileDirectorySelection.Directories;
         textFileDirsStopwatch.Stop();
         inputStopwatch.Stop();
@@ -6979,11 +6972,7 @@ completeFileEnumerationOnce,
             lr2FolderFileCandidates,
             appManagedOutputScope,
             lr2FolderCandidateSelection,
-            hasPreparedSurface,
-            hasPreparedLr2FolderSurface,
             preparedSurfaceSelection,
-            pendingPreparedSurface,
-            preparedSurface,
             textFileDirectories,
             textFileDirectorySelection,
             inputSurfaceTimings);
@@ -7011,11 +7000,7 @@ completeFileEnumerationOnce,
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope,
         Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection,
-        bool hasPreparedSurface,
-        bool hasPreparedLr2FolderSurface,
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
-        Lr2SongDbSyncPreparedDataSurface pendingPreparedSurface,
-        Lr2SongDbSyncPreparedDataSurface preparedSurface,
         IReadOnlyList<string> textFileDirectories,
         Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection,
         Lr2SongDbSyncInputSurfaceTimings timings)
@@ -7031,11 +7016,7 @@ completeFileEnumerationOnce,
             lr2FolderFileCandidates,
             appManagedOutputScope,
             lr2FolderCandidateSelection,
-            hasPreparedSurface,
-            hasPreparedLr2FolderSurface,
             preparedSurfaceSelection,
-            pendingPreparedSurface,
-            preparedSurface,
             textFileDirectories,
             textFileDirectorySelection,
             timings));
@@ -7168,10 +7149,11 @@ completeFileEnumerationOnce,
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
         Lr2SongDbSyncInputRootSnapshot rootSnapshot,
         Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot,
-        Lr2SongDbSyncPreparedDataSurface preparedSurface,
-        bool hasPreparedLr2FolderSurface,
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope)
     {
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
+        bool hasPreparedLr2FolderSurface = preparedSurfaceSelection.HasActiveLr2FolderSurface;
         string source;
         Lr2FolderFileCandidateSnapshot candidates;
         int enumeratedAppManagedCandidateCount = 0;
@@ -7279,9 +7261,10 @@ completeFileEnumerationOnce,
     private static Lr2SongDbSyncTextFileDirectorySelection CreateLr2SongDbSyncTextFileDirectorySelection(
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
         Lr2TextMetadataCandidateSnapshot textMetadataCandidates,
-        Lr2SongDbSyncPreparedDataSurface preparedSurface,
-        bool hasPreparedSurface)
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
     {
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
+        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
         if (scanSurface?.TextFileDirectories != null)
         {
             return new Lr2SongDbSyncTextFileDirectorySelection(
@@ -7325,9 +7308,10 @@ completeFileEnumerationOnce,
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
         IEnumerable<string> lr2FolderDiscoveryDirectories,
         IReadOnlyCollection<string> directoryEntryTargets,
-        Lr2SongDbSyncPreparedDataSurface preparedSurface,
-        bool hasPreparedSurface)
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
     {
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
+        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
         Lr2TextMetadataCandidateSnapshot textMetadataCandidates = null;
         Lr2FolderInfoCandidateSnapshot folderInfoCandidates;
         if (scanSurface != null)
@@ -7366,8 +7350,9 @@ completeFileEnumerationOnce,
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
         IEnumerable<string> lr2FolderDiscoveryDirectories,
         IReadOnlyCollection<string> directoryEntryTargets,
-        Lr2SongDbSyncPreparedDataSurface preparedSurface)
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
     {
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
         IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
             ? CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
                 OverlayLr2DirectoryEntrySurface(
