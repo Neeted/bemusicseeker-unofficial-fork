@@ -2307,10 +2307,10 @@ public sealed class OwnedChartCollectionStateTests
             ApplyInstallDestinationChange(library, staleOverlayBms, Path.Combine("C:\\Install", "Stale"));
             Assert.IsTrue(GetInstallDestinationRuntimeStateCount(library) > 0);
 
-            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
+            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(() =>
                 InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms, duplicateAddedBms], [addedBmson])));
 
-            Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
+            Assert.IsNotNull(exception);
             Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
             Assert.AreEqual(1, parentFolderVersionChanged);
             Assert.IsNull(library.DuplicateChartGroups);
@@ -2338,14 +2338,14 @@ public sealed class OwnedChartCollectionStateTests
             SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(keptBms)]);
             Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
 
-            TargetInvocationException exception;
+            InvalidOperationException exception;
             using (InvokeSuppressResourceHealthIndexInvalidation(library))
             {
-                exception = Assert.ThrowsException<TargetInvocationException>(() =>
+                exception = Assert.ThrowsException<InvalidOperationException>(() =>
                     InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([addedBms, duplicateAddedBms], [addedBmson])));
             }
 
-            Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
+            Assert.IsNotNull(exception);
             Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
         });
     }
@@ -3516,9 +3516,8 @@ public sealed class OwnedChartCollectionStateTests
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [addedTargets, "test"]);
+        var coordinator = new InstalledChartStorageTargetsApplyCoordinator(new BMSLibrary.InstalledChartStorageTargetsApplyHost(library));
+        coordinator.Apply(addedTargets, "test");
     }
 
     private static void InvokeApplyLibraryFileScanStorageMutation(

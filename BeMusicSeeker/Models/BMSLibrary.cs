@@ -11489,81 +11489,113 @@ completeFileEnumerationOnce,
 
     private void ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets, string lookupReason)
     {
-        if (addedTargets == null)
+        var coordinator = new InstalledChartStorageTargetsApplyCoordinator(new InstalledChartStorageTargetsApplyHost(this));
+        coordinator.Apply(addedTargets, lookupReason);
+    }
+
+    internal sealed class InstalledChartStorageTargetsApplyHost(BMSLibrary owner) : IInstalledChartStorageTargetsApplyHost
+    {
+        private OwnedChartCollectionMutationResult mutationResult;
+
+        public void ThrowIfLr2SongDbSyncMutationBlocked(string operationName)
         {
-            return;
+            owner.ThrowIfLr2SongDbSyncMutationBlocked(operationName);
         }
-        ThrowIfLr2SongDbSyncMutationBlocked(nameof(ApplyInstalledChartStorageTargets));
-        OwnedChartCollectionMutationResult mutationResult = null;
-        try
+
+        public IResourceHealthInputMutationScope BeginResourceHealthInputMutation()
         {
-            ResourceHealthInputMutationScope resourceHealthMutation = BeginResourceHealthInputMutation();
-            try
-            {
-                mutationResult = BuildOwnedChartCollectionUpsertMutationResult(
-                    addedTargets,
-                    resourceHealthMutation.BaseInputVersion,
-                    resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
-                PublishOwnedCollectionChangeNotification(mutationResult);
-                using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
-                {
-                    StorageRowsVersionSnapshot storageRowsVersion = ApplyInstalledChartStorageRowsUnsafe(addedTargets);
-                    ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
-                }
-            }
-            finally
-            {
-                resourceHealthMutation.Dispose();
-            }
-            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= resourceHealthMutation.TargetInputVersion;
+            return owner.BeginResourceHealthInputMutation();
+        }
+
+        public void BuildMutationResult(ChartStorageTargetSet addedTargets, int baseInputVersion, bool baseIndexCurrent)
+        {
+            mutationResult = owner.BuildOwnedChartCollectionUpsertMutationResult(
+                addedTargets,
+                baseInputVersion,
+                resourceHealthIndexCurrentAtBase: baseIndexCurrent);
+        }
+
+        public void PublishOwnedCollectionChangeNotification()
+        {
+            owner.PublishOwnedCollectionChangeNotification(mutationResult);
+        }
+
+        public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded()
+        {
+            return mutationResult?.ResourceHealthIndexInvalidated == true
+                ? owner.SuppressResourceHealthIndexInvalidation()
+                : null;
+        }
+
+        public StorageRowsVersionSnapshot ApplyInstalledChartStorageRowsUnsafe(ChartStorageTargetSet addedTargets)
+        {
+            return owner.ApplyInstalledChartStorageRowsUnsafe(addedTargets);
+        }
+
+        public void ApplyOwnedChartCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
+        {
+            owner.ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
+        }
+
+        public void CompleteResourceHealthMutation(int targetInputVersion)
+        {
+            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= targetInputVersion;
             if (mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion.Value < 0)
             {
                 mutationResult.ResourceHealthMutation.Invalidate = true;
             }
-            SyncLr2NormalFoldersForOwnedMutation(mutationResult.StorageMutation, lookupReason ?? "install_package");
-            DispatchOwnedChartCollectionMutation(mutationResult, lookupReason);
         }
-        catch
+
+        public void SyncLr2NormalFoldersForOwnedMutation(string reason)
+        {
+            owner.SyncLr2NormalFoldersForOwnedMutation(mutationResult.StorageMutation, reason);
+        }
+
+        public void DispatchOwnedChartCollectionMutation(string reason)
+        {
+            owner.DispatchOwnedChartCollectionMutation(mutationResult, reason);
+        }
+
+        public void ApplyFailureFallback()
         {
             if (mutationResult?.ShouldDispatchInstalledLookup != false)
             {
-                InvalidateInstalledDirectoryIndex();
+                owner.InvalidateInstalledDirectoryIndex();
             }
             if (mutationResult?.PlaylistSummaryOwnedHashInvalidated == true)
             {
-                InvalidatePlaylistSummaryOwnedHashSnapshot();
+                owner.InvalidatePlaylistSummaryOwnedHashSnapshot();
             }
             if (mutationResult?.OwnedCollectionChanged == true)
             {
-                InvalidatePlaylistLibraryResolveIndexSnapshot();
+                owner.InvalidatePlaylistLibraryResolveIndexSnapshot();
             }
             if (mutationResult?.ParentFolderInvalidated == true)
             {
-                InvalidateBMSParentFolderListCacheAndNotify();
+                owner.InvalidateBMSParentFolderListCacheAndNotify();
             }
             if (mutationResult?.DuplicateCacheInvalidated == true)
             {
-                InvalidateDuplicateChartGroupsCache();
+                owner.InvalidateDuplicateChartGroupsCache();
             }
             if (mutationResult?.InstallDestinationRuntimeStateMutation.HasChanges == true
                 || mutationResult?.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts == true)
             {
-                PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+                owner.PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
             }
             if (mutationResult?.OwnedCollectionChanged == true)
             {
-                PublishOwnedCollectionChangeNotification(mutationResult);
+                owner.PublishOwnedCollectionChangeNotification(mutationResult);
             }
             if (mutationResult?.ResourceHealthMutation.HasChanges == true)
             {
-                ForceInvalidateResourceHealthIndex("install_package_failed");
+                owner.ForceInvalidateResourceHealthIndex("install_package_failed");
             }
-            InvalidateOwnedChartCollection();
+            owner.InvalidateOwnedChartCollection();
             if (mutationResult != null)
             {
-                ClearNormalLibraryRefreshNotification(mutationResult);
+                owner.ClearNormalLibraryRefreshNotification(mutationResult);
             }
-            throw;
         }
     }
 

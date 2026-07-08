@@ -343,10 +343,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             InvokeBeginLr2SongDbSyncRequest(library);
 
-            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
+            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
                 () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_blocked_add"));
-            Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
-            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.InnerException.Message);
+            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.Message);
         }
         finally
         {
@@ -380,10 +379,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             };
             InvokeBeginLr2SongDbSyncRequest(library);
 
-            TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(
+            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
                 () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_running_add"));
-            Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
-            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.InnerException.Message);
+            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.Message);
         }
         finally
         {
@@ -6709,9 +6707,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets, string reason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [targets, reason]);
+        var coordinator = new InstalledChartStorageTargetsApplyCoordinator(new BMSLibrary.InstalledChartStorageTargetsApplyHost(library));
+        coordinator.Apply(targets, reason);
     }
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)

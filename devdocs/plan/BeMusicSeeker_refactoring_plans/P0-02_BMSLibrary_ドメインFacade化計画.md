@@ -2764,3 +2764,30 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C95: installed chart storage targets apply seam` として、`ApplyInstalledChartStorageTargets` の upsert workflow を top-level coordinator + host seam へ移し、`InvokeApplyInstalledChartStorageTargets` private reflection helper を置き換える。
+
+## Completed Ticket: `REF-MVP-C95`
+
+状態: completed implementation。
+
+目的:
+
+- `ApplyInstalledChartStorageTargets` の upsert workflow を `BMSLibrary` root から top-level coordinator へ移す。
+- LR2 sync block、resource health input mutation、storage row upsert、owned collection apply、failure fallback、dispatch reason を維持する。
+- `InvokeApplyInstalledChartStorageTargets` private reflection helper を実 workflow の coordinator + host route へ置き換える。
+
+実装結果:
+
+- `InstalledChartStorageTargetsApplyCoordinator` / `IInstalledChartStorageTargetsApplyHost` を追加した。
+- `BMSLibrary.InstalledChartStorageTargetsApplyHost` が private mutation result を保持し、resource health input mutation、storage row upsert、owned collection apply、normal folder sync、failure fallback、dispatch を既存 private operation へ bridge する構造にした。
+- `OwnedChartCollectionStateTests`、`BmsLibraryFolderRenameRefreshTests`、`BmsLibraryLr2SongDbSyncTests`、`PlaylistSummaryAggregationTests` の `ApplyInstalledChartStorageTargets` helper は private reflection ではなく coordinator 経由にした。
+- reflection 由来の `TargetInvocationException` 期待は、実例外 `InvalidOperationException` 期待へ更新した。
+
+確認:
+
+- build 0 warning。
+- targeted tests: `OwnedChartCollectionStateTests` / `BmsLibraryFolderRenameRefreshTests` / `BmsLibraryLr2SongDbSyncTests` / `PlaylistSummaryAggregationTests` 298 passed。
+- full standard checks、format、Roslynator warning、静的レビューは commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C96: owned helper aftermath checkpoint` として、C95 後に残る `ApplyLibraryFileScanStorageMutation`、`BuildAndPersistInlineChartInfoForInstalledCharts`、`BeginOwnedDigestMutationWindow`、setup private field seeding、remaining read-only helper を再確認し、次に実装する 1 seam だけを選ぶ。

@@ -1668,9 +1668,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets, string reason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyInstalledChartStorageTargets", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [targets, reason]);
+        var coordinator = new InstalledChartStorageTargetsApplyCoordinator(new BMSLibrary.InstalledChartStorageTargetsApplyHost(library));
+        coordinator.Apply(targets, reason);
     }
 
     private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledChartLookupSnapshot(BMSLibrary library)
