@@ -1165,3 +1165,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C41: LR2 sync input builder aftermath review` として、C40 後の `CreateLr2SongDbSyncInput` と builder boundary を再評価し、LR2 sync input builder lane を閉じて Lane C の別 workflow へ移るかを判断する。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C41`
+
+状態: completed checkpoint。
+
+目的:
+
+- C40 後の `CreateLr2SongDbSyncInput` と builder boundary を再評価する。
+- LR2 sync input builder lane を閉じるか、もう 1 件だけ続けるかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `CreateLr2SongDbSyncInput` に残すべき root-state / concurrency / mutable cache / DB 境界が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check / 静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C41 LR2 Sync Input Builder Aftermath Review](./decisions/REF-MVP-C41_lr2_sync_input_builder_aftermath_review.md) を追加した。
+- 次は `REF-MVP-C42: LR2 sync input normal directory metadata target builder ownership` に進む判断にした。
+- `CreateLr2SongDbSyncDirectoryMetadataTargets` は root mutable state / DB boundary を直接読まない target selection と判断した。
+- row/root/settings/scan/prepared/app-managed scope 採取は `BMSLibrary` に残す root-state / concurrency / mutable cache / DB-read warning boundary として明記した。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C42: LR2 sync input normal directory metadata target builder ownership` として、normal directory metadata target selection を builder ownership へ移し、`directoryTargetsMs` の計測範囲と log values を維持する。row/root/settings/scan/prepared/app-managed scope 採取、DB schema、setting name、private reflection entry point は触らない。
