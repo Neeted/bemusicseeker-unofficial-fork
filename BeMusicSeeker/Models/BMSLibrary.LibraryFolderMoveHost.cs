@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Windows;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -46,6 +47,16 @@ public partial class BMSLibrary : ILibraryFolderMoveHost
                 }
             }
         }
+    }
+
+    List<LibraryChartRef> ILibraryFolderMoveHost.CreateNonNullChartRefList(IEnumerable<LibraryChartRef> charts)
+    {
+        return [.. (charts ?? []).Where(chart => chart != null)];
+    }
+
+    List<FolderAutoRenamePlan> ILibraryFolderMoveHost.BuildRootFolderMovePlans(List<LibraryChartRef> charts, string dstDir)
+    {
+        return libraryFileOperationsService.BuildRootFolderMovePlans(charts, dstDir);
     }
 
     DirectoryResourceLookupCache.ReverseLookupMutationResult ILibraryFolderMoveHost.MoveFolderAndUpdateReferences(string srcDir, string dstDir)
@@ -103,6 +114,16 @@ public partial class BMSLibrary : ILibraryFolderMoveHost
     void ILibraryFolderMoveHost.ShowMoveDestinationAlreadyExists(string srcDir, string dstDir)
     {
         ShowOperationDialog(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
+    }
+
+    void ILibraryFolderMoveHost.ShowMoveDestinationRootNotFound(string dstDir)
+    {
+        ShowOperationDialog(string.Format(Resources.Error_MoveDestRootNotFound, dstDir), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+    }
+
+    void ILibraryFolderMoveHost.ShowDriveRootCannotChangeRoot()
+    {
+        ShowOperationDialog(Resources.Warn_DriveRootCannotChangeRoot, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
     }
 
     void ILibraryFolderMoveHost.ShowFolderMoveFailed(string srcDir, string dstDir, Exception exception)

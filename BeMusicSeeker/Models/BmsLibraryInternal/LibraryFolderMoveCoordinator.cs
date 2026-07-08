@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -18,6 +20,10 @@ internal interface ILibraryFolderMoveHost
 
     void RunWithFolderMoveWriteLocks(Action action);
 
+    List<LibraryChartRef> CreateNonNullChartRefList(IEnumerable<LibraryChartRef> charts);
+
+    List<FolderAutoRenamePlan> BuildRootFolderMovePlans(List<LibraryChartRef> charts, string dstDir);
+
     DirectoryResourceLookupCache.ReverseLookupMutationResult MoveFolderAndUpdateReferences(string srcDir, string dstDir);
 
     LibraryMutationDelta BuildFolderMoveDelta(string srcDir, string dstDir, bool unregister, bool notifyStorageRowPathChanges);
@@ -33,6 +39,10 @@ internal interface ILibraryFolderMoveHost
     void ShowRenameFolderNotExists(string srcDir);
 
     void ShowMoveDestinationAlreadyExists(string srcDir, string dstDir);
+
+    void ShowMoveDestinationRootNotFound(string dstDir);
+
+    void ShowDriveRootCannotChangeRoot();
 
     void ShowFolderMoveFailed(string srcDir, string dstDir, Exception exception);
 }
@@ -110,6 +120,57 @@ internal static class LibraryFolderMoveCoordinator
             unregister == true,
             notifyStorageRowPathChanges);
         host.ApplyLibraryMutationDelta(delta);
+    }
+
+    internal static void MoveLibraryRootFolder(
+        ILibraryFolderMoveHost host,
+        IEnumerable<LibraryChartRef> charts,
+        string dstDir,
+        bool? unregister)
+    {
+        if (charts == null)
+        {
+            throw new ArgumentNullException(nameof(charts));
+        }
+        if (dstDir == null)
+        {
+            throw new ArgumentNullException(nameof(dstDir));
+        }
+        if (host.TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.MoveLibraryRootFolder)))
+        {
+            return;
+        }
+        host.RunWithFolderMoveWriteLocks(() =>
+        {
+            if (!host.DirectoryExists(dstDir))
+            {
+                host.ShowMoveDestinationRootNotFound(dstDir);
+                return;
+            }
+            List<LibraryChartRef> chartList = host.CreateNonNullChartRefList(charts);
+            List<FolderAutoRenamePlan> plans = host.BuildRootFolderMovePlans(chartList, dstDir);
+            if (ContainsDriveRootSource(chartList))
+            {
+                host.ShowDriveRootCannotChangeRoot();
+            }
+            foreach (FolderAutoRenamePlan plan in plans)
+            {
+                MoveLibraryChartFolder(
+                    host,
+                    plan.SourceDirectory,
+                    plan.DestinationDirectory,
+                    unregister,
+                    notifyStorageRowPathChanges: true);
+            }
+        });
+    }
+
+    private static bool ContainsDriveRootSource(IEnumerable<LibraryChartRef> charts)
+    {
+        return (charts ?? [])
+            .Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Any(f => !string.IsNullOrWhiteSpace(f) && Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool TryMoveLibraryChartFolder(ILibraryFolderMoveHost host, string srcDir, string dstDir)

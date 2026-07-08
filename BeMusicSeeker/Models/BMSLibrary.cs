@@ -16388,47 +16388,7 @@ completeFileEnumerationOnce,
 
     internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
     {
-        if (charts == null)
-        {
-            throw new ArgumentNullException("charts");
-        }
-        if (dstDir == null)
-        {
-            throw new ArgumentNullException("dstDir");
-        }
-        if (TryBlockLr2SongDbSyncMutation(nameof(MoveLibraryRootFolder)))
-        {
-            return;
-        }
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockBMSFiles.GetWriterGuard())
-                {
-                    if (!LongPathFileSystem.DirectoryExists(dstDir))
-                    {
-                        ShowOperationDialog(string.Format(Resources.Error_MoveDestRootNotFound, dstDir), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        return;
-                    }
-                    List<LibraryChartRef> chartList = [.. (charts ?? []).Where(chart => chart != null)];
-                    List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildRootFolderMovePlans(chartList, dstDir);
-                    if (chartList.Select(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path)).Distinct(StringComparer.OrdinalIgnoreCase).Any(f => !string.IsNullOrWhiteSpace(f) && Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase)))
-                    {
-                        ShowOperationDialog(Resources.Warn_DriveRootCannotChangeRoot, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-                    }
-                    foreach (FolderAutoRenamePlan plan in plans)
-                    {
-                        LibraryFolderMoveCoordinator.MoveLibraryChartFolder(
-                            this,
-                            plan.SourceDirectory,
-                            plan.DestinationDirectory,
-                            unregister,
-                            notifyStorageRowPathChanges: true);
-                    }
-                }
-            }
-        }
+        LibraryFolderMoveCoordinator.MoveLibraryRootFolder(this, charts, dstDir, unregister);
     }
 
     private bool TryMoveLibraryChartFolderFileOnly(string srcDir, string dstDir)
