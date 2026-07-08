@@ -1604,3 +1604,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C56: MoveChartPackageFiles adapter boundary` として、`MoveChartPackageFiles` の options snapshot、auto folder naming、dialog / displayed exception callback、file mutation service/options、performance log callback、parameter forwarding を explicit package move seam へ移す。`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` callback 契約、`BmsLibraryPackageInstallService.MovePackageFiles` core behavior は触らない。
+
+## Completed Checkpoint: `REF-MVP-C56`
+
+状態: completed checkpoint。
+
+目的:
+
+- `MoveChartPackageFiles` adapter を explicit package move seam へ移す。
+- root `BMSLibrary` は current options snapshot、auto folder naming、displayed exception message、file mutation service/options、dialog service、performance log callback を host として提供する。
+- `BmsLibraryPackageInstallService.MovePackageFiles` core behavior、`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` callback 契約は触らない。
+
+完了条件:
+
+- `MoveChartPackageFiles` の parameters と戻り値、`showMessageBoxOnInstallFail`、`deleteAllContents`、`existingHashes`、`excludedComponentPaths` の意味が維持されている。
+- auto naming、smart overwrite、folder cleanup、安全 cleanup 判定、dialog/log callback の意味が維持されている。
+- `installChartPackages`、`MergeChartDirectory`、`FixInstallationDirectoryCharts` の呼び出し順序と周辺 state apply / DB / maintenance 処理が変わっていない。
+- build / package move・merge・repair 関連 tests / format / diff check / Roslynator 対象確認 / 静的レビュー / full test が完了している。
+
+実装結果:
+
+- `PackageMoveCoordinator` と `IPackageMoveHost` を追加し、`MoveChartPackageFiles` adapter の service call を coordinator へ移した。
+- `BMSLibrary.PackageMoveHost.cs` を追加し、current options snapshot、auto folder naming、displayed exception message、file mutation service/options、dialog service、performance log callback を host bridge として提供する形にした。
+- `BMSLibrary.PackageInstall.cs` の private `MoveChartPackageFiles` は coordinator 呼び出しだけになった。
+- `BmsLibraryPackageInstallService.MovePackageFiles` core behavior、`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` callback 契約は未変更。
+- `BMSLibrary.PackageInstall.cs` は 1,628 行、coordinator は 54 行、host は 37 行。
+- build、package move / merge / repair targeted tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C57: repair / merge / install boundary after package move adapter` として、`FixInstallationDirectoryCharts`、`MergeChartDirectory`、`installChartPackages` follow-up、maintenance result apply contract prep のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

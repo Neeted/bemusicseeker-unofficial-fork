@@ -274,17 +274,11 @@ public partial class BMSLibrary
     /// <returns>移動成功時true</returns>
     private bool MoveChartPackageFiles(ChartPackage pkg, string installationDirectory, bool showMessageBoxOnInstallFail = true, bool deleteAllContents = false, IPrimaryHashLookup existingHashes = null, ISet<string> excludedComponentPaths = null)
     {
-        return packageInstallService.MovePackageFiles(
+        return PackageMoveCoordinator.MoveChartPackageFiles(
+            packageInstallService,
+            this,
             pkg,
             installationDirectory,
-            BmsLibraryOptionsSnapshot.CreateCurrent(),
-            CreateChartFolderPathFromCharts,
-            GetDisplayedExceptionMessage,
-            fileMutationService,
-            scopedOperationDialogService,
-            targetOnlyFileMutationOptions,
-            recursiveDirectoryTreeFileMutationOptions,
-            LogInstallPerformance,
             showMessageBoxOnInstallFail,
             deleteAllContents,
             existingHashes,

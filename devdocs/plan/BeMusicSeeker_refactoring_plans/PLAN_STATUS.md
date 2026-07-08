@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C55: package move / merge boundary after rename seams` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C56: MoveChartPackageFiles adapter boundary` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -450,9 +450,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C55` として [package move / merge boundary after rename](./decisions/REF-MVP-C55_package_move_merge_boundary_after_rename.md) をレビューした。次は `MoveChartPackageFiles` adapter を explicit package move seam にする。`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` follow-up、maintenance result apply contract prep は C56 後に再評価する。production code は変更していない。
 
-現在の active ticket: なし。`REF-MVP-C55` completed checkpoint。
+`REF-MVP-C56` として `MoveChartPackageFiles` adapter を `BmsLibraryInternal/PackageMoveCoordinator.cs` へ移した。root `BMSLibrary` は `BMSLibrary.PackageMoveHost.cs` で current options snapshot、auto folder naming、displayed exception message、file mutation service/options、dialog service、performance log callback を提供する host になっている。`BmsLibraryPackageInstallService.MovePackageFiles` core behavior、`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` callback 契約は触っていない。`BMSLibrary.PackageInstall.cs` は 1,628 行、coordinator は 54 行、host は 37 行。build、package move / merge / repair targeted tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
-次にやる 1 件: `REF-MVP-C56: MoveChartPackageFiles adapter boundary` として、`MoveChartPackageFiles` の options snapshot、auto folder naming、dialog / displayed exception callback、file mutation service/options、performance log callback、parameter forwarding を explicit package move seam へ移す。`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` callback 契約、`BmsLibraryPackageInstallService.MovePackageFiles` core behavior は触らない。
+現在の active ticket: なし。`REF-MVP-C56` completed checkpoint。
+
+次にやる 1 件: `REF-MVP-C57: repair / merge / install boundary after package move adapter` として、`FixInstallationDirectoryCharts`、`MergeChartDirectory`、`installChartPackages` follow-up、maintenance result apply contract prep のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 
