@@ -1045,3 +1045,31 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C37: LR2 sync input builder boundary review` として、C36 後の残り delegate surface と root 残存責務を再確認する。folder candidate / directory target selection の境界を 1 ticket だけ整理できるか、または Lane C の別 workflow へ移るかを decision record 化する。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C37`
+
+状態: completed checkpoint。
+
+目的:
+
+- C36 後に `Lr2SongDbSyncInputBuilder` に残っている folder candidate / directory target delegate surface を再評価する。
+- 次に LR2 sync input builder 周りを続けるか、Lane C の別 workflow へ移るかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- root に残すべき state / concurrency / DB 境界が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check / 静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C37 LR2 Sync Input Builder Boundary Review](./decisions/REF-MVP-C37_lr2_sync_input_builder_boundary_review.md) を追加した。
+- 次は `REF-MVP-C38: LR2 sync input folder candidate selection builder ownership` に進む判断にした。
+- `CreateLr2SongDbSyncAppManagedOutputScope`、row/root/settings/scan/prepared snapshot 採取、directory target selection、queue / run / status / cancel、DB write、chart_info、DB schema、setting name、serialized/public surface、private `CreateLr2SongDbSyncInput` entry point は C38 で触らない範囲として明記した。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C38: LR2 sync input folder candidate selection builder ownership` として、folder candidate selection を builder / internal helper 側へ移し、`CreateLr2SongDbSyncFolderCandidateSelection` delegate を builder constructor から外す。`lr2FolderCandidatesSource` の文字列、prepared merge、app-managed filtering、不完全 scope 時の incomplete candidate、`lr2FolderCandidatesMs` 計測範囲は維持する。
