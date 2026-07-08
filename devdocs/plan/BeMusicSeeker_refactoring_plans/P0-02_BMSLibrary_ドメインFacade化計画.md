@@ -1104,3 +1104,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C39: LR2 sync input directory target boundary review` として、残る directory target delegate を移すか、Lane C の別 workflow へ移るかを判断する。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C39`
+
+状態: completed checkpoint。
+
+目的:
+
+- C38 後に builder constructor に残っている directory target delegate を再評価する。
+- directory target selection を builder / helper 側へ移すか、Lane C の別 workflow へ移るかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `CreateLr2FolderPhysicalParentDirectoryMetadataTargets` の共有方針が明記されている。
+- root に残すべき state / concurrency / DB 境界が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check / 静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C39 LR2 Sync Input Directory Target Boundary Review](./decisions/REF-MVP-C39_lr2_sync_input_directory_target_boundary_review.md) を追加した。
+- 次は `REF-MVP-C40: LR2 sync input directory target selection builder ownership` に進む判断にした。
+- `CreateLr2FolderPhysicalParentDirectoryMetadataTargets` とその private helper は、既存 surface helper ではなく dedicated internal helper へ移す方針にした。
+- `PrepareLr2FolderParentDirectoryEntrySurface` は C40 では workflow 移動せず、`BMSLibrary` 側に残して移した helper を呼ぶだけにする。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C40: LR2 sync input directory target selection builder ownership` として、directory target selection を builder / internal helper 側へ移し、builder constructor から最後の selection delegate を外す。app-managed output scope 採取、row/root/settings/scan/prepared snapshot 採取、`PrepareLr2FolderParentDirectoryEntrySurface` workflow、DB schema、setting name、private reflection entry point は触らない。
