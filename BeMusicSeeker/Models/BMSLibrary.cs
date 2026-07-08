@@ -6898,9 +6898,8 @@ completeFileEnumerationOnce,
         scanSurfaceStopwatch.Stop();
 
         var directoryTargetsStopwatch = Stopwatch.StartNew();
-        IReadOnlyCollection<string> directoryMetadataTargets = scanSurface?.NormalFolderDirectoryPaths?.Count > 0
-            ? scanSurface.NormalFolderDirectoryPaths
-            : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootSnapshot.RootDirectories, rowSnapshot.ChartPaths);
+        IReadOnlyCollection<string> directoryMetadataTargets =
+            CreateLr2SongDbSyncDirectoryMetadataTargets(scanSurface, rootSnapshot, rowSnapshot);
         directoryTargetsStopwatch.Stop();
 
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection =
@@ -6922,16 +6921,14 @@ completeFileEnumerationOnce,
                 appManagedOutputScope);
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = lr2FolderCandidateSelection.Candidates;
         lr2FolderCandidatesStopwatch.Stop();
-        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
-            lr2FolderFileCandidates.Paths,
-            rootSnapshot.RootDirectories,
-            settingsSnapshot.Lr2NormalCustomFolderOutputBaseDir,
-            settingsSnapshot.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
-            settingsSnapshot.Lr2RootCustomFolderOutputBaseDir,
-            settingsSnapshot.Lr2BuiltinFolderSourceDirectories);
-        IReadOnlyCollection<string> directoryEntryTargets = MergeLr2DirectoryMetadataTargets(
-            directoryMetadataTargets,
-            lr2FolderParentDirectoryTargets);
+        Lr2SongDbSyncDirectoryTargetSelection directoryTargetSelection =
+            CreateLr2SongDbSyncDirectoryTargetSelection(
+                directoryMetadataTargets,
+                lr2FolderFileCandidates,
+                rootSnapshot,
+                settingsSnapshot);
+        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = directoryTargetSelection.Lr2FolderParentDirectoryTargets;
+        IReadOnlyCollection<string> directoryEntryTargets = directoryTargetSelection.DirectoryEntryTargets;
         var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncFolderInfoCandidateSelection folderInfoCandidateSelection =
             CreateLr2SongDbSyncFolderInfoCandidateSelection(
@@ -7085,6 +7082,39 @@ completeFileEnumerationOnce,
             out string scanSurfaceMissReason);
 
         return new Lr2SongDbSyncScanSurfaceSelection(scanSurface, scanSurfaceMissReason);
+    }
+
+    private IReadOnlyCollection<string> CreateLr2SongDbSyncDirectoryMetadataTargets(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
+        Lr2SongDbSyncInputRowSnapshot rowSnapshot)
+    {
+        return scanSurface?.NormalFolderDirectoryPaths?.Count > 0
+            ? scanSurface.NormalFolderDirectoryPaths
+            : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootSnapshot.RootDirectories, rowSnapshot.ChartPaths);
+    }
+
+    private Lr2SongDbSyncDirectoryTargetSelection CreateLr2SongDbSyncDirectoryTargetSelection(
+        IReadOnlyCollection<string> directoryMetadataTargets,
+        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
+        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
+        Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot)
+    {
+        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
+            lr2FolderFileCandidates.Paths,
+            rootSnapshot.RootDirectories,
+            settingsSnapshot.Lr2NormalCustomFolderOutputBaseDir,
+            settingsSnapshot.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
+            settingsSnapshot.Lr2RootCustomFolderOutputBaseDir,
+            settingsSnapshot.Lr2BuiltinFolderSourceDirectories);
+        IReadOnlyCollection<string> directoryEntryTargets = MergeLr2DirectoryMetadataTargets(
+            directoryMetadataTargets,
+            lr2FolderParentDirectoryTargets);
+
+        return new Lr2SongDbSyncDirectoryTargetSelection(
+            directoryMetadataTargets,
+            lr2FolderParentDirectoryTargets,
+            directoryEntryTargets);
     }
 
     private Lr2SongDbSyncInputRowSnapshot CreateLr2SongDbSyncInputRowSnapshot()

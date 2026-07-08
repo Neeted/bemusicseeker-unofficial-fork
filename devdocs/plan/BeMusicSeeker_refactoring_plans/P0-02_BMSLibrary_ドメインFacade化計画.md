@@ -826,3 +826,26 @@ BMSLibrary                         // public facade / compatibility API
 - `Lr2SongDbSyncScanSurfaceSelection` を追加し、scan surface / miss reason / reused LR2 folder surface / generation を dedicated DTO 経由へ移した。
 - `GetCurrentLr2SongDbSyncScanSurface` の lock 下 snapshot 読み取りと root state access は root helper に残した。
 - scan surface の有効性判定、miss reason、ログ項目、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C28`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` の normal directory metadata targets / LR2 folder parent directory targets / merged directory entry targets を dedicated selection DTO 境界へ寄せる。
+- 後続の input builder 化で、directory target 群を選択済み入力として扱える状態にする。
+- target の優先順、dedupe / comparer、ログ項目、`directoryTargetsMs` の計測意味、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- normal directory metadata targets / LR2 folder parent directory targets / merged directory entry targets が selection DTO / helper 経由になる。
+- `directoryTargetsMs` は既存通り normal directory metadata target 作成部分だけを測る。
+- directory entry enumeration、folder info candidate selection、private entry point 移動は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncDirectoryTargetSelection` を追加し、normal directory metadata targets / LR2 folder parent directory targets / merged directory entry targets を dedicated DTO 経由へ移した。
+- normal directory metadata target 作成は既存と同じ `directoryTargetsMs` 範囲に残し、LR2 folder parent target と merged target の comparer / dedupe / sort semantics は既存 helper をそのまま使って維持した。
+- directory entry enumeration、folder info candidate selection、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
