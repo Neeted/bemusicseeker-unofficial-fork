@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C96: owned helper aftermath checkpoint` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C97: library file scan storage mutation seam` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -577,6 +577,12 @@ C94 完了時点の次にやる 1 件: `ApplyInstalledChartStorageTargets` の u
 C95 完了時点の次 ticket: `REF-MVP-C96: owned helper aftermath checkpoint`。
 
 C95 完了時点の次にやる 1 件: C95 後に残る `ApplyLibraryFileScanStorageMutation`、`BuildAndPersistInlineChartInfoForInstalledCharts`、`BeginOwnedDigestMutationWindow`、setup private field seeding、remaining read-only helper を再確認し、次に実装する 1 seam だけを選ぶ。production code 変更は次の implementation ticket が明確になるまで行わない。
+
+`REF-MVP-C96` として C95 後に残る private helper を再分類した。`ApplyLibraryFileScanStorageMutation` は file scan storage row replacement / owned collection replacement / resource health / normal refresh dispatch を抱える workflow で、対象 tests も `OwnedChartCollectionStateTests` に集中しているため、次に切る 1 seam と判断した。[owned helper aftermath](./decisions/REF-MVP-C96_owned_helper_aftermath.md) を追加した。production code は変更していない。
+
+C96 完了時点の次 ticket: `REF-MVP-C97: library file scan storage mutation seam`。
+
+C96 完了時点の次にやる 1 件: `ApplyLibraryFileScanStorageMutation` の workflow を top-level coordinator + host seam へ移し、`OwnedChartCollectionStateTests.InvokeApplyLibraryFileScanStorageMutation` private reflection helper を置き換える。writer guard、resource health input mutation、storage replacement、failure fallback、dispatch reason を維持する。
 
 ## 次回 Codex が最初に読むべきファイル
 

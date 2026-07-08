@@ -2791,3 +2791,28 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C96: owned helper aftermath checkpoint` として、C95 後に残る `ApplyLibraryFileScanStorageMutation`、`BuildAndPersistInlineChartInfoForInstalledCharts`、`BeginOwnedDigestMutationWindow`、setup private field seeding、remaining read-only helper を再確認し、次に実装する 1 seam だけを選ぶ。
+
+## Completed Checkpoint: `REF-MVP-C96`
+
+状態: completed checkpoint。
+
+目的:
+
+- C95 後に残る owned collection / file scan / inline chart info / setup private helper を再分類する。
+- 次に実装する 1 seam を決める。
+- production code 変更は行わない。
+
+調査結果:
+
+- `ApplyLibraryFileScanStorageMutation` は storage rows 更新、owned collection replacement、resource health invalidation、normal refresh notification、dispatch / fallback を抱える private workflow である。
+- 対象 tests は `OwnedChartCollectionStateTests` の `ApplyLibraryFileScanStorageMutation_*` 5 件に集中している。
+- `BuildAndPersistInlineChartInfoForInstalledCharts`、`BeginOwnedDigestMutationWindow`、setup private field seeding は後続に回す。
+
+決定:
+
+- `decisions/REF-MVP-C96_owned_helper_aftermath.md` を追加した。
+- 次の実装 ticket は `REF-MVP-C97: library file scan storage mutation seam` とする。
+
+次にやる 1 件:
+
+- `ApplyLibraryFileScanStorageMutation` の workflow を top-level coordinator + host seam へ移し、`OwnedChartCollectionStateTests.InvokeApplyLibraryFileScanStorageMutation` private reflection helper を置き換える。
