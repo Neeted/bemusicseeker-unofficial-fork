@@ -8,18 +8,12 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class Lr2SongDbSyncInputBuilder(
     Func<
-        Lr2SongDbSyncScanSurfaceSnapshot,
-        Lr2SongDbSyncInputRootSnapshot,
-        Lr2SongDbSyncInputSettingsSnapshot,
-        Lr2SongDbSyncPreparedSurfaceSelection,
-        Lr2SongDbSyncAppManagedOutputScope,
-        Lr2SongDbSyncFolderCandidateSelection> createFolderCandidateSelection,
-    Func<
         IReadOnlyCollection<string>,
         Lr2FolderFileCandidateSnapshot,
         Lr2SongDbSyncInputRootSnapshot,
         Lr2SongDbSyncInputSettingsSnapshot,
         Lr2SongDbSyncDirectoryTargetSelection> createDirectoryTargetSelection,
+    Action<string> logLr2FolderScan,
     Action<string> logInstallPerformance)
 {
     public Lr2SongDbSyncInput Create(
@@ -40,7 +34,7 @@ internal sealed class Lr2SongDbSyncInputBuilder(
     {
         Lr2SongDbSyncScanSurfaceSnapshot scanSurface = scanSurfaceSelection.Surface;
         Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection =
-            createFolderCandidateSelection(
+            CreateFolderCandidateSelection(
                 scanSurface,
                 rootSnapshot,
                 settingsSnapshot,
@@ -121,6 +115,137 @@ internal sealed class Lr2SongDbSyncInputBuilder(
             lr2FolderFileCandidates,
             textFileDirectories,
             scanSurfaceSelection);
+    }
+
+    private Lr2SongDbSyncFolderCandidateSelection CreateFolderCandidateSelection(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
+        Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot,
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection,
+        Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope)
+    {
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
+        bool hasPreparedLr2FolderSurface = preparedSurfaceSelection.HasActiveLr2FolderSurface;
+        string source;
+        Lr2FolderFileCandidateSnapshot candidates;
+        int enumeratedAppManagedCandidateCount = 0;
+        int enumeratedAppManagedExactFileCount = appManagedOutputScope.FilePaths.Count;
+        if (scanSurface != null)
+        {
+            if (!appManagedOutputScope.IsComplete)
+            {
+                source = hasPreparedLr2FolderSurface
+                    ? "scan_surface_prepared_only_app_managed_incomplete"
+                    : "scan_surface_app_managed_incomplete";
+                candidates = CreateIncompleteLr2FolderCandidateSnapshot();
+                if (hasPreparedLr2FolderSurface)
+                {
+                    candidates = MergeLr2FolderFileCandidateSurface(candidates, preparedSurface);
+                }
+            }
+            else
+            {
+                source = hasPreparedLr2FolderSurface
+                    ? "scan_surface_prepared_merge"
+                    : "scan_surface_direct";
+                candidates = new Lr2FolderFileCandidateSnapshot(
+                    scanSurface.Lr2FolderFilePaths,
+                    scanSurface.Lr2FolderFileEntries,
+                    scanSurface.Lr2FolderFileDiscoveryComplete);
+                if (hasPreparedLr2FolderSurface)
+                {
+                    candidates = MergeLr2FolderFileCandidateSurface(candidates, preparedSurface);
+                }
+                if (preparedSurface?.Lr2FolderFileDiscoveryComplete == false)
+                {
+                    candidates = new Lr2FolderFileCandidateSnapshot(
+                        candidates.Paths,
+                        candidates.EntriesByPath,
+                        discoveryComplete: false);
+                }
+            }
+        }
+        else
+        {
+            if (!appManagedOutputScope.IsComplete)
+            {
+                source = hasPreparedLr2FolderSurface
+                    ? "enumeration_prepared_only_app_managed_incomplete"
+                    : "enumeration_app_managed_incomplete";
+                candidates = CreateIncompleteLr2FolderCandidateSnapshot();
+            }
+            else
+            {
+                source = hasPreparedLr2FolderSurface
+                    ? "enumeration_prepared_merge"
+                    : "enumeration";
+                candidates = Lr2FolderFileDiscoveryService.CreateFileCandidates(
+                    Lr2FolderFileDiscoveryService.CreateDiscoveryDirectoriesForEnumeration(
+                        rootSnapshot.Lr2FolderDiscoveryDirectories,
+                        preparedSurface),
+                    rootSnapshot.Lr2RootPath,
+                    settingsSnapshot.Lr2BuiltinCustomFolderSettings,
+                    logLr2FolderScan,
+                    appManagedOutputScope.Directories);
+                candidates =
+                    Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                        candidates.Paths,
+                        candidates.EntriesByPath,
+                        appManagedOutputScope.FilePaths,
+                        candidates.DiscoveryComplete,
+                        out enumeratedAppManagedCandidateCount,
+                        appManagedOutputScope.Directories);
+                if (enumeratedAppManagedCandidateCount > 0)
+                {
+                    source += "_app_managed_filtered";
+                }
+            }
+            if (hasPreparedLr2FolderSurface)
+            {
+                candidates = MergeLr2FolderFileCandidateSurface(candidates, preparedSurface);
+            }
+        }
+        if (!appManagedOutputScope.IsComplete)
+        {
+            candidates = CreateIncompleteLr2FolderCandidateSnapshot();
+        }
+        else
+        {
+            candidates = Lr2FolderFileDiscoveryService.ExcludeAppManagedOutputCandidates(
+                candidates.Paths,
+                candidates.EntriesByPath,
+                appManagedOutputScope.FilePaths,
+                candidates.DiscoveryComplete,
+                out int postMergeAppManagedCandidateCount,
+                appManagedOutputScope.Directories);
+            enumeratedAppManagedCandidateCount += postMergeAppManagedCandidateCount;
+            if (postMergeAppManagedCandidateCount > 0
+                && !source.EndsWith("_app_managed_filtered", StringComparison.OrdinalIgnoreCase))
+            {
+                source += "_app_managed_filtered";
+            }
+        }
+
+        return new Lr2SongDbSyncFolderCandidateSelection(
+            candidates,
+            source,
+            enumeratedAppManagedCandidateCount,
+            enumeratedAppManagedExactFileCount);
+    }
+
+    private static Lr2FolderFileCandidateSnapshot MergeLr2FolderFileCandidateSurface(
+        Lr2FolderFileCandidateSnapshot baseCandidates,
+        Lr2SongDbSyncPreparedDataSurface preparedSurface)
+    {
+        return Lr2FolderFileDiscoveryService.MergeCandidateSurface(baseCandidates, preparedSurface);
+    }
+
+    private static Lr2FolderFileCandidateSnapshot CreateIncompleteLr2FolderCandidateSnapshot()
+    {
+        return new Lr2FolderFileCandidateSnapshot(
+            [],
+            new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+            discoveryComplete: false);
     }
 
     private static Lr2SongDbSyncFolderInfoCandidateSelection CreateFolderInfoCandidateSelection(

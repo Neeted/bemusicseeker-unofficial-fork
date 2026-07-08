@@ -1073,3 +1073,34 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C38: LR2 sync input folder candidate selection builder ownership` として、folder candidate selection を builder / internal helper 側へ移し、`CreateLr2SongDbSyncFolderCandidateSelection` delegate を builder constructor から外す。`lr2FolderCandidatesSource` の文字列、prepared merge、app-managed filtering、不完全 scope 時の incomplete candidate、`lr2FolderCandidatesMs` 計測範囲は維持する。
+
+## Completed Checkpoint: `REF-MVP-C38`
+
+状態: completed checkpoint。
+
+目的:
+
+- folder candidate selection を `Lr2SongDbSyncInputBuilder` 側へ移し、`CreateLr2SongDbSyncFolderCandidateSelection` delegate を builder constructor から外す。
+- `LogEverythingScan` 相当は low-level scan log action として渡し、scan log 文言とエラー露出を維持する。
+- root に残す row/root/settings/scan/prepared/app-managed scope 採取と directory target selection は変えない。
+
+完了条件:
+
+- `Lr2SongDbSyncInputBuilder` が folder candidate selection を直接担当している。
+- `BMSLibrary.CreateLr2SongDbSyncInput` から builder に渡す delegate から `CreateLr2SongDbSyncFolderCandidateSelection` が消えている。
+- `lr2FolderCandidatesSource` の文字列、prepared merge、app-managed filtering、不完全 scope 時の incomplete candidate、`lr2FolderCandidatesMs` 計測範囲が維持されている。
+- app-managed output scope 採取、directory target selection、DB schema、setting name、serialized/public surface、private `CreateLr2SongDbSyncInput` entry point は変更していない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncInputBuilder` が folder candidate selection を直接担当する形にした。
+- `CreateLr2SongDbSyncFolderCandidateSelection` delegate を builder constructor から外し、`LogEverythingScan` は low-level scan log action として渡した。
+- `CreateLr2FolderDiscoveryDirectoriesForEnumeration` の root 側未使用 wrapper を削除した。
+- `BMSLibrary.cs` は 17,746 行、builder は 363 行。
+- 初回 build は並列 testhost file lock で失敗したが、再実行 build は pass した。
+- LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C39: LR2 sync input directory target boundary review` として、残る directory target delegate を移すか、Lane C の別 workflow へ移るかを判断する。production code 変更は、次の実装単位が明確に決まるまで行わない。
