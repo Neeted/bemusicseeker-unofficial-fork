@@ -2842,3 +2842,29 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C98: owned helper aftermath checkpoint` として、C97 後に残る `BuildAndPersistInlineChartInfoForInstalledCharts`、`BeginOwnedDigestMutationWindow`、setup private field seeding、remaining read-only helper、`ApplyAutoRenamePlans` を再確認し、次に実装する 1 seam だけを選ぶ。
+
+## Completed Checkpoint: `REF-MVP-C98`
+
+状態: completed checkpoint。
+
+目的:
+
+- C97 後に残る owned helper / inline chart info / digest window / auto rename helper を再分類する。
+- 次に実装する 1 seam を決める。
+- production code 変更は行わない。
+
+調査結果:
+
+- `BuildAndPersistInlineChartInfoForInstalledCharts` は target chart normalization、inline build service invocation、storage row upsert、chart info persistence、warning presentation dispatch、digest dispatch / fallback を抱える private workflow である。
+- 対象 tests は `OwnedChartCollectionStateTests` の 2 件に集中している。
+- `BeginOwnedDigestMutationWindow` 単独 seam は test-only window control になりやすいため、inline chart info workflow 完了後に再判断する。
+- setup private field seeding、remaining read-only helper、`ApplyAutoRenamePlans` は C99 では触らない。
+
+決定:
+
+- `decisions/REF-MVP-C98_owned_helper_aftermath.md` を追加した。
+- 次の実装 ticket は `REF-MVP-C99: inline chart info workflow seam` とする。
+
+次にやる 1 件:
+
+- `BuildAndPersistInlineChartInfoForInstalledCharts` の workflow を top-level coordinator + host seam へ移し、`OwnedChartCollectionStateTests.InvokeBuildAndPersistInlineChartInfoForInstalledCharts` private reflection helper を置き換える。
