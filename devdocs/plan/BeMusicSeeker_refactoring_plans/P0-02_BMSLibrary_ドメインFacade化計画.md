@@ -2570,3 +2570,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C88: resource health snapshot publish test seam cleanup` として、`SetCurrentResourceHealthIndexSnapshot` が `PublishResourceHealthIndexSnapshotUnsafe` を private reflection で呼ぶ箇所を、C84 の actual `BMSLibrary.ResourceHealthIndexFullRebuildHost.PublishSnapshot` など private reflection なしの seam へ置き換える。
+
+## Completed Checkpoint: `REF-MVP-C88`
+
+状態: completed checkpoint。
+
+目的:
+
+- `SetCurrentResourceHealthIndexSnapshot` / `SetCurrentResourceHealthIndex` が `PublishResourceHealthIndexSnapshotUnsafe` を private reflection で呼ぶ箇所を、C84 の actual `BMSLibrary.ResourceHealthIndexFullRebuildHost.PublishSnapshot` へ置き換える。
+- `resourceHealthInputVersion` を test helper から直接 set しない。
+- production code は変更しない。
+
+完了条件:
+
+- `PublishResourceHealthIndexSnapshotUnsafe` を private reflection で呼ぶ test helper が残っていない。
+- `SetCurrentResourceHealthIndexSnapshot` / `SetCurrentResourceHealthIndex` の用途は維持されている。
+- resource health snapshot の publish は actual `BMSLibrary` host seam 経由で行われている。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryMaintenanceServiceTests.SetCurrentResourceHealthIndexSnapshot` は `BMSLibrary.ResourceHealthIndexFullRebuildHost.PublishSnapshot` を使う helper になった。
+- `OwnedChartCollectionStateTests.SetCurrentResourceHealthIndex` は `BMSLibrary.ResourceHealthIndexFullRebuildHost.PublishSnapshot` を使う helper になった。
+- test helper からの `resourceHealthInputVersion` private field set と `PublishResourceHealthIndexSnapshotUnsafe` private reflection を削除した。
+- `BMSLibrary.cs` は 16,465 行、`BmsLibraryMaintenanceServiceTests.cs` は 3,011 行、`OwnedChartCollectionStateTests.cs` は 3,762 行。
+- build、targeted tests、format、diff check、Roslynator warning、full test は完了。静的レビューはこの checkpoint の commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C89: maintenance storage row private state seeding review` として、maintenance / resource health tests に残る `_BMSFiles` / `_BmsonSongs` / `resourceHealthIndexInvalidated` private field seeding を分類し、public setter へ寄せられるもの、actual host seam が必要なもの、今は維持するものを 1 ticket に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

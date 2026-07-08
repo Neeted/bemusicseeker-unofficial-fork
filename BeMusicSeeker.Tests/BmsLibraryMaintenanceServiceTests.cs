@@ -2900,10 +2900,8 @@ public sealed class BmsLibraryMaintenanceServiceTests
 
     private static void SetCurrentResourceHealthIndexSnapshot(BMSLibrary library, ResourceHealthIndexSnapshot snapshot)
     {
-        SetPrivateField(library, "resourceHealthInputVersion", 0);
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("PublishResourceHealthIndexSnapshotUnsafe", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [snapshot]);
+        var host = new BMSLibrary.ResourceHealthIndexFullRebuildHost(library);
+        host.PublishSnapshot(snapshot);
     }
 
     private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthMutation(
