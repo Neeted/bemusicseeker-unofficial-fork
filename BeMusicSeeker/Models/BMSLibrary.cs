@@ -6892,11 +6892,9 @@ completeFileEnumerationOnce,
         builtinSettingsStopwatch.Stop();
 
         var scanSurfaceStopwatch = Stopwatch.StartNew();
-        Lr2SongDbSyncScanSurfaceSnapshot scanSurface = GetCurrentLr2SongDbSyncScanSurface(
-            rootSnapshot.RootDirectories,
-            rootSnapshot.Lr2FolderDiscoveryDirectories,
-            rowSnapshot,
-            out string scanSurfaceMissReason);
+        Lr2SongDbSyncScanSurfaceSelection scanSurfaceSelection =
+            CreateLr2SongDbSyncScanSurfaceSelection(rootSnapshot, rowSnapshot);
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface = scanSurfaceSelection.Surface;
         scanSurfaceStopwatch.Stop();
 
         var directoryTargetsStopwatch = Stopwatch.StartNew();
@@ -6911,7 +6909,7 @@ completeFileEnumerationOnce,
         Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
         bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
         bool hasPreparedLr2FolderSurface = preparedSurfaceSelection.HasActiveLr2FolderSurface;
-        bool reusedLr2FolderSurface = scanSurface?.Lr2FolderFileDiscoveryComplete == true;
+        bool reusedLr2FolderSurface = scanSurfaceSelection.ReusedLr2FolderSurface;
         var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
         Lr2SongDbSyncFolderCandidateSelection lr2FolderCandidateSelection =
@@ -6966,7 +6964,7 @@ completeFileEnumerationOnce,
         inputStopwatch.Stop();
         LogLr2SongDbSyncInputSurface(
             scanSurface,
-            scanSurfaceMissReason,
+            scanSurfaceSelection.MissReason,
             rootSnapshot,
             settingsSnapshot,
             directoryMetadataTargets,
@@ -7006,7 +7004,7 @@ completeFileEnumerationOnce,
             appManagedOutputScope,
             lr2FolderFileCandidates,
             textFileDirectories,
-            scanSurface?.Generation ?? 0);
+            scanSurfaceSelection.Generation);
     }
 
     private void LogLr2SongDbSyncInputSurface(
@@ -7074,6 +7072,19 @@ completeFileEnumerationOnce,
             folderInfoCandidatesStopwatch,
             textFileDirsStopwatch,
             inputStopwatch));
+    }
+
+    private Lr2SongDbSyncScanSurfaceSelection CreateLr2SongDbSyncScanSurfaceSelection(
+        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
+        Lr2SongDbSyncInputRowSnapshot rowSnapshot)
+    {
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface = GetCurrentLr2SongDbSyncScanSurface(
+            rootSnapshot.RootDirectories,
+            rootSnapshot.Lr2FolderDiscoveryDirectories,
+            rowSnapshot,
+            out string scanSurfaceMissReason);
+
+        return new Lr2SongDbSyncScanSurfaceSelection(scanSurface, scanSurfaceMissReason);
     }
 
     private Lr2SongDbSyncInputRowSnapshot CreateLr2SongDbSyncInputRowSnapshot()

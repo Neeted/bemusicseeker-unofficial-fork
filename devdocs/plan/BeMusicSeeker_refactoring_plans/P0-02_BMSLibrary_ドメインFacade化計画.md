@@ -803,3 +803,26 @@ BMSLibrary                         // public facade / compatibility API
 - `BMSLibrary` は formatter の戻り値を `LogInstallPerformance` へ渡すだけになった。
 - ログ項目名、順序、値の対応は維持した。
 - DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C27`
+
+状態: completed checkpoint。
+
+目的:
+
+- `CreateLr2SongDbSyncInput` の scan surface / miss reason / reuse 判定を dedicated selection DTO 境界へ寄せる。
+- `GetCurrentLr2SongDbSyncScanSurface` の lock 下 snapshot 読み取りと root state access は root に残し、後続の input builder 化で参照しやすい選択済み入力にする。
+- scan surface の有効性判定、miss reason、ログ項目、DB schema、setting name、private `CreateLr2SongDbSyncInput` entry point は変えない。
+
+完了条件:
+
+- scan surface と miss reason が `Lr2SongDbSyncScanSurfaceSelection` 経由で扱われる。
+- reused scan surface / reused LR2 folder surface / generation の意味が維持される。
+- `GetCurrentLr2SongDbSyncScanSurface` 本体の top-level service 化、directory target selection 移動、private entry point 移動は今回の完了条件に含めない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncScanSurfaceSelection` を追加し、scan surface / miss reason / reused LR2 folder surface / generation を dedicated DTO 経由へ移した。
+- `GetCurrentLr2SongDbSyncScanSurface` の lock 下 snapshot 読み取りと root state access は root helper に残した。
+- scan surface の有効性判定、miss reason、ログ項目、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
