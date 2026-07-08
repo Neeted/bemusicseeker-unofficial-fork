@@ -16,6 +16,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
@@ -6907,9 +6908,6 @@ completeFileEnumerationOnce,
         var inputBuilder = new Lr2SongDbSyncInputBuilder(
             CreateLr2SongDbSyncFolderCandidateSelection,
             CreateLr2SongDbSyncDirectoryTargetSelection,
-            CreateLr2SongDbSyncFolderInfoCandidateSelection,
-            CreateLr2SongDbSyncDirectoryEntrySelection,
-            CreateLr2SongDbSyncTextFileDirectorySelection,
             LogInstallPerformance);
 
         var lr2FolderCandidatesStopwatch = Stopwatch.StartNew();
@@ -7168,119 +7166,6 @@ completeFileEnumerationOnce,
             enumeratedAppManagedExactFileCount);
     }
 
-    private static Lr2SongDbSyncTextFileDirectorySelection CreateLr2SongDbSyncTextFileDirectorySelection(
-        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
-        Lr2TextMetadataCandidateSnapshot textMetadataCandidates,
-        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
-    {
-        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
-        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
-        if (scanSurface?.TextFileDirectories != null)
-        {
-            return new Lr2SongDbSyncTextFileDirectorySelection(
-                hasPreparedSurface
-                    ? MergePreparedDirectoryList(
-                        scanSurface.TextFileDirectories,
-                        preparedSurface.TextFileDirectories,
-                        preparedSurface.Lr2FolderScopeDirectories)
-                    : scanSurface.TextFileDirectories,
-                hasPreparedSurface
-                    ? "scan_surface_prepared_merge"
-                    : "scan_surface_direct");
-        }
-        if (textMetadataCandidates?.TextFileDirectories != null)
-        {
-            return new Lr2SongDbSyncTextFileDirectorySelection(
-                hasPreparedSurface
-                    ? MergePreparedDirectoryList(
-                        textMetadataCandidates.TextFileDirectories,
-                        preparedSurface.TextFileDirectories,
-                        preparedSurface.Lr2FolderScopeDirectories)
-                    : textMetadataCandidates.TextFileDirectories,
-                hasPreparedSurface
-                    ? "enumeration_prepared_merge"
-                    : "enumeration");
-        }
-
-        return new Lr2SongDbSyncTextFileDirectorySelection(
-            hasPreparedSurface
-                ? MergePreparedDirectoryList(
-                    [],
-                    preparedSurface.TextFileDirectories,
-                    preparedSurface.Lr2FolderScopeDirectories)
-                : [],
-            hasPreparedSurface
-                ? "prepared_only"
-                : "empty");
-    }
-
-    private static Lr2SongDbSyncFolderInfoCandidateSelection CreateLr2SongDbSyncFolderInfoCandidateSelection(
-        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
-        IEnumerable<string> lr2FolderDiscoveryDirectories,
-        IReadOnlyCollection<string> directoryEntryTargets,
-        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
-    {
-        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
-        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
-        Lr2TextMetadataCandidateSnapshot textMetadataCandidates = null;
-        Lr2FolderInfoCandidateSnapshot folderInfoCandidates;
-        if (scanSurface != null)
-        {
-            folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
-                scanSurface.FolderInfoFilePaths,
-                scanSurface.FolderInfoFileEntries.Values,
-                directoryEntryTargets);
-        }
-        else
-        {
-            textMetadataCandidates = CreateLr2SongDbSyncTextMetadataCandidates(lr2FolderDiscoveryDirectories, directoryEntryTargets);
-            folderInfoCandidates = textMetadataCandidates.FolderInfoCandidates;
-        }
-        if (hasPreparedSurface && preparedSurface.FolderInfoFilePaths.Count > 0)
-        {
-            IReadOnlyList<string> folderInfoPaths = MergePreparedFileSurface(
-                folderInfoCandidates.Paths,
-                folderInfoCandidates.EntriesByPath,
-                preparedSurface.FolderInfoFilePaths,
-                preparedSurface.FolderInfoFileEntries,
-                preparedSurface.Lr2FolderScopeDirectories,
-                out IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoEntries);
-            folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
-                folderInfoPaths,
-                folderInfoEntries.Values,
-                directoryEntryTargets);
-        }
-
-        return new Lr2SongDbSyncFolderInfoCandidateSelection(
-            folderInfoCandidates,
-            textMetadataCandidates);
-    }
-
-    private static Lr2SongDbSyncDirectoryEntrySelection CreateLr2SongDbSyncDirectoryEntrySelection(
-        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
-        IEnumerable<string> lr2FolderDiscoveryDirectories,
-        IReadOnlyCollection<string> directoryEntryTargets,
-        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
-    {
-        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
-            ? CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
-                OverlayLr2DirectoryEntrySurface(
-                    MergeMissingLr2DirectoryEntrySurface(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
-                    preparedSurface.DirectoryEntries),
-                lr2FolderDiscoveryDirectories,
-                directoryEntryTargets)
-            : OverlayLr2DirectoryEntrySurface(
-                CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(
-                    lr2FolderDiscoveryDirectories,
-                    directoryEntryTargets),
-                preparedSurface.DirectoryEntries);
-
-        return new Lr2SongDbSyncDirectoryEntrySelection(
-            directoryEntries,
-            Math.Max(0, directoryEntryTargets.Count - directoryEntries.Count));
-    }
-
     private bool IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)
     {
         if (input == null
@@ -7527,15 +7412,6 @@ completeFileEnumerationOnce,
         }
     }
 
-    private static Lr2TextMetadataCandidateSnapshot CreateLr2SongDbSyncTextMetadataCandidates(
-        IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
-    {
-        return Lr2FolderInfoCandidateEnumerationService.CreateTextMetadataSnapshot(
-            rootDirectories,
-            targetDirectories);
-    }
-
     private static Lr2TextMetadataCandidateSnapshot CreateLr2PreparedTextMetadataCandidates(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> targetDirectories)
@@ -7757,27 +7633,6 @@ completeFileEnumerationOnce,
             directoryEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
     }
 
-    private static IReadOnlyList<string> NormalizeLr2DirectoryMetadataTargets(IEnumerable<string> targetDirectories)
-    {
-        return [.. (targetDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static IReadOnlyCollection<string> MergeLr2DirectoryMetadataTargets(params IEnumerable<string>[] targetSets)
-    {
-        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (IEnumerable<string> targetSet in targetSets ?? [])
-        {
-            foreach (string target in NormalizeLr2DirectoryMetadataTargets(targetSet))
-            {
-                result.Add(target);
-            }
-        }
-        return [.. result.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
-    }
-
     private static IReadOnlyCollection<string> CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
         IEnumerable<string> lr2FolderFilePaths,
         IEnumerable<string> rootDirectories,
@@ -7904,65 +7759,6 @@ completeFileEnumerationOnce,
         }
 
         return null;
-    }
-
-    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> sourceEntries,
-        IEnumerable<string> groupedSourceDirectories,
-        IEnumerable<string> targetDirectories)
-    {
-        IReadOnlyCollection<string> targets = NormalizeLr2DirectoryMetadataTargets(targetDirectories);
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries =
-            Lr2FolderDirectoryEnumerationService.CreateEntriesFromSurface(sourceEntries, targets);
-        List<string> missingTargets = [.. targets
-            .Where(target => !entries.TryGetValue(target, out RootFileEnumerationEntry entry)
-                || entry.LastWriteTimeUtc == null)];
-        if (missingTargets.Count == 0)
-        {
-            return entries;
-        }
-
-        IReadOnlyCollection<string> groupedEntriesSourceDirectories = [.. (groupedSourceDirectories ?? [])
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (groupedEntriesSourceDirectories.Count == 0)
-        {
-            return entries;
-        }
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> missingEntries =
-            CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(groupedEntriesSourceDirectories, missingTargets);
-        return MergeLr2DirectoryEntrySurfaces(entries, missingEntries);
-    }
-
-    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> MergeLr2DirectoryEntrySurfaces(
-        params IReadOnlyDictionary<string, RootFileEnumerationEntry>[] entrySets)
-    {
-        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (IReadOnlyDictionary<string, RootFileEnumerationEntry> entries in entrySets ?? [])
-        {
-            foreach (RootFileEnumerationEntry entry in entries?.Values ?? [])
-            {
-                string key = Lr2FolderPath.NormalizeDirectoryPath(entry?.Path);
-                if (string.IsNullOrWhiteSpace(key))
-                {
-                    continue;
-                }
-                if (!result.TryGetValue(key, out RootFileEnumerationEntry existing)
-                    || existing.LastWriteTimeUtc == null && entry.LastWriteTimeUtc != null)
-                {
-                    result[key] = new RootFileEnumerationEntry(key, entry.LastWriteTimeUtc, entry.FileSize);
-                }
-            }
-        }
-        return result;
-    }
-
-    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(
-        IEnumerable<string> rootDirectories,
-        IEnumerable<string> targetDirectories)
-    {
-        return Lr2FolderDirectoryEnumerationService.CreateEntriesFromGroupedEnumeration(rootDirectories, targetDirectories);
     }
 
     private static Func<string, DateTime?> CreateLastWriteTimeResolver(
@@ -8316,217 +8112,6 @@ completeFileEnumerationOnce,
             [],
             new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
             discoveryComplete: false);
-    }
-
-    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> OverlayLr2DirectoryEntrySurface(
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> baseEntries,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> overlayEntries)
-    {
-        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        AddDirectoryEntries(result, baseEntries, overwriteExisting: false);
-        AddDirectoryEntries(result, overlayEntries, overwriteExisting: true);
-        return result;
-    }
-
-    private static IReadOnlyDictionary<string, RootFileEnumerationEntry> MergeMissingLr2DirectoryEntrySurface(
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> baseEntries,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> additions)
-    {
-        if (additions == null || additions.Count == 0)
-        {
-            return baseEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        }
-
-        Dictionary<string, RootFileEnumerationEntry> result = null;
-        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in additions)
-        {
-            RootFileEnumerationEntry entry = pair.Value;
-            string path = Lr2FolderPath.NormalizeDirectoryPath(!string.IsNullOrWhiteSpace(entry?.Path) ? entry.Path : pair.Key);
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                continue;
-            }
-
-            RootFileEnumerationEntry next = entry == null
-                ? new RootFileEnumerationEntry(path)
-                : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
-            bool shouldApply = baseEntries == null
-                || !baseEntries.TryGetValue(path, out RootFileEnumerationEntry existing)
-                || existing.LastWriteTimeUtc == null && next.LastWriteTimeUtc != null;
-            if (!shouldApply)
-            {
-                continue;
-            }
-
-            result ??= CopyLr2DirectoryEntrySurface(baseEntries);
-            result[path] = next;
-        }
-
-        return result ?? baseEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static Dictionary<string, RootFileEnumerationEntry> CopyLr2DirectoryEntrySurface(
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries)
-    {
-        var result = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        AddDirectoryEntries(result, entries, overwriteExisting: false);
-        return result;
-    }
-
-    private static IReadOnlyList<string> MergePreparedFileSurface(
-        IEnumerable<string> basePaths,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> baseEntries,
-        IEnumerable<string> preparedPaths,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> preparedEntries,
-        IEnumerable<string> preparedScopeDirectories,
-        out IReadOnlyDictionary<string, RootFileEnumerationEntry> mergedEntries)
-    {
-        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedScopeDirectories);
-        var entriesByPath = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (RootFileEnumerationEntry entry in CreateNormalizedFileEntries(basePaths, baseEntries))
-        {
-            if (scopeMatcher.ContainsFilePath(entry.Path))
-            {
-                continue;
-            }
-            entriesByPath[entry.Path] = entry;
-        }
-        foreach (RootFileEnumerationEntry entry in CreateNormalizedFileEntries(preparedPaths, preparedEntries))
-        {
-            entriesByPath[entry.Path] = entry;
-        }
-
-        mergedEntries = entriesByPath;
-        return [.. entriesByPath.Keys.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static IReadOnlyList<string> MergePreparedDirectoryList(
-        IEnumerable<string> baseDirectories,
-        IEnumerable<string> preparedDirectories,
-        IEnumerable<string> preparedScopeDirectories)
-    {
-        IReadOnlyList<string> preparedDirectoryTargets = NormalizeLr2DirectoryMetadataTargets(preparedDirectories);
-        Lr2DirectoryScopeMatcher scopeMatcher = Lr2DirectoryScopeMatcher.Create(preparedScopeDirectories);
-        if (scopeMatcher.IsEmpty && preparedDirectoryTargets.Count == 0)
-        {
-            return TryUseNormalizedDirectoryList(baseDirectories, out IReadOnlyList<string> normalizedBaseDirectories)
-                ? normalizedBaseDirectories
-                : NormalizeLr2DirectoryMetadataTargets(baseDirectories);
-        }
-
-        var result = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string directory in baseDirectories ?? [])
-        {
-            string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
-            if (string.IsNullOrWhiteSpace(normalized)
-                || scopeMatcher.ContainsNormalizedDirectory(normalized)
-                || !seen.Add(normalized))
-            {
-                continue;
-            }
-
-            result.Add(normalized);
-        }
-        foreach (string directory in preparedDirectoryTargets)
-        {
-            if (seen.Add(directory))
-            {
-                result.Add(directory);
-            }
-        }
-
-        result.Sort(StringComparer.OrdinalIgnoreCase);
-        return result;
-    }
-
-    private static bool TryUseNormalizedDirectoryList(
-        IEnumerable<string> directories,
-        out IReadOnlyList<string> normalizedDirectories)
-    {
-        normalizedDirectories = directories as IReadOnlyList<string>;
-        if (normalizedDirectories == null)
-        {
-            return false;
-        }
-
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string directory in normalizedDirectories)
-        {
-            string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
-            if (string.IsNullOrWhiteSpace(normalized)
-                || !string.Equals(normalized, directory, StringComparison.OrdinalIgnoreCase)
-                || !seen.Add(normalized))
-            {
-                normalizedDirectories = null;
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    private static IEnumerable<RootFileEnumerationEntry> CreateNormalizedFileEntries(
-        IEnumerable<string> paths,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> entriesByPath)
-    {
-        var entries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-        foreach (string rawPath in paths ?? [])
-        {
-            string path = SafeFullPathOrOriginal(rawPath);
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                continue;
-            }
-            RootFileEnumerationEntry entry = entriesByPath != null
-                && entriesByPath.TryGetValue(rawPath, out RootFileEnumerationEntry rawEntry)
-                    ? rawEntry
-                    : null;
-            entries[path] = entry == null
-                ? new RootFileEnumerationEntry(path)
-                : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
-        }
-        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in entriesByPath ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
-        {
-            string path = SafeFullPathOrOriginal(!string.IsNullOrWhiteSpace(pair.Value?.Path) ? pair.Value.Path : pair.Key);
-            if (string.IsNullOrWhiteSpace(path) || entries.ContainsKey(path))
-            {
-                continue;
-            }
-            RootFileEnumerationEntry entry = pair.Value;
-            entries[path] = entry == null
-                ? new RootFileEnumerationEntry(path)
-                : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
-        }
-        return entries.Values;
-    }
-
-    private static void AddDirectoryEntries(
-        IDictionary<string, RootFileEnumerationEntry> result,
-        IReadOnlyDictionary<string, RootFileEnumerationEntry> entries,
-        bool overwriteExisting)
-    {
-        if (result == null)
-        {
-            return;
-        }
-
-        foreach (KeyValuePair<string, RootFileEnumerationEntry> pair in entries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase))
-        {
-            RootFileEnumerationEntry entry = pair.Value;
-            string path = Lr2FolderPath.NormalizeDirectoryPath(!string.IsNullOrWhiteSpace(entry?.Path) ? entry.Path : pair.Key);
-            if (string.IsNullOrWhiteSpace(path))
-            {
-                continue;
-            }
-            if (!overwriteExisting && result.ContainsKey(path))
-            {
-                continue;
-            }
-            result[path] = entry == null
-                ? new RootFileEnumerationEntry(path)
-                : new RootFileEnumerationEntry(path, entry.LastWriteTimeUtc, entry.FileSize);
-        }
     }
 
     private static IReadOnlyList<string> CreateLr2FolderDiscoveryDirectoriesForEnumeration(

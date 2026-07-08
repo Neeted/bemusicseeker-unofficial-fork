@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 18,228 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,866 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
 
 `BMSLibrary` は public compatibility facade として残してよい。ただし、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling は service / coordinator へ移す。
 
@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 18,228 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary と host へ分離済み |
+| `BMSLibrary.cs` 行数 | 17,866 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -1014,3 +1014,34 @@ BMSLibrary                         // public facade / compatibility API
 - `lr2FolderCandidatesMs` は builder 生成後に開始し、app-managed scope 作成と folder candidate selection を含む既存計測範囲を維持した。
 - `Queue/Run`、status、cancel、DB write、chart_info projection、private reflection entry point、DB schema、setting name、serialized/public surface は変更していない。
 - 初回 post-review build は並列 testhost file lock で失敗したが、再実行 build は pass した。
+
+## Completed Checkpoint: `REF-MVP-C36`
+
+状態: completed checkpoint。
+
+目的:
+
+- C35 後の `Lr2SongDbSyncInputBuilder` delegate surface をレビューし、builder が直接所有できる selection helper を `BMSLibrary` から外す。
+- folder info / directory entry / text file directory selection と、その selection が使う input surface merge / overlay helper を `BmsLibraryInternal` 側へ移す。
+- `CreateLr2SongDbSyncInput` に残す root state / concurrency 境界を変えない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、C36 の範囲と触らない範囲が明確になっている。
+- `Lr2SongDbSyncInputBuilder` が folder info / directory entry / text file directory selection を直接担当している。
+- `BMSLibrary.CreateLr2SongDbSyncInput` から builder に渡す delegate が減っている。
+- private `CreateLr2SongDbSyncInput` entry point、log item、timing、DB schema、setting name、serialized/public surface は変更していない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C36 LR2 Sync Input Builder Helper Ownership Decision](./decisions/REF-MVP-C36_lr2_sync_input_builder_helper_ownership.md) を追加した。
+- `Lr2SongDbSyncInputBuilder` が folder info / directory entry / text file directory selection を直接担当する形にした。
+- selection helper が使う input surface merge / overlay / normalization helper を `BmsLibraryInternal/Lr2SongDbSyncInputSurfaceHelper.cs` へ移した。
+- `CreateLr2SongDbSyncInput` から builder に渡す delegate は folder candidate / directory target / log の 3 件に減った。
+- folder candidate selection、directory target selection、row/root/settings/scan/prepared/app-managed scope snapshot 採取、scan / prepared / file-diff mutable cache、private reflection entry point、DB schema、setting name、serialized/public surface は変更していない。
+- LR2 targeted / full test の初回で既知の `ApplyFileScanDiff_PopulatesLr2FolderSurfaceFromProducerDiscoveryRoots` 単発失敗があったが、単体 rerun と最終 rerun は pass した。
+
+次にやる 1 件:
+
+- `REF-MVP-C37: LR2 sync input builder boundary review` として、C36 後の残り delegate surface と root 残存責務を再確認する。folder candidate / directory target selection の境界を 1 ticket だけ整理できるか、または Lane C の別 workflow へ移るかを decision record 化する。production code 変更は、次の実装単位が明確に決まるまで行わない。

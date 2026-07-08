@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using BeMusicSeeker.Models.Utils;
+using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHelper;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -19,23 +20,6 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         Lr2SongDbSyncInputRootSnapshot,
         Lr2SongDbSyncInputSettingsSnapshot,
         Lr2SongDbSyncDirectoryTargetSelection> createDirectoryTargetSelection,
-    Func<
-        Lr2SongDbSyncScanSurfaceSnapshot,
-        IEnumerable<string>,
-        IReadOnlyCollection<string>,
-        Lr2SongDbSyncPreparedSurfaceSelection,
-        Lr2SongDbSyncFolderInfoCandidateSelection> createFolderInfoCandidateSelection,
-    Func<
-        Lr2SongDbSyncScanSurfaceSnapshot,
-        IEnumerable<string>,
-        IReadOnlyCollection<string>,
-        Lr2SongDbSyncPreparedSurfaceSelection,
-        Lr2SongDbSyncDirectoryEntrySelection> createDirectoryEntrySelection,
-    Func<
-        Lr2SongDbSyncScanSurfaceSnapshot,
-        Lr2TextMetadataCandidateSnapshot,
-        Lr2SongDbSyncPreparedSurfaceSelection,
-        Lr2SongDbSyncTextFileDirectorySelection> createTextFileDirectorySelection,
     Action<string> logInstallPerformance)
 {
     public Lr2SongDbSyncInput Create(
@@ -73,7 +57,7 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         IReadOnlyCollection<string> directoryEntryTargets = directoryTargetSelection.DirectoryEntryTargets;
         var folderInfoCandidatesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncFolderInfoCandidateSelection folderInfoCandidateSelection =
-            createFolderInfoCandidateSelection(
+            CreateFolderInfoCandidateSelection(
                 scanSurface,
                 rootSnapshot.Lr2FolderDiscoveryDirectories,
                 directoryEntryTargets,
@@ -83,7 +67,7 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         folderInfoCandidatesStopwatch.Stop();
         var directoryEntriesStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncDirectoryEntrySelection directoryEntrySelection =
-            createDirectoryEntrySelection(
+            CreateDirectoryEntrySelection(
                 scanSurface,
                 rootSnapshot.Lr2FolderDiscoveryDirectories,
                 directoryEntryTargets,
@@ -92,7 +76,7 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         directoryEntriesStopwatch.Stop();
         var textFileDirsStopwatch = Stopwatch.StartNew();
         Lr2SongDbSyncTextFileDirectorySelection textFileDirectorySelection =
-            createTextFileDirectorySelection(
+            CreateTextFileDirectorySelection(
                 scanSurface,
                 textMetadataCandidates,
                 preparedSurfaceSelection);
@@ -137,5 +121,118 @@ internal sealed class Lr2SongDbSyncInputBuilder(
             lr2FolderFileCandidates,
             textFileDirectories,
             scanSurfaceSelection);
+    }
+
+    private static Lr2SongDbSyncFolderInfoCandidateSelection CreateFolderInfoCandidateSelection(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        IEnumerable<string> lr2FolderDiscoveryDirectories,
+        IReadOnlyCollection<string> directoryEntryTargets,
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
+    {
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
+        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
+        Lr2TextMetadataCandidateSnapshot textMetadataCandidates = null;
+        Lr2FolderInfoCandidateSnapshot folderInfoCandidates;
+        if (scanSurface != null)
+        {
+            folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
+                scanSurface.FolderInfoFilePaths,
+                scanSurface.FolderInfoFileEntries.Values,
+                directoryEntryTargets);
+        }
+        else
+        {
+            textMetadataCandidates = CreateLr2SongDbSyncTextMetadataCandidates(lr2FolderDiscoveryDirectories, directoryEntryTargets);
+            folderInfoCandidates = textMetadataCandidates.FolderInfoCandidates;
+        }
+        if (hasPreparedSurface && preparedSurface.FolderInfoFilePaths.Count > 0)
+        {
+            IReadOnlyList<string> folderInfoPaths = MergePreparedFileSurface(
+                folderInfoCandidates.Paths,
+                folderInfoCandidates.EntriesByPath,
+                preparedSurface.FolderInfoFilePaths,
+                preparedSurface.FolderInfoFileEntries,
+                preparedSurface.Lr2FolderScopeDirectories,
+                out IReadOnlyDictionary<string, RootFileEnumerationEntry> folderInfoEntries);
+            folderInfoCandidates = Lr2FolderInfoCandidateEnumerationService.CreateSnapshotFromSurface(
+                folderInfoPaths,
+                folderInfoEntries.Values,
+                directoryEntryTargets);
+        }
+
+        return new Lr2SongDbSyncFolderInfoCandidateSelection(
+            folderInfoCandidates,
+            textMetadataCandidates);
+    }
+
+    private static Lr2SongDbSyncDirectoryEntrySelection CreateDirectoryEntrySelection(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        IEnumerable<string> lr2FolderDiscoveryDirectories,
+        IReadOnlyCollection<string> directoryEntryTargets,
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
+    {
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
+        IReadOnlyDictionary<string, RootFileEnumerationEntry> directoryEntries = scanSurface != null
+            ? CreateLr2DirectoryEntriesFromSurfaceOrGroupedScan(
+                OverlayLr2DirectoryEntrySurface(
+                    MergeMissingLr2DirectoryEntrySurface(scanSurface.DirectoryEntries, scanSurface.NormalFolderDirectoryEntries),
+                    preparedSurface.DirectoryEntries),
+                lr2FolderDiscoveryDirectories,
+                directoryEntryTargets)
+            : OverlayLr2DirectoryEntrySurface(
+                CreateLr2SongDbSyncDirectoryEntriesFromGroupedScan(
+                    lr2FolderDiscoveryDirectories,
+                    directoryEntryTargets),
+                preparedSurface.DirectoryEntries);
+
+        return new Lr2SongDbSyncDirectoryEntrySelection(
+            directoryEntries,
+            Math.Max(0, directoryEntryTargets.Count - directoryEntries.Count));
+    }
+
+    private static Lr2SongDbSyncTextFileDirectorySelection CreateTextFileDirectorySelection(
+        Lr2SongDbSyncScanSurfaceSnapshot scanSurface,
+        Lr2TextMetadataCandidateSnapshot textMetadataCandidates,
+        Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection)
+    {
+        Lr2SongDbSyncPreparedDataSurface preparedSurface = preparedSurfaceSelection.ActiveSurface;
+        bool hasPreparedSurface = preparedSurfaceSelection.HasActivePreparedSurface;
+        if (scanSurface?.TextFileDirectories != null)
+        {
+            return new Lr2SongDbSyncTextFileDirectorySelection(
+                hasPreparedSurface
+                    ? MergePreparedDirectoryList(
+                        scanSurface.TextFileDirectories,
+                        preparedSurface.TextFileDirectories,
+                        preparedSurface.Lr2FolderScopeDirectories)
+                    : scanSurface.TextFileDirectories,
+                hasPreparedSurface
+                    ? "scan_surface_prepared_merge"
+                    : "scan_surface_direct");
+        }
+        if (textMetadataCandidates?.TextFileDirectories != null)
+        {
+            return new Lr2SongDbSyncTextFileDirectorySelection(
+                hasPreparedSurface
+                    ? MergePreparedDirectoryList(
+                        textMetadataCandidates.TextFileDirectories,
+                        preparedSurface.TextFileDirectories,
+                        preparedSurface.Lr2FolderScopeDirectories)
+                    : textMetadataCandidates.TextFileDirectories,
+                hasPreparedSurface
+                    ? "enumeration_prepared_merge"
+                    : "enumeration");
+        }
+
+        return new Lr2SongDbSyncTextFileDirectorySelection(
+            hasPreparedSurface
+                ? MergePreparedDirectoryList(
+                    [],
+                    preparedSurface.TextFileDirectories,
+                    preparedSurface.Lr2FolderScopeDirectories)
+                : [],
+            hasPreparedSurface
+                ? "prepared_only"
+                : "empty");
     }
 }
