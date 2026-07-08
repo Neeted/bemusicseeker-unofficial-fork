@@ -492,9 +492,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C76` として `MaintenanceHydrationDispatchCoordinator` と `IMaintenanceHydrationDispatchHost` を追加した。root `DispatchMaintenanceHydrationResult` は coordinator 呼び出しの薄い bridge になり、host implementation が `MaintenanceHydrationDispatchPlan` を private `OwnedChartCollectionMutationResult` に変換して `DispatchOwnedChartCollectionMutation` を実行し、resource health index ms を返す。coordinator direct tests で plan dispatch と `ResourceHealthIndexMs` propagation を private reflection なしで確認した。stale full target の root private reflection test は同じ意味を保つため残している。`BMSLibrary.cs` は 16,478 行、coordinator は 23 行、host interface は 6 行、coordinator tests は 56 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-現在の active ticket: `REF-MVP-C77: maintenance dispatch reflection follow-up review`。
+`REF-MVP-C77` として [maintenance dispatch reflection follow-up](./decisions/REF-MVP-C77_maintenance_dispatch_reflection_followup.md) をレビューした。stale full target private reflection test は root resource health dispatch outcome を確認しているためまだ削除しない。次は `OwnedChartCollectionMutationResult` 全体ではなく、小さな `ResourceHealthIndexDispatchResult` を top-level internal contract へ移す判断にした。production code は変更していない。
 
-次にやる 1 件: C76 後に残る stale full target private reflection test を direct seam / integration test へ移せるか、または `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を先に整理すべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+現在の active ticket: `REF-MVP-C78: resource health dispatch result contract extraction`。
+
+次にやる 1 件: `ResourceHealthIndexDispatchResult` を `BmsLibraryInternal` の top-level internal contract へ移す。`OwnedChartCollectionMutationResult` と stale full target private reflection test はまだ残してよい。
 
 ## 次回 Codex が最初に読むべきファイル
 

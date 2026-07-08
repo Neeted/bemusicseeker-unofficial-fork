@@ -2239,3 +2239,30 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C77: maintenance dispatch reflection follow-up review` として、C76 後に残る stale full target private reflection test を direct seam / integration test へ移せるか、または `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を先に整理すべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C77`
+
+状態: completed checkpoint。
+
+目的:
+
+- C76 後に残る stale full target private reflection test を direct seam / integration test へ移せるか、または `OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` の contract 境界を先に整理すべきかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- stale full target private reflection test を今削除しない理由が明記されている。
+- P0-02、総合計画、`PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C77 Maintenance Dispatch Reflection Follow-up](./decisions/REF-MVP-C77_maintenance_dispatch_reflection_followup.md) を追加した。
+- stale full target private reflection test は root resource health dispatch outcome を確認しているためまだ削除しない判断にした。
+- `OwnedChartCollectionMutationResult` は大きすぎるため、先に小さな `ResourceHealthIndexDispatchResult` を top-level internal contract へ移す。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C78: resource health dispatch result contract extraction` として、`ResourceHealthIndexDispatchResult` を `BmsLibraryInternal` の top-level internal contract へ移す。`OwnedChartCollectionMutationResult` と stale full target private reflection test はまだ残してよい。
