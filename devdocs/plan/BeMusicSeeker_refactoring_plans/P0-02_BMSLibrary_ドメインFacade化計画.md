@@ -1341,3 +1341,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C47: Lane C boundary review after maintenance deferred seams` として、C44-C46 後に残る maintenance result apply / resource health mutation / folder-file operation / package install follow-up のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C47`
+
+状態: completed checkpoint。
+
+目的:
+
+- C44-C46 後に残る maintenance result apply / resource health mutation / folder-file operation / package install follow-up を比較する。
+- 次の Lane C workflow を 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `MergeChartDirectory` / package install follow-up / maintenance result apply を今触らない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check / 静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C47 Lane C Boundary After Maintenance Deferred Seams](./decisions/REF-MVP-C47_lane_c_boundary_after_maintenance_deferred.md) を追加した。
+- maintenance result apply は C45 の blocker が残るためまだ移動しない判断にした。
+- `MergeChartDirectory` と `installChartPackages` は横断範囲が大きいため初手にしない判断にした。
+- 次は `REF-MVP-C48: RenameChartFolder single-folder move coordinator seam` に進む判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C48: RenameChartFolder single-folder move coordinator seam` として、`RenameChartFolder` / `MoveLibraryChartFolderInternal` / `TryMoveLibraryChartFolder` の単一フォルダ move workflow を coordinator seam へ移す。`MergeChartDirectory`、`MoveLibraryRootFolder` の複数 folder semantics、`MoveChartPackageFiles`、package install、maintenance result apply、resource health mutation は触らない。
