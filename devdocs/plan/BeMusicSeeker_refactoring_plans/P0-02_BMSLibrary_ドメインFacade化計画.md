@@ -1634,3 +1634,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C57: repair / merge / install boundary after package move adapter` として、`FixInstallationDirectoryCharts`、`MergeChartDirectory`、`installChartPackages` follow-up、maintenance result apply contract prep のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C57`
+
+状態: completed checkpoint。
+
+目的:
+
+- C56 後の repair / merge / install / maintenance follow-up を比較する。
+- `FixInstallationDirectoryCharts`、`MergeChartDirectory`、`installChartPackages` follow-up、maintenance result apply contract prep のうち、次の実装 ticket を 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `MergeChartDirectory` / `installChartPackages` follow-up / maintenance result apply contract prep を今触らない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C57 Repair / Merge / Install Boundary After Package Move](./decisions/REF-MVP-C57_repair_merge_install_boundary_after_package_move.md) を追加した。
+- `FixInstallationDirectoryCharts` は C56 の `MoveChartPackageFiles` seam を直接使い、root には LR2 sync block、locks、hash snapshot、duplicate confirmation、delta apply、duplicate removal、maintenance apply の orchestration が残るため、次の coordinator seam として妥当と判断した。
+- `MergeChartDirectory` と `installChartPackages` follow-up は横断範囲が大きいためまだ触らない判断にした。
+- maintenance result apply contract prep は C45 の blocker が残るためまだ触らない判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C58: FixInstallationDirectoryCharts coordinator seam` として、`FixInstallationDirectoryCharts` の LR2 sync block、lock boundary、installed hash snapshot、package move callback、duplicate confirmation、delta apply、duplicate source removal、maintenance apply を dedicated coordinator seam へ移す。`MergeChartDirectory`、`installChartPackages` callback 契約、`MoveChartPackageFiles` core behavior、maintenance result apply は触らない。
