@@ -1996,3 +1996,31 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C69: maintenance dispatch boundary review` として、C68 後に残る `DispatchMaintenanceHydrationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthMutation`、remaining private reflection tests のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C69`
+
+状態: completed checkpoint。
+
+目的:
+
+- C68 後に残る `DispatchMaintenanceHydrationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthMutation`、remaining private reflection tests の結合を再確認する。
+- dispatch 本体、owned collection mutation contract、resource health mutation contract、test migration のどれを次に進めるかを 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `DispatchMaintenanceHydrationResult` を直接移動しない理由が明記されている。
+- P0-02、総合計画、`PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C69 Maintenance Dispatch Boundary After Target Contracts](./decisions/REF-MVP-C69_maintenance_dispatch_boundary_after_target_contracts.md) を追加した。
+- C68 後も `BuildMaintenanceResourceHealthIndexMutation` / `ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` が private nested / private method として残り、`BmsLibraryMaintenanceServiceTests` が private reflection で検証していることを確認した。
+- `DispatchMaintenanceHydrationResult` 本体を動かす前に、resource health mutation contract / planner を top-level internal に移す判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C70: resource health mutation contract extraction` として、`ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` / `BuildMaintenanceResourceHealthIndexMutation` を top-level internal contract / planner へ移し、`BmsLibraryMaintenanceServiceTests` の private method / nested enum reflection を direct planner test へ寄せる。`DispatchMaintenanceHydrationResult` 本体、`BuildMaintenanceHydrationMutationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` は触らない。

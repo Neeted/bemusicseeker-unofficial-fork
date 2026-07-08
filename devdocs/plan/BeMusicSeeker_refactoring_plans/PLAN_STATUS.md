@@ -476,9 +476,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C68` として `ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` を `BMSLibrary` private nested type から `BmsLibraryInternal` top-level internal contract へ移した。`BMSLibrary` 内の storage row version / resource maintenance target 利用は同じ contract を参照し、`BmsLibraryMaintenanceServiceTests` の nested type reflection helper は direct contract construction へ寄せた。`DispatchMaintenanceHydrationResult` 本体、`OwnedChartCollectionMutationResult` / `ResourceHealthMutation`、maintenance DB cleanup、resource health dispatch behavior は触っていない。`BMSLibrary.cs` は 16,541 行、`ResourceMaintenanceTargetSet.cs` は 92 行、`StorageRowsVersionSnapshot.cs` は 29 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-現在の active ticket: なし。`REF-MVP-C68` completed checkpoint。
+`REF-MVP-C69` として [maintenance dispatch boundary after target contracts](./decisions/REF-MVP-C69_maintenance_dispatch_boundary_after_target_contracts.md) をレビューした。C68 後も `BuildMaintenanceResourceHealthIndexMutation` / `ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` が private nested / private method として残り、`BmsLibraryMaintenanceServiceTests` が private reflection で検証しているため、`DispatchMaintenanceHydrationResult` 本体より先に resource health mutation contract をほどく判断にした。production code は変更していない。
 
-次にやる 1 件: `REF-MVP-C69: maintenance dispatch boundary review` として、C68 後に残る `DispatchMaintenanceHydrationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthMutation`、remaining private reflection tests のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+現在の active ticket: `REF-MVP-C70: resource health mutation contract extraction`。
+
+次にやる 1 件: `ResourceHealthIndexUpdateMode` / `ResourceHealthIndexMutation` / `BuildMaintenanceResourceHealthIndexMutation` を top-level internal contract / planner へ移し、`BmsLibraryMaintenanceServiceTests` の private method / nested enum reflection を direct planner test へ寄せる。`DispatchMaintenanceHydrationResult` 本体、`BuildMaintenanceHydrationMutationResult`、`OwnedChartCollectionMutationResult` / `ResourceHealthIndexDispatchResult` は触らない。
 
 ## 次回 Codex が最初に読むべきファイル
 
