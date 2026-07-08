@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 17,577 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure |
+| `BMSLibrary.cs` 行数 | 17,424 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration queue / worker lifecycle を coordinator seam へ分離済み |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -1254,3 +1254,33 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C44: maintenance hydration coordinator seam` として、`QueueDeferredMaintenanceHydration`、`CompleteMaintenanceHydrationForShutdown`、`ProcessDeferredMaintenanceHydrationRequests` の queue / worker lifecycle を coordinator seam へ移す。`ApplyMaintenanceHydrationResult` 内部、resource health index mutation、maintenance DB schema、warning projection、`installable_maintenance_deferred` は触らない。
+
+## Completed Checkpoint: `REF-MVP-C44`
+
+状態: completed checkpoint。
+
+目的:
+
+- `maintenance_hydration` の queue / worker lifecycle を `BmsLibraryInternal` の coordinator seam へ移す。
+- root `BMSLibrary` は observable state、startup task reporting、shutdown skip、scheduler bridge、maintenance table load、result apply を host として提供する。
+- `ApplyMaintenanceHydrationResult` 内部、resource health index mutation、maintenance DB schema、warning projection、`installable_maintenance_deferred` は触らない。
+
+完了条件:
+
+- `QueueDeferredMaintenanceHydration` が root workflow 本体ではなく coordinator 呼び出しになっている。
+- queue / skipped / start / done / failed log key、startup background task report、requested/completed version、running flag の意味が維持されている。
+- `ApplyMaintenanceHydrationResult` は private reflection test の入口として維持されている。
+- build / maintenance hydration 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `MaintenanceHydrationCoordinator` と `IMaintenanceHydrationHost` を追加し、maintenance hydration の queue / worker lifecycle を coordinator へ移した。
+- `BMSLibrary.MaintenanceHydrationHost.cs` を追加し、observable state、startup task reporting、shutdown skip、scheduler bridge、maintenance table load、result apply を host bridge として提供する形にした。
+- `QueueDeferredMaintenanceHydration` は coordinator 呼び出しだけになった。
+- `ApplyMaintenanceHydrationResult` 内部、resource health index mutation、maintenance DB schema、warning projection、`installable_maintenance_deferred` は未変更。
+- `BMSLibrary.cs` は 17,424 行、coordinator は 175 行、host は 128 行。
+- build、maintenance hydration / initialization 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C45: maintenance hydration result apply boundary review` として、`ApplyMaintenanceHydrationResult` / resource health dispatch を次に切るべきか、または Lane C の別 workflow へ移るかを判断する。production code 変更は、次の実装単位が明確に決まるまで行わない。
