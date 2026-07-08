@@ -9107,80 +9107,108 @@ completeFileEnumerationOnce,
         string reason,
         IEnumerable<ChartFile> charts)
     {
-        List<ChartFile> targetCharts = NormalizeResourceMaintenanceTargetCharts(charts);
-        ChartStorageTargetSet storageTargets = ChartStorageTargetSet.FromCharts(targetCharts);
-        var result = new ChartInfoInlineBuildResult();
-        bool completed = false;
-        if (targetCharts.Count == 0)
+        var coordinator = new ChartInfoInlineBuildCoordinator(new ChartInfoInlineBuildHost(this));
+        return coordinator.BuildAndPersist(reason, charts);
+    }
+
+    internal sealed class ChartInfoInlineBuildHost(BMSLibrary owner) : IChartInfoInlineBuildHost
+    {
+        public List<ChartFile> NormalizeTargetCharts(IEnumerable<ChartFile> charts)
         {
-            LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown") + " target=0 success=0 currentSkipped=0 failureSkipped=0 parseFailed=0 failurePersisted=0 failureCleared=0 readFailed=0 parseMs=0");
-            return result;
+            return BMSLibrary.NormalizeResourceMaintenanceTargetCharts(charts);
         }
 
-        using (BeginOwnedDigestMutationWindow())
+        public void LogEmptyResult(string reason)
         {
-            try
-            {
-                var inlineBuildService = new ChartInfoInlineBuildService(
-                    chartInfoBuildService,
-                    BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
-                result = inlineBuildService.BuildForExistingCharts(
-                    dbGateway,
-                    targetCharts,
-                    LogInstallPerformance,
-                    LogInstallPerformanceWarn);
-                int songRowChartInfoApplied = ApplyChartInfoRowsToBmsStorageRows(
-                    storageTargets.BmsFiles,
-                    result.AppliedRows);
-                if (storageTargets.BmsFiles.Count > 0)
-                {
-                    ExecuteLr2SongDbWrite(
-                        () => dbGateway.UpsertSongs(storageTargets.BmsFiles),
-                        stage: "lr2_song_db_chart_info_inline_upsert_failed",
-                        logReason: reason ?? "chart_info_inline_install");
-                }
-                if (storageTargets.BmsonSongs.Count > 0)
-                {
-                    dbGateway.UpsertBmsonSongs(storageTargets.BmsonSongs);
-                }
-                dbGateway.UpsertChartInfoBackfillChunk(
-                    [],
-                    result.ChartInfoRows,
-                    result.ParseFailureRows,
-                    result.ParseFailureDeleteMd5s);
-                if (result.AppliedRows.Count > 0)
-                {
-                    UpsertChartInfoIndexRows(result.AppliedRows, reason ?? "install_package_inline");
-                }
-                if (result.ParseFailureRows.Count > 0 || result.ParseFailureDeleteMd5s.Count > 0)
-                {
-                    DispatchWarningPresentationChanged("install_package_inline_chart_info_parse_failure");
-                }
-                completed = true;
-                LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown")
-                    + " target=" + result.TargetCount
-                    + " success=" + result.SuccessCount
-                    + " currentSkipped=" + result.CurrentSkippedCount
-                    + " failureSkipped=" + result.FailureSkippedCount
-                    + " parseFailed=" + result.ParseFailedCount
-                    + " failurePersisted=" + result.FailurePersistedCount
-                    + " failureCleared=" + result.FailureClearedCount
-                    + " readFailed=" + result.ReadFailedCount
-                    + " songRowChartInfoApplied=" + songRowChartInfoApplied
-                    + " parseMs=" + result.ParseMs);
-                return result;
-            }
-            finally
-            {
-                if (completed)
-                {
-                    DispatchOwnedChartDigestChanges(result.DigestChanges, reason ?? "install_package_inline");
-                }
-                else
-                {
-                    DispatchOwnedPotentialDigestChanges(targetCharts, (reason ?? "install_package_inline") + "_failed");
-                }
-            }
+            BMSLibrary.LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown") + " target=0 success=0 currentSkipped=0 failureSkipped=0 parseFailed=0 failurePersisted=0 failureCleared=0 readFailed=0 parseMs=0");
+        }
+
+        public IDisposable BeginOwnedDigestMutationWindow()
+        {
+            return owner.BeginOwnedDigestMutationWindow();
+        }
+
+        public ChartInfoInlineBuildResult BuildForExistingCharts(List<ChartFile> targetCharts)
+        {
+            var inlineBuildService = new ChartInfoInlineBuildService(
+                owner.chartInfoBuildService,
+                BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
+            return inlineBuildService.BuildForExistingCharts(
+                owner.dbGateway,
+                targetCharts,
+                BMSLibrary.LogInstallPerformance,
+                BMSLibrary.LogInstallPerformanceWarn);
+        }
+
+        public int ApplyChartInfoRowsToBmsStorageRows(
+            IEnumerable<BMSFile> bmsFiles,
+            IEnumerable<LR2SongDBExtended.chart_info> chartInfoRows)
+        {
+            return BMSLibrary.ApplyChartInfoRowsToBmsStorageRows(bmsFiles, chartInfoRows);
+        }
+
+        public void UpsertBmsStorageRows(IReadOnlyCollection<BMSFile> bmsFiles, string reason)
+        {
+            owner.ExecuteLr2SongDbWrite(
+                () => owner.dbGateway.UpsertSongs(bmsFiles),
+                stage: "lr2_song_db_chart_info_inline_upsert_failed",
+                logReason: reason ?? "chart_info_inline_install");
+        }
+
+        public void UpsertBmsonStorageRows(IReadOnlyCollection<LR2SongDBExtended.bmson_song> bmsonSongs)
+        {
+            owner.dbGateway.UpsertBmsonSongs(bmsonSongs);
+        }
+
+        public void UpsertChartInfoBackfillChunk(ChartInfoInlineBuildResult result)
+        {
+            owner.dbGateway.UpsertChartInfoBackfillChunk(
+                [],
+                result.ChartInfoRows,
+                result.ParseFailureRows,
+                result.ParseFailureDeleteMd5s);
+        }
+
+        public void UpsertChartInfoIndexRows(
+            IReadOnlyCollection<LR2SongDBExtended.chart_info> appliedRows,
+            string reason)
+        {
+            owner.UpsertChartInfoIndexRows(appliedRows, reason);
+        }
+
+        public void DispatchWarningPresentationChanged(string reason)
+        {
+            owner.DispatchWarningPresentationChanged(reason);
+        }
+
+        public void LogCompletedResult(
+            string reason,
+            ChartInfoInlineBuildResult result,
+            int songRowChartInfoApplied)
+        {
+            BMSLibrary.LogInstallPerformance("chart_info_inline_install reason=" + (reason ?? "unknown")
+                + " target=" + result.TargetCount
+                + " success=" + result.SuccessCount
+                + " currentSkipped=" + result.CurrentSkippedCount
+                + " failureSkipped=" + result.FailureSkippedCount
+                + " parseFailed=" + result.ParseFailedCount
+                + " failurePersisted=" + result.FailurePersistedCount
+                + " failureCleared=" + result.FailureClearedCount
+                + " readFailed=" + result.ReadFailedCount
+                + " songRowChartInfoApplied=" + songRowChartInfoApplied
+                + " parseMs=" + result.ParseMs);
+        }
+
+        public void DispatchOwnedChartDigestChanges(
+            IReadOnlyCollection<LibraryChartDigestChange> changes,
+            string reason)
+        {
+            owner.DispatchOwnedChartDigestChanges(changes, reason);
+        }
+
+        public void DispatchOwnedPotentialDigestChanges(List<ChartFile> targetCharts, string reason)
+        {
+            owner.DispatchOwnedPotentialDigestChanges(targetCharts, reason);
         }
     }
 

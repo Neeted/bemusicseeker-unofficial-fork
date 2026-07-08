@@ -3534,9 +3534,8 @@ public sealed class OwnedChartCollectionStateTests
         string reason,
         IEnumerable<ChartFile> charts)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("BuildAndPersistInlineChartInfoForInstalledCharts", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (ChartInfoInlineBuildResult)methodInfo.Invoke(library, [reason, charts]);
+        var coordinator = new ChartInfoInlineBuildCoordinator(new BMSLibrary.ChartInfoInlineBuildHost(library));
+        return coordinator.BuildAndPersist(reason, charts);
     }
 
     private static IDisposable InvokeSuppressResourceHealthIndexInvalidation(BMSLibrary library)

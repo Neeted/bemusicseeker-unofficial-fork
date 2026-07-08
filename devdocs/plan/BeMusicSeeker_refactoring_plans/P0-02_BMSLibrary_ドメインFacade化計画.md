@@ -2868,3 +2868,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `BuildAndPersistInlineChartInfoForInstalledCharts` の workflow を top-level coordinator + host seam へ移し、`OwnedChartCollectionStateTests.InvokeBuildAndPersistInlineChartInfoForInstalledCharts` private reflection helper を置き換える。
+
+## Completed Ticket: `REF-MVP-C99`
+
+状態: completed implementation。
+
+目的:
+
+- `BuildAndPersistInlineChartInfoForInstalledCharts` の inline chart info workflow を `BMSLibrary` root から top-level coordinator へ移す。
+- target chart normalization、storage target split、inline build service invocation、storage row upsert、chart info persistence、warning presentation dispatch、success digest dispatch、failure potential digest fallback を維持する。
+- `InvokeBuildAndPersistInlineChartInfoForInstalledCharts` private reflection helper を実 workflow の coordinator + host route へ置き換える。
+
+実装結果:
+
+- `ChartInfoInlineBuildCoordinator` / `IChartInfoInlineBuildHost` を追加した。
+- `BMSLibrary.ChartInfoInlineBuildHost` が chart info build service、dbGateway persistence、warning dispatch、digest dispatch、performance log へ bridge する構造にした。
+- `OwnedChartCollectionStateTests.InvokeBuildAndPersistInlineChartInfoForInstalledCharts` は private reflection ではなく coordinator 経由にした。
+
+確認:
+
+- build 0 warning。
+- targeted tests: `OwnedChartCollectionStateTests` 108 passed。
+- full test: 2403 passed / 13 skipped。
+- format whitespace verify passed。
+- Roslynator warning: 0 diagnostics。
+- 静的レビューは commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C100: owned helper aftermath checkpoint` として、C99 後に残る `BeginOwnedDigestMutationWindow`、setup private field seeding、remaining read-only helper、`ApplyAutoRenamePlans`、LR2 sync private workflow 群を再確認し、次に実装する 1 seam だけを選ぶ。
