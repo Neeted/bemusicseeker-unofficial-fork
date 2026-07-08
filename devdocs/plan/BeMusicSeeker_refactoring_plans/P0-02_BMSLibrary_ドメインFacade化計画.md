@@ -966,3 +966,26 @@ BMSLibrary                         // public facade / compatibility API
 - `LogLr2SongDbSyncInputSurface` / `Lr2SongDbSyncInputSurfaceLogFormatter` が prepared surface selection を直接受け取る形にした。
 - folder candidate / folder info / directory entry / text file directory selection helpers も prepared surface selection 経由に寄せ、`CreateLr2SongDbSyncInput` から prepared surface log/helper 専用 alias を減らした。
 - prepared surface consumption timing、ログ項目名、ログ値、selection 順序、DB schema、setting name、private reflection entry point、serialized/public surface は変更していない。
+
+## Completed Checkpoint: `REF-MVP-C34`
+
+状態: completed checkpoint。
+
+目的:
+
+- C33 後の `CreateLr2SongDbSyncInput` を再評価し、service / builder extraction に進むかを決める。
+- root に残す stateful helper と concurrency 境界を明記する。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check / 静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C34 LR2 Sync Input Builder Extraction Decision](./decisions/REF-MVP-C34_lr2_sync_input_builder_extraction.md) を追加した。
+- Lane C は service extraction ではなく `REF-MVP-C35: LR2 sync input builder extraction` に進む判断にした。
+- root に残す state / concurrency 境界として、sync 実行状態、host adapter snapshot / reservation、scan / prepared / file-diff mutable cache、row snapshot reader lock、freshness 判定、chart_info hydration / UI warning dispatch を明記した。
+- production code は変更していない。
