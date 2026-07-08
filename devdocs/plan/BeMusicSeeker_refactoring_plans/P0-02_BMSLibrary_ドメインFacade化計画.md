@@ -2266,3 +2266,34 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C78: resource health dispatch result contract extraction` として、`ResourceHealthIndexDispatchResult` を `BmsLibraryInternal` の top-level internal contract へ移す。`OwnedChartCollectionMutationResult` と stale full target private reflection test はまだ残してよい。
+
+## Completed Checkpoint: `REF-MVP-C78`
+
+状態: completed checkpoint。
+
+目的:
+
+- `ResourceHealthIndexDispatchResult` を `BmsLibraryInternal` の top-level internal contract へ移す。
+- root `DispatchResourceHealthIndexMutation` と `OwnedChartCollectionMutationResult.ResourceHealthDispatchResult` は新 contract を使う。
+- tests から必要なら direct に result contract を扱えるようにする。
+
+完了条件:
+
+- `BMSLibrary` private nested `ResourceHealthIndexDispatchResult` が残っていない。
+- `Snapshot`、`DeltaApplied`、`Deferred`、`FullRebuilt`、`IndexMs` の意味が変わっていない。
+- `OwnedChartCollectionMutationResult` は root private contract のまま残す。
+- `DispatchMaintenanceHydrationResult_StaleFullTargetInvalidatesInsteadOfPublishing` は同じ意味を保つため残してよい。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/ResourceHealthIndexDispatchResult.cs` を追加した。
+- `BMSLibrary` private nested `ResourceHealthIndexDispatchResult` を削除した。
+- root `DispatchResourceHealthIndexMutation` と `OwnedChartCollectionMutationResult.ResourceHealthDispatchResult` は top-level internal contract を参照する形になった。
+- `OwnedChartCollectionMutationResult` と stale full target private reflection test は残している。
+- `BMSLibrary.cs` は 16,465 行、`ResourceHealthIndexDispatchResult.cs` は 14 行。
+- build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C79: maintenance stale-target test boundary review` として、C78 後に stale full target private reflection test を direct seam / integration test へ移せるか、または `OwnedChartCollectionMutationResult` の contract 境界を先に整理すべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

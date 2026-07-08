@@ -10361,19 +10361,6 @@ completeFileEnumerationOnce,
             || InstalledLookupMutation?.HasChanges == true;
     }
 
-    private sealed class ResourceHealthIndexDispatchResult
-    {
-        public ResourceHealthIndexSnapshot Snapshot { get; set; }
-
-        public bool DeltaApplied { get; set; }
-
-        public bool Deferred { get; set; }
-
-        public bool FullRebuilt { get; set; }
-
-        public long IndexMs { get; set; }
-    }
-
     private sealed class InstallDestinationRuntimeStateMutation
     {
         public List<LibraryChartPathChange> PathChanges { get; } = [];

@@ -494,9 +494,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C77` として [maintenance dispatch reflection follow-up](./decisions/REF-MVP-C77_maintenance_dispatch_reflection_followup.md) をレビューした。stale full target private reflection test は root resource health dispatch outcome を確認しているためまだ削除しない。次は `OwnedChartCollectionMutationResult` 全体ではなく、小さな `ResourceHealthIndexDispatchResult` を top-level internal contract へ移す判断にした。production code は変更していない。
 
-現在の active ticket: `REF-MVP-C78: resource health dispatch result contract extraction`。
+`REF-MVP-C78` として `ResourceHealthIndexDispatchResult` を `BmsLibraryInternal` top-level internal contract へ移した。root `DispatchResourceHealthIndexMutation` と `OwnedChartCollectionMutationResult.ResourceHealthDispatchResult` は同じ outcome contract を使い、`Snapshot`、`DeltaApplied`、`Deferred`、`FullRebuilt`、`IndexMs` の意味は維持した。`OwnedChartCollectionMutationResult` と stale full target private reflection test は残している。`BMSLibrary.cs` は 16,465 行、`ResourceHealthIndexDispatchResult.cs` は 14 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-次にやる 1 件: `ResourceHealthIndexDispatchResult` を `BmsLibraryInternal` の top-level internal contract へ移す。`OwnedChartCollectionMutationResult` と stale full target private reflection test はまだ残してよい。
+現在の active ticket: `REF-MVP-C79: maintenance stale-target test boundary review`。
+
+次にやる 1 件: C78 後に stale full target private reflection test を direct seam / integration test へ移せるか、または `OwnedChartCollectionMutationResult` の contract 境界を先に整理すべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 
