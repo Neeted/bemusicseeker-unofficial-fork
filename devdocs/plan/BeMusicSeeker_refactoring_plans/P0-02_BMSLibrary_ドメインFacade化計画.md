@@ -1516,3 +1516,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C53: file rename operation boundary after removal seam` として、`RenameBMSFilesExtensions`、pending invalid extension rename、`MoveChartPackageFiles`、`MergeChartDirectory`、package install follow-up のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C53`
+
+状態: completed checkpoint。
+
+目的:
+
+- C52 後の file rename / package move / merge follow-up を比較する。
+- `RenameBMSFilesExtensions`、manual pending rename、pending zero-note rename、`MoveChartPackageFiles`、`MergeChartDirectory`、package install follow-up のうち、次の実装 ticket を 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `MoveChartPackageFiles` / `MergeChartDirectory` / package install follow-up / pending zero-note rename を今触らない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C53 Invalid Extension Rename Boundary](./decisions/REF-MVP-C53_invalid_extension_rename_boundary.md) を追加した。
+- normal library 側の `RenameBMSFilesExtensions` と manual pending 側の `RenamePendingBmsFormatChartFileExtensions` は、core 処理が service 側へ寄っており、root には lock / service call / failure dialog / state apply or pending removal / summary log が残っているため、次の coordinator seam として妥当と判断した。
+- `RenamePendingZeroNoteBmsFormatChartsToInvalidExtensions` は coordinator 済みのため、C54 では回帰確認対象に留める判断にした。
+- `MoveChartPackageFiles`、`MergeChartDirectory`、package install follow-up は横断範囲が大きいためまだ触らない判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C54: invalid extension rename coordinator seam` として、`RenameBMSFilesExtensions` と `RenamePendingBmsFormatChartFileExtensions` の LR2 sync block、lock boundary、service call、failure dialogs、normal delta apply、pending chart removal、summary logs を dedicated coordinator seam へ移す。`MoveChartPackageFiles`、`MergeChartDirectory`、`installChartPackages`、pending zero-note rename behavior、maintenance result apply、resource health mutation は触らない。
