@@ -13873,69 +13873,66 @@ completeFileEnumerationOnce,
         return true;
     }
 
+    private sealed class ResourceHealthIndexMutationDispatchHost(BMSLibrary owner)
+        : IResourceHealthIndexMutationDispatchHost
+    {
+        public ResourceHealthIndexSnapshot GetPublishedResourceHealthIndexSnapshotOrEmpty()
+        {
+            return owner.GetPublishedResourceHealthIndexSnapshotOrEmpty();
+        }
+
+        public void InvalidateResourceHealthIndex(string reason)
+        {
+            owner.InvalidateResourceHealthIndex(reason);
+        }
+
+        public void LogResourceHealthIndexDeferred(
+            string reason,
+            ResourceHealthIndexSnapshot snapshot,
+            int updateTargetCount)
+        {
+            LogInstallPerformance("resource_health_index_deferred reason=" + (reason ?? "unknown")
+                + " targetCount=" + snapshot.TargetCount
+                + " updateTargets=" + updateTargetCount
+                + " invalidated=" + Volatile.Read(ref owner.resourceHealthIndexInvalidated).ToString().ToLowerInvariant());
+        }
+
+        public bool TryApplyResourceHealthIndexDelta(
+            string reason,
+            IEnumerable<ChartFile> updatedTargets,
+            IEnumerable<ChartFile> removedTargets,
+            int? deltaBaseResourceHealthInputVersion,
+            int? deltaTargetResourceHealthInputVersion,
+            out ResourceHealthIndexSnapshot snapshot)
+        {
+            return owner.TryApplyResourceHealthIndexDeltaLocked(
+                reason,
+                updatedTargets,
+                removedTargets,
+                deltaBaseResourceHealthInputVersion,
+                deltaTargetResourceHealthInputVersion,
+                out snapshot);
+        }
+
+        public ResourceHealthIndexSnapshot RebuildResourceHealthIndexSnapshot(
+            string reason,
+            ResourceMaintenanceTargetSet fullOwnedTargetSet,
+            out bool staleFullOwnedTarget)
+        {
+            return owner.RebuildResourceHealthIndexSnapshotLocked(
+                reason,
+                fullOwnedTargetSet,
+                out staleFullOwnedTarget);
+        }
+    }
+
     private ResourceHealthIndexDispatchResult DispatchResourceHealthIndexMutation(
         ResourceHealthIndexMutation mutation,
         string reason)
     {
-        var result = new ResourceHealthIndexDispatchResult
-        {
-            Snapshot = GetPublishedResourceHealthIndexSnapshotOrEmpty()
-        };
-        if (mutation == null || !mutation.HasChanges)
-        {
-            return result;
-        }
-        if (mutation.Invalidate)
-        {
-            InvalidateResourceHealthIndex(reason);
-            result.Snapshot = GetPublishedResourceHealthIndexSnapshotOrEmpty();
-            return result;
-        }
-        if (mutation.Defer)
-        {
-            result.Deferred = true;
-            result.Snapshot = GetPublishedResourceHealthIndexSnapshotOrEmpty();
-            LogInstallPerformance("resource_health_index_deferred reason=" + (reason ?? "unknown")
-                + " targetCount=" + result.Snapshot.TargetCount
-                + " updateTargets=" + mutation.UpdateTargetCount
-                + " invalidated=" + Volatile.Read(ref resourceHealthIndexInvalidated).ToString().ToLowerInvariant());
-            return result;
-        }
-        if (!mutation.RebuildFull
-            && mutation.HasDeltaTargets
-            && TryApplyResourceHealthIndexDeltaLocked(
-                reason,
-                mutation.UpdatedTargets,
-                mutation.RemovedTargets,
-                mutation.DeltaBaseResourceHealthInputVersion,
-                mutation.DeltaTargetResourceHealthInputVersion,
-                out ResourceHealthIndexSnapshot deltaSnapshot))
-        {
-            result.Snapshot = deltaSnapshot;
-            result.DeltaApplied = true;
-            result.IndexMs = deltaSnapshot.BuildMs;
-            return result;
-        }
-        if (!mutation.RebuildFull && mutation.HasDeltaTargets && mutation.InvalidateIfDeltaFails)
-        {
-            InvalidateResourceHealthIndex(reason);
-            result.Snapshot = GetPublishedResourceHealthIndexSnapshotOrEmpty();
-            return result;
-        }
-        if (mutation.RebuildFull || mutation.HasDeltaTargets)
-        {
-            result.Snapshot = RebuildResourceHealthIndexSnapshotLocked(
-                reason,
-                mutation.FullOwnedTargetSet,
-                out bool staleFullOwnedTarget);
-            if (staleFullOwnedTarget)
-            {
-                return result;
-            }
-            result.FullRebuilt = true;
-            result.IndexMs = result.Snapshot.BuildMs;
-        }
-        return result;
+        var dispatcher = new ResourceHealthIndexMutationDispatcher(
+            new ResourceHealthIndexMutationDispatchHost(this));
+        return dispatcher.Dispatch(mutation, reason);
     }
 
     internal ResourceHealthWarningProjection TryGetCurrentResourceHealthWarningProjection(ChartFile chart)

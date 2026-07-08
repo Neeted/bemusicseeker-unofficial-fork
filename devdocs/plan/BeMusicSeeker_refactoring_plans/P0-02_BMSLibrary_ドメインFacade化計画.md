@@ -2381,3 +2381,34 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C82: resource health mutation dispatcher seam` として、`DispatchResourceHealthIndexMutation` の branch orchestration を `BmsLibraryInternal` の top-level dispatcher へ移し、stale full rebuild result を private reflection なしで direct test する。
+
+## Completed Checkpoint: `REF-MVP-C82`
+
+状態: completed checkpoint。
+
+目的:
+
+- `DispatchResourceHealthIndexMutation` の branch orchestration を `BmsLibraryInternal` の top-level dispatcher へ移す。
+- root `BMSLibrary` は published snapshot、invalidate、delta apply、full rebuild、deferred log を提供する host bridge へ寄せる。
+- direct unit test で stale full rebuild result が `FullRebuilt=false` / `IndexMs=0` のまま current snapshot を返すことを確認する。
+
+完了条件:
+
+- `DispatchResourceHealthIndexMutation` の branch orchestration が root private method から top-level dispatcher へ移っている。
+- stale full target branch の direct test が private reflection なしで存在する。
+- `OwnedChartCollectionMutationResult` の top-level 化、publish notification ordering、DB schema、setting name、serialized/public surface は変更していない。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/IResourceHealthIndexMutationDispatchHost.cs` を追加した。
+- `BmsLibraryInternal/ResourceHealthIndexMutationDispatcher.cs` を追加し、invalidate / defer / delta success / delta fallback invalidate / full rebuild / stale full rebuild の branch orchestration を移した。
+- root `DispatchResourceHealthIndexMutation` は private adapter host を作って dispatcher に委譲する bridge になった。
+- `ResourceHealthIndexMutationDispatcherTests` を追加し、stale full rebuild、fresh full rebuild、delta success、delta failure invalidate、defer を private reflection なしで確認した。
+- `DispatchMaintenanceHydrationResult_StaleFullTargetInvalidatesInsteadOfPublishing` は残している。C82 で dispatcher branch は direct test 可能になったが、root `RebuildResourceHealthIndexSnapshotLocked` の stale target publish 抑止 / stale result integration はまだ root integration として残っているため。
+- `BMSLibrary.cs` は 16,443 行、dispatcher は 66 行、host interface は 29 行、direct tests は 248 行。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C83: resource health full rebuild stale integration review` として、C82 後に残る stale full target private reflection test を削除するために `RebuildResourceHealthIndexSnapshotLocked` の stale publish suppression を次に seam 化すべきか、または `OwnedChartCollectionMutationResult` 境界へ戻るべきかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
