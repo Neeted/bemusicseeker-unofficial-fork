@@ -133,4 +133,34 @@ public partial class BMSLibrary : IPackageInstallHost
     {
         BuildAndPersistInlineChartInfoForInstalledCharts(reason, charts);
     }
+
+    void IPackageInstallHost.ApplyEstimatedInstallBatchStorageTargets(ChartStorageTargetSet addedTargets)
+    {
+        ApplyInstalledChartStorageTargets(addedTargets, "install_package_batch");
+    }
+
+    bool IPackageInstallHost.TryBuildAddedDirectoryScan(IEnumerable<string> directories, out ChartScanResult scan, out string scanFailureReason)
+    {
+        return ChartDirectoryScanBuilder.TryBuildFromRoots(directories, out scan, out scanFailureReason);
+    }
+
+    DirectoryResourceLookupCache.ReverseLookupMutationResult IPackageInstallHost.AddEstimatedBatchReverseLookupDirectories(IEnumerable<string> directories, ChartScanResult scan)
+    {
+        DirectoryResourceLookupCache.ReverseLookupMutationResult mutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        foreach (string dir in directories ?? [])
+        {
+            mutation = mutation.Combine(directoryResourceLookupCache.AddDir(dir, scan));
+        }
+        return mutation;
+    }
+
+    void IPackageInstallHost.LogInstallPerformanceWarn(string message)
+    {
+        LogInstallPerformanceWarn(message);
+    }
+
+    void IPackageInstallHost.LogReverseLookupMutationAndQueueWarmupIfNeeded(string reason, DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult)
+    {
+        LogReverseLookupMutationAndQueueWarmupIfNeeded(reason, mutationResult);
+    }
 }

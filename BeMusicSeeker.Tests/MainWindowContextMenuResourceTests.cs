@@ -3356,7 +3356,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetSet(installResult?.AddedCharts)"));
         Assert.IsFalse(libraryCode.Contains("CreateResourceMaintenanceTargetSet(IEnumerable<BMSFile> bmsFiles"));
         Assert.IsFalse(libraryCode.Contains("CreateBmsResourceMaintenanceTargetCharts"));
-        StringAssert.Contains(libraryCode, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
+        string estimatedBatchApplyMethod = ExtractMethodBody(libraryCode, "internal static DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallBatchLibraryState");
+        StringAssert.Contains(estimatedBatchApplyMethod, "ChartStorageTargetSet.FromCharts(context.AddedCharts)");
         Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
         Assert.IsFalse(libraryCode.Contains("CreateAddedBmsonChartProjectionsFromInstalledPackages"));
         string estimatedInstallCoordinator = ExtractMethodBody(libraryCode, "internal static void InstallPendingPackagesToEstimatedDestinations");
@@ -3367,7 +3368,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "BuildEstimatedInstallMaintenanceTargets(deferredMaintenanceCharts)");
         Assert.IsFalse(estimatedInstallMaintenanceBridge.Contains("ResourceHealthIndexUpdateMode.FullOnUpdates"));
         StringAssert.Contains(estimatedInstallMaintenanceBridge, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates");
-        StringAssert.Contains(libraryCode, "LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
+        StringAssert.Contains(estimatedBatchApplyMethod, "host.LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
         StringAssert.Contains(libraryCode, "resource_health_index_delta reason=");
         StringAssert.Contains(libraryCode, "if (estimatedInstallMaintenanceTargets.Count > 0)");
         StringAssert.Contains(libraryCode, "setMaintenanceInfo(");

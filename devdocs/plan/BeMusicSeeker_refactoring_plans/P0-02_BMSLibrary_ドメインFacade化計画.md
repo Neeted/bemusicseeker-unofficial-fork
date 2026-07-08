@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 16,992 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 16,724 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
 
 `BMSLibrary` は public compatibility facade として残してよい。ただし、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling は service / coordinator へ移す。
 
@@ -12,7 +12,7 @@
 
 | 項目 | 観測 |
 |---|---:|
-| `BMSLibrary.cs` 行数 | 16,992 行。`BMSLibrary.PackageInstall.cs` 2,015 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration と installable maintenance deferred の queue / worker lifecycle、`RenameChartFolder` / `MoveLibraryRootFolder` folder move workflow、`RemoveLibraryCharts` delete workflow、invalid extension rename workflow を coordinator seam へ分離済み |
+| `BMSLibrary.cs` 行数 | 16,724 行。`BMSLibrary.PackageInstall.cs` 1,511 行、`BMSLibrary.PackageInstallHost.cs` 166 行、`PackageInstallCoordinator.cs` 179 行、`BMSLibrary.OperationDialogs.cs` 164 行、LR2 sync request / run coordinator seam / input DTO boundary / scan surface DTO boundary / app-managed output scope DTO boundary / file-diff freshness DTO boundary / input row snapshot boundary / input builder helper ownership を host から分離済み。LR2 sync input builder lane は C43 で closure。maintenance hydration と installable maintenance deferred の queue / worker lifecycle、`RenameChartFolder` / `MoveLibraryRootFolder` folder move workflow、`RemoveLibraryCharts` delete workflow、invalid extension rename workflow、package move / repair / merge / install / estimated batch apply workflow を coordinator seam へ分離済み |
 | 既存 internal service 群 | `BeMusicSeeker/Models/BmsLibraryInternal/` に多数存在 |
 | `Settings.Default` 直接参照 | production 内で少なくとも `BMSLibrary.cs` 25 箇所、関連 model ではさらに多い |
 | 大きい workflow 例 | `CreateLr2SongDbSyncInput`, `RunLr2SongDbSync`, `_initialize`, `ApplyLibraryFileScanDiff`, `InstallPendingPackagesToEstimatedDestinations`, `InstallChartPackagesAuto`, `MergeChartDirectory` |
@@ -1843,3 +1843,35 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C64: estimated install batch apply coordinator seam` として、`ApplyEstimatedInstallBatchLibraryState` の null guard、state apply、affected directories filtering、destination scan、reverse lookup add / warmup、scan failure warning、reverse lookup mutation result return を dedicated coordinator seam へ移す。normal install behavior、pending estimated install batch plan / cleanup / maintenance inline apply、maintenance result apply は触らない。
+
+## Completed Checkpoint: `REF-MVP-C64`
+
+状態: completed checkpoint。
+
+目的:
+
+- `ApplyEstimatedInstallBatchLibraryState` の null guard、state apply、affected directories filtering、destination scan、reverse lookup add / warmup、scan failure warning、reverse lookup mutation result return を dedicated coordinator seam へ移す。
+- source-text test は root method body 固定ではなく、新しい coordinator 配置を検査する形へ更新する。
+- normal install behavior、pending estimated install batch plan / cleanup / maintenance inline apply、maintenance result apply は触らない。
+
+完了条件:
+
+- `ApplyEstimatedInstallBatchLibraryState` の null guard、state apply、affected directories filtering、scan failure warning、reverse lookup add / warmup、戻り値の意味が維持されている。
+- `PendingEstimatedInstallHost.ApplyEstimatedInstallBatchLibraryState` の suppress resource health invalidation wrapper が維持されている。
+- `EstimatedInstallPostProcessing_IsBatchedAndUsesResourceHealthDelta` が新しい coordinator 配置を検査している。
+- package install / pending estimated install / context menu source-text tests が通る。
+- build / targeted tests / format / diff check / Roslynator warning / 静的レビュー / full test が完了している。
+
+実装結果:
+
+- `PackageInstallCoordinator.ApplyEstimatedInstallBatchLibraryState` を追加し、estimated install batch apply の orchestration を coordinator へ移した。
+- `BMSLibrary.PackageInstallHost.cs` に estimated batch state apply、directory scan、reverse lookup add、scan failure warning、warmup log の host bridge を追加した。
+- `BMSLibrary.PackageInstall.cs` の `ApplyEstimatedInstallBatchLibraryState` は coordinator 呼び出しだけになった。
+- `MainWindowContextMenuResourceTests.EstimatedInstallPostProcessing_IsBatchedAndUsesResourceHealthDelta` は coordinator method を検査する形へ更新した。
+- normal install behavior、pending estimated install batch plan / cleanup / maintenance inline apply、maintenance result apply は未変更。
+- `BMSLibrary.PackageInstall.cs` は 1,511 行、coordinator は 179 行、host は 166 行。
+- build、estimated install / package install / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C65: maintenance result apply contract planning` として、C45 で保留した `ApplyMaintenanceHydrationResult` / `DispatchMaintenanceHydrationResult` の blocker を再確認し、resource health mutation contract、owner view / maintenance attach contract、または reflection / source-text test 移行のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

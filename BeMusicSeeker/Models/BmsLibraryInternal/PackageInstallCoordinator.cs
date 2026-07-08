@@ -50,6 +50,16 @@ internal interface IPackageInstallHost
     void LogInstallPerformance(string message);
 
     void BuildAndPersistInlineChartInfoForInstalledCharts(string reason, IEnumerable<ChartFile> charts);
+
+    void ApplyEstimatedInstallBatchStorageTargets(ChartStorageTargetSet addedTargets);
+
+    bool TryBuildAddedDirectoryScan(IEnumerable<string> directories, out ChartScanResult scan, out string scanFailureReason);
+
+    DirectoryResourceLookupCache.ReverseLookupMutationResult AddEstimatedBatchReverseLookupDirectories(IEnumerable<string> directories, ChartScanResult scan);
+
+    void LogInstallPerformanceWarn(string message);
+
+    void LogReverseLookupMutationAndQueueWarmupIfNeeded(string reason, DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult);
 }
 
 internal static class PackageInstallCoordinator
@@ -141,5 +151,29 @@ internal static class PackageInstallCoordinator
             host.BuildAndPersistInlineChartInfoForInstalledCharts("install_package_inline", addedChartsForChartInfo);
         }
         return result.FailedPackages;
+    }
+
+    internal static DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallBatchLibraryState(
+        IPackageInstallHost host,
+        EstimatedInstallBatchApplyContext context)
+    {
+        if (context == null)
+        {
+            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        }
+        host.ApplyEstimatedInstallBatchStorageTargets(ChartStorageTargetSet.FromCharts(context.AddedCharts));
+        List<string> affectedDirectories = [.. context.AffectedDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
+        if (affectedDirectories.Count == 0)
+        {
+            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        }
+        if (!host.TryBuildAddedDirectoryScan(affectedDirectories, out ChartScanResult addedDirectoryScan, out string scanFailureReason))
+        {
+            host.LogInstallPerformanceWarn("install_package_batch resource_cache_update skipped reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown") + " dirs=" + affectedDirectories.Count);
+            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
+        }
+        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = host.AddEstimatedBatchReverseLookupDirectories(affectedDirectories, addedDirectoryScan);
+        host.LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
+        return reverseLookupMutation;
     }
 }

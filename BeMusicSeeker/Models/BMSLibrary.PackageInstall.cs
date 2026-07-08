@@ -302,30 +302,7 @@ public partial class BMSLibrary
 
     private DirectoryResourceLookupCache.ReverseLookupMutationResult ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context)
     {
-        if (context == null)
-        {
-            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        }
-        ApplyInstalledChartStorageTargets(
-            ChartStorageTargetSet.FromCharts(context.AddedCharts),
-            "install_package_batch");
-        List<string> affectedDirectories = [.. context.AffectedDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (affectedDirectories.Count == 0)
-        {
-            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        }
-        if (!ChartDirectoryScanBuilder.TryBuildFromRoots(affectedDirectories, out ChartScanResult addedDirectoryScan, out string scanFailureReason))
-        {
-            LogInstallPerformanceWarn("install_package_batch resource_cache_update skipped reason=incomplete_scan detail=" + (scanFailureReason ?? "unknown") + " dirs=" + affectedDirectories.Count);
-            return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        }
-        DirectoryResourceLookupCache.ReverseLookupMutationResult reverseLookupMutation = DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
-        foreach (string dir in affectedDirectories)
-        {
-            reverseLookupMutation = reverseLookupMutation.Combine(directoryResourceLookupCache.AddDir(dir, addedDirectoryScan));
-        }
-        LogReverseLookupMutationAndQueueWarmupIfNeeded("install_package", reverseLookupMutation);
-        return reverseLookupMutation;
+        return PackageInstallCoordinator.ApplyEstimatedInstallBatchLibraryState(this, context);
     }
 
     private static List<ChartFile> BuildEstimatedInstallMaintenanceTargets(IEnumerable<ChartFile> charts)
