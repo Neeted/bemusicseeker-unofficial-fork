@@ -2680,3 +2680,30 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `ApplyLibraryMutationDelta` / `ApplyLibraryMutationDeltaWithPerformanceContext` の orchestration を top-level coordinator + host seam へ移し、`OwnedChartCollectionStateTests.InvokeApplyLibraryMutationDelta` を private reflection なしに置き換える。
+
+## Completed Ticket: `REF-MVP-C92`
+
+状態: completed implementation。
+
+目的:
+
+- `ApplyLibraryMutationDelta` / `ApplyLibraryMutationDeltaWithPerformanceContext` の順序制御を `BMSLibrary` root から top-level coordinator へ移す。
+- `OwnedChartCollectionMutationResult` / `OwnedChartCollectionStorageMutation` は private nested 型として維持し、永続化・DB schema・serialized name を変更しない。
+- `ApplyLibraryMutationDelta` private reflection helper を、実 workflow の coordinator + host route へ置き換える。
+
+実装結果:
+
+- `LibraryMutationDeltaApplyCoordinator` / `ILibraryMutationDeltaApplyHost` / `LibraryMutationDeltaApplyTimings` / `IResourceHealthInputMutationScope` を追加した。
+- `BMSLibrary.LibraryMutationDeltaApplyHost` が private mutation result を保持し、resource health input mutation、storage unregister、state apply、owned collection apply、failure fallback、dispatch、performance log を既存 private operation へ bridge する構造にした。
+- `OwnedChartCollectionStateTests`、`BmsLibraryFolderRenameRefreshTests`、`BmsLibraryLr2SongDbSyncTests`、`PlaylistSummaryAggregationTests` の `ApplyLibraryMutationDelta` helper は private reflection ではなく coordinator 経由にした。
+- reflection 由来の `TargetInvocationException` 期待は、実例外 `FileNotFoundException` 期待へ更新した。
+
+確認:
+
+- build 0 warning。
+- targeted tests: `OwnedChartCollectionStateTests` / `BmsLibraryFolderRenameRefreshTests` / `BmsLibraryLr2SongDbSyncTests` / `PlaylistSummaryAggregationTests` 298 passed。
+- full standard checks、format、Roslynator warning、静的レビューは commit 前に実施する。
+
+次にやる 1 件:
+
+- `REF-MVP-C93: owned collection helper aftermath checkpoint` として、C92 後に残る read-only snapshot helper、storage setup helper、`ApplyInstalledChartStorageTargets` / `ApplyLibraryFileScanStorageMutation` / inline chart info private reflection helper を再確認し、次に実装すべき 1 seam だけを選ぶ。production code 変更は、次の implementation ticket が明確になるまで行わない。

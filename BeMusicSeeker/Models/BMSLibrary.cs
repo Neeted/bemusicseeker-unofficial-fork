@@ -13687,7 +13687,7 @@ completeFileEnumerationOnce,
         }
     }
 
-    private sealed class ResourceHealthInputMutationScope(BMSLibrary owner, int baseInputVersion, bool baseIndexCurrent) : IDisposable
+    private sealed class ResourceHealthInputMutationScope(BMSLibrary owner, int baseInputVersion, bool baseIndexCurrent) : IResourceHealthInputMutationScope
     {
         private BMSLibrary owner = owner;
 
@@ -16013,127 +16013,130 @@ completeFileEnumerationOnce,
 
     private void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
     {
-        ApplyLibraryMutationDeltaWithPerformanceContext(delta, performanceLogContext: null);
+        var coordinator = new LibraryMutationDeltaApplyCoordinator(new LibraryMutationDeltaApplyHost(this));
+        coordinator.Apply(delta);
     }
 
     private void ApplyLibraryMutationDeltaWithPerformanceContext(LibraryMutationDelta delta, string performanceLogContext)
     {
-        ThrowIfLr2SongDbSyncMutationBlocked(nameof(ApplyLibraryMutationDelta));
-        OwnedChartCollectionMutationResult mutationResult = null;
-        bool collectPerformanceLog = !string.IsNullOrWhiteSpace(performanceLogContext);
-        Stopwatch totalStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-        long resourceHealthBeginMs = 0;
-        long buildMutationMs = 0;
-        long publishNotificationMs = 0;
-        long unregisterStorageRowsMs = 0;
-        long stateApplyMs = 0;
-        long stateFolderDbMs = 0;
-        long statePathMemoryApplyMs = 0;
-        long stateBmsPathDbMs = 0;
-        long stateBmsonPathDbMs = 0;
-        long statePackageApplyMs = 0;
-        long ownedCollectionApplyMs = 0;
-        long resourceHealthDisposeMs = 0;
-        long lr2NormalFolderSyncMs = 0;
-        long dispatchMs = 0;
-        try
+        var coordinator = new LibraryMutationDeltaApplyCoordinator(new LibraryMutationDeltaApplyHost(this));
+        coordinator.Apply(delta, performanceLogContext);
+    }
+
+    internal sealed class LibraryMutationDeltaApplyHost(BMSLibrary owner) : ILibraryMutationDeltaApplyHost
+    {
+        private OwnedChartCollectionMutationResult mutationResult;
+
+        public void ThrowIfLr2SongDbSyncMutationBlocked(string operationName)
         {
-            Stopwatch resourceHealthBeginStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-            ResourceHealthInputMutationScope resourceHealthMutation = BeginResourceHealthInputMutation();
-            resourceHealthBeginMs = StopPerformanceStepStopwatch(resourceHealthBeginStopwatch);
-            try
-            {
-                Stopwatch buildMutationStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                mutationResult = BuildOwnedChartCollectionMutationResult(
-                    delta,
-                    resourceHealthMutation.BaseInputVersion,
-                    resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
-                buildMutationMs = StopPerformanceStepStopwatch(buildMutationStopwatch);
+            owner.ThrowIfLr2SongDbSyncMutationBlocked(operationName);
+        }
 
-                Stopwatch publishNotificationStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                PublishOwnedCollectionChangeNotification(mutationResult);
-                publishNotificationMs = StopPerformanceStepStopwatch(publishNotificationStopwatch);
-                using (mutationResult.ResourceHealthIndexInvalidated ? SuppressResourceHealthIndexInvalidation() : null)
-                {
-                    Stopwatch unregisterStorageRowsStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    StorageRowsVersionSnapshot storageRowsVersion = ApplyLibraryUnregisterStorageRowsUnsafe(mutationResult.StorageMutation);
-                    unregisterStorageRowsMs = StopPerformanceStepStopwatch(unregisterStorageRowsStopwatch);
+        public IResourceHealthInputMutationScope BeginResourceHealthInputMutation()
+        {
+            return owner.BeginResourceHealthInputMutation();
+        }
 
-                    Stopwatch stateApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    BmsLibraryStateApplyResult stateApplyResult = stateApplier.ApplyLibraryMutationDelta(delta, mutationResult.StorageMutation.RemoveRequests);
-                    stateApplyMs = StopPerformanceStepStopwatch(stateApplyStopwatch);
-                    stateFolderDbMs = stateApplyResult?.FolderDbMs ?? 0;
-                    statePathMemoryApplyMs = stateApplyResult?.PathMemoryApplyMs ?? 0;
-                    stateBmsPathDbMs = stateApplyResult?.BmsPathDbMs ?? 0;
-                    stateBmsonPathDbMs = stateApplyResult?.BmsonPathDbMs ?? 0;
-                    statePackageApplyMs = stateApplyResult?.PackageApplyMs ?? 0;
+        public void BuildMutationResult(LibraryMutationDelta delta, int baseInputVersion, bool baseIndexCurrent)
+        {
+            mutationResult = owner.BuildOwnedChartCollectionMutationResult(
+                delta,
+                baseInputVersion,
+                resourceHealthIndexCurrentAtBase: baseIndexCurrent);
+        }
 
-                    Stopwatch ownedCollectionApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
-                    ownedCollectionApplyMs = StopPerformanceStepStopwatch(ownedCollectionApplyStopwatch);
-                }
-            }
-            finally
-            {
-                Stopwatch resourceHealthDisposeStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                resourceHealthMutation.Dispose();
-                resourceHealthDisposeMs = StopPerformanceStepStopwatch(resourceHealthDisposeStopwatch);
-            }
-            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= resourceHealthMutation.TargetInputVersion;
+        public void PublishOwnedCollectionChangeNotification()
+        {
+            owner.PublishOwnedCollectionChangeNotification(mutationResult);
+        }
+
+        public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded()
+        {
+            return mutationResult?.ResourceHealthIndexInvalidated == true
+                ? owner.SuppressResourceHealthIndexInvalidation()
+                : null;
+        }
+
+        public StorageRowsVersionSnapshot ApplyLibraryUnregisterStorageRowsUnsafe()
+        {
+            return owner.ApplyLibraryUnregisterStorageRowsUnsafe(mutationResult.StorageMutation);
+        }
+
+        public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta)
+        {
+            return owner.stateApplier.ApplyLibraryMutationDelta(delta, mutationResult.StorageMutation.RemoveRequests);
+        }
+
+        public void ApplyOwnedChartCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
+        {
+            owner.ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
+        }
+
+        public void CompleteResourceHealthMutation(int targetInputVersion)
+        {
+            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= targetInputVersion;
             if (mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion.Value < 0)
             {
                 mutationResult.ResourceHealthMutation.Invalidate = true;
             }
-            Stopwatch lr2NormalFolderSyncStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-            SyncLr2NormalFoldersForOwnedMutation(mutationResult.StorageMutation, performanceLogContext ?? "library_delta");
-            lr2NormalFolderSyncMs = StopPerformanceStepStopwatch(lr2NormalFolderSyncStopwatch);
         }
-        catch
+
+        public void SyncLr2NormalFoldersForOwnedMutation(string reason)
+        {
+            owner.SyncLr2NormalFoldersForOwnedMutation(mutationResult.StorageMutation, reason);
+        }
+
+        public void ApplyFailureFallback()
         {
             if (mutationResult?.ShouldDispatchInstalledLookup == true)
             {
-                InvalidateInstalledDirectoryIndex();
+                owner.InvalidateInstalledDirectoryIndex();
             }
             else if (mutationResult?.InstallEstimationMetadataProfileCacheInvalidated == true)
             {
-                InvalidateInstallEstimationMetadataProfileCache();
+                owner.InvalidateInstallEstimationMetadataProfileCache();
             }
             if (mutationResult?.ParentFolderInvalidated == true)
             {
-                InvalidateBMSParentFolderListCacheAndNotify();
+                owner.InvalidateBMSParentFolderListCacheAndNotify();
             }
             if (mutationResult?.DuplicateCacheInvalidated == true)
             {
-                InvalidateDuplicateChartGroupsCache();
+                owner.InvalidateDuplicateChartGroupsCache();
             }
             if (mutationResult?.PlaylistSummaryOwnedHashInvalidated == true)
             {
-                InvalidatePlaylistSummaryOwnedHashSnapshot();
+                owner.InvalidatePlaylistSummaryOwnedHashSnapshot();
             }
             if (mutationResult?.OwnedCollectionChanged == true)
             {
-                InvalidatePlaylistLibraryResolveIndexSnapshot();
-                PublishOwnedCollectionChangeNotification(mutationResult);
+                owner.InvalidatePlaylistLibraryResolveIndexSnapshot();
+                owner.PublishOwnedCollectionChangeNotification(mutationResult);
             }
             if (mutationResult?.ResourceHealthMutation.HasChanges == true)
             {
-                ForceInvalidateResourceHealthIndex("library_delta_failed");
+                owner.ForceInvalidateResourceHealthIndex("library_delta_failed");
             }
             if (mutationResult?.InstallDestinationRuntimeStateMutation.HasChanges == true)
             {
-                PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+                owner.PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
             }
-            InvalidateOwnedChartCollection();
+            owner.InvalidateOwnedChartCollection();
             if (mutationResult != null)
             {
-                ClearNormalLibraryRefreshNotification(mutationResult);
+                owner.ClearNormalLibraryRefreshNotification(mutationResult);
             }
-            throw;
         }
-        Stopwatch dispatchStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-        DispatchOwnedChartCollectionMutation(mutationResult, "library_delta");
-        dispatchMs = StopPerformanceStepStopwatch(dispatchStopwatch);
-        if (collectPerformanceLog)
+
+        public void DispatchOwnedChartCollectionMutation(string reason)
+        {
+            owner.DispatchOwnedChartCollectionMutation(mutationResult, reason);
+        }
+
+        public void LogLibraryMutationDeltaPerformance(
+            LibraryMutationDelta delta,
+            string performanceLogContext,
+            LibraryMutationDeltaApplyTimings timings)
         {
             LogInstallPerformance("library_mutation_delta_apply context=" + performanceLogContext
                 + " unregisterCharts=" + (delta?.ChartRemoveRequests?.Count ?? 0)
@@ -16141,21 +16144,21 @@ completeFileEnumerationOnce,
                 + " folderPathChanges=" + (delta?.FolderPathChanges?.Count ?? 0)
                 + " installDestinations=" + (delta?.UpdatedInstallDestinations?.Count ?? 0)
                 + " installedPackagePaths=" + (delta?.UpdatedInstalledPackagePaths?.Count ?? 0)
-                + " resourceHealthBeginMs=" + resourceHealthBeginMs
-                + " buildMutationMs=" + buildMutationMs
-                + " publishNotificationMs=" + publishNotificationMs
-                + " unregisterStorageRowsMs=" + unregisterStorageRowsMs
-                + " stateApplyMs=" + stateApplyMs
-                + " stateFolderDbMs=" + stateFolderDbMs
-                + " statePathMemoryApplyMs=" + statePathMemoryApplyMs
-                + " stateBmsPathDbMs=" + stateBmsPathDbMs
-                + " stateBmsonPathDbMs=" + stateBmsonPathDbMs
-                + " statePackageApplyMs=" + statePackageApplyMs
-                + " ownedCollectionApplyMs=" + ownedCollectionApplyMs
-                + " resourceHealthDisposeMs=" + resourceHealthDisposeMs
-                + " lr2NormalFolderSyncMs=" + lr2NormalFolderSyncMs
-                + " dispatchMs=" + dispatchMs
-                + " elapsedMs=" + StopPerformanceStepStopwatch(totalStopwatch));
+                + " resourceHealthBeginMs=" + timings.ResourceHealthBeginMs
+                + " buildMutationMs=" + timings.BuildMutationMs
+                + " publishNotificationMs=" + timings.PublishNotificationMs
+                + " unregisterStorageRowsMs=" + timings.UnregisterStorageRowsMs
+                + " stateApplyMs=" + timings.StateApplyMs
+                + " stateFolderDbMs=" + timings.StateFolderDbMs
+                + " statePathMemoryApplyMs=" + timings.StatePathMemoryApplyMs
+                + " stateBmsPathDbMs=" + timings.StateBmsPathDbMs
+                + " stateBmsonPathDbMs=" + timings.StateBmsonPathDbMs
+                + " statePackageApplyMs=" + timings.StatePackageApplyMs
+                + " ownedCollectionApplyMs=" + timings.OwnedCollectionApplyMs
+                + " resourceHealthDisposeMs=" + timings.ResourceHealthDisposeMs
+                + " lr2NormalFolderSyncMs=" + timings.Lr2NormalFolderSyncMs
+                + " dispatchMs=" + timings.DispatchMs
+                + " elapsedMs=" + timings.ElapsedMs);
         }
     }
 

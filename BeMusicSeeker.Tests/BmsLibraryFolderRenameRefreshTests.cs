@@ -1655,9 +1655,8 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [delta]);
+        var coordinator = new LibraryMutationDeltaApplyCoordinator(new BMSLibrary.LibraryMutationDeltaApplyHost(library));
+        coordinator.Apply(delta);
     }
 
     private static bool InvokeApplyAutoRenamePlans(BMSLibrary library, IEnumerable<FolderAutoRenamePlan> plans)

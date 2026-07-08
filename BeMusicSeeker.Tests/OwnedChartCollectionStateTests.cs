@@ -2103,10 +2103,10 @@ public sealed class OwnedChartCollectionStateTests
                     NewPath = newBmsPath
                 });
 
-                TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
+                FileNotFoundException exception = Assert.ThrowsException<FileNotFoundException>(() =>
                     InvokeApplyLibraryMutationDelta(library, delta));
 
-                Assert.IsInstanceOfType(exception.InnerException, typeof(FileNotFoundException));
+                Assert.IsNotNull(exception);
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
                 Assert.IsNull(library.DuplicateChartGroups);
@@ -3511,9 +3511,8 @@ public sealed class OwnedChartCollectionStateTests
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [delta]);
+        var coordinator = new LibraryMutationDeltaApplyCoordinator(new BMSLibrary.LibraryMutationDeltaApplyHost(library));
+        coordinator.Apply(delta);
     }
 
     private static void ApplyInstallDestinationChange(BMSLibrary library, BMSFile bmsFile, string installDestination)

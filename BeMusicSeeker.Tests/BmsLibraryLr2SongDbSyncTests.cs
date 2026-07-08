@@ -6716,9 +6716,8 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLibraryMutationDelta", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [delta]);
+        var coordinator = new LibraryMutationDeltaApplyCoordinator(new BMSLibrary.LibraryMutationDeltaApplyHost(library));
+        coordinator.Apply(delta);
     }
 
     private static void InvokeBeginLr2SongDbSyncRequest(BMSLibrary library)
