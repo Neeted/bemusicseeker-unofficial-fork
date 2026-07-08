@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C62: installChartPackages coordinator seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C63: package install lane closure review` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -464,9 +464,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C62` として `installChartPackages` の orchestration を `BmsLibraryInternal/PackageInstallCoordinator.cs` へ移した。root `BMSLibrary` は `BMSLibrary.PackageInstallHost.cs` で LR2 sync block、`InstallPackages` service call、package move callback、DB upsert、maintenance apply/defer、score update、estimated batch targets、state apply、reverse lookup add、installed package registration、performance log、inline chart_info build を提供する host になっている。`BmsLibraryPackageInstallService.InstallPackages` core behavior、`MoveChartPackageFiles` seam contract、pending estimated install / force install caller contract、maintenance result apply は触っていない。`BMSLibrary.PackageInstall.cs` は 1,534 行、coordinator は 145 行、host は 136 行。build、package install / pending / merge / repair / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。初回 full test で既知の `ApplyFileScanDiff_PopulatesLr2FolderSurfaceFromProducerDiscoveryRoots` 単発失敗があったが、単体 rerun と最終 full test rerun は pass した。
 
-現在の active ticket: なし。`REF-MVP-C62` completed checkpoint。
+`REF-MVP-C63` として [package install lane closure review](./decisions/REF-MVP-C63_package_install_lane_closure_review.md) をレビューした。次は `ApplyEstimatedInstallBatchLibraryState` の null guard、state apply、affected directories filtering、destination scan、reverse lookup add / warmup、scan failure warning、reverse lookup mutation result return を coordinator seam へ移す。maintenance result apply contract prep は C64 後に再評価する。production code は変更していない。
 
-次にやる 1 件: `REF-MVP-C63: package install lane closure review` として、package install / repair / merge lane の root 残存責務を確認し、maintenance result apply contract prep、estimated install batch apply、または package install seam 追加整理のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+現在の active ticket: なし。`REF-MVP-C63` completed checkpoint。
+
+次にやる 1 件: `REF-MVP-C64: estimated install batch apply coordinator seam` として、`ApplyEstimatedInstallBatchLibraryState` を dedicated coordinator seam へ移す。normal install behavior、pending estimated install batch plan / cleanup / maintenance inline apply、maintenance result apply は触らない。
 
 ## 次回 Codex が最初に読むべきファイル
 
