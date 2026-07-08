@@ -3474,13 +3474,17 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string applyMethod = ExtractMethodBody(libraryCode, "private void ApplyMaintenanceHydrationResult");
+        string attachMethod = ExtractMethodBody(libraryCode, "internal static void AttachMaintenanceSnapshots");
+        string staleMethod = ExtractMethodBody(libraryCode, "internal static void CaptureOwnerPathAndStaleMaintenancePaths");
         string countMethod = ExtractMethodBody(libraryCode, "private int CountInstallableMaintenanceSnapshotTargets");
         string snapshotMethod = ExtractMethodBody(libraryCode, "private InstallableMaintenanceSnapshot CreateInstallableMaintenanceSnapshot");
 
         StringAssert.Contains(applyMethod, "OwnedChartStorageOwnerView ownerView = CreateOwnedChartStorageOwnerViewUnsafe()");
-        StringAssert.Contains(applyMethod, "foreach (BMSFile item in ownerView.BmsFiles)");
-        StringAssert.Contains(applyMethod, "foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)");
-        StringAssert.Contains(applyMethod, "ownerView.ContainsOwnerPath(maintenancePath)");
+        StringAssert.Contains(applyMethod, "MaintenanceHydrationOwnerAttachService.AttachMaintenanceSnapshots(ownerView, result)");
+        StringAssert.Contains(applyMethod, "MaintenanceHydrationOwnerAttachService.CaptureOwnerPathAndStaleMaintenancePaths(ownerView, result)");
+        StringAssert.Contains(attachMethod, "foreach (BMSFile item in ownerView.BmsFiles)");
+        StringAssert.Contains(attachMethod, "foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)");
+        StringAssert.Contains(staleMethod, "ownerView.ContainsOwnerPath(maintenancePath)");
         StringAssert.Contains(applyMethod, "ResourceMaintenanceTargetSet resourceHealthTargets = default;");
         StringAssert.Contains(applyMethod, "resourceHealthTargets = CreateFullOwnedResourceMaintenanceTargetSet");
         StringAssert.Contains(applyMethod, "DispatchMaintenanceHydrationResult(");

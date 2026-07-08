@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C65: maintenance result apply contract planning` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C66: maintenance hydration owner attach service seam` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -470,9 +470,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C65` として [maintenance result apply contract planning](./decisions/REF-MVP-C65_maintenance_result_apply_contract_planning.md) をレビューした。次は `ApplyMaintenanceHydrationResult` 全体ではなく、owner view への BMS / bmson maintenance snapshot attach、default / placeholder count、valid snapshot count、owner path count、stale path selection を top-level service / helper へ移す。`DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` top-level 化、resource health mutation contract 変更は C66 後に再評価する。production code は変更していない。
 
-現在の active ticket: なし。`REF-MVP-C65` completed checkpoint。
+`REF-MVP-C66` として owner view への maintenance snapshot attach / stale path selection を `BmsLibraryInternal/MaintenanceHydrationOwnerAttachService.cs` へ移した。root `ApplyMaintenanceHydrationResult` は write lock、resource health input mutation scope、full owned target creation、stale DB cleanup、dispatch timing を維持し、attach service を呼ぶ形になっている。`DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` top-level 化、resource health mutation contract は触っていない。source-text test は service / root bridge 配置を検査する形へ更新した。`BMSLibrary.cs` は 16,658 行、service は 97 行。build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
 
-次にやる 1 件: `REF-MVP-C66: maintenance hydration owner attach service seam` として、maintenance hydration owner attach / stale path selection を dedicated service seam へ移す。dispatch / resource health mutation / nested target contract は触らない。
+現在の active ticket: なし。`REF-MVP-C66` completed checkpoint。
+
+次にやる 1 件: `REF-MVP-C67: maintenance result dispatch boundary review` として、C66 後に残る `DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot`、resource health mutation contract、reflection tests のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 

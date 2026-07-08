@@ -1903,3 +1903,35 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C66: maintenance hydration owner attach service seam` として、maintenance hydration owner attach / stale path selection を dedicated service seam へ移す。dispatch / resource health mutation / nested target contract は触らない。
+
+## Completed Checkpoint: `REF-MVP-C66`
+
+状態: completed checkpoint。
+
+目的:
+
+- `OwnedChartStorageOwnerView` と `MaintenanceTableHydrationResult` を受け取り、BMS / bmson maintenance snapshot attach、default / placeholder count、valid snapshot count、owner path count、stale path selection を担当する top-level service / helper を作る。
+- `ApplyMaintenanceHydrationResult` は write lock、resource health input mutation scope、full owned target creation、stale DB cleanup、dispatch を引き続き持つ。
+- `DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` top-level 化、resource health mutation contract は触らない。
+
+完了条件:
+
+- BMS / bmson maintenance snapshot attach、default / placeholder count、valid snapshot count、owner path count、stale path selection の意味が維持されている。
+- `ApplyMaintenanceHydrationResult` の lock / resource health input mutation / stale cleanup / dispatch timing が維持されている。
+- source-text test は root method body の loop 固定から、新しい service / bridge 配置の検査へ移っている。
+- maintenance hydration / resource health 関連 targeted tests が通る。
+- build / targeted tests / format / diff check / Roslynator warning / 静的レビュー / full test が完了している。
+
+実装結果:
+
+- `MaintenanceHydrationOwnerAttachService` を追加し、BMS / bmson maintenance snapshot attach と stale path selection を service へ移した。
+- `ApplyMaintenanceHydrationResult` は `MaintenanceHydrationOwnerAttachService.AttachMaintenanceSnapshots` と `CaptureOwnerPathAndStaleMaintenancePaths` を呼ぶ形になった。
+- attach stopwatch の範囲は snapshot attach のまま維持し、stale path selection は従来どおり attach timing の外に残した。
+- `MainWindowContextMenuResourceTests.MaintenanceHydrationUsesOwnedStorageOwnerView` は service / root bridge 配置を検査する形へ更新した。
+- `DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot` top-level 化、resource health mutation contract は未変更。
+- `BMSLibrary.cs` は 16,658 行、service は 97 行。
+- build、maintenance hydration / resource health / context menu targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C67: maintenance result dispatch boundary review` として、C66 後に残る `DispatchMaintenanceHydrationResult`、`ResourceMaintenanceTargetSet` / `StorageRowsVersionSnapshot`、resource health mutation contract、reflection tests のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
