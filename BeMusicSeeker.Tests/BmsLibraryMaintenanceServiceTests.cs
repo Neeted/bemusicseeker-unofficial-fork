@@ -1009,7 +1009,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void DispatchMaintenanceHydrationResult_StaleFullTargetInvalidatesInsteadOfPublishing()
+    public void ResourceHealthFullRebuildHost_StaleFullTargetSuppressesPublish()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -1017,22 +1017,24 @@ public sealed class BmsLibraryMaintenanceServiceTests
             TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             file.path = Path.Combine(Path.GetDirectoryName(songDbPath), "stale-target.bms");
             ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
-            var hydrationResult = new MaintenanceTableHydrationResult();
             var library = new BMSLibrary(songDbPath);
-            SetCurrentResourceHealthIndexSnapshot(library, ResourceHealthIndexSnapshot.Empty);
-
-            InvokeDispatchMaintenanceHydrationResult(
-                library,
-                hydrationResult,
+            var host = new BMSLibrary.ResourceHealthIndexFullRebuildHost(library);
+            host.PublishSnapshot(ResourceHealthIndexSnapshot.Empty);
+            var coordinator = new ResourceHealthIndexFullRebuildCoordinator(host);
+            ResourceMaintenanceTargetSet staleTargetSet = CreateResourceMaintenanceTargetSet(
                 [chart],
+                isFullOwned: true,
                 bmsRowsVersion: -1,
                 bmsonRowsVersion: -1,
                 ownedCollectionVersion: -1,
                 resourceHealthInputVersion: -1);
 
+            ResourceHealthIndexFullRebuildResult result = coordinator.Rebuild("maintenance_hydration", staleTargetSet);
+
             ResourceHealthIndexSnapshot currentResourceHealth = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            Assert.IsTrue(result.StaleFullOwnedTarget);
+            Assert.AreEqual(0, result.Snapshot.TargetCount);
             Assert.AreEqual(0, currentResourceHealth.TargetCount);
-            Assert.AreEqual(0, hydrationResult.ResourceHealthIndexMs);
         });
     }
 
@@ -2920,27 +2922,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyMaintenanceHydrationResult", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [result]);
-    }
-
-    private static void InvokeDispatchMaintenanceHydrationResult(
-        BMSLibrary library,
-        MaintenanceTableHydrationResult result,
-        List<ChartFile> fullOwnedTargets,
-        int bmsRowsVersion,
-        int bmsonRowsVersion,
-        int ownedCollectionVersion,
-        int resourceHealthInputVersion)
-    {
-        ResourceMaintenanceTargetSet targetSet = CreateResourceMaintenanceTargetSet(
-            fullOwnedTargets,
-            isFullOwned: true,
-            bmsRowsVersion: bmsRowsVersion,
-            bmsonRowsVersion: bmsonRowsVersion,
-            ownedCollectionVersion: ownedCollectionVersion,
-            resourceHealthInputVersion: resourceHealthInputVersion);
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("DispatchMaintenanceHydrationResult", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [result, targetSet]);
     }
 
     private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthMutation(

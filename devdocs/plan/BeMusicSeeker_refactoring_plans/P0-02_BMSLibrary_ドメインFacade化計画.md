@@ -2439,3 +2439,37 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C84: resource health full rebuild coordinator seam` として、`RebuildResourceHealthIndexSnapshotLocked(reason, fullOwnedTargetSet, out staleFullOwnedTarget)` の branch orchestration を top-level coordinator へ移し、stale full-owned target branch を private reflection なしで direct test する。
+
+## Completed Checkpoint: `REF-MVP-C84`
+
+状態: completed checkpoint。
+
+目的:
+
+- `RebuildResourceHealthIndexSnapshotLocked(reason, fullOwnedTargetSet, out staleFullOwnedTarget)` の target resolution、snapshot build、stale full-owned target handling、publish result decision、build / stale log の境界を top-level coordinator へ移す。
+- root `BMSLibrary` は current target creation、snapshot build、resource health index lock 内 publish / invalidate / current snapshot取得、log を提供する host bridge へ寄せる。
+- direct unit test で stale full-owned target が current snapshot を返し、stale flag を立て、publish success / build success として扱われないことを確認する。
+
+完了条件:
+
+- full rebuild stale publish suppression の branch orchestration が root private method から coordinator へ移っている。
+- stale full-owned target branch の direct test が private reflection なしで存在する。
+- lock ordering、snapshot build timing、stale / build log 文言、DB schema、setting name、serialized/public surface は変更していない。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test が完了している。
+
+実装結果:
+
+- `BmsLibraryInternal/IResourceHealthIndexFullRebuildHost.cs` を追加した。
+- `BmsLibraryInternal/ResourceHealthIndexFullRebuildCoordinator.cs` を追加し、target resolution、snapshot build request、full-owned publish result handling、non-versioned publish、build log dispatch を移した。
+- `ResourceHealthIndexFullRebuildResult` / `ResourceHealthIndexFullOwnedPublishResult` を追加した。
+- root `RebuildResourceHealthIndexSnapshotLocked(reason, fullOwnedTargetSet, out staleFullOwnedTarget)` は private adapter host を作って coordinator に委譲する bridge になった。
+- stale log は旧実装どおり resource health index lock 内の host adapter 側に残し、log 文言を維持した。
+- `ResourceHealthIndexFullRebuildCoordinatorTests` を追加し、stale full-owned target、fresh full-owned target、unspecified target fallback、specified subset fallback を private reflection なしで確認した。
+- `BmsLibraryMaintenanceServiceTests` に `ResourceHealthFullRebuildHost_StaleFullTargetSuppressesPublish` を追加し、actual `BMSLibrary.ResourceHealthIndexFullRebuildHost` 経由でも stale full-owned target が publish されないことを private reflection なしで確認した。
+- `DispatchMaintenanceHydrationResult_StaleFullTargetInvalidatesInsteadOfPublishing` と専用 helper `InvokeDispatchMaintenanceHydrationResult` を削除した。
+- `BMSLibrary.cs` は 16,461 行、coordinator は 48 行、host interface は 21 行、result contracts は各 16 行、direct tests は 178 行。
+- build、targeted tests、format、diff check、Roslynator warning、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C85: maintenance resource health reflection aftermath review` として、C84 後に残る maintenance / resource health private reflection test と `OwnedChartCollectionMutationResult` 境界を再確認し、次に削るべき root-only seam を 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。

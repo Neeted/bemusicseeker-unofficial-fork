@@ -13732,48 +13732,66 @@ completeFileEnumerationOnce,
         ResourceMaintenanceTargetSet fullOwnedTargetSet,
         out bool staleFullOwnedTarget)
     {
-        staleFullOwnedTarget = false;
-        ResourceMaintenanceTargetSet targetSet = fullOwnedTargetSet;
-        if (targetSet.IsSpecified && !HasFullOwnedResourceHealthTargetVersion(targetSet))
+        var coordinator = new ResourceHealthIndexFullRebuildCoordinator(
+            new ResourceHealthIndexFullRebuildHost(this));
+        ResourceHealthIndexFullRebuildResult result = coordinator.Rebuild(reason, fullOwnedTargetSet);
+        staleFullOwnedTarget = result.StaleFullOwnedTarget;
+        return result.Snapshot;
+    }
+
+    internal sealed class ResourceHealthIndexFullRebuildHost(BMSLibrary owner)
+        : IResourceHealthIndexFullRebuildHost
+    {
+        public ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason)
         {
-            targetSet = default;
+            return owner.CreateFullOwnedResourceMaintenanceTargetSet(reason);
         }
-        if (!targetSet.IsSpecified)
+
+        public ResourceHealthIndexSnapshot BuildResourceHealthIndexSnapshot(IEnumerable<ChartFile> targets)
         {
-            targetSet = CreateFullOwnedResourceMaintenanceTargetSet(reason);
+            int version = Interlocked.Increment(ref owner.resourceHealthIndexVersionSeed);
+            return ResourceHealthIndexSnapshot.Build(targets, owner.maintenanceService, version);
         }
-        List<ChartFile> targets = targetSet.Charts;
-        int version = Interlocked.Increment(ref resourceHealthIndexVersionSeed);
-        var snapshot = ResourceHealthIndexSnapshot.Build(targets, maintenanceService, version);
-        if (HasFullOwnedResourceHealthTargetVersion(targetSet))
+
+        public ResourceHealthIndexFullOwnedPublishResult PublishFullOwnedSnapshot(
+            string reason,
+            ResourceMaintenanceTargetSet targetSet,
+            ResourceHealthIndexSnapshot snapshot,
+            int targetCount)
         {
-            lock (resourceHealthIndexLock)
+            lock (owner.resourceHealthIndexLock)
             {
-                if (!IsCurrentFullOwnedResourceHealthTargetVersion(targetSet))
+                if (!owner.IsCurrentFullOwnedResourceHealthTargetVersion(targetSet))
                 {
-                    InvalidateResourceHealthIndexIfSnapshotInputIsStaleUnsafe();
-                    staleFullOwnedTarget = true;
+                    owner.InvalidateResourceHealthIndexIfSnapshotInputIsStaleUnsafe();
                     LogInstallPerformance("resource_health_index_full_target_stale reason=" + (reason ?? "unknown")
-                        + " targetCount=" + targets.Count);
-                    return GetPublishedResourceHealthIndexSnapshotOrEmpty();
+                        + " targetCount=" + targetCount);
+                    return new ResourceHealthIndexFullOwnedPublishResult(
+                        owner.GetPublishedResourceHealthIndexSnapshotOrEmpty(),
+                        staleFullOwnedTarget: true);
                 }
-                PublishResourceHealthIndexSnapshotUnsafe(snapshot);
+                owner.PublishResourceHealthIndexSnapshotUnsafe(snapshot);
+                return new ResourceHealthIndexFullOwnedPublishResult(snapshot, staleFullOwnedTarget: false);
             }
         }
-        else
+
+        public void PublishSnapshot(ResourceHealthIndexSnapshot snapshot)
         {
-            lock (resourceHealthIndexLock)
+            lock (owner.resourceHealthIndexLock)
             {
-                PublishResourceHealthIndexSnapshotUnsafe(snapshot);
+                owner.PublishResourceHealthIndexSnapshotUnsafe(snapshot);
             }
         }
-        LogInstallPerformance("resource_health_index_build reason=" + (reason ?? "unknown")
-            + " version=" + snapshot.Version
-            + " targetCount=" + snapshot.TargetCount
-            + " needFix=" + snapshot.NeedFixCount
-            + " ignored=" + snapshot.IgnoredCount
-            + " buildMs=" + snapshot.BuildMs);
-        return snapshot;
+
+        public void LogResourceHealthIndexBuild(string reason, ResourceHealthIndexSnapshot snapshot)
+        {
+            LogInstallPerformance("resource_health_index_build reason=" + (reason ?? "unknown")
+                + " version=" + snapshot.Version
+                + " targetCount=" + snapshot.TargetCount
+                + " needFix=" + snapshot.NeedFixCount
+                + " ignored=" + snapshot.IgnoredCount
+                + " buildMs=" + snapshot.BuildMs);
+        }
     }
 
     private static bool HasFullOwnedResourceHealthTargetVersion(ResourceMaintenanceTargetSet targetSet)
