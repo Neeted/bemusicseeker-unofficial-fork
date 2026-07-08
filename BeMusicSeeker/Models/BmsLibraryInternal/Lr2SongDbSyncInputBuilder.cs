@@ -7,12 +7,6 @@ using static BeMusicSeeker.Models.BmsLibraryInternal.Lr2SongDbSyncInputSurfaceHe
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class Lr2SongDbSyncInputBuilder(
-    Func<
-        IReadOnlyCollection<string>,
-        Lr2FolderFileCandidateSnapshot,
-        Lr2SongDbSyncInputRootSnapshot,
-        Lr2SongDbSyncInputSettingsSnapshot,
-        Lr2SongDbSyncDirectoryTargetSelection> createDirectoryTargetSelection,
     Action<string> logLr2FolderScan,
     Action<string> logInstallPerformance)
 {
@@ -43,7 +37,7 @@ internal sealed class Lr2SongDbSyncInputBuilder(
         Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates = lr2FolderCandidateSelection.Candidates;
         lr2FolderCandidatesStopwatch.Stop();
         Lr2SongDbSyncDirectoryTargetSelection directoryTargetSelection =
-            createDirectoryTargetSelection(
+            CreateDirectoryTargetSelection(
                 directoryMetadataTargets,
                 lr2FolderFileCandidates,
                 rootSnapshot,
@@ -231,6 +225,29 @@ internal sealed class Lr2SongDbSyncInputBuilder(
             source,
             enumeratedAppManagedCandidateCount,
             enumeratedAppManagedExactFileCount);
+    }
+
+    private static Lr2SongDbSyncDirectoryTargetSelection CreateDirectoryTargetSelection(
+        IReadOnlyCollection<string> directoryMetadataTargets,
+        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
+        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
+        Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot)
+    {
+        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateTargets(
+            lr2FolderFileCandidates.Paths,
+            rootSnapshot.RootDirectories,
+            settingsSnapshot.Lr2NormalCustomFolderOutputBaseDir,
+            settingsSnapshot.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
+            settingsSnapshot.Lr2RootCustomFolderOutputBaseDir,
+            settingsSnapshot.Lr2BuiltinFolderSourceDirectories);
+        IReadOnlyCollection<string> directoryEntryTargets = MergeLr2DirectoryMetadataTargets(
+            directoryMetadataTargets,
+            lr2FolderParentDirectoryTargets);
+
+        return new Lr2SongDbSyncDirectoryTargetSelection(
+            directoryMetadataTargets,
+            lr2FolderParentDirectoryTargets,
+            directoryEntryTargets);
     }
 
     private static Lr2FolderFileCandidateSnapshot MergeLr2FolderFileCandidateSurface(

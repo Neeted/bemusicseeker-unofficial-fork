@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C39: LR2 sync input directory target boundary review` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C40: LR2 sync input directory target selection builder ownership` | completed checkpoint | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -374,7 +374,7 @@ Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現�
 |---|---:|---:|---|
 | `MainWindowViewModel.cs` | 23,413 行 | 8,000 行以下 | playlist detail build workflow、play history、playback、settings save、library refresh |
 | `MainWindow.cs` | 10,289 行 | 5,000 行以下 | `tableContextMenuOpened`、async void 本体、drag/drop、URL download |
-| `BMSLibrary.cs` | 17,746 行 | 12,000 行以下 | LR2 sync input directory target boundary review、maintenance、folder/file operation、package install follow-up |
+| `BMSLibrary.cs` | 17,594 行 | 12,000 行以下 | LR2 sync input builder aftermath review、maintenance、folder/file operation、package install follow-up |
 | `BMSPlaylist.cs` | P1 対象 | 6,000 行以下 | P0/P1 境界で再計画 |
 
 Guardrail 超過は現時点では既知。残す理由は「MVP active lanes の extraction 前であるため」。次の extraction 候補は上表を正本とする。
@@ -418,9 +418,11 @@ Guardrail 超過は現時点では既知。残す理由は「MVP active lanes �
 
 `REF-MVP-C39` として C38 後に残る directory target delegate をレビューし、decision record [REF-MVP-C39 LR2 Sync Input Directory Target Boundary Review](./decisions/REF-MVP-C39_lr2_sync_input_directory_target_boundary_review.md) を追加した。次は `REF-MVP-C40: LR2 sync input directory target selection builder ownership` に進む判断にした。production code は変更していない。diff check と静的レビューは完了。
 
-現在の active ticket: なし。`REF-MVP-C39` completed checkpoint。
+`REF-MVP-C40` として directory target selection を `Lr2SongDbSyncInputBuilder` へ移し、builder constructor から最後の selection delegate を外した。`CreateLr2FolderPhysicalParentDirectoryMetadataTargets` と private helper は `BmsLibraryInternal/Lr2FolderPhysicalParentDirectoryTargetHelper.cs` の dedicated helper へ移し、`PrepareLr2FolderParentDirectoryEntrySurface` は `BMSLibrary` 側 workflow として残した。`BMSLibrary.cs` は 17,594 行、builder は 380 行、helper は 136 行。build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
 
-次にやる 1 件: `REF-MVP-C40: LR2 sync input directory target selection builder ownership` として、directory target selection を builder / internal helper 側へ移し、builder constructor から最後の selection delegate を外す。app-managed output scope 採取、row/root/settings/scan/prepared snapshot 採取、`PrepareLr2FolderParentDirectoryEntrySurface` workflow、DB schema、setting name、private reflection entry point は触らない。
+現在の active ticket: なし。`REF-MVP-C40` completed checkpoint。
+
+次にやる 1 件: `REF-MVP-C41: LR2 sync input builder aftermath review` として、C40 後の `CreateLr2SongDbSyncInput` と builder boundary を再評価し、LR2 sync input builder lane を閉じて Lane C の別 workflow へ移るかを判断する。production code 変更は、次の実装単位が明確に決まるまで行わない。
 
 ## 次回 Codex が最初に読むべきファイル
 

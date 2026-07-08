@@ -1134,3 +1134,34 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C40: LR2 sync input directory target selection builder ownership` として、directory target selection を builder / internal helper 側へ移し、builder constructor から最後の selection delegate を外す。app-managed output scope 採取、row/root/settings/scan/prepared snapshot 採取、`PrepareLr2FolderParentDirectoryEntrySurface` workflow、DB schema、setting name、private reflection entry point は触らない。
+
+## Completed Checkpoint: `REF-MVP-C40`
+
+状態: completed checkpoint。
+
+目的:
+
+- directory target selection を `Lr2SongDbSyncInputBuilder` へ移し、builder constructor から最後の selection delegate を外す。
+- `CreateLr2FolderPhysicalParentDirectoryMetadataTargets` とその private helper を dedicated internal helper へ移す。
+- `PrepareLr2FolderParentDirectoryEntrySurface` は `BMSLibrary` 側 workflow として残し、移した helper を呼ぶだけにする。
+
+完了条件:
+
+- `Lr2SongDbSyncInputBuilder` が directory target selection を直接担当している。
+- builder constructor から `CreateLr2SongDbSyncDirectoryTargetSelection` delegate が消えている。
+- physical parent directory target helper 群が `BmsLibraryInternal` の dedicated helper に移っている。
+- app-managed output scope 採取、row/root/settings/scan/prepared snapshot 採取、`PrepareLr2FolderParentDirectoryEntrySurface` workflow、DB schema、setting name、serialized/public surface、private `CreateLr2SongDbSyncInput` entry point は変更していない。
+- build / LR2 sync 関連 tests / full test / format / diff check / Roslynator 対象確認 / 静的レビューが完了している。
+
+実装結果:
+
+- `Lr2SongDbSyncInputBuilder` が directory target selection を直接担当する形にした。
+- builder constructor から最後の selection delegate を外した。
+- `CreateLr2FolderPhysicalParentDirectoryMetadataTargets` と private helper を `BmsLibraryInternal/Lr2FolderPhysicalParentDirectoryTargetHelper.cs` へ移した。
+- `PrepareLr2FolderParentDirectoryEntrySurface` は `BMSLibrary` 側 workflow として残し、移した helper を呼ぶ形にした。
+- `BMSLibrary.cs` は 17,594 行、builder は 380 行、helper は 136 行。
+- build、LR2 sync 関連 tests、format、diff check、Roslynator 対象確認、静的レビュー、full test は完了。
+
+次にやる 1 件:
+
+- `REF-MVP-C41: LR2 sync input builder aftermath review` として、C40 後の `CreateLr2SongDbSyncInput` と builder boundary を再評価し、LR2 sync input builder lane を閉じて Lane C の別 workflow へ移るかを判断する。production code 変更は、次の実装単位が明確に決まるまで行わない。

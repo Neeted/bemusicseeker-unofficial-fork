@@ -5851,7 +5851,7 @@ completeFileEnumerationOnce,
 
         var stopwatch = Stopwatch.StartNew();
         var stopwatchStage = Stopwatch.StartNew();
-        IReadOnlyCollection<string> parentDirectoryTargets = CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
+        IReadOnlyCollection<string> parentDirectoryTargets = Lr2FolderPhysicalParentDirectoryTargetHelper.CreateTargets(
             (request.Lr2FolderFilePaths ?? []).Concat(request.Lr2FolderFileEntries?.Keys ?? []),
             request.RootDirectories,
             request.Lr2NormalCustomFolderOutputBaseDir,
@@ -6906,7 +6906,6 @@ completeFileEnumerationOnce,
         Lr2SongDbSyncPreparedSurfaceSelection preparedSurfaceSelection =
             CreateLr2SongDbSyncPreparedSurfaceSelection(scanSurface);
         var inputBuilder = new Lr2SongDbSyncInputBuilder(
-            CreateLr2SongDbSyncDirectoryTargetSelection,
             LogEverythingScan,
             LogInstallPerformance);
 
@@ -6951,29 +6950,6 @@ completeFileEnumerationOnce,
         return scanSurface?.NormalFolderDirectoryPaths?.Count > 0
             ? scanSurface.NormalFolderDirectoryPaths
             : Lr2NormalFolderDbSyncService.CreateDirectoryMetadataTargets(rootSnapshot.RootDirectories, rowSnapshot.ChartPaths);
-    }
-
-    private Lr2SongDbSyncDirectoryTargetSelection CreateLr2SongDbSyncDirectoryTargetSelection(
-        IReadOnlyCollection<string> directoryMetadataTargets,
-        Lr2FolderFileCandidateSnapshot lr2FolderFileCandidates,
-        Lr2SongDbSyncInputRootSnapshot rootSnapshot,
-        Lr2SongDbSyncInputSettingsSnapshot settingsSnapshot)
-    {
-        IReadOnlyCollection<string> lr2FolderParentDirectoryTargets = CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
-            lr2FolderFileCandidates.Paths,
-            rootSnapshot.RootDirectories,
-            settingsSnapshot.Lr2NormalCustomFolderOutputBaseDir,
-            settingsSnapshot.Lr2AdditionalNormalCustomFolderOutputBaseDirs,
-            settingsSnapshot.Lr2RootCustomFolderOutputBaseDir,
-            settingsSnapshot.Lr2BuiltinFolderSourceDirectories);
-        IReadOnlyCollection<string> directoryEntryTargets = MergeLr2DirectoryMetadataTargets(
-            directoryMetadataTargets,
-            lr2FolderParentDirectoryTargets);
-
-        return new Lr2SongDbSyncDirectoryTargetSelection(
-            directoryMetadataTargets,
-            lr2FolderParentDirectoryTargets,
-            directoryEntryTargets);
     }
 
     private Lr2SongDbSyncInputRowSnapshot CreateLr2SongDbSyncInputRowSnapshot()
@@ -7518,134 +7494,6 @@ completeFileEnumerationOnce,
 
         public IReadOnlyDictionary<string, RootFileEnumerationEntry> DirectoryEntries { get; } =
             directoryEntries ?? new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase);
-    }
-
-    private static IReadOnlyCollection<string> CreateLr2FolderPhysicalParentDirectoryMetadataTargets(
-        IEnumerable<string> lr2FolderFilePaths,
-        IEnumerable<string> rootDirectories,
-        string normalCustomFolderOutputBaseDir,
-        IEnumerable<string> additionalNormalCustomFolderOutputBaseDirs,
-        string rootCustomFolderOutputBaseDir,
-        IEnumerable<string> builtinSourceDirectories)
-    {
-        IReadOnlyList<string> boundaries = CreateLr2FolderPhysicalParentDirectoryBoundaries(
-            rootDirectories,
-            normalCustomFolderOutputBaseDir,
-            additionalNormalCustomFolderOutputBaseDirs,
-            rootCustomFolderOutputBaseDir,
-            builtinSourceDirectories);
-        if (boundaries.Count == 0)
-        {
-            return [];
-        }
-
-        var boundarySet = new HashSet<string>(boundaries, StringComparer.OrdinalIgnoreCase);
-        var targets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var visitedFilePaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var visitedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (string filePath in lr2FolderFilePaths ?? [])
-        {
-            string normalizedFilePath = Lr2FolderPath.NormalizeDirectoryPath(filePath);
-            if (string.IsNullOrWhiteSpace(normalizedFilePath) || !visitedFilePaths.Add(normalizedFilePath))
-            {
-                continue;
-            }
-
-            string directory = Lr2FolderPath.SafeGetParentNormalizedDirectory(normalizedFilePath);
-            if (string.IsNullOrWhiteSpace(directory) || !visitedDirectories.Add(directory))
-            {
-                continue;
-            }
-
-            string boundary = FindNearestLr2DirectoryBoundary(directory, boundarySet);
-            while (!string.IsNullOrWhiteSpace(directory)
-                && !string.IsNullOrWhiteSpace(boundary)
-                && !string.Equals(directory, boundary, StringComparison.OrdinalIgnoreCase))
-            {
-                targets.Add(directory);
-                string parent = Lr2FolderPath.SafeGetParentNormalizedDirectory(directory);
-                if (string.IsNullOrWhiteSpace(parent)
-                    || string.Equals(parent, directory, StringComparison.OrdinalIgnoreCase))
-                {
-                    break;
-                }
-                directory = parent;
-            }
-        }
-        return [.. targets.OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static IReadOnlyList<string> CreateLr2FolderPhysicalParentDirectoryBoundaries(
-        IEnumerable<string> rootDirectories,
-        string normalCustomFolderOutputBaseDir,
-        IEnumerable<string> additionalNormalCustomFolderOutputBaseDirs,
-        string rootCustomFolderOutputBaseDir,
-        IEnumerable<string> builtinSourceDirectories)
-    {
-        var boundaries = new List<string>();
-        foreach (string rootDirectory in rootDirectories ?? [])
-        {
-            boundaries.Add(CreateLr2FolderPhysicalParentDirectoryBoundary(rootDirectory));
-        }
-        string normalOutputBase = Lr2FolderPath.NormalizeDirectoryPath(normalCustomFolderOutputBaseDir);
-        if (!string.IsNullOrWhiteSpace(normalOutputBase))
-        {
-            boundaries.Add(CreateLr2FolderPhysicalParentDirectoryBoundary(normalOutputBase));
-        }
-        foreach (string additionalNormalOutputBase in additionalNormalCustomFolderOutputBaseDirs ?? [])
-        {
-            string normalizedAdditionalNormalOutputBase = Lr2FolderPath.NormalizeDirectoryPath(additionalNormalOutputBase);
-            if (!string.IsNullOrWhiteSpace(normalizedAdditionalNormalOutputBase))
-            {
-                boundaries.Add(CreateLr2FolderPhysicalParentDirectoryBoundary(normalizedAdditionalNormalOutputBase));
-            }
-        }
-        string rootOutputBase = Lr2FolderPath.NormalizeDirectoryPath(rootCustomFolderOutputBaseDir);
-        if (!string.IsNullOrWhiteSpace(rootOutputBase))
-        {
-            boundaries.Add(rootOutputBase);
-        }
-        boundaries.AddRange(builtinSourceDirectories ?? []);
-        return [.. boundaries
-            .Select(Lr2FolderPath.NormalizeDirectoryPath)
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .OrderByDescending(path => path.Length)
-            .ThenBy(path => path, StringComparer.OrdinalIgnoreCase)];
-    }
-
-    private static string CreateLr2FolderPhysicalParentDirectoryBoundary(string rootEquivalentDirectory)
-    {
-        string normalizedRoot = Lr2FolderPath.NormalizeDirectoryPath(rootEquivalentDirectory);
-        if (string.IsNullOrWhiteSpace(normalizedRoot))
-        {
-            return null;
-        }
-
-        string parent = Lr2FolderPath.NormalizeDirectoryPath(Lr2FolderPath.SafeGetDirectoryName(normalizedRoot));
-        return string.IsNullOrWhiteSpace(parent) ? normalizedRoot : parent;
-    }
-
-    private static string FindNearestLr2DirectoryBoundary(string normalizedDirectory, ISet<string> boundaries)
-    {
-        string current = normalizedDirectory;
-        while (!string.IsNullOrWhiteSpace(current))
-        {
-            if (boundaries?.Contains(current) == true)
-            {
-                return current;
-            }
-
-            string parent = Lr2FolderPath.SafeGetParentNormalizedDirectory(current);
-            if (string.IsNullOrWhiteSpace(parent)
-                || string.Equals(parent, current, StringComparison.OrdinalIgnoreCase))
-            {
-                break;
-            }
-            current = parent;
-        }
-
-        return null;
     }
 
     private static Func<string, DateTime?> CreateLastWriteTimeResolver(
