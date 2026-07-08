@@ -1575,3 +1575,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C55: package move / merge boundary after rename seams` として、`MoveChartPackageFiles` adapter、`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` follow-up、maintenance result apply contract prep のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C55`
+
+状態: completed checkpoint。
+
+目的:
+
+- C54 後の package move / merge / repair / install / maintenance follow-up を比較する。
+- `MoveChartPackageFiles` adapter、`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` follow-up、maintenance result apply contract prep のうち、次の実装 ticket を 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `MergeChartDirectory` / `FixInstallationDirectoryCharts` / `installChartPackages` follow-up / maintenance result apply contract prep を今触らない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C55 Package Move / Merge Boundary After Rename](./decisions/REF-MVP-C55_package_move_merge_boundary_after_rename.md) を追加した。
+- `MoveChartPackageFiles` は core が `BmsLibraryPackageInstallService.MovePackageFiles` へ寄っており、root 側には options snapshot、folder naming callback、dialog、file mutation options、log callback の adapter 責務が残るため、次の seam として妥当と判断した。
+- `MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` follow-up は `MoveChartPackageFiles` adapter 固定後に再評価する判断にした。
+- maintenance result apply contract prep は C45 の blocker が残るためまだ触らない判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C56: MoveChartPackageFiles adapter boundary` として、`MoveChartPackageFiles` の options snapshot、auto folder naming、dialog / displayed exception callback、file mutation service/options、performance log callback、parameter forwarding を explicit package move seam へ移す。`MergeChartDirectory`、`FixInstallationDirectoryCharts`、`installChartPackages` callback 契約、`BmsLibraryPackageInstallService.MovePackageFiles` core behavior は触らない。
