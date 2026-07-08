@@ -1753,3 +1753,32 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C61: install / maintenance boundary after merge seam` として、`installChartPackages` follow-up、maintenance result apply contract prep、または merge seam 追加整理のどれを次に進めるかを 1 件に絞る。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C61`
+
+状態: completed checkpoint。
+
+目的:
+
+- C60 後の install / maintenance follow-up を比較する。
+- `installChartPackages` follow-up、maintenance result apply contract prep、merge seam 追加整理のうち、次の実装 ticket を 1 件に絞る。
+- production code は変更しない。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- maintenance result apply contract prep / merge seam 追加整理を今触らない理由が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check と静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C61 Install / Maintenance Boundary After Merge Seam](./decisions/REF-MVP-C61_install_maintenance_boundary_after_merge.md) を追加した。
+- `installChartPackages` は `BmsLibraryPackageInstallService.InstallPackages` core を呼ぶ facade だが、root に DB upsert、maintenance apply/defer、score update、state apply、reverse lookup add、installed package registration、performance log、inline chart_info build の orchestration が残るため、次の coordinator seam として妥当と判断した。
+- maintenance result apply contract prep は C45 の blocker が残るため、C62 後に再評価する判断にした。
+- merge seam 追加整理は C62 を妨げる blocker ではないため、今は選ばない判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C62: installChartPackages coordinator seam` として、`installChartPackages` の LR2 sync block、package filtering、InstallPackages callbacks、DB upsert、maintenance apply/defer、score update、state apply、reverse lookup add、installed package registration、performance log、inline chart_info build を dedicated coordinator seam へ移す。`BmsLibraryPackageInstallService.InstallPackages` core behavior、`MoveChartPackageFiles` seam contract、maintenance result apply は触らない。
