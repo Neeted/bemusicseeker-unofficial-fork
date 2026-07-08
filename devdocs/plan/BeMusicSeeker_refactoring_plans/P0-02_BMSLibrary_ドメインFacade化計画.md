@@ -2702,8 +2702,33 @@ BMSLibrary                         // public facade / compatibility API
 
 - build 0 warning。
 - targeted tests: `OwnedChartCollectionStateTests` / `BmsLibraryFolderRenameRefreshTests` / `BmsLibraryLr2SongDbSyncTests` / `PlaylistSummaryAggregationTests` 298 passed。
-- full standard checks、format、Roslynator warning、静的レビューは commit 前に実施する。
+- full standard checks、format、Roslynator warning、静的レビューは完了した。
 
 次にやる 1 件:
 
 - `REF-MVP-C93: owned collection helper aftermath checkpoint` として、C92 後に残る read-only snapshot helper、storage setup helper、`ApplyInstalledChartStorageTargets` / `ApplyLibraryFileScanStorageMutation` / inline chart info private reflection helper を再確認し、次に実装すべき 1 seam だけを選ぶ。production code 変更は、次の implementation ticket が明確になるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C93`
+
+状態: completed checkpoint。
+
+目的:
+
+- C92 後に残る owned collection / installed lookup test helper を再分類する。
+- mutation workflow に入る前に、次に切るべき 1 seam を決める。
+- production code 変更は行わない。
+
+調査結果:
+
+- `OwnedChartCollectionStateTests` と `BmsLibraryFolderRenameRefreshTests` に、owned chart snapshot / installed lookup snapshot / primary hash snapshot / install destination overlay snapshot / initialized flag の read-only reflection helper が集中している。
+- `_BMSFiles` / `_BmsonSongs` / `resourceHealthIndexInvalidated` private field seeding は setup notification 抑制や cache invalidation を意図的に迂回しており、C94 では触らない。
+- `ApplyInstalledChartStorageTargets` は次の mutation workflow seam として有力だが、LR2 normal folder sync block と failure fallback を含むため、read-only observation helper の整理後に着手する。
+
+決定:
+
+- `decisions/REF-MVP-C93_owned_collection_helper_aftermath.md` を追加した。
+- 次の実装 ticket は `REF-MVP-C94: owned collection read-only snapshot seam` とする。
+
+次にやる 1 件:
+
+- `CreateOwnedChartInfoFullBackfillTargetSnapshot`、installed lookup snapshot、primary hash lookup snapshot、install destination overlay snapshot、initialized flag の read-only diagnostics / snapshot facade を追加し、`OwnedChartCollectionStateTests` と `BmsLibraryFolderRenameRefreshTests` の該当 private reflection helper を置き換える。

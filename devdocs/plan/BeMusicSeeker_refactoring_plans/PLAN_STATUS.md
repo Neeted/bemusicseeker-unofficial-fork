@@ -16,7 +16,7 @@ Release Freeze: active。
 |---|---|---|---|
 | A: MainWindowViewModel shell 化 | `REF-MVP-A1: Playlist detail build workflow extraction` | completed checkpoint | [P0-01](./P0-01_MainWindowViewModel_リファクタリング計画.md) |
 | B: MainWindow code-behind / XAML MVVM 移行 | `REF-MVP-B1: MainWindow event handler inventory and first command bridge` | completed checkpoint | [P0-03](./P0-03_MainWindow_UI_MVVM移行計画.md) |
-| C: BMSLibrary domain facade 化 | `REF-MVP-C93: owned collection helper aftermath checkpoint` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
+| C: BMSLibrary domain facade 化 | `REF-MVP-C94: owned collection read-only snapshot seam` | active | [P0-02](./P0-02_BMSLibrary_ドメインFacade化計画.md) |
 | D: .NET 10 migration readiness | `REF-MVP-D1: .NET 10 blocker inventory in devdocs` | completed checkpoint | [P0-04](./P0-04_DotNet10_移行準備と依存関係整理計画.md) |
 
 Codex は毎回、Refactoring MVP Gate に最も近づく slice を選ぶ。現時点の推奨順は Lane C → Lane B 後続候補 → Lane A 後続候補 → Lane D 後続候補。
@@ -550,7 +550,7 @@ C90 完了時点の次にやる 1 件: `OwnedChartCollectionStateTests` に残�
 
 `REF-MVP-C91` として [owned chart collection private helper boundary](./decisions/REF-MVP-C91_owned_chart_collection_private_helper_boundary.md) をレビューした。次は read-only assertion helper ではなく、複数の owned mutation tests が依存する `ApplyLibraryMutationDelta` entry workflow を top-level coordinator + host seam へ移す判断にした。production code は変更していない。
 
-現在の active ticket: `REF-MVP-C92: library mutation delta apply workflow seam`。
+C91 完了時点の active ticket: `REF-MVP-C92: library mutation delta apply workflow seam`。
 
 次にやる 1 件: `ApplyLibraryMutationDelta` / `ApplyLibraryMutationDeltaWithPerformanceContext` の orchestration を top-level coordinator + host seam へ移し、`OwnedChartCollectionStateTests.InvokeApplyLibraryMutationDelta` を private reflection なしに置き換える。
 
@@ -559,6 +559,12 @@ C90 完了時点の次にやる 1 件: `OwnedChartCollectionStateTests` に残�
 C92 完了時点の次 ticket: `REF-MVP-C93: owned collection helper aftermath checkpoint`。
 
 C92 完了時点の次にやる 1 件: `OwnedChartCollectionStateTests` / related tests に残る read-only snapshot helper、storage setup helper、`ApplyInstalledChartStorageTargets` / `ApplyLibraryFileScanStorageMutation` / inline chart info private reflection helper を再確認し、次に実装すべき 1 seam だけを選ぶ。C93 は checkpoint とし、production code 変更は次の implementation ticket が明確になるまで行わない。
+
+`REF-MVP-C93` として C92 後に残る owned collection private helper を再分類した。mutation workflow の前に observation helper を private reflection から外す方が後続 ticket のレビュー容易性を上げると判断し、[owned collection helper aftermath](./decisions/REF-MVP-C93_owned_collection_helper_aftermath.md) を追加した。production code は変更していない。
+
+C93 完了時点の次 ticket: `REF-MVP-C94: owned collection read-only snapshot seam`。
+
+C93 完了時点の次にやる 1 件: `CreateOwnedChartInfoFullBackfillTargetSnapshot`、installed lookup snapshot、primary hash lookup snapshot、install destination overlay snapshot、initialized flag の read-only diagnostics / snapshot facade を追加し、`OwnedChartCollectionStateTests` と `BmsLibraryFolderRenameRefreshTests` の該当 private reflection helper を置き換える。
 
 ## 次回 Codex が最初に読むべきファイル
 
