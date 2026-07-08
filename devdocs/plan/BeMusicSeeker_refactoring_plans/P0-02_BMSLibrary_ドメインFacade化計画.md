@@ -4,7 +4,7 @@
 
 ## 目的
 
-`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,866 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
+`BeMusicSeeker/Models/BMSLibrary.cs` は現在 17,424 行あり、BeMusicSeeker の中核ドメイン操作がまだ集中している。
 
 `BMSLibrary` は public compatibility facade として残してよい。ただし、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling は service / coordinator へ移す。
 
@@ -1284,3 +1284,30 @@ BMSLibrary                         // public facade / compatibility API
 次にやる 1 件:
 
 - `REF-MVP-C45: maintenance hydration result apply boundary review` として、`ApplyMaintenanceHydrationResult` / resource health dispatch を次に切るべきか、または Lane C の別 workflow へ移るかを判断する。production code 変更は、次の実装単位が明確に決まるまで行わない。
+
+## Completed Checkpoint: `REF-MVP-C45`
+
+状態: completed checkpoint。
+
+目的:
+
+- C44 後に残った `ApplyMaintenanceHydrationResult` / `DispatchMaintenanceHydrationResult` を次に切るべきか判断する。
+- resource health dispatch、owner view attach、maintenance DB cleanup、private reflection / source-text tests の blocker を分類する。
+- 次の Lane C workflow を 1 件に絞る。
+
+完了条件:
+
+- decision record が `decisions/` に追加され、次にやる 1 件が明確になっている。
+- `ApplyMaintenanceHydrationResult` に残す root lock / owner view / resource health / maintenance DB 境界が明記されている。
+- P0-02 と `PLAN_STATUS.md` が decision と矛盾していない。
+- diff check / 静的レビューが完了している。
+
+実装結果:
+
+- [REF-MVP-C45 Maintenance Hydration Result Apply Boundary](./decisions/REF-MVP-C45_maintenance_hydration_result_apply_boundary.md) を追加した。
+- `ApplyMaintenanceHydrationResult` / `DispatchMaintenanceHydrationResult` は root lock、owner view、resource health nested mutation、maintenance DB cleanup、private reflection / source-text tests が重なるため、現時点では移動しない判断にした。
+- production code は変更していない。
+
+次にやる 1 件:
+
+- `REF-MVP-C46: installable maintenance deferred coordinator seam` として、`QueueDeferredInstallableMaintenance`、`CompleteInstallableMaintenanceForShutdown`、deferred worker lifecycle を coordinator seam へ移す。`setInstallableMaintenanceInfo` 内部、resource health index mutation、maintenance DB schema、warning projection、`ApplyMaintenanceHydrationResult` は触らない。
