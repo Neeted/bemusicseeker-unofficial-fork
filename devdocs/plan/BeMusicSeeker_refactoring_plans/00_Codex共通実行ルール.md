@@ -1,124 +1,60 @@
 # Codex 共通実行ルール
 
-[総合計画へ戻る](./BeMusicSeekerリファクタリング計画.md)
+[リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md)に基づいて、Codex が自走して実装・検証・静的レビュー・commit を繰り返すためのルールである。
 
-## 原則
+## 権限と禁止事項
 
-- 変更は Refactoring MVP active lane の ticket / slice 単位で行う。
-- 1 ticket で「構造変更」と「挙動変更」を混ぜない。
-- デコンパイル由来の読みにくい名前に触れた場合は、意味を推定できる範囲で命名を改善する。
-- 外部仕様を変えない限り、既存の振る舞いを維持する。
-- Refactoring MVP 作業では、ユーザーが実装単位ごとの commit を事前許可している。ticket / slice 完了時は標準確認とサブエージェント静的レビュー後に commit してよい。
-- `git push`、Git tag、GitHub Release、Release draft、publish / release script 実行は禁止する。
+- outcome 内の implementation unit は、検証とサブエージェント静的レビュー後に自発的に commit してよい。
+- unrelated な既存差分を変更、stage、commit しない。
+- Refactoring Completion Gate 前は、ユーザーから依頼されても `git push`、tag、release、publish、version 更新を行わない。Gate 後もユーザーの明示指示なしには行わない。
+- DB schema、setting key、serialized value、外部ファイル形式、UI observable behavior、public compatibility API を変更する必要が生じたら、実装前にユーザーへ確認する。
+- 意味の変わる fallback を追加しない。失敗を隠すより、既存の失敗契約を維持して明示的に失敗させる。
 - C# symbol rename は text replacement ではなく semantic rename / compiler-driven edit を使う。
 
-## Refactoring MVP Release Freeze
+## 作業開始
 
-Refactoring MVP Gate 通過まで、リリース作業を凍結する。重要判断は [REF-MVP Release Freeze and Gate Decision](./decisions/REF-MVP_release_freeze_and_gate.md) にも残す。
+1. [PLAN_STATUS](./PLAN_STATUS.md) の active outcome と acceptance criteria を読む。
+2. `git status --short` で既存差分を確認する。
+3. active outcome がなければ、総合計画の ordered backlog から最初の未完・非 blocked outcome を選ぶ。
+4. outcome 内の次 implementation unit を内部作業計画へ分解する。
+5. checkpoint、decision、inventory、調査メモを新規作成せず実装へ進む。
 
-禁止:
+future outcome を先に詳細設計しない。active outcome に必要な範囲だけ、実ソースと behavior test を読んで判断する。
 
-- `Properties/AssemblyInfo.cs` の `AssemblyInformationalVersion` 更新。
-- `release notes/` の新規リリース向け更新。
-- `version.txt` のリリース目的更新。
-- `scripts/publish.ps1` / `scripts/release.ps1` のリリース運用目的変更。
-- GitHub Release、Git tag、Release draft、配布 package の作成。
-- ユーザーに「リリース準備完了」と見える変更。
+## Implementation unit の条件
 
-例外:
+implementation unit は次を満たすまとまりにする。
 
-- build / test のためのローカル artifact 作成。
-- release freeze ルール自体を文書化する docs 変更。
-- 既存 release 関連コードの refactor blocker 調査。
+- 同じ outcome の acceptance criteria を少なくとも 1 つ前進させる。
+- build 可能で、関連 behavior を検証できる。
+- 新しい abstraction を追加する場合、production 経路へ接続する。
+- 旧 owner の責務、旧 route、旧 binding、旧 test seam のいずれかを減らす。
+- 構造変更と意図的な挙動変更を混ぜない。
 
-blocker 調査から実リリース準備へ進まない。
+DTO、interface、result、planner、host、diagnostics API の追加だけで implementation unit を完了しない。安全上どうしても scaffolding commit が必要な場合も、同じ outcome を継続し、直後の unit で通常経路への接続と旧経路削除を行う。
 
-## Refactoring MVP Gate
+## 実装・レビュー・commit ループ
 
-リリース凍結を解除できるのは、次を満たしてからとする。
+1. implementation unit を実装し、必要な behavior test を追加または更新する。
+2. 関連 build / targeted test を実行する。
+3. format / whitespace と `git diff --check` を確認する。
+4. サブエージェントに未コミット差分の静的レビューを依頼する。レビュー担当は編集・build・test・format・analyzer・commit を行わない。
+5. 重大指摘を修正する。
+6. 修正の影響を受ける build / test を再実行する。
+7. 重大指摘がなくなるまで同じサブエージェントまたは別のサブエージェントへ再レビューを依頼する。
+8. この unit で outcome を閉じる場合は、開始 commit からの全変更と現行コードを対象に full test とサブエージェント静的アーキテクチャレビューを行う。指摘があれば同じ unit で修正・再テスト・再レビューする。
+9. outcome の全 acceptance criteria を満たした場合は、`PLAN_STATUS.md` で当該 outcome を `completed`、次 outcome を `ready` にする。Active outcome セクションを次 outcome の目的 / acceptance criteria / non-goals へ置き換え、Next action も更新する。この status 更新を含む最終未コミット差分を再レビューする。
+10. 最終差分に対して必要な build / test / format / analyzer / `git diff --check` を実行する。
+11. outcome ID を含む commit message で commit する。commit body に実行した test と review 結果を記録する。
+12. outcome が未完なら docs-only checkpoint を挟まず同じ outcome の次 unit へ、完了したなら `ready` にした次 outcome へ進む。
 
-- `MainWindowViewModel` が application shell / composition / lifecycle / dialog request bridge / progress bridge / UI thread 境界 / child ViewModel・coordinator 委譲に寄っている。
-- main chart list、playlist detail build / apply、play history、playback、settings save、library refresh、package install workflow が root から child ViewModel / coordinator / service へ移っている。
-- `MainWindow.cs` が WPF lifecycle / view-host / WPF event entry point / UI 型 adapter / command invocation bridge に寄り、処理本体を持つ `async void` と巨大 event handler が大幅に減っている。
-- `BMSLibrary` が public compatibility facade として薄くなり、initialization、LR2 `song.db` sync、package install、maintenance、playlist reference、file operation、normal library refresh、source text / source file handling が service / coordinator へ移っている。
-- 新規 service / coordinator に `Window`、`Control`、`MessageBox`、`Settings.Default`、`NLog`、無制御な DB connection / transaction、無制御な `Dispatcher` 直参照を増やしていない。
-- `.NET 10` 移行 blocker が巨大クラス内の未整理ロジックではなく、adapter / gateway / native dependency / config / settings / external process host の課題として説明できる。
-- build、test、format / whitespace check、`git diff --check` が通る。
-- サブエージェント静的レビューで重大な指摘がない。
+`GATE-01` だけは完了時に `completed` ではなく `gate met` とし、Active outcome を `none`、次 outcome を設定しない。Release Freeze は `gate met / explicit release instruction required` と記録し、`.NET 10` migration plan またはリリース作業を自動開始しない。
 
-行数は guardrail として監視する。設計成否の唯一の判定にはしない。
+レビュー修正後の再テストを省略しない。レビュー前の test 結果を最終差分の検証結果として扱わない。
 
-- `MainWindowViewModel.cs`: 最終 8,000 行以下を目標にする。
-- `MainWindow.cs`: 最終 5,000 行以下を目標にする。
-- `BMSLibrary.cs`: 最終 12,000 行以下を目標にする。
-- `BMSPlaylist.cs`: P1 対象だが、P0/P1 境界で 6,000 行以下を目標にする。
+## 標準確認
 
-目標を超える場合は `PLAN_STATUS.md` に、残す責務、残す理由、次の extraction 候補、サブエージェントレビュー結果を記録する。
-
-## 計画運用ルール
-
-- WIP は原則 1 active lane slice にする。
-- ticket 粒度は 1 workflow / 1 responsibility boundary に引き上げる。
-- DTO 追加、method signature 整理、result object 導入だけを独立 ticket にしない。これらは workflow extraction の subtask として扱う。
-- checkpoint 専用 ticket を連続させない。
-- decision record は、永続化、DB schema、public API、concurrency / lock ordering、UI observable behavior、.NET migration policy に関わる場合だけ作る。
-- docs-only commit は原則禁止する。ただし、計画修正、gate 定義、重要 decision record は許可する。
-- active plan は短く保ち、完了履歴は別ファイルまたは Appendix へ移す。
-- ticket 完了時は「実装結果」「実行したテスト」「未解決の blocker」「次にやる 1 件」だけを更新する。
-- 計画書は作業指示書であり、長い調査ログ置き場にしない。
-- `.tmp` にだけ重要判断を残さない。継続判断は `devdocs` 側へ移す。
-- 行数は観測値であり、設計の成否判定は責務境界、依存方向、テスト容易性、UI / DataContext 境界で判断する。
-
-## Active Lane
-
-`PLAN_STATUS.md` に次の active lanes を置き、Codex は毎回 Refactoring MVP Gate に最も近づく slice を選ぶ。P0-01 だけに閉じない。
-
-- Lane A: MainWindowViewModel shell 化。
-- Lane B: MainWindow code-behind / XAML MVVM 移行。
-- Lane C: BMSLibrary domain facade 化。
-- Lane D: .NET 10 migration readiness。
-
-## 自走実装サイクル
-
-1. `PLAN_STATUS.md` の active lanes を確認する。
-2. Refactoring MVP Gate に最も近づく slice を選ぶ。
-3. slice の目的、対象ファイル、禁止事項を短く整理する。
-4. 実装する。
-5. build / test / format / `git diff --check` を実行する。
-6. サブエージェントに未コミット差分の静的レビューを依頼する。
-7. 重大指摘があれば修正する。
-8. 重大指摘がなくなるまで再レビューする。
-9. `PLAN_STATUS.md` を必要最小限更新する。
-10. ticket ID を含む commit message で commit する。
-11. 次の slice へ進む。
-
-迷った場合の優先順位:
-
-1. release freeze を破らない。
-2. 挙動変更、DB schema 変更、serialized value 変更、UI 文言変更を避ける。
-3. root ViewModel / code-behind / facade から責務が減る方向を選ぶ。
-4. private 実装配置を固定する test を増やさない。
-5. `.NET 10` 移行 blocker を増やさない。
-6. それでも迷う場合は、より小さい slice に分けて `PLAN_STATUS.md` に理由を記録する。
-
-## 着手前チェック
-
-PowerShell で実行する。
-
-```powershell
-git status --short
-dotnet tool restore
-dotnet restore .\BeMusicSeeker.sln
-```
-
-確認すること。
-
-- 未コミット差分がある場合、今回の作業対象と無関係な差分かどうかを記録する。
-- 既存失敗がある場合は、変更前の failure と変更後の failure を区別できるようにする。
-
-## 標準確認コマンド
-
-大きな refactor ticket の完了時は原則として次を実行する。
+PowerShell 7 で実行する。
 
 ```powershell
 dotnet build .\BeMusicSeeker.sln /p:Configuration=Release
@@ -126,120 +62,90 @@ dotnet test .\BeMusicSeeker.sln /p:Configuration=Release
 dotnet format whitespace .\BeMusicSeeker.sln --verify-no-changes --no-restore --verbosity minimal
 $msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -version "[17.0,18.0)" -products * -requires Microsoft.Component.MSBuild -find "MSBuild\Current\Bin"
 dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path $msbuildPath --properties Configuration=Release --severity-level warning --verbosity minimal
+git diff --check
 ```
 
-通常開発 SDK は `global.json` で .NET SDK 10 系に固定する。SDK 10 環境では Roslynator 0.12.0 が SDK 同梱 MSBuild 18 / VS 2026 MSBuild 18 で失敗するため、Roslynator だけは Visual Studio 2022 / MSBuild 17 の path を明示する。Roslynator が MSBuild 18 に対応したら見直す。
+小さい unit は targeted test を先に実行してよい。共有 model、root ViewModel、DB、file system、settings、dispatcher、lock / concurrency に触れた場合は commit 前に full test を実行する。すべての outcome 完了時に full test を実行する。
 
-Roslynator の標準確認は `--severity-level warning` とする。info レベル診断は通常の refactor ticket の pass / fail 判定に使わず、必要な棚卸しで明示的に目的を決めた場合だけ別扱いで確認する。
+SDK は `global.json` の .NET SDK 10 系を使う。Roslynator 0.12.0 が MSBuild 18 で動作しない間は、上記のとおり Visual Studio 2022 / MSBuild 17 を指定する。analyzer Gate はコマンドが正常終了し、今回差分による warning が増えていないこととする。既存 warning は `.codex/AGENTS.md` の分類規則に従い、info 診断は目的を定めた棚卸しでだけ扱う。
 
-小さい ticket では関連テストを先に回してよい。ただし、共有 model / ViewModel / DB / file system / settings / dispatcher に触れた場合は最終的に全体 test を回す。
+### UI outcome の smoke check
 
-## テスト移行ルール
+UI observable behavior に触れる outcome の完了時は、自動テストに加えて変更範囲に該当する次の操作を確認する。
 
-### source-text tests
+- application startup、initial scan / reload、正常 shutdown。
+- regular chart / playlist detail / playlist summary / play history の表示切替。
+- table の sort、filter、selection、context action、drag-drop。
+- settings dialog の open、edit、save、再表示。
+- playback panel / external player host の主要操作。
+- progress 表示、cancel、失敗時の dialog / status。
 
-巨大ファイルを `File.ReadAllText` しているテストは、ファイル分割で壊れやすい。次のような helper を先に入れる。
+Codex が操作可能な環境では自走して確認する。外部 player、実データ、資格情報などが必要で確認できない項目だけを、outcome 完了前の manual evidence としてユーザーへ依頼する。
 
-候補:
+## サブエージェント静的レビュー
 
-- `BeMusicSeeker.Tests/SourceTextTestHelper.cs`
-
-責務:
-
-- `ReadProductionSourceText(params string[] relativePathParts)`
-- `ReadProductionSourceTextGlob(string baseDirectory, string includePattern)`
-- `ReadMainWindowViewModelSourceText()`
-- `ReadMainWindowSourceText()`
-- `ReadBmsLibrarySourceText()`
-
-`ReadMainWindowViewModelSourceText()` は、少なくとも次を連結して読む。
-
-- `BeMusicSeeker/ViewModels/MainWindowViewModel.cs`
-- `BeMusicSeeker/ViewModels/MainWindowViewModel*.cs`
-- `BeMusicSeeker/ViewModels/MainWindow/**/*.cs`
-
-`ReadMainWindowSourceText()` は、少なくとも次を連結して読む。
-
-- `BeMusicSeeker/Views/MainWindow.cs`
-- `BeMusicSeeker/Views/MainWindow*.cs`
-- `BeMusicSeeker/Views/MainWindow/**/*.cs`
-
-`ReadBmsLibrarySourceText()` は、少なくとも次を連結して読む。
-
-- `BeMusicSeeker/Models/BMSLibrary.cs`
-- `BeMusicSeeker/Models/BMSLibrary*.cs`
-- `BeMusicSeeker/Models/BmsLibrary/**/*.cs`
-- `BeMusicSeeker/Models/BmsLibraryInternal/**/*.cs` は必要な test のみ対象にする。
-
-### private reflection tests
-
-private member を直接参照している test は、次の順で置き換える。
-
-1. 抽出予定の pure service を先に作る。
-2. service の public/internal API を test する。
-3. 既存 private reflection test は同じ挙動を検証できることを確認してから削除する。
-4. 互換 wrapper は production code が使わなくなった段階で削除する。
-
-## 新規 service の置き場所
-
-目安:
-
-- UI presentation / ViewModel 補助: `BeMusicSeeker/ViewModels/MainWindow/`
-- WPF behavior / command adapter: `BeMusicSeeker/Views/Behaviors/` または `BeMusicSeeker/Views/MainWindow/`
-- domain service: `BeMusicSeeker/Models/BmsLibraryInternal/`
-- playlist domain service: `BeMusicSeeker/Models/PlaylistInternal/` を新設してよい
-- migration / settings facade: `BeMusicSeeker/Properties/` または `BeMusicSeeker/Models/Configuration/`
-
-既存 namespace 互換を優先する。フォルダを変えても namespace は必要に応じて維持する。
-
-## XML コメントと理由コメント
-
-public / protected / internal 型・メンバーには XML コメントを付ける。特に以下は理由コメントを残す。
-
-- lock 順序
-- UI thread / Dispatcher 前提
-- LR2 / beatoraja / song.db 互換のための特殊処理
-- file system mutation の失敗許容
-- performance 最適化
-- .NET Framework 互換のために当面残す処理
-
-## 変更後レビュー観点
-
-サブエージェントには、未コミット差分の静的レビューだけを依頼する。依頼文は次を基本形にする。
+依頼文は次を基本形にする。
 
 ```text
-あなたはサブエージェントです。
-このターンでは実装・ファイル編集・ビルド・テスト・format・roslynator・commit を禁止します。
+現在の未コミット差分を静的レビューしてください。
+編集、build、test、format、analyzer、commit は禁止です。
+git diff / git status / rg / Get-Content などの読み取りだけを使ってください。
 
-目的は「現在の未コミット差分の静的レビューのみ」です。
-許可する操作は git diff / git status / rg / Get-Content などの読み取り調査だけです。
+確認事項:
+- active outcome の acceptance criteria を実際に前進させているか
+- state と behavior の owner が明確になり、root の責務が減っているか
+- abstraction / host / adapter / DTO を増やしただけになっていないか
+- 旧 route、旧 binding、root relay、callback host、test-only production seam が不要に残っていないか
+- 挙動、DB schema、setting key、serialized value、外部形式、lock ordering を意図せず変えていないか
+- View / global singleton / Settings / NLog / DB / Dispatcher への依存方向を悪化させていないか
+- private 実装配置を固定する brittle test を増やしていないか
+- .NET 10 migration blocker を増やしていないか
 
-レビュー観点:
-- 今回 ticket の目的に対して責務が本当に root から減っているか
-- 新しい service / coordinator が View / Settings / NLog / DB / Dispatcher に不適切に依存していないか
-- 挙動変更、永続化 schema 変更、serialized name 変更、UI 文言変更が紛れ込んでいないか
-- root から child への依存方向が悪化していないか
-- test が private 実装配置をさらに固定していないか
-- .NET 10 移行阻害要因を増やしていないか
-
-重大度順に、ファイル/行参照付きで返してください。
-問題がなければ「重大な指摘なし」と短く返してください。
+重大度順にファイルと行番号を付けて返してください。
+問題がなければ「重大な指摘なし」と返してください。
 ```
 
 重大指摘には少なくとも次を含む。
 
-- build / test を壊す可能性が高い。
-- 実行時挙動を変える可能性が高い。
-- DB schema / serialized value / setting key / file format を意図せず変える。
-- View / ViewModel / service の責務分離を悪化させる。
-- 新規 service / coordinator に UI 型や global singleton の直依存を増やす。
-- `MainWindowViewModel`、`MainWindow.cs`、`BMSLibrary` の巨大化をさらに進める。
-- `.NET 10` 移行 blocker を増やす。
-- release freeze を破る。
-- private 実装配置を固定する brittle test を増やす。
+- build / test / runtime behavior を壊す可能性が高い。
+- persistence、serialization、UI observable behavior、public compatibility を意図せず変える。
+- responsibility owner が増える、循環する、または root に残ったままになる。
+- production の通常経路で使わない abstraction や test 専用 seam を追加する。
+- global dependency、UI technology、DB connection、lock、Dispatcher の漏出を増やす。
+- Gate の測定値だけを partial split や file move で満たす。
 
-- root VM / root domain class から責務が本当に減ったか。
-- 新 service が `Settings.Default`、`Window`、`Control`、`MessageBox`、`NLog` に直接依存していないか。
-- migration risk を wrapper に閉じ込めたか。
-- old API が test のためだけに残っていないか。
-- persisted setting / DB schema / serialized name を無計画に変えていないか。
+## Outcome 完了判定
+
+implementation unit の積み重ねだけで outcome を自動完了にしない。開始 commit からの全差分と現行コードを確認し、総合計画の Outcome completion rule をすべて満たすことを確認する。
+
+完了候補の unit を commit する前に、サブエージェントへ開始 commit 以降の commit 済み変更、現在の未コミット差分、現行コードをまとめて静的レビューさせる。重大指摘の修正、再テスト、再レビュー、`PLAN_STATUS.md` の完了更新を同じ最終 unit に含める。完了だけを記録する docs-only commit は作らない。
+
+## 計画資料と ADR
+
+active な計画資料は次の 4 ファイルに限定する。
+
+- `BeMusicSeekerリファクタリング計画.md`
+- `00_Codex共通実行ルール.md`
+- `PLAN_STATUS.md`
+- `DOTNET10_MIGRATION_BLOCKERS.md`
+
+`PLAN_STATUS.md` は baseline、active outcome と acceptance criteria、outcome states、Gate scorecard、active outcome blocker、Next action だけを持つ。完了履歴、テスト件数、行数推移、次 seam の調査ログは Git commit に残す。
+
+永続判断は原則として関連する正本の target / Gate / blocker policy へ反映する。独立 ADR は次をすべて満たす場合だけ、4文書制を拡張する理由とともにユーザーへ提案し、承認後に追加する。
+
+- 複数の現実的な選択肢がある。
+- outcome 完了後も判断理由を参照する必要がある。
+- public API、persistence / schema、serialization、UI observable behavior、lock / concurrency、互換性、`.NET 10` migration policy のいずれかに影響する。
+
+「次に切る helper」「次の private reflection test」「一時的な class / interface 配置」は ADR にしない。
+
+## 自走と escalation
+
+Codex は、active outcome の範囲内で設計・実装・test・review・commit を継続する。次の場合だけユーザーへ確認する。
+
+- observable behavior、public compatibility、persisted data の意味を変える必要がある。
+- 目標アーキテクチャまたは ordered backlog を実質的に変更する必要がある。
+- 外部資産、資格情報、手動 UI 操作など、Codex だけでは取得できない情報が必要である。
+- 安全な選択肢を調査しても、複数案の trade-off をユーザーが決める必要がある。
+
+単に実装が大きい、難しい、時間がかかる、追加調査が必要という理由では停止しない。outcome を implementation unit に分けて進める。

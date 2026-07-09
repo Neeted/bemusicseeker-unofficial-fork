@@ -21,20 +21,19 @@
 
 - 通常作業で機能を実装・修正した場合、**絶対にユーザーの承認を得る前に自動で `git commit` を実行してはならない**。
 - 通常作業では、必ずユーザーに動作確認を依頼し、OKの回答を得た後にコミットのコマンドを提案し、承認を得てから実行（またはユーザー自身に実行）してもらうこと。
-- 例外: `devdocs/plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md` の Refactoring MVP active lane 作業では、ユーザーが実装単位ごとの commit を事前許可している。Codex は ticket / slice 完了後、標準確認とサブエージェント静的レビューで重大指摘がないことを確認してから、ユーザー承認待ちなしで `git commit` してよい。
-- Refactoring MVP commit message には ticket ID を含める。
-  - 例: `refactor(mvvm): REF-MVP-A1 extract playlist detail build coordinator`
-  - 例: `refactor(ui): REF-MVP-B1 bridge table context menu command`
-  - 例: `refactor(domain): REF-MVP-C1 add BMSLibrary source text helper`
-  - 例: `docs(migration): REF-MVP-D1 inventory dotnet10 blockers`
+- 例外: `devdocs/plan/BeMusicSeeker_refactoring_plans/PLAN_STATUS.md` の active outcome 作業では、ユーザーが implementation unit ごとの commit を事前許可している。Codex は unit 完了後、標準確認とサブエージェント静的レビューで重大指摘がないことを確認してから、ユーザー承認待ちなしで `git commit` してよい。
+- active outcome の implementation commit message には outcome ID を含める。ユーザーが明示依頼した計画自体の変更はこの限りではない。
+  - 例: `refactor(ui): UI-01 move chart-list terminal apply ownership`
+  - 例: `refactor(app): APP-01 route settings save through configuration owner`
+  - 例: `refactor(domain): LIB-01 move scan commit into the initialization pipeline`
 - **注意**: 本プロジェクト（ブランチ）はリモート未登録のため、コミット後の `git push` は不要（実行不可）である。
-- `git push`、GitHub Release、tag 作成、release draft 作成、publish / release script 実行は、ユーザーから明示依頼があっても Refactoring MVP Gate 通過前は禁止する。
+- `git push`、GitHub Release、tag 作成、release draft 作成、publish / release script 実行は、ユーザーから明示依頼があっても Refactoring Completion Gate 通過前は禁止する。
 
 ---
 
-## 1.1 Refactoring MVP Release Freeze
+## 1.1 Refactoring Completion Release Freeze
 
-Refactoring MVP Gate 通過まで、リリース作業を凍結する。Release Freeze は `## 5. バージョン更新作業時の手順` より優先する。
+[リファクタリング完了計画](../devdocs/plan/BeMusicSeeker_refactoring_plans/BeMusicSeekerリファクタリング計画.md)の Refactoring Completion Gate 通過まで、リリース作業を凍結する。Release Freeze は `## 5. バージョン更新作業時の手順` より優先する。Gate 通過後も、ユーザーの明示指示なしにリリース作業へ進まない。
 
 禁止:
 
@@ -51,8 +50,9 @@ Refactoring MVP Gate 通過まで、リリース作業を凍結する。Release 
 - build / test のためのローカル artifact 作成
 - release freeze ルール自体を文書化する docs 変更
 - 既存 release 関連コードの refactor blocker 調査
+- active outcome に必要な release / updater / output-layout code の構造整理。ただし version、配布挙動、公開手順は変えない
 
-blocker 調査から実リリース準備へ進んではならない。
+blocker の調査・境界整理から実リリース準備へ進んではならない。
 
 ---
 
@@ -272,4 +272,4 @@ dotnet build / dotnet test / dotnet format / dotnet roslynator analyze は絶対
 5. `## 4. ビルド環境とコマンド` に従った確認
 6. サブエージェント静的レビュー
 7. ユーザー承認待ち（通常作業のコミット前）
-8. Refactoring MVP active lane 作業では、重大指摘なし・標準確認完了後にユーザー承認待ちなしで commit してよい
+8. PLAN_STATUS の active outcome 作業では、重大指摘なし・標準確認完了後にユーザー承認待ちなしで commit してよい
