@@ -853,24 +853,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private long lastPlaylistSummaryBuildElapsedMs;
 
-    private long playlistSummaryPresentationGeneration;
-
-    private long playlistSummaryDataRebuildGeneration;
-
-    private long playlistSummaryRowsCacheGeneration;
-
-    internal sealed class PlaylistSummaryViewAppliedEventArgs : EventArgs
-    {
-        internal PlaylistSummaryViewAppliedEventArgs(long dataRebuildGeneration)
-        {
-            DataRebuildGeneration = dataRebuildGeneration;
-        }
-
-        internal long DataRebuildGeneration { get; }
-    }
-
-    internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied;
-
     private long lastPlaylistDetailBuildCompletedTimestamp;
 
     private long lastPlaylistDetailBuildElapsedMs;
@@ -2799,7 +2781,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             deferredPlaylistSummaryRefreshRequested = true;
         }
-        return Interlocked.Read(ref playlistSummaryDataRebuildGeneration) + 1L;
+        return PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration + 1L;
     }
 
     private void RequestDeferredPlaylistSummaryPresentationRefresh()
@@ -2868,7 +2850,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             playlistSummaryRowsCacheValid = false;
             playlistSummaryRowsCacheDataRebuildGeneration = 0L;
-            Interlocked.Increment(ref playlistSummaryRowsCacheGeneration);
+            PlaylistWorkspace.IncrementPlaylistSummaryRowsCacheGeneration();
         }
     }
 
@@ -2894,7 +2876,7 @@ public partial class MainWindowViewModel : ViewModel
             playlistSummaryRowsCache = [.. (rows ?? [])];
             playlistSummaryRowsCacheValid = true;
             playlistSummaryRowsCacheDataRebuildGeneration = dataRebuildGeneration;
-            Interlocked.Increment(ref playlistSummaryRowsCacheGeneration);
+            PlaylistWorkspace.IncrementPlaylistSummaryRowsCacheGeneration();
         }
     }
 
@@ -2902,7 +2884,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (lockPlaylistSummaryRowsCache)
         {
-            cacheGeneration = Interlocked.Read(ref playlistSummaryRowsCacheGeneration);
+            cacheGeneration = PlaylistWorkspace.CurrentPlaylistSummaryRowsCacheGeneration;
             dataRebuildGeneration = playlistSummaryRowsCacheDataRebuildGeneration;
             if (!playlistSummaryRowsCacheValid)
             {
@@ -8117,27 +8099,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    /// <summary>
-    /// プレイリストサマリー画面 (特定のプレイリスト配下のランプ状況等を集計した表) を構成する行データのコレクションです。
-    /// プレイリストの選択状態に応じて動的に集計・更新されます。
-    /// </summary>
-    public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView
-    {
-        get
-        {
-            return PlaylistWorkspace.PlaylistSummaryView;
-        }
-        set
-        {
-            ObservableCollection<PlaylistSummaryRow> previousView = PlaylistWorkspace.PlaylistSummaryView;
-            PlaylistWorkspace.PlaylistSummaryView = value;
-            if (!ReferenceEquals(previousView, PlaylistWorkspace.PlaylistSummaryView))
-            {
-                TrySchedulePlaylistReloadCleanup();
-            }
-        }
-    }
-
     public bool IsPlaylistSummaryMode
     {
         get
@@ -10003,7 +9964,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
         PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;
-        PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -10020,13 +9980,13 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
+        if (propertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView)
+            || propertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryText))
+        {
+            return;
+        }
 
         RaisePropertyChanged(propertyName);
-    }
-
-    private void PlaylistWorkspacePlaylistSummaryViewApplied(object sender, PlaylistSummaryViewAppliedEventArgs e)
-    {
-        PlaylistSummaryViewApplied?.Invoke(this, e);
     }
 
     private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -19125,7 +19085,7 @@ public partial class MainWindowViewModel : ViewModel
         else
         {
             GridHeaderText = string.Empty;
-            MainChartList.SummaryText = string.Empty;
+            PlaylistWorkspace.PlaylistSummaryText = string.Empty;
             ConsumeDeferredPlaylistSummaryRefresh();
             ConsumeDeferredPlaylistSummaryPresentationRefresh();
         }
@@ -19213,7 +19173,7 @@ public partial class MainWindowViewModel : ViewModel
             long buildMs = stopwatch.ElapsedMilliseconds;
             if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
             {
-                LogMainViewBuild("playlist_summary_build_stale rawCount=" + rows.Count + " dataGeneration=" + dataRebuildGeneration + " currentDataGeneration=" + Interlocked.Read(ref playlistSummaryDataRebuildGeneration) + " buildMs=" + buildMs);
+                LogMainViewBuild("playlist_summary_build_stale rawCount=" + rows.Count + " dataGeneration=" + dataRebuildGeneration + " currentDataGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration + " buildMs=" + buildMs);
                 return;
             }
             if (unloadedTableCount == 0)
@@ -19240,22 +19200,22 @@ public partial class MainWindowViewModel : ViewModel
 
     private long BeginPlaylistSummaryPresentationGeneration()
     {
-        return Interlocked.Increment(ref playlistSummaryPresentationGeneration);
+        return PlaylistWorkspace.BeginPlaylistSummaryPresentationGeneration();
     }
 
     private long BeginPlaylistSummaryDataRebuildGeneration()
     {
-        return Interlocked.Increment(ref playlistSummaryDataRebuildGeneration);
+        return PlaylistWorkspace.BeginPlaylistSummaryDataRebuildGeneration();
     }
 
     private bool IsCurrentPlaylistSummaryPresentationGeneration(long generation)
     {
-        return generation == Interlocked.Read(ref playlistSummaryPresentationGeneration);
+        return generation == PlaylistWorkspace.CurrentPlaylistSummaryPresentationGeneration;
     }
 
     private bool IsCurrentPlaylistSummaryDataRebuildGeneration(long generation)
     {
-        return generation == Interlocked.Read(ref playlistSummaryDataRebuildGeneration);
+        return PlaylistWorkspace.IsCurrentPlaylistSummaryDataRebuildGeneration(generation);
     }
 
     private List<PlaylistSummaryRow> BuildPlaylistSummaryRows(long dataRebuildGeneration, out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount, out int entryScanCount, out int unloadedTableCount, out int summaryCacheHitCount, out int summaryCacheMissCount)
@@ -19440,7 +19400,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistSummaryPresentationResult presentationResult = BuildPlaylistSummaryPresentationRows(safeRawRows, PlaylistSummaryKeywordFilter, PlaylistSummaryOwnedFilter, PlaylistSummarySortParameters, false);
         if (!CanApplyPlaylistSummaryPresentation(presentationGeneration, dataRebuildGeneration, cacheGeneration))
         {
-            LogMainViewBuild("playlist_summary_present_stale inputCount=" + safeRawRows.Count + " generation=" + presentationGeneration + " currentGeneration=" + Interlocked.Read(ref playlistSummaryPresentationGeneration) + " dataGeneration=" + (dataRebuildGeneration?.ToString(CultureInfo.InvariantCulture) ?? "-") + " currentDataGeneration=" + Interlocked.Read(ref playlistSummaryDataRebuildGeneration) + " cacheGeneration=" + (cacheGeneration?.ToString(CultureInfo.InvariantCulture) ?? "-") + " currentCacheGeneration=" + Interlocked.Read(ref playlistSummaryRowsCacheGeneration));
+            LogMainViewBuild("playlist_summary_present_stale inputCount=" + safeRawRows.Count + " generation=" + presentationGeneration + " currentGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryPresentationGeneration + " dataGeneration=" + (dataRebuildGeneration?.ToString(CultureInfo.InvariantCulture) ?? "-") + " currentDataGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration + " cacheGeneration=" + (cacheGeneration?.ToString(CultureInfo.InvariantCulture) ?? "-") + " currentCacheGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryRowsCacheGeneration);
             return;
         }
         Action reflect = delegate
@@ -19449,9 +19409,27 @@ public partial class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>(presentationResult.Rows);
-            MainChartList.SummaryText = string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, presentationResult.Rows.Sum(r => r.TotalCharts), presentationResult.Rows.Count);
-            PlaylistWorkspace.NotifyPlaylistSummaryViewApplied(dataRebuildGeneration ?? 0L);
+            bool applied;
+            try
+            {
+                applied = PlaylistWorkspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+                {
+                    Rows = new ObservableCollection<PlaylistSummaryRow>(presentationResult.Rows),
+                    SummaryText = string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, presentationResult.Rows.Sum(r => r.TotalCharts), presentationResult.Rows.Count),
+                    PresentationGeneration = presentationGeneration,
+                    DataRebuildGeneration = dataRebuildGeneration,
+                    CacheGeneration = cacheGeneration
+                });
+            }
+            catch (PlaylistSummaryPublishException)
+            {
+                TrySchedulePlaylistReloadCleanup();
+                throw;
+            }
+            if (applied)
+            {
+                TrySchedulePlaylistReloadCleanup();
+            }
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {
@@ -19482,7 +19460,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration.Value);
         }
-        if (cacheGeneration.HasValue && cacheGeneration.Value != Interlocked.Read(ref playlistSummaryRowsCacheGeneration))
+        if (cacheGeneration.HasValue && cacheGeneration.Value != PlaylistWorkspace.CurrentPlaylistSummaryRowsCacheGeneration)
         {
             return false;
         }

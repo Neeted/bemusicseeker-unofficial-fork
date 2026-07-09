@@ -102,7 +102,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainTable.Contains("ItemsSource=\"{Binding ChartRowsView"));
         Assert.IsFalse(mainTable.Contains("SelectedIndex=\"{Binding SelectedIndexChartRowsView"));
         Assert.IsFalse(mainTable.Contains("RowDragKind=\"{Binding ChartRowsViewRowDragKind"));
-        Assert.AreEqual(2, CountOccurrences(xaml, "Text=\"{Binding MainChartList.SummaryText}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Text=\"{Binding MainChartList.SummaryText}\""));
+        Assert.AreEqual(1, CountOccurrences(xaml, "Text=\"{Binding PlaylistWorkspace.PlaylistSummaryText}\""));
+        StringAssert.Contains(xaml, "x:Name=\"customTablePlaylistSummary\"");
+        StringAssert.Contains(xaml, "DataContext=\"{Binding PlaylistWorkspace}\"");
+        StringAssert.Contains(xaml, "IsChecked=\"{Binding PlaylistWorkspace.PlaylistSummaryColumnsSettings.PlaylistId.Visibility, Source={StaticResource vm}");
+        Assert.IsFalse(xaml.Contains("IsChecked=\"{Binding PlaylistSummaryColumnsSettings."));
         Assert.IsFalse(xaml.Contains("Text=\"{Binding GridSummaryText}\""));
         Assert.IsFalse(mainTable.Contains("SortColumnName=\"{Binding SortParameters.ColumnsName"));
         Assert.IsFalse(mainTable.Contains("RowDragKind=\"PlaylistDropCandidateRows\""));

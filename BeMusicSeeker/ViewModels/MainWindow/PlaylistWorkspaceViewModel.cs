@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Runtime.Serialization;
 using System.Threading;
 using System.Windows;
 using Livet;
@@ -19,6 +21,8 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
     private Visibility columnSettingsVisibilityForPlaylist = Visibility.Collapsed;
 
     private ObservableCollection<PlaylistSummaryRow> playlistSummaryView = [];
+
+    private string playlistSummaryText = string.Empty;
 
     private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;
 
@@ -46,10 +50,18 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
 
     private long lastPlaylistSummaryBuildCompletedTimestamp;
 
+    private readonly object playlistSummaryTransitionLock = new();
+
+    private long playlistSummaryPresentationGeneration;
+
+    private long playlistSummaryDataRebuildGeneration;
+
+    private long playlistSummaryRowsCacheGeneration;
+
     /// <summary>
     /// Raised after the summary view is replaced and code-behind selection restoration can run.
     /// </summary>
-    internal event EventHandler<MainWindowViewModel.PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied;
+    internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied;
 
     /// <summary>
     /// Gets or sets the current playlist summary sort parameters.
@@ -145,22 +157,24 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
     public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView
     {
         get => playlistSummaryView;
+    }
+
+    public string PlaylistSummaryText
+    {
+        get => playlistSummaryText;
         internal set
         {
-            if (ReferenceEquals(playlistSummaryView, value))
+            string next = value ?? string.Empty;
+            bool changed;
+            lock (playlistSummaryTransitionLock)
             {
-                return;
+                changed = playlistSummaryText != next;
+                playlistSummaryText = next;
             }
-
-            ObservableCollection<PlaylistSummaryRow> previousView = playlistSummaryView;
-            playlistSummaryView = value ?? [];
-            if (previousView != null && !ReferenceEquals(previousView, playlistSummaryView))
+            if (changed)
             {
-                previousPlaylistSummaryViewWeakReference = new WeakReference<ObservableCollection<PlaylistSummaryRow>>(previousView);
+                RaisePropertyChanged(nameof(PlaylistSummaryText));
             }
-
-            Interlocked.Exchange(ref lastPlaylistSummaryBuildCompletedTimestamp, Stopwatch.GetTimestamp());
-            RaisePropertyChanged(nameof(PlaylistSummaryView));
         }
     }
 
@@ -172,9 +186,14 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         get => isPlaylistSummaryMode;
         internal set
         {
-            if (isPlaylistSummaryMode != value)
+            bool changed;
+            lock (playlistSummaryTransitionLock)
             {
+                changed = isPlaylistSummaryMode != value;
                 isPlaylistSummaryMode = value;
+            }
+            if (changed)
+            {
                 RaisePropertyChanged(nameof(IsPlaylistSummaryMode));
             }
         }
@@ -334,6 +353,137 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
 
     internal long LastPlaylistSummaryBuildCompletedTimestamp => Interlocked.Read(ref lastPlaylistSummaryBuildCompletedTimestamp);
 
+    internal long BeginPlaylistSummaryPresentationGeneration()
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            return ++playlistSummaryPresentationGeneration;
+        }
+    }
+
+    internal long BeginPlaylistSummaryDataRebuildGeneration()
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            return ++playlistSummaryDataRebuildGeneration;
+        }
+    }
+
+    internal long IncrementPlaylistSummaryRowsCacheGeneration()
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            return ++playlistSummaryRowsCacheGeneration;
+        }
+    }
+
+    internal long CurrentPlaylistSummaryPresentationGeneration
+    {
+        get
+        {
+            lock (playlistSummaryTransitionLock)
+            {
+                return playlistSummaryPresentationGeneration;
+            }
+        }
+    }
+
+    internal long CurrentPlaylistSummaryDataRebuildGeneration
+    {
+        get
+        {
+            lock (playlistSummaryTransitionLock)
+            {
+                return playlistSummaryDataRebuildGeneration;
+            }
+        }
+    }
+
+    internal long CurrentPlaylistSummaryRowsCacheGeneration
+    {
+        get
+        {
+            lock (playlistSummaryTransitionLock)
+            {
+                return playlistSummaryRowsCacheGeneration;
+            }
+        }
+    }
+
+    internal bool IsCurrentPlaylistSummaryDataRebuildGeneration(long generation)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            return generation == playlistSummaryDataRebuildGeneration;
+        }
+    }
+
+    internal bool TryApplyPlaylistSummary(PlaylistSummaryApplyRequest request)
+    {
+        if (request?.Rows == null)
+        {
+            throw new ArgumentException("Playlist summary rows are required.", nameof(request));
+        }
+
+        string nextSummaryText = request.SummaryText ?? string.Empty;
+        bool rowsChanged;
+        bool textChanged;
+        lock (playlistSummaryTransitionLock)
+        {
+            if (!isPlaylistSummaryMode
+                || request.PresentationGeneration != playlistSummaryPresentationGeneration
+                || (request.DataRebuildGeneration.HasValue && request.DataRebuildGeneration.Value != playlistSummaryDataRebuildGeneration)
+                || (request.CacheGeneration.HasValue && request.CacheGeneration.Value != playlistSummaryRowsCacheGeneration))
+            {
+                return false;
+            }
+
+            rowsChanged = !ReferenceEquals(playlistSummaryView, request.Rows);
+            textChanged = playlistSummaryText != nextSummaryText;
+            if (rowsChanged)
+            {
+                ObservableCollection<PlaylistSummaryRow> previousView = playlistSummaryView;
+                playlistSummaryView = request.Rows;
+                if (previousView != null)
+                {
+                    previousPlaylistSummaryViewWeakReference = new WeakReference<ObservableCollection<PlaylistSummaryRow>>(previousView);
+                }
+                Interlocked.Exchange(ref lastPlaylistSummaryBuildCompletedTimestamp, Stopwatch.GetTimestamp());
+            }
+            playlistSummaryText = nextSummaryText;
+        }
+
+        var publishExceptions = new List<Exception>();
+        if (rowsChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryView)), publishExceptions);
+        }
+        if (textChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), publishExceptions);
+        }
+        TryPublish(
+            () => PlaylistSummaryViewApplied?.Invoke(this, new PlaylistSummaryViewAppliedEventArgs(request.DataRebuildGeneration ?? 0L)),
+            publishExceptions);
+        if (publishExceptions.Count > 0)
+        {
+            throw new PlaylistSummaryPublishException(new AggregateException(publishExceptions));
+        }
+        return true;
+    }
+
+    private static void TryPublish(Action publish, List<Exception> exceptions)
+    {
+        try
+        {
+            publish();
+        }
+        catch (Exception ex)
+        {
+            exceptions.Add(ex);
+        }
+    }
+
     internal bool TryGetPreviousPlaylistSummaryViewState(out bool alive, out int rowCount)
     {
         ObservableCollection<PlaylistSummaryRow> previousSummaryRows = null;
@@ -365,9 +515,56 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    internal void NotifyPlaylistSummaryViewApplied(long dataRebuildGeneration)
+}
+
+internal sealed class PlaylistSummaryApplyRequest
+{
+    internal ObservableCollection<PlaylistSummaryRow> Rows { get; set; }
+
+    internal string SummaryText { get; set; } = string.Empty;
+
+    internal long PresentationGeneration { get; set; }
+
+    internal long? DataRebuildGeneration { get; set; }
+
+    internal long? CacheGeneration { get; set; }
+}
+
+internal sealed class PlaylistSummaryViewAppliedEventArgs : EventArgs
+{
+    internal PlaylistSummaryViewAppliedEventArgs(long dataRebuildGeneration)
     {
-        PlaylistSummaryViewApplied?.Invoke(this, new MainWindowViewModel.PlaylistSummaryViewAppliedEventArgs(dataRebuildGeneration));
+        DataRebuildGeneration = dataRebuildGeneration;
+    }
+
+    internal long DataRebuildGeneration { get; }
+}
+
+[Serializable]
+internal sealed class PlaylistSummaryPublishException : Exception
+{
+    internal PlaylistSummaryPublishException()
+    {
+    }
+
+    internal PlaylistSummaryPublishException(string message)
+        : base(message)
+    {
+    }
+
+    internal PlaylistSummaryPublishException(Exception innerException)
+        : base("Playlist summary state was committed but publishing notifications failed.", innerException)
+    {
+    }
+
+    internal PlaylistSummaryPublishException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
+    private PlaylistSummaryPublishException(SerializationInfo info, StreamingContext context)
+        : base(info, context)
+    {
     }
 }
 

@@ -386,7 +386,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Deactivated += MainWindow_Deactivated;
         if (base.DataContext is MainWindowViewModel viewModel)
         {
-            viewModel.PlaylistSummaryViewApplied += MainWindowViewModel_PlaylistSummaryViewApplied;
+            viewModel.PlaylistWorkspace.PlaylistSummaryViewApplied += MainWindowViewModel_PlaylistSummaryViewApplied;
             SubscribeViewModelUiInteractions(viewModel);
         }
         Closed += delegate
@@ -1075,7 +1075,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (viewModel != null)
         {
-            viewModel.PlaylistSummaryViewApplied -= MainWindowViewModel_PlaylistSummaryViewApplied;
+            viewModel.PlaylistWorkspace.PlaylistSummaryViewApplied -= MainWindowViewModel_PlaylistSummaryViewApplied;
         }
         viewModel?.SetStartupUiInteractionBlocked(false);
         calcelAllContextMenuTasks();
@@ -1317,7 +1317,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         pendingPlaylistSummarySelectionMinDataGeneration = 0L;
     }
 
-    private void MainWindowViewModel_PlaylistSummaryViewApplied(object sender, MainWindowViewModel.PlaylistSummaryViewAppliedEventArgs e)
+    private void MainWindowViewModel_PlaylistSummaryViewApplied(object sender, PlaylistSummaryViewAppliedEventArgs e)
     {
         if (e?.DataRebuildGeneration > 0L)
         {
@@ -1345,7 +1345,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         HashSet<int> playlistIdSet = pendingPlaylistSummarySelectionPlaylistIds;
         int? currentPlaylistId = pendingPlaylistSummaryCurrentPlaylistId;
-        ClearPendingPlaylistSummarySelectionRestore();
         customTablePlaylistSummary.SelectRowsByPredicate(
             row => row is PlaylistSummaryRow playlistSummaryRow
                 && playlistSummaryRow.PlaylistId.HasValue
@@ -1353,6 +1352,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             row => currentPlaylistId.HasValue
                 && row is PlaylistSummaryRow playlistSummaryRow
                 && playlistSummaryRow.PlaylistId == currentPlaylistId);
+        ClearPendingPlaylistSummarySelectionRestore();
     }
 
     private static List<int> GetPlaylistSummaryRowIds(IEnumerable<PlaylistSummaryRow> rows)

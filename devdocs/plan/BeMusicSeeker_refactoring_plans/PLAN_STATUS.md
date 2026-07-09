@@ -79,4 +79,4 @@ Non-goals:
 
 ## Next action
 
-playlist summary の rows / summary / applied event を `PlaylistWorkspace` owner に揃える。次に残る refresh request / cache / cancellation ownershipを移し、root の feature-specific terminal mutation を監査する。docs-only checkpoint は作らない。
+UI-01 の残る refresh request / cache / cancellation ownershipを移し、root の feature-specific terminal mutation と XAML/root relay を監査する。playlist summary table-count cache の generation 条件と、古いbuildの cancellation ownershipを先に整理する。docs-only checkpoint は作らない。
