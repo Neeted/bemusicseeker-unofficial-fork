@@ -79,4 +79,4 @@ Non-goals:
 
 ## Next action
 
-UI-01 の残る refresh request / cache / cancellation ownershipを移し、root の feature-specific terminal mutation と XAML/root relay を監査する。playlist summary table-count cache の generation 条件と、古いbuildの cancellation ownershipを先に整理する。docs-only checkpoint は作らない。
+UI-01 の playlist summary deferred refresh / build orchestration を owner transition にまとめ、root の feature-specific build と suppression flags を削除する。その後、main table sort / display refresh の XAML/root relay を child owner へ直接接続する。docs-only checkpoint は作らない。

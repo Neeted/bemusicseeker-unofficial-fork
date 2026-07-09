@@ -10470,12 +10470,23 @@ completeFileEnumerationOnce,
         return GetPlaylistSummaryOwnedHashSnapshot(out _, out _);
     }
 
+    internal PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot(CancellationToken cancellationToken)
+    {
+        return GetPlaylistSummaryOwnedHashSnapshot(cancellationToken, out _, out _);
+    }
+
     private PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot(out bool cacheHit, out int staleRetryCount)
+    {
+        return GetPlaylistSummaryOwnedHashSnapshot(CancellationToken.None, out cacheHit, out staleRetryCount);
+    }
+
+    private PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot(CancellationToken cancellationToken, out bool cacheHit, out int staleRetryCount)
     {
         PlaylistSummaryOwnedHashSnapshot snapshot;
         staleRetryCount = 0;
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             bool waitForDigestWindow = false;
             int invalidationVersion;
             int invalidationOwnedCollectionVersion;
@@ -10503,20 +10514,22 @@ completeFileEnumerationOnce,
             }
             if (waitForDigestWindow)
             {
-                WaitForOwnedDigestMutationWindowIdle();
+                WaitForOwnedDigestMutationWindowIdle(cancellationToken);
                 staleRetryCount++;
                 continue;
             }
 
+            cancellationToken.ThrowIfCancellationRequested();
             var stopwatch = Stopwatch.StartNew();
             OwnedChartHashIndexSnapshot ownedHashSnapshot;
             StorageRowsVersionSnapshot storageRowsVersion;
             int ownedCollectionVersion;
             using (rwlockBMSFiles.GetReaderGuard())
             {
-                ownedHashSnapshot = CreateOwnedHashIndexSnapshotUnsafe(out storageRowsVersion);
+                ownedHashSnapshot = CreateOwnedHashIndexSnapshotUnsafe(cancellationToken, out storageRowsVersion);
                 ownedCollectionVersion = OwnedChartCollectionVersion;
             }
+            cancellationToken.ThrowIfCancellationRequested();
             var rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot(
                 ownedHashSnapshot.Md5Hashes,
                 ownedHashSnapshot.Sha256Hashes)
@@ -10823,7 +10836,14 @@ completeFileEnumerationOnce,
 
     private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe(out StorageRowsVersionSnapshot storageRowsVersion)
     {
-        EnsureOwnedChartCollectionBuiltUnsafe();
+        return CreateOwnedHashIndexSnapshotUnsafe(CancellationToken.None, out storageRowsVersion);
+    }
+
+    private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe(
+        CancellationToken cancellationToken,
+        out StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        EnsureOwnedChartCollectionBuiltUnsafe(cancellationToken);
         lock (lockStorageRowsVersion)
         {
             StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
@@ -10836,7 +10856,7 @@ completeFileEnumerationOnce,
                     throw new InvalidOperationException("Owned chart collection storage row version is not current.");
                 }
                 storageRowsVersion = currentVersion;
-                return ownedChartCollection.CreateOwnedHashIndexSnapshot();
+                return ownedChartCollection.CreateOwnedHashIndexSnapshot(cancellationToken);
             }
         }
     }
@@ -11302,8 +11322,14 @@ completeFileEnumerationOnce,
 
     private void EnsureOwnedChartCollectionBuiltUnsafe()
     {
+        EnsureOwnedChartCollectionBuiltUnsafe(CancellationToken.None);
+    }
+
+    private void EnsureOwnedChartCollectionBuiltUnsafe(CancellationToken cancellationToken)
+    {
         while (true)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             CaptureStorageRowsForOwnedCollectionUnsafe(
                 out List<BMSFile> bmsFiles,
                 out List<LR2SongDBExtended.bmson_song> bmsonSongs,
@@ -11322,7 +11348,9 @@ completeFileEnumerationOnce,
             OwnedChartCollectionState rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
                 bmsFiles,
                 bmsonSongs,
+                cancellationToken,
                 out OwnedChartStorageRowFilterSummary filterSummary);
+            cancellationToken.ThrowIfCancellationRequested();
             LogOwnedChartCollectionSkippedRows("build", filterSummary);
             lock (lockStorageRowsVersion)
             {

@@ -58,6 +58,22 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
 
     private long playlistSummaryRowsCacheGeneration;
 
+    private List<PlaylistSummaryRow> playlistSummaryRowsCache = [];
+
+    private bool playlistSummaryRowsCacheValid;
+
+    private long playlistSummaryRowsCacheDataRebuildGeneration;
+
+    private readonly Dictionary<string, PlaylistSummaryCountResult> playlistSummaryTableCountCache = new(StringComparer.OrdinalIgnoreCase);
+
+    private long playlistSummaryTableCountCacheGeneration;
+
+    private CancellationTokenSource playlistSummaryDataBuildCancellation;
+
+    private int playlistSummaryDataBuildActiveCount;
+
+    private bool playlistSummaryDataBuildStopped;
+
     /// <summary>
     /// Raised after the summary view is replaced and code-behind selection restoration can run.
     /// </summary>
@@ -187,11 +203,20 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         internal set
         {
             bool changed;
+            CancellationTokenSource cancellation = null;
             lock (playlistSummaryTransitionLock)
             {
                 changed = isPlaylistSummaryMode != value;
                 isPlaylistSummaryMode = value;
+                if (changed && !value)
+                {
+                    cancellation = playlistSummaryDataBuildCancellation;
+                    playlistSummaryDataBuildCancellation = null;
+                    playlistSummaryDataRebuildGeneration++;
+                    playlistSummaryPresentationGeneration++;
+                }
             }
+            CancelDataBuild(cancellation);
             if (changed)
             {
                 RaisePropertyChanged(nameof(IsPlaylistSummaryMode));
@@ -363,17 +388,80 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
 
     internal long BeginPlaylistSummaryDataRebuildGeneration()
     {
+        CancellationTokenSource cancellation;
+        long generation;
         lock (playlistSummaryTransitionLock)
         {
-            return ++playlistSummaryDataRebuildGeneration;
+            cancellation = playlistSummaryDataBuildCancellation;
+            playlistSummaryDataBuildCancellation = null;
+            generation = ++playlistSummaryDataRebuildGeneration;
         }
+        CancelDataBuild(cancellation);
+        return generation;
     }
 
-    internal long IncrementPlaylistSummaryRowsCacheGeneration()
+    internal bool TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest request)
     {
+        CancellationTokenSource previousCancellation;
         lock (playlistSummaryTransitionLock)
         {
-            return ++playlistSummaryRowsCacheGeneration;
+            if (!isPlaylistSummaryMode || playlistSummaryDataBuildStopped)
+            {
+                request = null;
+                return false;
+            }
+            previousCancellation = playlistSummaryDataBuildCancellation;
+            playlistSummaryDataBuildCancellation = new CancellationTokenSource();
+            request = new PlaylistSummaryDataBuildRequest(
+                ++playlistSummaryDataRebuildGeneration,
+                playlistSummaryRowsCacheGeneration,
+                playlistSummaryTableCountCacheGeneration,
+                playlistSummaryDataBuildCancellation);
+            playlistSummaryDataBuildActiveCount++;
+        }
+        CancelDataBuild(previousCancellation);
+        return true;
+    }
+
+    internal void CompletePlaylistSummaryDataBuild(PlaylistSummaryDataBuildRequest request)
+    {
+        if (request?.TryComplete() != true)
+        {
+            return;
+        }
+        lock (playlistSummaryTransitionLock)
+        {
+            if (ReferenceEquals(playlistSummaryDataBuildCancellation, request.CancellationSource))
+            {
+                playlistSummaryDataBuildCancellation = null;
+            }
+            playlistSummaryDataBuildActiveCount--;
+        }
+        request.CancellationSource.Dispose();
+    }
+
+    internal void StopPlaylistSummaryDataBuild()
+    {
+        CancellationTokenSource cancellation;
+        lock (playlistSummaryTransitionLock)
+        {
+            playlistSummaryDataBuildStopped = true;
+            cancellation = playlistSummaryDataBuildCancellation;
+            playlistSummaryDataBuildCancellation = null;
+            playlistSummaryDataRebuildGeneration++;
+            playlistSummaryPresentationGeneration++;
+        }
+        CancelDataBuild(cancellation);
+    }
+
+    internal bool IsPlaylistSummaryDataBuildIdle
+    {
+        get
+        {
+            lock (playlistSummaryTransitionLock)
+            {
+                return playlistSummaryDataBuildActiveCount == 0;
+            }
         }
     }
 
@@ -418,6 +506,87 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
+    internal void InvalidatePlaylistSummaryCache(bool invalidateTableCountCache)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            playlistSummaryRowsCache.Clear();
+            if (invalidateTableCountCache)
+            {
+                playlistSummaryTableCountCache.Clear();
+                playlistSummaryTableCountCacheGeneration++;
+            }
+            playlistSummaryRowsCacheValid = false;
+            playlistSummaryRowsCacheDataRebuildGeneration = 0L;
+            playlistSummaryRowsCacheGeneration++;
+        }
+    }
+
+    internal bool TrySetPlaylistSummaryRowsCache(IEnumerable<PlaylistSummaryRow> rows, long dataRebuildGeneration)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            if (dataRebuildGeneration != playlistSummaryDataRebuildGeneration)
+            {
+                return false;
+            }
+            playlistSummaryRowsCache = [.. (rows ?? [])];
+            playlistSummaryRowsCacheValid = true;
+            playlistSummaryRowsCacheDataRebuildGeneration = dataRebuildGeneration;
+            playlistSummaryRowsCacheGeneration++;
+            return true;
+        }
+    }
+
+    internal List<PlaylistSummaryRow> GetPlaylistSummaryRowsCacheSnapshot(out long cacheGeneration, out long dataRebuildGeneration)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            cacheGeneration = playlistSummaryRowsCacheGeneration;
+            dataRebuildGeneration = playlistSummaryRowsCacheDataRebuildGeneration;
+            if (!playlistSummaryRowsCacheValid
+                || dataRebuildGeneration <= 0L
+                || dataRebuildGeneration != playlistSummaryDataRebuildGeneration)
+            {
+                return null;
+            }
+            return [.. playlistSummaryRowsCache];
+        }
+    }
+
+    internal bool TryGetPlaylistSummaryTableCount(string key, out PlaylistSummaryCountResult countResult)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            return playlistSummaryTableCountCache.TryGetValue(key ?? string.Empty, out countResult);
+        }
+    }
+
+    internal bool TrySetPlaylistSummaryTableCount(
+        string key,
+        PlaylistSummaryCountResult countResult,
+        long expectedTableCountCacheGeneration)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            return false;
+        }
+        lock (playlistSummaryTransitionLock)
+        {
+            if (expectedTableCountCacheGeneration != playlistSummaryTableCountCacheGeneration)
+            {
+                return false;
+            }
+            playlistSummaryTableCountCache[key] = countResult;
+            if (playlistSummaryTableCountCache.Count > 10000)
+            {
+                playlistSummaryTableCountCache.Clear();
+                playlistSummaryTableCountCacheGeneration++;
+            }
+            return true;
+        }
+    }
+
     internal bool TryApplyPlaylistSummary(PlaylistSummaryApplyRequest request)
     {
         if (request?.Rows == null)
@@ -431,6 +600,7 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         lock (playlistSummaryTransitionLock)
         {
             if (!isPlaylistSummaryMode
+                || playlistSummaryDataBuildStopped
                 || request.PresentationGeneration != playlistSummaryPresentationGeneration
                 || (request.DataRebuildGeneration.HasValue && request.DataRebuildGeneration.Value != playlistSummaryDataRebuildGeneration)
                 || (request.CacheGeneration.HasValue && request.CacheGeneration.Value != playlistSummaryRowsCacheGeneration))
@@ -484,6 +654,17 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
+    private static void CancelDataBuild(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            cancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
     internal bool TryGetPreviousPlaylistSummaryViewState(out bool alive, out int rowCount)
     {
         ObservableCollection<PlaylistSummaryRow> previousSummaryRows = null;
@@ -528,6 +709,47 @@ internal sealed class PlaylistSummaryApplyRequest
     internal long? DataRebuildGeneration { get; set; }
 
     internal long? CacheGeneration { get; set; }
+}
+
+internal sealed class PlaylistSummaryDataBuildRequest
+{
+    private int completed;
+
+    internal PlaylistSummaryDataBuildRequest(
+        long generation,
+        long cacheGeneration,
+        long tableCountCacheGeneration,
+        CancellationTokenSource cancellationSource)
+    {
+        Generation = generation;
+        CacheGeneration = cacheGeneration;
+        TableCountCacheGeneration = tableCountCacheGeneration;
+        CancellationSource = cancellationSource ?? throw new ArgumentNullException(nameof(cancellationSource));
+    }
+
+    internal long Generation { get; }
+
+    internal long CacheGeneration { get; }
+
+    internal long TableCountCacheGeneration { get; }
+
+    internal CancellationTokenSource CancellationSource { get; }
+
+    internal CancellationToken CancellationToken => CancellationSource.Token;
+
+    internal bool TryComplete()
+    {
+        return Interlocked.Exchange(ref completed, 1) == 0;
+    }
+}
+
+internal struct PlaylistSummaryCountResult
+{
+    internal int ScannedEntries;
+
+    internal int TotalCharts;
+
+    internal int OwnedCharts;
 }
 
 internal sealed class PlaylistSummaryViewAppliedEventArgs : EventArgs

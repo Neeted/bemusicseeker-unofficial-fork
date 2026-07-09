@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 
@@ -735,10 +736,24 @@ internal static class ChartFileProjection
 
     internal static List<ChartFile> FromBmsStorageOwnerIdentities(IEnumerable<BMSFile> files)
     {
-        return [.. (files ?? [])
-            .Where(file => file != null)
-            .Select(FromBmsStorageOwnerIdentity)
-            .Where(chart => chart != null)];
+        return FromBmsStorageOwnerIdentities(files, CancellationToken.None);
+    }
+
+    internal static List<ChartFile> FromBmsStorageOwnerIdentities(
+        IEnumerable<BMSFile> files,
+        CancellationToken cancellationToken)
+    {
+        List<ChartFile> charts = [];
+        foreach (BMSFile file in files ?? [])
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ChartFile chart = FromBmsStorageOwnerIdentity(file);
+            if (chart != null)
+            {
+                charts.Add(chart);
+            }
+        }
+        return charts;
     }
 
     internal static ChartFile FromBmsonStorageOwnerIdentity(LR2SongDBExtended.bmson_song song)
@@ -770,10 +785,24 @@ internal static class ChartFileProjection
 
     internal static List<ChartFile> FromBmsonStorageOwnerIdentities(IEnumerable<LR2SongDBExtended.bmson_song> songs)
     {
-        return [.. (songs ?? [])
-            .Where(song => song != null)
-            .Select(FromBmsonStorageOwnerIdentity)
-            .Where(chart => chart != null)];
+        return FromBmsonStorageOwnerIdentities(songs, CancellationToken.None);
+    }
+
+    internal static List<ChartFile> FromBmsonStorageOwnerIdentities(
+        IEnumerable<LR2SongDBExtended.bmson_song> songs,
+        CancellationToken cancellationToken)
+    {
+        List<ChartFile> charts = [];
+        foreach (LR2SongDBExtended.bmson_song song in songs ?? [])
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            ChartFile chart = FromBmsonStorageOwnerIdentity(song);
+            if (chart != null)
+            {
+                charts.Add(chart);
+            }
+        }
+        return charts;
     }
 
     internal static List<ChartFile> FromBmsonSongs(

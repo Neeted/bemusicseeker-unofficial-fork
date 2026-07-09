@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -18,6 +19,20 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistSummaryAggregationTests
 {
     [TestMethod]
+    public void GetPlaylistSummaryOwnedHashSnapshot_RejectsCanceledBuildBeforeReadingStorage()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            using var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+
+            Assert.ThrowsException<OperationCanceledException>(() =>
+                library.GetPlaylistSummaryOwnedHashSnapshot(cancellation.Token));
+        });
+    }
+
+    [TestMethod]
     public void CalculatePlaylistSummaryCounts_CountsActiveHashedRowsWithoutDedup()
     {
         BMSTableEntry[] entries =
@@ -29,7 +44,7 @@ public sealed class PlaylistSummaryAggregationTests
             CreateEntry("cccccccccccccccccccccccccccccccc", null, isRemoved: true)
         ];
 
-        MainWindowViewModel.PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
+        PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
             entries,
             CreateHashSet("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             CreateHashSet("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
@@ -48,7 +63,7 @@ public sealed class PlaylistSummaryAggregationTests
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         ];
 
-        MainWindowViewModel.PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
+        PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
             entries,
             CreateHashSet("cccccccccccccccccccccccccccccccc"),
             CreateHashSet("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
@@ -65,7 +80,7 @@ public sealed class PlaylistSummaryAggregationTests
             CreateEntry(null, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         ];
 
-        MainWindowViewModel.PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
+        PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
             entries,
             CreateHashSet(),
             CreateHashSet("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));

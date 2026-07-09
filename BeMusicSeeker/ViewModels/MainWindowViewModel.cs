@@ -857,16 +857,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private long lastPlaylistDetailBuildElapsedMs;
 
-    private readonly object lockPlaylistSummaryRowsCache = new();
-
-    private List<PlaylistSummaryRow> playlistSummaryRowsCache = [];
-
-    private bool playlistSummaryRowsCacheValid;
-
-    private long playlistSummaryRowsCacheDataRebuildGeneration;
-
-    private readonly Dictionary<string, PlaylistSummaryTableCountCacheEntry> playlistSummaryTableCountCache = new(StringComparer.OrdinalIgnoreCase);
-
     private IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards = [];
 
     private ListenerCommand<PlayHistorySummaryCard> _TogglePlayHistorySummaryCardFilterCommand;
@@ -2841,61 +2831,14 @@ public partial class MainWindowViewModel : ViewModel
 
     private void InvalidatePlaylistSummaryRowsCache(bool invalidateTableCountCache = true)
     {
-        lock (lockPlaylistSummaryRowsCache)
-        {
-            playlistSummaryRowsCache.Clear();
-            if (invalidateTableCountCache)
-            {
-                playlistSummaryTableCountCache.Clear();
-            }
-            playlistSummaryRowsCacheValid = false;
-            playlistSummaryRowsCacheDataRebuildGeneration = 0L;
-            PlaylistWorkspace.IncrementPlaylistSummaryRowsCacheGeneration();
-        }
+        PlaylistWorkspace.InvalidatePlaylistSummaryCache(invalidateTableCountCache);
     }
 
     private void InvalidatePlaylistSummaryData(string reason, bool invalidateTableCountCache = false)
     {
-        BeginPlaylistSummaryDataRebuildGeneration();
-        BeginPlaylistSummaryPresentationGeneration();
+        PlaylistWorkspace.BeginPlaylistSummaryDataRebuildGeneration();
+        PlaylistWorkspace.BeginPlaylistSummaryPresentationGeneration();
         InvalidatePlaylistSummaryRowsCache(invalidateTableCountCache);
-    }
-
-    private void SetPlaylistSummaryRowsCache(IEnumerable<PlaylistSummaryRow> rows, long dataRebuildGeneration)
-    {
-        if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
-        {
-            return;
-        }
-        lock (lockPlaylistSummaryRowsCache)
-        {
-            if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
-            {
-                return;
-            }
-            playlistSummaryRowsCache = [.. (rows ?? [])];
-            playlistSummaryRowsCacheValid = true;
-            playlistSummaryRowsCacheDataRebuildGeneration = dataRebuildGeneration;
-            PlaylistWorkspace.IncrementPlaylistSummaryRowsCacheGeneration();
-        }
-    }
-
-    private List<PlaylistSummaryRow> GetPlaylistSummaryRowsCacheSnapshot(out long cacheGeneration, out long dataRebuildGeneration)
-    {
-        lock (lockPlaylistSummaryRowsCache)
-        {
-            cacheGeneration = PlaylistWorkspace.CurrentPlaylistSummaryRowsCacheGeneration;
-            dataRebuildGeneration = playlistSummaryRowsCacheDataRebuildGeneration;
-            if (!playlistSummaryRowsCacheValid)
-            {
-                return null;
-            }
-            if (dataRebuildGeneration <= 0L || !IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
-            {
-                return null;
-            }
-            return [.. playlistSummaryRowsCache];
-        }
     }
 
     private long GetActiveStartupProgressOperationToken()
@@ -10060,6 +10003,7 @@ public partial class MainWindowViewModel : ViewModel
         var waitTracker = new ShutdownWaitTracker();
         await WaitForDropInstallQueueIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistBuildIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForPlaylistSummaryDataBuildIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForStartupBackgroundTasksIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistLibraryIndexPrewarmIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlayHistoryRefreshIdleAsync(waitTracker).ConfigureAwait(false);
@@ -10084,6 +10028,7 @@ public partial class MainWindowViewModel : ViewModel
         TryShutdownStep("library", () => files?.RequestShutdown(reason));
         TryShutdownStep("playlist", () => tables?.RequestShutdown(reason));
         TryShutdownStep("playlist_build", CancelPlaylistBuildRequestsForShutdown);
+        TryShutdownStep("playlist_summary", PlaylistWorkspace.StopPlaylistSummaryDataBuild);
         TryShutdownStep("play_history", CancelPlayHistoryRequestsForShutdown);
         TryShutdownStep("playlist_index_prewarm", CancelPlaylistLibraryIndexPrewarmForShutdown);
         TryShutdownStep("playlist_reload_cleanup", CancelPlaylistReloadCleanupForShutdown);
@@ -10277,6 +10222,16 @@ public partial class MainWindowViewModel : ViewModel
             ShutdownQueueDrainWarningThreshold,
             tracker,
             DescribePlaylistBuildWaitState).ConfigureAwait(false);
+    }
+
+    private async Task WaitForPlaylistSummaryDataBuildIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "playlistSummaryDataBuild",
+            () => PlaylistWorkspace.IsPlaylistSummaryDataBuildIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => "idle=" + FormatBool(PlaylistWorkspace.IsPlaylistSummaryDataBuildIdle)).ConfigureAwait(false);
     }
 
     private bool IsPlaylistBuildIdle()
@@ -19165,27 +19120,57 @@ public partial class MainWindowViewModel : ViewModel
 
     public long RebuildPlaylistSummaryView(bool runAsync = true)
     {
-        long dataRebuildGeneration = BeginPlaylistSummaryDataRebuildGeneration();
-        void action()
+        if (!PlaylistWorkspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest))
+        {
+            return 0L;
+        }
+        long dataRebuildGeneration = buildRequest.Generation;
+        void execute()
         {
             var stopwatch = Stopwatch.StartNew();
-            List<PlaylistSummaryRow> rows = BuildPlaylistSummaryRows(dataRebuildGeneration, out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount, out int entryScanCount, out int unloadedTableCount, out int summaryCacheHitCount, out int summaryCacheMissCount);
+            List<PlaylistSummaryRow> rows;
+            BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
+            int tableCount;
+            int entryScanCount;
+            int unloadedTableCount;
+            int summaryCacheHitCount;
+            int summaryCacheMissCount;
+            try
+            {
+                rows = BuildPlaylistSummaryRows(buildRequest.TableCountCacheGeneration, buildRequest.CancellationToken, out playlistSummaryOwnedHashSnapshot, out tableCount, out entryScanCount, out unloadedTableCount, out summaryCacheHitCount, out summaryCacheMissCount);
+            }
+            catch (OperationCanceledException)
+            {
+                LogMainViewBuild("playlist_summary_build_cancelled dataGeneration=" + dataRebuildGeneration + " currentDataGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration + " buildMs=" + stopwatch.ElapsedMilliseconds);
+                return;
+            }
             long buildMs = stopwatch.ElapsedMilliseconds;
-            if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
+            if (!PlaylistWorkspace.IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
             {
                 LogMainViewBuild("playlist_summary_build_stale rawCount=" + rows.Count + " dataGeneration=" + dataRebuildGeneration + " currentDataGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration + " buildMs=" + buildMs);
                 return;
             }
             if (unloadedTableCount == 0)
             {
-                SetPlaylistSummaryRowsCache(rows, dataRebuildGeneration);
+                PlaylistWorkspace.TrySetPlaylistSummaryRowsCache(rows, dataRebuildGeneration);
             }
             string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
             string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
             LogMainViewBuild("playlist_summary_build tableCount=" + tableCount + " unloadedTableCount=" + unloadedTableCount + " entryScanCount=" + entryScanCount + " rawCount=" + rows.Count + " buildMs=" + buildMs + " ownedMd5Count=" + (playlistSummaryOwnedHashSnapshot?.Md5Count ?? 0) + " ownedSha256Count=" + (playlistSummaryOwnedHashSnapshot?.Sha256Count ?? 0) + " ownedSnapshotVersion=" + (playlistSummaryOwnedHashSnapshot?.Version ?? 0) + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " summaryCacheHit=false tableCacheHit=" + summaryCacheHitCount + " tableCacheMiss=" + summaryCacheMissCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
             LogMainViewBuild("playlist_summary_cache tableCount=" + tableCount + " entryScanCount=" + entryScanCount + " cacheHit=" + summaryCacheHitCount + " cacheMiss=" + summaryCacheMissCount + " elapsedMs=" + buildMs);
-            long presentationGeneration = BeginPlaylistSummaryPresentationGeneration();
+            long presentationGeneration = PlaylistWorkspace.BeginPlaylistSummaryPresentationGeneration();
             ApplyPlaylistSummaryPresentation(rows, stopwatch, buildMs, presentationGeneration, dataRebuildGeneration: dataRebuildGeneration);
+        }
+        void action()
+        {
+            try
+            {
+                execute();
+            }
+            finally
+            {
+                PlaylistWorkspace.CompletePlaylistSummaryDataBuild(buildRequest);
+            }
         }
         if (!runAsync)
         {
@@ -19198,39 +19183,22 @@ public partial class MainWindowViewModel : ViewModel
         return dataRebuildGeneration;
     }
 
-    private long BeginPlaylistSummaryPresentationGeneration()
+    private List<PlaylistSummaryRow> BuildPlaylistSummaryRows(long expectedTableCountCacheGeneration, CancellationToken cancellationToken, out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount, out int entryScanCount, out int unloadedTableCount, out int summaryCacheHitCount, out int summaryCacheMissCount)
     {
-        return PlaylistWorkspace.BeginPlaylistSummaryPresentationGeneration();
-    }
-
-    private long BeginPlaylistSummaryDataRebuildGeneration()
-    {
-        return PlaylistWorkspace.BeginPlaylistSummaryDataRebuildGeneration();
-    }
-
-    private bool IsCurrentPlaylistSummaryPresentationGeneration(long generation)
-    {
-        return generation == PlaylistWorkspace.CurrentPlaylistSummaryPresentationGeneration;
-    }
-
-    private bool IsCurrentPlaylistSummaryDataRebuildGeneration(long generation)
-    {
-        return PlaylistWorkspace.IsCurrentPlaylistSummaryDataRebuildGeneration(generation);
-    }
-
-    private List<PlaylistSummaryRow> BuildPlaylistSummaryRows(long dataRebuildGeneration, out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount, out int entryScanCount, out int unloadedTableCount, out int summaryCacheHitCount, out int summaryCacheMissCount)
-    {
+        cancellationToken.ThrowIfCancellationRequested();
         List<PlaylistSummaryRow> rows = [];
         entryScanCount = 0;
         summaryCacheHitCount = 0;
         summaryCacheMissCount = 0;
         Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatusSnapshot = GetPlaylistSyncStatusSnapshot();
-        playlistSummaryOwnedHashSnapshot = files?.GetPlaylistSummaryOwnedHashSnapshot();
+        cancellationToken.ThrowIfCancellationRequested();
+        playlistSummaryOwnedHashSnapshot = files?.GetPlaylistSummaryOwnedHashSnapshot(cancellationToken);
         int ownedSnapshotVersion = playlistSummaryOwnedHashSnapshot?.Version ?? 0;
         List<BMSTable> tablesSnapshot = [];
         unloadedTableCount = 0;
         if (tables != null)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             tables.AcquireReaderLockBMSTables();
             try
             {
@@ -19244,17 +19212,18 @@ public partial class MainWindowViewModel : ViewModel
         tableCount = tablesSnapshot.Count;
         foreach (BMSTable table in tablesSnapshot)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             bool entriesLoaded = table.ArePlaylistEntriesLoaded;
             var countResult = new PlaylistSummaryCountResult();
             string countCacheKey = entriesLoaded ? GetPlaylistSummaryTableCountCacheKey(table, ownedSnapshotVersion) : null;
-            if (entriesLoaded && TryGetPlaylistSummaryTableCountCache(countCacheKey, dataRebuildGeneration, out countResult))
+            if (entriesLoaded && PlaylistWorkspace.TryGetPlaylistSummaryTableCount(countCacheKey, out countResult))
             {
                 summaryCacheHitCount++;
             }
             else if (entriesLoaded)
             {
-                countResult = CalculatePlaylistSummaryCounts(table.GetEntriesExceptDummy(), playlistSummaryOwnedHashSnapshot);
-                SetPlaylistSummaryTableCountCache(countCacheKey, countResult, dataRebuildGeneration);
+                countResult = CalculatePlaylistSummaryCounts(table.GetEntriesExceptDummy(), playlistSummaryOwnedHashSnapshot, cancellationToken);
+                PlaylistWorkspace.TrySetPlaylistSummaryTableCount(countCacheKey, countResult, expectedTableCountCacheGeneration);
                 summaryCacheMissCount++;
             }
             if (!entriesLoaded)
@@ -19332,65 +19301,15 @@ public partial class MainWindowViewModel : ViewModel
             + "|state:" + table.PlaylistEntriesLoadState;
     }
 
-    private bool TryGetPlaylistSummaryTableCountCache(string key, long dataRebuildGeneration, out PlaylistSummaryCountResult countResult)
-    {
-        countResult = default;
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return false;
-        }
-        lock (lockPlaylistSummaryRowsCache)
-        {
-            if (!playlistSummaryTableCountCache.TryGetValue(key, out PlaylistSummaryTableCountCacheEntry entry))
-            {
-                return false;
-            }
-            if (entry.DataRebuildGeneration != dataRebuildGeneration)
-            {
-                return false;
-            }
-            countResult = entry.CountResult;
-            return true;
-        }
-    }
-
-    private void SetPlaylistSummaryTableCountCache(string key, PlaylistSummaryCountResult countResult, long dataRebuildGeneration)
-    {
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return;
-        }
-        if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
-        {
-            return;
-        }
-        lock (lockPlaylistSummaryRowsCache)
-        {
-            if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
-            {
-                return;
-            }
-            playlistSummaryTableCountCache[key] = new PlaylistSummaryTableCountCacheEntry
-            {
-                CountResult = countResult,
-                DataRebuildGeneration = dataRebuildGeneration
-            };
-            if (playlistSummaryTableCountCache.Count > 10000)
-            {
-                playlistSummaryTableCountCache.Clear();
-            }
-        }
-    }
-
     private void ApplyPlaylistSummaryPresentation()
     {
-        List<PlaylistSummaryRow> cachedRows = GetPlaylistSummaryRowsCacheSnapshot(out long cacheGeneration, out long dataRebuildGeneration);
+        List<PlaylistSummaryRow> cachedRows = PlaylistWorkspace.GetPlaylistSummaryRowsCacheSnapshot(out long cacheGeneration, out long dataRebuildGeneration);
         if (cachedRows == null)
         {
             RebuildPlaylistSummaryView();
             return;
         }
-        long presentationGeneration = BeginPlaylistSummaryPresentationGeneration();
+        long presentationGeneration = PlaylistWorkspace.BeginPlaylistSummaryPresentationGeneration();
         ApplyPlaylistSummaryPresentation(cachedRows, Stopwatch.StartNew(), 0L, presentationGeneration, dataRebuildGeneration: dataRebuildGeneration, cacheGeneration: cacheGeneration);
     }
 
@@ -19452,13 +19371,13 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool CanApplyPlaylistSummaryPresentation(long presentationGeneration, long? dataRebuildGeneration, long? cacheGeneration)
     {
-        if (!IsCurrentPlaylistSummaryPresentationGeneration(presentationGeneration))
+        if (presentationGeneration != PlaylistWorkspace.CurrentPlaylistSummaryPresentationGeneration)
         {
             return false;
         }
         if (dataRebuildGeneration.HasValue)
         {
-            return IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration.Value);
+            return PlaylistWorkspace.IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration.Value);
         }
         if (cacheGeneration.HasValue && cacheGeneration.Value != PlaylistWorkspace.CurrentPlaylistSummaryRowsCacheGeneration)
         {
@@ -19504,19 +19423,32 @@ public partial class MainWindowViewModel : ViewModel
         return CalculatePlaylistSummaryCounts(
             entries,
             containsMd5,
-            containsSha256);
+            containsSha256,
+            CancellationToken.None);
+    }
+
+    private static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(
+        IEnumerable<BMSTableEntry> entries,
+        BMSLibrary.PlaylistSummaryOwnedHashSnapshot ownedHashSnapshot,
+        CancellationToken cancellationToken)
+    {
+        Func<string, bool> containsMd5 = ownedHashSnapshot == null ? null : ownedHashSnapshot.ContainsMd5;
+        Func<string, bool> containsSha256 = ownedHashSnapshot == null ? null : ownedHashSnapshot.ContainsSha256;
+        return CalculatePlaylistSummaryCounts(entries, containsMd5, containsSha256, cancellationToken);
     }
 
     private static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(
         IEnumerable<BMSTableEntry> entries,
         Func<string, bool> containsMd5,
-        Func<string, bool> containsSha256)
+        Func<string, bool> containsSha256,
+        CancellationToken cancellationToken = default)
     {
         PlaylistSummaryCountResult result = default;
         containsMd5 ??= _ => false;
         containsSha256 ??= _ => false;
         foreach (BMSTableEntry entry in entries ?? [])
         {
+            cancellationToken.ThrowIfCancellationRequested();
             result.ScannedEntries++;
             if (entry == null || entry.is_removed)
             {
@@ -19542,22 +19474,6 @@ public partial class MainWindowViewModel : ViewModel
             }
         }
         return result;
-    }
-
-    internal struct PlaylistSummaryCountResult
-    {
-        internal int ScannedEntries;
-
-        internal int TotalCharts;
-
-        internal int OwnedCharts;
-    }
-
-    private sealed class PlaylistSummaryTableCountCacheEntry
-    {
-        internal PlaylistSummaryCountResult CountResult;
-
-        internal long DataRebuildGeneration;
     }
 
     internal struct PlaylistSummaryPresentationResult

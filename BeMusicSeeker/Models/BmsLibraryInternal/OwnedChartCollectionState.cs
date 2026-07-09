@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Threading;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
@@ -169,9 +170,14 @@ internal sealed class OwnedChartCollectionState
     }
 
     private OwnedChartCollectionState(List<ChartFile> charts)
+        : this(charts, CancellationToken.None)
+    {
+    }
+
+    private OwnedChartCollectionState(List<ChartFile> charts, CancellationToken cancellationToken)
     {
         this.charts = charts ?? [];
-        RebuildCurrentIndexes();
+        RebuildCurrentIndexes(cancellationToken);
     }
 
     internal static OwnedChartCollectionState FromStorageRows(
@@ -184,6 +190,15 @@ internal sealed class OwnedChartCollectionState
     internal static OwnedChartCollectionState FromStorageRows(
         IEnumerable<BMSFile> bmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        out OwnedChartStorageRowFilterSummary filterSummary)
+    {
+        return FromStorageRows(bmsFiles, bmsonSongs, CancellationToken.None, out filterSummary);
+    }
+
+    internal static OwnedChartCollectionState FromStorageRows(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        CancellationToken cancellationToken,
         out OwnedChartStorageRowFilterSummary filterSummary)
     {
         List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
@@ -199,6 +214,7 @@ internal sealed class OwnedChartCollectionState
         int duplicatePathBmsonCount = 0;
         foreach (BMSFile file in bmsFileList)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!HasPath(file))
             {
                 pathlessBmsCount++;
@@ -218,6 +234,7 @@ internal sealed class OwnedChartCollectionState
         }
         foreach (LR2SongDBExtended.bmson_song song in bmsonSongList)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!HasPath(song))
             {
                 pathlessBmsonCount++;
@@ -242,9 +259,12 @@ internal sealed class OwnedChartCollectionState
             md5lessBmsonCount,
             duplicatePathBmsCount,
             duplicatePathBmsonCount);
-        List<ChartFile> charts = ChartFileProjection.FromBmsStorageOwnerIdentities(ownedBmsFiles);
-        charts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(ownedBmsonSongs));
-        return new OwnedChartCollectionState(charts);
+        cancellationToken.ThrowIfCancellationRequested();
+        List<ChartFile> charts = ChartFileProjection.FromBmsStorageOwnerIdentities(ownedBmsFiles, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
+        charts.AddRange(ChartFileProjection.FromBmsonStorageOwnerIdentities(ownedBmsonSongs, cancellationToken));
+        cancellationToken.ThrowIfCancellationRequested();
+        return new OwnedChartCollectionState(charts, cancellationToken);
     }
 
     internal List<ChartFile> CreateSnapshot(
@@ -567,12 +587,18 @@ internal sealed class OwnedChartCollectionState
 
     private void RebuildCurrentIndexes()
     {
+        RebuildCurrentIndexes(CancellationToken.None);
+    }
+
+    private void RebuildCurrentIndexes(CancellationToken cancellationToken)
+    {
         bmsChartsByOwner.Clear();
         bmsonChartsByOwner.Clear();
         chartsByPath.Clear();
         pathKeyByChart.Clear();
         foreach (ChartFile chart in charts.Where(chart => chart != null))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             RegisterCurrentChartIndex(chart);
         }
     }
@@ -773,9 +799,15 @@ internal sealed class OwnedChartCollectionState
 
     internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot()
     {
+        return CreateOwnedHashIndexSnapshot(CancellationToken.None);
+    }
+
+    internal OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshot(CancellationToken cancellationToken)
+    {
         var snapshot = new OwnedChartHashIndexSnapshot();
         foreach (ChartFile chart in charts.Where(chart => chart != null))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!HasCurrentOwnedIdentity(chart))
             {
                 continue;
