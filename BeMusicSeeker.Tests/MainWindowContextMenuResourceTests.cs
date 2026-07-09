@@ -88,9 +88,19 @@ public sealed class MainWindowContextMenuResourceTests
         PlayHistoryRow resolvedPlayHistoryRow = CreateResolvedPlayHistoryRow();
         LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(CreateContextMenuBmsFile());
 
-        StringAssert.Contains(mainTable, "RowDragKind=\"{Binding ChartRowsViewRowDragKind, Mode=OneWay}\"");
-        StringAssert.Contains(mainTable, "SortColumnName=\"{Binding MainTableSortParameters.ColumnsName, Mode=OneWay}\"");
-        StringAssert.Contains(mainTable, "SortDirection=\"{Binding MainTableSortParameters.Direction, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "DataContext=\"{Binding MainChartList}\"");
+        StringAssert.Contains(mainTable, "ItemsSource=\"{Binding Rows, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "SelectedIndex=\"{Binding SelectedIndex, Mode=TwoWay}\"");
+        StringAssert.Contains(mainTable, "RowDragKind=\"{Binding RowDragKind, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "ColumnsSettings=\"{Binding DataContext.ColumnsSettingsChartRowsView, ElementName=window, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "SortColumnName=\"{Binding DataContext.MainTableSortParameters.ColumnsName, ElementName=window, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "SortDirection=\"{Binding DataContext.MainTableSortParameters.Direction, ElementName=window, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "Visibility=\"{Binding DataContext.IsPlaylistSummaryMode, ElementName=window, Converter={qc:QuickConverter '!$P ? Visibility.Visible : Visibility.Collapsed'}}\"");
+        Assert.IsFalse(mainTable.Contains("ItemsSource=\"{Binding ChartRowsView"));
+        Assert.IsFalse(mainTable.Contains("SelectedIndex=\"{Binding SelectedIndexChartRowsView"));
+        Assert.IsFalse(mainTable.Contains("RowDragKind=\"{Binding ChartRowsViewRowDragKind"));
+        Assert.AreEqual(2, CountOccurrences(xaml, "Text=\"{Binding MainChartList.SummaryText}\""));
+        Assert.IsFalse(xaml.Contains("Text=\"{Binding GridSummaryText}\""));
         Assert.IsFalse(mainTable.Contains("SortColumnName=\"{Binding SortParameters.ColumnsName"));
         Assert.IsFalse(mainTable.Contains("RowDragKind=\"PlaylistDropCandidateRows\""));
         Assert.IsFalse(MainWindow.TryResolveTableContextMenuPolicyForTest(playHistoryRow, ChartOperationSourceScope.Library, out bool playHistoryMissingContextMenu));

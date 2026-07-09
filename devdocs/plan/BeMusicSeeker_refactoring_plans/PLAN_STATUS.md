@@ -14,7 +14,7 @@
 
 ### `UI-01 Main chart list ownership`
 
-状態: ready
+状態: in progress
 
 目的:
 
@@ -42,7 +42,7 @@ Non-goals:
 
 | Outcome | State |
 |---|---|
-| UI-01 Main chart list ownership | ready |
+| UI-01 Main chart list ownership | in progress |
 | APP-01 Composition and configuration ownership | not started |
 | UI-02 Playback ownership | not started |
 | UI-03 Playlist workspace ownership | not started |
@@ -79,4 +79,4 @@ Non-goals:
 
 ## Next action
 
-`UI-01` を `in progress` にし、main chart list の root relay、XAML binding、refresh / terminal apply 経路を読み、最初の implementation unit を実装する。次 seam を選ぶ docs-only commit は作らない。
+`MainChartList.ColumnsSettings` を table / column menu / header context adapter から直接参照し、最後の root column-settings relay と `MainChartList.PropertyChanged` 再中継を削除する。その後、refresh / terminal apply ownership を child へ移す。docs-only checkpoint は作らない。

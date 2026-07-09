@@ -362,7 +362,7 @@ public sealed class ChartListVirtualViewTests
             typeof(MainWindowViewModel)
                 .GetMethod("ApplyLibraryChartRowProviders", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(LibraryChartRow)], null)!
                 .Invoke(viewModel, [viewRow]);
-            viewModel.ChartRowsView = new List<object>
+            viewModel.MainChartList.Rows = new List<object>
             {
                 viewRow
             };
@@ -485,20 +485,16 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void MainChartList_RootRelayPreservesLegacyRowsAndSummaryProperties()
+    public void MainChartList_SelectedIndexRaisesPropertyChanged()
     {
-        var viewModel = new MainWindowViewModel();
-        List<LibraryChartRow> rows = CreateSummaryRows();
+        var mainChartList = new MainChartListViewModel();
         var propertyNames = new List<string>();
-        viewModel.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
-        viewModel.MainChartList.SetRows(rows, updateSummary: true);
+        mainChartList.SelectedIndex = 3;
 
-        Assert.AreSame(rows, viewModel.ChartRowsView);
-        StringAssert.StartsWith(viewModel.GridSummaryText, "[2");
-        StringAssert.Contains(viewModel.GridSummaryText, "/ 2");
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.ChartRowsView));
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.GridSummaryText));
+        Assert.AreEqual(3, mainChartList.SelectedIndex);
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SelectedIndex));
     }
 
     private static List<LibraryChartRow> CreateSummaryRows()
@@ -508,20 +504,6 @@ public sealed class ChartListVirtualViewTests
             LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(CreateFile(@"D:\Charts\A\alpha.bms", "Alpha", @"D:\Charts\A"))),
             LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(CreateFile(@"D:\Charts\B\bravo.bms", "Bravo", @"D:\Charts\B"))),
         ];
-    }
-
-    [TestMethod]
-    public void GridSummaryText_SetterUpdatesMainChartListAndRootRelay()
-    {
-        var viewModel = new MainWindowViewModel();
-        var propertyNames = new List<string>();
-        viewModel.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
-
-        viewModel.GridSummaryText = "custom summary";
-
-        Assert.AreEqual("custom summary", viewModel.MainChartList.SummaryText);
-        Assert.AreEqual("custom summary", viewModel.GridSummaryText);
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.GridSummaryText));
     }
 
     [TestMethod]
@@ -1919,7 +1901,7 @@ public sealed class ChartListVirtualViewTests
                 .Invoke(viewModel, [MainViewUpdateMode.DuplicateFilterSelected, null]);
 
             Assert.IsNull(viewModel.SortParameters);
-            var view = viewModel.ChartRowsView as ChartListVirtualView;
+            var view = viewModel.MainChartList.Rows as ChartListVirtualView;
             Assert.IsNotNull(view);
             Assert.AreEqual(2, view.Count);
             Assert.AreEqual("Alpha", ((LibraryChartRow)view[0]).Title);

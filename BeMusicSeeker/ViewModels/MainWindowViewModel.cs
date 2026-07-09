@@ -1686,11 +1686,6 @@ public partial class MainWindowViewModel : ViewModel
         return CanReuseMainColumnSetting((MainViewUpdateMode)resolvedMode, typedLastAppliedMode, targetSettingsReady, playlistSummarySettingsReady, isInit);
     }
 
-    internal static CustomTableRowDragKind ResolveChartRowsViewRowDragKindForTest(CustomTableColumnSettings settings)
-    {
-        return ResolveChartRowsViewRowDragKind(settings);
-    }
-
     /// <summary>
     /// playlist 列設定モード解決をテストします。
     /// </summary>
@@ -3582,7 +3577,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool TryRefreshMainViewDisplayForDataDependency(MainViewDataDependency dependency)
     {
-        if (ChartRowsView is not ChartListVirtualView virtualView)
+        if (MainChartList.Rows is not ChartListVirtualView virtualView)
         {
             return false;
         }
@@ -4556,22 +4551,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    /// <summary>
-    /// メインリスト上に実際に表示される chart row 群です。
-    /// ツリーでのフォルダ選択や、各種フィルタリング（キーワード検索、モード絞り込みなど）による抽出結果が反映されます。
-    /// </summary>
-    public IList ChartRowsView
-    {
-        get
-        {
-            return MainChartList.Rows;
-        }
-        set
-        {
-            MainChartList.Rows = value;
-        }
-    }
-
     public IReadOnlyList<PlayHistoryPeriodTreeItem> PlayHistoryArchivePeriodTree
     {
         get
@@ -4640,7 +4619,7 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 通常一覧 / playlist 詳細の chart row view を <see cref="ChartRowsView"/> binding へ差し替えます。
+    /// 通常一覧 / playlist 詳細の chart row view を <see cref="MainChartList"/> binding owner へ差し替えます。
     /// playlist 詳細表示では <see cref="PlaylistViewState.View"/> を先に更新してから呼び出します。
     /// </summary>
     /// <param name="rows">新しい表示行。</param>
@@ -4917,7 +4896,7 @@ public partial class MainWindowViewModel : ViewModel
                 + " cacheHit=False");
             Action reflect = () =>
             {
-                if (ReferenceEquals(ChartRowsView, expectedRowsView) && IsCurrentMainSummaryFolderCountKey(key))
+                if (ReferenceEquals(MainChartList.Rows, expectedRowsView) && IsCurrentMainSummaryFolderCountKey(key))
                 {
                     UpdateMainGridSummaryText(key.RowCount, distinctFolderCount);
                 }
@@ -5484,13 +5463,13 @@ public partial class MainWindowViewModel : ViewModel
     {
         Action notify = delegate
         {
-            if (ChartRowsView is ChartListVirtualView virtualView)
+            if (MainChartList.Rows is ChartListVirtualView virtualView)
             {
                 virtualView.ForEachRealizedRow(RaiseBmsonPlaylistReferenceDisplayChanged);
             }
             else
             {
-                foreach (LibraryChartRow row in (ChartRowsView ?? new List<object>()).OfType<LibraryChartRow>())
+                foreach (LibraryChartRow row in (MainChartList.Rows ?? new List<object>()).OfType<LibraryChartRow>())
                 {
                     RaiseBmsonPlaylistReferenceDisplayChanged(row);
                 }
@@ -5912,7 +5891,7 @@ public partial class MainWindowViewModel : ViewModel
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         var nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
         ChartListVirtualViewApplyResult applyResult = ChartListRefreshCoordinator.ApplyVirtualRows(
-            ChartRowsView,
+            MainChartList.Rows,
             nextRowsView,
             distinctFolderCount,
             stageStartMs,
@@ -6074,7 +6053,7 @@ public partial class MainWindowViewModel : ViewModel
             row => CreateVirtualChartSubsetRow(row, applyResourceHealthProjection),
             distinctFolderCount);
         ChartListVirtualViewApplyResult applyResult = ChartListRefreshCoordinator.ApplyVirtualRows(
-            ChartRowsView,
+            MainChartList.Rows,
             nextRowsView,
             distinctFolderCount,
             stageStartMs,
@@ -7956,7 +7935,7 @@ public partial class MainWindowViewModel : ViewModel
             playlistViewState.View.CurrentIdentity = requestIdentity;
             sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.Source.Rows);
         }
-        LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(viewRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(previousViewRows) + " disposedCount=" + CountPlaylistDetailRows(previousViewRows) + " selectedIndex=" + SelectedIndexChartRowsView);
+        LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(viewRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(previousViewRows) + " disposedCount=" + CountPlaylistDetailRows(previousViewRows) + " selectedIndex=" + MainChartList.SelectedIndex);
         return previousViewRows;
     }
 
@@ -8172,18 +8151,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public int SelectedIndexChartRowsView
-    {
-        get
-        {
-            return MainChartList.SelectedIndex;
-        }
-        set
-        {
-            MainChartList.SelectedIndex = value;
-        }
-    }
-
     public CustomTableColumnSettings ColumnsSettingsChartRowsView
     {
         get
@@ -8194,19 +8161,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             MainChartList.ColumnsSettings = value;
         }
-    }
-
-    public CustomTableRowDragKind ChartRowsViewRowDragKind
-    {
-        get
-        {
-            return MainChartList.RowDragKind;
-        }
-    }
-
-    private static CustomTableRowDragKind ResolveChartRowsViewRowDragKind(CustomTableColumnSettings settings)
-    {
-        return MainChartListViewModel.ResolveRowDragKindForTest(settings);
     }
 
     public Visibility ColumnSettingsVisibilityForPlaylist
@@ -8381,18 +8335,6 @@ public partial class MainWindowViewModel : ViewModel
         set
         {
             PlaylistWorkspace.GridHeaderText = value;
-        }
-    }
-
-    public string GridSummaryText
-    {
-        get
-        {
-            return MainChartList.SummaryText;
-        }
-        set
-        {
-            MainChartList.SummaryText = value;
         }
     }
 
@@ -10140,20 +10082,8 @@ public partial class MainWindowViewModel : ViewModel
 
         switch (propertyName)
         {
-            case nameof(MainChartListViewModel.Rows):
-                RaisePropertyChanged(nameof(ChartRowsView));
-                break;
-            case nameof(MainChartListViewModel.SelectedIndex):
-                RaisePropertyChanged(nameof(SelectedIndexChartRowsView));
-                break;
             case nameof(MainChartListViewModel.ColumnsSettings):
                 RaisePropertyChanged(nameof(ColumnsSettingsChartRowsView));
-                break;
-            case nameof(MainChartListViewModel.RowDragKind):
-                RaisePropertyChanged(nameof(ChartRowsViewRowDragKind));
-                break;
-            case nameof(MainChartListViewModel.SummaryText):
-                RaisePropertyChanged(nameof(GridSummaryText));
                 break;
         }
     }
@@ -12100,7 +12030,7 @@ public partial class MainWindowViewModel : ViewModel
         ChartFile playbackChart = null;
         try
         {
-            row = ChartRowsView[indexChartRowsView];
+            row = MainChartList.Rows[indexChartRowsView];
             GridRowResolver.TryGetChartFile(row, out playbackChart);
             GridRowResolver.TryGetBmsPlayerFile(row, out bmsFile);
         }
@@ -12124,7 +12054,7 @@ public partial class MainWindowViewModel : ViewModel
             NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
         }
         NowPlayingBMS = bmsFile;
-        SelectedIndexChartRowsView = indexChartRowsView;
+        MainChartList.SelectedIndex = indexChartRowsView;
         RaisePlaybackStarting();
         playbackChart ??= ChartFileProjection.FromBmsFile(
             bmsFile,
@@ -12272,9 +12202,9 @@ public partial class MainWindowViewModel : ViewModel
             else
             {
                 PlayEndBMSFile();
-                if (SelectedIndexChartRowsView >= 0 && SelectedIndexChartRowsView < ChartRowsView.Count)
+                if (MainChartList.SelectedIndex >= 0 && MainChartList.SelectedIndex < MainChartList.Rows.Count)
                 {
-                    PlayStartBmsFile(SelectedIndexChartRowsView);
+                    PlayStartBmsFile(MainChartList.SelectedIndex);
                 }
             }
         }
@@ -12289,7 +12219,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             int num = nowPlayingChartRowsViewIndex;
-            if (num < 0 || num >= ChartRowsView.Count)
+            if (num < 0 || num >= MainChartList.Rows.Count)
             {
                 PlayEndBMSFile();
                 return;
@@ -12306,13 +12236,13 @@ public partial class MainWindowViewModel : ViewModel
             {
                 string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && LongPathFileSystem.FileExists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
                 num++;
-                if (Settings.Default.RepeatPlayMode && num == ChartRowsView.Count)
+                if (Settings.Default.RepeatPlayMode && num == MainChartList.Rows.Count)
                 {
                     num = 0;
                 }
-                while (Settings.Default.FolderSkipPlayMode && num != ChartRowsView.Count)
+                while (Settings.Default.FolderSkipPlayMode && num != MainChartList.Rows.Count)
                 {
-                    object candidateRow = ChartRowsView[num];
+                    object candidateRow = MainChartList.Rows[num];
                     GridRowResolver.TryGetBmsPlayerFile(candidateRow, out BeMusicSeeker.Models.BMSFile bMSFile);
                     if (num == nowPlayingChartRowsViewIndex)
                     {
@@ -12325,13 +12255,13 @@ public partial class MainWindowViewModel : ViewModel
                     }
                     text = text2;
                     num++;
-                    if (Settings.Default.RepeatPlayMode && num == ChartRowsView.Count)
+                    if (Settings.Default.RepeatPlayMode && num == MainChartList.Rows.Count)
                     {
                         num = 0;
                     }
                 }
             }
-            if (num < ChartRowsView.Count)
+            if (num < MainChartList.Rows.Count)
             {
                 PlayEndBMSFile();
                 PlayStartBmsFile(num);
@@ -12352,7 +12282,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             int num = nowPlayingChartRowsViewIndex;
-            if (num < 0 || num >= ChartRowsView.Count)
+            if (num < 0 || num >= MainChartList.Rows.Count)
             {
                 PlayEndBMSFile();
                 return;
@@ -12371,11 +12301,11 @@ public partial class MainWindowViewModel : ViewModel
                 num--;
                 if (Settings.Default.RepeatPlayMode && num == -1)
                 {
-                    num = ChartRowsView.Count - 1;
+                    num = MainChartList.Rows.Count - 1;
                 }
                 while (Settings.Default.FolderSkipPlayMode && num != -1)
                 {
-                    object candidateRow = ChartRowsView[num];
+                    object candidateRow = MainChartList.Rows[num];
                     GridRowResolver.TryGetBmsPlayerFile(candidateRow, out BeMusicSeeker.Models.BMSFile bMSFile);
                     if (num == nowPlayingChartRowsViewIndex)
                     {
@@ -12390,7 +12320,7 @@ public partial class MainWindowViewModel : ViewModel
                     num--;
                     if (Settings.Default.RepeatPlayMode && num == -1)
                     {
-                        num = ChartRowsView.Count - 1;
+                        num = MainChartList.Rows.Count - 1;
                     }
                 }
             }
@@ -12906,7 +12836,7 @@ public partial class MainWindowViewModel : ViewModel
         MainViewUpdateMode columnSettingMode,
         Stopwatch viewBuildStopwatch)
     {
-        SelectedIndexChartRowsView = -1;
+        MainChartList.SelectedIndex = -1;
         RaiseMainTableSwapPreparing();
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         loadColumnSetting(columnSettingMode);
@@ -13264,7 +13194,7 @@ public partial class MainWindowViewModel : ViewModel
         viewCount = nextRowsView?.Count ?? 0;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         ChartListRegularRowsApplyResult applyResult = ChartListRefreshCoordinator.ApplyRegularRows(
-            ChartRowsView,
+            MainChartList.Rows,
             nextRowsView,
             stageStartMs,
             viewBuildStopwatch,
@@ -14178,13 +14108,13 @@ public partial class MainWindowViewModel : ViewModel
             ChartRowsFolderView = [];
             ChartRowsKeywordFilterView = [];
             ChartRowsModeFilterView = [];
-            IList nextRowsView = sortedRows.Count == 0 && ChartRowsView is PlayHistoryVirtualView currentPlayHistoryView && currentPlayHistoryView.Count == 0
-                ? ChartRowsView
+            IList nextRowsView = sortedRows.Count == 0 && MainChartList.Rows is PlayHistoryVirtualView currentPlayHistoryView && currentPlayHistoryView.Count == 0
+                ? MainChartList.Rows
                 : new PlayHistoryVirtualView(sortedRows, CountDistinctPlayHistoryFolderLabels(sortedRows));
             columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
             columnSettingReuse = ApplyMainColumnSettingForViewUpdate(mode);
             columnSettingMs = viewBuildStopwatch.ElapsedMilliseconds - columnSettingStartMs;
-            if (!ReferenceEquals(ChartRowsView, nextRowsView))
+            if (!ReferenceEquals(MainChartList.Rows, nextRowsView))
             {
                 long setViewStartMs = viewBuildStopwatch.ElapsedMilliseconds;
                 SetChartRowsView(nextRowsView);
@@ -14195,10 +14125,10 @@ public partial class MainWindowViewModel : ViewModel
                 PlayHistoryArchivePeriodTree = archivePeriodTree;
             }
             string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
-            GridSummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
+            MainChartList.SummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
             PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
             PlayHistorySummaryDiagnosticText = diagnosticSummaryText;
-            SelectedIndexChartRowsView = -1;
+            MainChartList.SelectedIndex = -1;
             Volatile.Write(ref playHistoryViewState, state);
         }
         if (diagnosticsCount > 0)
@@ -19045,7 +18975,7 @@ public partial class MainWindowViewModel : ViewModel
         else
         {
             GridHeaderText = string.Empty;
-            GridSummaryText = string.Empty;
+            MainChartList.SummaryText = string.Empty;
             ConsumeDeferredPlaylistSummaryRefresh();
             ConsumeDeferredPlaylistSummaryPresentationRefresh();
         }
@@ -19370,7 +19300,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             PlaylistSummaryView = new ObservableCollection<PlaylistSummaryRow>(presentationResult.Rows);
-            GridSummaryText = string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, presentationResult.Rows.Sum(r => r.TotalCharts), presentationResult.Rows.Count);
+            MainChartList.SummaryText = string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, presentationResult.Rows.Sum(r => r.TotalCharts), presentationResult.Rows.Count);
             PlaylistWorkspace.NotifyPlaylistSummaryViewApplied(dataRebuildGeneration ?? 0L);
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())

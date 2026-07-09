@@ -396,7 +396,7 @@ playlist detail row は view row materialization だけでは bmson compatibilit
 
 playlist detail の `RefTablesSymbols` / `RefTablesNames` は source snapshot 構築時に確定する。BMS / bmson / missing row とも `PlaylistReferenceIndex` の md5 / sha256 lookup 結果を使う。これにより表示列と `playlist:` / `ref:` / `table:` keyword search が同じ参照情報を読む。
 
-playlist detail 表示時の `ChartRowsView` 実体は `PlaylistDetailVirtualView` である。`PlaylistDetailSourceRow` を全件 source として保持し、可視 index だけ `PlaylistDetailRow` へ遅延 materialize する。playlist detail 中は `UseAsyncChartRowsViewBinding` を false に切り替え、通常一覧側の async binding policy と分けている。
+playlist detail 表示時の `MainChartList.Rows` 実体は `PlaylistDetailVirtualView` である。`PlaylistDetailSourceRow` を全件 source として保持し、可視 index だけ `PlaylistDetailRow` へ遅延 materialize する。playlist detail 中は `UseAsyncChartRowsViewBinding` を false に切り替え、通常一覧側の async binding policy と分けている。
 
 ### Playlist への追加
 
@@ -459,8 +459,8 @@ inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot �
 
 代表例:
 
-- `ChartRowsView`
-- `SelectedIndexChartRowsView`
+- `MainChartList.Rows`
+- `MainChartList.SelectedIndex`
 - `ColumnsSettingsChartRowsView`
 - `UseAsyncChartRowsViewBinding`
 
@@ -572,7 +572,7 @@ adapter materialization 自体を検証したいテストは test-local helper �
 
 ### model APIs の残存 BMS 名
 
-`ChartRowsView` など通常一覧の public binding 名は chart row 名へ移行済みである。
+通常一覧の public binding state は `MainChartList.Rows` など child ViewModel へ移行済みである。
 
 `RemoveLibraryCharts(...)` は BMS / bmson 共通の library chart 削除入口であり、旧 `RemoveBMSFiles(...)` / `RemoveChartFiles(IEnumerable<BMSFile>)` wrapper は残さない。未使用だった single chart move wrapper も削除済みである。
 pending package install 入口も `InstallChartPackagesAuto`, `ForceInstallPendingPackages`, `InstallPendingPackagesToEstimatedDestinations` へ移行済みで、旧 `InstallBMSFilesAuto` / `InstallChartPackagesForce` / `InstallChartPackagesToEstimatedDir` wrapper は残さない。
