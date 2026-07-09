@@ -522,38 +522,46 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void ChartListRefreshCoordinator_ApplyVirtualRowsPreservesSwapOrderAndMetrics()
+    public void MainChartList_ApplyRowsCommitsOwnedStateBeforeNotifications()
     {
         ChartListVirtualView view = CreateView(out _, distinctFolderCount: 2);
-        var currentRows = new List<object>();
+        var mainChartList = new MainChartListViewModel
+        {
+            Rows = new List<object>(),
+            SelectedIndex = 4,
+            SummaryText = "old"
+        };
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         var calls = new List<string>();
-        ChartListVirtualView? assignedRows = null;
-        int assignedDistinctFolderCount = -1;
+        mainChartList.RowsReplacing += (_, _) => calls.Add("prepare");
+        mainChartList.PropertyChanged += (_, e) =>
+        {
+            calls.Add(e.PropertyName);
+            Assert.AreSame(view, mainChartList.Rows);
+            Assert.AreSame(settings, mainChartList.ColumnsSettings);
+            Assert.AreEqual(-1, mainChartList.SelectedIndex);
+            StringAssert.StartsWith(mainChartList.SummaryText, "[3");
+        };
         var stopwatch = Stopwatch.StartNew();
         long stageStartMs = stopwatch.ElapsedMilliseconds;
 
-        ChartListVirtualViewApplyResult result = ChartListRefreshCoordinator.ApplyVirtualRows(
-            currentRows,
-            view,
-            distinctFolderCount: 2,
-            stageStartMs,
-            stopwatch,
-            prepareSwap: () => calls.Add("prepare"),
-            applyColumnSetting: () =>
-            {
-                calls.Add("columns");
-                return true;
-            },
-            setRowsView: (rows, distinctFolderCount) =>
-            {
-                calls.Add("set");
-                assignedRows = rows;
-                assignedDistinctFolderCount = distinctFolderCount;
-            });
+        MainChartListRowsApplyResult result = mainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        {
+            Rows = view,
+            ColumnsSettings = settings,
+            SelectionPolicy = MainChartListSelectionPolicy.Reset,
+            Summary = MainChartListSummaryUpdate.NormalCounts(view.Count, 2),
+            ColumnSettingReuse = true,
+            ColumnPreparationMs = 0,
+            TerminalStageStartMs = stageStartMs,
+            Stopwatch = stopwatch
+        });
 
-        CollectionAssert.AreEqual(new[] { "prepare", "columns", "set" }, calls);
-        Assert.AreSame(view, assignedRows);
-        Assert.AreEqual(2, assignedDistinctFolderCount);
+        Assert.AreEqual("prepare", calls[0]);
+        CollectionAssert.Contains(calls, nameof(MainChartListViewModel.ColumnsSettings));
+        CollectionAssert.Contains(calls, nameof(MainChartListViewModel.Rows));
+        CollectionAssert.Contains(calls, nameof(MainChartListViewModel.SummaryText));
+        CollectionAssert.Contains(calls, nameof(MainChartListViewModel.SelectedIndex));
         Assert.IsTrue(result.ColumnSettingReuse);
         Assert.IsTrue(result.PrepareSwapMs >= 0);
         Assert.IsTrue(result.ColumnSettingMs >= 0);
@@ -562,84 +570,72 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void ChartListRefreshCoordinator_ApplyVirtualRowsSkipsPrepareForSameReference()
+    public void MainChartList_ApplyRowsSameReferenceSkipsPrepareAndUpdatesExplicitSummary()
     {
         ChartListVirtualView view = CreateView(out _, distinctFolderCount: 2);
-        var calls = new List<string>();
-
-        ChartListRefreshCoordinator.ApplyVirtualRows(
-            view,
-            view,
-            distinctFolderCount: 2,
-            terminalStageStartMs: 0,
-            Stopwatch.StartNew(),
-            prepareSwap: () => calls.Add("prepare"),
-            applyColumnSetting: () =>
+        var mainChartList = new MainChartListViewModel
+        {
+            Rows = view,
+            ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
+        };
+        int prepareCount = 0;
+        int rowsNotificationCount = 0;
+        mainChartList.RowsReplacing += (_, _) => prepareCount++;
+        mainChartList.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainChartListViewModel.Rows))
             {
-                calls.Add("columns");
-                return false;
-            },
-            setRowsView: (_, _) => calls.Add("set"));
+                rowsNotificationCount++;
+            }
+        };
 
-        CollectionAssert.AreEqual(new[] { "columns", "set" }, calls);
+        mainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        {
+            Rows = view,
+            ColumnsSettings = mainChartList.ColumnsSettings,
+            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+            Summary = MainChartListSummaryUpdate.Explicit("play history summary"),
+            TerminalStageStartMs = 0,
+            Stopwatch = Stopwatch.StartNew()
+        });
+
+        Assert.AreEqual(0, prepareCount);
+        Assert.AreEqual(0, rowsNotificationCount);
+        Assert.AreEqual("play history summary", mainChartList.SummaryText);
     }
 
     [TestMethod]
-    public void ChartListRefreshCoordinator_ApplyRegularRowsPreservesSwapOrderAndMetrics()
+    public void MainChartList_ApplyRowsDisposeFailureDoesNotCommitOtherState()
     {
-        var currentRows = new List<object>();
+        var oldRows = new List<object> { new ThrowingDisposable() };
         var nextRows = new List<object>();
-        var calls = new List<string>();
-        object assignedRows = new object();
-        var stopwatch = Stopwatch.StartNew();
-        long stageStartMs = stopwatch.ElapsedMilliseconds;
+        var oldSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var nextSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
+        var mainChartList = new MainChartListViewModel
+        {
+            Rows = oldRows,
+            ColumnsSettings = oldSettings,
+            SelectedIndex = 2,
+            SummaryText = "old"
+        };
+        var propertyNames = new List<string>();
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
-        ChartListRegularRowsApplyResult result = ChartListRefreshCoordinator.ApplyRegularRows(
-            currentRows,
-            nextRows,
-            stageStartMs,
-            stopwatch,
-            prepareSwap: () => calls.Add("prepare"),
-            applyColumnSetting: () =>
-            {
-                calls.Add("columns");
-                return true;
-            },
-            setRowsView: rows =>
-            {
-                calls.Add("set");
-                assignedRows = rows;
-            });
+        Assert.ThrowsException<InvalidOperationException>(() => mainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        {
+            Rows = nextRows,
+            ColumnsSettings = nextSettings,
+            SelectionPolicy = MainChartListSelectionPolicy.Reset,
+            Summary = MainChartListSummaryUpdate.Explicit("new"),
+            TerminalStageStartMs = 0,
+            Stopwatch = Stopwatch.StartNew()
+        }));
 
-        CollectionAssert.AreEqual(new[] { "prepare", "columns", "set" }, calls);
-        Assert.AreSame(nextRows, assignedRows);
-        Assert.IsTrue(result.ColumnSettingReuse);
-        Assert.IsTrue(result.PrepareSwapMs >= 0);
-        Assert.IsTrue(result.ColumnSettingMs >= 0);
-        Assert.IsTrue(result.SetViewMs >= 0);
-        Assert.IsTrue(result.ColumnStageMs >= 0);
-    }
-
-    [TestMethod]
-    public void ChartListRefreshCoordinator_ApplyRegularRowsSkipsPrepareForSameReference()
-    {
-        var rows = new List<object>();
-        var calls = new List<string>();
-
-        ChartListRefreshCoordinator.ApplyRegularRows(
-            rows,
-            rows,
-            terminalStageStartMs: 0,
-            Stopwatch.StartNew(),
-            prepareSwap: () => calls.Add("prepare"),
-            applyColumnSetting: () =>
-            {
-                calls.Add("columns");
-                return false;
-            },
-            setRowsView: _ => calls.Add("set"));
-
-        CollectionAssert.AreEqual(new[] { "columns", "set" }, calls);
+        Assert.AreSame(oldRows, mainChartList.Rows);
+        Assert.AreSame(oldSettings, mainChartList.ColumnsSettings);
+        Assert.AreEqual(2, mainChartList.SelectedIndex);
+        Assert.AreEqual("old", mainChartList.SummaryText);
+        Assert.AreEqual(0, propertyNames.Count);
     }
 
     [TestMethod]
@@ -3127,6 +3123,14 @@ public sealed class ChartListVirtualViewTests
         {
             path = filePath;
             title = fileTitle;
+        }
+    }
+
+    private sealed class ThrowingDisposable : IDisposable
+    {
+        public void Dispose()
+        {
+            throw new InvalidOperationException("dispose failed");
         }
     }
 }

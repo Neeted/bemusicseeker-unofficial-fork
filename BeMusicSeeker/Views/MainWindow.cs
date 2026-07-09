@@ -512,7 +512,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
         viewModel.PlaybackStarting += MainWindowViewModel_PlaybackStarting;
         viewModel.PlaybackStarted += MainWindowViewModel_PlaybackStarted;
-        viewModel.MainTableSwapPreparing += MainWindowViewModel_MainTableSwapPreparing;
+        viewModel.MainChartList.RowsReplacing += MainChartList_RowsReplacing;
         viewModel.MainTableDisplayRefreshRequested += MainWindowViewModel_MainTableDisplayRefreshRequested;
     }
 
@@ -527,7 +527,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
         subscribedViewModel.PlaybackStarting -= MainWindowViewModel_PlaybackStarting;
         subscribedViewModel.PlaybackStarted -= MainWindowViewModel_PlaybackStarted;
-        subscribedViewModel.MainTableSwapPreparing -= MainWindowViewModel_MainTableSwapPreparing;
+        subscribedViewModel.MainChartList.RowsReplacing -= MainChartList_RowsReplacing;
         subscribedViewModel.MainTableDisplayRefreshRequested -= MainWindowViewModel_MainTableDisplayRefreshRequested;
         subscribedViewModel = null;
     }
@@ -562,9 +562,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         tryShowBMSPlayerPanel();
     }
 
-    private void MainWindowViewModel_MainTableSwapPreparing(object sender, EventArgs e)
+    private void MainChartList_RowsReplacing(object sender, EventArgs e)
     {
-        PrepareMainTableSwap();
+        if (Dispatcher.CheckAccess())
+        {
+            PrepareMainTableSwap();
+            return;
+        }
+        if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
+        {
+            try
+            {
+                Dispatcher.Invoke(DispatcherPriority.Normal, (Action)PrepareMainTableSwap);
+            }
+            catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            {
+            }
+        }
     }
 
     private void MainWindowViewModel_MainTableDisplayRefreshRequested(object sender, EventArgs e)

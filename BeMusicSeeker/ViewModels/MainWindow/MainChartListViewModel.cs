@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
@@ -20,6 +21,16 @@ public sealed class MainChartListViewModel : ViewModel
     private CustomTableColumnSettings columnsSettings;
 
     private string summaryText = string.Empty;
+
+    /// <summary>
+    /// Raised immediately before a different row collection replaces the active main-table rows.
+    /// </summary>
+    internal event EventHandler RowsReplacing;
+
+    internal void PrepareRowsReplacement()
+    {
+        RowsReplacing?.Invoke(this, EventArgs.Empty);
+    }
 
     /// <summary>
     /// Gets or sets the rows currently displayed by the main chart table.
@@ -156,6 +167,102 @@ public sealed class MainChartListViewModel : ViewModel
     }
 
     /// <summary>
+    /// Applies one main chart-list terminal state transition without shell callbacks.
+    /// </summary>
+    internal MainChartListRowsApplyResult ApplyRows(MainChartListRowsApplyRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (request.Rows == null)
+        {
+            throw new ArgumentNullException(nameof(request.Rows));
+        }
+        if (request.Stopwatch == null)
+        {
+            throw new ArgumentNullException(nameof(request.Stopwatch));
+        }
+        if (request.ColumnsSettings == null)
+        {
+            throw new ArgumentNullException(nameof(request.ColumnsSettings));
+        }
+
+        string nextSummaryText = ResolveSummaryText(request.Summary);
+        int nextSelectedIndex = request.SelectionPolicy == MainChartListSelectionPolicy.Reset
+            ? -1
+            : selectedIndex;
+        bool rowsChanged = !ReferenceEquals(rows, request.Rows);
+        bool columnsChanged = !ReferenceEquals(columnsSettings, request.ColumnsSettings);
+        bool summaryChanged = summaryText != nextSummaryText;
+        bool selectionChanged = selectedIndex != nextSelectedIndex;
+
+        long prepareSwapMs = 0L;
+        if (rowsChanged && !request.RowsAlreadyPrepared)
+        {
+            long prepareStartMs = request.Stopwatch.ElapsedMilliseconds;
+            PrepareRowsReplacement();
+            prepareSwapMs = request.Stopwatch.ElapsedMilliseconds - prepareStartMs;
+        }
+
+        long columnSettingStartMs = request.Stopwatch.ElapsedMilliseconds;
+        long columnSettingMs = request.ColumnPreparationMs
+            + request.Stopwatch.ElapsedMilliseconds
+            - columnSettingStartMs;
+
+        long setViewStartMs = request.Stopwatch.ElapsedMilliseconds;
+        if (rowsChanged)
+        {
+            DisposeRows(rows);
+            rows = request.Rows;
+        }
+        columnsSettings = request.ColumnsSettings;
+        selectedIndex = nextSelectedIndex;
+        summaryText = nextSummaryText;
+
+        long columnNotificationMs = 0L;
+        if (columnsChanged)
+        {
+            long columnNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
+            RaisePropertyChanged(nameof(ColumnsSettings));
+            RaisePropertyChanged(nameof(RowDragKind));
+            columnNotificationMs = request.Stopwatch.ElapsedMilliseconds - columnNotificationStartMs;
+            columnSettingMs += columnNotificationMs;
+        }
+        if (rowsChanged)
+        {
+            RaisePropertyChanged(nameof(Rows));
+        }
+        if (summaryChanged)
+        {
+            RaisePropertyChanged(nameof(SummaryText));
+        }
+        if (selectionChanged)
+        {
+            RaisePropertyChanged(nameof(SelectedIndex));
+        }
+
+        long setViewMs = request.Stopwatch.ElapsedMilliseconds - setViewStartMs - columnNotificationMs;
+        long columnStageMs = request.Stopwatch.ElapsedMilliseconds - request.TerminalStageStartMs;
+        return new MainChartListRowsApplyResult(
+            prepareSwapMs,
+            columnSettingMs,
+            setViewMs,
+            columnStageMs,
+            request.ColumnSettingReuse);
+    }
+
+    internal bool TryUpdateNormalSummary(IList expectedRows, int rowCount, int distinctFolderCount)
+    {
+        if (!ReferenceEquals(rows, expectedRows))
+        {
+            return false;
+        }
+        UpdateSummaryText(rowCount, distinctFolderCount);
+        return true;
+    }
+
+    /// <summary>
     /// Resolves row drag behavior for tests that still verify the legacy root property.
     /// </summary>
     /// <param name="settings">Column settings that influence row behavior.</param>
@@ -179,6 +286,22 @@ public sealed class MainChartListViewModel : ViewModel
     private static CustomTableRowDragKind ResolveRowDragKind(CustomTableColumnSettings settings)
     {
         return CustomTableRowDragKind.PlaylistDropCandidateRows;
+    }
+
+    private string ResolveSummaryText(MainChartListSummaryUpdate summary)
+    {
+        return summary.Kind switch
+        {
+            MainChartListSummaryKind.Preserve => summaryText,
+            MainChartListSummaryKind.NormalRows => FormatSummaryText(
+                summary.Rows.Count,
+                summary.Rows is IChartListViewMetadata metadata
+                    ? metadata.DistinctFolderCount
+                    : CountDistinctFoldersForRows(summary.Rows)),
+            MainChartListSummaryKind.NormalCounts => FormatSummaryText(summary.RowCount, summary.DistinctFolderCount),
+            MainChartListSummaryKind.Explicit => summary.Text,
+            _ => throw new ArgumentOutOfRangeException(nameof(summary)),
+        };
     }
 
     private static string FormatSummaryText(int rowCount, int distinctFolderCount)
@@ -247,4 +370,116 @@ public sealed class MainChartListViewModel : ViewModel
             }
         }
     }
+}
+
+internal enum MainChartListSelectionPolicy
+{
+    Preserve,
+    Reset
+}
+
+internal enum MainChartListSummaryKind
+{
+    Preserve,
+    NormalRows,
+    NormalCounts,
+    Explicit
+}
+
+internal readonly struct MainChartListSummaryUpdate
+{
+    private MainChartListSummaryUpdate(
+        MainChartListSummaryKind kind,
+        IList rows,
+        int rowCount,
+        int distinctFolderCount,
+        string text)
+    {
+        Kind = kind;
+        Rows = rows;
+        RowCount = rowCount;
+        DistinctFolderCount = distinctFolderCount;
+        Text = text ?? string.Empty;
+    }
+
+    internal MainChartListSummaryKind Kind { get; }
+
+    internal IList Rows { get; }
+
+    internal int RowCount { get; }
+
+    internal int DistinctFolderCount { get; }
+
+    internal string Text { get; }
+
+    internal static MainChartListSummaryUpdate Preserve() => new(MainChartListSummaryKind.Preserve, null, 0, 0, string.Empty);
+
+    internal static MainChartListSummaryUpdate NormalRows(IList rows) => new(
+        MainChartListSummaryKind.NormalRows,
+        rows ?? throw new ArgumentNullException(nameof(rows)),
+        0,
+        0,
+        string.Empty);
+
+    internal static MainChartListSummaryUpdate NormalCounts(int rowCount, int distinctFolderCount) => new(
+        MainChartListSummaryKind.NormalCounts,
+        null,
+        rowCount,
+        distinctFolderCount,
+        string.Empty);
+
+    internal static MainChartListSummaryUpdate Explicit(string text) => new(
+        MainChartListSummaryKind.Explicit,
+        null,
+        0,
+        0,
+        text);
+}
+
+internal sealed class MainChartListRowsApplyRequest
+{
+    internal IList Rows { get; set; }
+
+    internal CustomTableColumnSettings ColumnsSettings { get; set; }
+
+    internal MainChartListSelectionPolicy SelectionPolicy { get; set; }
+
+    internal MainChartListSummaryUpdate Summary { get; set; }
+
+    internal bool ColumnSettingReuse { get; set; }
+
+    internal long ColumnPreparationMs { get; set; }
+
+    internal long TerminalStageStartMs { get; set; }
+
+    internal Stopwatch Stopwatch { get; set; }
+
+    internal bool RowsAlreadyPrepared { get; set; }
+}
+
+internal readonly struct MainChartListRowsApplyResult
+{
+    internal MainChartListRowsApplyResult(
+        long prepareSwapMs,
+        long columnSettingMs,
+        long setViewMs,
+        long columnStageMs,
+        bool columnSettingReuse)
+    {
+        PrepareSwapMs = prepareSwapMs;
+        ColumnSettingMs = columnSettingMs;
+        SetViewMs = setViewMs;
+        ColumnStageMs = columnStageMs;
+        ColumnSettingReuse = columnSettingReuse;
+    }
+
+    internal long PrepareSwapMs { get; }
+
+    internal long ColumnSettingMs { get; }
+
+    internal long SetViewMs { get; }
+
+    internal long ColumnStageMs { get; }
+
+    internal bool ColumnSettingReuse { get; }
 }

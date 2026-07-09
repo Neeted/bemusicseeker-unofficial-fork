@@ -464,7 +464,7 @@ inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot �
 - `MainChartList.ColumnsSettings`
 - `UseAsyncChartRowsViewBinding`
 
-内部の一覧再構築は `RefreshChartRowsView(...)` / `SetChartRowsView(...)` / `ChartRowsFolderView` など chart row 名の helper に寄せている。
+内部の一覧再構築は root の `RefreshChartRowsView(...)` から開始するが、rows / columns / selection / summary の terminal state は `MainChartList.ApplyRows(...)` が一括適用する。
 
 このため、現在の仕様では通常一覧 / playlist detail の表示 binding は「BMSFile collection」ではなく「BMS / bmson 共通 chart row view」として扱う。
 

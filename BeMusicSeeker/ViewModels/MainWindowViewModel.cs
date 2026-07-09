@@ -100,8 +100,6 @@ public partial class MainWindowViewModel : ViewModel
 
     internal event EventHandler PlaybackStarted;
 
-    internal event EventHandler MainTableSwapPreparing;
-
     internal event EventHandler MainTableDisplayRefreshRequested;
 
     /// <summary>
@@ -4618,39 +4616,6 @@ public partial class MainWindowViewModel : ViewModel
             && left.FinalizationFilter == right.FinalizationFilter;
     }
 
-    /// <summary>
-    /// 通常一覧 / playlist 詳細の chart row view を <see cref="MainChartList"/> binding owner へ差し替えます。
-    /// playlist 詳細表示では <see cref="PlaylistViewState.View"/> を先に更新してから呼び出します。
-    /// </summary>
-    /// <param name="rows">新しい表示行。</param>
-    private void SetChartRowsView(IList rows)
-    {
-        MainChartList.SetRows(rows, updateSummary: !IsPlaylistSummaryMode);
-    }
-
-    private void SetChartRowsView(IList rows, int distinctFolderCount)
-    {
-        MainChartList.SetRows(rows, distinctFolderCount, updateSummary: !IsPlaylistSummaryMode);
-    }
-
-    private void UpdateMainGridSummaryText(IList rows)
-    {
-        if (IsPlaylistSummaryMode)
-        {
-            return;
-        }
-        MainChartList.UpdateSummaryText(rows);
-    }
-
-    private void UpdateMainGridSummaryText(int rowCount, int distinctFolderCount)
-    {
-        if (IsPlaylistSummaryMode)
-        {
-            return;
-        }
-        MainChartList.UpdateSummaryText(rowCount, distinctFolderCount);
-    }
-
     internal static string FormatMainGridSummaryTextForTest(int rowCount, int distinctFolderCount)
     {
         return MainChartListViewModel.FormatSummaryTextForTest(rowCount, distinctFolderCount);
@@ -4896,9 +4861,9 @@ public partial class MainWindowViewModel : ViewModel
                 + " cacheHit=False");
             Action reflect = () =>
             {
-                if (ReferenceEquals(MainChartList.Rows, expectedRowsView) && IsCurrentMainSummaryFolderCountKey(key))
+                if (!IsPlaylistSummaryMode && IsCurrentMainSummaryFolderCountKey(key))
                 {
-                    UpdateMainGridSummaryText(key.RowCount, distinctFolderCount);
+                    MainChartList.TryUpdateNormalSummary(expectedRowsView, key.RowCount, distinctFolderCount);
                 }
             };
             if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
@@ -5890,15 +5855,21 @@ public partial class MainWindowViewModel : ViewModel
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         var nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
-        ChartListVirtualViewApplyResult applyResult = ChartListRefreshCoordinator.ApplyVirtualRows(
-            MainChartList.Rows,
-            nextRowsView,
-            distinctFolderCount,
-            stageStartMs,
-            viewBuildStopwatch,
-            RaiseMainTableSwapPreparing,
-            () => ApplyMainColumnSettingForViewUpdate(mode),
-            SetChartRowsView);
+        MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
+        MainChartListRowsApplyResult applyResult = MainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        {
+            Rows = nextRowsView,
+            ColumnsSettings = columnSelection.ColumnsSettings,
+            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+            Summary = IsPlaylistSummaryMode
+                ? MainChartListSummaryUpdate.Preserve()
+                : MainChartListSummaryUpdate.NormalCounts(nextRowsView.Count, distinctFolderCount),
+            ColumnSettingReuse = columnSelection.Reused,
+            ColumnPreparationMs = columnSelection.ElapsedMs,
+            TerminalStageStartMs = stageStartMs,
+            Stopwatch = viewBuildStopwatch
+        });
+        CommitMainColumnSetting(columnSelection);
         if (!summaryCacheHit)
         {
             ScheduleMainSummaryFolderCount(summaryKey, SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes), nextRowsView, mode.ToString());
@@ -6052,15 +6023,21 @@ public partial class MainWindowViewModel : ViewModel
             order,
             row => CreateVirtualChartSubsetRow(row, applyResourceHealthProjection),
             distinctFolderCount);
-        ChartListVirtualViewApplyResult applyResult = ChartListRefreshCoordinator.ApplyVirtualRows(
-            MainChartList.Rows,
-            nextRowsView,
-            distinctFolderCount,
-            stageStartMs,
-            viewBuildStopwatch,
-            RaiseMainTableSwapPreparing,
-            () => ApplyMainColumnSettingForViewUpdate(mode),
-            SetChartRowsView);
+        MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
+        MainChartListRowsApplyResult applyResult = MainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        {
+            Rows = nextRowsView,
+            ColumnsSettings = columnSelection.ColumnsSettings,
+            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+            Summary = IsPlaylistSummaryMode
+                ? MainChartListSummaryUpdate.Preserve()
+                : MainChartListSummaryUpdate.NormalCounts(nextRowsView.Count, distinctFolderCount),
+            ColumnSettingReuse = columnSelection.Reused,
+            ColumnPreparationMs = columnSelection.ElapsedMs,
+            TerminalStageStartMs = stageStartMs,
+            Stopwatch = viewBuildStopwatch
+        });
+        CommitMainColumnSetting(columnSelection);
         if (applyResourceHealthProjection)
         {
             LogResourceHealthProjection(mode, nextRowsView.Count);
@@ -10778,11 +10755,6 @@ public partial class MainWindowViewModel : ViewModel
         RaiseUiInteractionOnUiThread(PlaybackStarted, nameof(PlaybackStarted));
     }
 
-    private void RaiseMainTableSwapPreparing()
-    {
-        RaiseUiInteractionOnUiThread(MainTableSwapPreparing, nameof(MainTableSwapPreparing));
-    }
-
     private void RaiseMainTableDisplayRefreshRequested()
     {
         RaiseUiInteractionOnUiThread(MainTableDisplayRefreshRequested, nameof(MainTableDisplayRefreshRequested));
@@ -12807,16 +12779,32 @@ public partial class MainWindowViewModel : ViewModel
         MainViewUpdateMode columnSettingMode,
         Stopwatch viewBuildStopwatch)
     {
-        MainChartList.SelectedIndex = -1;
-        RaiseMainTableSwapPreparing();
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        loadColumnSetting(columnSettingMode);
-        long columnStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+        MainChartListColumnSelection columnSelection = loadColumnSetting(columnSettingMode);
         long callbackStageMs = 0L;
+        bool rowsReplacementPrepared = !ReferenceEquals(MainChartList.Rows, finalRows);
+        if (rowsReplacementPrepared)
+        {
+            MainChartList.PrepareRowsReplacement();
+        }
         ReplacePlaylistViewRows(finalRows, request.Identity);
-        SetChartRowsView(finalRows);
+        MainChartListRowsApplyResult applyResult = MainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        {
+            Rows = finalRows,
+            ColumnsSettings = columnSelection.ColumnsSettings,
+            SelectionPolicy = MainChartListSelectionPolicy.Reset,
+            Summary = IsPlaylistSummaryMode
+                ? MainChartListSummaryUpdate.Preserve()
+                : MainChartListSummaryUpdate.NormalRows(finalRows),
+            ColumnSettingReuse = columnSelection.Reused,
+            ColumnPreparationMs = columnSelection.ElapsedMs,
+            TerminalStageStartMs = stageStartMs,
+            Stopwatch = viewBuildStopwatch,
+            RowsAlreadyPrepared = rowsReplacementPrepared
+        });
+        CommitMainColumnSetting(columnSelection);
         TryMarkPlaylistOpenBuildCompleted(request, viewCount);
-        return new PlaylistMainViewApplyResult(columnStageMs, callbackStageMs);
+        return new PlaylistMainViewApplyResult(applyResult.ColumnSettingMs, callbackStageMs);
     }
 
     private bool TryPatchPlaylistSourceChartInfoIndex(PlaylistBuildRequest request, CancellationToken cancellationToken, out int sourceCount, out int dependencyCount, out int patchedCount, out long elapsedMs)
@@ -13164,14 +13152,21 @@ public partial class MainWindowViewModel : ViewModel
         sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         viewCount = nextRowsView?.Count ?? 0;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        ChartListRegularRowsApplyResult applyResult = ChartListRefreshCoordinator.ApplyRegularRows(
-            MainChartList.Rows,
-            nextRowsView,
-            stageStartMs,
-            viewBuildStopwatch,
-            RaiseMainTableSwapPreparing,
-            () => ApplyMainColumnSettingForViewUpdate(mode),
-            SetChartRowsView);
+        MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
+        MainChartListRowsApplyResult applyResult = MainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        {
+            Rows = nextRowsView,
+            ColumnsSettings = columnSelection.ColumnsSettings,
+            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+            Summary = IsPlaylistSummaryMode
+                ? MainChartListSummaryUpdate.Preserve()
+                : MainChartListSummaryUpdate.NormalRows(nextRowsView),
+            ColumnSettingReuse = columnSelection.Reused,
+            ColumnPreparationMs = columnSelection.ElapsedMs,
+            TerminalStageStartMs = stageStartMs,
+            Stopwatch = viewBuildStopwatch
+        });
+        CommitMainColumnSetting(columnSelection);
         long prepareSwapMs = applyResult.PrepareSwapMs;
         long columnSettingMs = applyResult.ColumnSettingMs;
         long setViewMs = applyResult.SetViewMs;
@@ -13983,7 +13978,6 @@ public partial class MainWindowViewModel : ViewModel
         IReadOnlyList<PlayHistoryDiagnostic> diagnostics = [];
         int diagnosticsCount = 0;
         long prepareSwapMs = 0L;
-        long columnSettingStartMs = 0L;
         long columnSettingMs = 0L;
         bool columnSettingReuse = false;
         long setViewMs = 0L;
@@ -14082,20 +14076,23 @@ public partial class MainWindowViewModel : ViewModel
             IList nextRowsView = sortedRows.Count == 0 && MainChartList.Rows is PlayHistoryVirtualView currentPlayHistoryView && currentPlayHistoryView.Count == 0
                 ? MainChartList.Rows
                 : new PlayHistoryVirtualView(sortedRows, CountDistinctPlayHistoryFolderLabels(sortedRows));
-            columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            columnSettingReuse = ApplyMainColumnSettingForViewUpdate(mode);
+            long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+            MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
+            string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
+            MainChartList.ColumnsSettings = columnSelection.ColumnsSettings;
+            CommitMainColumnSetting(columnSelection);
             columnSettingMs = viewBuildStopwatch.ElapsedMilliseconds - columnSettingStartMs;
+            columnSettingReuse = columnSelection.Reused;
             if (!ReferenceEquals(MainChartList.Rows, nextRowsView))
             {
                 long setViewStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-                SetChartRowsView(nextRowsView);
+                MainChartList.SetRows(nextRowsView, updateSummary: false);
                 setViewMs = viewBuildStopwatch.ElapsedMilliseconds - setViewStartMs;
             }
             if (archivePeriodTree != null)
             {
                 PlayHistoryArchivePeriodTree = archivePeriodTree;
             }
-            string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
             MainChartList.SummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
             PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
             PlayHistorySummaryDiagnosticText = diagnosticSummaryText;
@@ -15413,7 +15410,9 @@ public partial class MainWindowViewModel : ViewModel
 
     public void LoadColumnSetting()
     {
-        loadColumnSetting(MainViewUpdateMode.TreeViewFilterNotChanged, isInit: true);
+        MainChartListColumnSelection selection = loadColumnSetting(MainViewUpdateMode.TreeViewFilterNotChanged, isInit: true);
+        MainChartList.ColumnsSettings = selection.ColumnsSettings;
+        CommitMainColumnSetting(selection);
     }
 
     /// <summary>
@@ -15426,17 +15425,17 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
     }
 
-    private bool ApplyMainColumnSettingForViewUpdate(MainViewUpdateMode mode)
+    private MainChartListColumnSelection ResolveMainColumnSettingForViewUpdate(MainViewUpdateMode mode)
     {
+        var stopwatch = Stopwatch.StartNew();
         MainViewUpdateMode resolvedMode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
         bool targetSettingsReady = IsMainColumnSettingTargetReady(resolvedMode);
         bool playlistSummarySettingsReady = Settings.Default.PlaylistSummaryColumnsSettings != null;
         if (CanReuseMainColumnSetting(resolvedMode, lastAppliedMainColumnSettingMode, targetSettingsReady, playlistSummarySettingsReady, isInit: false))
         {
-            return true;
+            return new MainChartListColumnSelection(MainChartList.ColumnsSettings, reused: true, stopwatch.ElapsedMilliseconds, appliedMode: null);
         }
-        loadColumnSetting(resolvedMode);
-        return false;
+        return loadColumnSetting(resolvedMode);
     }
 
     private static bool CanReuseMainColumnSetting(
@@ -15485,13 +15484,14 @@ public partial class MainWindowViewModel : ViewModel
         return IsMainColumnSettingTargetReady(mode, settings);
     }
 
-    private void loadColumnSetting(MainViewUpdateMode mode, bool isInit = false)
+    private MainChartListColumnSelection loadColumnSetting(MainViewUpdateMode mode, bool isInit = false)
     {
         var stopwatch = Stopwatch.StartNew();
         long stageStartMs = stopwatch.ElapsedMilliseconds;
         long caseEnsureMs = 0L;
         long caseAssignMs = 0L;
         Visibility targetColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
+        CustomTableColumnSettings targetColumnsSettings = MainChartList.ColumnsSettings;
         string caseLabel = "none";
 
         if (mode == MainViewUpdateMode.TreeViewFilterNotChanged)
@@ -15512,7 +15512,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.PlaylistCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.PlaylistCustomTableColumnSettings;
                 targetColumnSettingsVisibilityForPlaylist = Visibility.Visible;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
@@ -15525,7 +15525,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.StandardCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.StandardCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.UnregisteredFilterSelected:
@@ -15537,7 +15537,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.UnregisteredCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.UnregisteredCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.ZeroNoteFilterSelected:
@@ -15549,7 +15549,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.ZeroNoteCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.ZeroNoteCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.ChartInfoParseErrorFilterSelected:
@@ -15561,7 +15561,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.FileMissingFilterSelected:
@@ -15576,7 +15576,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.FullScanCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.FullScanCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.DuplicateFilterSelected:
@@ -15588,7 +15588,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.DuplicateCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.DuplicateCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.GarbledFilterSelected:
@@ -15601,7 +15601,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.EncodingCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.EncodingCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.PendingInstallFolderSelected:
@@ -15613,7 +15613,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.InstallCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.InstallCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.PlayHistorySelected:
@@ -15626,7 +15626,7 @@ public partial class MainWindowViewModel : ViewModel
                 Settings.Default.PlayHistoryCustomTableColumnSettings.EnsurePlayHistoryColumnDefaults();
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                MainChartList.ColumnsSettings = Settings.Default.PlayHistoryCustomTableColumnSettings;
+                targetColumnsSettings = Settings.Default.PlayHistoryCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             default:
@@ -15646,16 +15646,47 @@ public partial class MainWindowViewModel : ViewModel
         stageStartMs = stopwatch.ElapsedMilliseconds;
         PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
         long playlistSummaryAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-        if (modeHandled)
-        {
-            lastAppliedMainColumnSettingMode = mode;
-        }
-
         long totalMs = stopwatch.ElapsedMilliseconds;
         if (totalMs >= ColumnSettingSlowLogThresholdMs)
         {
             LogMainViewBuild("column_setting_slow mode=" + mode + " case=" + caseLabel + " isInit=" + isInit + " totalMs=" + totalMs + " normalizeMs=" + normalizeMs + " visibilityMs=" + visibilityMs + " caseEnsureMs=" + caseEnsureMs + " caseAssignMs=" + caseAssignMs + " playlistSummaryEnsureMs=" + playlistSummaryEnsureMs + " playlistSummaryAssignMs=" + playlistSummaryAssignMs + " thresholdMs=" + ColumnSettingSlowLogThresholdMs);
         }
+        return new MainChartListColumnSelection(
+            targetColumnsSettings,
+            reused: false,
+            totalMs,
+            modeHandled ? mode : null);
+    }
+
+    private void CommitMainColumnSetting(MainChartListColumnSelection selection)
+    {
+        if (selection.AppliedMode.HasValue)
+        {
+            lastAppliedMainColumnSettingMode = selection.AppliedMode.Value;
+        }
+    }
+
+    private readonly struct MainChartListColumnSelection
+    {
+        internal MainChartListColumnSelection(
+            CustomTableColumnSettings columnsSettings,
+            bool reused,
+            long elapsedMs,
+            MainViewUpdateMode? appliedMode)
+        {
+            ColumnsSettings = columnsSettings;
+            Reused = reused;
+            ElapsedMs = elapsedMs;
+            AppliedMode = appliedMode;
+        }
+
+        internal CustomTableColumnSettings ColumnsSettings { get; }
+
+        internal bool Reused { get; }
+
+        internal long ElapsedMs { get; }
+
+        internal MainViewUpdateMode? AppliedMode { get; }
     }
 
     public void ExecSort(string columnName, ListSortDirection direction)

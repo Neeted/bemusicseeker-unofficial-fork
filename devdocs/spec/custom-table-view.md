@@ -64,6 +64,8 @@ score / chart_info / maintenance / warning hydration が現在の full normal li
 
 `CustomTableView` は `ItemsSource` を全列挙しない。行数は `IList.Count`、描画・選択・tooltip・右クリックなどは対象 index の indexer だけを使う。旧 view の破棄処理も `IChartListViewMetadata` を優先し、仮想 view を列挙してはいけない。通常一覧の summary 表示は `MainChartList.SummaryText` を正本にし、仮想 view 作成時には folder count を同期計算しない。folder count 未計算時は曲数だけを表示し、後続の低優先度計算が current generation と一致した場合だけ `曲数 / フォルダ数` へ更新する。
 
+main table の通常 virtual / materialized rows、column settings、selection、summary は `MainChartList.ApplyRows(...)` が一つの terminal transition として backing state を確定してから通知する。Rows が別 collection へ変わる場合、`MainWindow` は child owner の `RowsReplacing` event を直接受けて edit / cache を先に確定する。play history は freshness lock 外へ swap preparation と terminal commit を安全に出すまで個別 apply を維持するが、summary は通常件数を経由せず explicit text を一度だけ通知する。
+
 `Ctrl+Shift+C` のような選択行コピーや、ユーザーが明示した全行操作は対象行の実体化を許容する。これは一覧表示の初回描画とは別の明示操作であり、仮想 view の fallback として全件 `LibraryChartRow` を常時作る経路は持たない。
 
 ## Column Layout
