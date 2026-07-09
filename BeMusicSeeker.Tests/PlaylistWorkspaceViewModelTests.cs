@@ -36,6 +36,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             "lockPlaylistSummaryRowsCache",
             "playlistSummaryRowsCache",
             "playlistSummaryTableCountCache",
+            "deferredPlaylistSummaryRefreshRequested",
+            "deferredPlaylistSummaryPresentationRefreshRequested",
             "previousPlaylistSummaryViewWeakReference",
             "_IsPlaylistSummaryMode",
             "_IsPlaylistDetailViewActive",
@@ -61,11 +63,14 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "private CancellationTokenSource playlistSummaryDataBuildCancellation;");
         StringAssert.Contains(workspaceSource, "internal bool TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest request)");
         StringAssert.Contains(workspaceSource, "internal bool TryGetPlaylistSummaryTableCount(");
+        StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)");
+        StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(");
         StringAssert.Contains(workspaceSource, "internal long LastPlaylistSummaryBuildCompletedTimestamp");
         StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; } = new();");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;");
         Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryDataRefreshDecision", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSummaryViewApplied += MainWindowViewModel_PlaylistSummaryViewApplied;");
         StringAssert.Contains(rootSource, "BuildPlaylistSummaryRows(buildRequest.TableCountCacheGeneration, buildRequest.CancellationToken");
         StringAssert.Contains(rootSource, "cancellationToken.ThrowIfCancellationRequested();");
@@ -325,5 +330,72 @@ public sealed class PlaylistWorkspaceViewModelTests
         }));
         workspace.CompletePlaylistSummaryDataBuild(activeBuild);
         Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceDeferredDataRefreshCancelsBuildAndDominatesPresentation()
+    {
+        var workspace = new PlaylistWorkspaceViewModel { IsPlaylistSummaryMode = true };
+        Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
+        workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
+
+        long nextBuildGeneration = workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false).NextBuildGeneration;
+        workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
+
+        Assert.IsTrue(activeBuild.CancellationToken.IsCancellationRequested);
+        Assert.AreEqual(workspace.CurrentPlaylistSummaryDataRebuildGeneration + 1L, nextBuildGeneration);
+        Assert.AreEqual(
+            PlaylistSummaryDeferredRefreshKind.Data,
+            workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
+        Assert.AreEqual(
+            PlaylistSummaryDeferredRefreshKind.None,
+            workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
+        workspace.CompletePlaylistSummaryDataBuild(activeBuild);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceDeferredRefreshIsAtomicWithExternalDataPriorityAndModeExit()
+    {
+        var workspace = new PlaylistWorkspaceViewModel { IsPlaylistSummaryMode = true };
+        workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
+
+        Assert.AreEqual(
+            PlaylistSummaryDeferredRefreshKind.Data,
+            workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: true));
+
+        workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
+        workspace.IsPlaylistSummaryMode = false;
+        workspace.IsPlaylistSummaryMode = true;
+
+        Assert.AreEqual(
+            PlaylistSummaryDeferredRefreshKind.None,
+            workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceDataRefreshRequestOwnsVisibilityAndDeferralDecision()
+    {
+        var workspace = new PlaylistWorkspaceViewModel();
+        long hiddenDataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+        long hiddenCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+
+        PlaylistSummaryDataRefreshRequestResult hidden = workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false);
+
+        Assert.IsFalse(hidden.Queued);
+        Assert.AreEqual(0L, hidden.NextBuildGeneration);
+        Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > hiddenDataGeneration);
+        Assert.IsTrue(workspace.CurrentPlaylistSummaryRowsCacheGeneration > hiddenCacheGeneration);
+
+        workspace.IsPlaylistSummaryMode = true;
+        PlaylistSummaryDataRefreshRequestResult visible = workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: true);
+        Assert.IsTrue(visible.Queued);
+        Assert.AreEqual(workspace.CurrentPlaylistSummaryDataRebuildGeneration + 1L, visible.NextBuildGeneration);
+
+        PlaylistSummaryDataRefreshRequestResult coalesced = workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: true);
+        Assert.IsTrue(coalesced.Queued);
+        Assert.AreEqual(workspace.CurrentPlaylistSummaryDataRebuildGeneration + 1L, coalesced.NextBuildGeneration);
+        Assert.AreEqual(
+            PlaylistSummaryDeferredRefreshKind.Data,
+            workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
     }
 }

@@ -351,45 +351,6 @@ public sealed class PlaylistSummaryAggregationTests
     }
 
     [TestMethod]
-    public void PlaylistSummaryDataRefreshDecision_InvalidatesRowsEvenWhenHidden()
-    {
-        MainWindowViewModel.PlaylistSummaryDataRefreshDecision decision =
-            MainWindowViewModel.BuildPlaylistSummaryDataRefreshDecisionForTest(
-                isPlaylistSummaryMode: false,
-                isUiUpdateSuppressed: false,
-                invalidateTableCountCache: false);
-
-        Assert.IsTrue(decision.InvalidateRowsCache);
-        Assert.IsFalse(decision.InvalidateTableCountCache);
-        Assert.IsFalse(decision.RebuildImmediately);
-        Assert.IsFalse(decision.RequestDeferredRefresh);
-    }
-
-    [TestMethod]
-    public void PlaylistSummaryDataRefreshDecision_RebuildsOrDefersOnlyWhenVisible()
-    {
-        MainWindowViewModel.PlaylistSummaryDataRefreshDecision visible =
-            MainWindowViewModel.BuildPlaylistSummaryDataRefreshDecisionForTest(
-                isPlaylistSummaryMode: true,
-                isUiUpdateSuppressed: false,
-                invalidateTableCountCache: true);
-        MainWindowViewModel.PlaylistSummaryDataRefreshDecision suppressed =
-            MainWindowViewModel.BuildPlaylistSummaryDataRefreshDecisionForTest(
-                isPlaylistSummaryMode: true,
-                isUiUpdateSuppressed: true,
-                invalidateTableCountCache: true);
-
-        Assert.IsTrue(visible.InvalidateRowsCache);
-        Assert.IsTrue(visible.InvalidateTableCountCache);
-        Assert.IsTrue(visible.RebuildImmediately);
-        Assert.IsFalse(visible.RequestDeferredRefresh);
-        Assert.IsTrue(suppressed.InvalidateRowsCache);
-        Assert.IsTrue(suppressed.InvalidateTableCountCache);
-        Assert.IsFalse(suppressed.RebuildImmediately);
-        Assert.IsTrue(suppressed.RequestDeferredRefresh);
-    }
-
-    [TestMethod]
     public void BuildPlaylistSummaryPresentationRows_AppliesFilterAndSortWithoutRebuildLogic()
     {
         List<PlaylistSummaryRow> rows =

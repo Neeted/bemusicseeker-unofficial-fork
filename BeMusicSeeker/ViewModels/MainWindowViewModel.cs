@@ -628,10 +628,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly object lockUiSuppression = new();
 
-    private bool deferredPlaylistSummaryRefreshRequested;
-
-    private bool deferredPlaylistSummaryPresentationRefreshRequested;
-
     private int deferredPlaylistRefRequestedVersion;
 
     private bool deferredPlaylistRefRunning;
@@ -2753,92 +2749,55 @@ public partial class MainWindowViewModel : ViewModel
         return GetStartupPresentationDeferredChannels(mask, reason, CanShowStartupBasicLibraryMainView(currentTreeMode)) != UiRefreshChannel.None;
     }
 
-    private bool IsUiUpdateSuppressed()
+    private long QueuePlaylistSummaryDataRefresh(bool invalidateTableCountCache, bool rebuildAsync = true)
     {
+        PlaylistSummaryDataRefreshRequestResult request;
+        bool deferred;
         lock (lockUiSuppression)
         {
-            return suppressUiUpdateDepth > 0;
+            request = PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache);
+            deferred = suppressUiUpdateDepth > 0;
         }
+        if (!request.Queued || deferred)
+        {
+            return request.NextBuildGeneration;
+        }
+        long drainedGeneration = DrainPlaylistSummaryRefresh(
+            dataRefreshRequired: false,
+            rebuildAsync);
+        return drainedGeneration != 0L ? drainedGeneration : request.NextBuildGeneration;
     }
 
-    private long RequestDeferredPlaylistSummaryRefresh(bool invalidateData = true, bool invalidateTableCountCache = true)
+    private void QueuePlaylistSummaryPresentationRefresh()
     {
-        if (invalidateData)
-        {
-            InvalidatePlaylistSummaryData("deferred_playlist_summary_refresh", invalidateTableCountCache);
-        }
+        bool deferred;
         lock (lockUiSuppression)
         {
-            deferredPlaylistSummaryRefreshRequested = true;
+            PlaylistWorkspace.RequestDeferredPlaylistSummaryPresentationRefresh();
+            deferred = suppressUiUpdateDepth > 0;
         }
-        return PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration + 1L;
-    }
-
-    private void RequestDeferredPlaylistSummaryPresentationRefresh()
-    {
-        lock (lockUiSuppression)
+        if (!deferred)
         {
-            deferredPlaylistSummaryPresentationRefreshRequested = true;
+            DrainPlaylistSummaryRefresh(dataRefreshRequired: false, rebuildAsync: true);
         }
     }
 
-    private bool ConsumeDeferredPlaylistSummaryRefresh()
+    private long DrainPlaylistSummaryRefresh(bool dataRefreshRequired, bool rebuildAsync)
     {
-        lock (lockUiSuppression)
+        PlaylistSummaryDeferredRefreshKind refresh = PlaylistWorkspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired);
+        if (!IsPlaylistSummaryMode)
         {
-            bool result = deferredPlaylistSummaryRefreshRequested;
-            deferredPlaylistSummaryRefreshRequested = false;
-            return result;
+            return 0L;
         }
-    }
-
-    private bool ConsumeDeferredPlaylistSummaryPresentationRefresh()
-    {
-        lock (lockUiSuppression)
+        if (refresh == PlaylistSummaryDeferredRefreshKind.Data)
         {
-            bool result = deferredPlaylistSummaryPresentationRefreshRequested;
-            deferredPlaylistSummaryPresentationRefreshRequested = false;
-            return result;
+            return RebuildPlaylistSummaryView(runAsync: rebuildAsync);
         }
-    }
-
-    internal struct PlaylistSummaryDataRefreshDecision
-    {
-        public bool InvalidateRowsCache { get; set; }
-
-        public bool InvalidateTableCountCache { get; set; }
-
-        public bool RebuildImmediately { get; set; }
-
-        public bool RequestDeferredRefresh { get; set; }
-    }
-
-    private static PlaylistSummaryDataRefreshDecision BuildPlaylistSummaryDataRefreshDecision(bool isPlaylistSummaryMode, bool isUiUpdateSuppressed, bool invalidateTableCountCache)
-    {
-        return new PlaylistSummaryDataRefreshDecision
+        if (refresh == PlaylistSummaryDeferredRefreshKind.Presentation)
         {
-            InvalidateRowsCache = true,
-            InvalidateTableCountCache = invalidateTableCountCache,
-            RebuildImmediately = isPlaylistSummaryMode && !isUiUpdateSuppressed,
-            RequestDeferredRefresh = isPlaylistSummaryMode && isUiUpdateSuppressed
-        };
-    }
-
-    internal static PlaylistSummaryDataRefreshDecision BuildPlaylistSummaryDataRefreshDecisionForTest(bool isPlaylistSummaryMode, bool isUiUpdateSuppressed, bool invalidateTableCountCache)
-    {
-        return BuildPlaylistSummaryDataRefreshDecision(isPlaylistSummaryMode, isUiUpdateSuppressed, invalidateTableCountCache);
-    }
-
-    private void InvalidatePlaylistSummaryRowsCache(bool invalidateTableCountCache = true)
-    {
-        PlaylistWorkspace.InvalidatePlaylistSummaryCache(invalidateTableCountCache);
-    }
-
-    private void InvalidatePlaylistSummaryData(string reason, bool invalidateTableCountCache = false)
-    {
-        PlaylistWorkspace.BeginPlaylistSummaryDataRebuildGeneration();
-        PlaylistWorkspace.BeginPlaylistSummaryPresentationGeneration();
-        InvalidatePlaylistSummaryRowsCache(invalidateTableCountCache);
+            ApplyPlaylistSummaryPresentation();
+        }
+        return 0L;
     }
 
     private long GetActiveStartupProgressOperationToken()
@@ -3544,7 +3503,7 @@ public partial class MainWindowViewModel : ViewModel
         ResetRegularDerivedViewCaches();
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
         {
-            RequestDeferredPlaylistSummaryRefresh();
+            QueuePlaylistSummaryDataRefresh(invalidateTableCountCache: true);
         }
         else
         {
@@ -3736,16 +3695,8 @@ public partial class MainWindowViewModel : ViewModel
         }
         stopwatchTotal.Stop();
         LogUiSuppression("ui_suppress flush_install_tree_ms=" + num + " flush_playlist_tree_ms=" + num2 + " flush_library_folder_tree_ms=" + num3 + " flush_duplicate_tree_ms=" + num4 + " flush_library_main_view_ms=" + num5 + " flush_total_ms=" + stopwatchTotal.ElapsedMilliseconds + " deferred_library_folder_tree=" + flag + " requested_mask=" + requestedMask + " flushed_mask=" + mask);
-        bool playlistSummaryDataRefreshRequired = ((mask & (UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView)) != 0) || ConsumeDeferredPlaylistSummaryRefresh();
-        bool playlistSummaryPresentationRefreshRequired = ConsumeDeferredPlaylistSummaryPresentationRefresh();
-        if (IsPlaylistSummaryMode && playlistSummaryDataRefreshRequired)
-        {
-            RebuildPlaylistSummaryView();
-        }
-        else if (IsPlaylistSummaryMode && playlistSummaryPresentationRefreshRequired)
-        {
-            RefreshPlaylistSummaryPresentationIfVisible();
-        }
+        bool playlistSummaryDataRefreshRequired = (mask & (UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView)) != 0;
+        DrainPlaylistSummaryRefresh(playlistSummaryDataRefreshRequired, rebuildAsync: true);
         if (logReadiness)
         {
             TryLogStartupReadyUi(mask, operationToken);
@@ -4963,7 +4914,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, reason))
         {
-            RequestDeferredPlaylistSummaryRefresh();
+            QueuePlaylistSummaryDataRefresh(invalidateTableCountCache: true);
             return;
         }
         if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
@@ -11239,7 +11190,7 @@ public partial class MainWindowViewModel : ViewModel
             RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "score_hydration_completed");
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "score_hydration_completed"))
             {
-                RequestDeferredPlaylistSummaryRefresh();
+                QueuePlaylistSummaryDataRefresh(invalidateTableCountCache: true);
                 return;
             }
             RefreshPlaylistSummaryIfVisible("score_hydration_completed");
@@ -11268,7 +11219,7 @@ public partial class MainWindowViewModel : ViewModel
             RefreshLibraryMainViewForDataDependency(MainViewDataDependency.Score, "ranking_refresh_completed");
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "ranking_refresh_completed"))
             {
-                RequestDeferredPlaylistSummaryRefresh();
+                QueuePlaylistSummaryDataRefresh(invalidateTableCountCache: true);
                 return;
             }
             RefreshPlaylistSummaryIfVisible("ranking_refresh_completed");
@@ -11439,7 +11390,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_tables_changed"))
             {
-                RequestDeferredPlaylistSummaryRefresh();
+                QueuePlaylistSummaryDataRefresh(invalidateTableCountCache: true);
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
@@ -11455,7 +11406,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_tables_collection_changed"))
             {
-                RequestDeferredPlaylistSummaryRefresh();
+                QueuePlaylistSummaryDataRefresh(invalidateTableCountCache: true);
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
@@ -11472,7 +11423,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_entries_hydration_completed"))
             {
-                RequestDeferredPlaylistSummaryRefresh();
+                QueuePlaylistSummaryDataRefresh(invalidateTableCountCache: true);
                 return;
             }
             RefreshPlaylistSummaryIfVisible("playlist_entries_hydration_completed", invalidateTableCountCache: true);
@@ -19041,8 +18992,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             GridHeaderText = string.Empty;
             PlaylistWorkspace.PlaylistSummaryText = string.Empty;
-            ConsumeDeferredPlaylistSummaryRefresh();
-            ConsumeDeferredPlaylistSummaryPresentationRefresh();
         }
     }
 
@@ -19071,34 +19020,12 @@ public partial class MainWindowViewModel : ViewModel
         // 表示へ戻るだけなら raw rows cache は必ず捨てるが、table count cache は必要な場合だけ落とす。
         // count cache key には playlist entry revision と owned snapshot version が含まれるため、
         // playlist 内容や所持状態が変わった場合は自然に miss する。
-        PlaylistSummaryDataRefreshDecision decision = BuildPlaylistSummaryDataRefreshDecision(IsPlaylistSummaryMode, IsUiUpdateSuppressed(), invalidateTableCountCache);
-        if (decision.InvalidateRowsCache)
-        {
-            InvalidatePlaylistSummaryData(reason, decision.InvalidateTableCountCache);
-        }
-        if (decision.RequestDeferredRefresh)
-        {
-            return RequestDeferredPlaylistSummaryRefresh(invalidateData: false);
-        }
-        if (!decision.RebuildImmediately)
-        {
-            return 0L;
-        }
-        return RebuildPlaylistSummaryView(runAsync: rebuildAsync);
+        return QueuePlaylistSummaryDataRefresh(invalidateTableCountCache, rebuildAsync);
     }
 
     private void RefreshPlaylistSummaryPresentationIfVisible()
     {
-        if (!IsPlaylistSummaryMode)
-        {
-            return;
-        }
-        if (IsUiUpdateSuppressed())
-        {
-            RequestDeferredPlaylistSummaryPresentationRefresh();
-            return;
-        }
-        ApplyPlaylistSummaryPresentation();
+        QueuePlaylistSummaryPresentationRefresh();
     }
 
     public void SelectPlaylistSummary()

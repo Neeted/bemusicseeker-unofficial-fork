@@ -74,6 +74,10 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
 
     private bool playlistSummaryDataBuildStopped;
 
+    private bool deferredPlaylistSummaryDataRefreshRequested;
+
+    private bool deferredPlaylistSummaryPresentationRefreshRequested;
+
     /// <summary>
     /// Raised after the summary view is replaced and code-behind selection restoration can run.
     /// </summary>
@@ -214,6 +218,8 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
                     playlistSummaryDataBuildCancellation = null;
                     playlistSummaryDataRebuildGeneration++;
                     playlistSummaryPresentationGeneration++;
+                    deferredPlaylistSummaryDataRefreshRequested = false;
+                    deferredPlaylistSummaryPresentationRefreshRequested = false;
                 }
             }
             CancelDataBuild(cancellation);
@@ -398,6 +404,88 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         }
         CancelDataBuild(cancellation);
         return generation;
+    }
+
+    internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(bool invalidateTableCountCache)
+    {
+        CancellationTokenSource cancellation;
+        PlaylistSummaryDataRefreshRequestResult result;
+        lock (playlistSummaryTransitionLock)
+        {
+            if (playlistSummaryDataBuildStopped)
+            {
+                return default;
+            }
+            cancellation = InvalidatePlaylistSummaryDataUnsafe(invalidateTableCountCache);
+            bool queued = isPlaylistSummaryMode;
+            if (queued)
+            {
+                deferredPlaylistSummaryDataRefreshRequested = true;
+                deferredPlaylistSummaryPresentationRefreshRequested = false;
+            }
+            result = new PlaylistSummaryDataRefreshRequestResult
+            {
+                NextBuildGeneration = isPlaylistSummaryMode
+                    ? playlistSummaryDataRebuildGeneration + 1L
+                    : 0L,
+                Queued = queued
+            };
+        }
+        CancelDataBuild(cancellation);
+        return result;
+    }
+
+    internal void RequestDeferredPlaylistSummaryPresentationRefresh()
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            if (isPlaylistSummaryMode
+                && !playlistSummaryDataBuildStopped
+                && !deferredPlaylistSummaryDataRefreshRequested)
+            {
+                deferredPlaylistSummaryPresentationRefreshRequested = true;
+            }
+        }
+    }
+
+    internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            bool applyDataRefresh = dataRefreshRequired || deferredPlaylistSummaryDataRefreshRequested;
+            bool applyPresentationRefresh = deferredPlaylistSummaryPresentationRefreshRequested;
+            deferredPlaylistSummaryDataRefreshRequested = false;
+            deferredPlaylistSummaryPresentationRefreshRequested = false;
+            if (playlistSummaryDataBuildStopped)
+            {
+                return PlaylistSummaryDeferredRefreshKind.None;
+            }
+            if (applyDataRefresh)
+            {
+                return PlaylistSummaryDeferredRefreshKind.Data;
+            }
+            return applyPresentationRefresh
+                ? PlaylistSummaryDeferredRefreshKind.Presentation
+                : PlaylistSummaryDeferredRefreshKind.None;
+        }
+    }
+
+    private CancellationTokenSource InvalidatePlaylistSummaryDataUnsafe(bool invalidateTableCountCache)
+    {
+        CancellationTokenSource cancellation = playlistSummaryDataBuildCancellation;
+        playlistSummaryDataBuildCancellation = null;
+        playlistSummaryDataRebuildGeneration++;
+        playlistSummaryPresentationGeneration++;
+        playlistSummaryRowsCache.Clear();
+        if (invalidateTableCountCache)
+        {
+            playlistSummaryTableCountCache.Clear();
+            playlistSummaryTableCountCacheGeneration++;
+        }
+        playlistSummaryRowsCacheValid = false;
+        playlistSummaryRowsCacheDataRebuildGeneration = 0L;
+        playlistSummaryRowsCacheGeneration++;
+        return cancellation;
     }
 
     internal bool TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest request)
@@ -750,6 +838,20 @@ internal struct PlaylistSummaryCountResult
     internal int TotalCharts;
 
     internal int OwnedCharts;
+}
+
+internal enum PlaylistSummaryDeferredRefreshKind
+{
+    None,
+    Presentation,
+    Data
+}
+
+internal struct PlaylistSummaryDataRefreshRequestResult
+{
+    internal long NextBuildGeneration;
+
+    internal bool Queued;
 }
 
 internal sealed class PlaylistSummaryViewAppliedEventArgs : EventArgs
