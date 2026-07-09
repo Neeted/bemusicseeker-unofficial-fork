@@ -86,6 +86,33 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
+    internal PlaylistColumnPresentationCommit CommitColumnPresentationWithoutNotification(
+        Visibility visibility,
+        PlaylistSummaryColumnSettings summaryColumnsSettings)
+    {
+        bool visibilityChanged = columnSettingsVisibilityForPlaylist != visibility;
+        bool summaryColumnsChanged = !ReferenceEquals(playlistSummaryColumnsSettings, summaryColumnsSettings);
+        columnSettingsVisibilityForPlaylist = visibility;
+        playlistSummaryColumnsSettings = summaryColumnsSettings;
+        return new PlaylistColumnPresentationCommit(visibilityChanged, summaryColumnsChanged);
+    }
+
+    internal void PublishColumnPresentation(PlaylistColumnPresentationCommit commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
+        if (commit.VisibilityChanged)
+        {
+            RaisePropertyChanged(nameof(ColumnSettingsVisibilityForPlaylist));
+        }
+        if (commit.SummaryColumnsChanged)
+        {
+            RaisePropertyChanged(nameof(PlaylistSummaryColumnsSettings));
+        }
+    }
+
     /// <summary>
     /// Gets or sets the rows currently displayed by the playlist summary table.
     /// </summary>
@@ -316,4 +343,17 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
     {
         PlaylistSummaryViewApplied?.Invoke(this, new MainWindowViewModel.PlaylistSummaryViewAppliedEventArgs(dataRebuildGeneration));
     }
+}
+
+internal sealed class PlaylistColumnPresentationCommit
+{
+    internal PlaylistColumnPresentationCommit(bool visibilityChanged, bool summaryColumnsChanged)
+    {
+        VisibilityChanged = visibilityChanged;
+        SummaryColumnsChanged = summaryColumnsChanged;
+    }
+
+    internal bool VisibilityChanged { get; }
+
+    internal bool SummaryColumnsChanged { get; }
 }

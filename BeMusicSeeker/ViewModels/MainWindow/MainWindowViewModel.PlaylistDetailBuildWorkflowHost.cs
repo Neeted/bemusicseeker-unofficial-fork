@@ -79,14 +79,29 @@ public partial class MainWindowViewModel : IPlaylistDetailBuildWorkflowHost
         return IsLatestPlaylistSourceBuildRequest(requestVersion);
     }
 
-    PlaylistMainViewApplyResult IPlaylistDetailBuildWorkflowHost.ApplyPlaylistDetailViewRowsToMainView(
+    PlaylistDetailTerminalApplyResult IPlaylistDetailBuildWorkflowHost.TryCommitPlaylistDetailTerminal(
         PlaylistBuildRequest request,
+        bool replaceSource,
+        List<PlaylistDetailSourceRow> sourceRows,
+        BMSTable currentTable,
+        string currentFolderName,
+        PlaylistFilterType currentFilterType,
         IList finalRows,
         int viewCount,
         MainViewUpdateMode columnSettingMode,
         Stopwatch viewBuildStopwatch)
     {
-        return ApplyPlaylistDetailViewRowsToMainView(request, finalRows, viewCount, columnSettingMode, viewBuildStopwatch);
+        return TryCommitPlaylistDetailTerminal(
+            request,
+            replaceSource,
+            sourceRows,
+            currentTable,
+            currentFolderName,
+            currentFilterType,
+            finalRows,
+            viewCount,
+            columnSettingMode,
+            viewBuildStopwatch);
     }
 
     MainViewUpdateMode IPlaylistDetailBuildWorkflowHost.GetCurrentTreeViewFilterTypeSelected()
@@ -97,21 +112,6 @@ public partial class MainWindowViewModel : IPlaylistDetailBuildWorkflowHost
     MainViewUpdateMode IPlaylistDetailBuildWorkflowHost.ResolvePlaylistColumnSettingMode(PlaylistFilterType filterType)
     {
         return ResolvePlaylistColumnSettingMode(filterType);
-    }
-
-    List<PlaylistDetailSourceRow> IPlaylistDetailBuildWorkflowHost.ReplacePlaylistSourceRows(
-        List<PlaylistDetailSourceRow> sourceRows,
-        BMSTable currentTable,
-        string currentFolderName,
-        PlaylistFilterType currentFilterType,
-        PlaylistRequestIdentity requestIdentity)
-    {
-        return ReplacePlaylistSourceRows(sourceRows, currentTable, currentFolderName, currentFilterType, requestIdentity);
-    }
-
-    int IPlaylistDetailBuildWorkflowHost.CountPlaylistSourceRows(IEnumerable<PlaylistDetailSourceRow> rows)
-    {
-        return CountPlaylistSourceRows(rows);
     }
 
     void IPlaylistDetailBuildWorkflowHost.DisposePlaylistViewRows(IEnumerable viewRows)

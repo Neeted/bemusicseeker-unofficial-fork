@@ -1091,6 +1091,11 @@ public sealed class CustomTableView : Grid
             + " suppressColumnRedrawMs=" + suppressMs);
     }
 
+    internal void CancelPendingItemsSourceSwapPreparation()
+    {
+        ClearPendingItemsSourceSwapColumnRedrawSuppression();
+    }
+
     private void BeginPendingItemsSourceSwapColumnRedrawSuppression()
     {
         suppressColumnRedrawUntilItemsSourceChanged = true;

@@ -639,6 +639,67 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void MainChartList_PreparedRowsCanCancelWithoutCommit()
+    {
+        var oldRows = new List<object>();
+        var nextRows = new List<object>();
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var mainChartList = new MainChartListViewModel { Rows = oldRows, ColumnsSettings = settings };
+        int preparingCount = 0;
+        int canceledCount = 0;
+        mainChartList.RowsReplacing += (_, _) => preparingCount++;
+        mainChartList.RowsReplacementCanceled += (_, _) => canceledCount++;
+
+        MainChartListPreparedRowsApply prepared = mainChartList.PrepareRowsApply(new MainChartListRowsApplyRequest
+        {
+            Rows = nextRows,
+            ColumnsSettings = settings,
+            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+            Summary = MainChartListSummaryUpdate.Preserve(),
+            TerminalStageStartMs = 0,
+            Stopwatch = Stopwatch.StartNew()
+        });
+        mainChartList.CancelPreparedRowsApply(prepared);
+
+        Assert.AreEqual(1, preparingCount);
+        Assert.AreEqual(1, canceledCount);
+        Assert.AreSame(oldRows, mainChartList.Rows);
+    }
+
+    [TestMethod]
+    public void MainChartList_CommitPreparedRowsDefersNotificationsUntilPublish()
+    {
+        var nextRows = new List<object>();
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var mainChartList = new MainChartListViewModel
+        {
+            Rows = new List<object>(),
+            ColumnsSettings = settings
+        };
+        var propertyNames = new List<string>();
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        MainChartListPreparedRowsApply prepared = mainChartList.PrepareRowsApply(new MainChartListRowsApplyRequest
+        {
+            Rows = nextRows,
+            ColumnsSettings = settings,
+            SelectionPolicy = MainChartListSelectionPolicy.Reset,
+            Summary = MainChartListSummaryUpdate.Explicit("committed"),
+            TerminalStageStartMs = 0,
+            Stopwatch = Stopwatch.StartNew()
+        });
+
+        MainChartListRowsCommit commit = mainChartList.CommitPreparedRows(prepared);
+
+        Assert.AreSame(nextRows, mainChartList.Rows);
+        Assert.AreEqual("committed", mainChartList.SummaryText);
+        Assert.AreEqual(0, propertyNames.Count);
+
+        mainChartList.PublishRowsCommit(commit);
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.Rows));
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SummaryText));
+    }
+
+    [TestMethod]
     public void ChartListRefreshCoordinator_CreateRegularBuildCompletionFormatsTerminalLog()
     {
         var request = new RegularChartListBuildLogRequest

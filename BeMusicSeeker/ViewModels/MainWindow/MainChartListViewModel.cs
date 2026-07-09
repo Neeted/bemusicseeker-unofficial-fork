@@ -27,9 +27,16 @@ public sealed class MainChartListViewModel : ViewModel
     /// </summary>
     internal event EventHandler RowsReplacing;
 
+    internal event EventHandler RowsReplacementCanceled;
+
     internal void PrepareRowsReplacement()
     {
         RowsReplacing?.Invoke(this, EventArgs.Empty);
+    }
+
+    internal void CancelRowsReplacement()
+    {
+        RowsReplacementCanceled?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -171,6 +178,23 @@ public sealed class MainChartListViewModel : ViewModel
     /// </summary>
     internal MainChartListRowsApplyResult ApplyRows(MainChartListRowsApplyRequest request)
     {
+        MainChartListPreparedRowsApply prepared = PrepareRowsApply(request);
+        MainChartListRowsCommit commit;
+        try
+        {
+            commit = CommitPreparedRows(prepared);
+        }
+        catch
+        {
+            CancelPreparedRowsApply(prepared);
+            throw;
+        }
+
+        return PublishRowsCommit(commit);
+    }
+
+    internal MainChartListPreparedRowsApply PrepareRowsApply(MainChartListRowsApplyRequest request)
+    {
         if (request == null)
         {
             throw new ArgumentNullException(nameof(request));
@@ -198,58 +222,164 @@ public sealed class MainChartListViewModel : ViewModel
         bool selectionChanged = selectedIndex != nextSelectedIndex;
 
         long prepareSwapMs = 0L;
+        bool rowsReplacementPrepared = rowsChanged && request.RowsAlreadyPrepared;
         if (rowsChanged && !request.RowsAlreadyPrepared)
         {
             long prepareStartMs = request.Stopwatch.ElapsedMilliseconds;
             PrepareRowsReplacement();
             prepareSwapMs = request.Stopwatch.ElapsedMilliseconds - prepareStartMs;
+            rowsReplacementPrepared = true;
         }
 
+        return new MainChartListPreparedRowsApply(
+            request,
+            nextSummaryText,
+            nextSelectedIndex,
+            rowsChanged,
+            columnsChanged,
+            summaryChanged,
+            selectionChanged,
+            rowsReplacementPrepared,
+            prepareSwapMs);
+    }
+
+    internal MainChartListRowsCommit CommitPreparedRows(MainChartListPreparedRowsApply prepared)
+    {
+        return CommitPreparedRowsCore(prepared, disposePreviousRows: true);
+    }
+
+    internal MainChartListRowsCommit CommitPreparedRowsWithoutDisposal(MainChartListPreparedRowsApply prepared)
+    {
+        return CommitPreparedRowsCore(prepared, disposePreviousRows: false);
+    }
+
+    private MainChartListRowsCommit CommitPreparedRowsCore(
+        MainChartListPreparedRowsApply prepared,
+        bool disposePreviousRows)
+    {
+        if (prepared == null)
+        {
+            throw new ArgumentNullException(nameof(prepared));
+        }
+        if (prepared.Committed)
+        {
+            throw new InvalidOperationException("The prepared main chart-list rows were already committed.");
+        }
+
+        MainChartListRowsApplyRequest request = prepared.Request;
         long columnSettingStartMs = request.Stopwatch.ElapsedMilliseconds;
         long columnSettingMs = request.ColumnPreparationMs
             + request.Stopwatch.ElapsedMilliseconds
             - columnSettingStartMs;
 
         long setViewStartMs = request.Stopwatch.ElapsedMilliseconds;
-        if (rowsChanged)
+        IList previousRows = null;
+        if (prepared.RowsChanged)
         {
-            DisposeRows(rows);
+            previousRows = rows;
+            if (disposePreviousRows)
+            {
+                DisposeRows(previousRows);
+                previousRows = null;
+            }
             rows = request.Rows;
         }
         columnsSettings = request.ColumnsSettings;
-        selectedIndex = nextSelectedIndex;
-        summaryText = nextSummaryText;
+        selectedIndex = prepared.NextSelectedIndex;
+        summaryText = prepared.NextSummaryText;
+        prepared.Committed = true;
 
+        return new MainChartListRowsCommit(
+            prepared,
+            columnSettingMs,
+            request.Stopwatch.ElapsedMilliseconds - setViewStartMs,
+            previousRows);
+    }
+
+    internal void DisposeCommittedRows(MainChartListRowsCommit commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
+        if (commit.PreviousRowsPendingDisposal == null)
+        {
+            return;
+        }
+
+        IList previousRows = commit.PreviousRowsPendingDisposal;
+        commit.PreviousRowsPendingDisposal = null;
+        DisposeRows(previousRows);
+    }
+
+    internal MainChartListRowsApplyResult PublishRowsCommit(MainChartListRowsCommit commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
+        if (commit.Published)
+        {
+            throw new InvalidOperationException("The main chart-list rows commit was already published.");
+        }
+
+        MainChartListPreparedRowsApply prepared = commit.Prepared;
+        MainChartListRowsApplyRequest request = prepared.Request;
+        long columnSettingMs = commit.ColumnSettingMs;
+        long setViewNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
         long columnNotificationMs = 0L;
-        if (columnsChanged)
+        try
         {
-            long columnNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
-            RaisePropertyChanged(nameof(ColumnsSettings));
-            RaisePropertyChanged(nameof(RowDragKind));
-            columnNotificationMs = request.Stopwatch.ElapsedMilliseconds - columnNotificationStartMs;
-            columnSettingMs += columnNotificationMs;
+            if (prepared.ColumnsChanged)
+            {
+                long columnNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
+                RaisePropertyChanged(nameof(ColumnsSettings));
+                RaisePropertyChanged(nameof(RowDragKind));
+                columnNotificationMs = request.Stopwatch.ElapsedMilliseconds - columnNotificationStartMs;
+                columnSettingMs += columnNotificationMs;
+            }
+            if (prepared.RowsChanged)
+            {
+                RaisePropertyChanged(nameof(Rows));
+            }
+            if (prepared.SummaryChanged)
+            {
+                RaisePropertyChanged(nameof(SummaryText));
+            }
+            if (prepared.SelectionChanged)
+            {
+                RaisePropertyChanged(nameof(SelectedIndex));
+            }
         }
-        if (rowsChanged)
+        catch
         {
-            RaisePropertyChanged(nameof(Rows));
-        }
-        if (summaryChanged)
-        {
-            RaisePropertyChanged(nameof(SummaryText));
-        }
-        if (selectionChanged)
-        {
-            RaisePropertyChanged(nameof(SelectedIndex));
+            if (prepared.RowsReplacementPrepared)
+            {
+                CancelRowsReplacement();
+            }
+            throw;
         }
 
-        long setViewMs = request.Stopwatch.ElapsedMilliseconds - setViewStartMs - columnNotificationMs;
+        commit.Published = true;
+        long setViewMs = commit.CommitSetViewMs
+            + request.Stopwatch.ElapsedMilliseconds
+            - setViewNotificationStartMs
+            - columnNotificationMs;
         long columnStageMs = request.Stopwatch.ElapsedMilliseconds - request.TerminalStageStartMs;
         return new MainChartListRowsApplyResult(
-            prepareSwapMs,
+            prepared.PrepareSwapMs,
             columnSettingMs,
             setViewMs,
             columnStageMs,
             request.ColumnSettingReuse);
+    }
+
+    internal void CancelPreparedRowsApply(MainChartListPreparedRowsApply prepared)
+    {
+        if (prepared?.RowsReplacementPrepared == true && !prepared.Committed)
+        {
+            CancelRowsReplacement();
+        }
     }
 
     internal bool TryUpdateNormalSummary(IList expectedRows, int rowCount, int distinctFolderCount)
@@ -455,6 +585,76 @@ internal sealed class MainChartListRowsApplyRequest
     internal Stopwatch Stopwatch { get; set; }
 
     internal bool RowsAlreadyPrepared { get; set; }
+}
+
+internal sealed class MainChartListPreparedRowsApply
+{
+    internal MainChartListPreparedRowsApply(
+        MainChartListRowsApplyRequest request,
+        string nextSummaryText,
+        int nextSelectedIndex,
+        bool rowsChanged,
+        bool columnsChanged,
+        bool summaryChanged,
+        bool selectionChanged,
+        bool rowsReplacementPrepared,
+        long prepareSwapMs)
+    {
+        Request = request;
+        NextSummaryText = nextSummaryText;
+        NextSelectedIndex = nextSelectedIndex;
+        RowsChanged = rowsChanged;
+        ColumnsChanged = columnsChanged;
+        SummaryChanged = summaryChanged;
+        SelectionChanged = selectionChanged;
+        RowsReplacementPrepared = rowsReplacementPrepared;
+        PrepareSwapMs = prepareSwapMs;
+    }
+
+    internal MainChartListRowsApplyRequest Request { get; }
+
+    internal string NextSummaryText { get; }
+
+    internal int NextSelectedIndex { get; }
+
+    internal bool RowsChanged { get; }
+
+    internal bool ColumnsChanged { get; }
+
+    internal bool SummaryChanged { get; }
+
+    internal bool SelectionChanged { get; }
+
+    internal bool RowsReplacementPrepared { get; }
+
+    internal long PrepareSwapMs { get; }
+
+    internal bool Committed { get; set; }
+}
+
+internal sealed class MainChartListRowsCommit
+{
+    internal MainChartListRowsCommit(
+        MainChartListPreparedRowsApply prepared,
+        long columnSettingMs,
+        long commitSetViewMs,
+        IList previousRowsPendingDisposal)
+    {
+        Prepared = prepared;
+        ColumnSettingMs = columnSettingMs;
+        CommitSetViewMs = commitSetViewMs;
+        PreviousRowsPendingDisposal = previousRowsPendingDisposal;
+    }
+
+    internal MainChartListPreparedRowsApply Prepared { get; }
+
+    internal long ColumnSettingMs { get; }
+
+    internal long CommitSetViewMs { get; }
+
+    internal IList PreviousRowsPendingDisposal { get; set; }
+
+    internal bool Published { get; set; }
 }
 
 internal readonly struct MainChartListRowsApplyResult

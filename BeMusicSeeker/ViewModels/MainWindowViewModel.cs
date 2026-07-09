@@ -7799,8 +7799,12 @@ public partial class MainWindowViewModel : ViewModel
         List<PlaylistDetailSourceRow> sourceRowsToDispose = null;
         IList currentViewRows = null;
         long previousGenerationId = 0L;
+        CancellationTokenSource buildCancellation = null;
         lock (playlistDetailBuildState.SyncRoot)
         {
+            playlistDetailBuildState.RequestVersion++;
+            playlistDetailBuildState.PendingRequest = null;
+            buildCancellation = playlistDetailBuildState.CurrentBuildCancellation;
             lock (playlistViewState.SyncRoot)
             {
                 sourceRowsToDispose = playlistViewState.Source.Rows;
@@ -7837,83 +7841,15 @@ public partial class MainWindowViewModel : ViewModel
             }
             playlistDetailBuildState.CurrentBuildRequest = null;
         }
+        try
+        {
+            buildCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
         LogPlaylistWeakReferenceStatus("before_source_clear");
         LogPlaylistRetention("playlist_source_replace action=clear generationId=" + previousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(sourceRowsToDispose) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(currentViewRows));
-    }
-
-    /// <summary>
-    /// playlist source snapshot を差し替え、前回 source を返します。
-    /// 返却された前回 source は view 差し替え後に呼び出し側で破棄します。
-    /// </summary>
-    /// <param name="sourceRows">新しい source snapshot。</param>
-    /// <param name="currentTable">現在表示中のプレイリスト。</param>
-    /// <param name="currentFolderName">現在表示中のプレイリストフォルダ名。</param>
-    /// <param name="currentFilterType">現在の playlist filter 種別。</param>
-    /// <returns>置き換え前の source snapshot。</returns>
-    private List<PlaylistDetailSourceRow> ReplacePlaylistSourceRows(List<PlaylistDetailSourceRow> sourceRows, BMSTable currentTable, string currentFolderName, PlaylistFilterType currentFilterType, PlaylistRequestIdentity requestIdentity)
-    {
-        List<PlaylistDetailSourceRow> previousSourceRows = null;
-        int currentViewRowsAlive = 0;
-        long previousGenerationId = 0L;
-        long nextGenerationId = 0L;
-        lock (playlistViewState.SyncRoot)
-        {
-            previousSourceRows = playlistViewState.Source.Rows;
-            previousGenerationId = playlistViewState.Source.GenerationId;
-            if (previousSourceRows != null)
-            {
-                playlistViewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(previousSourceRows);
-                playlistViewState.Source.PreviousGenerationId = previousGenerationId;
-            }
-            playlistViewState.Source.Rows = sourceRows ?? [];
-            playlistViewState.Source.CurrentTable = currentTable;
-            playlistViewState.Source.CurrentFolderName = currentFolderName;
-            playlistViewState.Source.CurrentFilterType = currentFilterType;
-            playlistViewState.Source.LastBuiltLibraryIndexVersion = requestIdentity.LibraryIndexVersion;
-            playlistViewState.Source.LastBuiltPlaylistRevision = requestIdentity.PlaylistRevision;
-            playlistViewState.Source.LastBuiltScoreSnapshotVersion = requestIdentity.ScoreSnapshotVersion;
-            playlistViewState.Source.LastBuiltChartInfoIndexVersion = requestIdentity.ChartInfoIndexVersion;
-            playlistViewState.Source.CurrentIdentity = requestIdentity.SourceIdentity;
-            playlistViewState.Source.GenerationId++;
-            nextGenerationId = playlistViewState.Source.GenerationId;
-            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.View.Rows);
-        }
-        LogPlaylistWeakReferenceStatus("before_source_replace");
-        LogPlaylistRetention("playlist_source_replace action=replace generationId=" + nextGenerationId + " previousGenerationId=" + previousGenerationId + " sourceCount=" + (sourceRows?.Count ?? 0) + " disposedCount=" + CountPlaylistSourceRows(previousSourceRows) + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive);
-        return previousSourceRows;
-    }
-
-    /// <summary>
-    /// playlist 表示用 snapshot を差し替え、直前の view snapshot を返します。
-    /// source 正本と view snapshot を別管理にして、WPF が旧 view を保持しても旧 source まで残さないようにします。
-    /// </summary>
-    /// <param name="viewRows">新しい表示用 snapshot。</param>
-    /// <returns>置き換え前の view snapshot。</returns>
-    private IList ReplacePlaylistViewRows(IList viewRows, PlaylistRequestIdentity requestIdentity)
-    {
-        LogPlaylistWeakReferenceStatus("before_view_replace");
-        IList previousViewRows = null;
-        long previousViewGenerationId = 0L;
-        long currentViewGenerationId = 0L;
-        int sourceRowsAlive = 0;
-        lock (playlistViewState.SyncRoot)
-        {
-            previousViewRows = playlistViewState.View.Rows;
-            previousViewGenerationId = playlistViewState.View.GenerationId;
-            if (previousViewRows != null)
-            {
-                playlistViewState.View.PreviousRowsWeakReference = new WeakReference<IList>(previousViewRows);
-                playlistViewState.View.PreviousGenerationId = previousViewGenerationId;
-            }
-            playlistViewState.View.Rows = viewRows ?? new List<object>();
-            playlistViewState.View.GenerationId++;
-            currentViewGenerationId = playlistViewState.View.GenerationId;
-            playlistViewState.View.LastAppliedCount = playlistViewState.View.Rows.Count;
-            playlistViewState.View.CurrentIdentity = requestIdentity;
-            sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.Source.Rows);
-        }
-        LogPlaylistRetention(((viewRows == null || viewRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + currentViewGenerationId + " previousGenerationId=" + previousViewGenerationId + " sourceCount=" + sourceRowsAlive + " viewCount=" + (viewRows?.Count ?? 0) + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(viewRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(previousViewRows) + " disposedCount=" + CountPlaylistDetailRows(previousViewRows) + " selectedIndex=" + MainChartList.SelectedIndex);
-        return previousViewRows;
     }
 
     /// <summary>
@@ -12772,8 +12708,13 @@ public partial class MainWindowViewModel : ViewModel
         return result;
     }
 
-    private PlaylistMainViewApplyResult ApplyPlaylistDetailViewRowsToMainView(
+    internal PlaylistDetailTerminalApplyResult TryCommitPlaylistDetailTerminal(
         PlaylistBuildRequest request,
+        bool replaceSource,
+        List<PlaylistDetailSourceRow> sourceRows,
+        BMSTable currentTable,
+        string currentFolderName,
+        PlaylistFilterType currentFilterType,
         IList finalRows,
         int viewCount,
         MainViewUpdateMode columnSettingMode,
@@ -12782,29 +12723,61 @@ public partial class MainWindowViewModel : ViewModel
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         MainChartListColumnSelection columnSelection = loadColumnSetting(columnSettingMode);
         long callbackStageMs = 0L;
-        bool rowsReplacementPrepared = !ReferenceEquals(MainChartList.Rows, finalRows);
-        if (rowsReplacementPrepared)
+        PlaylistDetailTerminalCommitResult commitResult = PlaylistDetailTerminalTransition.TryCommit(
+            this,
+            new PlaylistDetailTerminalRequest
+            {
+                BuildRequest = request,
+                ReplaceSource = replaceSource,
+                SourceRows = sourceRows,
+                CurrentTable = currentTable,
+                CurrentFolderName = currentFolderName,
+                CurrentFilterType = currentFilterType,
+                ViewRows = finalRows,
+                ColumnSelection = columnSelection,
+                MainRowsRequest = new MainChartListRowsApplyRequest
+                {
+                    Rows = finalRows,
+                    ColumnsSettings = columnSelection.ColumnsSettings,
+                    SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                    Summary = IsPlaylistSummaryMode
+                        ? MainChartListSummaryUpdate.Preserve()
+                        : MainChartListSummaryUpdate.NormalRows(finalRows),
+                    ColumnSettingReuse = columnSelection.Reused,
+                    ColumnPreparationMs = columnSelection.ElapsedMs,
+                    TerminalStageStartMs = stageStartMs,
+                    Stopwatch = viewBuildStopwatch
+                }
+            });
+        if (!commitResult.Applied)
         {
-            MainChartList.PrepareRowsReplacement();
+            return new PlaylistDetailTerminalApplyResult(applied: false, mainViewApply: null, previousSourceCount: 0);
         }
-        ReplacePlaylistViewRows(finalRows, request.Identity);
-        MainChartListRowsApplyResult applyResult = MainChartList.ApplyRows(new MainChartListRowsApplyRequest
+
+        try
         {
-            Rows = finalRows,
-            ColumnsSettings = columnSelection.ColumnsSettings,
-            SelectionPolicy = MainChartListSelectionPolicy.Reset,
-            Summary = IsPlaylistSummaryMode
-                ? MainChartListSummaryUpdate.Preserve()
-                : MainChartListSummaryUpdate.NormalRows(finalRows),
-            ColumnSettingReuse = columnSelection.Reused,
-            ColumnPreparationMs = columnSelection.ElapsedMs,
-            TerminalStageStartMs = stageStartMs,
-            Stopwatch = viewBuildStopwatch,
-            RowsAlreadyPrepared = rowsReplacementPrepared
-        });
-        CommitMainColumnSetting(columnSelection);
-        TryMarkPlaylistOpenBuildCompleted(request, viewCount);
-        return new PlaylistMainViewApplyResult(applyResult.ColumnSettingMs, callbackStageMs);
+            TryMarkPlaylistOpenBuildCompleted(request, viewCount);
+            if (replaceSource)
+            {
+                LogPlaylistWeakReferenceStatus("before_source_replace");
+                LogPlaylistRetention("playlist_source_replace action=replace generationId=" + commitResult.SourceGenerationId + " previousGenerationId=" + commitResult.PreviousSourceGenerationId + " sourceCount=" + (sourceRows?.Count ?? 0) + " disposedCount=" + CountPlaylistSourceRows(commitResult.PreviousSourceRows) + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows));
+            }
+            LogPlaylistWeakReferenceStatus("before_view_replace");
+            LogPlaylistRetention(((finalRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + commitResult.ViewGenerationId + " previousGenerationId=" + commitResult.PreviousViewGenerationId + " sourceCount=" + commitResult.SourceRowsAlive + " viewCount=" + finalRows.Count + " playlistSourceRowCount=" + commitResult.SourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(commitResult.PreviousViewRows) + " disposedCount=" + CountPlaylistDetailRows(commitResult.PreviousViewRows) + " selectedIndex=" + MainChartList.SelectedIndex);
+            var mainViewApply = new PlaylistMainViewApplyResult(commitResult.MainRowsApply.ColumnSettingMs, callbackStageMs);
+            return new PlaylistDetailTerminalApplyResult(
+                applied: true,
+                mainViewApply: mainViewApply,
+                previousSourceCount: CountPlaylistSourceRows(commitResult.PreviousSourceRows));
+        }
+        catch (PlaylistDetailTerminalPublishException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new PlaylistDetailTerminalPublishException(ex);
+        }
     }
 
     private bool TryPatchPlaylistSourceChartInfoIndex(PlaylistBuildRequest request, CancellationToken cancellationToken, out int sourceCount, out int dependencyCount, out int patchedCount, out long elapsedMs)
@@ -12824,9 +12797,12 @@ public partial class MainWindowViewModel : ViewModel
             return false;
         }
         sourceCount = sourceRows.Count;
-        foreach (PlaylistDetailSourceRow row in sourceRows)
+        var resolvedChartInfos = new LR2SongDBExtended.chart_info[sourceRows.Count];
+        var chartInfoPatchCandidates = new bool[sourceRows.Count];
+        for (int index = 0; index < sourceRows.Count; index++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            PlaylistDetailSourceRow row = sourceRows[index];
             if (row == null || !row.HasEntryChartInfoDependency)
             {
                 continue;
@@ -12837,16 +12813,49 @@ public partial class MainWindowViewModel : ViewModel
             {
                 continue;
             }
-            if (row.SetEntryChartInfo(resolved))
-            {
-                patchedCount++;
-            }
+            resolvedChartInfos[index] = resolved;
+            chartInfoPatchCandidates[index] = true;
         }
-        lock (playlistViewState.SyncRoot)
+        lock (playlistDetailBuildState.SyncRoot)
         {
-            playlistViewState.Source.LastBuiltChartInfoIndexVersion = request.Identity.ChartInfoIndexVersion;
-            playlistViewState.Source.CurrentIdentity = request.Identity.SourceIdentity;
-            playlistViewState.Source.GenerationId++;
+            if (request.RequestVersion != playlistDetailBuildState.RequestVersion)
+            {
+                elapsedMs = stopwatch.ElapsedMilliseconds;
+                return false;
+            }
+            lock (playlistViewState.SyncRoot)
+            {
+                if (!ReferenceEquals(playlistViewState.Source.Rows, sourceRows))
+                {
+                    elapsedMs = stopwatch.ElapsedMilliseconds;
+                    return false;
+                }
+                var patchedRows = new List<PlaylistDetailSourceRow>(sourceRows);
+                patchedCount = 0;
+                for (int index = 0; index < sourceRows.Count; index++)
+                {
+                    if (!chartInfoPatchCandidates[index])
+                    {
+                        continue;
+                    }
+                    PlaylistDetailSourceRow currentRow = sourceRows[index];
+                    LR2SongDBExtended.chart_info resolved = resolvedChartInfos[index];
+                    if (currentRow == null
+                        || !currentRow.HasEntryChartInfoDependency
+                        || AreSameChartInfoIdentity(currentRow.EntryChartInfo, resolved))
+                    {
+                        continue;
+                    }
+                    patchedRows[index] = currentRow.WithEntryChartInfo(resolved);
+                    patchedCount++;
+                }
+                playlistViewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRows);
+                playlistViewState.Source.PreviousGenerationId = playlistViewState.Source.GenerationId;
+                playlistViewState.Source.Rows = patchedRows;
+                playlistViewState.Source.LastBuiltChartInfoIndexVersion = request.Identity.ChartInfoIndexVersion;
+                playlistViewState.Source.CurrentIdentity = request.Identity.SourceIdentity;
+                playlistViewState.Source.GenerationId++;
+            }
         }
         stopwatch.Stop();
         elapsedMs = stopwatch.ElapsedMilliseconds;
@@ -15433,7 +15442,13 @@ public partial class MainWindowViewModel : ViewModel
         bool playlistSummarySettingsReady = Settings.Default.PlaylistSummaryColumnsSettings != null;
         if (CanReuseMainColumnSetting(resolvedMode, lastAppliedMainColumnSettingMode, targetSettingsReady, playlistSummarySettingsReady, isInit: false))
         {
-            return new MainChartListColumnSelection(MainChartList.ColumnsSettings, reused: true, stopwatch.ElapsedMilliseconds, appliedMode: null);
+            return new MainChartListColumnSelection(
+                MainChartList.ColumnsSettings,
+                reused: true,
+                stopwatch.ElapsedMilliseconds,
+                appliedMode: null,
+                ResolvePlaylistColumnSettingsVisibility(resolvedMode),
+                Settings.Default.PlaylistSummaryColumnsSettings);
         }
         return loadColumnSetting(resolvedMode);
     }
@@ -15450,6 +15465,13 @@ public partial class MainWindowViewModel : ViewModel
             && lastAppliedMode.Value == resolvedMode
             && targetSettingsReady
             && playlistSummarySettingsReady;
+    }
+
+    private static Visibility ResolvePlaylistColumnSettingsVisibility(MainViewUpdateMode mode)
+    {
+        return mode is MainViewUpdateMode.PlaylistFilterSelected or MainViewUpdateMode.PlaylistNotOwnedFilterSelected
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private bool IsMainColumnSettingTargetReady(MainViewUpdateMode mode)
@@ -15634,7 +15656,7 @@ public partial class MainWindowViewModel : ViewModel
                 break;
         }
         stageStartMs = stopwatch.ElapsedMilliseconds;
-        ColumnSettingsVisibilityForPlaylist = targetColumnSettingsVisibilityForPlaylist;
+        Visibility targetVisibility = targetColumnSettingsVisibilityForPlaylist;
         long visibilityMs = stopwatch.ElapsedMilliseconds - stageStartMs;
         stageStartMs = stopwatch.ElapsedMilliseconds;
         if (Settings.Default.PlaylistSummaryColumnsSettings == null)
@@ -15644,7 +15666,7 @@ public partial class MainWindowViewModel : ViewModel
         Settings.Default.PlaylistSummaryColumnsSettings.EnsureCompatibility();
         long playlistSummaryEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
         stageStartMs = stopwatch.ElapsedMilliseconds;
-        PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
+        PlaylistSummaryColumnSettings targetPlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
         long playlistSummaryAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
         long totalMs = stopwatch.ElapsedMilliseconds;
         if (totalMs >= ColumnSettingSlowLogThresholdMs)
@@ -15655,15 +15677,21 @@ public partial class MainWindowViewModel : ViewModel
             targetColumnsSettings,
             reused: false,
             totalMs,
-            modeHandled ? mode : null);
+            modeHandled ? mode : null,
+            targetVisibility,
+            targetPlaylistSummaryColumnsSettings);
     }
 
     private void CommitMainColumnSetting(MainChartListColumnSelection selection)
     {
+        PlaylistColumnPresentationCommit presentationCommit = PlaylistWorkspace.CommitColumnPresentationWithoutNotification(
+            selection.PlaylistColumnSettingsVisibility,
+            selection.PlaylistSummaryColumnsSettings);
         if (selection.AppliedMode.HasValue)
         {
             lastAppliedMainColumnSettingMode = selection.AppliedMode.Value;
         }
+        PlaylistWorkspace.PublishColumnPresentation(presentationCommit);
     }
 
     private readonly struct MainChartListColumnSelection
@@ -15672,12 +15700,16 @@ public partial class MainWindowViewModel : ViewModel
             CustomTableColumnSettings columnsSettings,
             bool reused,
             long elapsedMs,
-            MainViewUpdateMode? appliedMode)
+            MainViewUpdateMode? appliedMode,
+            Visibility playlistColumnSettingsVisibility,
+            PlaylistSummaryColumnSettings playlistSummaryColumnsSettings)
         {
             ColumnsSettings = columnsSettings;
             Reused = reused;
             ElapsedMs = elapsedMs;
             AppliedMode = appliedMode;
+            PlaylistColumnSettingsVisibility = playlistColumnSettingsVisibility;
+            PlaylistSummaryColumnsSettings = playlistSummaryColumnsSettings;
         }
 
         internal CustomTableColumnSettings ColumnsSettings { get; }
@@ -15687,6 +15719,10 @@ public partial class MainWindowViewModel : ViewModel
         internal long ElapsedMs { get; }
 
         internal MainViewUpdateMode? AppliedMode { get; }
+
+        internal Visibility PlaylistColumnSettingsVisibility { get; }
+
+        internal PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings { get; }
     }
 
     public void ExecSort(string columnName, ListSortDirection direction)

@@ -513,6 +513,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.PlaybackStarting += MainWindowViewModel_PlaybackStarting;
         viewModel.PlaybackStarted += MainWindowViewModel_PlaybackStarted;
         viewModel.MainChartList.RowsReplacing += MainChartList_RowsReplacing;
+        viewModel.MainChartList.RowsReplacementCanceled += MainChartList_RowsReplacementCanceled;
         viewModel.MainTableDisplayRefreshRequested += MainWindowViewModel_MainTableDisplayRefreshRequested;
     }
 
@@ -528,6 +529,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.PlaybackStarting -= MainWindowViewModel_PlaybackStarting;
         subscribedViewModel.PlaybackStarted -= MainWindowViewModel_PlaybackStarted;
         subscribedViewModel.MainChartList.RowsReplacing -= MainChartList_RowsReplacing;
+        subscribedViewModel.MainChartList.RowsReplacementCanceled -= MainChartList_RowsReplacementCanceled;
         subscribedViewModel.MainTableDisplayRefreshRequested -= MainWindowViewModel_MainTableDisplayRefreshRequested;
         subscribedViewModel = null;
     }
@@ -574,6 +576,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             try
             {
                 Dispatcher.Invoke(DispatcherPriority.Normal, (Action)PrepareMainTableSwap);
+            }
+            catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            {
+            }
+        }
+    }
+
+    private void MainChartList_RowsReplacementCanceled(object sender, EventArgs e)
+    {
+        void CancelPreparation()
+        {
+            customTableView?.CancelPendingItemsSourceSwapPreparation();
+        }
+
+        if (Dispatcher.CheckAccess())
+        {
+            CancelPreparation();
+            return;
+        }
+        if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
+        {
+            try
+            {
+                Dispatcher.Invoke(DispatcherPriority.Normal, (Action)CancelPreparation);
             }
             catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
             {

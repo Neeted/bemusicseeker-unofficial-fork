@@ -1,5 +1,7 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.Serialization;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -148,6 +150,50 @@ internal sealed class PlaylistMainViewApplyResult
     internal long ColumnStageMs { get; }
 
     internal long CallbackStageMs { get; }
+}
+
+internal sealed class PlaylistDetailTerminalApplyResult
+{
+    internal PlaylistDetailTerminalApplyResult(bool applied, PlaylistMainViewApplyResult mainViewApply, int previousSourceCount)
+    {
+        Applied = applied;
+        MainViewApply = mainViewApply;
+        PreviousSourceCount = previousSourceCount;
+    }
+
+    internal bool Applied { get; }
+
+    internal PlaylistMainViewApplyResult MainViewApply { get; }
+
+    internal int PreviousSourceCount { get; }
+}
+
+[Serializable]
+internal sealed class PlaylistDetailTerminalPublishException : Exception
+{
+    internal PlaylistDetailTerminalPublishException()
+    {
+    }
+
+    internal PlaylistDetailTerminalPublishException(string message)
+        : base(message)
+    {
+    }
+
+    internal PlaylistDetailTerminalPublishException(Exception innerException)
+        : base("Playlist detail terminal state was committed but publishing notifications failed.", innerException)
+    {
+    }
+
+    internal PlaylistDetailTerminalPublishException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
+    private PlaylistDetailTerminalPublishException(SerializationInfo info, StreamingContext context)
+        : base(info, context)
+    {
+    }
 }
 
 /// <summary>

@@ -66,6 +66,9 @@ score / chart_info / maintenance / warning hydration が現在の full normal li
 
 main table の通常 virtual / materialized rows、column settings、selection、summary は `MainChartList.ApplyRows(...)` が一つの terminal transition として backing state を確定してから通知する。Rows が別 collection へ変わる場合、`MainWindow` は child owner の `RowsReplacing` event を直接受けて edit / cache を先に確定する。play history は freshness lock 外へ swap preparation と terminal commit を安全に出すまで個別 apply を維持するが、summary は通常件数を経由せず explicit text を一度だけ通知する。
 
+playlist detail は UI swap preparation 後、build request version を `PlaylistDetailBuildState` の lock 内で最終確認し、source/view identity・generation と `MainChartList` backing state を同じ commit 区間で採用する。`PropertyChanged` と完了通知は lock 外で発火し、preparation 後に request が stale になった場合は `CustomTableView` の pending redraw suppression を明示解除して candidate rows を破棄する。
+chart-info patch は active source row を直接変更せず copy-on-write candidate を作り、request version と source reference が一致する場合だけ新 generation として採用する。
+
 `Ctrl+Shift+C` のような選択行コピーや、ユーザーが明示した全行操作は対象行の実体化を許容する。これは一覧表示の初回描画とは別の明示操作であり、仮想 view の fallback として全件 `LibraryChartRow` を常時作る経路は持たない。
 
 ## Column Layout

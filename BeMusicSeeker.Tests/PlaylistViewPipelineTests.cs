@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -120,7 +121,9 @@ public sealed class PlaylistViewPipelineTests
         string queueCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildQueueCoordinator.cs");
         string workflowCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildWorkflowCoordinator.cs");
         string workflowHostSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistDetailBuildWorkflowHost.cs");
+        string terminalTransitionSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistDetailTerminalTransition.cs");
         string sourceBuildResultSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSourceBuildResult.cs");
+        string sourceRowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "PlaylistDetailSourceRow.cs");
         string playlistViewStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewState");
         string playlistSourceSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistSourceSnapshotState");
         string playlistViewSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewSnapshotState");
@@ -161,8 +164,11 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "CreatePlaylistBuildRequestViewSnapshotUnsafe");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
+        StringAssert.Contains(rootSource, "playlistDetailBuildState.RequestVersion++;");
+        StringAssert.Contains(rootSource, "playlistDetailBuildState.PendingRequest = null;");
+        StringAssert.Contains(rootSource, "buildCancellation?.Cancel();");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildWorkflowCoordinator.TryBuildPlaylistViewAndApply(this, request, stateSnapshot, cancellationToken)");
-        StringAssert.Contains(rootSource, "ApplyPlaylistDetailViewRowsToMainView(");
+        StringAssert.Contains(rootSource, "TryCommitPlaylistDetailTerminal(");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildStageResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistViewApplyResult");
@@ -173,7 +179,17 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "private PlaylistSourceBuildStageResult BuildPlaylistSourceForRequest(");
         StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromCurrentSource(");
         StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)");
-        StringAssert.Contains(rootSource, "private PlaylistMainViewApplyResult ApplyPlaylistDetailViewRowsToMainView(");
+        StringAssert.Contains(rootSource, "internal PlaylistDetailTerminalApplyResult TryCommitPlaylistDetailTerminal(");
+        StringAssert.Contains(terminalTransitionSource, "private static class PlaylistDetailTerminalTransition");
+        StringAssert.Contains(terminalTransitionSource, "lock (buildState.SyncRoot)");
+        StringAssert.Contains(terminalTransitionSource, "lock (viewState.SyncRoot)");
+        StringAssert.Contains(terminalTransitionSource, "mainChartList.CommitPreparedRowsWithoutDisposal(prepared)");
+        StringAssert.Contains(terminalTransitionSource, "mainChartList.PublishRowsCommit(mainRowsCommit)");
+        StringAssert.Contains(terminalTransitionSource, "CommitColumnPresentationWithoutNotification(");
+        StringAssert.Contains(terminalTransitionSource, "PublishColumnPresentation(result.ColumnPresentationCommit)");
+        StringAssert.Contains(rootSource, "request.RequestVersion != playlistDetailBuildState.RequestVersion");
+        StringAssert.Contains(rootSource, "ReferenceEquals(playlistViewState.Source.Rows, sourceRows)");
+        StringAssert.Contains(sourceRowSource, "internal PlaylistDetailSourceRow WithEntryChartInfo(");
         StringAssert.Contains(rootSource, "PlaylistSourceBuildResult sourceBuildResult = BuildPlaylistSourceRows");
         StringAssert.Contains(workflowCoordinatorSource, "internal static class PlaylistDetailBuildWorkflowCoordinator");
         StringAssert.Contains(workflowCoordinatorSource, "PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot)");
@@ -184,16 +200,16 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(workflowCoordinatorSource, "PlaylistSourceBuildStageResult sourceBuildStageResult = host.BuildPlaylistSourceForRequest");
         StringAssert.Contains(workflowCoordinatorSource, "PlaylistViewApplyResult viewApplyResult = host.ApplyPlaylistViewFromRebuiltSource");
         StringAssert.Contains(workflowCoordinatorSource, "var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, viewApplyResult);");
-        StringAssert.Contains(workflowCoordinatorSource, "List<PlaylistDetailSourceRow> previousSourceRows = host.ReplacePlaylistSourceRows");
-        StringAssert.Contains(workflowCoordinatorSource, "FinalizeRebuiltPlaylistDetailBuild(host, viewBuildStopwatch, mode, requestedMode, parameter, executionResult, mainViewApplyResult);");
+        StringAssert.Contains(workflowCoordinatorSource, "terminalApplyResult = host.TryCommitPlaylistDetailTerminal(");
+        StringAssert.Contains(workflowCoordinatorSource, "FinalizeRebuiltPlaylistDetailBuild(host, viewBuildStopwatch, mode, requestedMode, parameter, executionResult, terminalApplyResult.MainViewApply);");
         StringAssert.Contains(workflowCoordinatorSource, "host.ReleasePlaylistDetailBuildGate();");
         StringAssert.Contains(workflowCoordinatorSource, "internal static bool ApplyPlaylistViewWithoutSourceRebuild(");
         StringAssert.Contains(workflowCoordinatorSource, "host.ApplyPlaylistViewFromCurrentSource(mode)");
         StringAssert.Contains(workflowCoordinatorSource, "host.IsLatestPlaylistSourceBuildRequest(request.RequestVersion)");
-        StringAssert.Contains(workflowCoordinatorSource, "host.ApplyPlaylistDetailViewRowsToMainView(");
+        StringAssert.Contains(workflowCoordinatorSource, "host.TryCommitPlaylistDetailTerminal(");
         StringAssert.Contains(workflowCoordinatorSource, "host.ResolvePlaylistColumnSettingMode(request.Identity.FilterType)");
         StringAssert.Contains(workflowCoordinatorSource, "MainViewUpdateMode currentTreeViewFilterTypeSelected = host.GetCurrentTreeViewFilterTypeSelected();");
-        StringAssert.Contains(workflowCoordinatorSource, "FinalizeViewOnlyPlaylistDetailBuild(host, viewBuildStopwatch, currentTreeViewFilterTypeSelected, requestedMode, parameter, viewApplyResult, mainViewApplyResult);");
+        StringAssert.Contains(workflowCoordinatorSource, "FinalizeViewOnlyPlaylistDetailBuild(host, viewBuildStopwatch, currentTreeViewFilterTypeSelected, requestedMode, parameter, viewApplyResult, terminalApplyResult.MainViewApply);");
         StringAssert.Contains(workflowCoordinatorSource, "internal static void FinalizePlaylistDetailBuild(");
         StringAssert.Contains(workflowCoordinatorSource, "internal static void FinalizeRebuiltPlaylistDetailBuild(");
         StringAssert.Contains(workflowCoordinatorSource, "internal static void FinalizeViewOnlyPlaylistDetailBuild(");
@@ -210,14 +226,12 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(workflowHostSource, "LogPlaylistSourceBuild(message);");
         StringAssert.Contains(workflowHostSource, "return BuildPlaylistSourceForRequest(request, bmsTable, folderName, onlyNotOwned, viewBuildStopwatch, cancellationToken, ref cancellationStage);");
         StringAssert.Contains(workflowHostSource, "return ApplyPlaylistViewFromRebuiltSource(mode, sourceRows, sourceCount, ref finalRows);");
-        StringAssert.Contains(workflowHostSource, "return ReplacePlaylistSourceRows(sourceRows, currentTable, currentFolderName, currentFilterType, requestIdentity);");
-        StringAssert.Contains(workflowHostSource, "return CountPlaylistSourceRows(rows);");
+        StringAssert.Contains(workflowHostSource, "return TryCommitPlaylistDetailTerminal(");
         StringAssert.Contains(workflowHostSource, "DisposePlaylistViewRows(viewRows);");
         StringAssert.Contains(workflowHostSource, "void IPlaylistDetailBuildWorkflowHost.FinalizePlaylistDetailBuild");
         StringAssert.Contains(workflowHostSource, "private void FinalizePlaylistDetailBuild(Stopwatch viewBuildStopwatch, PlaylistDetailBuildCompletionResult completionResult)");
         StringAssert.Contains(workflowHostSource, "return ApplyPlaylistViewFromCurrentSource(mode);");
         StringAssert.Contains(workflowHostSource, "return IsLatestPlaylistSourceBuildRequest(requestVersion);");
-        StringAssert.Contains(workflowHostSource, "return ApplyPlaylistDetailViewRowsToMainView(request, finalRows, viewCount, columnSettingMode, viewBuildStopwatch);");
         StringAssert.Contains(workflowHostSource, "return treeViewFilterTypeSelected;");
         StringAssert.Contains(workflowHostSource, "return ResolvePlaylistColumnSettingMode(filterType);");
         Assert.AreEqual(-1, rootSource.IndexOf("private bool RebuildPlaylistSource(", StringComparison.Ordinal));
@@ -226,6 +240,49 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(-1, rootSource.IndexOf("out long columnStageMs", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("new PlaylistDetailBuildCompletionResult", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistStateSource.IndexOf("private sealed class PlaylistScoreProbeMetrics", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void PlaylistDetailTerminal_StaleRequestCancelsPreparationWithoutApplyingRows()
+    {
+        var viewModel = new MainWindowViewModel();
+        var oldRows = new List<object>();
+        var candidateRows = new List<object> { new object() };
+        viewModel.MainChartList.Rows = oldRows;
+        viewModel.MainChartList.ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        viewModel.ColumnSettingsVisibilityForPlaylist = System.Windows.Visibility.Collapsed;
+        PlaylistSummaryColumnSettings oldSummaryColumns = viewModel.PlaylistSummaryColumnsSettings;
+        var identity = CreatePlaylistIdentity("stale-terminal");
+        var request = new PlaylistBuildRequest
+        {
+            RequestVersion = 1,
+            Mode = MainViewUpdateMode.PlaylistFilterSelected,
+            RequestedMode = MainViewUpdateMode.PlaylistFilterSelected,
+            Identity = identity
+        };
+        int preparingCount = 0;
+        int canceledCount = 0;
+        viewModel.MainChartList.RowsReplacing += (_, _) => preparingCount++;
+        viewModel.MainChartList.RowsReplacementCanceled += (_, _) => canceledCount++;
+
+        PlaylistDetailTerminalApplyResult result = viewModel.TryCommitPlaylistDetailTerminal(
+            request,
+            replaceSource: false,
+            sourceRows: null,
+            currentTable: null,
+            currentFolderName: null,
+            identity.FilterType,
+            candidateRows,
+            candidateRows.Count,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            Stopwatch.StartNew());
+
+        Assert.IsFalse(result.Applied);
+        Assert.AreSame(oldRows, viewModel.MainChartList.Rows);
+        Assert.AreEqual(System.Windows.Visibility.Collapsed, viewModel.ColumnSettingsVisibilityForPlaylist);
+        Assert.AreSame(oldSummaryColumns, viewModel.PlaylistSummaryColumnsSettings);
+        Assert.AreEqual(1, preparingCount);
+        Assert.AreEqual(1, canceledCount);
     }
 
     [TestMethod]
@@ -3034,7 +3091,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void PlaylistDetailSourceRow_MissingEntryChartInfoCanBePatchedForViewRematerialize()
+    public void PlaylistDetailSourceRow_MissingEntryChartInfoPatchCreatesCopyForViewRematerialize()
     {
         LR2SongDBExtended.chart_info oldInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 3, notes: 500, total: 100);
         LR2SongDBExtended.chart_info newInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12, notes: 2500, total: 500);
@@ -3044,13 +3101,15 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("3", sourceRow.ChartLevelText);
         Assert.AreEqual(500, sourceRow.ChartNotes);
 
-        Assert.IsTrue(sourceRow.SetEntryChartInfo(newInfo));
+        PlaylistDetailSourceRow patchedSourceRow = sourceRow.WithEntryChartInfo(newInfo);
 
-        PlaylistDetailRow viewRow = sourceRow.CreateViewRow();
-        Assert.AreSame(newInfo, sourceRow.EntryChartInfo);
-        Assert.AreSame(newInfo, sourceRow.ChartInfo);
-        Assert.AreSame(newInfo, sourceRow.Chart.ChartInfo);
-        Assert.AreSame(sourceRow.Chart, viewRow.Chart);
+        Assert.AreSame(oldInfo, sourceRow.EntryChartInfo);
+        Assert.AreEqual("3", sourceRow.ChartLevelText);
+        PlaylistDetailRow viewRow = patchedSourceRow.CreateViewRow();
+        Assert.AreSame(newInfo, patchedSourceRow.EntryChartInfo);
+        Assert.AreSame(newInfo, patchedSourceRow.ChartInfo);
+        Assert.AreSame(newInfo, patchedSourceRow.Chart.ChartInfo);
+        Assert.AreSame(patchedSourceRow.Chart, viewRow.Chart);
         Assert.IsTrue(GridRowResolver.TryGetChartFile(viewRow, out ChartFile viewChart));
         Assert.AreSame(viewRow.Chart, viewChart);
         Assert.AreSame(newInfo, viewChart.ChartInfo);
@@ -3059,6 +3118,53 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual("12", viewRow.ChartLevelText);
         Assert.AreEqual(2500, viewRow.ChartNotes);
         Assert.AreEqual("500", viewRow.ChartTotalText);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailSourceRow_ChartInfoCopyDoesNotInvokeProjectionProvider()
+    {
+        LR2SongDBExtended.chart_info oldInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 3);
+        LR2SongDBExtended.chart_info newInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12);
+        var entry = new TestablePlaylistEntry();
+        entry.SetTitle("ProviderFreePatch");
+        entry.SetMd5(oldInfo.md5);
+        entry.SetSha256(oldInfo.sha256);
+        var resolvedChart = new ChartFile(
+            ChartFileKind.Bms,
+            string.Empty,
+            oldInfo.md5,
+            oldInfo.sha256,
+            "ProviderFreePatch",
+            "ProviderFreePatch",
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            "3",
+            3,
+            7,
+            oldInfo,
+            null,
+            null,
+            null);
+        int projectionCount = 0;
+        var sourceRow = new PlaylistDetailSourceRow(
+            entry,
+            resolvedChart,
+            entryChartInfo: oldInfo,
+            chartInfoProjectionProvider: _ =>
+            {
+                projectionCount++;
+                return oldInfo;
+            });
+        int constructionProjectionCount = projectionCount;
+
+        PlaylistDetailSourceRow patchedSourceRow = sourceRow.WithEntryChartInfo(newInfo);
+
+        Assert.AreEqual(constructionProjectionCount, projectionCount);
+        Assert.AreSame(oldInfo, sourceRow.EntryChartInfo);
+        Assert.AreSame(newInfo, patchedSourceRow.EntryChartInfo);
+        Assert.AreSame(newInfo, patchedSourceRow.Chart.ChartInfo);
     }
 
     [TestMethod]

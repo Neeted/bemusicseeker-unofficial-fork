@@ -293,7 +293,7 @@ internal sealed class PlaylistDetailSourceRow
         SearchText = BuildSearchText();
     }
 
-    internal bool SetEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    private bool SetEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
     {
         if (!HasEntryChartInfoDependency || ReferenceEquals(EntryChartInfo, chartInfo))
         {
@@ -304,8 +304,15 @@ internal sealed class PlaylistDetailSourceRow
         {
             sha256 = chartInfo.sha256;
         }
-        Chart = CreateChartFile();
+        Chart = ChartFileProjection.WithChartInfo(Chart, chartInfo);
         return true;
+    }
+
+    internal PlaylistDetailSourceRow WithEntryChartInfo(LR2SongDBExtended.chart_info chartInfo)
+    {
+        var copy = (PlaylistDetailSourceRow)MemberwiseClone();
+        copy.SetEntryChartInfo(chartInfo);
+        return copy;
     }
 
     /// <summary>
