@@ -29,6 +29,8 @@ public sealed class MainChartListViewModel : ViewModel
 
     internal event EventHandler RowsReplacementCanceled;
 
+    internal event EventHandler RowsReplacementPublishFailed;
+
     internal void PrepareRowsReplacement()
     {
         RowsReplacing?.Invoke(this, EventArgs.Empty);
@@ -37,6 +39,11 @@ public sealed class MainChartListViewModel : ViewModel
     internal void CancelRowsReplacement()
     {
         RowsReplacementCanceled?.Invoke(this, EventArgs.Empty);
+    }
+
+    internal void FailRowsReplacementPublish()
+    {
+        RowsReplacementPublishFailed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>
@@ -355,7 +362,7 @@ public sealed class MainChartListViewModel : ViewModel
         {
             if (prepared.RowsReplacementPrepared)
             {
-                CancelRowsReplacement();
+                FailRowsReplacementPublish();
             }
             throw;
         }

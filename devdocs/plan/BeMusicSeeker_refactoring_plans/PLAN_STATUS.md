@@ -79,4 +79,4 @@ Non-goals:
 
 ## Next action
 
-play history の freshness lock 外 swap preparation / terminal commit を feature transition に閉じる。次に playlist summary の rows / summary / applied event を `PlaylistWorkspace` owner に揃え、残る refresh request / cache / cancellation ownership を移す。docs-only checkpoint は作らない。
+playlist summary の rows / summary / applied event を `PlaylistWorkspace` owner に揃える。次に残る refresh request / cache / cancellation ownershipを移し、root の feature-specific terminal mutation を監査する。docs-only checkpoint は作らない。

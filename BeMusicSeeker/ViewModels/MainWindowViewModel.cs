@@ -1427,9 +1427,8 @@ public partial class MainWindowViewModel : ViewModel
     /// <param name="playlistDetailActive">playlist 詳細表示中かどうか。</param>
     private void UpdateBmsFilesViewBindingMode(bool playlistDetailActive)
     {
-        PlaylistWorkspace.IsPlaylistDetailViewActive = playlistDetailActive;
-        bool nextUseAsyncBinding = !playlistDetailActive;
-        PlaylistWorkspace.UseAsyncChartRowsViewBinding = nextUseAsyncBinding;
+        PlaylistBindingModeCommit commit = PlaylistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive);
+        PlaylistWorkspace.PublishBindingMode(commit);
     }
 
     /// <summary>
@@ -7796,6 +7795,12 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     private void ClearPlaylistSourceRows()
     {
+        PlaylistSourceClearCommitResult commit = CommitPlaylistSourceClearWithoutCallbacks();
+        PublishPlaylistSourceClear(commit);
+    }
+
+    private PlaylistSourceClearCommitResult CommitPlaylistSourceClearWithoutCallbacks()
+    {
         List<PlaylistDetailSourceRow> sourceRowsToDispose = null;
         IList currentViewRows = null;
         long previousGenerationId = 0L;
@@ -7841,15 +7846,51 @@ public partial class MainWindowViewModel : ViewModel
             }
             playlistDetailBuildState.CurrentBuildRequest = null;
         }
+        return new PlaylistSourceClearCommitResult(
+            sourceRowsToDispose,
+            currentViewRows,
+            previousGenerationId,
+            buildCancellation);
+    }
+
+    private void PublishPlaylistSourceClear(PlaylistSourceClearCommitResult commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
         try
         {
-            buildCancellation?.Cancel();
+            commit.BuildCancellation?.Cancel();
         }
         catch (ObjectDisposedException)
         {
         }
         LogPlaylistWeakReferenceStatus("before_source_clear");
-        LogPlaylistRetention("playlist_source_replace action=clear generationId=" + previousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(sourceRowsToDispose) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(currentViewRows));
+        LogPlaylistRetention("playlist_source_replace action=clear generationId=" + commit.PreviousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(commit.SourceRows) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(commit.ViewRows));
+    }
+
+    private sealed class PlaylistSourceClearCommitResult
+    {
+        internal PlaylistSourceClearCommitResult(
+            List<PlaylistDetailSourceRow> sourceRows,
+            IList viewRows,
+            long previousGenerationId,
+            CancellationTokenSource buildCancellation)
+        {
+            SourceRows = sourceRows;
+            ViewRows = viewRows;
+            PreviousGenerationId = previousGenerationId;
+            BuildCancellation = buildCancellation;
+        }
+
+        internal List<PlaylistDetailSourceRow> SourceRows { get; }
+
+        internal IList ViewRows { get; }
+
+        internal long PreviousGenerationId { get; }
+
+        internal CancellationTokenSource BuildCancellation { get; }
     }
 
     /// <summary>
@@ -10218,10 +10259,12 @@ public partial class MainWindowViewModel : ViewModel
 
     private void CancelPlayHistoryRequestsForShutdown()
     {
+        CancellationTokenSource cancellation;
         lock (playHistoryViewRequestLock)
         {
-            InvalidatePlayHistoryFilterRequestUnsafe();
+            cancellation = InvalidatePlayHistoryFilterRequestUnsafe();
         }
+        CancelPlayHistoryFilterRequest(cancellation);
         Interlocked.Exchange(ref playHistoryKeywordFilterQueuedRevision, 0L);
         Interlocked.Exchange(ref playHistoryDisplayTargetQueuedRevision, 0L);
         Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshRequestedRevision, Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision));
@@ -10800,10 +10843,12 @@ public partial class MainWindowViewModel : ViewModel
 
     internal void InvalidatePlayHistoryReadCache(string reason)
     {
+        CancellationTokenSource cancellation;
         lock (playHistoryViewRequestLock)
         {
-            InvalidatePlayHistoryFilterRequestUnsafe();
+            cancellation = InvalidatePlayHistoryFilterRequestUnsafe();
         }
+        CancelPlayHistoryFilterRequest(cancellation);
         playHistoryReadCache.Invalidate();
         LogPlayHistoryEvent("play_history_read_cache_invalidated", "reason=" + (reason ?? string.Empty));
     }
@@ -13991,6 +14036,12 @@ public partial class MainWindowViewModel : ViewModel
         bool columnSettingReuse = false;
         long setViewMs = 0L;
         string parameterType = parameter?.GetType().Name ?? "(null)";
+        IList nextRowsView = null;
+        MainChartListColumnSelection columnSelection = default;
+        string diagnosticSummaryText = string.Empty;
+        string gridSummaryText = string.Empty;
+        IReadOnlyList<PlayHistorySummaryCard> summaryCards = [];
+        long columnSettingStartMs = 0L;
         lock (playHistoryViewRequestLock)
         {
             if (!IsCurrentPlayHistoryViewRequestUnsafe(state.RequestId))
@@ -14077,37 +14128,68 @@ public partial class MainWindowViewModel : ViewModel
                 periodRequest.Label,
                 sortedRows,
                 state.SummaryOverride);
-            UpdateBmsFilesViewBindingMode(playlistDetailActive: false);
-            ClearPlaylistSourceRows();
-            ChartRowsFolderView = [];
-            ChartRowsKeywordFilterView = [];
-            ChartRowsModeFilterView = [];
-            IList nextRowsView = sortedRows.Count == 0 && MainChartList.Rows is PlayHistoryVirtualView currentPlayHistoryView && currentPlayHistoryView.Count == 0
+            nextRowsView = sortedRows.Count == 0 && MainChartList.Rows is PlayHistoryVirtualView currentPlayHistoryView && currentPlayHistoryView.Count == 0
                 ? MainChartList.Rows
                 : new PlayHistoryVirtualView(sortedRows, CountDistinctPlayHistoryFolderLabels(sortedRows));
-            long columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
-            string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
-            MainChartList.ColumnsSettings = columnSelection.ColumnsSettings;
-            CommitMainColumnSetting(columnSelection);
-            columnSettingMs = viewBuildStopwatch.ElapsedMilliseconds - columnSettingStartMs;
+            columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+            columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
+            diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
+            gridSummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
+            summaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
             columnSettingReuse = columnSelection.Reused;
-            if (!ReferenceEquals(MainChartList.Rows, nextRowsView))
-            {
-                long setViewStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-                MainChartList.SetRows(nextRowsView, updateSummary: false);
-                setViewMs = viewBuildStopwatch.ElapsedMilliseconds - setViewStartMs;
-            }
-            if (archivePeriodTree != null)
-            {
-                PlayHistoryArchivePeriodTree = archivePeriodTree;
-            }
-            MainChartList.SummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
-            PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
-            PlayHistorySummaryDiagnosticText = diagnosticSummaryText;
-            MainChartList.SelectedIndex = -1;
-            Volatile.Write(ref playHistoryViewState, state);
         }
+
+        bool ownsCandidateRows = !ReferenceEquals(MainChartList.Rows, nextRowsView);
+        PlayHistoryTerminalCommitResult terminalCommit;
+        try
+        {
+            terminalCommit = PlayHistoryTerminalTransition.TryCommit(
+                this,
+                new PlayHistoryTerminalRequest
+                {
+                    State = state,
+                    Rows = nextRowsView,
+                    ColumnSelection = columnSelection,
+                    ArchivePeriodTree = archivePeriodTree,
+                    SummaryCards = summaryCards,
+                    DiagnosticText = diagnosticSummaryText,
+                    MainRowsRequest = new MainChartListRowsApplyRequest
+                    {
+                        Rows = nextRowsView,
+                        ColumnsSettings = columnSelection.ColumnsSettings,
+                        SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                        Summary = MainChartListSummaryUpdate.Explicit(gridSummaryText),
+                        ColumnSettingReuse = columnSelection.Reused,
+                        ColumnPreparationMs = columnSelection.ElapsedMs,
+                        TerminalStageStartMs = columnSettingStartMs,
+                        Stopwatch = viewBuildStopwatch
+                    }
+                });
+        }
+        catch (PlayHistoryTerminalPublishException)
+        {
+            throw;
+        }
+        catch
+        {
+            if (ownsCandidateRows)
+            {
+                MainChartListViewModel.DisposeRows(nextRowsView);
+            }
+            throw;
+        }
+        if (!terminalCommit.Applied)
+        {
+            if (ownsCandidateRows)
+            {
+                MainChartListViewModel.DisposeRows(nextRowsView);
+            }
+            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
+            return;
+        }
+        prepareSwapMs = terminalCommit.MainRowsApply.PrepareSwapMs;
+        columnSettingMs = terminalCommit.MainRowsApply.ColumnSettingMs;
+        setViewMs = terminalCommit.MainRowsApply.SetViewMs;
         if (diagnosticsCount > 0)
         {
             LogPlayHistoryDiagnostics(periodRequest, sortProfile, diagnostics);
@@ -14272,15 +14354,17 @@ public partial class MainWindowViewModel : ViewModel
 
     private void SetTreeViewFilterSelection(MainViewUpdateMode mode, object parameter)
     {
+        CancellationTokenSource cancellation = null;
         lock (playHistoryViewRequestLock)
         {
             if (mode != MainViewUpdateMode.PlayHistorySelected)
             {
-                InvalidatePlayHistoryFilterRequestUnsafe();
+                cancellation = InvalidatePlayHistoryFilterRequestUnsafe();
             }
             treeViewFilterTypeSelected = mode;
             treeViewFilterParameterSelected = parameter;
         }
+        CancelPlayHistoryFilterRequest(cancellation);
         if (mode != MainViewUpdateMode.PlayHistorySelected)
         {
             ClearPlayHistorySummaryCardFilters();
@@ -14360,12 +14444,16 @@ public partial class MainWindowViewModel : ViewModel
 
     internal long RegisterPlayHistoryFilterRequest()
     {
+        CancellationTokenSource previousCancellation;
+        long requestId;
         lock (playHistoryViewRequestLock)
         {
-            InvalidatePlayHistoryFilterRequestUnsafe();
+            previousCancellation = InvalidatePlayHistoryFilterRequestUnsafe();
             playHistoryViewRequestCancellation = new CancellationTokenSource();
-            return playHistoryViewRequestGeneration;
+            requestId = playHistoryViewRequestGeneration;
         }
+        CancelPlayHistoryFilterRequest(previousCancellation);
+        return requestId;
     }
 
     internal long BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest request)
@@ -14374,14 +14462,16 @@ public partial class MainWindowViewModel : ViewModel
         EnsurePlayHistoryDisplayTargetSelection();
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
         long requestId;
+        CancellationTokenSource previousCancellation;
         lock (playHistoryViewRequestLock)
         {
-            InvalidatePlayHistoryFilterRequestUnsafe();
+            previousCancellation = InvalidatePlayHistoryFilterRequestUnsafe();
             playHistoryViewRequestCancellation = new CancellationTokenSource();
             requestId = playHistoryViewRequestGeneration;
             treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
             treeViewFilterParameterSelected = new PlayHistoryViewRequest(request ?? PlayHistoryPeriodRequest.All(), requestId);
         }
+        CancelPlayHistoryFilterRequest(previousCancellation);
         UpdateKeywordSearchPresentation();
         if (previousOperationSection != CurrentMainViewOperationSection)
         {
@@ -14522,10 +14612,32 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void InvalidatePlayHistoryFilterRequestUnsafe()
+    internal IDisposable RegisterPlayHistoryCancellationCallbackForTest(long requestId, Action callback)
+    {
+        if (callback == null)
+        {
+            throw new ArgumentNullException(nameof(callback));
+        }
+        return GetPlayHistoryFilterCancellationToken(requestId).Register(callback);
+    }
+
+    private CancellationTokenSource InvalidatePlayHistoryFilterRequestUnsafe()
     {
         playHistoryViewRequestGeneration++;
-        playHistoryViewRequestCancellation?.Cancel();
+        CancellationTokenSource cancellation = playHistoryViewRequestCancellation;
+        playHistoryViewRequestCancellation = null;
+        return cancellation;
+    }
+
+    private static void CancelPlayHistoryFilterRequest(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            cancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
     }
 
     private static bool IsSamePlayHistoryPeriod(PlayHistoryPeriodRequest left, PlayHistoryPeriodRequest right)

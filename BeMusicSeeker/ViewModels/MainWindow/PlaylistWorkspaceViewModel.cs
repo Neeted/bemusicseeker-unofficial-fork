@@ -113,6 +113,32 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
+    internal PlaylistBindingModeCommit CommitBindingModeWithoutNotification(bool playlistDetailActive)
+    {
+        bool useAsyncBinding = !playlistDetailActive;
+        bool detailActiveChanged = isPlaylistDetailViewActive != playlistDetailActive;
+        bool asyncBindingChanged = useAsyncChartRowsViewBinding != useAsyncBinding;
+        isPlaylistDetailViewActive = playlistDetailActive;
+        useAsyncChartRowsViewBinding = useAsyncBinding;
+        return new PlaylistBindingModeCommit(detailActiveChanged, asyncBindingChanged);
+    }
+
+    internal void PublishBindingMode(PlaylistBindingModeCommit commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
+        if (commit.DetailActiveChanged)
+        {
+            RaisePropertyChanged(nameof(IsPlaylistDetailViewActive));
+        }
+        if (commit.AsyncBindingChanged)
+        {
+            RaisePropertyChanged(nameof(UseAsyncChartRowsViewBinding));
+        }
+    }
+
     /// <summary>
     /// Gets or sets the rows currently displayed by the playlist summary table.
     /// </summary>
@@ -356,4 +382,17 @@ internal sealed class PlaylistColumnPresentationCommit
     internal bool VisibilityChanged { get; }
 
     internal bool SummaryColumnsChanged { get; }
+}
+
+internal sealed class PlaylistBindingModeCommit
+{
+    internal PlaylistBindingModeCommit(bool detailActiveChanged, bool asyncBindingChanged)
+    {
+        DetailActiveChanged = detailActiveChanged;
+        AsyncBindingChanged = asyncBindingChanged;
+    }
+
+    internal bool DetailActiveChanged { get; }
+
+    internal bool AsyncBindingChanged { get; }
 }

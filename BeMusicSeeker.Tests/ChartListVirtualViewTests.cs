@@ -7,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -697,6 +698,105 @@ public sealed class ChartListVirtualViewTests
         mainChartList.PublishRowsCommit(commit);
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.Rows));
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SummaryText));
+    }
+
+    [TestMethod]
+    public void MainChartList_PublishFailureUsesPostCommitCleanupEvent()
+    {
+        var mainChartList = new MainChartListViewModel
+        {
+            Rows = new List<object>(),
+            ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
+        };
+        var candidateRows = new List<object> { new object() };
+        int canceledCount = 0;
+        int publishFailedCount = 0;
+        mainChartList.RowsReplacementCanceled += (_, _) => canceledCount++;
+        mainChartList.RowsReplacementPublishFailed += (_, _) => publishFailedCount++;
+        mainChartList.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainChartListViewModel.Rows))
+            {
+                throw new InvalidOperationException("binding publish failed");
+            }
+        };
+
+        Assert.ThrowsException<InvalidOperationException>(() => mainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        {
+            Rows = candidateRows,
+            ColumnsSettings = mainChartList.ColumnsSettings,
+            SelectionPolicy = MainChartListSelectionPolicy.Reset,
+            Summary = MainChartListSummaryUpdate.Explicit("committed"),
+            TerminalStageStartMs = 0,
+            Stopwatch = Stopwatch.StartNew()
+        }));
+
+        Assert.AreSame(candidateRows, mainChartList.Rows);
+        Assert.AreEqual(0, canceledCount);
+        Assert.AreEqual(1, publishFailedCount);
+    }
+
+    [TestMethod]
+    public void PlayHistoryTerminal_PreparationRunsOutsideFreshnessLockAndCancelsStaleCommit()
+    {
+        var viewModel = new MainWindowViewModel();
+        var oldRows = new List<object>();
+        var candidateRows = new List<object> { new object() };
+        viewModel.MainChartList.Rows = oldRows;
+        long requestId = viewModel.BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest.All());
+        int canceledCount = 0;
+        bool cancellationCallbackCompleted = false;
+        using IDisposable cancellationRegistration = viewModel.RegisterPlayHistoryCancellationCallbackForTest(
+            requestId,
+            () =>
+            {
+                Task<long> nestedInvalidateTask = Task.Run(viewModel.RegisterPlayHistoryFilterRequest);
+                cancellationCallbackCompleted = nestedInvalidateTask.Wait(TimeSpan.FromSeconds(5));
+            });
+        viewModel.MainChartList.RowsReplacementCanceled += (_, _) => canceledCount++;
+        viewModel.MainChartList.RowsReplacing += (_, _) =>
+        {
+            Task<long> invalidateTask = Task.Run(viewModel.RegisterPlayHistoryFilterRequest);
+            Assert.IsTrue(invalidateTask.Wait(TimeSpan.FromSeconds(5)), "RowsReplacing must not run while the play-history freshness lock is held.");
+        };
+
+        bool applied = viewModel.TryCommitPlayHistoryRowsForTest(requestId, candidateRows, "candidate summary");
+
+        Assert.IsFalse(applied);
+        Assert.AreSame(oldRows, viewModel.MainChartList.Rows);
+        Assert.AreNotEqual("candidate summary", viewModel.MainChartList.SummaryText);
+        Assert.AreEqual(1, canceledCount);
+        Assert.IsTrue(cancellationCallbackCompleted, "Cancellation callbacks must run after releasing the play-history freshness lock.");
+    }
+
+    [TestMethod]
+    public void PlayHistoryTerminal_PublishesExplicitSummaryWithCommittedMainState()
+    {
+        var viewModel = new MainWindowViewModel();
+        var candidateRows = new List<object> { new object(), new object() };
+        viewModel.MainChartList.Rows = new List<object>();
+        viewModel.MainChartList.SelectedIndex = 3;
+        long requestId = viewModel.BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest.All());
+        int preparingCount = 0;
+        var propertyNames = new List<string>();
+        viewModel.MainChartList.RowsReplacing += (_, _) => preparingCount++;
+        viewModel.MainChartList.PropertyChanged += (_, e) =>
+        {
+            propertyNames.Add(e.PropertyName);
+            Assert.AreSame(candidateRows, viewModel.MainChartList.Rows);
+            Assert.AreEqual("play-history explicit summary", viewModel.MainChartList.SummaryText);
+            Assert.AreEqual(-1, viewModel.MainChartList.SelectedIndex);
+            Assert.AreEqual(CustomTableColumnSettings.ViewKind.PLAY_HISTORY, viewModel.MainChartList.ColumnsSettings.Kind);
+        };
+
+        bool applied = viewModel.TryCommitPlayHistoryRowsForTest(requestId, candidateRows, "play-history explicit summary");
+
+        Assert.IsTrue(applied);
+        Assert.AreEqual(1, preparingCount);
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.Rows));
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SummaryText));
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SelectedIndex));
+        Assert.AreEqual("play-history explicit summary", viewModel.MainChartList.SummaryText);
     }
 
     [TestMethod]

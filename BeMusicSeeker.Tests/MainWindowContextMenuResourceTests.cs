@@ -159,6 +159,7 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string terminalTransitionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlayHistoryTerminalTransition.cs");
         string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
 
         StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
@@ -173,9 +174,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding Compact}\" Value=\"True\">");
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding IsSelected}\" Value=\"True\">");
         StringAssert.Contains(summaryRow, "App.WarningTextBrush");
-        StringAssert.Contains(viewModelCode, "PlayHistorySummaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys())");
-        StringAssert.Contains(viewModelCode, "string diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics)");
-        StringAssert.Contains(viewModelCode, "PlayHistorySummaryDiagnosticText = diagnosticSummaryText");
+        StringAssert.Contains(viewModelCode, "summaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys())");
+        StringAssert.Contains(viewModelCode, "diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics)");
+        StringAssert.Contains(viewModelCode, "DiagnosticText = diagnosticSummaryText");
+        StringAssert.Contains(terminalTransitionCode, "owner._PlayHistorySummaryCards = summaryCards");
+        StringAssert.Contains(terminalTransitionCode, "owner._PlayHistorySummaryDiagnosticText = diagnosticText");
+        StringAssert.Contains(terminalTransitionCode, "owner.MainChartList.CommitPreparedRowsWithoutDisposal(prepared)");
     }
 
     [TestMethod]

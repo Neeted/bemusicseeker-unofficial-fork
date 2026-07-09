@@ -514,6 +514,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.PlaybackStarted += MainWindowViewModel_PlaybackStarted;
         viewModel.MainChartList.RowsReplacing += MainChartList_RowsReplacing;
         viewModel.MainChartList.RowsReplacementCanceled += MainChartList_RowsReplacementCanceled;
+        viewModel.MainChartList.RowsReplacementPublishFailed += MainChartList_RowsReplacementCanceled;
         viewModel.MainTableDisplayRefreshRequested += MainWindowViewModel_MainTableDisplayRefreshRequested;
     }
 
@@ -530,6 +531,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.PlaybackStarted -= MainWindowViewModel_PlaybackStarted;
         subscribedViewModel.MainChartList.RowsReplacing -= MainChartList_RowsReplacing;
         subscribedViewModel.MainChartList.RowsReplacementCanceled -= MainChartList_RowsReplacementCanceled;
+        subscribedViewModel.MainChartList.RowsReplacementPublishFailed -= MainChartList_RowsReplacementCanceled;
         subscribedViewModel.MainTableDisplayRefreshRequested -= MainWindowViewModel_MainTableDisplayRefreshRequested;
         subscribedViewModel = null;
     }

@@ -166,7 +166,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
         StringAssert.Contains(rootSource, "playlistDetailBuildState.RequestVersion++;");
         StringAssert.Contains(rootSource, "playlistDetailBuildState.PendingRequest = null;");
-        StringAssert.Contains(rootSource, "buildCancellation?.Cancel();");
+        StringAssert.Contains(rootSource, "commit.BuildCancellation?.Cancel();");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildWorkflowCoordinator.TryBuildPlaylistViewAndApply(this, request, stateSnapshot, cancellationToken)");
         StringAssert.Contains(rootSource, "TryCommitPlaylistDetailTerminal(");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");

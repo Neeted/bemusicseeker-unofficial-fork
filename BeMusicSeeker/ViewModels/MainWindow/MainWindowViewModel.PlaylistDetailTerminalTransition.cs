@@ -147,7 +147,7 @@ public partial class MainWindowViewModel
                     mainChartList.CancelPreparedRowsApply(prepared);
                     throw;
                 }
-                mainChartList.CancelRowsReplacement();
+                mainChartList.FailRowsReplacementPublish();
                 throw new PlaylistDetailTerminalPublishException(ex);
             }
 
@@ -163,7 +163,7 @@ public partial class MainWindowViewModel
             }
             catch (Exception ex)
             {
-                mainChartList.CancelRowsReplacement();
+                mainChartList.FailRowsReplacementPublish();
                 throw new PlaylistDetailTerminalPublishException(ex);
             }
 
