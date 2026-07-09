@@ -461,7 +461,7 @@ inline chart_info pipeline の wrapper は、読み取り済み内容 snapshot �
 
 - `MainChartList.Rows`
 - `MainChartList.SelectedIndex`
-- `ColumnsSettingsChartRowsView`
+- `MainChartList.ColumnsSettings`
 - `UseAsyncChartRowsViewBinding`
 
 内部の一覧再構築は `RefreshChartRowsView(...)` / `SetChartRowsView(...)` / `ChartRowsFolderView` など chart row 名の helper に寄せている。

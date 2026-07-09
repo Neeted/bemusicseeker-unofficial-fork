@@ -79,4 +79,4 @@ Non-goals:
 
 ## Next action
 
-`MainChartList.ColumnsSettings` を table / column menu / header context adapter から直接参照し、最後の root column-settings relay と `MainChartList.PropertyChanged` 再中継を削除する。その後、refresh / terminal apply ownership を child へ移す。docs-only checkpoint は作らない。
+refresh / terminal apply の state transition を `MainChartList` owner へ移し、root の `SetChartRowsView` / summary wrapper と `ChartListRefreshCoordinator.Apply*` callback host を削除する。docs-only checkpoint は作らない。

@@ -92,10 +92,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainTable, "ItemsSource=\"{Binding Rows, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "SelectedIndex=\"{Binding SelectedIndex, Mode=TwoWay}\"");
         StringAssert.Contains(mainTable, "RowDragKind=\"{Binding RowDragKind, Mode=OneWay}\"");
-        StringAssert.Contains(mainTable, "ColumnsSettings=\"{Binding DataContext.ColumnsSettingsChartRowsView, ElementName=window, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "ColumnsSettings=\"{Binding ColumnsSettings, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "SortColumnName=\"{Binding DataContext.MainTableSortParameters.ColumnsName, ElementName=window, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "SortDirection=\"{Binding DataContext.MainTableSortParameters.Direction, ElementName=window, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "Visibility=\"{Binding DataContext.IsPlaylistSummaryMode, ElementName=window, Converter={qc:QuickConverter '!$P ? Visibility.Visible : Visibility.Collapsed'}}\"");
+        StringAssert.Contains(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings.Title.Visibility, Source={StaticResource vm}");
+        Assert.AreEqual(69, CountOccurrences(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings."));
+        Assert.IsFalse(xaml.Contains("ColumnsSettingsChartRowsView"));
         Assert.IsFalse(mainTable.Contains("ItemsSource=\"{Binding ChartRowsView"));
         Assert.IsFalse(mainTable.Contains("SelectedIndex=\"{Binding SelectedIndexChartRowsView"));
         Assert.IsFalse(mainTable.Contains("RowDragKind=\"{Binding ChartRowsViewRowDragKind"));
@@ -1151,7 +1154,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialize = ExtractBetween(
             viewModelCode,
             "public async void Initialize()",
-            "ColumnsSettingsChartRowsView");
+            "listenerForBMSLibrary = new PropertyChangedEventListener(files);");
         string saveFollowup = ExtractBetween(
             viewModelCode,
             "private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact)",

@@ -1515,7 +1515,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        CustomTableColumnSettings columnSettings = (base.DataContext as MainWindowViewModel)?.ColumnsSettingsChartRowsView;
+        CustomTableColumnSettings columnSettings = (customTableView.DataContext as MainChartListViewModel)?.ColumnsSettings;
         if (TryFindResource(ResolveMainColumnHeaderContextMenuResourceKey(columnSettings)) is not ContextMenu contextMenu)
         {
             return;

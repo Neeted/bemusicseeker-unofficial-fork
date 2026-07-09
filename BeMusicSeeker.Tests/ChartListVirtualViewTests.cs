@@ -497,6 +497,21 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SelectedIndex));
     }
 
+    [TestMethod]
+    public void MainChartList_ColumnsSettingsRaisesOwnedBindingNotifications()
+    {
+        var mainChartList = new MainChartListViewModel();
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var propertyNames = new List<string>();
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+
+        mainChartList.ColumnsSettings = settings;
+
+        Assert.AreSame(settings, mainChartList.ColumnsSettings);
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.ColumnsSettings));
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.RowDragKind));
+    }
+
     private static List<LibraryChartRow> CreateSummaryRows()
     {
         return

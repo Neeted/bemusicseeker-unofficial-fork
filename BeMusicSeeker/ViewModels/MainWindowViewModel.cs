@@ -8151,18 +8151,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public CustomTableColumnSettings ColumnsSettingsChartRowsView
-    {
-        get
-        {
-            return MainChartList.ColumnsSettings;
-        }
-        set
-        {
-            MainChartList.ColumnsSettings = value;
-        }
-    }
-
     public Visibility ColumnSettingsVisibilityForPlaylist
     {
         get
@@ -10060,7 +10048,6 @@ public partial class MainWindowViewModel : ViewModel
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
-        MainChartList.PropertyChanged += MainChartListPropertyChanged;
         PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
@@ -10070,22 +10057,6 @@ public partial class MainWindowViewModel : ViewModel
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
-    }
-
-    private void MainChartListPropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        string propertyName = e?.PropertyName;
-        if (string.IsNullOrWhiteSpace(propertyName))
-        {
-            return;
-        }
-
-        switch (propertyName)
-        {
-            case nameof(MainChartListViewModel.ColumnsSettings):
-                RaisePropertyChanged(nameof(ColumnsSettingsChartRowsView));
-                break;
-        }
     }
 
     private void PlaylistWorkspacePropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -11341,7 +11312,7 @@ public partial class MainWindowViewModel : ViewModel
             RaiseInitializationExceptionRequested();
             return;
         }
-        ColumnsSettingsChartRowsView = Settings.Default.StandardCustomTableColumnSettings;
+        MainChartList.ColumnsSettings = Settings.Default.StandardCustomTableColumnSettings;
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
         listenerForBMSPlaylist = new PropertyChangedEventListener(tables);
         listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
@@ -15541,7 +15512,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.PlaylistCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.PlaylistCustomTableColumnSettings;
                 targetColumnSettingsVisibilityForPlaylist = Visibility.Visible;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
@@ -15554,7 +15525,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.StandardCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.StandardCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.UnregisteredFilterSelected:
@@ -15566,7 +15537,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.UnregisteredCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.UnregisteredCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.ZeroNoteFilterSelected:
@@ -15578,7 +15549,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.ZeroNoteCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.ZeroNoteCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.ChartInfoParseErrorFilterSelected:
@@ -15590,7 +15561,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.FileMissingFilterSelected:
@@ -15605,7 +15576,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.FullScanCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.FullScanCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.DuplicateFilterSelected:
@@ -15617,7 +15588,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.DuplicateCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.DuplicateCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.GarbledFilterSelected:
@@ -15630,7 +15601,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.EncodingCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.EncodingCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.PendingInstallFolderSelected:
@@ -15642,7 +15613,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.InstallCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.InstallCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             case MainViewUpdateMode.PlayHistorySelected:
@@ -15655,7 +15626,7 @@ public partial class MainWindowViewModel : ViewModel
                 Settings.Default.PlayHistoryCustomTableColumnSettings.EnsurePlayHistoryColumnDefaults();
                 caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 stageStartMs = stopwatch.ElapsedMilliseconds;
-                ColumnsSettingsChartRowsView = Settings.Default.PlayHistoryCustomTableColumnSettings;
+                MainChartList.ColumnsSettings = Settings.Default.PlayHistoryCustomTableColumnSettings;
                 caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
                 break;
             default:

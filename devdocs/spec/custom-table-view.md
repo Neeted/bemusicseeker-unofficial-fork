@@ -26,7 +26,7 @@
 
 | Control | 表示条件 | ItemsSource | Column layout | Sort state |
 | --- | --- | --- | --- | --- |
-| `customTableView` | `IsPlaylistSummaryMode == false` | `MainChartList.Rows` | `ColumnsSettingsChartRowsView` | 通常一覧は `SortParameters`、プレイログ一覧は `PlayHistorySortParameters`。表示 binding は `MainTableSortParameters` |
+| `customTableView` | `IsPlaylistSummaryMode == false` | `MainChartList.Rows` | `MainChartList.ColumnsSettings` | 通常一覧は `SortParameters`、プレイログ一覧は `PlayHistorySortParameters`。表示 binding は `MainTableSortParameters` |
 | `customTablePlaylistSummary` | `IsPlaylistSummaryMode == true` | `PlaylistSummaryView` | `PlaylistSummaryColumnsSettings` | `PlaylistSummarySortParameters.ColumnsName` / `Direction` |
 
 共通の既定表示値:
@@ -82,7 +82,7 @@ score / chart_info / maintenance / warning hydration が現在の full normal li
 
 ## View Mode と設定オブジェクト
 
-`MainWindowViewModel.loadColumnSetting(...)` は、現在の `viewUpdateMode` に応じて `ColumnsSettingsChartRowsView` を差し替える。
+`MainWindowViewModel.loadColumnSetting(...)` は、現在の `viewUpdateMode` に応じて `MainChartList.ColumnsSettings` を差し替える。
 
 `SortUpdated`、keyword 更新、mode 更新、`TreeViewFilterNotChanged` は列セットを直接表す mode ではないため、現在選択中の tree mode へ解決してから列設定を適用する。同じ解決済み mode の列設定がすでに適用済みで、対象 settings と playlist summary settings が存在する場合は、`loadColumnSetting` を再実行しない。特に `SortUpdated` は表示 mode を変えない操作なので、列設定再適用による `columnSettingMs` を発生させない。ログ上の互換 metric `columnMs` は `prepareSwapMs + columnSettingMs + setViewMs` の区間として扱う。
 
