@@ -4974,6 +4974,10 @@ public partial class MainWindowViewModel : ViewModel
             }
             if (changed)
             {
+                regularChartListOwner?.SetSort(ChartListSortSpecification.Create(
+                    _SortParameters?.ColumnsName,
+                    _SortParameters?.Direction ?? ListSortDirection.Ascending,
+                    _SortParameters != null));
                 RaisePropertyChanged("SortParameters");
                 if (!IsPlayHistoryViewActive)
                 {
@@ -10539,10 +10543,6 @@ public partial class MainWindowViewModel : ViewModel
                 IncludeBmsonRows = route.IncludeBmsonRows,
                 KeywordFilter = KeywordFilter,
                 ModeFilter = (RegularChartModeFilter)(int)ModeFilter,
-                Sort = ChartListSortSpecification.Create(
-                    SortParameters?.ColumnsName,
-                    SortParameters?.Direction ?? ListSortDirection.Ascending,
-                    SortParameters != null),
                 Sources = CaptureRegularChartListSourceCatalog(),
                 ExternalVersions = CaptureRegularChartListExternalVersions(),
                 PreserveSummary = IsPlaylistSummaryMode,
@@ -12507,7 +12507,7 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
 
-        if (SortParameters == null || SortParameters.ColumnsName != columnName || SortParameters.Direction != direction)
+        if (regularChartListOwner.TryChangeSort(columnName, direction))
         {
             SortParameters = new cSortParameters
             {

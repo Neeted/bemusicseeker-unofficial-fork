@@ -2101,17 +2101,9 @@ public sealed class ChartListVirtualViewTests
             };
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             typeof(MainWindowViewModel).GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainViewUpdateMode.DuplicateFilterSelected);
-            typeof(MainWindowViewModel).GetField("_SortParameters", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(
-                viewModel,
-                new MainWindowViewModel.cSortParameters
-                {
-                    ColumnsName = "UnsupportedColumn",
-                    Direction = ListSortDirection.Descending
-                });
-
             typeof(MainWindowViewModel)
-                .GetMethod("RefreshChartRowsView", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(MainViewUpdateMode), typeof(object)], null)!
-                .Invoke(viewModel, [MainViewUpdateMode.DuplicateFilterSelected, null]);
+                .GetMethod("ApplyMainChartListSort", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .Invoke(viewModel, ["UnsupportedColumn", ListSortDirection.Descending, MainChartListSortTarget.Regular]);
 
             Assert.IsNull(viewModel.SortParameters);
             var view = viewModel.MainChartList.Rows as ChartListVirtualView;

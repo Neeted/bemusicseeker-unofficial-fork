@@ -51,6 +51,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private ListSortDirection? folderSortDirection;
     private RegularNormalLibraryTreeFilter treeFilter;
     private MainViewUpdateMode? lastAppliedColumnMode;
+    private ChartListSortSpecification currentSort;
     private RegularChartListCompletion lastCompletion;
     private List<ChartListSourceRow> virtualSourceRows;
     private BMSLibrary virtualSourceRowsLibrary;
@@ -117,6 +118,38 @@ internal sealed class RegularChartListOwner : IDisposable
             {
                 return lastAppliedColumnMode;
             }
+        }
+    }
+
+    internal void SetSort(ChartListSortSpecification sort)
+    {
+        lock (syncRoot)
+        {
+            currentSort = sort;
+        }
+    }
+
+    internal bool TryChangeSort(string columnName, ListSortDirection direction)
+    {
+        ChartListSortSpecification next = ChartListSortSpecification.Create(columnName, direction, hasValue: true);
+        lock (syncRoot)
+        {
+            if (currentSort.HasValue
+                && string.Equals(currentSort.RequestedColumnName, next.RequestedColumnName, StringComparison.Ordinal)
+                && currentSort.Direction == next.Direction)
+            {
+                return false;
+            }
+            currentSort = next;
+            return true;
+        }
+    }
+
+    internal ChartListSortSpecification CaptureSort()
+    {
+        lock (syncRoot)
+        {
+            return currentSort;
         }
     }
 
@@ -1300,6 +1333,7 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             throw new ArgumentException("A library is required when bmson rows are included.", nameof(request));
         }
+        request.Sort = CaptureSort();
 
         MainViewUpdateMode resolvedMode = ChartListRefreshCoordinator.ResolveMainColumnSettingMode(request.Mode, request.CurrentTreeMode);
         MainViewUpdateMode resolvedTreeMode = ChartListRefreshCoordinator.ResolveMainColumnSettingMode(request.CurrentTreeMode, request.CurrentTreeMode);

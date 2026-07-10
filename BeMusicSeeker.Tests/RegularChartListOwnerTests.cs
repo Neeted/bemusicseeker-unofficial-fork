@@ -378,7 +378,7 @@ public sealed class RegularChartListOwnerTests
         RegularChartListEntryRequest request = CreateEntryRequest(
             MainViewUpdateMode.FolderFilterSelected,
             new RegularChartListSourceCatalog());
-        request.Sort = ChartListSortSpecification.Create("UnsupportedColumn", ListSortDirection.Descending, hasValue: true);
+        owner.SetSort(ChartListSortSpecification.Create("UnsupportedColumn", ListSortDirection.Descending, hasValue: true));
 
         RegularChartListEntryResult result = owner.ApplyRegularView(request);
 
