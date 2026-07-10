@@ -125,3 +125,23 @@ internal sealed class PlaylistDetailBuildState
         }
     }
 }
+
+internal sealed class PlaylistSourceClearCommitResult
+{
+    internal PlaylistSourceClearCommitResult(
+        List<PlaylistDetailSourceRow> sourceRows,
+        IList viewRows,
+        long previousGenerationId,
+        CancellationTokenSource buildCancellation)
+    {
+        SourceRows = sourceRows;
+        ViewRows = viewRows;
+        PreviousGenerationId = previousGenerationId;
+        BuildCancellation = buildCancellation;
+    }
+
+    internal List<PlaylistDetailSourceRow> SourceRows { get; }
+    internal IList ViewRows { get; }
+    internal long PreviousGenerationId { get; }
+    internal CancellationTokenSource BuildCancellation { get; }
+}

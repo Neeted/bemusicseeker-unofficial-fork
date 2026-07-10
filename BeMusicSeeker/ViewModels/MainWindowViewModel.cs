@@ -554,7 +554,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly PlaylistDetailBuildState playlistDetailBuildState = new();
 
-    private readonly PlaylistDetailTerminalOwner playlistDetailTerminalOwner;
 
     private readonly object playlistLibraryIndexSync = new();
 
@@ -6988,12 +6987,6 @@ public partial class MainWindowViewModel : ViewModel
             DispatchMainChartListAction,
             LogMainViewBuildWarning);
         regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
-        playlistDetailTerminalOwner = new PlaylistDetailTerminalOwner(
-            playlistDetailBuildState,
-            playlistViewState,
-            MainChartList,
-            PlaylistWorkspace,
-            regularChartListOwner.CommitExternalColumnMode);
         playHistoryTerminalOwner = new PlayHistoryTerminalOwner(
             playHistoryPresentationState,
             MainChartList,
@@ -9851,7 +9844,7 @@ public partial class MainWindowViewModel : ViewModel
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         MainChartListColumnSelection columnSelection = regularChartListOwner.LoadColumnSetting(columnSettingMode, treeViewFilterTypeSelected);
         long callbackStageMs = 0L;
-        PlaylistDetailTerminalCommitResult commitResult = playlistDetailTerminalOwner.TryApply(
+        PlaylistDetailTerminalCommitResult commitResult = MainChartList.ApplyPlaylistDetailTerminal(
             new PlaylistDetailTerminalRequest
             {
                 BuildRequest = request,
@@ -9875,7 +9868,11 @@ public partial class MainWindowViewModel : ViewModel
                     TerminalStageStartMs = stageStartMs,
                     Stopwatch = viewBuildStopwatch
                 }
-            });
+            },
+            playlistDetailBuildState,
+            playlistViewState,
+            PlaylistWorkspace,
+            regularChartListOwner.CommitExternalColumnMode);
         if (!commitResult.Applied)
         {
             return new PlaylistDetailTerminalApplyResult(applied: false, mainViewApply: null, previousSourceCount: 0);

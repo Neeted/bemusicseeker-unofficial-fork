@@ -109,3 +109,30 @@ internal sealed class PlaylistDetailViewState
         }
     }
 }
+
+internal sealed class PlaylistDetailTerminalRequest
+{
+    internal PlaylistBuildRequest BuildRequest { get; set; }
+    internal bool ReplaceSource { get; set; }
+    internal List<PlaylistDetailSourceRow> SourceRows { get; set; }
+    internal BMSTable CurrentTable { get; set; }
+    internal string CurrentFolderName { get; set; }
+    internal PlaylistDetailFilter CurrentFilterType { get; set; }
+    internal IList ViewRows { get; set; }
+    internal MainChartListColumnSelection ColumnSelection { get; set; }
+    internal MainChartListRowsApplyRequest MainRowsRequest { get; set; }
+}
+
+internal sealed class PlaylistDetailTerminalCommitResult
+{
+    internal bool Applied { get; set; }
+    internal List<PlaylistDetailSourceRow> PreviousSourceRows { get; set; }
+    internal long PreviousSourceGenerationId { get; set; }
+    internal long SourceGenerationId { get; set; }
+    internal IList PreviousViewRows { get; set; }
+    internal long PreviousViewGenerationId { get; set; }
+    internal long ViewGenerationId { get; set; }
+    internal int SourceRowsAlive { get; set; }
+    internal MainChartListRowsApplyResult MainRowsApply { get; set; }
+    internal PlaylistColumnPresentationCommit ColumnPresentationCommit { get; set; }
+}

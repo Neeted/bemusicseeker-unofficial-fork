@@ -368,6 +368,81 @@ public sealed class MainChartListViewModel : ViewModel
         return new MainChartListCoordinatedRowsApplyResult(applied: true, rowsApply);
     }
 
+    internal PlaylistDetailTerminalCommitResult ApplyPlaylistDetailTerminal(
+        PlaylistDetailTerminalRequest request,
+        PlaylistDetailBuildState buildState,
+        PlaylistDetailViewState viewState,
+        PlaylistWorkspaceViewModel playlistWorkspace,
+        Action<MainViewUpdateMode?> commitExternalColumnMode)
+    {
+        if (request?.BuildRequest == null || request.ViewRows == null || request.MainRowsRequest == null)
+        {
+            throw new ArgumentException("A complete playlist detail terminal request is required.", nameof(request));
+        }
+        if (request.ReplaceSource && request.SourceRows == null)
+        {
+            throw new ArgumentException("Source rows are required when replacing the playlist source.", nameof(request));
+        }
+        if (buildState == null)
+        {
+            throw new ArgumentNullException(nameof(buildState));
+        }
+        if (viewState == null)
+        {
+            throw new ArgumentNullException(nameof(viewState));
+        }
+        if (playlistWorkspace == null)
+        {
+            throw new ArgumentNullException(nameof(playlistWorkspace));
+        }
+        if (commitExternalColumnMode == null)
+        {
+            throw new ArgumentNullException(nameof(commitExternalColumnMode));
+        }
+
+        var result = new PlaylistDetailTerminalCommitResult();
+        try
+        {
+            MainChartListCoordinatedRowsApplyResult coordinated = ApplyCoordinatedRows(
+                request.MainRowsRequest,
+                commitRows =>
+                {
+                    lock (buildState.SyncRoot)
+                    {
+                        if (request.BuildRequest.RequestVersion != buildState.RequestVersion)
+                        {
+                            return false;
+                        }
+                        viewState.CommitTerminal(
+                            request,
+                            result,
+                            commitRows,
+                            () =>
+                            {
+                                result.ColumnPresentationCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+                                    request.ColumnSelection.PlaylistColumnSettingsVisibility,
+                                    request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                                commitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                            });
+                        return true;
+                    }
+                },
+                () =>
+                {
+                    if (result.ColumnPresentationCommit != null)
+                    {
+                        playlistWorkspace.PublishColumnPresentation(result.ColumnPresentationCommit);
+                    }
+                });
+            result.MainRowsApply = coordinated.RowsApply;
+            return result;
+        }
+        catch (MainChartListCoordinatedPublishException ex)
+        {
+            throw new PlaylistDetailTerminalPublishException(ex, ownershipTransferred: true);
+        }
+    }
+
     private static void TryCoordinatedAction(Action action, ICollection<Exception> exceptions)
     {
         try
