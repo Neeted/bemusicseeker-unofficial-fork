@@ -223,8 +223,8 @@ public sealed class PlaylistViewPipelineTests
         var candidateRows = new List<object> { new object() };
         viewModel.MainChartList.Rows = oldRows;
         viewModel.MainChartList.ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-        viewModel.ColumnSettingsVisibilityForPlaylist = System.Windows.Visibility.Collapsed;
-        PlaylistSummaryColumnSettings oldSummaryColumns = viewModel.PlaylistSummaryColumnsSettings;
+        viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist = System.Windows.Visibility.Collapsed;
+        PlaylistSummaryColumnSettings oldSummaryColumns = viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings;
         var identity = CreatePlaylistIdentity("stale-terminal");
         var request = new PlaylistBuildRequest
         {
@@ -252,8 +252,8 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsFalse(result.Applied);
         Assert.AreSame(oldRows, viewModel.MainChartList.Rows);
-        Assert.AreEqual(System.Windows.Visibility.Collapsed, viewModel.ColumnSettingsVisibilityForPlaylist);
-        Assert.AreSame(oldSummaryColumns, viewModel.PlaylistSummaryColumnsSettings);
+        Assert.AreEqual(System.Windows.Visibility.Collapsed, viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist);
+        Assert.AreSame(oldSummaryColumns, viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings);
         Assert.AreEqual(1, preparingCount);
         Assert.AreEqual(1, canceledCount);
     }

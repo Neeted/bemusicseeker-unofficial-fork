@@ -108,6 +108,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "DataContext=\"{Binding PlaylistWorkspace}\"");
         StringAssert.Contains(xaml, "IsChecked=\"{Binding PlaylistWorkspace.PlaylistSummaryColumnsSettings.PlaylistId.Visibility, Source={StaticResource vm}");
         Assert.IsFalse(xaml.Contains("IsChecked=\"{Binding PlaylistSummaryColumnsSettings."));
+        StringAssert.Contains(xaml, "Visibility=\"{Binding PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}\"");
+        Assert.IsFalse(xaml.Contains("Visibility=\"{Binding ColumnSettingsVisibilityForPlaylist, Source={StaticResource vm}}\""));
         Assert.IsFalse(xaml.Contains("Text=\"{Binding GridSummaryText}\""));
         Assert.IsFalse(mainTable.Contains("DataContext.MainTableSortParameters"));
         Assert.IsFalse(mainTable.Contains("RowDragKind=\"PlaylistDropCandidateRows\""));

@@ -100,15 +100,18 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void RootPlaylistSummaryConfiguration_ForwardsToPlaylistWorkspace()
+    public void PlaylistSummaryConfiguration_IsOwnedByPlaylistWorkspace()
     {
         var viewModel = new MainWindowViewModel();
         var columns = new PlaylistSummaryColumnSettings();
         var propertyNames = new List<string>();
-        viewModel.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        var rootPropertyNames = new List<string>();
+        viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        viewModel.PropertyChanged += (_, e) => rootPropertyNames.Add(e.PropertyName);
 
-        viewModel.PlaylistSummaryColumnsSettings = columns;
-        viewModel.ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
+        viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings = columns;
+        viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
+        viewModel.PlaylistWorkspace.UseAsyncChartRowsViewBinding = false;
         viewModel.GridHeaderText = "Playlist summary";
         viewModel.PlaylistSummaryKeywordFilter = "title:test";
         viewModel.PlaylistSummaryOwnedFilter = MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedComplete;
@@ -118,11 +121,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual("Playlist summary", viewModel.PlaylistWorkspace.GridHeaderText);
         Assert.AreEqual("title:test", viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter);
         Assert.AreEqual(MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedComplete, viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter);
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.PlaylistSummaryColumnsSettings));
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.ColumnSettingsVisibilityForPlaylist));
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.GridHeaderText));
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.PlaylistSummaryKeywordFilter));
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.PlaylistSummaryOwnedFilter));
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding));
+        CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
+        CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
+        CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding));
     }
 
     [TestMethod]

@@ -5214,18 +5214,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public Visibility ColumnSettingsVisibilityForPlaylist
-    {
-        get
-        {
-            return PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist;
-        }
-        set
-        {
-            PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist = value;
-        }
-    }
-
     public bool IsPlaylistSummaryMode
     {
         get
@@ -5250,18 +5238,6 @@ public partial class MainWindowViewModel : ViewModel
         get
         {
             return PlaylistWorkspace.IsPlaylistDetailViewActive;
-        }
-    }
-
-    /// <summary>
-    /// メイン一覧の表示コレクションを非同期で張るかどうかを示します。
-    /// playlist 詳細表示では同期反映に切り替えて旧 ItemsSource の保持を減らします。
-    /// </summary>
-    public bool UseAsyncChartRowsViewBinding
-    {
-        get
-        {
-            return PlaylistWorkspace.UseAsyncChartRowsViewBinding;
         }
     }
 
@@ -5999,18 +5975,6 @@ public partial class MainWindowViewModel : ViewModel
         get => ProgressHub.IsLr2SongDbSyncCleanupVisible;
         set => ProgressHub.IsLr2SongDbSyncCleanupVisible = value;
     }
-    public PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings
-    {
-        get
-        {
-            return PlaylistWorkspace.PlaylistSummaryColumnsSettings;
-        }
-        set
-        {
-            PlaylistWorkspace.PlaylistSummaryColumnsSettings = value;
-        }
-    }
-
     public bool IsPlaylistTreeExpanded
     {
         get
@@ -7198,7 +7162,10 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         if (propertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView)
-            || propertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryText))
+            || propertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryText)
+            || propertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings)
+            || propertyName == nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist)
+            || propertyName == nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding))
         {
             return;
         }
@@ -12546,7 +12513,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
         Settings.Default.PlaylistSummaryColumnsSettings.EnsureCompatibility();
-        PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
+        PlaylistWorkspace.PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
     }
 
     private MainChartListColumnSelection ResolveMainColumnSettingForViewUpdate(MainViewUpdateMode mode)
