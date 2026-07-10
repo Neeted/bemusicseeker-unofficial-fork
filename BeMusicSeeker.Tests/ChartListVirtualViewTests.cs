@@ -2153,8 +2153,6 @@ public sealed class ChartListVirtualViewTests
 
         Assert.AreEqual(current, same);
         Assert.AreNotEqual(current, changedSortKeyGeneration);
-        Assert.IsFalse(MainWindowViewModel.IsMainSummaryFolderCountStaleForTest(current, 7, 11));
-        Assert.IsTrue(MainWindowViewModel.IsMainSummaryFolderCountStaleForTest(current, 7, 12));
     }
 
     [TestMethod]

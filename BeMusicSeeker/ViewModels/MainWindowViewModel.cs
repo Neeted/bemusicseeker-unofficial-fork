@@ -803,14 +803,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly Dictionary<string, ChartFileTransientState> chartTransientStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
-    private readonly object mainSummaryFolderCountCacheLock = new();
-
-    private readonly Dictionary<MainViewSummaryCacheKey, int> mainSummaryFolderCountCache = [];
-
-    private readonly HashSet<MainViewSummaryCacheKey> mainSummaryFolderCountRunning = [];
-
-    private int mainSummaryFolderCountRunId;
-
     private const long ColumnSettingSlowLogThresholdMs = 100L;
 
     private const int PlaylistBuildCoalescingWindowMs = 50;
@@ -4478,30 +4470,6 @@ public partial class MainWindowViewModel : ViewModel
         return MainChartListViewModel.FormatSummaryTextForTest(rowCount, distinctFolderCount);
     }
 
-    private static int CountDistinctFoldersForSourceRows(IEnumerable<ChartListSourceRow> rows)
-    {
-        if (rows == null)
-        {
-            return -1;
-        }
-        return rows.Select(row => row?.Folder)
-            .Where(folder => !string.IsNullOrWhiteSpace(folder))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-    }
-
-    private static IReadOnlyList<ChartListSourceRow> SelectSourceRowsByOrder(IReadOnlyList<ChartListSourceRow> sourceRows, IReadOnlyList<int> orderedIndexes)
-    {
-        if (sourceRows == null || orderedIndexes == null)
-        {
-            return [];
-        }
-        return [.. orderedIndexes
-            .Where(index => index >= 0 && index < sourceRows.Count)
-            .Select(index => sourceRows[index])
-            .Where(row => row != null)];
-    }
-
     private static int[] ApplyVirtualNormalLibraryFilters(
         IReadOnlyList<ChartListSourceRow> sourceRows,
         IReadOnlyList<int> orderedIndexes,
@@ -4645,133 +4613,6 @@ public partial class MainWindowViewModel : ViewModel
             out _);
     }
 
-    private bool TryGetMainSummaryFolderCount(MainViewSummaryCacheKey key, out int distinctFolderCount)
-    {
-        lock (mainSummaryFolderCountCacheLock)
-        {
-            return mainSummaryFolderCountCache.TryGetValue(key, out distinctFolderCount);
-        }
-    }
-
-    private void ScheduleMainSummaryFolderCount(MainViewSummaryCacheKey key, IReadOnlyList<ChartListSourceRow> sourceRows, IList expectedRowsView, string reason)
-    {
-        if (sourceRows == null)
-        {
-            return;
-        }
-        int runId;
-        lock (mainSummaryFolderCountCacheLock)
-        {
-            if (mainSummaryFolderCountCache.ContainsKey(key))
-            {
-                return;
-            }
-            if (!mainSummaryFolderCountRunning.Add(key))
-            {
-                LogMainViewBuild("main_summary_folder_count queued reason=" + (reason ?? string.Empty)
-                    + " rowCount=" + key.RowCount
-                    + " skipped=already_running");
-                return;
-            }
-            runId = ++mainSummaryFolderCountRunId;
-        }
-        LogMainViewBuild("main_summary_folder_count queued reason=" + (reason ?? string.Empty)
-            + " runId=" + runId
-            + " rowCount=" + key.RowCount
-            + " cacheHit=False");
-        Task.Run(() => RunMainSummaryFolderCount(runId, key, sourceRows, expectedRowsView, reason));
-    }
-
-    private void RunMainSummaryFolderCount(int runId, MainViewSummaryCacheKey key, IReadOnlyList<ChartListSourceRow> sourceRows, IList expectedRowsView, string reason)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        try
-        {
-            LogMainViewBuild("main_summary_folder_count start reason=" + (reason ?? string.Empty)
-                + " runId=" + runId
-                + " rowCount=" + key.RowCount);
-            int distinctFolderCount = CountDistinctFoldersForSourceRows(sourceRows);
-            stopwatch.Stop();
-            if (!IsCurrentMainSummaryFolderCountKey(key))
-            {
-                lock (mainSummaryFolderCountCacheLock)
-                {
-                    mainSummaryFolderCountRunning.Remove(key);
-                }
-                LogMainViewBuild("main_summary_folder_count stale_skipped reason=" + (reason ?? string.Empty)
-                    + " runId=" + runId
-                    + " rowCount=" + key.RowCount
-                    + " distinctFolderCount=" + distinctFolderCount
-                    + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                return;
-            }
-            lock (mainSummaryFolderCountCacheLock)
-            {
-                mainSummaryFolderCountCache[key] = distinctFolderCount;
-                mainSummaryFolderCountRunning.Remove(key);
-            }
-            LogMainViewBuild("main_summary_folder_count done reason=" + (reason ?? string.Empty)
-                + " runId=" + runId
-                + " rowCount=" + key.RowCount
-                + " distinctFolderCount=" + distinctFolderCount
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                + " cacheHit=False");
-            Action reflect = () =>
-            {
-                if (!IsPlaylistSummaryMode
-                    && IsCurrentMainSummaryFolderCountKey(key)
-                    && regularChartListOwner.IsCurrentRegularRows(expectedRowsView))
-                {
-                    MainChartList.TryUpdateNormalSummary(expectedRowsView, key.RowCount, distinctFolderCount);
-                }
-            };
-            if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-            {
-                reflect();
-            }
-            else
-            {
-                DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-            }
-        }
-        catch (Exception ex)
-        {
-            stopwatch.Stop();
-            lock (mainSummaryFolderCountCacheLock)
-            {
-                mainSummaryFolderCountRunning.Remove(key);
-            }
-            LogMainViewBuild("main_summary_folder_count failed reason=" + (reason ?? string.Empty)
-                + " runId=" + runId
-                + " rowCount=" + key.RowCount
-                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
-                + " exception=" + ex.GetType().Name
-                + " message=" + SanitizeStartupBackgroundSummaryValue(ex.Message));
-        }
-    }
-
-    private bool IsCurrentMainSummaryFolderCountKey(MainViewSummaryCacheKey key)
-    {
-        lock (normalLibrarySortCacheLock)
-        {
-            return normalLibrarySourceGeneration == key.SourceGeneration
-                && normalLibrarySortKeyGeneration == key.SortKeyGeneration;
-        }
-    }
-
-    internal static bool IsMainSummaryFolderCountStaleForTest(MainViewSummaryCacheKey key, long currentSourceGeneration, long currentSortKeyGeneration)
-    {
-        return key.SourceGeneration != currentSourceGeneration || key.SortKeyGeneration != currentSortKeyGeneration;
-    }
-
-    private void ClearMainSummaryFolderCountCache()
-    {
-        lock (mainSummaryFolderCountCacheLock)
-        {
-            mainSummaryFolderCountCache.Clear();
-        }
-    }
-
     private void IncrementNormalLibrarySourceGeneration(string reason)
     {
         int cacheCount;
@@ -4782,7 +4623,6 @@ public partial class MainWindowViewModel : ViewModel
             regularChartListOwner.ClearSortCache();
             ClearVirtualNormalLibraryCachesLocked();
         }
-        ClearMainSummaryFolderCountCache();
         LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
     }
 
@@ -4813,7 +4653,6 @@ public partial class MainWindowViewModel : ViewModel
             return false;
         }
 
-        ClearMainSummaryFolderCountCache();
         LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
         return true;
     }
@@ -5130,7 +4969,6 @@ public partial class MainWindowViewModel : ViewModel
                 ClearVirtualNormalLibrarySourceRowsLocked();
             }
         }
-        ClearMainSummaryFolderCountCache();
         LogNormalLibrarySortCacheInvalidation("sort_key", propertyName, cacheCount);
     }
 
@@ -5264,7 +5102,6 @@ public partial class MainWindowViewModel : ViewModel
             regularChartListOwner.ClearSortCache();
             ClearVirtualNormalLibraryCachesLocked();
         }
-        ClearMainSummaryFolderCountCache();
         LogNormalLibrarySortCacheInvalidation("clear", "explicit", cacheCount);
     }
 
@@ -5637,6 +5474,10 @@ public partial class MainWindowViewModel : ViewModel
             SortParameters = null;
         }
         regularChartListOwner.ResetDerivedCaches();
+        if (!regularChartListOwner.TryBeginRequest(out RegularChartListRequestLease lease))
+        {
+            return true;
+        }
         UpdateChartInfoProjectionVersionCache();
         UpdateScoreSnapshotProjectionVersionCache();
 
@@ -5646,6 +5487,10 @@ public partial class MainWindowViewModel : ViewModel
             out bool sourceRowsCacheHit,
             out long sourceRowsSourceGeneration,
             out long sourceRowsSortKeyGeneration);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return true;
+        }
         long sourceRowsMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         var keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
         NormalLibraryTreeFilter effectiveTreeFilter = ShouldApplyVirtualNormalLibraryFolderFilter(treeViewFilterTypeSelected) ? virtualNormalLibraryTreeFilter : null;
@@ -5668,6 +5513,10 @@ public partial class MainWindowViewModel : ViewModel
             out NormalLibrarySortCacheKey sortCacheKey,
             out long orderCacheLookupMs,
             out long orderBuildMs);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return true;
+        }
         long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
         int[] viewOrderedIndexes = ApplyVirtualNormalLibraryFilters(
@@ -5682,6 +5531,10 @@ public partial class MainWindowViewModel : ViewModel
             out long folderStageMs,
             out long keywordStageMs,
             out long modeStageMs);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return true;
+        }
 
         ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
 
@@ -5691,7 +5544,7 @@ public partial class MainWindowViewModel : ViewModel
             modeFilteredCount,
             includeBmsonRows,
             filterIdentity);
-        bool summaryCacheHit = TryGetMainSummaryFolderCount(summaryKey, out int distinctFolderCount);
+        bool summaryCacheHit = regularChartListOwner.TryGetVirtualSummary(summaryKey, out int distinctFolderCount);
         if (!summaryCacheHit)
         {
             distinctFolderCount = -1;
@@ -5700,23 +5553,40 @@ public partial class MainWindowViewModel : ViewModel
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         var nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
         MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
-        MainChartListRowsApplyResult applyResult = MainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        RegularChartListTerminalResult terminal = regularChartListOwner.TryCommitVirtual(
+            lease,
+            new RegularChartListTerminalInput
+            {
+                RowsRequest = new MainChartListRowsApplyRequest
+                {
+                    Rows = nextRowsView,
+                    ColumnsSettings = columnSelection.ColumnsSettings,
+                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+                    Summary = IsPlaylistSummaryMode
+                        ? MainChartListSummaryUpdate.Preserve()
+                        : MainChartListSummaryUpdate.NormalCounts(nextRowsView.Count, distinctFolderCount),
+                    ColumnSettingReuse = columnSelection.Reused,
+                    ColumnPreparationMs = columnSelection.ElapsedMs,
+                    TerminalStageStartMs = stageStartMs,
+                    Stopwatch = viewBuildStopwatch
+                },
+                ColumnSelection = columnSelection,
+                Mode = mode,
+                Stopwatch = viewBuildStopwatch
+            });
+        if (!terminal.WasCommitted)
         {
-            Rows = nextRowsView,
-            ColumnsSettings = columnSelection.ColumnsSettings,
-            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
-            Summary = IsPlaylistSummaryMode
-                ? MainChartListSummaryUpdate.Preserve()
-                : MainChartListSummaryUpdate.NormalCounts(nextRowsView.Count, distinctFolderCount),
-            ColumnSettingReuse = columnSelection.Reused,
-            ColumnPreparationMs = columnSelection.ElapsedMs,
-            TerminalStageStartMs = stageStartMs,
-            Stopwatch = viewBuildStopwatch
-        });
-        CommitMainColumnSetting(columnSelection);
+            return true;
+        }
+        MainChartListRowsApplyResult applyResult = terminal.RowsApply;
         if (!summaryCacheHit)
         {
-            ScheduleMainSummaryFolderCount(summaryKey, SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes), nextRowsView, mode.ToString());
+            regularChartListOwner.ScheduleVirtualSummary(
+                lease,
+                summaryKey,
+                RegularChartListOwner.SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes),
+                nextRowsView,
+                mode.ToString());
         }
 
         CompleteMainViewBuild(mode);
@@ -5858,8 +5728,8 @@ public partial class MainWindowViewModel : ViewModel
             out long modeStageMs);
 
         ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
-        IReadOnlyList<ChartListSourceRow> orderedRows = SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes);
-        int distinctFolderCount = CountDistinctFoldersForSourceRows(orderedRows);
+        IReadOnlyList<ChartListSourceRow> orderedRows = RegularChartListOwner.SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes);
+        int distinctFolderCount = RegularChartListOwner.CountDistinctFolders(orderedRows);
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         var nextRowsView = new ChartListVirtualView(
@@ -9878,13 +9748,31 @@ public partial class MainWindowViewModel : ViewModel
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         regularChartListOwner = new RegularChartListOwner(
             MainChartList,
-            PlaylistWorkspace);
+            PlaylistWorkspace,
+            LogMainViewBuild,
+            DispatchMainChartListAction);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         preferredPlayHistoryDisplayTargetIdentity = NormalizePlayHistoryDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
+    }
+
+    private static void DispatchMainChartListAction(Action action)
+    {
+        if (action == null)
+        {
+            return;
+        }
+        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
+        {
+            action();
+        }
+        else
+        {
+            DispatcherHelper.UIDispatcher.BeginInvoke(action);
+        }
     }
 
     private void PlaylistWorkspacePropertyChanged(object sender, PropertyChangedEventArgs e)

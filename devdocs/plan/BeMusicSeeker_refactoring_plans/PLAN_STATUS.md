@@ -16,8 +16,6 @@
 
 状態: in progress
 
-実行: paused by user for plan / repository-operation reset
-
 目的:
 
 main table の presentation state / terminal apply と regular chart mode の workflow ownership を閉じ、root ViewModel と code-behind を shell / UI adapter に近づける。playlist workspace と play history は各 feature workflow owner を維持し、UI-01 では immutable presentation result を table owner へ渡す production contract までを扱う。
