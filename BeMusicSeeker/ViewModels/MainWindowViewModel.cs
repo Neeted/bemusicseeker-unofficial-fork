@@ -753,20 +753,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly object normalLibraryRefreshNotificationLock = new();
 
-    private readonly object virtualNormalLibraryOrderPrewarmLock = new();
-
-    private Task virtualNormalLibraryOrderPrewarmTask;
-
-    private int virtualNormalLibraryOrderPrewarmRunId;
-
-    private readonly object postStartupOwnedAdjacentIndexWarmupLock = new();
-
-    private Task postStartupOwnedAdjacentIndexWarmupTask;
-
-    private int postStartupOwnedAdjacentIndexWarmupRunId;
-
-    private const int StartupVirtualNormalLibraryOrderPrewarmMaxPriority = 3;
-
     private int chartInfoProjectionVersionCache;
 
     private int scoreSnapshotProjectionVersionCache;
@@ -5992,95 +5978,9 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors()
-    {
-        return CreateVirtualNormalLibrarySortPrewarmDescriptors(StartupVirtualNormalLibraryOrderPrewarmMaxPriority);
-    }
-
-    private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualNormalLibrarySortPrewarmDescriptors(int maxPrewarmPriority)
-    {
-        return [.. ChartListOrder.GetVirtualSortColumnMetadata()
-            .Select((column, index) => new { Column = column, Index = index })
-            .Where(item => item.Column.PrewarmPriority > 0)
-            .Where(item => item.Column.PrewarmPriority <= maxPrewarmPriority)
-            .OrderBy(item => item.Column.PrewarmPriority)
-            .ThenBy(item => GetVirtualNormalLibraryPrewarmOrder(item.Column.NormalizedColumnName))
-            .ThenBy(item => item.Index)
-            .SelectMany(item => new[]
-            {
-                new VirtualNormalLibrarySortDescriptor(item.Column.NormalizedColumnName, ListSortDirection.Ascending, item.Column.PrewarmPriority),
-                new VirtualNormalLibrarySortDescriptor(item.Column.NormalizedColumnName, ListSortDirection.Descending, item.Column.PrewarmPriority)
-            })];
-    }
-
-    private static int GetVirtualNormalLibraryPrewarmOrder(string columnName)
-    {
-        return columnName switch
-        {
-            nameof(LibraryChartRow.Title) => 0,
-            nameof(LibraryChartRow.Folder) => 1,
-            nameof(LibraryChartRow.path) => 2,
-            nameof(LibraryChartRow.Artist) => 3,
-            nameof(LibraryChartRow.clear) => 0,
-            nameof(LibraryChartRow.rateDouble) => 1,
-            nameof(LibraryChartRow.minbp) => 2,
-            nameof(LibraryChartRow.ChartJudgeSortKey) => 3,
-            nameof(LibraryChartRow.ChartNotes) => 4,
-            nameof(LibraryChartRow.ChartLongNotes) => 5,
-            nameof(LibraryChartRow.ChartScratchNotes) => 6,
-            nameof(LibraryChartRow.ChartMainBpmSortKey) => 7,
-            nameof(LibraryChartRow.ChartMinBpmSortKey) => 8,
-            nameof(LibraryChartRow.ChartMaxBpmSortKey) => 9,
-            nameof(LibraryChartRow.ChartSoflanCount) => 10,
-            nameof(LibraryChartRow.ChartTotalSortKey) => 11,
-            nameof(LibraryChartRow.ChartTotalPerNoteSortKey) => 12,
-            nameof(LibraryChartRow.ChartDurationSortKey) => 13,
-            nameof(LibraryChartRow.ChartDensitySortKey) => 14,
-            nameof(LibraryChartRow.ChartPeakDensitySortKey) => 15,
-            nameof(LibraryChartRow.ChartEndDensitySortKey) => 16,
-            _ => int.MaxValue,
-        };
-    }
-
-    internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest()
-    {
-        return CreateVirtualNormalLibrarySortPrewarmDescriptors(StartupVirtualNormalLibraryOrderPrewarmMaxPriority);
-    }
-
-    internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(CustomTableColumnSettings settings)
-    {
-        _ = settings;
-        return CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest();
-    }
-
-    internal static int ResolveVirtualNormalLibraryOrderPrewarmDegreeForTest(int descriptorCount)
-    {
-        return ResolveVirtualNormalLibraryOrderPrewarmDegree(descriptorCount);
-    }
-
-    private static int ResolveVirtualNormalLibraryOrderPrewarmDegree(int descriptorCount)
-    {
-        if (descriptorCount <= 1)
-        {
-            return 1;
-        }
-        int processorDegree = Math.Max(1, Environment.ProcessorCount - 1);
-        return Math.Max(1, Math.Min(Math.Min(processorDegree, 4), descriptorCount));
-    }
-
-    internal static bool IsVirtualNormalLibraryPrewarmStaleForTest(long expectedSourceGeneration, long expectedSortKeyGeneration, long currentSourceGeneration, long currentSortKeyGeneration)
-    {
-        return IsVirtualNormalLibraryGenerationStale(expectedSourceGeneration, expectedSortKeyGeneration, currentSourceGeneration, currentSortKeyGeneration);
-    }
-
     private bool IsCurrentVirtualNormalLibraryGeneration(long sourceGeneration, long sortKeyGeneration)
     {
         return regularChartListOwner.IsCurrentVirtualGeneration(sourceGeneration, sortKeyGeneration);
-    }
-
-    private static bool IsVirtualNormalLibraryGenerationStale(long expectedSourceGeneration, long expectedSortKeyGeneration, long currentSourceGeneration, long currentSortKeyGeneration)
-    {
-        return expectedSourceGeneration != currentSourceGeneration || expectedSortKeyGeneration != currentSortKeyGeneration;
     }
 
     private void SchedulePostStartupBestEffortWarmups(string reason)
@@ -6092,54 +5992,15 @@ public partial class MainWindowViewModel : ViewModel
                 fullGenerationReason,
                 prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(fullGenerationReason));
         }).Logging("PostStartupLr2SongDbSync");
-        if (IsVirtualNormalLibraryOrderPrewarmRunning())
-        {
-            LogMainViewBuild("post_startup_warmup queued reason=" + (reason ?? string.Empty)
-                + " stage=owned_adjacent_index"
-                + " skipped=virtual_order_prewarm_running");
-            return;
-        }
-        Task ownedAdjacentIndexWarmupTask = SchedulePostStartupOwnedAdjacentIndexWarmup(reason);
-        ScheduleVirtualNormalLibraryOrderPrewarm(reason, ownedAdjacentIndexWarmupTask);
+        ScheduleVirtualNormalLibraryOrderPrewarm(reason);
     }
 
-    private bool IsVirtualNormalLibraryOrderPrewarmRunning()
-    {
-        lock (virtualNormalLibraryOrderPrewarmLock)
-        {
-            return virtualNormalLibraryOrderPrewarmTask != null && !virtualNormalLibraryOrderPrewarmTask.IsCompleted;
-        }
-    }
-
-    private Task SchedulePostStartupOwnedAdjacentIndexWarmup(string reason)
-    {
-        Task runningTask;
-        int runId;
-        lock (postStartupOwnedAdjacentIndexWarmupLock)
-        {
-            runningTask = postStartupOwnedAdjacentIndexWarmupTask;
-            if (runningTask != null && !runningTask.IsCompleted)
-            {
-                LogMainViewBuild("post_startup_warmup queued reason=" + (reason ?? string.Empty)
-                    + " stage=owned_adjacent_index"
-                    + " skipped=already_running");
-                return runningTask;
-            }
-            runId = ++postStartupOwnedAdjacentIndexWarmupRunId;
-            LogMainViewBuild("post_startup_warmup queued reason=" + (reason ?? string.Empty)
-                + " runId=" + runId
-                + " stage=owned_adjacent_index"
-                + " before=virtual_order_prewarm");
-            postStartupOwnedAdjacentIndexWarmupTask = Task.Run(() => RunPostStartupOwnedAdjacentIndexWarmup(runId, reason)).Logging("PostStartupOwnedAdjacentIndexWarmup");
-            return postStartupOwnedAdjacentIndexWarmupTask;
-        }
-    }
-
-    private void RunPostStartupOwnedAdjacentIndexWarmup(int runId, string reason)
+    private void RunPostStartupOwnedAdjacentIndexWarmup(int runId, string reason, CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             LogMainViewBuild("post_startup_warmup start reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
                 + " stage=owned_adjacent_index");
@@ -6156,8 +6017,11 @@ public partial class MainWindowViewModel : ViewModel
             }
 
             BMSLibrary.OwnedAdjacentIndexWarmupResult realPathResult = library.WarmOwnedRealPathDirectoryView("post_startup_" + (reason ?? string.Empty));
+            cancellationToken.ThrowIfCancellationRequested();
             BMSLibrary.OwnedAdjacentIndexWarmupResult installDestinationOverlayResult = library.WarmInstallDestinationOverlaySnapshot("post_startup_" + (reason ?? string.Empty));
+            cancellationToken.ThrowIfCancellationRequested();
             BMSLibrary.InstalledPrimaryHashWarmupResult primaryHashResult = library.WarmInstalledPrimaryHashLookup("post_startup_" + (reason ?? string.Empty));
+            cancellationToken.ThrowIfCancellationRequested();
             BMSLibrary.OwnedHashIndexWarmupResult playlistSummaryResult = library.WarmPlaylistSummaryOwnedHashSnapshot("post_startup_" + (reason ?? string.Empty));
             stopwatch.Stop();
             LogMainViewBuild("post_startup_warmup done reason=" + (reason ?? string.Empty)
@@ -6191,6 +6055,14 @@ public partial class MainWindowViewModel : ViewModel
                 + " playlistSummaryWarmupMs=" + (playlistSummaryResult?.ElapsedMs ?? 0L)
                 + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            stopwatch.Stop();
+            LogMainViewBuild("post_startup_warmup cancelled reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " stage=owned_adjacent_index"
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
         catch (Exception ex)
         {
             stopwatch.Stop();
@@ -6203,37 +6075,49 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void ScheduleVirtualNormalLibraryOrderPrewarm(string reason, Task precedingOwnedAdjacentIndexWarmupTask)
+    private void ScheduleVirtualNormalLibraryOrderPrewarm(string reason)
     {
-        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = CreateDefaultVirtualNormalLibrarySortPrewarmDescriptors();
-        int degree = ResolveVirtualNormalLibraryOrderPrewarmDegree(descriptors.Count);
-        Task runningTask;
-        int runId;
-        lock (virtualNormalLibraryOrderPrewarmLock)
+        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors();
+        int degree = RegularChartListOwner.ResolveVirtualOrderPrewarmDegree(descriptors.Count);
+        if (!regularChartListOwner.TryBeginVirtualOrderPrewarm(out RegularChartListPrewarmLease lease))
         {
-            runningTask = virtualNormalLibraryOrderPrewarmTask;
-            if (runningTask != null && !runningTask.IsCompleted)
-            {
-                LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
-                    + " descriptorCount=" + descriptors.Count
-                    + " degree=" + degree
-                    + " priority1=" + CountPrewarmDescriptorsByPriority(descriptors, 1)
-                    + " priority2=" + CountPrewarmDescriptorsByPriority(descriptors, 2)
-                    + " priority3=" + CountPrewarmDescriptorsByPriority(descriptors, 3)
-                    + " waitFor=owned_adjacent_index"
-                    + " skipped=already_running");
-                return;
-            }
-            runId = ++virtualNormalLibraryOrderPrewarmRunId;
             LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
-                + " runId=" + runId
                 + " descriptorCount=" + descriptors.Count
                 + " degree=" + degree
                 + " priority1=" + CountPrewarmDescriptorsByPriority(descriptors, 1)
                 + " priority2=" + CountPrewarmDescriptorsByPriority(descriptors, 2)
                 + " priority3=" + CountPrewarmDescriptorsByPriority(descriptors, 3)
-                + " waitFor=owned_adjacent_index");
-            virtualNormalLibraryOrderPrewarmTask = Task.Run(() => RunVirtualNormalLibraryOrderPrewarm(runId, reason, descriptors, precedingOwnedAdjacentIndexWarmupTask));
+                + " waitFor=owned_adjacent_index"
+                + " skipped=already_running_or_stopped");
+            return;
+        }
+        LogMainViewBuild("virtual_order_prewarm queued reason=" + (reason ?? string.Empty)
+            + " runId=" + lease.RunId
+            + " descriptorCount=" + descriptors.Count
+            + " degree=" + degree
+            + " priority1=" + CountPrewarmDescriptorsByPriority(descriptors, 1)
+            + " priority2=" + CountPrewarmDescriptorsByPriority(descriptors, 2)
+            + " priority3=" + CountPrewarmDescriptorsByPriority(descriptors, 3)
+            + " waitFor=owned_adjacent_index");
+        try
+        {
+            _ = Task.Run(() =>
+            {
+                using (lease)
+                {
+                    RunPostStartupOwnedAdjacentIndexWarmup(lease.RunId, reason, lease.Token);
+                    RunVirtualNormalLibraryOrderPrewarm(
+                        lease.RunId,
+                        reason,
+                        descriptors,
+                        lease.Token);
+                }
+            });
+        }
+        catch
+        {
+            lease.Dispose();
+            throw;
         }
     }
 
@@ -6242,16 +6126,20 @@ public partial class MainWindowViewModel : ViewModel
         return descriptors?.Count(descriptor => descriptor.PrewarmPriority == priority) ?? 0;
     }
 
-    private void RunVirtualNormalLibraryOrderPrewarm(int runId, string reason, IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors, Task precedingOwnedAdjacentIndexWarmupTask)
+    private void RunVirtualNormalLibraryOrderPrewarm(
+        int runId,
+        string reason,
+        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors,
+        CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
         var waitStopwatch = Stopwatch.StartNew();
-        string ownedAdjacentWaitStatus = "none";
+        string ownedAdjacentWaitStatus = "completed";
         int cacheHitCount = 0;
         int builtCount = 0;
         int staleSkippedCount = 0;
         int descriptorCount = descriptors?.Count ?? 0;
-        int degree = ResolveVirtualNormalLibraryOrderPrewarmDegree(descriptorCount);
+        int degree = RegularChartListOwner.ResolveVirtualOrderPrewarmDegree(descriptorCount);
         int priority1Count = CountPrewarmDescriptorsByPriority(descriptors, 1);
         int priority2Count = CountPrewarmDescriptorsByPriority(descriptors, 2);
         int priority3Count = CountPrewarmDescriptorsByPriority(descriptors, 3);
@@ -6262,6 +6150,7 @@ public partial class MainWindowViewModel : ViewModel
         int staleDetected = 0;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             LogMainViewBuild("virtual_order_prewarm start reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
                 + " descriptorCount=" + descriptorCount
@@ -6270,19 +6159,8 @@ public partial class MainWindowViewModel : ViewModel
                 + " priority2=" + priority2Count
                 + " priority3=" + priority3Count
                 + " waitFor=owned_adjacent_index");
-            if (precedingOwnedAdjacentIndexWarmupTask != null)
-            {
-                ownedAdjacentWaitStatus = precedingOwnedAdjacentIndexWarmupTask.IsCompleted ? "already_completed" : "waited";
-                try
-                {
-                    precedingOwnedAdjacentIndexWarmupTask.Wait();
-                }
-                catch (Exception ex)
-                {
-                    ownedAdjacentWaitStatus = "faulted:" + ex.GetType().Name;
-                }
-            }
             waitStopwatch.Stop();
+            cancellationToken.ThrowIfCancellationRequested();
             bool includeBmsonRows = ShouldIncludeBmsonLibraryRowsInMainView(MainViewUpdateMode.FolderFilterSelected, MainViewUpdateMode.FolderFilterSelected);
             List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
                 includeBmsonRows,
@@ -6311,7 +6189,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 VirtualNormalLibrarySortDescriptor[] stageDescriptors = [.. stage];
                 int stageDescriptorCount = stageDescriptors.Length;
-                int stageDegree = ResolveVirtualNormalLibraryOrderPrewarmDegree(stageDescriptorCount);
+                int stageDegree = RegularChartListOwner.ResolveVirtualOrderPrewarmDegree(stageDescriptorCount);
                 int stageCacheHitCount = 0;
                 int stageBuiltCount = 0;
                 int stageStaleDetected = 0;
@@ -6343,7 +6221,11 @@ public partial class MainWindowViewModel : ViewModel
                     + " rowCount=" + rowCount);
                 Parallel.ForEach(
                     stageDescriptors,
-                    new ParallelOptions { MaxDegreeOfParallelism = stageDegree },
+                    new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = stageDegree,
+                        CancellationToken = cancellationToken,
+                    },
                     (descriptor, loopState) =>
                     {
                         if (!IsCurrentVirtualNormalLibraryGeneration(sourceGeneration, sortKeyGeneration))
@@ -6437,6 +6319,24 @@ public partial class MainWindowViewModel : ViewModel
                 + " priority3=" + priority3Count
                 + " rowCount=" + rowCount
                 + " sourceRowsReuse=" + sourceRowsCacheHit
+                + " cacheHit=" + cacheHitCount
+                + " built=" + builtCount
+                + " staleSkipped=" + staleSkippedCount
+                + " sourceGeneration=" + sourceGeneration
+                + " sortKeyGeneration=" + sortKeyGeneration
+                + " ownedAdjacentWaitStatus=" + ownedAdjacentWaitStatus
+                + " ownedAdjacentWaitMs=" + waitStopwatch.ElapsedMilliseconds
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            waitStopwatch.Stop();
+            stopwatch.Stop();
+            LogMainViewBuild("virtual_order_prewarm cancelled reason=" + (reason ?? string.Empty)
+                + " runId=" + runId
+                + " descriptorCount=" + descriptorCount
+                + " degree=" + degree
+                + " rowCount=" + rowCount
                 + " cacheHit=" + cacheHitCount
                 + " built=" + builtCount
                 + " staleSkipped=" + staleSkippedCount
@@ -9463,19 +9363,19 @@ public partial class MainWindowViewModel : ViewModel
 
     internal Task<ShutdownPreparationResult> PrepareShutdownAsync(string reason)
     {
-        regularChartListOwner.Dispose();
         lock (shutdownPreparationLock)
         {
             if (shutdownPreparationTask == null)
             {
                 Interlocked.Exchange(ref shutdownRequested, 1);
-                shutdownPreparationTask = PrepareShutdownCoreAsync(reason ?? "shutdown");
+                Task regularChartListStopTask = regularChartListOwner.StopAsync();
+                shutdownPreparationTask = PrepareShutdownCoreAsync(reason ?? "shutdown", regularChartListStopTask);
             }
             return shutdownPreparationTask;
         }
     }
 
-    private async Task<ShutdownPreparationResult> PrepareShutdownCoreAsync(string reason)
+    private async Task<ShutdownPreparationResult> PrepareShutdownCoreAsync(string reason, Task regularChartListStopTask)
     {
         var stopwatch = Stopwatch.StartNew();
         LogShutdown("prepare_start reason=" + FormatTextForLog(reason));
@@ -9483,16 +9383,31 @@ public partial class MainWindowViewModel : ViewModel
         TryShutdownStep("set_ui_blocked", () => SetStartupUiInteractionBlocked(true));
         RequestShutdownCancellation(reason);
 
-        ShutdownPreparationResult result = await CollectShutdownPreparationResultAsync(reason, stopwatch, sqliteCloseFailureBaseline).ConfigureAwait(false);
+        ShutdownPreparationResult result = await CollectShutdownPreparationResultAsync(
+            reason,
+            stopwatch,
+            sqliteCloseFailureBaseline,
+            regularChartListStopTask).ConfigureAwait(false);
         LogShutdown("prepare_done " + result.ToLogFields());
         return result;
     }
 
-    private async Task<ShutdownPreparationResult> CollectShutdownPreparationResultAsync(string reason, Stopwatch stopwatch = null, int? sqliteCloseFailureBaseline = null)
+    private async Task<ShutdownPreparationResult> CollectShutdownPreparationResultAsync(
+        string reason,
+        Stopwatch stopwatch = null,
+        int? sqliteCloseFailureBaseline = null,
+        Task regularChartListStopTask = null)
     {
         stopwatch ??= Stopwatch.StartNew();
         sqliteCloseFailureBaseline ??= ShutdownOperationTracker.SqliteCloseFailureCount;
         var waitTracker = new ShutdownWaitTracker();
+        await WaitForTaskCompletionAsync(
+            "regularChartListWarmup",
+            regularChartListStopTask,
+            ShutdownDrainWarningThreshold,
+            waitTracker,
+            () => "running=" + regularChartListOwner.IsVirtualOrderPrewarmRunning).ConfigureAwait(false);
+        await (regularChartListStopTask ?? Task.CompletedTask).ConfigureAwait(false);
         await WaitForDropInstallQueueIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistBuildIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistSummaryDataBuildIdleAsync(waitTracker).ConfigureAwait(false);

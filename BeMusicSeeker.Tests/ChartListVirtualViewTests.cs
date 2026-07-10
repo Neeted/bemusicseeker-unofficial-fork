@@ -1201,7 +1201,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void DefaultVirtualOrderPrewarmDescriptors_AreRegistryOrderAscDesc()
     {
-        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest();
+        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors = RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors();
 
         CollectionAssert.AreEqual(
             CreateExpectedDefaultPrewarmDescriptors(),
@@ -1243,9 +1243,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void DefaultVirtualOrderPrewarmDescriptors_IncludePriorityOneToThree()
     {
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-
-        string[] columns = [.. MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(settings)
+        string[] columns = [.. RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors()
             .Where(descriptor => descriptor.Direction == ListSortDirection.Ascending)
             .Select(descriptor => descriptor.ColumnName)];
 
@@ -1264,21 +1262,15 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.encoding));
         CollectionAssert.DoesNotContain(columns, nameof(LibraryChartRow.level));
 
-        settings.Combo.Visibility = Visibility.Visible;
-        columns = [.. MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest(settings)
-            .Where(descriptor => descriptor.Direction == ListSortDirection.Ascending)
-            .Select(descriptor => descriptor.ColumnName)];
-
-        CollectionAssert.Contains(columns, nameof(LibraryChartRow.maxcombo));
     }
 
     [TestMethod]
     public void VirtualOrderPrewarmDegree_IsBoundedByProcessorAndCap()
     {
-        Assert.AreEqual(1, MainWindowViewModel.ResolveVirtualNormalLibraryOrderPrewarmDegreeForTest(0));
-        Assert.AreEqual(1, MainWindowViewModel.ResolveVirtualNormalLibraryOrderPrewarmDegreeForTest(1));
+        Assert.AreEqual(1, RegularChartListOwner.ResolveVirtualOrderPrewarmDegree(0));
+        Assert.AreEqual(1, RegularChartListOwner.ResolveVirtualOrderPrewarmDegree(1));
 
-        int degree = MainWindowViewModel.ResolveVirtualNormalLibraryOrderPrewarmDegreeForTest(128);
+        int degree = RegularChartListOwner.ResolveVirtualOrderPrewarmDegree(128);
 
         Assert.IsTrue(degree >= 1);
         Assert.IsTrue(degree <= 4);
@@ -1291,7 +1283,7 @@ public sealed class ChartListVirtualViewTests
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(CreateSampleSortFiles());
         int createdCount = 0;
 
-        foreach (VirtualNormalLibrarySortDescriptor descriptor in MainWindowViewModel.CreateDefaultVirtualNormalLibrarySortPrewarmDescriptorsForTest())
+        foreach (VirtualNormalLibrarySortDescriptor descriptor in RegularChartListOwner.CreateDefaultVirtualOrderPrewarmDescriptors())
         {
             Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, descriptor.ColumnName, descriptor.Direction, out ChartListOrder order));
             var view = new ChartListVirtualView(sourceRows, order, row =>
@@ -1304,14 +1296,6 @@ public sealed class ChartListVirtualViewTests
             Assert.AreEqual(0, view.RealizedRowCount);
         }
         Assert.AreEqual(0, createdCount);
-    }
-
-    [TestMethod]
-    public void VirtualOrderPrewarmStaleCheck_RequiresBothGenerationsToMatch()
-    {
-        Assert.IsFalse(MainWindowViewModel.IsVirtualNormalLibraryPrewarmStaleForTest(1, 2, 1, 2));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryPrewarmStaleForTest(1, 2, 3, 2));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualNormalLibraryPrewarmStaleForTest(1, 2, 1, 3));
     }
 
     [TestMethod]

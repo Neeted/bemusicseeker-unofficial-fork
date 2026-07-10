@@ -2317,29 +2317,29 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void PostStartupWarmup_PrioritizesOwnedAdjacentIndexesBeforeVirtualSortPrewarm()
+    public void PostStartupWarmup_UsesOneOwnedLifecycleAndRunsAdjacentIndexesBeforeVirtualSortPrewarm()
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string scheduler = ExtractBetween(
             viewModelCode,
             "private void SchedulePostStartupBestEffortWarmups",
-            "private Task SchedulePostStartupOwnedAdjacentIndexWarmup");
+            "private void RunPostStartupOwnedAdjacentIndexWarmup");
         string ownedWarmup = ExtractBetween(
             viewModelCode,
             "private void RunPostStartupOwnedAdjacentIndexWarmup",
             "private void ScheduleVirtualNormalLibraryOrderPrewarm");
+        string lifecycleScheduler = ExtractBetween(
+            viewModelCode,
+            "private void ScheduleVirtualNormalLibraryOrderPrewarm",
+            "private static int CountPrewarmDescriptorsByPriority");
         string virtualWarmup = ExtractBetween(
             viewModelCode,
             "private void RunVirtualNormalLibraryOrderPrewarm",
             "private void LogVirtualNormalLibraryRouteSkipped");
 
-        int ownedSchedule = scheduler.IndexOf("SchedulePostStartupOwnedAdjacentIndexWarmup(reason)", StringComparison.Ordinal);
-        int virtualSchedule = scheduler.IndexOf("ScheduleVirtualNormalLibraryOrderPrewarm(reason, ownedAdjacentIndexWarmupTask)", StringComparison.Ordinal);
-        StringAssert.Contains(scheduler, "IsVirtualNormalLibraryOrderPrewarmRunning()");
-        StringAssert.Contains(scheduler, "skipped=virtual_order_prewarm_running");
-        Assert.IsTrue(ownedSchedule >= 0);
-        Assert.IsTrue(virtualSchedule > ownedSchedule);
+        StringAssert.Contains(scheduler, "ScheduleVirtualNormalLibraryOrderPrewarm(reason)");
         Assert.IsFalse(ownedWarmup.Contains("Wait()"));
+        StringAssert.Contains(ownedWarmup, "cancellationToken.ThrowIfCancellationRequested()");
 
         int realPathWarmup = ownedWarmup.IndexOf("WarmOwnedRealPathDirectoryView", StringComparison.Ordinal);
         int installDestinationOverlayWarmup = ownedWarmup.IndexOf("WarmInstallDestinationOverlaySnapshot", StringComparison.Ordinal);
@@ -2349,8 +2349,13 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(installDestinationOverlayWarmup > realPathWarmup);
         Assert.IsTrue(primaryHashWarmup > installDestinationOverlayWarmup);
         Assert.IsTrue(playlistSummaryWarmup > primaryHashWarmup);
-        StringAssert.Contains(virtualWarmup, "precedingOwnedAdjacentIndexWarmupTask.Wait()");
-        StringAssert.Contains(virtualWarmup, "ownedAdjacentWaitStatus");
+        StringAssert.Contains(lifecycleScheduler, "regularChartListOwner.TryBeginVirtualOrderPrewarm");
+        StringAssert.Contains(lifecycleScheduler, "using (lease)");
+        int ownedRun = lifecycleScheduler.IndexOf("RunPostStartupOwnedAdjacentIndexWarmup", StringComparison.Ordinal);
+        int virtualRun = lifecycleScheduler.IndexOf("RunVirtualNormalLibraryOrderPrewarm", StringComparison.Ordinal);
+        Assert.IsTrue(ownedRun >= 0);
+        Assert.IsTrue(virtualRun > ownedRun);
+        Assert.IsFalse(virtualWarmup.Contains(".Wait("));
     }
 
     [TestMethod]

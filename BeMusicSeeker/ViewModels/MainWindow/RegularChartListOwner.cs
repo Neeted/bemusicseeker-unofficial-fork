@@ -12,10 +12,11 @@ using BeMusicSeeker.Views;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Owns request lifetime, derived rows, sort reuse, and terminal publication for the materialized regular chart list.
+/// Owns request lifetime, derived rows, sort reuse, warmup lifetime, and terminal publication for the regular chart list.
 /// </summary>
 internal sealed class RegularChartListOwner : IDisposable
 {
+    private const int StartupVirtualOrderPrewarmMaxPriority = 3;
     private readonly object syncRoot = new();
     private readonly MainChartListViewModel mainChartList;
     private readonly PlaylistWorkspaceViewModel playlistWorkspace;
@@ -51,6 +52,9 @@ internal sealed class RegularChartListOwner : IDisposable
     private int handledOwnedCollectionVersion;
     private int virtualSummaryCacheVersion;
     private int virtualSummaryRunId;
+    private CancellationTokenSource virtualOrderPrewarmCancellation;
+    private Task virtualOrderPrewarmCompletion = Task.CompletedTask;
+    private int virtualOrderPrewarmRunId;
     private bool disposed;
 
     internal RegularChartListOwner(
@@ -200,12 +204,108 @@ internal sealed class RegularChartListOwner : IDisposable
     internal void ClearSortCache()
     {
         CancellationTokenSource previous;
+        CancellationTokenSource prewarmCancellation;
         lock (syncRoot)
         {
             previous = InvalidateCurrentRequestUnsafe();
+            sortKeyGeneration++;
             ClearAllSortCachesUnsafe(clearSourceRows: true);
+            prewarmCancellation = GetActivePrewarmCancellationUnsafe();
         }
         CancelAndDispose(previous);
+        Cancel(prewarmCancellation);
+    }
+
+    internal bool IsVirtualOrderPrewarmRunning
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return !virtualOrderPrewarmCompletion.IsCompleted;
+            }
+        }
+    }
+
+    internal bool TryBeginVirtualOrderPrewarm(out RegularChartListPrewarmLease lease)
+    {
+        CancellationTokenSource previous;
+        lock (syncRoot)
+        {
+            if (disposed || !virtualOrderPrewarmCompletion.IsCompleted)
+            {
+                lease = null;
+                return false;
+            }
+            previous = virtualOrderPrewarmCancellation;
+            virtualOrderPrewarmCancellation = new CancellationTokenSource();
+            lease = new RegularChartListPrewarmLease(
+                ++virtualOrderPrewarmRunId,
+                virtualOrderPrewarmCancellation.Token);
+            virtualOrderPrewarmCompletion = lease.Completion;
+        }
+        CancelAndDispose(previous);
+        return true;
+    }
+
+    internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualOrderPrewarmDescriptors()
+    {
+        return CreateVirtualOrderPrewarmDescriptors(StartupVirtualOrderPrewarmMaxPriority);
+    }
+
+    internal static int ResolveVirtualOrderPrewarmDegree(int descriptorCount)
+    {
+        if (descriptorCount <= 1)
+        {
+            return 1;
+        }
+        int processorDegree = Math.Max(1, Environment.ProcessorCount - 1);
+        return Math.Max(1, Math.Min(Math.Min(processorDegree, 4), descriptorCount));
+    }
+
+    private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualOrderPrewarmDescriptors(int maxPrewarmPriority)
+    {
+        return [.. ChartListOrder.GetVirtualSortColumnMetadata()
+            .Select((column, index) => new { Column = column, Index = index })
+            .Where(item => item.Column.PrewarmPriority > 0)
+            .Where(item => item.Column.PrewarmPriority <= maxPrewarmPriority)
+            .OrderBy(item => item.Column.PrewarmPriority)
+            .ThenBy(item => GetVirtualOrderPrewarmOrder(item.Column.NormalizedColumnName))
+            .ThenBy(item => item.Index)
+            .SelectMany(item => new[]
+            {
+                new VirtualNormalLibrarySortDescriptor(item.Column.NormalizedColumnName, ListSortDirection.Ascending, item.Column.PrewarmPriority),
+                new VirtualNormalLibrarySortDescriptor(item.Column.NormalizedColumnName, ListSortDirection.Descending, item.Column.PrewarmPriority)
+            })];
+    }
+
+    private static int GetVirtualOrderPrewarmOrder(string columnName)
+    {
+        return columnName switch
+        {
+            nameof(LibraryChartRow.Title) => 0,
+            nameof(LibraryChartRow.Folder) => 1,
+            nameof(LibraryChartRow.path) => 2,
+            nameof(LibraryChartRow.Artist) => 3,
+            nameof(LibraryChartRow.clear) => 0,
+            nameof(LibraryChartRow.rateDouble) => 1,
+            nameof(LibraryChartRow.minbp) => 2,
+            nameof(LibraryChartRow.ChartJudgeSortKey) => 3,
+            nameof(LibraryChartRow.ChartNotes) => 4,
+            nameof(LibraryChartRow.ChartLongNotes) => 5,
+            nameof(LibraryChartRow.ChartScratchNotes) => 6,
+            nameof(LibraryChartRow.ChartMainBpmSortKey) => 7,
+            nameof(LibraryChartRow.ChartMinBpmSortKey) => 8,
+            nameof(LibraryChartRow.ChartMaxBpmSortKey) => 9,
+            nameof(LibraryChartRow.ChartSoflanCount) => 10,
+            nameof(LibraryChartRow.ChartTotalSortKey) => 11,
+            nameof(LibraryChartRow.ChartTotalPerNoteSortKey) => 12,
+            nameof(LibraryChartRow.ChartDurationSortKey) => 13,
+            nameof(LibraryChartRow.ChartDensitySortKey) => 14,
+            nameof(LibraryChartRow.ChartPeakDensitySortKey) => 15,
+            nameof(LibraryChartRow.ChartEndDensitySortKey) => 16,
+            _ => int.MaxValue,
+        };
     }
 
     internal int CacheCount
@@ -252,6 +352,7 @@ internal sealed class RegularChartListOwner : IDisposable
     internal int InvalidateSource()
     {
         CancellationTokenSource previous;
+        CancellationTokenSource prewarmCancellation;
         int cacheCount;
         lock (syncRoot)
         {
@@ -259,14 +360,17 @@ internal sealed class RegularChartListOwner : IDisposable
             sourceGeneration++;
             previous = InvalidateCurrentRequestUnsafe();
             ClearAllSortCachesUnsafe(clearSourceRows: true);
+            prewarmCancellation = GetActivePrewarmCancellationUnsafe();
         }
         CancelAndDispose(previous);
+        Cancel(prewarmCancellation);
         return cacheCount;
     }
 
     internal bool TryInvalidateSourceForOwnedCollectionVersion(int currentVersion, out int cacheCount)
     {
         CancellationTokenSource previous = null;
+        CancellationTokenSource prewarmCancellation;
         lock (syncRoot)
         {
             if (currentVersion > 0 && currentVersion == handledOwnedCollectionVersion)
@@ -279,22 +383,22 @@ internal sealed class RegularChartListOwner : IDisposable
             sourceGeneration++;
             previous = InvalidateCurrentRequestUnsafe();
             ClearAllSortCachesUnsafe(clearSourceRows: true);
+            prewarmCancellation = GetActivePrewarmCancellationUnsafe();
         }
         CancelAndDispose(previous);
+        Cancel(prewarmCancellation);
         return true;
     }
 
     internal void InvalidateVirtualSourceRows()
     {
-        lock (syncRoot)
-        {
-            ClearVirtualSourceRowsUnsafe();
-        }
+        _ = InvalidateSource();
     }
 
     internal int InvalidateIdentitySortKeys(bool clearSourceRows)
     {
         CancellationTokenSource previous;
+        CancellationTokenSource prewarmCancellation;
         int cacheCount;
         lock (syncRoot)
         {
@@ -310,8 +414,10 @@ internal sealed class RegularChartListOwner : IDisposable
             {
                 ClearVirtualSourceRowsUnsafe();
             }
+            prewarmCancellation = GetActivePrewarmCancellationUnsafe();
         }
         CancelAndDispose(previous);
+        Cancel(prewarmCancellation);
         return cacheCount;
     }
 
@@ -323,6 +429,7 @@ internal sealed class RegularChartListOwner : IDisposable
     internal int InvalidateSortCacheByDependency(MainViewDataDependency dependency, out int cacheCount)
     {
         CancellationTokenSource previous;
+        CancellationTokenSource prewarmCancellation;
         int removed;
         lock (syncRoot)
         {
@@ -332,8 +439,10 @@ internal sealed class RegularChartListOwner : IDisposable
             removed = PruneCacheUnsafe(sortCache, dependency)
                 + PruneCacheUnsafe(virtualOrderCache, dependency)
                 + PruneCacheUnsafe(virtualSubsetOrderCache, dependency);
+            prewarmCancellation = GetActivePrewarmCancellationUnsafe();
         }
         CancelAndDispose(previous);
+        Cancel(prewarmCancellation);
         return removed;
     }
 
@@ -360,7 +469,8 @@ internal sealed class RegularChartListOwner : IDisposable
     {
         lock (syncRoot)
         {
-            if (sourceGeneration != lookup.SourceGeneration
+            if (disposed
+                || sourceGeneration != lookup.SourceGeneration
                 || sortKeyGeneration != lookup.SortKeyGeneration)
             {
                 return;
@@ -496,7 +606,7 @@ internal sealed class RegularChartListOwner : IDisposable
     {
         lock (syncRoot)
         {
-            if (!IsCurrentUnsafe(key, currentExternalVersions))
+            if (disposed || !IsCurrentUnsafe(key, currentExternalVersions))
             {
                 return false;
             }
@@ -512,7 +622,7 @@ internal sealed class RegularChartListOwner : IDisposable
     {
         lock (syncRoot)
         {
-            if (!IsCurrentUnsafe(key, currentExternalVersions))
+            if (disposed || !IsCurrentUnsafe(key, currentExternalVersions))
             {
                 return false;
             }
@@ -525,7 +635,8 @@ internal sealed class RegularChartListOwner : IDisposable
     {
         lock (syncRoot)
         {
-            return sourceGeneration == expectedSourceGeneration
+            return !disposed
+                && sourceGeneration == expectedSourceGeneration
                 && sortKeyGeneration == expectedSortKeyGeneration;
         }
     }
@@ -883,22 +994,33 @@ internal sealed class RegularChartListOwner : IDisposable
         internal int CacheVersion { get; }
     }
 
-    public void Dispose()
+    internal Task StopAsync()
     {
-        CancellationTokenSource previous;
+        CancellationTokenSource requestCancellation;
+        CancellationTokenSource prewarmCancellation;
+        Task prewarmCompletion;
         lock (syncRoot)
         {
             if (disposed)
             {
-                return;
+                return virtualOrderPrewarmCompletion;
             }
             disposed = true;
-            previous = currentCancellation;
+            requestCancellation = currentCancellation;
             currentCancellation = null;
             currentRequestId = 0L;
             regularRequestActive = false;
+            prewarmCancellation = virtualOrderPrewarmCancellation;
+            prewarmCompletion = virtualOrderPrewarmCompletion;
         }
-        CancelAndDispose(previous);
+        CancelAndDispose(requestCancellation);
+        Cancel(prewarmCancellation);
+        return DrainPrewarmAsync(prewarmCompletion, prewarmCancellation);
+    }
+
+    public void Dispose()
+    {
+        _ = StopAsync();
     }
 
     private RegularChartListSortResult ApplySort(
@@ -1027,6 +1149,13 @@ internal sealed class RegularChartListOwner : IDisposable
         currentRequestId = 0L;
         regularRequestActive = false;
         return previous;
+    }
+
+    private CancellationTokenSource GetActivePrewarmCancellationUnsafe()
+    {
+        return virtualOrderPrewarmCompletion.IsCompleted
+            ? null
+            : virtualOrderPrewarmCancellation;
     }
 
     private long ReadGeneration(Func<long> accessor)
@@ -1228,6 +1357,30 @@ internal sealed class RegularChartListOwner : IDisposable
         finally { cancellation.Dispose(); }
     }
 
+    private static void Cancel(CancellationTokenSource cancellation)
+    {
+        if (cancellation == null) return;
+        try
+        {
+            cancellation.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private static async Task DrainPrewarmAsync(Task completion, CancellationTokenSource cancellation)
+    {
+        try
+        {
+            await (completion ?? Task.CompletedTask).ConfigureAwait(false);
+        }
+        finally
+        {
+            cancellation?.Dispose();
+        }
+    }
+
     private static void TryPublish(Action action, ICollection<Exception> exceptions)
     {
         try
@@ -1250,6 +1403,32 @@ internal sealed class RegularChartListRequestLease
     }
     internal long RequestId { get; }
     internal CancellationToken Token { get; }
+}
+
+internal sealed class RegularChartListPrewarmLease : IDisposable
+{
+    private readonly TaskCompletionSource<bool> completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private int completed;
+
+    internal RegularChartListPrewarmLease(int runId, CancellationToken token)
+    {
+        RunId = runId;
+        Token = token;
+    }
+
+    internal int RunId { get; }
+
+    internal CancellationToken Token { get; }
+
+    internal Task Completion => completion.Task;
+
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref completed, 1) == 0)
+        {
+            completion.TrySetResult(true);
+        }
+    }
 }
 
 internal sealed class RegularChartListBuildInput
