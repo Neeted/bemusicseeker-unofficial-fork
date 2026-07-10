@@ -170,7 +170,7 @@ internal sealed class PlaylistDetailTerminalOwner
                 viewState.View.Rows = new List<object>();
                 viewState.Source.CurrentTable = null;
                 viewState.Source.CurrentFolderName = null;
-                viewState.Source.CurrentFilterType = MainWindowViewModel.PlaylistFilterType.PlaylistFilter;
+                viewState.Source.CurrentFilterType = PlaylistDetailFilter.PlaylistFilter;
                 viewState.View.CurrentIdentity = null;
                 viewState.Source.CurrentIdentity = null;
                 viewState.CurrentOpenInteraction = null;
@@ -244,7 +244,7 @@ internal sealed class PlaylistDetailTerminalRequest
     internal List<PlaylistDetailSourceRow> SourceRows { get; set; }
     internal BMSTable CurrentTable { get; set; }
     internal string CurrentFolderName { get; set; }
-    internal MainWindowViewModel.PlaylistFilterType CurrentFilterType { get; set; }
+    internal PlaylistDetailFilter CurrentFilterType { get; set; }
     internal IList ViewRows { get; set; }
     internal MainChartListColumnSelection ColumnSelection { get; set; }
     internal MainChartListRowsApplyRequest MainRowsRequest { get; set; }

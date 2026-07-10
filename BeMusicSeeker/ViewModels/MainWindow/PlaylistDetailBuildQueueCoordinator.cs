@@ -57,7 +57,7 @@ internal static class PlaylistDetailBuildQueueCoordinator
     internal static PlaylistBuildQueueRegisterResult RegisterRequest(
         PlaylistDetailBuildState state,
         PlaylistBuildRequest request,
-        MainWindowViewModel.PlaylistRequestIdentity? currentViewIdentity,
+        PlaylistRequestIdentity? currentViewIdentity,
         int lastBuiltScoreSnapshotVersion,
         bool isShutdownRequested)
     {

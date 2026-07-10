@@ -10,9 +10,9 @@ internal sealed class PlaylistDetailSourceSnapshotState
     internal List<PlaylistDetailSourceRow> Rows = [];
     internal BMSTable CurrentTable;
     internal string CurrentFolderName;
-    internal MainWindowViewModel.PlaylistFilterType CurrentFilterType = MainWindowViewModel.PlaylistFilterType.PlaylistFilter;
+    internal PlaylistDetailFilter CurrentFilterType = PlaylistDetailFilter.PlaylistFilter;
     internal long GenerationId;
-    internal MainWindowViewModel.PlaylistSourceIdentity? CurrentIdentity;
+    internal PlaylistSourceIdentity? CurrentIdentity;
     internal long LastBuiltLibraryIndexVersion;
     internal long LastBuiltPlaylistRevision;
     internal int LastBuiltScoreSnapshotVersion;
@@ -29,7 +29,7 @@ internal sealed class PlaylistDetailViewSnapshotState
     internal IList Rows = new List<object>();
     internal long GenerationId;
     internal int LastAppliedCount;
-    internal MainWindowViewModel.PlaylistRequestIdentity? CurrentIdentity;
+    internal PlaylistRequestIdentity? CurrentIdentity;
     internal WeakReference<IList> PreviousRowsWeakReference;
     internal long PreviousGenerationId;
 }

@@ -3231,16 +3231,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     /// <param name="folderNode">判定対象のプレイリストフォルダノード。</param>
     /// <returns>対応するプレイリストフィルタ種別。</returns>
-    private static MainWindowViewModel.PlaylistFilterType GetPlaylistFilterType(PlaylistFolderNode folderNode)
+    private static PlaylistDetailFilter GetPlaylistFilterType(PlaylistFolderNode folderNode)
     {
         if (folderNode == null || !folderNode.IsSpecial)
         {
-            return MainWindowViewModel.PlaylistFilterType.PlaylistFilter;
+            return PlaylistDetailFilter.PlaylistFilter;
         }
         return folderNode.SpecialKind switch
         {
-            PlaylistFolderNodeSpecialKind.NotOwned => MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected,
-            _ => MainWindowViewModel.PlaylistFilterType.PlaylistFilter
+            PlaylistFolderNodeSpecialKind.NotOwned => PlaylistDetailFilter.PlaylistNotOwnedFilterSelected,
+            _ => PlaylistDetailFilter.PlaylistFilter
         };
     }
 
@@ -3288,7 +3288,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         BMSTable bmsTable = null;
         string folderName = null;
-        MainWindowViewModel.PlaylistFilterType type = MainWindowViewModel.PlaylistFilterType.PlaylistFilter;
+        PlaylistDetailFilter type = PlaylistDetailFilter.PlaylistFilter;
         if (selectedItem.DataContext is BMSTable bMSTable2)
         {
             bmsTable = bMSTable2;
@@ -3429,7 +3429,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        MainWindowViewModel.PlaylistFilterType type = MainWindowViewModel.PlaylistFilterType.PlaylistFilter;
+        PlaylistDetailFilter type = PlaylistDetailFilter.PlaylistFilter;
         string folderName;
         if (e.Source is TreeViewItem treeViewItem2)
         {

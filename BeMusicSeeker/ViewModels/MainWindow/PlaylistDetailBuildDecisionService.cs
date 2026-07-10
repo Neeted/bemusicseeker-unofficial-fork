@@ -17,13 +17,13 @@ internal readonly struct PlaylistDetailBuildStateSnapshot
         int sourceRowCount,
         BMSTable currentTable,
         string currentFolderName,
-        MainWindowViewModel.PlaylistFilterType currentFilterType,
+        PlaylistDetailFilter currentFilterType,
         long lastBuiltLibraryIndexVersion,
         long lastBuiltPlaylistRevision,
         int lastBuiltScoreSnapshotVersion,
         int lastBuiltChartInfoIndexVersion,
-        MainWindowViewModel.PlaylistSourceIdentity? currentSourceIdentity,
-        MainWindowViewModel.PlaylistRequestIdentity? currentViewIdentity)
+        PlaylistSourceIdentity? currentSourceIdentity,
+        PlaylistRequestIdentity? currentViewIdentity)
     {
         HasSourceRows = hasSourceRows;
         SourceRowCount = sourceRowCount;
@@ -46,7 +46,7 @@ internal readonly struct PlaylistDetailBuildStateSnapshot
 
     internal string CurrentFolderName { get; }
 
-    internal MainWindowViewModel.PlaylistFilterType CurrentFilterType { get; }
+    internal PlaylistDetailFilter CurrentFilterType { get; }
 
     internal long LastBuiltLibraryIndexVersion { get; }
 
@@ -56,9 +56,9 @@ internal readonly struct PlaylistDetailBuildStateSnapshot
 
     internal int LastBuiltChartInfoIndexVersion { get; }
 
-    internal MainWindowViewModel.PlaylistSourceIdentity? CurrentSourceIdentity { get; }
+    internal PlaylistSourceIdentity? CurrentSourceIdentity { get; }
 
-    internal MainWindowViewModel.PlaylistRequestIdentity? CurrentViewIdentity { get; }
+    internal PlaylistRequestIdentity? CurrentViewIdentity { get; }
 }
 
 internal readonly struct PlaylistDetailBuildDecision
@@ -129,7 +129,7 @@ internal static class PlaylistDetailBuildDecisionService
 
         bool hasResolvedPlaylistSource = snapshot.CurrentSourceIdentity.HasValue
             || snapshot.CurrentTable != null
-            || snapshot.CurrentFilterType == MainWindowViewModel.PlaylistFilterType.PlaylistNotOwnedFilterSelected;
+            || snapshot.CurrentFilterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected;
         bool selectionChanged = !snapshot.CurrentSourceIdentity.HasValue
             || snapshot.CurrentTable != request.Identity.Table
             || !string.Equals(PlaylistRequestFactory.NormalizeFolderName(snapshot.CurrentFolderName), request.Identity.FolderName, StringComparison.Ordinal)

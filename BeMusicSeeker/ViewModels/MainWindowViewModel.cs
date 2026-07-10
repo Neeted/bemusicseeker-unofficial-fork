@@ -1152,7 +1152,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// 現在の UI 条件を反映した playlist request identity を生成します。
     /// </summary>
-    internal static PlaylistRequestIdentity CreatePlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ChartModeFilter modeFilter, ChartListSortParameters sortParameters, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
+    internal static PlaylistRequestIdentity CreatePlaylistRequestIdentity(BMSTable table, string folderName, PlaylistDetailFilter filterType, string keywordFilter, ChartModeFilter modeFilter, ChartListSortParameters sortParameters, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
     {
         return PlaylistRequestFactory.CreateIdentity(table, folderName, filterType, keywordFilter, modeFilter, sortParameters, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection);
     }
@@ -1452,9 +1452,9 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="filterType">playlist filter 種別。</param>
     /// <returns>列設定に使う MainViewUpdateMode。</returns>
-    private static MainViewUpdateMode ResolvePlaylistColumnSettingMode(PlaylistFilterType filterType)
+    private static MainViewUpdateMode ResolvePlaylistColumnSettingMode(PlaylistDetailFilter filterType)
     {
-        return (filterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected) ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected : MainViewUpdateMode.PlaylistFilterSelected;
+        return (filterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected) ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected : MainViewUpdateMode.PlaylistFilterSelected;
     }
 
     /// <summary>
@@ -1464,7 +1464,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <returns>解決された列設定モード。</returns>
     internal static int ResolvePlaylistColumnSettingModeForTest(int filterType)
     {
-        return (int)ResolvePlaylistColumnSettingMode((PlaylistFilterType)filterType);
+        return (int)ResolvePlaylistColumnSettingMode((PlaylistDetailFilter)filterType);
     }
 
     /// <summary>
@@ -2177,7 +2177,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     private PlaylistBuildRequest CreatePlaylistBuildRequest(int requestVersion, MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, PlaylistBuildRequestViewSnapshot viewSnapshot)
     {
-        bool hasResolvedSelection = TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistFilterType filterType);
+        bool hasResolvedSelection = TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistDetailFilter filterType);
         long libraryIndexVersion = GetPlaylistLibraryIndexVersion();
         int scoreSnapshotVersion = GetPlaylistScoreSnapshotVersion();
         int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
@@ -9709,11 +9709,11 @@ public partial class MainWindowViewModel : ViewModel
     /// <param name="folderName">解決されたプレイリストフォルダ名。</param>
     /// <param name="filterType">解決された filter 種別。</param>
     /// <returns>プレイリスト選択情報を解決できた場合は <see langword="true"/>。</returns>
-    private bool TryResolvePlaylistSelection(MainViewUpdateMode mode, object parameter, out BMSTable bmsTable, out string folderName, out PlaylistFilterType filterType)
+    private bool TryResolvePlaylistSelection(MainViewUpdateMode mode, object parameter, out BMSTable bmsTable, out string folderName, out PlaylistDetailFilter filterType)
     {
         bmsTable = null;
         folderName = null;
-        filterType = PlaylistFilterType.PlaylistFilter;
+        filterType = PlaylistDetailFilter.PlaylistFilter;
         if (mode == MainViewUpdateMode.PlaylistFilterSelected)
         {
             if (parameter == null)
@@ -9730,7 +9730,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected)
         {
-            filterType = PlaylistFilterType.PlaylistNotOwnedFilterSelected;
+            filterType = PlaylistDetailFilter.PlaylistNotOwnedFilterSelected;
             bmsTable = parameter as BMSTable;
             return parameter == null || bmsTable != null;
         }
@@ -9750,7 +9750,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected)
         {
-            filterType = PlaylistFilterType.PlaylistNotOwnedFilterSelected;
+            filterType = PlaylistDetailFilter.PlaylistNotOwnedFilterSelected;
             bmsTable = treeViewFilterParameterSelected as BMSTable;
             return treeViewFilterParameterSelected == null || bmsTable != null;
         }
@@ -9841,7 +9841,7 @@ public partial class MainWindowViewModel : ViewModel
         List<PlaylistDetailSourceRow> sourceRows,
         BMSTable currentTable,
         string currentFolderName,
-        PlaylistFilterType currentFilterType,
+        PlaylistDetailFilter currentFilterType,
         IList finalRows,
         int viewCount,
         MainViewUpdateMode columnSettingMode,
@@ -10167,12 +10167,12 @@ public partial class MainWindowViewModel : ViewModel
                     + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "stale_before_start"));
                 return true;
             }
-            if (!TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistFilterType filterType))
+            if (!TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistDetailFilter filterType))
             {
                 return false;
             }
 
-            bool onlyNotOwned = filterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected;
+            bool onlyNotOwned = filterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected;
             LogPlaylistSourceBuild("started version=" + requestVersion + " mode=" + mode
                 + " parameterType=" + (parameter?.GetType().Name ?? "(null)")
                 + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion
@@ -12443,13 +12443,18 @@ public partial class MainWindowViewModel : ViewModel
 
     public void ExecPlaylistFilter(BMSTable bmsTable, string folderName = null, PlaylistFilterType type = PlaylistFilterType.PlaylistFilter)
     {
+        ExecPlaylistFilter(bmsTable, folderName, (PlaylistDetailFilter)(int)type);
+    }
+
+    internal void ExecPlaylistFilter(BMSTable bmsTable, string folderName, PlaylistDetailFilter type)
+    {
         SetPlaylistSummaryMode(enabled: false);
         switch (type)
         {
-            case PlaylistFilterType.PlaylistFilter:
+            case PlaylistDetailFilter.PlaylistFilter:
                 RefreshChartRowsView(MainViewUpdateMode.PlaylistFilterSelected, new Tuple<BMSTable, string>(bmsTable, folderName));
                 break;
-            case PlaylistFilterType.PlaylistNotOwnedFilterSelected:
+            case PlaylistDetailFilter.PlaylistNotOwnedFilterSelected:
                 RefreshChartRowsView(MainViewUpdateMode.PlaylistNotOwnedFilterSelected, bmsTable);
                 break;
         }

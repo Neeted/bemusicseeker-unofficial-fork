@@ -13,7 +13,7 @@ internal sealed class PlaylistBuildRequest
 
     internal object Parameter;
 
-    internal MainWindowViewModel.PlaylistRequestIdentity Identity;
+    internal PlaylistRequestIdentity Identity;
 
     internal bool UseCoalescingWindow;
 

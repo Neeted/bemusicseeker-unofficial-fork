@@ -75,10 +75,10 @@ internal static class PlaylistRequestFactory
     /// <param name="chartInfoIndexVersion">Chart-info index version used by the source build.</param>
     /// <param name="hasResolvedSelection">Whether the selected playlist source was resolved.</param>
     /// <returns>Normalized playlist request identity.</returns>
-    internal static MainWindowViewModel.PlaylistRequestIdentity CreateIdentity(
+    internal static PlaylistRequestIdentity CreateIdentity(
         BMSTable table,
         string folderName,
-        MainWindowViewModel.PlaylistFilterType filterType,
+        PlaylistDetailFilter filterType,
         string keywordFilter,
         ChartModeFilter modeFilter,
         ChartListSortParameters sortParameters,
@@ -88,7 +88,7 @@ internal static class PlaylistRequestFactory
         int chartInfoIndexVersion,
         bool hasResolvedSelection)
     {
-        return new MainWindowViewModel.PlaylistRequestIdentity(
+        return new PlaylistRequestIdentity(
             table,
             NormalizeFolderName(folderName),
             filterType,

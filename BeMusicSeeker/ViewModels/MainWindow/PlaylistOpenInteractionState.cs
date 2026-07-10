@@ -24,7 +24,7 @@ internal sealed class PlaylistOpenReadinessSnapshot
 internal sealed class PlaylistOpenInteractionState
 {
     internal int RequestVersion;
-    internal MainWindowViewModel.PlaylistRequestIdentity Identity;
+    internal PlaylistRequestIdentity Identity;
     internal DateTime RequestedAtUtc;
     internal DateTime? BuildStartedAtUtc;
     internal DateTime? BuildCompletedAtUtc;
