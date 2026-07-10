@@ -5005,13 +5005,6 @@ public partial class MainWindowViewModel : ViewModel
         return NormalizeDuplicateViewParameter(treeViewFilterParameterSelected ?? parameter);
     }
 
-    private NormalLibrarySortCacheGenerationSnapshot CaptureNormalLibrarySortCacheGeneration(string columnName)
-    {
-        return regularChartListOwner.CaptureSortGeneration(
-            columnName,
-            CaptureRegularChartListExternalVersions());
-    }
-
     private RegularChartListExternalVersions CaptureRegularChartListExternalVersions()
     {
         return new RegularChartListExternalVersions(
@@ -5763,29 +5756,6 @@ public partial class MainWindowViewModel : ViewModel
         return treeMode == MainViewUpdateMode.FileMissingFilterSelected
             || treeMode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
             || treeMode == MainViewUpdateMode.NewlyInstalledFolderSelected;
-    }
-
-    /// <summary>
-    /// 通常一覧の incremental 更新で folder 段から再構築が必要かを返します。
-    /// </summary>
-    /// <param name="mode">今回の更新モード。</param>
-    /// <returns>regular cache の再構築が必要なら <see langword="true"/>。</returns>
-    private static bool ShouldRebuildRegularFolderStage(MainViewUpdateMode mode, bool hasFolderView, bool hasKeywordView, bool hasModeView, MainViewUpdateMode currentTreeMode)
-    {
-        return MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
-            mode,
-            hasFolderView,
-            hasKeywordView,
-            hasModeView,
-            currentTreeMode);
-    }
-
-    /// <summary>
-    /// regular cache self-healing 条件のテスト用ラッパです。
-    /// </summary>
-    internal static bool ShouldRebuildRegularFolderStageForTest(int mode, bool hasFolderView, bool hasKeywordView, bool hasModeView, int currentTreeMode)
-    {
-        return MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage((MainViewUpdateMode)mode, hasFolderView, hasKeywordView, hasModeView, (MainViewUpdateMode)currentTreeMode);
     }
 
     /// <summary>
@@ -11114,7 +11084,6 @@ public partial class MainWindowViewModel : ViewModel
         bool includeBmsonRows,
         Stopwatch viewBuildStopwatch)
     {
-        long stageStartMs = 0L;
         long folderStageMs = 0L;
         long keywordStageMs = 0L;
         long modeStageMs = 0L;
@@ -11160,7 +11129,7 @@ public partial class MainWindowViewModel : ViewModel
             virtualChartSubsetRequiredFailure = true;
         }
         if (!virtualChartSubsetRequiredFailure
-            && ShouldRebuildRegularFolderStage(
+            && MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
                 mode,
                 regularChartListOwner.HasFolderRows,
                 regularChartListOwner.HasKeywordRows,
@@ -11184,7 +11153,6 @@ public partial class MainWindowViewModel : ViewModel
                 SortParameters?.ColumnsName,
                 SortParameters?.Direction ?? ListSortDirection.Ascending,
                 SortParameters != null));
-        var regularStage = new RegularChartListStageState();
         if (!regularRequest.VirtualSubsetRequiredFailure)
         {
             switch (regularRequest.Mode)
@@ -11197,77 +11165,38 @@ public partial class MainWindowViewModel : ViewModel
                     break;
             }
         }
-        bool isPlaylistDetailView = mode == MainViewUpdateMode.PlaylistFilterSelected || mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
-        if (!regularChartListOwner.TryBeginRequest(out RegularChartListRequestLease lease))
-        {
-            return;
-        }
-        RegularChartListBuildResult build;
-        try
-        {
-            build = regularChartListOwner.Build(
-                lease,
-                regularRequest,
-                new RegularChartListBuildInput
-                {
-                    CurrentTreeMode = treeViewFilterTypeSelected,
-                    HasVirtualNormalLibraryTreeFilter = regularChartListOwner.HasTreeFilter,
-                    IsPlaylistDetailView = isPlaylistDetailView,
-                    HasFolderRowsOverride = hasFolderRowsOverride,
-                    FolderRowsOverride = folderRowsOverride,
-                    SortCacheGeneration = CaptureNormalLibrarySortCacheGeneration(regularRequest.SortColumnName),
-                    Stopwatch = viewBuildStopwatch
-                });
-        }
-        catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
-        {
-            return;
-        }
-        regularStage = build.Stage;
-        folderStageMs = build.FolderMs;
-        keywordStageMs = build.KeywordMs;
-        modeStageMs = build.ModeMs;
-        folderCount = regularStage.FolderCount;
-        keywordCount = regularStage.KeywordCount;
-        modeCount = regularStage.ModeCount;
-        IList nextRowsView = build.Sort.RowsView;
-        sortReuse = build.Sort.SortReuse;
-        sortProfile = build.Sort.SortProfile;
-        viewCount = nextRowsView?.Count ?? 0;
-        sortStageMs = build.SortMs;
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
-        RegularChartListTerminalResult terminal = regularChartListOwner.TryCommit(
-            lease,
-            build,
-            new RegularChartListTerminalInput
+        RegularMaterializedChartListApplyResult result = regularChartListOwner.TryApplyMaterialized(
+            new RegularMaterializedChartListApplyRequest
             {
-                RowsRequest = new MainChartListRowsApplyRequest
-                {
-                    Rows = nextRowsView,
-                    ColumnsSettings = columnSelection.ColumnsSettings,
-                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
-                    Summary = IsPlaylistSummaryMode
-                        ? MainChartListSummaryUpdate.Preserve()
-                        : MainChartListSummaryUpdate.NormalRows(nextRowsView),
-                    ColumnSettingReuse = columnSelection.Reused,
-                    ColumnPreparationMs = columnSelection.ElapsedMs,
-                    TerminalStageStartMs = stageStartMs,
-                    Stopwatch = viewBuildStopwatch
-                },
+                RefreshRequest = regularRequest,
+                HasFolderRowsOverride = hasFolderRowsOverride,
+                FolderRowsOverride = folderRowsOverride,
+                ExternalVersions = CaptureRegularChartListExternalVersions(),
                 ColumnSelection = columnSelection,
+                PreserveSummary = IsPlaylistSummaryMode,
                 Mode = mode,
                 Stopwatch = viewBuildStopwatch
             });
-        if (!terminal.WasCommitted)
+        if (!result.WasCommitted)
         {
             return;
         }
-        long prepareSwapMs = terminal.RowsApply.PrepareSwapMs;
-        long columnSettingMs = terminal.RowsApply.ColumnSettingMs;
-        long setViewMs = terminal.RowsApply.SetViewMs;
-        bool columnSettingReuse = terminal.RowsApply.ColumnSettingReuse;
-        columnStageMs = terminal.RowsApply.ColumnStageMs;
+        folderStageMs = result.FolderMs;
+        keywordStageMs = result.KeywordMs;
+        modeStageMs = result.ModeMs;
+        folderCount = result.FolderCount;
+        keywordCount = result.KeywordCount;
+        modeCount = result.ModeCount;
+        sortReuse = result.SortReuse;
+        sortProfile = result.SortProfile;
+        viewCount = result.ViewCount;
+        sortStageMs = result.SortMs;
+        long prepareSwapMs = result.RowsApply.PrepareSwapMs;
+        long columnSettingMs = result.RowsApply.ColumnSettingMs;
+        long setViewMs = result.RowsApply.SetViewMs;
+        bool columnSettingReuse = result.RowsApply.ColumnSettingReuse;
+        columnStageMs = result.RowsApply.ColumnStageMs;
         callbackStageMs = 0L;
         string sortColumn = regularRequest.HasSortParameters ? (regularRequest.RequestedSortColumnName ?? "(default_title)") : "(default_title)";
         string sortDirection = regularRequest.SortDirection.ToString();

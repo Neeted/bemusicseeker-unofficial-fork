@@ -3766,24 +3766,24 @@ public sealed class PlaylistViewPipelineTests
     [TestMethod]
     public void ShouldRebuildRegularFolderStage_WhenIncrementalRegularUpdateHasMissingCaches_ReturnsTrue()
     {
-        Assert.IsTrue(MainWindowViewModel.ShouldRebuildRegularFolderStageForTest(
-            81,
+        Assert.IsTrue(MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
+            (MainViewUpdateMode)81,
             hasFolderView: false,
             hasKeywordView: true,
             hasModeView: true,
-            currentTreeMode: 17));
-        Assert.IsTrue(MainWindowViewModel.ShouldRebuildRegularFolderStageForTest(
-            65,
+            currentTreeMode: (MainViewUpdateMode)17));
+        Assert.IsTrue(MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
+            (MainViewUpdateMode)65,
             hasFolderView: true,
             hasKeywordView: false,
             hasModeView: true,
-            currentTreeMode: 17));
-        Assert.IsFalse(MainWindowViewModel.ShouldRebuildRegularFolderStageForTest(
-            81,
+            currentTreeMode: (MainViewUpdateMode)17));
+        Assert.IsFalse(MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
+            (MainViewUpdateMode)81,
             hasFolderView: true,
             hasKeywordView: true,
             hasModeView: true,
-            currentTreeMode: 17));
+            currentTreeMode: (MainViewUpdateMode)17));
     }
 
     [TestMethod]

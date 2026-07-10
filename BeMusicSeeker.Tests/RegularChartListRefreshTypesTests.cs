@@ -80,9 +80,10 @@ public sealed class RegularChartListRefreshTypesTests
 
         StringAssert.Contains(mainLibraryWorkflow, "new RegularChartListRefreshRequest(");
         StringAssert.Contains(mainLibraryWorkflow, "regularRequest.VirtualSubsetRequiredFailure");
-        StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.TryBeginRequest(");
-        StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.Build(");
-        StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.TryCommit(");
+        StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.TryApplyMaterialized(");
+        Assert.IsFalse(mainLibraryWorkflow.Contains("regularChartListOwner.TryBeginRequest("));
+        Assert.IsFalse(mainLibraryWorkflow.Contains("regularChartListOwner.Build("));
+        Assert.IsFalse(mainLibraryWorkflow.Contains("regularChartListOwner.TryCommit("));
     }
 
     [TestMethod]

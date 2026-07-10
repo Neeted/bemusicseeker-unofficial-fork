@@ -997,6 +997,72 @@ internal sealed class RegularChartListOwner : IDisposable
         return new RegularChartListBuildResult(stage, sort, pendingCacheKey, pendingCacheRows, folderMs, keywordMs, modeMs, sortMs);
     }
 
+    internal RegularMaterializedChartListApplyResult TryApplyMaterialized(
+        RegularMaterializedChartListApplyRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentException("A complete materialized regular chart-list request is required.", nameof(request));
+        }
+        if (!TryBeginRequest(out RegularChartListRequestLease lease))
+        {
+            return default;
+        }
+
+        Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
+        RegularChartListBuildResult build;
+        try
+        {
+            build = Build(
+                lease,
+                request.RefreshRequest,
+                new RegularChartListBuildInput
+                {
+                    CurrentTreeMode = request.RefreshRequest.CurrentTreeMode,
+                    HasVirtualNormalLibraryTreeFilter = HasTreeFilter,
+                    IsPlaylistDetailView = false,
+                    HasFolderRowsOverride = request.HasFolderRowsOverride,
+                    FolderRowsOverride = request.FolderRowsOverride,
+                    SortCacheGeneration = CaptureSortGeneration(
+                        request.RefreshRequest.SortColumnName,
+                        request.ExternalVersions),
+                    Stopwatch = stopwatch
+                });
+        }
+        catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
+        {
+            return default;
+        }
+
+        IList rowsView = build.Sort.RowsView;
+        long terminalStageStartMs = stopwatch.ElapsedMilliseconds;
+        RegularChartListTerminalResult terminal = TryCommit(
+            lease,
+            build,
+            new RegularChartListTerminalInput
+            {
+                RowsRequest = new MainChartListRowsApplyRequest
+                {
+                    Rows = rowsView,
+                    ColumnsSettings = request.ColumnSelection.ColumnsSettings,
+                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+                    Summary = request.PreserveSummary
+                        ? MainChartListSummaryUpdate.Preserve()
+                        : MainChartListSummaryUpdate.NormalRows(rowsView),
+                    ColumnSettingReuse = request.ColumnSelection.Reused,
+                    ColumnPreparationMs = request.ColumnSelection.ElapsedMs,
+                    TerminalStageStartMs = terminalStageStartMs,
+                    Stopwatch = stopwatch
+                },
+                ColumnSelection = request.ColumnSelection,
+                Mode = request.Mode,
+                Stopwatch = stopwatch
+            });
+        return terminal.WasCommitted
+            ? new RegularMaterializedChartListApplyResult(terminal.RowsApply, build, request.Mode)
+            : default;
+    }
+
     internal RegularChartListTerminalResult TryCommit(
         RegularChartListRequestLease lease,
         RegularChartListBuildResult build,
@@ -2325,6 +2391,55 @@ internal sealed class RegularChartListTerminalInput
     internal MainChartListColumnSelection ColumnSelection { get; set; }
     internal MainViewUpdateMode Mode { get; set; }
     internal Stopwatch Stopwatch { get; set; }
+}
+
+internal sealed class RegularMaterializedChartListApplyRequest
+{
+    internal RegularChartListRefreshRequest RefreshRequest { get; set; }
+    internal bool HasFolderRowsOverride { get; set; }
+    internal IEnumerable<LibraryChartRow> FolderRowsOverride { get; set; }
+    internal RegularChartListExternalVersions ExternalVersions { get; set; }
+    internal MainChartListColumnSelection ColumnSelection { get; set; }
+    internal bool PreserveSummary { get; set; }
+    internal MainViewUpdateMode Mode { get; set; }
+    internal Stopwatch Stopwatch { get; set; }
+}
+
+internal readonly struct RegularMaterializedChartListApplyResult
+{
+    internal RegularMaterializedChartListApplyResult(
+        MainChartListRowsApplyResult rowsApply,
+        RegularChartListBuildResult build,
+        MainViewUpdateMode appliedMode)
+    {
+        WasCommitted = true;
+        RowsApply = rowsApply;
+        AppliedMode = appliedMode;
+        FolderCount = build.Stage.FolderCount;
+        KeywordCount = build.Stage.KeywordCount;
+        ModeCount = build.Stage.ModeCount;
+        ViewCount = build.Sort.RowsView?.Count ?? 0;
+        FolderMs = build.FolderMs;
+        KeywordMs = build.KeywordMs;
+        ModeMs = build.ModeMs;
+        SortMs = build.SortMs;
+        SortReuse = build.Sort.SortReuse;
+        SortProfile = build.Sort.SortProfile;
+    }
+
+    internal bool WasCommitted { get; }
+    internal MainChartListRowsApplyResult RowsApply { get; }
+    internal MainViewUpdateMode AppliedMode { get; }
+    internal int FolderCount { get; }
+    internal int KeywordCount { get; }
+    internal int ModeCount { get; }
+    internal int ViewCount { get; }
+    internal long FolderMs { get; }
+    internal long KeywordMs { get; }
+    internal long ModeMs { get; }
+    internal long SortMs { get; }
+    internal bool SortReuse { get; }
+    internal string SortProfile { get; }
 }
 
 internal sealed class RegularVirtualNormalLibraryApplyRequest

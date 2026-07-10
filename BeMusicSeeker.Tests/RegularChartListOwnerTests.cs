@@ -29,6 +29,87 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void MaterializedApply_OwnsBuildAndTerminalPipeline()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel());
+        List<LibraryChartRow> rows =
+        [
+            LibraryChartRow.FromChartFile(CreateSourceRow("Folder A", "Beta").Chart),
+            LibraryChartRow.FromChartFile(CreateSourceRow("Folder A", "Alpha").Chart)
+        ];
+        var refresh = new RegularChartListRefreshRequest(
+            MainViewUpdateMode.SortUpdated,
+            MainViewUpdateMode.TreeViewFilterNotChanged,
+            parameter: null,
+            MainViewUpdateMode.FolderFilterSelected,
+            treeParameter: null,
+            includeBmsonRows: false,
+            virtualSubsetRequiredFailure: false,
+            keywordFilter: string.Empty,
+            RegularChartModeFilter.All,
+            ChartListSortSpecification.Create(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, hasValue: true));
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+
+        RegularMaterializedChartListApplyResult result = owner.TryApplyMaterialized(
+            new RegularMaterializedChartListApplyRequest
+            {
+                RefreshRequest = refresh,
+                HasFolderRowsOverride = true,
+                FolderRowsOverride = rows,
+                ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
+                ColumnSelection = new MainChartListColumnSelection(
+                    settings,
+                    reused: false,
+                    elapsedMs: 0L,
+                    MainViewUpdateMode.FolderFilterSelected,
+                    Visibility.Collapsed,
+                    new PlaylistSummaryColumnSettings()),
+                Mode = MainViewUpdateMode.SortUpdated,
+                Stopwatch = Stopwatch.StartNew()
+            });
+
+        Assert.IsTrue(result.WasCommitted);
+        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]).Title);
+        Assert.AreEqual("Beta", ((LibraryChartRow)table.Rows[1]).Title);
+        Assert.AreEqual(2, result.FolderCount);
+        Assert.AreEqual(2, result.ModeCount);
+    }
+
+    [TestMethod]
+    public void MaterializedApply_NestedNewerRequestRejectsOuterTerminal()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel());
+        List<LibraryChartRow> outerRows =
+        [
+            LibraryChartRow.FromChartFile(CreateSourceRow("Outer", "outer.bms").Chart)
+        ];
+        List<LibraryChartRow> nestedRows =
+        [
+            LibraryChartRow.FromChartFile(CreateSourceRow("Nested", "nested.bms").Chart)
+        ];
+        bool nestedStarted = false;
+        RegularMaterializedChartListApplyResult nestedResult = default;
+        table.RowsReplacing += (_, _) =>
+        {
+            if (nestedStarted)
+            {
+                return;
+            }
+            nestedStarted = true;
+            nestedResult = owner.TryApplyMaterialized(CreateMaterializedApplyRequest(nestedRows));
+        };
+
+        RegularMaterializedChartListApplyResult outerResult = owner.TryApplyMaterialized(
+            CreateMaterializedApplyRequest(outerRows));
+
+        Assert.IsTrue(nestedResult.WasCommitted);
+        Assert.IsFalse(outerResult.WasCommitted);
+        Assert.AreEqual("nested.bms", ((LibraryChartRow)table.Rows[0]).Title);
+    }
+
+    [TestMethod]
     public void VirtualRowCache_ReusesAndRemovesBmsOwnerRowsThroughRegularOwner()
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
@@ -1009,6 +1090,39 @@ public sealed class RegularChartListOwnerTests
             SortCacheGeneration = new NormalLibrarySortCacheGenerationSnapshot(1, 1, 0, 0, 0, 0, 0, 0),
             Stopwatch = Stopwatch.StartNew()
         });
+    }
+
+    private static RegularMaterializedChartListApplyRequest CreateMaterializedApplyRequest(
+        IEnumerable<LibraryChartRow> rows)
+    {
+        var refresh = new RegularChartListRefreshRequest(
+            MainViewUpdateMode.SortUpdated,
+            MainViewUpdateMode.TreeViewFilterNotChanged,
+            parameter: null,
+            MainViewUpdateMode.FolderFilterSelected,
+            treeParameter: null,
+            includeBmsonRows: false,
+            virtualSubsetRequiredFailure: false,
+            keywordFilter: string.Empty,
+            RegularChartModeFilter.All,
+            ChartListSortSpecification.Create(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, hasValue: true));
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        return new RegularMaterializedChartListApplyRequest
+        {
+            RefreshRequest = refresh,
+            HasFolderRowsOverride = true,
+            FolderRowsOverride = rows,
+            ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
+            ColumnSelection = new MainChartListColumnSelection(
+                settings,
+                reused: false,
+                elapsedMs: 0L,
+                MainViewUpdateMode.FolderFilterSelected,
+                Visibility.Collapsed,
+                new PlaylistSummaryColumnSettings()),
+            Mode = MainViewUpdateMode.SortUpdated,
+            Stopwatch = Stopwatch.StartNew()
+        };
     }
 
     private static RegularChartListTerminalInput CreateTerminalInput(
