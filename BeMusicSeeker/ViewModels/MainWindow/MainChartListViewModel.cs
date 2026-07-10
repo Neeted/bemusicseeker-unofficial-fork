@@ -5,8 +5,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
-using System.Windows;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
 using Livet;
@@ -18,6 +16,8 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public sealed class MainChartListViewModel : ViewModel
 {
+    private readonly Action<Action> dispatchPresentationAction;
+
     internal MainChartRowProjectionOwner RowProjection { get; } = new();
 
     private IList rows = new List<object>();
@@ -28,11 +28,22 @@ public sealed class MainChartListViewModel : ViewModel
 
     private string summaryText = string.Empty;
 
-    private MainWindowViewModel.cSortParameters sortParameters;
+    private MainChartListSortPresentation sortParameters;
 
     private MainChartListSortTarget sortTarget;
 
     private long rowsCommitGeneration;
+
+    internal MainChartListViewModel()
+        : this(action => action())
+    {
+    }
+
+    internal MainChartListViewModel(Action<Action> dispatchPresentationAction)
+    {
+        this.dispatchPresentationAction = dispatchPresentationAction
+            ?? throw new ArgumentNullException(nameof(dispatchPresentationAction));
+    }
 
     /// <summary>
     /// Raised immediately before a different row collection replaces the active main-table rows.
@@ -145,40 +156,19 @@ public sealed class MainChartListViewModel : ViewModel
     /// <summary>
     /// Gets the sort currently presented by the main chart table.
     /// </summary>
-    public MainWindowViewModel.cSortParameters SortParameters => sortParameters;
+    public MainChartListSortPresentation SortParameters => sortParameters;
 
     /// <summary>
     /// Updates the active sort presentation when the shell changes between regular and play-history views.
     /// </summary>
     /// <param name="value">The active sort parameters.</param>
     /// <param name="target">The workflow that owns the active sort.</param>
-    internal void SetSortPresentation(MainWindowViewModel.cSortParameters value, MainChartListSortTarget target)
+    internal void SetSortPresentation(MainChartListSortPresentation value, MainChartListSortTarget target)
     {
-        Dispatcher dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.CheckAccess())
-        {
-            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-            {
-                return;
-            }
-            try
-            {
-                dispatcher.Invoke(
-                    DispatcherPriority.Normal,
-                    new Action(() => SetSortPresentationCore(value, target)));
-            }
-            catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-            {
-            }
-            catch (OperationCanceledException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-            {
-            }
-            return;
-        }
-        SetSortPresentationCore(value, target);
+        dispatchPresentationAction(() => SetSortPresentationCore(value, target));
     }
 
-    private void SetSortPresentationCore(MainWindowViewModel.cSortParameters value, MainChartListSortTarget target)
+    private void SetSortPresentationCore(MainChartListSortPresentation value, MainChartListSortTarget target)
     {
         bool changed = sortTarget != target
             || !AreSameSortParameters(sortParameters, value);
@@ -229,27 +219,7 @@ public sealed class MainChartListViewModel : ViewModel
             return;
         }
 
-        void RaiseRefresh() => handler(this, EventArgs.Empty);
-        Dispatcher dispatcher = Application.Current?.Dispatcher;
-        if (dispatcher == null || dispatcher.CheckAccess())
-        {
-            RaiseRefresh();
-            return;
-        }
-        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-        {
-            return;
-        }
-        try
-        {
-            dispatcher.Invoke(DispatcherPriority.Normal, (Action)RaiseRefresh);
-        }
-        catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-        {
-        }
-        catch (OperationCanceledException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-        {
-        }
+        dispatchPresentationAction(() => handler(this, EventArgs.Empty));
     }
 
     /// <summary>
@@ -556,35 +526,14 @@ public sealed class MainChartListViewModel : ViewModel
         return true;
     }
 
-    /// <summary>
-    /// Resolves row drag behavior for tests that still verify the legacy root property.
-    /// </summary>
-    /// <param name="settings">Column settings that influence row behavior.</param>
-    /// <returns>Row drag behavior used by the main chart table.</returns>
-    internal static CustomTableRowDragKind ResolveRowDragKindForTest(CustomTableColumnSettings settings)
-    {
-        return ResolveRowDragKind(settings);
-    }
-
-    /// <summary>
-    /// Formats a normal chart-list summary for tests that still verify the legacy root helper.
-    /// </summary>
-    /// <param name="rowCount">Visible chart count.</param>
-    /// <param name="distinctFolderCount">Visible distinct-folder count.</param>
-    /// <returns>Formatted summary text.</returns>
-    internal static string FormatSummaryTextForTest(int rowCount, int distinctFolderCount)
-    {
-        return FormatSummaryText(rowCount, distinctFolderCount);
-    }
-
     private static CustomTableRowDragKind ResolveRowDragKind(CustomTableColumnSettings settings)
     {
         return CustomTableRowDragKind.PlaylistDropCandidateRows;
     }
 
     private static bool AreSameSortParameters(
-        MainWindowViewModel.cSortParameters left,
-        MainWindowViewModel.cSortParameters right)
+        MainChartListSortPresentation left,
+        MainChartListSortPresentation right)
     {
         return left == null
             ? right == null

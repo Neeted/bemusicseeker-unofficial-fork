@@ -586,7 +586,7 @@ public sealed class RegularChartListOwnerTests
 
         Assert.IsTrue(uiActionQueued.Wait(TimeSpan.FromSeconds(5)));
         pendingUiAction();
-        Assert.AreEqual(MainChartListViewModel.FormatSummaryTextForTest(2, 2), table.SummaryText);
+        Assert.AreEqual("[2" + BeMusicSeeker.Properties.Resources.Num_songs + " / 2" + BeMusicSeeker.Properties.Resources.Num_folders + "]", table.SummaryText);
     }
 
     [TestMethod]
@@ -649,7 +649,7 @@ public sealed class RegularChartListOwnerTests
             owner.ScheduleVirtualSummary(currentLease, key, sourceRows, currentRows, "current");
             sourceRows.ReleaseEnumeration.Set();
 
-            string expectedSummary = MainChartListViewModel.FormatSummaryTextForTest(2, 2);
+            string expectedSummary = "[2" + BeMusicSeeker.Properties.Resources.Num_songs + " / 2" + BeMusicSeeker.Properties.Resources.Num_folders + "]";
             Assert.IsTrue(SpinWait.SpinUntil(
                 () => string.Equals(table.SummaryText, expectedSummary, StringComparison.Ordinal),
                 TimeSpan.FromSeconds(5)));

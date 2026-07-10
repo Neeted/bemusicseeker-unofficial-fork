@@ -459,8 +459,11 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void SummaryFormatter_OmitsUnknownFolderCount()
     {
-        string unknown = MainChartListViewModel.FormatSummaryTextForTest(3, -1);
-        string known = MainChartListViewModel.FormatSummaryTextForTest(3, 2);
+        var mainChartList = new MainChartListViewModel();
+        mainChartList.UpdateSummaryText(3, -1);
+        string unknown = mainChartList.SummaryText;
+        mainChartList.UpdateSummaryText(3, 2);
+        string known = mainChartList.SummaryText;
 
         StringAssert.StartsWith(unknown, "[3");
         Assert.IsFalse(unknown.Contains("/"));
@@ -516,11 +519,9 @@ public sealed class ChartListVirtualViewTests
     public void MainChartList_SortPresentationOwnsBindingAndRequestScope()
     {
         var mainChartList = new MainChartListViewModel();
-        var sort = new MainWindowViewModel.cSortParameters
-        {
-            ColumnsName = nameof(PlayHistoryRow.PlayedAt),
-            Direction = ListSortDirection.Descending
-        };
+        var sort = new MainChartListSortPresentation(
+            nameof(PlayHistoryRow.PlayedAt),
+            ListSortDirection.Descending);
         MainChartListSortRequestedEventArgs? request = null;
         var propertyNames = new List<string>();
         mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
@@ -550,6 +551,30 @@ public sealed class ChartListVirtualViewTests
         mainChartList.RequestDisplayRefresh();
 
         Assert.AreEqual(1, raisedCount);
+    }
+
+    [TestMethod]
+    public void MainChartList_PresentationChangesUseInjectedDispatcher()
+    {
+        Action? pendingAction = null;
+        var mainChartList = new MainChartListViewModel(action => pendingAction = action);
+        var sort = new MainChartListSortPresentation(nameof(BMSFile.Title), ListSortDirection.Ascending);
+        int refreshCount = 0;
+        mainChartList.DisplayRefreshRequested += (_, _) => refreshCount++;
+
+        mainChartList.SetSortPresentation(sort, MainChartListSortTarget.Regular);
+
+        Assert.IsNull(mainChartList.SortParameters);
+        Assert.IsNotNull(pendingAction);
+        pendingAction!();
+        Assert.AreSame(sort, mainChartList.SortParameters);
+
+        pendingAction = null;
+        mainChartList.RequestDisplayRefresh();
+        Assert.AreEqual(0, refreshCount);
+        Assert.IsNotNull(pendingAction);
+        pendingAction!();
+        Assert.AreEqual(1, refreshCount);
     }
 
     private static List<LibraryChartRow> CreateSummaryRows()

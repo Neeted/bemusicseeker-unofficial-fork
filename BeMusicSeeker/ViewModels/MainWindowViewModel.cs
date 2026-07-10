@@ -113,7 +113,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// Gets main chart-table binding state while refresh orchestration remains in the shell ViewModel.
     /// </summary>
-    public MainChartListViewModel MainChartList { get; } = new();
+    public MainChartListViewModel MainChartList { get; }
 
     /// <summary>
     /// Gets playlist detail/summary presentation state while shell workflows remain in the root ViewModel.
@@ -5937,8 +5937,15 @@ public partial class MainWindowViewModel : ViewModel
     {
         bool isPlayHistory = IsPlayHistoryViewActive;
         MainChartList.SetSortPresentation(
-            isPlayHistory ? PlayHistorySortParameters : SortParameters,
+            CreateMainChartListSortPresentation(isPlayHistory ? PlayHistorySortParameters : SortParameters),
             isPlayHistory ? MainChartListSortTarget.PlayHistory : MainChartListSortTarget.Regular);
+    }
+
+    private static MainChartListSortPresentation CreateMainChartListSortPresentation(cSortParameters sortParameters)
+    {
+        return sortParameters == null
+            ? null
+            : new MainChartListSortPresentation(sortParameters.ColumnsName, sortParameters.Direction);
     }
 
     /// <summary>
@@ -7967,6 +7974,7 @@ public partial class MainWindowViewModel : ViewModel
             () => lr2config,
             () => bmsPlayer,
             () => DispatcherHelper.UIDispatcher);
+        MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction);
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
@@ -8000,6 +8008,36 @@ public partial class MainWindowViewModel : ViewModel
         else
         {
             DispatcherHelper.UIDispatcher.BeginInvoke(action);
+        }
+    }
+
+    private void DispatchMainChartListPresentationAction(Action action)
+    {
+        if (action == null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+
+        Dispatcher dispatcher = DispatcherHelper.UIDispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        try
+        {
+            dispatcher.Invoke(DispatcherPriority.Normal, action);
+        }
+        catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+        }
+        catch (OperationCanceledException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
         }
     }
 
