@@ -52,53 +52,18 @@ internal sealed class PlaylistDetailTerminalOwner
                         {
                             return false;
                         }
-                        lock (viewState.SyncRoot)
-                        {
-                            commitRows();
-
-                            if (request.ReplaceSource)
+                        viewState.CommitTerminal(
+                            request,
+                            result,
+                            commitRows,
+                            () =>
                             {
-                                result.PreviousSourceRows = viewState.Source.Rows;
-                                result.PreviousSourceGenerationId = viewState.Source.GenerationId;
-                                if (result.PreviousSourceRows != null)
-                                {
-                                    viewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(result.PreviousSourceRows);
-                                    viewState.Source.PreviousGenerationId = result.PreviousSourceGenerationId;
-                                }
-                                viewState.Source.Rows = request.SourceRows;
-                                viewState.Source.CurrentTable = request.CurrentTable;
-                                viewState.Source.CurrentFolderName = request.CurrentFolderName;
-                                viewState.Source.CurrentFilterType = request.CurrentFilterType;
-                                viewState.Source.LastBuiltLibraryIndexVersion = request.BuildRequest.Identity.LibraryIndexVersion;
-                                viewState.Source.LastBuiltPlaylistRevision = request.BuildRequest.Identity.PlaylistRevision;
-                                viewState.Source.LastBuiltScoreSnapshotVersion = request.BuildRequest.Identity.ScoreSnapshotVersion;
-                                viewState.Source.LastBuiltChartInfoIndexVersion = request.BuildRequest.Identity.ChartInfoIndexVersion;
-                                viewState.Source.CurrentIdentity = request.BuildRequest.Identity.SourceIdentity;
-                                viewState.Source.GenerationId++;
-                            }
-
-                            result.PreviousViewRows = viewState.View.Rows;
-                            result.PreviousViewGenerationId = viewState.View.GenerationId;
-                            if (result.PreviousViewRows != null)
-                            {
-                                viewState.View.PreviousRowsWeakReference = new WeakReference<IList>(result.PreviousViewRows);
-                                viewState.View.PreviousGenerationId = result.PreviousViewGenerationId;
-                            }
-                            viewState.View.Rows = request.ViewRows;
-                            viewState.View.GenerationId++;
-                            viewState.View.LastAppliedCount = request.ViewRows.Count;
-                            viewState.View.CurrentIdentity = request.BuildRequest.Identity;
-
-                            result.ColumnPresentationCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
-                                request.ColumnSelection.PlaylistColumnSettingsVisibility,
-                                request.ColumnSelection.PlaylistSummaryColumnsSettings);
-                            result.SourceGenerationId = viewState.Source.GenerationId;
-                            result.ViewGenerationId = viewState.View.GenerationId;
-                            result.SourceRowsAlive = viewState.Source.Rows?.Count ?? 0;
-                            result.Applied = true;
-                            commitExternalColumnMode(request.ColumnSelection.AppliedMode);
-                            return true;
-                        }
+                                result.ColumnPresentationCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+                                    request.ColumnSelection.PlaylistColumnSettingsVisibility,
+                                    request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                                commitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                            });
+                        return true;
                     }
                 },
                 () =>

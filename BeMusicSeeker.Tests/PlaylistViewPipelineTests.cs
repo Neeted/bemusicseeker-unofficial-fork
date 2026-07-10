@@ -185,7 +185,8 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "internal PlaylistDetailTerminalApplyResult TryCommitPlaylistDetailTerminal(");
         StringAssert.Contains(terminalOwnerSource, "internal sealed class PlaylistDetailTerminalOwner");
         StringAssert.Contains(terminalOwnerSource, "lock (buildState.SyncRoot)");
-        StringAssert.Contains(terminalOwnerSource, "lock (viewState.SyncRoot)");
+        StringAssert.Contains(terminalOwnerSource, "viewState.CommitTerminal(");
+        StringAssert.Contains(playlistViewStateSource, "lock (SyncRoot)");
         StringAssert.Contains(terminalOwnerSource, "mainChartList.ApplyCoordinatedRows(");
         Assert.AreEqual(-1, terminalOwnerSource.IndexOf("mainChartList.CommitPreparedRowsWithoutDisposal", StringComparison.Ordinal));
         StringAssert.Contains(mainChartListSource, "private MainChartListRowsCommit CommitPreparedRowsWithoutDisposal(");

@@ -40,4 +40,72 @@ internal sealed class PlaylistDetailViewState
     internal readonly PlaylistDetailSourceSnapshotState Source = new();
     internal readonly PlaylistDetailViewSnapshotState View = new();
     internal PlaylistOpenInteractionState CurrentOpenInteraction;
+
+    internal void CommitTerminal(
+        PlaylistDetailTerminalRequest request,
+        PlaylistDetailTerminalCommitResult result,
+        Action commitRows,
+        Action commitPresentation)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (result == null)
+        {
+            throw new ArgumentNullException(nameof(result));
+        }
+        if (commitRows == null)
+        {
+            throw new ArgumentNullException(nameof(commitRows));
+        }
+        if (commitPresentation == null)
+        {
+            throw new ArgumentNullException(nameof(commitPresentation));
+        }
+
+        lock (SyncRoot)
+        {
+            commitRows();
+
+            if (request.ReplaceSource)
+            {
+                result.PreviousSourceRows = Source.Rows;
+                result.PreviousSourceGenerationId = Source.GenerationId;
+                if (result.PreviousSourceRows != null)
+                {
+                    Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(result.PreviousSourceRows);
+                    Source.PreviousGenerationId = result.PreviousSourceGenerationId;
+                }
+                Source.Rows = request.SourceRows;
+                Source.CurrentTable = request.CurrentTable;
+                Source.CurrentFolderName = request.CurrentFolderName;
+                Source.CurrentFilterType = request.CurrentFilterType;
+                Source.LastBuiltLibraryIndexVersion = request.BuildRequest.Identity.LibraryIndexVersion;
+                Source.LastBuiltPlaylistRevision = request.BuildRequest.Identity.PlaylistRevision;
+                Source.LastBuiltScoreSnapshotVersion = request.BuildRequest.Identity.ScoreSnapshotVersion;
+                Source.LastBuiltChartInfoIndexVersion = request.BuildRequest.Identity.ChartInfoIndexVersion;
+                Source.CurrentIdentity = request.BuildRequest.Identity.SourceIdentity;
+                Source.GenerationId++;
+            }
+
+            result.PreviousViewRows = View.Rows;
+            result.PreviousViewGenerationId = View.GenerationId;
+            if (result.PreviousViewRows != null)
+            {
+                View.PreviousRowsWeakReference = new WeakReference<IList>(result.PreviousViewRows);
+                View.PreviousGenerationId = result.PreviousViewGenerationId;
+            }
+            View.Rows = request.ViewRows;
+            View.GenerationId++;
+            View.LastAppliedCount = request.ViewRows.Count;
+            View.CurrentIdentity = request.BuildRequest.Identity;
+
+            commitPresentation();
+            result.SourceGenerationId = Source.GenerationId;
+            result.ViewGenerationId = View.GenerationId;
+            result.SourceRowsAlive = Source.Rows?.Count ?? 0;
+            result.Applied = true;
+        }
+    }
 }
