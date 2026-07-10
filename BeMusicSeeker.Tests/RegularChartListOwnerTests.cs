@@ -366,6 +366,75 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void RegularEntry_SelectsDefaultVirtualAndResetsUnsupportedSort()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel());
+        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
+        owner.TryPublishVirtualSourceRows(
+            lookup,
+            [CreateSourceRow("Folder B", "Bravo"), CreateSourceRow("Folder A", "Alpha")]);
+        RegularChartListEntryRequest request = CreateEntryRequest(
+            MainViewUpdateMode.FolderFilterSelected,
+            new RegularChartListSourceCatalog());
+        request.Sort = ChartListSortSpecification.Create("UnsupportedColumn", ListSortDirection.Descending, hasValue: true);
+
+        RegularChartListEntryResult result = owner.ApplyRegularView(request);
+
+        Assert.IsTrue(result.WasCommitted);
+        Assert.AreEqual(RegularChartListEntryRoute.DefaultVirtual, result.Route);
+        Assert.IsTrue(result.SortWasReset);
+        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]).Title);
+        Assert.AreEqual("Bravo", ((LibraryChartRow)table.Rows[1]).Title);
+    }
+
+    [TestMethod]
+    public void RegularEntry_SelectsSubsetSourceFromCatalog()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel());
+        var catalog = new RegularChartListSourceCatalog
+        {
+            ResourceFixCharts =
+            [
+                CreateSourceRow("Folder B", "Bravo").Chart,
+                CreateSourceRow("Folder A", "Alpha").Chart
+            ]
+        };
+        RegularChartListEntryRequest request = CreateEntryRequest(
+            MainViewUpdateMode.FileMissingFilterSelected,
+            catalog);
+
+        RegularChartListEntryResult result = owner.ApplyRegularView(request);
+
+        Assert.IsTrue(result.WasCommitted);
+        Assert.AreEqual(RegularChartListEntryRoute.SubsetVirtual, result.Route);
+        Assert.IsFalse(result.SortWasReset);
+        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]).Title);
+        Assert.AreEqual("Bravo", ((LibraryChartRow)table.Rows[1]).Title);
+    }
+
+    [TestMethod]
+    public void RegularEntry_DuplicateFolderContextSelectsOnlyMatchingCharts()
+    {
+        ChartFile matching = CreateSourceRow("Folder A", "Alpha").Chart;
+        ChartFile other = CreateSourceRow("Folder B", "Bravo").Chart;
+        var groups = new[]
+        {
+            new DuplicateGroup([matching, other], [matching.Folder, other.Folder]) { Header = "Group" }
+        };
+
+        Assert.IsTrue(RegularChartListOwner.TryResolveDuplicateSource(
+            groups,
+            DuplicateViewContext.ForFolder(System.IO.Path.Combine(@"C:\Charts", "Folder A")),
+            out RegularChartListSubsetSource source));
+        groups[0].ChartFiles.Clear();
+
+        CollectionAssert.AreEqual(new[] { matching }, source.SourceCharts.ToArray());
+        Assert.AreEqual("duplicate_folder", source.Name);
+    }
+
+    [TestMethod]
     public void DependencyInvalidation_PrunesDefaultAndSubsetOrderCachesTogether()
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
@@ -1031,6 +1100,35 @@ public sealed class RegularChartListOwnerTests
             workspace,
             _ => { },
             action => action());
+    }
+
+    private static RegularChartListEntryRequest CreateEntryRequest(
+        MainViewUpdateMode mode,
+        RegularChartListSourceCatalog sources)
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var columnSelection = new MainChartListColumnSelection(
+            settings,
+            reused: false,
+            elapsedMs: 0L,
+            mode,
+            Visibility.Collapsed,
+            new PlaylistSummaryColumnSettings());
+        return new RegularChartListEntryRequest
+        {
+            Mode = mode,
+            RequestedMode = mode,
+            CurrentTreeMode = mode,
+            IncludeBmsonRows = false,
+            KeywordFilter = string.Empty,
+            ModeFilter = RegularChartModeFilter.All,
+            Sort = ChartListSortSpecification.Create(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, hasValue: true),
+            Sources = sources,
+            ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
+            ColumnSelection = columnSelection,
+            TreeColumnSelection = columnSelection,
+            Stopwatch = Stopwatch.StartNew()
+        };
     }
 
     private static ChartListSourceRow CreateSourceRow(string folder, string fileName)

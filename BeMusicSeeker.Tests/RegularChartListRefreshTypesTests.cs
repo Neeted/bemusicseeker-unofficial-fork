@@ -63,45 +63,17 @@ public sealed class RegularChartListRefreshTypesTests
     }
 
     [TestMethod]
-    public void RefreshChartRowsView_DispatchesMainLibraryWorkflow()
+    public void RefreshChartRowsView_DispatchesRegularProductionEntry()
     {
         string refreshChartRowsView = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void RefreshChartRowsView(");
+        string root = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
         StringAssert.Contains(refreshChartRowsView, "ChartListRefreshCoordinator.ResolveRoute");
         StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
         StringAssert.Contains(refreshChartRowsView, "RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter)");
-        StringAssert.Contains(refreshChartRowsView, "ApplyMainLibraryChartListView(route.Mode, route.RequestedMode, parameter, route.IncludeBmsonRows, viewBuildStopwatch)");
-    }
-
-    [TestMethod]
-    public void ApplyMainLibraryChartListView_DelegatesMaterializedOwnership()
-    {
-        string mainLibraryWorkflow = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void ApplyMainLibraryChartListView(");
-
-        StringAssert.Contains(mainLibraryWorkflow, "new RegularChartListRefreshRequest(");
-        StringAssert.Contains(mainLibraryWorkflow, "regularRequest.VirtualSubsetRequiredFailure");
-        StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.TryApplyMaterialized(");
-        Assert.IsFalse(mainLibraryWorkflow.Contains("regularChartListOwner.TryBeginRequest("));
-        Assert.IsFalse(mainLibraryWorkflow.Contains("regularChartListOwner.Build("));
-        Assert.IsFalse(mainLibraryWorkflow.Contains("regularChartListOwner.TryCommit("));
-    }
-
-    [TestMethod]
-    public void VirtualDefaultRoute_DelegatesCompleteWorkflowWithoutRootCacheHelpers()
-    {
-        string route = SourceTextTestHelper.ReadMainWindowViewModelMethodBody(
-            "private bool TryApplyVirtualDefaultNormalLibraryView(");
-        string root = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker",
-            "ViewModels",
-            "MainWindowViewModel.cs");
-
-        StringAssert.Contains(route, "regularChartListOwner.TryApplyVirtualNormalLibrary(");
-        Assert.IsFalse(route.Contains("new ChartListVirtualView("));
-        Assert.IsFalse(route.Contains("TryCommitVirtual("));
-        Assert.IsFalse(root.Contains("private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows("));
-        Assert.IsFalse(root.Contains("private ChartListOrder GetOrCreateVirtualNormalLibraryOrder("));
-        Assert.IsFalse(root.Contains("private static int[] ApplyVirtualNormalLibraryFilters("));
-        Assert.IsFalse(root.Contains("private void RunVirtualNormalLibraryOrderPrewarm("));
+        StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyRegularView(");
+        Assert.IsFalse(root.Contains("ApplyMainLibraryChartListView"));
+        Assert.IsFalse(root.Contains("TryApplyVirtualDefaultNormalLibraryView"));
+        Assert.IsFalse(root.Contains("TryApplyVirtualChartSubsetLibraryView"));
     }
 }

@@ -1327,20 +1327,20 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualChartSubsetTreeModes_AreLimitedToChartCollections()
     {
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.FileMissingFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.FileMissingIgnoredFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.DuplicateFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.GarbledFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.GarbleFixedFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.UnregisteredFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.ZeroNoteFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.ChartInfoParseErrorFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.NewlyInstalledFolderSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.PendingInstallFolderSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.FileMissingFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.FileMissingIgnoredFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.DuplicateFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.GarbledFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.GarbleFixedFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.UnregisteredFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.ZeroNoteFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.ChartInfoParseErrorFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.NewlyInstalledFolderSelected));
+        Assert.IsTrue(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.PendingInstallFolderSelected));
 
-        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.FullScanAllChartsFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.FolderFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.PlaylistFilterSelected));
+        Assert.IsFalse(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.FullScanAllChartsFilterSelected));
+        Assert.IsFalse(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.FolderFilterSelected));
+        Assert.IsFalse(RegularChartListOwner.IsSubsetVirtualTreeMode(MainViewUpdateMode.PlaylistFilterSelected));
     }
 
     [TestMethod]
@@ -1433,7 +1433,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void PackageChartSourceSnapshot_UsesChartSourcesWithoutMaterializingBmson()
+    public void PackageChartEntrySnapshot_UsesChartSourcesWithoutMaterializingBmson()
     {
         var bms = new TestableBmsFile();
         bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
@@ -1445,15 +1445,15 @@ public sealed class ChartListVirtualViewTests
             adapterlessBmsonEntry
         ]);
 
-        PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
+        IReadOnlyList<PackageChartEntry> snapshot = RegularChartListOwner.CreatePackageEntrySnapshot([package]);
 
-        Assert.AreSame(bms, snapshot.Entries.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.GetBmsStorageOwner());
-        Assert.AreSame(bmson, snapshot.Entries.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson).Chart.GetBmsonStorageOwner());
+        Assert.AreSame(bms, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.GetBmsStorageOwner());
+        Assert.AreSame(bmson, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson).Chart.GetBmsonStorageOwner());
         Assert.IsNull(adapterlessBmsonEntry.GetBmsOwnerForTest());
     }
 
     [TestMethod]
-    public void PackageChartSourceSnapshot_TreatsBmsonEntryAsChartSource()
+    public void PackageChartEntrySnapshot_TreatsBmsonEntryAsChartSource()
     {
         var bms = new TestableBmsFile();
         bms.Apply(@"folder-a\bms.bms", "BmsTitle", "folder-a");
@@ -1464,10 +1464,10 @@ public sealed class ChartListVirtualViewTests
             PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson))
         ]);
 
-        PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
+        IReadOnlyList<PackageChartEntry> snapshot = RegularChartListOwner.CreatePackageEntrySnapshot([package]);
 
-        Assert.AreSame(bms, snapshot.Entries.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.GetBmsStorageOwner());
-        Assert.AreSame(bmson, snapshot.Entries.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson).Chart.GetBmsonStorageOwner());
+        Assert.AreSame(bms, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bms).Chart.GetBmsStorageOwner());
+        Assert.AreSame(bmson, snapshot.Single(entry => entry.Chart.Kind == ChartFileKind.Bmson).Chart.GetBmsonStorageOwner());
     }
 
     [TestMethod]
@@ -1476,8 +1476,8 @@ public sealed class ChartListVirtualViewTests
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
         PackageChartEntry adapterlessBmsonEntry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
         ChartPackage package = ChartPackage.FromChartEntries([adapterlessBmsonEntry]);
-        PackageChartSourceSnapshot snapshot = MainWindowViewModel.CreatePackageChartSourceSnapshot([package]);
-        List<ChartListSourceRow> rows = ChartListSourceRow.BuildPackageRows(snapshot.Entries);
+        IReadOnlyList<PackageChartEntry> snapshot = RegularChartListOwner.CreatePackageEntrySnapshot([package]);
+        List<ChartListSourceRow> rows = ChartListSourceRow.BuildPackageRows(snapshot);
 
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.WarningDigestText), ListSortDirection.Ascending, out _));
         Assert.IsTrue(ChartListOrder.TryCreate(rows, nameof(LibraryChartRow.instl_dst), ListSortDirection.Ascending, out _));
@@ -1912,7 +1912,7 @@ public sealed class ChartListVirtualViewTests
             bool expectedTreeSupport = treeModes.Contains(treeMode);
             Assert.AreEqual(
                 expectedTreeSupport,
-                MainWindowViewModel.IsVirtualNormalLibraryTreeModeSupportedForTest((int)treeMode),
+                RegularChartListOwner.IsDefaultVirtualRequest(treeMode, treeMode),
                 treeMode + " tree support");
             foreach (MainViewUpdateMode requestMode in allModes)
             {
@@ -1920,7 +1920,7 @@ public sealed class ChartListVirtualViewTests
                     && (requestMode == treeMode || refreshModes.Contains(requestMode));
                 Assert.AreEqual(
                     expectedRequestSupport,
-                    MainWindowViewModel.IsVirtualNormalLibraryRequestModeSupportedForTest((int)requestMode, (int)treeMode),
+                    RegularChartListOwner.IsDefaultVirtualRequest(requestMode, treeMode),
                     treeMode + " request " + requestMode);
             }
         }
@@ -1929,8 +1929,8 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualNormalLibraryFullScanTree_IgnoresFolderFilter()
     {
-        Assert.IsTrue(MainWindowViewModel.ShouldApplyVirtualNormalLibraryFolderFilterForTest((int)MainViewUpdateMode.FolderFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyVirtualNormalLibraryFolderFilterForTest((int)MainViewUpdateMode.FullScanAllChartsFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.ShouldApplyDefaultTreeFilter(MainViewUpdateMode.FolderFilterSelected));
+        Assert.IsFalse(RegularChartListOwner.ShouldApplyDefaultTreeFilter(MainViewUpdateMode.FullScanAllChartsFilterSelected));
     }
 
     [TestMethod]
@@ -1963,7 +1963,7 @@ public sealed class ChartListVirtualViewTests
             bool expectedTreeSupport = treeModes.Contains(treeMode);
             Assert.AreEqual(
                 expectedTreeSupport,
-                MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(treeMode),
+                RegularChartListOwner.IsSubsetVirtualTreeMode(treeMode),
                 treeMode + " tree support");
             foreach (MainViewUpdateMode requestMode in allModes)
             {
@@ -1971,12 +1971,12 @@ public sealed class ChartListVirtualViewTests
                     && (requestMode == treeMode || refreshModes.Contains(requestMode));
                 Assert.AreEqual(
                     expectedRequestSupport,
-                    MainWindowViewModel.IsVirtualChartSubsetRequestModeSupported(requestMode, treeMode),
+                    RegularChartListOwner.IsSubsetVirtualRequest(requestMode, treeMode),
                     treeMode + " request " + requestMode);
                 bool expectedRequired = expectedRequestSupport || treeModes.Contains(requestMode);
                 Assert.AreEqual(
                     expectedRequired,
-                    MainWindowViewModel.IsVirtualChartSubsetRequiredForRequest(requestMode, treeMode),
+                    RegularChartListOwner.IsSubsetVirtualRequired(requestMode, treeMode),
                     treeMode + " required " + requestMode);
             }
         }
@@ -2008,13 +2008,12 @@ public sealed class ChartListVirtualViewTests
             ],
             [Path.Combine("C:\\BMS", "DirA"), Path.Combine("C:\\BMS", "DirB")]);
 
-        Assert.IsTrue(MainWindowViewModel.TryGetVirtualDuplicateSourceChartsCore(
+        Assert.IsTrue(RegularChartListOwner.TryResolveDuplicateSource(
             [duplicateGroup],
-            duplicateGroup,
-            out IEnumerable<ChartFile> sourceCharts,
-            out _));
+            DuplicateViewContext.ForGroup(duplicateGroup.Header),
+            out RegularChartListSubsetSource source));
         List<ChartListSourceRow> rows = ChartListSourceRow.BuildStandardLibraryRows(
-            sourceCharts,
+            source.SourceCharts,
             ChartListSourceProjectionMode.PreserveSourceProjection,
             resourceHealthProjectionProvider: null,
             playlistReferenceDisplayProvider: null);
@@ -2104,16 +2103,16 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualChartSubsetResourceHealthProjection_MatchesMaterializedModes()
     {
-        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.FileMissingFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.FileMissingIgnoredFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.NewlyInstalledFolderSelected));
+        Assert.IsTrue(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.FileMissingFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.FileMissingIgnoredFilterSelected));
+        Assert.IsTrue(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.NewlyInstalledFolderSelected));
 
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.FullScanAllChartsFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.GarbledFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.UnregisteredFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.ZeroNoteFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.ChartInfoParseErrorFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.PendingInstallFolderSelected));
+        Assert.IsFalse(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.FullScanAllChartsFilterSelected));
+        Assert.IsFalse(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.GarbledFilterSelected));
+        Assert.IsFalse(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.UnregisteredFilterSelected));
+        Assert.IsFalse(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.ZeroNoteFilterSelected));
+        Assert.IsFalse(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.ChartInfoParseErrorFilterSelected));
+        Assert.IsFalse(RegularChartListOwner.ShouldApplyResourceHealthProjection(MainViewUpdateMode.PendingInstallFolderSelected));
     }
 
     [TestMethod]

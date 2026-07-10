@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
@@ -12,6 +14,7 @@ using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Views;
+using Ribbit.Util;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -25,6 +28,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly MainChartListViewModel mainChartList;
     private readonly PlaylistWorkspaceViewModel playlistWorkspace;
     private readonly Action<string> log;
+    private readonly Action<string> logWarning;
     private readonly Action<Action> dispatchToUi;
     private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> sortCache = [];
     private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualOrderCache = [];
@@ -69,12 +73,14 @@ internal sealed class RegularChartListOwner : IDisposable
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
         Action<string> log,
-        Action<Action> dispatchToUi)
+        Action<Action> dispatchToUi,
+        Action<string> logWarning = null)
     {
         this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
+        this.logWarning = logWarning ?? log;
     }
 
     internal RegularChartListCompletion LastCompletion
@@ -1061,6 +1067,583 @@ internal sealed class RegularChartListOwner : IDisposable
         return terminal.WasCommitted
             ? new RegularMaterializedChartListApplyResult(terminal.RowsApply, build, request.Mode)
             : default;
+    }
+
+    internal RegularChartListEntryResult ApplyRegularView(RegularChartListEntryRequest request)
+    {
+        if (request == null || request.Sources == null || request.Stopwatch == null)
+        {
+            throw new ArgumentException("A complete regular chart-list entry request is required.", nameof(request));
+        }
+        if (request.IncludeBmsonRows && request.Library == null)
+        {
+            throw new ArgumentException("A library is required when bmson rows are included.", nameof(request));
+        }
+
+        SynchronizeBmsonRowsForRefresh(request);
+        bool sortWasReset = !TryResolveVirtualSort(
+            request.Sort,
+            out string virtualSortColumn,
+            out ListSortDirection virtualSortDirection);
+        if (sortWasReset)
+        {
+            virtualSortColumn = nameof(LibraryChartRow.Title);
+            virtualSortDirection = ListSortDirection.Ascending;
+        }
+
+        if (IsDefaultVirtualRequest(request.Mode, request.CurrentTreeMode))
+        {
+            RegularVirtualNormalLibraryApplyResult result = TryApplyVirtualNormalLibrary(
+                new RegularVirtualNormalLibraryApplyRequest
+                {
+                    Library = request.Library,
+                    IncludeBmsonRows = request.IncludeBmsonRows,
+                    TreeFilter = CaptureTreeFilter(ShouldApplyDefaultTreeFilter(request.CurrentTreeMode)),
+                    KeywordFilter = request.KeywordFilter,
+                    ModeFilter = request.ModeFilter,
+                    SortColumnName = virtualSortColumn,
+                    SortDirection = virtualSortDirection,
+                    ExternalVersions = request.ExternalVersions,
+                    ColumnSelection = request.ColumnSelection,
+                    PreserveSummary = request.PreserveSummary,
+                    Mode = request.Mode,
+                    Stopwatch = request.Stopwatch,
+                    Reason = request.Mode.ToString()
+                });
+            LogDefaultVirtualEntry(request, result, sortWasReset);
+            return new RegularChartListEntryResult(result.WasCommitted, RegularChartListEntryRoute.DefaultVirtual, sortWasReset);
+        }
+
+        if (IsSubsetVirtualRequest(request.Mode, request.CurrentTreeMode)
+            && TryResolveSubsetSource(request, out RegularChartListSubsetSource subset))
+        {
+            RegularVirtualChartSubsetApplyResult result = TryApplyVirtualChartSubset(
+                new RegularVirtualChartSubsetApplyRequest
+                {
+                    Library = request.Library,
+                    SourceCharts = subset.SourceCharts,
+                    SourceEntries = subset.SourceEntries,
+                    SourceProjectionMode = subset.SourceProjectionMode,
+                    ApplyResourceHealthProjection = subset.ApplyResourceHealthProjection,
+                    TreeMode = request.CurrentTreeMode,
+                    SubsetName = subset.Name,
+                    KeywordFilter = request.KeywordFilter,
+                    ModeFilter = request.ModeFilter,
+                    SortColumnName = virtualSortColumn,
+                    SortDirection = virtualSortDirection,
+                    ExternalVersions = request.ExternalVersions,
+                    ColumnSelection = request.ColumnSelection,
+                    PreserveSummary = request.PreserveSummary,
+                    Mode = request.Mode,
+                    Stopwatch = request.Stopwatch
+                });
+            LogSubsetVirtualEntry(request, subset.Name, result, sortWasReset);
+            return new RegularChartListEntryResult(result.WasCommitted, RegularChartListEntryRoute.SubsetVirtual, sortWasReset);
+        }
+
+        bool virtualSubsetRequiredFailure = IsSubsetVirtualRequired(request.Mode, request.CurrentTreeMode);
+        if (virtualSubsetRequiredFailure)
+        {
+            logWarning("main_view_virtual_required_failed scope=chart_subset"
+                + " mode=" + request.Mode
+                + " requestedMode=" + request.RequestedMode
+                + " treeMode=" + request.CurrentTreeMode);
+        }
+        bool hasFolderRowsOverride = virtualSubsetRequiredFailure;
+        IEnumerable<LibraryChartRow> folderRowsOverride = virtualSubsetRequiredFailure ? [] : null;
+        MainViewUpdateMode effectiveMode = request.Mode;
+        object effectiveParameter = request.Parameter;
+        if (!virtualSubsetRequiredFailure
+            && MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
+                request.Mode,
+                HasFolderRows,
+                HasKeywordRows,
+                HasModeRows,
+                request.CurrentTreeMode))
+        {
+            effectiveMode = request.CurrentTreeMode;
+            effectiveParameter = request.TreeParameter;
+        }
+
+        var refreshRequest = new RegularChartListRefreshRequest(
+            effectiveMode,
+            request.RequestedMode,
+            effectiveParameter,
+            request.CurrentTreeMode,
+            request.TreeParameter,
+            request.IncludeBmsonRows,
+            virtualSubsetRequiredFailure,
+            request.KeywordFilter,
+            request.ModeFilter,
+            request.Sort);
+        if (!refreshRequest.VirtualSubsetRequiredFailure
+            && (refreshRequest.Mode == MainViewUpdateMode.FolderFilterSelected
+                || refreshRequest.Mode == MainViewUpdateMode.FullScanAllChartsFilterSelected))
+        {
+            hasFolderRowsOverride = true;
+            folderRowsOverride = [];
+        }
+
+        RegularMaterializedChartListApplyResult materialized = TryApplyMaterialized(
+            new RegularMaterializedChartListApplyRequest
+            {
+                RefreshRequest = refreshRequest,
+                HasFolderRowsOverride = hasFolderRowsOverride,
+                FolderRowsOverride = folderRowsOverride,
+                ExternalVersions = request.ExternalVersions,
+                ColumnSelection = effectiveMode == request.Mode ? request.ColumnSelection : request.TreeColumnSelection,
+                PreserveSummary = request.PreserveSummary,
+                Mode = effectiveMode,
+                Stopwatch = request.Stopwatch
+            });
+        LogMaterializedEntry(request, effectiveMode, refreshRequest, materialized);
+        return new RegularChartListEntryResult(materialized.WasCommitted, RegularChartListEntryRoute.Materialized, sortWasReset: false);
+    }
+
+    private void SynchronizeBmsonRowsForRefresh(RegularChartListEntryRequest request)
+    {
+        if (!request.IncludeBmsonRows)
+        {
+            return;
+        }
+
+        BmsonLibraryRowCacheSyncResult result = SyncBmsonRows(request.Library);
+        if (result.SortKeyChanged)
+        {
+            int cacheCount = InvalidateIdentitySortKeys(result.SourceIdentityChanged);
+            log("normal_library_sort_cache_invalidate reason=sort_key detail="
+                + (result.SourceIdentityChanged ? "bmson_source_identity_changed" : "bmson_sort_key_changed")
+                + " cacheCountBefore=" + cacheCount);
+        }
+        if (result.SourceChanged)
+        {
+            string reason = result.MembershipChanged
+                ? "bmson_membership_changed"
+                : result.SourceIdentityChanged
+                    ? "bmson_source_identity_changed"
+                    : "bmson_source_reference_changed";
+            if (TryInvalidateSourceForOwnedCollectionVersion(request.Library.OwnedChartCollectionVersion, out int cacheCount))
+            {
+                log("normal_library_sort_cache_invalidate reason=source detail=" + reason + " cacheCountBefore=" + cacheCount);
+            }
+            else
+            {
+                InvalidateVirtualSourceRows();
+            }
+        }
+    }
+
+    private static bool TryResolveVirtualSort(
+        ChartListSortSpecification sort,
+        out string columnName,
+        out ListSortDirection direction)
+    {
+        direction = sort.HasValue ? sort.Direction : ListSortDirection.Ascending;
+        if (!sort.HasValue)
+        {
+            columnName = nameof(LibraryChartRow.Title);
+            return true;
+        }
+        return ChartListOrder.TryNormalizeVirtualSortColumn(sort.RequestedColumnName, out columnName);
+    }
+
+    internal static bool IsDefaultVirtualRequest(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
+    {
+        return (treeMode == MainViewUpdateMode.FolderFilterSelected
+                || treeMode == MainViewUpdateMode.FullScanAllChartsFilterSelected)
+            && (mode == treeMode
+                || mode == MainViewUpdateMode.TreeViewFilterNotChanged
+                || mode == MainViewUpdateMode.KeywordFilterUpdated
+                || mode == MainViewUpdateMode.ModeFilterUpdated
+                || mode == MainViewUpdateMode.SortUpdated);
+    }
+
+    internal static bool IsSubsetVirtualRequest(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
+    {
+        return IsSubsetVirtualTreeMode(treeMode)
+            && (mode == treeMode
+                || mode == MainViewUpdateMode.TreeViewFilterNotChanged
+                || mode == MainViewUpdateMode.KeywordFilterUpdated
+                || mode == MainViewUpdateMode.ModeFilterUpdated
+                || mode == MainViewUpdateMode.SortUpdated);
+    }
+
+    internal static bool IsSubsetVirtualRequired(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
+    {
+        return IsSubsetVirtualRequest(mode, treeMode) || IsSubsetVirtualTreeMode(mode);
+    }
+
+    internal static bool IsSubsetVirtualTreeMode(MainViewUpdateMode mode)
+    {
+        return mode == MainViewUpdateMode.FileMissingFilterSelected
+            || mode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
+            || mode == MainViewUpdateMode.DuplicateFilterSelected
+            || mode == MainViewUpdateMode.GarbledFilterSelected
+            || mode == MainViewUpdateMode.GarbleFixedFilterSelected
+            || mode == MainViewUpdateMode.UnregisteredFilterSelected
+            || mode == MainViewUpdateMode.ZeroNoteFilterSelected
+            || mode == MainViewUpdateMode.ChartInfoParseErrorFilterSelected
+            || mode == MainViewUpdateMode.NewlyInstalledFolderSelected
+            || mode == MainViewUpdateMode.PendingInstallFolderSelected;
+    }
+
+    internal static bool ShouldApplyDefaultTreeFilter(MainViewUpdateMode treeMode)
+    {
+        return treeMode != MainViewUpdateMode.FullScanAllChartsFilterSelected;
+    }
+
+    internal static bool ShouldApplyResourceHealthProjection(MainViewUpdateMode treeMode)
+    {
+        return treeMode == MainViewUpdateMode.FileMissingFilterSelected
+            || treeMode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
+            || treeMode == MainViewUpdateMode.NewlyInstalledFolderSelected;
+    }
+
+    private static bool TryResolveSubsetSource(
+        RegularChartListEntryRequest request,
+        out RegularChartListSubsetSource source)
+    {
+        object parameter = request.CurrentTreeMode == MainViewUpdateMode.DuplicateFilterSelected
+            ? request.TreeParameter ?? request.Parameter
+            : request.CurrentTreeMode == MainViewUpdateMode.NewlyInstalledFolderSelected
+                || request.CurrentTreeMode == MainViewUpdateMode.PendingInstallFolderSelected
+                    ? request.TreeParameter ?? request.Parameter
+                    : request.Parameter;
+        RegularChartListSourceCatalog sources = request.Sources;
+        switch (request.CurrentTreeMode)
+        {
+            case MainViewUpdateMode.FileMissingFilterSelected:
+                source = RegularChartListSubsetSource.ForCharts(sources.ResourceFixCharts, "file_missing", applyResourceHealthProjection: true);
+                return true;
+            case MainViewUpdateMode.FileMissingIgnoredFilterSelected:
+                source = RegularChartListSubsetSource.ForCharts(sources.IgnoredResourceFixCharts, "file_missing_ignored", applyResourceHealthProjection: true);
+                return true;
+            case MainViewUpdateMode.DuplicateFilterSelected:
+                return TryResolveDuplicateSource(sources.DuplicateGroups, parameter, out source);
+            case MainViewUpdateMode.GarbledFilterSelected:
+                source = RegularChartListSubsetSource.ForCharts(sources.GarbledCharts, "garbled", ChartListSourceProjectionMode.OwnerBacked);
+                return true;
+            case MainViewUpdateMode.GarbleFixedFilterSelected:
+                source = RegularChartListSubsetSource.ForCharts(sources.GarbleFixedCharts, "garble_fixed", ChartListSourceProjectionMode.OwnerBacked);
+                return true;
+            case MainViewUpdateMode.UnregisteredFilterSelected:
+                source = RegularChartListSubsetSource.ForCharts(sources.UnregisteredCharts, "unregistered", ChartListSourceProjectionMode.OwnerBacked);
+                return true;
+            case MainViewUpdateMode.ZeroNoteFilterSelected:
+                source = RegularChartListSubsetSource.ForCharts(sources.ZeroNoteCharts, "zero_note", ChartListSourceProjectionMode.OwnerBacked);
+                return true;
+            case MainViewUpdateMode.ChartInfoParseErrorFilterSelected:
+                source = RegularChartListSubsetSource.ForCharts(sources.ChartInfoParseFailedCharts, "chart_info_parse_error");
+                return true;
+            case MainViewUpdateMode.NewlyInstalledFolderSelected:
+                source = ResolvePackageSource(sources.InstalledPackages, parameter, "newly_installed_all", "newly_installed_package", applyResourceHealthProjection: true);
+                return true;
+            case MainViewUpdateMode.PendingInstallFolderSelected:
+                source = ResolvePackageSource(sources.PendingPackages, parameter, "pending_install_all", "pending_install_package", applyResourceHealthProjection: false);
+                return true;
+            default:
+                source = null;
+                return false;
+        }
+    }
+
+    private static RegularChartListSubsetSource ResolvePackageSource(
+        IEnumerable<ChartPackage> packages,
+        object parameter,
+        string allName,
+        string packageName,
+        bool applyResourceHealthProjection)
+    {
+        if (packages == null)
+        {
+            return RegularChartListSubsetSource.ForEntries([], allName, applyResourceHealthProjection);
+        }
+        IEnumerable<PackageChartEntry> entries = parameter is ChartPackage package
+            ? (package.ChartEntries ?? []).Where(entry => entry?.Chart != null).ToArray()
+            : CreatePackageEntrySnapshot(packages);
+        return RegularChartListSubsetSource.ForEntries(
+            entries,
+            parameter is ChartPackage ? packageName : allName,
+            applyResourceHealthProjection);
+    }
+
+    internal static IReadOnlyList<PackageChartEntry> CreatePackageEntrySnapshot(IEnumerable<ChartPackage> packages)
+    {
+        List<PackageChartEntry> snapshot = null;
+        RetryHelper.RetryIfError(delegate
+        {
+            snapshot = [];
+            foreach (ChartPackage package in packages ?? [])
+            {
+                try
+                {
+                    if (package != null)
+                    {
+                        snapshot.AddRange((package.ChartEntries ?? []).Where(entry => entry?.Chart != null));
+                    }
+                }
+                catch
+                {
+                }
+            }
+        }, delegate (Exception ex)
+        {
+            ExceptionDispatchInfo.Capture(ex).Throw();
+        }, delegate
+        {
+            Thread.Sleep(100);
+        }, 100u);
+        return snapshot ?? [];
+    }
+
+    internal static bool TryResolveDuplicateSource(
+        IEnumerable<DuplicateGroup> duplicateGroups,
+        object parameter,
+        out RegularChartListSubsetSource source)
+    {
+        if (duplicateGroups == null)
+        {
+            source = RegularChartListSubsetSource.ForCharts([], "duplicate_empty");
+            return true;
+        }
+        List<DuplicateGroup> groups = [.. (duplicateGroups ?? []).Where(group => group != null)];
+        if (parameter == null)
+        {
+            source = RegularChartListSubsetSource.ForCharts(
+                [.. groups.SelectMany(group => group.ChartFiles)],
+                "duplicate_all");
+            return true;
+        }
+        if (parameter is DuplicateViewContext context)
+        {
+            if (context.Kind == DuplicateViewContextKind.GroupHeader)
+            {
+                DuplicateGroup group = groups.FirstOrDefault(item => string.Equals(item.Header, context.Value, StringComparison.Ordinal));
+                IEnumerable<ChartFile> charts = group != null
+                    ? group.ChartFiles
+                    : [.. groups.SelectMany(item => item.ChartFiles)];
+                source = RegularChartListSubsetSource.ForCharts(charts, "duplicate_group");
+                return true;
+            }
+            string prefix = context.Value + Path.DirectorySeparatorChar;
+            source = RegularChartListSubsetSource.ForCharts(
+                [.. groups.SelectMany(group => group.ChartFiles)
+                    .Where(chart => !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))],
+                "duplicate_folder");
+            return true;
+        }
+        source = null;
+        return false;
+    }
+
+    private void LogDefaultVirtualEntry(
+        RegularChartListEntryRequest request,
+        RegularVirtualNormalLibraryApplyResult result,
+        bool sortWasReset)
+    {
+        if (sortWasReset)
+        {
+            logWarning("main_view_virtual_sort_reset scope=normal_library"
+                + " mode=" + request.Mode
+                + " requestedMode=" + request.RequestedMode
+                + " treeMode=" + request.CurrentTreeMode
+                + " requestedSortColumn=" + (request.Sort.RequestedColumnName ?? "(default_title)")
+                + " appliedSortColumn=" + nameof(LibraryChartRow.Title)
+                + " appliedSortDirection=" + ListSortDirection.Ascending);
+        }
+        if (result.WasCommitted)
+        {
+            LogMainSortDetail(ChartListRefreshCoordinator.CreateVirtualSortMetrics(
+                result.Order,
+                result.SortMs,
+                result.SortCacheHit,
+                GetSortCacheGenerationForLog(result.SortCacheKey),
+                result.OrderCacheLookupMs,
+                result.OrderBuildMs));
+        }
+        MainChartListRowsApplyResult rowsApply = result.Terminal.RowsApply;
+        log("main_view_build route=default_virtual"
+            + " mode=" + request.Mode
+            + " requestedMode=" + request.RequestedMode
+            + " committed=" + result.WasCommitted
+            + " sortReset=" + sortWasReset
+            + " folderMs=" + result.FolderMs
+            + " keywordMs=" + result.KeywordMs
+            + " modeMs=" + result.ModeMs
+            + " sortMs=" + result.SortMs
+            + " sortReuse=" + result.SortCacheHit
+            + " sortProfile=" + (result.Order?.SortProfile ?? string.Empty)
+            + " sortEngine=virtual virtual=True"
+            + " sourceRowsMs=" + result.SourceRowsMs
+            + " columnMs=" + rowsApply.ColumnStageMs
+            + " prepareSwapMs=" + rowsApply.PrepareSwapMs
+            + " columnSettingMs=" + rowsApply.ColumnSettingMs
+            + " setViewMs=" + rowsApply.SetViewMs
+            + " columnSettingReuse=" + rowsApply.ColumnSettingReuse
+            + " folderCount=" + result.FolderCount
+            + " keywordCount=" + result.KeywordCount
+            + " modeCount=" + result.ModeCount
+            + " viewCount=" + (result.RowsView?.Count ?? 0)
+            + " sourceRows=" + result.SourceRowCount
+            + " orderedRows=" + (result.Order?.Count ?? 0)
+            + " viewRowsCreated=" + (result.RowsView?.RealizedRowCount ?? 0)
+            + " distinctFolderCount=" + result.DistinctFolderCount
+            + " summaryFolderCountReuse=" + result.SummaryCacheHit
+            + " sourceRowsReuse=" + result.SourceRowsCacheHit
+            + " orderCacheLookupMs=" + result.OrderCacheLookupMs
+            + " orderBuildMs=" + result.OrderBuildMs
+            + " totalMs=" + request.Stopwatch.ElapsedMilliseconds);
+    }
+
+    private void LogSubsetVirtualEntry(
+        RegularChartListEntryRequest request,
+        string subsetName,
+        RegularVirtualChartSubsetApplyResult result,
+        bool sortWasReset)
+    {
+        if (sortWasReset)
+        {
+            logWarning("main_view_virtual_subset_sort_reset"
+                + " mode=" + request.Mode
+                + " requestedMode=" + request.RequestedMode
+                + " treeMode=" + request.CurrentTreeMode
+                + " requestedSortColumn=" + (request.Sort.RequestedColumnName ?? "(default_title)")
+                + " appliedSortColumn=" + nameof(LibraryChartRow.Title)
+                + " appliedSortDirection=" + ListSortDirection.Ascending);
+        }
+        if (result.WasCommitted)
+        {
+            LogMainSortDetail(ChartListRefreshCoordinator.CreateVirtualSortMetrics(
+                result.Order,
+                result.SortMs,
+                result.SortCacheHit,
+                GetSortCacheGenerationForLog(result.SortCacheKey),
+                result.OrderCacheLookupMs,
+                result.OrderBuildMs));
+        }
+        if (result.WasCommitted && ShouldApplyResourceHealthProjection(request.CurrentTreeMode))
+        {
+            LogResourceHealthProjection(request.Library, request.CurrentTreeMode, result.RowsView?.Count ?? 0);
+        }
+        MainChartListRowsApplyResult rowsApply = result.Terminal.RowsApply;
+        log("main_view_build route=subset_virtual"
+            + " mode=" + request.Mode
+            + " requestedMode=" + request.RequestedMode
+            + " treeMode=" + request.CurrentTreeMode
+            + " subset=" + subsetName
+            + " committed=" + result.WasCommitted
+            + " sortReset=" + sortWasReset
+            + " keywordMs=" + result.KeywordMs
+            + " modeMs=" + result.ModeMs
+            + " sortMs=" + result.SortMs
+            + " sortReuse=" + result.SortCacheHit
+            + " sortProfile=" + (result.Order?.SortProfile ?? string.Empty)
+            + " sortEngine=virtual virtual=True"
+            + " sourceRowsMs=" + result.SourceRowsMs
+            + " columnMs=" + rowsApply.ColumnStageMs
+            + " prepareSwapMs=" + rowsApply.PrepareSwapMs
+            + " columnSettingMs=" + rowsApply.ColumnSettingMs
+            + " setViewMs=" + rowsApply.SetViewMs
+            + " columnSettingReuse=" + rowsApply.ColumnSettingReuse
+            + " sourceCount=" + result.SourceRowCount
+            + " keywordCount=" + result.KeywordCount
+            + " modeCount=" + result.ModeCount
+            + " viewCount=" + (result.RowsView?.Count ?? 0)
+            + " orderedRows=" + (result.Order?.Count ?? 0)
+            + " viewRowsCreated=" + (result.RowsView?.RealizedRowCount ?? 0)
+            + " distinctFolderCount=" + result.DistinctFolderCount
+            + " sourceRowsSignature=" + result.SourceRowsSignature
+            + " orderCacheLookupMs=" + result.OrderCacheLookupMs
+            + " orderBuildMs=" + result.OrderBuildMs
+            + " totalMs=" + request.Stopwatch.ElapsedMilliseconds);
+    }
+
+    private void LogMaterializedEntry(
+        RegularChartListEntryRequest request,
+        MainViewUpdateMode effectiveMode,
+        RegularChartListRefreshRequest refreshRequest,
+        RegularMaterializedChartListApplyResult result)
+    {
+        MainChartListRowsApplyResult rowsApply = result.RowsApply;
+        log("main_view_build route=materialized"
+            + " mode=" + effectiveMode
+            + " requestedMode=" + request.RequestedMode
+            + " committed=" + result.WasCommitted
+            + " folderMs=" + result.FolderMs
+            + " keywordMs=" + result.KeywordMs
+            + " modeMs=" + result.ModeMs
+            + " sortMs=" + result.SortMs
+            + " sortReuse=" + result.SortReuse
+            + " sortProfile=" + result.SortProfile
+            + " sortEngine=fast virtual=False"
+            + " columnMs=" + rowsApply.ColumnStageMs
+            + " prepareSwapMs=" + rowsApply.PrepareSwapMs
+            + " columnSettingMs=" + rowsApply.ColumnSettingMs
+            + " setViewMs=" + rowsApply.SetViewMs
+            + " columnSettingReuse=" + rowsApply.ColumnSettingReuse
+            + " folderCount=" + result.FolderCount
+            + " keywordCount=" + result.KeywordCount
+            + " modeCount=" + result.ModeCount
+            + " viewCount=" + result.ViewCount
+            + " sortColumn=" + (refreshRequest.HasSortParameters ? refreshRequest.RequestedSortColumnName : "(default_title)")
+            + " sortDirection=" + refreshRequest.SortDirection
+            + " totalMs=" + request.Stopwatch.ElapsedMilliseconds);
+    }
+
+    private void LogMainSortDetail(LibraryChartSortMetrics metrics)
+    {
+        log("main_sort_detail rowCount=" + metrics.RowCount
+            + " columnName=" + (metrics.ColumnName ?? string.Empty)
+            + " direction=" + metrics.Direction
+            + " propertyType=" + (metrics.PropertyTypeName ?? "(null)")
+            + " sortProfile=" + (metrics.SortProfile ?? string.Empty)
+            + " stringSortKind=" + (metrics.StringSortKind ?? string.Empty)
+            + " sortReuse=" + metrics.SortReuse
+            + " sortCacheKey=" + (metrics.SortCacheKey ?? string.Empty)
+            + " sortCacheGeneration=" + metrics.SortCacheGeneration
+            + " sortCacheHit=" + metrics.SortCacheHit
+            + " orderCacheLookupMs=" + metrics.OrderCacheLookupMs
+            + " orderBuildMs=" + metrics.OrderBuildMs
+            + " sortMs=" + metrics.SortMs);
+    }
+
+    private void LogResourceHealthProjection(BMSLibrary library, MainViewUpdateMode mode, int rowCount)
+    {
+        ResourceHealthIndexSnapshot snapshot = library?.TryGetCurrentResourceHealthIndexSnapshotForView();
+        int overlayCount = snapshot == null
+            ? 0
+            : mode == MainViewUpdateMode.FileMissingFilterSelected
+                ? snapshot.ActiveTargets.Count
+                : mode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
+                    ? snapshot.IgnoredTargets.Count
+                    : snapshot.NeedFixCount;
+        log("resource_health_projection reason=" + mode
+            + " rowCount=" + rowCount
+            + " overlayCount=" + overlayCount
+            + " ignored=" + (snapshot?.IgnoredCount ?? 0)
+            + " version=" + (snapshot?.Version ?? 0));
+    }
+
+    private static long GetSortCacheGenerationForLog(NormalLibrarySortCacheKey key)
+    {
+        if (key.ScoreGeneration != 0) return key.ScoreGeneration;
+        if (key.ChartInfoGeneration != 0) return key.ChartInfoGeneration;
+        if (key.WarningGeneration != 0) return key.WarningGeneration;
+        if (key.InstallDestinationGeneration != 0) return key.InstallDestinationGeneration;
+        if (key.ReferenceTablesGeneration != 0) return key.ReferenceTablesGeneration;
+        if (key.MaintenanceGeneration != 0) return key.MaintenanceGeneration;
+        return key.SortKeyGeneration;
+    }
+
+    private static long GetSortCacheGenerationForLog(VirtualChartSubsetSortCacheKey key)
+    {
+        if (key.ScoreGeneration != 0) return key.ScoreGeneration;
+        if (key.ChartInfoGeneration != 0) return key.ChartInfoGeneration;
+        if (key.WarningGeneration != 0) return key.WarningGeneration;
+        if (key.InstallDestinationGeneration != 0) return key.InstallDestinationGeneration;
+        if (key.ReferenceTablesGeneration != 0) return key.ReferenceTablesGeneration;
+        if (key.MaintenanceGeneration != 0) return key.MaintenanceGeneration;
+        return key.SortKeyGeneration;
     }
 
     internal RegularChartListTerminalResult TryCommit(
@@ -2360,6 +2943,133 @@ internal sealed class RegularChartListBuildInput
     internal IEnumerable<LibraryChartRow> FolderRowsOverride { get; set; }
     internal NormalLibrarySortCacheGenerationSnapshot SortCacheGeneration { get; set; }
     internal Stopwatch Stopwatch { get; set; }
+}
+
+internal sealed class RegularChartListEntryRequest
+{
+    internal BMSLibrary Library { get; set; }
+
+    internal MainViewUpdateMode Mode { get; set; }
+
+    internal MainViewUpdateMode RequestedMode { get; set; }
+
+    internal object Parameter { get; set; }
+
+    internal MainViewUpdateMode CurrentTreeMode { get; set; }
+
+    internal object TreeParameter { get; set; }
+
+    internal bool IncludeBmsonRows { get; set; }
+
+    internal string KeywordFilter { get; set; }
+
+    internal RegularChartModeFilter ModeFilter { get; set; }
+
+    internal ChartListSortSpecification Sort { get; set; }
+
+    internal RegularChartListSourceCatalog Sources { get; set; }
+
+    internal RegularChartListExternalVersions ExternalVersions { get; set; }
+
+    internal MainChartListColumnSelection ColumnSelection { get; set; }
+
+    internal MainChartListColumnSelection TreeColumnSelection { get; set; }
+
+    internal bool PreserveSummary { get; set; }
+
+    internal Stopwatch Stopwatch { get; set; }
+}
+
+internal sealed class RegularChartListSourceCatalog
+{
+    internal IEnumerable<ChartFile> ResourceFixCharts { get; set; }
+
+    internal IEnumerable<ChartFile> IgnoredResourceFixCharts { get; set; }
+
+    internal IEnumerable<DuplicateGroup> DuplicateGroups { get; set; }
+
+    internal IEnumerable<ChartFile> GarbledCharts { get; set; }
+
+    internal IEnumerable<ChartFile> GarbleFixedCharts { get; set; }
+
+    internal IEnumerable<ChartFile> UnregisteredCharts { get; set; }
+
+    internal IEnumerable<ChartFile> ZeroNoteCharts { get; set; }
+
+    internal IEnumerable<ChartFile> ChartInfoParseFailedCharts { get; set; }
+
+    internal IEnumerable<ChartPackage> InstalledPackages { get; set; }
+
+    internal IEnumerable<ChartPackage> PendingPackages { get; set; }
+}
+
+internal sealed class RegularChartListSubsetSource
+{
+    private RegularChartListSubsetSource()
+    {
+    }
+
+    internal IEnumerable<ChartFile> SourceCharts { get; private set; }
+
+    internal IEnumerable<PackageChartEntry> SourceEntries { get; private set; }
+
+    internal ChartListSourceProjectionMode SourceProjectionMode { get; private set; }
+
+    internal bool ApplyResourceHealthProjection { get; private set; }
+
+    internal string Name { get; private set; }
+
+    internal static RegularChartListSubsetSource ForCharts(
+        IEnumerable<ChartFile> charts,
+        string name,
+        ChartListSourceProjectionMode projectionMode = ChartListSourceProjectionMode.PreserveSourceProjection,
+        bool applyResourceHealthProjection = false)
+    {
+        return new RegularChartListSubsetSource
+        {
+            SourceCharts = charts ?? [],
+            SourceProjectionMode = projectionMode,
+            ApplyResourceHealthProjection = applyResourceHealthProjection,
+            Name = name ?? string.Empty
+        };
+    }
+
+    internal static RegularChartListSubsetSource ForEntries(
+        IEnumerable<PackageChartEntry> entries,
+        string name,
+        bool applyResourceHealthProjection)
+    {
+        return new RegularChartListSubsetSource
+        {
+            SourceEntries = entries ?? [],
+            SourceProjectionMode = ChartListSourceProjectionMode.PreserveSourceProjection,
+            ApplyResourceHealthProjection = applyResourceHealthProjection,
+            Name = name ?? string.Empty
+        };
+    }
+}
+
+internal enum RegularChartListEntryRoute
+{
+    DefaultVirtual,
+    SubsetVirtual,
+    Materialized
+}
+
+internal readonly struct RegularChartListEntryResult
+{
+    internal RegularChartListEntryResult(bool wasCommitted, RegularChartListEntryRoute route, bool sortWasReset)
+    {
+        WasCommitted = wasCommitted;
+        Route = route;
+        SortWasReset = sortWasReset;
+    }
+
+    internal bool WasCommitted { get; }
+
+    internal RegularChartListEntryRoute Route { get; }
+
+    internal bool SortWasReset { get; }
 }
 
 internal sealed class RegularChartListBuildResult

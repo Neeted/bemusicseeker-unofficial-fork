@@ -2081,18 +2081,12 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string mainLibraryWorkflow = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void ApplyMainLibraryChartListView");
-        string virtualSubsetSource = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private bool TryGetVirtualChartSubsetSourceFiles");
-        string virtualDuplicateSource = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("internal static bool TryGetVirtualDuplicateSourceChartsCore");
+        string ownerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "RegularChartListOwner.cs");
 
-        StringAssert.Contains(mainLibraryWorkflow, "bool virtualChartSubsetRequiredFailure = false");
-        StringAssert.Contains(mainLibraryWorkflow, "IsVirtualChartSubsetRequiredForRequest(mode, treeViewFilterTypeSelected)");
-        Assert.IsFalse(mainLibraryWorkflow.Contains("case MainViewUpdateMode.DuplicateFilterSelected:"));
-        Assert.IsFalse(mainLibraryWorkflow.Contains("case MainViewUpdateMode.FileMissingFilterSelected:"));
-        Assert.IsFalse(mainLibraryWorkflow.Contains("case MainViewUpdateMode.NewlyInstalledFolderSelected:"));
-        StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesGarbled;");
-        StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesGarbledFixed;");
-        StringAssert.Contains(virtualSubsetSource, "sourceCharts = ChartFilesUnregistered;");
         Assert.IsFalse(viewModelCode.Contains("CreateBmsChartSnapshot("));
         Assert.IsFalse(viewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesGarbled"));
         Assert.IsFalse(viewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFilesUnregistered"));
@@ -2100,17 +2094,13 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(libraryCode.Contains("public List<BMSFile> BMSFilesUnregistered"));
         StringAssert.Contains(libraryCode, "internal IEnumerable<ChartFile> ChartFilesGarbled");
         StringAssert.Contains(libraryCode, "internal IEnumerable<ChartFile> ChartFilesUnregistered");
-        StringAssert.Contains(virtualDuplicateSource, "DuplicateGroup");
-        StringAssert.Contains(virtualDuplicateSource, "CreateDuplicateChartFileSnapshot(groupSnapshot)");
-        Assert.IsFalse(virtualDuplicateSource.Contains("List<BeMusicSeeker.Models.BMSFile>"));
-        Assert.IsFalse(virtualDuplicateSource.Contains("parameter as List<BeMusicSeeker.Models.BMSFile>"));
+        StringAssert.Contains(ownerCode, "internal static bool TryResolveDuplicateSource(");
+        Assert.IsFalse(ownerCode.Contains("List<BeMusicSeeker.Models.BMSFile>"));
     }
 
     [TestMethod]
     public void VirtualChartSubsetRoutesTerminalApplyThroughRegularChartOwner()
     {
-        string workflow = SourceTextTestHelper.ReadMainWindowViewModelMethodBody(
-            "private bool TryApplyVirtualChartSubsetLibraryView");
         string root = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
@@ -2121,16 +2111,13 @@ public sealed class MainWindowContextMenuResourceTests
             "MainWindow",
             "RegularChartListOwner.cs");
 
-        StringAssert.Contains(workflow, "regularChartListOwner.TryApplyVirtualChartSubset");
-        Assert.IsFalse(workflow.Contains("TryBeginRequest"));
-        Assert.IsFalse(workflow.Contains("TryCommitVirtual"));
-        StringAssert.Contains(workflow, "if (!result.WasCommitted)");
-        Assert.IsFalse(workflow.Contains("MainChartList.ApplyRows("));
-        Assert.IsFalse(workflow.Contains("CommitMainColumnSetting("));
+        Assert.IsFalse(root.Contains("TryApplyVirtualChartSubsetLibraryView"));
+        Assert.IsFalse(root.Contains("ApplyMainLibraryChartListView"));
         Assert.IsFalse(root.Contains("private ChartListOrder GetOrCreateVirtualChartSubsetOrder("));
         Assert.IsFalse(root.Contains("private static int[] ApplyVirtualChartSubsetFilters("));
         Assert.IsFalse(root.Contains("ComputeVirtualChartSubsetSourceRowsSignatureForTest"));
-        StringAssert.Contains(owner, "internal RegularVirtualChartSubsetApplyResult TryApplyVirtualChartSubset(");
+        StringAssert.Contains(owner, "internal RegularChartListEntryResult ApplyRegularView(");
+        StringAssert.Contains(owner, "TryApplyVirtualChartSubset(");
         StringAssert.Contains(owner, "TryCommitVirtual(");
     }
 
