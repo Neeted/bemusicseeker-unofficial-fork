@@ -165,9 +165,9 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "CreatePlaylistBuildRequestViewSnapshotUnsafe");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
-        StringAssert.Contains(terminalOwnerSource, "buildState.RequestVersion++;");
-        StringAssert.Contains(terminalOwnerSource, "buildState.PendingRequest = null;");
-        StringAssert.Contains(terminalOwnerSource, "commit.BuildCancellation?.Cancel();");
+        StringAssert.Contains(buildStateSource, "RequestVersion++;");
+        StringAssert.Contains(buildStateSource, "PendingRequest = null;");
+        StringAssert.Contains(buildStateSource, "commit.BuildCancellation?.Cancel();");
         Assert.AreEqual(-1, rootSource.IndexOf("CommitPlaylistSourceClearWithoutCallbacks", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PublishPlaylistSourceClear", StringComparison.Ordinal));
         StringAssert.Contains(rootSource, "PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot)");
@@ -364,14 +364,7 @@ public sealed class PlaylistViewPipelineTests
         viewState.View.Rows = viewRows;
         viewState.View.GenerationId = 13;
         viewState.View.LastAppliedCount = 1;
-        var owner = new PlaylistDetailTerminalOwner(
-            buildState,
-            viewState,
-            new MainChartListViewModel(),
-            new PlaylistWorkspaceViewModel(action => action()),
-            _ => { });
-
-        PlaylistSourceClearCommitResult commit = owner.CommitSourceClearWithoutCallbacks();
+        PlaylistSourceClearCommitResult commit = buildState.CommitSourceClear(viewState);
 
         Assert.AreEqual(8, buildState.RequestVersion);
         Assert.IsNull(buildState.PendingRequest);
@@ -391,7 +384,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNull(viewState.CurrentOpenInteraction);
         Assert.AreEqual(0, viewRow.DisposeCount, "Source clear must not duplicate main-table row disposal.");
 
-        owner.PublishSourceClear(commit);
+        buildState.PublishSourceClear(commit);
 
         Assert.IsTrue(buildCancellation.IsCancellationRequested);
         Assert.AreEqual(0, viewRow.DisposeCount);
@@ -402,15 +395,10 @@ public sealed class PlaylistViewPipelineTests
     {
         var cancellation = new CancellationTokenSource();
         cancellation.Dispose();
-        var owner = new PlaylistDetailTerminalOwner(
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            new MainChartListViewModel(),
-            new PlaylistWorkspaceViewModel(action => action()),
-            _ => { });
+        var buildState = new PlaylistDetailBuildState();
         var commit = new PlaylistSourceClearCommitResult(null, null, 0, cancellation);
 
-        owner.PublishSourceClear(commit);
+        buildState.PublishSourceClear(commit);
     }
 
     [TestMethod]

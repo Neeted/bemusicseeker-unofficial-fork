@@ -1,3 +1,6 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.Threading;
 
 namespace BeMusicSeeker.ViewModels;
@@ -51,4 +54,74 @@ internal sealed class PlaylistDetailBuildState
     /// Whether shutdown cancellation has been requested for the current worker lifecycle.
     /// </summary>
     internal bool ShutdownCancellationRequested;
+
+    internal PlaylistSourceClearCommitResult CommitSourceClear(PlaylistDetailViewState viewState)
+    {
+        if (viewState == null)
+        {
+            throw new ArgumentNullException(nameof(viewState));
+        }
+
+        List<PlaylistDetailSourceRow> sourceRows;
+        IList viewRows;
+        long previousGenerationId;
+        CancellationTokenSource buildCancellation;
+        lock (SyncRoot)
+        {
+            RequestVersion++;
+            PendingRequest = null;
+            buildCancellation = CurrentBuildCancellation;
+            lock (viewState.SyncRoot)
+            {
+                sourceRows = viewState.Source.Rows;
+                previousGenerationId = viewState.Source.GenerationId;
+                viewRows = viewState.View.Rows;
+                long previousViewGenerationId = viewState.View.GenerationId;
+                if (sourceRows != null)
+                {
+                    viewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRows);
+                    viewState.Source.PreviousGenerationId = previousGenerationId;
+                }
+                if (viewRows != null)
+                {
+                    viewState.View.PreviousRowsWeakReference = new WeakReference<IList>(viewRows);
+                    viewState.View.PreviousGenerationId = previousViewGenerationId;
+                }
+                viewState.Source.Rows = [];
+                viewState.View.Rows = new List<object>();
+                viewState.Source.CurrentTable = null;
+                viewState.Source.CurrentFolderName = null;
+                viewState.Source.CurrentFilterType = PlaylistDetailFilter.PlaylistFilter;
+                viewState.View.CurrentIdentity = null;
+                viewState.Source.CurrentIdentity = null;
+                viewState.CurrentOpenInteraction = null;
+                viewState.Source.LastBuiltLibraryIndexVersion = 0L;
+                viewState.Source.LastBuiltPlaylistRevision = 0L;
+                viewState.Source.LastBuiltScoreSnapshotVersion = 0;
+                viewState.Source.LastBuiltChartInfoIndexVersion = 0;
+                viewState.Source.GenerationId = 0L;
+                viewState.View.GenerationId = 0L;
+                viewState.View.LastAppliedCount = 0;
+                viewState.Source.IsPlaylistCellEditing = false;
+                viewState.Source.PendingScoreSnapshotRefreshVersion = 0;
+            }
+            CurrentBuildRequest = null;
+        }
+        return new PlaylistSourceClearCommitResult(sourceRows, viewRows, previousGenerationId, buildCancellation);
+    }
+
+    internal void PublishSourceClear(PlaylistSourceClearCommitResult commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
+        try
+        {
+            commit.BuildCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
 }

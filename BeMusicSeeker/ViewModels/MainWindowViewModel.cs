@@ -4849,8 +4849,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private void ClearPlaylistSourceRows()
     {
-        PlaylistSourceClearCommitResult commit = playlistDetailTerminalOwner.CommitSourceClearWithoutCallbacks();
-        playlistDetailTerminalOwner.PublishSourceClear(commit);
+        PlaylistSourceClearCommitResult commit = playlistDetailBuildState.CommitSourceClear(playlistViewState);
+        playlistDetailBuildState.PublishSourceClear(commit);
         LogPlaylistSourceClear(commit);
     }
 
@@ -6999,7 +6999,8 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             PlaylistWorkspace,
             regularChartListOwner,
-            playlistDetailTerminalOwner,
+            playlistDetailBuildState,
+            playlistViewState,
             RaisePropertyChanged,
             LogPlaylistSourceClear);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));

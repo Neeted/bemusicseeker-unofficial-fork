@@ -11,7 +11,8 @@ internal sealed class PlayHistoryTerminalOwner
     private readonly MainChartListViewModel mainChartList;
     private readonly PlaylistWorkspaceViewModel playlistWorkspace;
     private readonly RegularChartListOwner regularChartListOwner;
-    private readonly PlaylistDetailTerminalOwner playlistDetailTerminalOwner;
+    private readonly PlaylistDetailBuildState playlistDetailBuildState;
+    private readonly PlaylistDetailViewState playlistDetailViewState;
     private readonly Action<string> publishPropertyChanged;
     private readonly Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear;
 
@@ -20,7 +21,8 @@ internal sealed class PlayHistoryTerminalOwner
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
         RegularChartListOwner regularChartListOwner,
-        PlaylistDetailTerminalOwner playlistDetailTerminalOwner,
+        PlaylistDetailBuildState playlistDetailBuildState,
+        PlaylistDetailViewState playlistDetailViewState,
         Action<string> publishPropertyChanged,
         Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear)
     {
@@ -28,7 +30,8 @@ internal sealed class PlayHistoryTerminalOwner
         this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
         this.regularChartListOwner = regularChartListOwner ?? throw new ArgumentNullException(nameof(regularChartListOwner));
-        this.playlistDetailTerminalOwner = playlistDetailTerminalOwner ?? throw new ArgumentNullException(nameof(playlistDetailTerminalOwner));
+        this.playlistDetailBuildState = playlistDetailBuildState ?? throw new ArgumentNullException(nameof(playlistDetailBuildState));
+        this.playlistDetailViewState = playlistDetailViewState ?? throw new ArgumentNullException(nameof(playlistDetailViewState));
         this.publishPropertyChanged = publishPropertyChanged ?? throw new ArgumentNullException(nameof(publishPropertyChanged));
         this.logPlaylistSourceClear = logPlaylistSourceClear ?? throw new ArgumentNullException(nameof(logPlaylistSourceClear));
     }
@@ -54,7 +57,7 @@ internal sealed class PlayHistoryTerminalOwner
                             return false;
                         }
                         commitRows();
-                        result.PlaylistSourceClear = playlistDetailTerminalOwner.CommitSourceClearWithoutCallbacks();
+                        result.PlaylistSourceClear = playlistDetailBuildState.CommitSourceClear(playlistDetailViewState);
                         result.BindingMode = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
                         result.ColumnPresentation = playlistWorkspace.CommitColumnPresentationWithoutNotification(
                             request.ColumnSelection.PlaylistColumnSettingsVisibility,
@@ -121,7 +124,7 @@ internal sealed class PlayHistoryTerminalOwner
                         TryPublish(
                             () =>
                             {
-                                playlistDetailTerminalOwner.PublishSourceClear(result.PlaylistSourceClear);
+                                playlistDetailBuildState.PublishSourceClear(result.PlaylistSourceClear);
                                 logPlaylistSourceClear(result.PlaylistSourceClear);
                             },
                             featurePublishExceptions);

@@ -3322,13 +3322,15 @@ public sealed class ChartListVirtualViewTests
         table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
-        var playlistOwner = new PlaylistDetailTerminalOwner(
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
+        return new PlayHistoryTerminalOwner(
+            state,
             table,
             workspace,
-            regularOwner.CommitExternalColumnMode);
-        return new PlayHistoryTerminalOwner(state, table, workspace, regularOwner, playlistOwner, publishPropertyChanged, _ => { });
+            regularOwner,
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            publishPropertyChanged,
+            _ => { });
     }
 
     private static PlayHistoryTerminalRequest CreatePlayHistoryTerminalRequest(System.Collections.IList rows, string summaryText, long requestId)
