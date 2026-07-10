@@ -19,7 +19,7 @@ internal static class PlaylistSummarySortEngine
     /// <param name="useLegacyStringSort">文字列カラムで legacy 自然順を使う場合は true。</param>
     /// <param name="sortProfile">適用したソートプロファイル。</param>
     /// <returns>ソート済みリスト。</returns>
-    internal static List<PlaylistSummaryRow> Sort(IEnumerable<PlaylistSummaryRow> source, MainWindowViewModel.cSortParameters sortParameters, bool useLegacyStringSort, out string sortProfile)
+    internal static List<PlaylistSummaryRow> Sort(IEnumerable<PlaylistSummaryRow> source, ChartListSortParameters sortParameters, bool useLegacyStringSort, out string sortProfile)
     {
         IEnumerable<PlaylistSummaryRow> safeSource = source ?? [];
         string columnName = sortParameters?.ColumnsName;

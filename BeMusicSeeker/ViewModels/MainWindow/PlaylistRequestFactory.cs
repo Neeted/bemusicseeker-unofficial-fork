@@ -45,7 +45,7 @@ internal static class PlaylistRequestFactory
     /// </summary>
     /// <param name="sortParameters">Current sort parameters.</param>
     /// <returns>Sort column name, or an empty string when no explicit sort is set.</returns>
-    internal static string NormalizeSortColumnName(MainWindowViewModel.cSortParameters sortParameters)
+    internal static string NormalizeSortColumnName(ChartListSortParameters sortParameters)
     {
         return sortParameters?.ColumnsName ?? string.Empty;
     }
@@ -55,7 +55,7 @@ internal static class PlaylistRequestFactory
     /// </summary>
     /// <param name="sortParameters">Current sort parameters.</param>
     /// <returns>Current sort direction, or ascending when no explicit sort is set.</returns>
-    internal static ListSortDirection NormalizeSortDirection(MainWindowViewModel.cSortParameters sortParameters)
+    internal static ListSortDirection NormalizeSortDirection(ChartListSortParameters sortParameters)
     {
         return sortParameters?.Direction ?? ListSortDirection.Ascending;
     }
@@ -80,8 +80,8 @@ internal static class PlaylistRequestFactory
         string folderName,
         MainWindowViewModel.PlaylistFilterType filterType,
         string keywordFilter,
-        MainWindowViewModel.ModeFilterType modeFilter,
-        MainWindowViewModel.cSortParameters sortParameters,
+        ChartModeFilter modeFilter,
+        ChartListSortParameters sortParameters,
         long libraryIndexVersion,
         long playlistRevision,
         int scoreSnapshotVersion,

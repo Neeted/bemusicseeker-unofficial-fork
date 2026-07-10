@@ -87,13 +87,13 @@ public partial class MainWindowViewModel
     {
         internal string KeywordFilter { get; }
 
-        internal ModeFilterType ModeFilter { get; }
+        internal ChartModeFilter ModeFilter { get; }
 
         internal string SortColumnName { get; }
 
         internal ListSortDirection SortDirection { get; }
 
-        internal PlaylistPresentationIdentity(string keywordFilter, ModeFilterType modeFilter, string sortColumnName, ListSortDirection sortDirection)
+        internal PlaylistPresentationIdentity(string keywordFilter, ChartModeFilter modeFilter, string sortColumnName, ListSortDirection sortDirection)
         {
             KeywordFilter = keywordFilter;
             ModeFilter = modeFilter;
@@ -141,7 +141,7 @@ public partial class MainWindowViewModel
 
         internal string KeywordFilter => PresentationIdentity.KeywordFilter;
 
-        internal ModeFilterType ModeFilter => PresentationIdentity.ModeFilter;
+        internal ChartModeFilter ModeFilter => PresentationIdentity.ModeFilter;
 
         internal string SortColumnName => PresentationIdentity.SortColumnName;
 
@@ -160,7 +160,7 @@ public partial class MainWindowViewModel
         /// <summary>
         /// 正規化済み playlist 要求 identity を生成します。
         /// </summary>
-        internal PlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ModeFilterType modeFilter, string sortColumnName, ListSortDirection sortDirection, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
+        internal PlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ChartModeFilter modeFilter, string sortColumnName, ListSortDirection sortDirection, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
         {
             SourceIdentity = new PlaylistSourceIdentity(table, folderName, filterType, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection);
             PresentationIdentity = new PlaylistPresentationIdentity(keywordFilter, modeFilter, sortColumnName, sortDirection);

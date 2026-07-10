@@ -123,7 +123,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(Visibility.Visible, viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist);
         Assert.AreEqual("Playlist summary", viewModel.PlaylistWorkspace.GridHeaderText);
         Assert.AreEqual("title:test", viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter);
-        Assert.AreEqual(MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedComplete, viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter);
+        Assert.AreEqual(PlaylistOwnedFilter.OwnedComplete, viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter);
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding));

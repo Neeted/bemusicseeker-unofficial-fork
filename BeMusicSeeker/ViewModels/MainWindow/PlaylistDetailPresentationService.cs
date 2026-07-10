@@ -12,8 +12,8 @@ internal static class PlaylistDetailPresentationService
     internal static List<PlaylistDetailSourceRow> ApplySourceRows(
         IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
         string keywordFilter,
-        MainWindowViewModel.ModeFilterType modeFilter,
-        MainWindowViewModel.cSortParameters sortParameters,
+        ChartModeFilter modeFilter,
+        ChartListSortParameters sortParameters,
         out string sortProfile,
         out int keywordCount,
         out int modeCount,
@@ -38,26 +38,26 @@ internal static class PlaylistDetailPresentationService
 
         stageStopwatch.Restart();
         List<PlaylistDetailSourceRow> modeRows;
-        if (modeFilter != MainWindowViewModel.ModeFilterType.All)
+        if (modeFilter != ChartModeFilter.All)
         {
             List<int?> modeFlag = [null];
-            if ((modeFilter & MainWindowViewModel.ModeFilterType._5KEYS) == MainWindowViewModel.ModeFilterType._5KEYS)
+            if ((modeFilter & ChartModeFilter._5KEYS) == ChartModeFilter._5KEYS)
             {
                 modeFlag.Add(5);
             }
-            if ((modeFilter & MainWindowViewModel.ModeFilterType._7KEYS) == MainWindowViewModel.ModeFilterType._7KEYS)
+            if ((modeFilter & ChartModeFilter._7KEYS) == ChartModeFilter._7KEYS)
             {
                 modeFlag.Add(7);
             }
-            if ((modeFilter & MainWindowViewModel.ModeFilterType._9KEYS) == MainWindowViewModel.ModeFilterType._9KEYS)
+            if ((modeFilter & ChartModeFilter._9KEYS) == ChartModeFilter._9KEYS)
             {
                 modeFlag.Add(9);
             }
-            if ((modeFilter & MainWindowViewModel.ModeFilterType._10KEYS) == MainWindowViewModel.ModeFilterType._10KEYS)
+            if ((modeFilter & ChartModeFilter._10KEYS) == ChartModeFilter._10KEYS)
             {
                 modeFlag.Add(10);
             }
-            if ((modeFilter & MainWindowViewModel.ModeFilterType._14KEYS) == MainWindowViewModel.ModeFilterType._14KEYS)
+            if ((modeFilter & ChartModeFilter._14KEYS) == ChartModeFilter._14KEYS)
             {
                 modeFlag.Add(14);
             }
@@ -79,8 +79,8 @@ internal static class PlaylistDetailPresentationService
     internal static List<PlaylistDetailRow> ApplyViewFromSource(
         IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
         string keywordFilter,
-        MainWindowViewModel.ModeFilterType modeFilter,
-        MainWindowViewModel.cSortParameters sortParameters,
+        ChartModeFilter modeFilter,
+        ChartListSortParameters sortParameters,
         out string sortProfile,
         out int keywordCount,
         out int modeCount,
@@ -109,8 +109,8 @@ internal static class PlaylistDetailPresentationService
     internal static PlaylistDetailVirtualView ApplyVirtualViewFromSource(
         IReadOnlyList<PlaylistDetailSourceRow> sourceRows,
         string keywordFilter,
-        MainWindowViewModel.ModeFilterType modeFilter,
-        MainWindowViewModel.cSortParameters sortParameters,
+        ChartModeFilter modeFilter,
+        ChartListSortParameters sortParameters,
         out string sortProfile,
         out int keywordCount,
         out int modeCount,

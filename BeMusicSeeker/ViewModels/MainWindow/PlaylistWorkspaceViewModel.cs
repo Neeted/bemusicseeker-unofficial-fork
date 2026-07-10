@@ -22,7 +22,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
     }
 
-    private MainWindowViewModel.cSortParameters playlistSummarySortParameters;
+    private ChartListSortParameters playlistSummarySortParameters;
 
     private PlaylistSummaryColumnSettings playlistSummaryColumnsSettings;
 
@@ -56,7 +56,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private string playlistSummaryKeywordSearchSuggestionHeaderText = string.Empty;
 
-    private MainWindowViewModel.PlaylistSummaryOwnedFilterType playlistSummaryOwnedFilter = MainWindowViewModel.PlaylistSummaryOwnedFilterType.All;
+    private PlaylistOwnedFilter playlistSummaryOwnedFilter = PlaylistOwnedFilter.All;
 
     private long lastPlaylistSummaryBuildCompletedTimestamp;
 
@@ -103,7 +103,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     /// <summary>
     /// Gets or sets the current playlist summary sort parameters.
     /// </summary>
-    public MainWindowViewModel.cSortParameters PlaylistSummarySortParameters
+    public ChartListSortParameters PlaylistSummarySortParameters
     {
         get => playlistSummarySortParameters;
         internal set
@@ -136,7 +136,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             return;
         }
 
-        PlaylistSummarySortParameters = new MainWindowViewModel.cSortParameters
+        PlaylistSummarySortParameters = new ChartListSortParameters
         {
             ColumnsName = normalizedColumnName,
             Direction = direction
@@ -422,7 +422,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     /// <summary>
     /// Gets or sets the playlist summary owned filter.
     /// </summary>
-    public MainWindowViewModel.PlaylistSummaryOwnedFilterType PlaylistSummaryOwnedFilter
+    public PlaylistOwnedFilter PlaylistSummaryOwnedFilter
     {
         get => playlistSummaryOwnedFilter;
         internal set

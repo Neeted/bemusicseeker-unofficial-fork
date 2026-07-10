@@ -381,7 +381,7 @@ public sealed class PlaylistSummaryAggregationTests
         PlaylistSummaryPresentationResult result = PlaylistWorkspaceViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
             "a",
-            MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedIncomplete,
+            PlaylistOwnedFilter.OwnedIncomplete,
             new MainWindowViewModel.cSortParameters
             {
                 ColumnsName = nameof(PlaylistSummaryRow.Name),
@@ -423,7 +423,7 @@ public sealed class PlaylistSummaryAggregationTests
         PlaylistSummaryPresentationResult result = PlaylistWorkspaceViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
             "name:alpha foldername:folderalpha prefix:A symbol:A header:header-alpha data:data-alpha",
-            MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
+            PlaylistOwnedFilter.All,
             new MainWindowViewModel.cSortParameters
             {
                 ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
@@ -451,7 +451,7 @@ public sealed class PlaylistSummaryAggregationTests
         PlaylistSummaryPresentationResult result = PlaylistWorkspaceViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
             "md5:aaaaaaaa",
-            MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
+            PlaylistOwnedFilter.All,
             new MainWindowViewModel.cSortParameters
             {
                 ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),
@@ -490,7 +490,7 @@ public sealed class PlaylistSummaryAggregationTests
         PlaylistSummaryPresentationResult result = PlaylistWorkspaceViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
             "name:\"alpha pack\" symbol:A|C -id:20 name:re:^alpha",
-            MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
+            PlaylistOwnedFilter.All,
             new MainWindowViewModel.cSortParameters
             {
                 ColumnsName = nameof(PlaylistSummaryRow.PlaylistId),

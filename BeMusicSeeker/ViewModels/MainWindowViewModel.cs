@@ -125,11 +125,12 @@ public partial class MainWindowViewModel : ViewModel
 
 
 
-    public class cSortParameters
+    /// <summary>
+    /// Compatibility name for callers compiled against the former nested sort contract.
+    /// New code uses the feature-owned <see cref="global::BeMusicSeeker.ViewModels.ChartListSortParameters"/>.
+    /// </summary>
+    public class cSortParameters : ChartListSortParameters
     {
-        public string ColumnsName { get; set; } = "";
-
-        public ListSortDirection Direction { get; set; }
     }
 
     [Flags]
@@ -141,6 +142,9 @@ public partial class MainWindowViewModel : ViewModel
         MOVIE_PLAYER = 4
     }
 
+    /// <summary>
+    /// Compatibility name for the former nested chart mode filter.
+    /// </summary>
     [Flags]
     public enum ModeFilterType
     {
@@ -153,6 +157,9 @@ public partial class MainWindowViewModel : ViewModel
         All = 0x1F
     }
 
+    /// <summary>
+    /// Compatibility name for the former nested playlist ownership filter.
+    /// </summary>
     public enum PlaylistSummaryOwnedFilterType
     {
         All,
@@ -1121,7 +1128,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// playlist request の sort 列名を同値判定向けに正規化します。
     /// </summary>
-    internal static string NormalizePlaylistSortColumnName(cSortParameters sortParameters)
+    internal static string NormalizePlaylistSortColumnName(ChartListSortParameters sortParameters)
     {
         return PlaylistRequestFactory.NormalizeSortColumnName(sortParameters);
     }
@@ -1129,7 +1136,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// playlist request の sort 方向を同値判定向けに正規化します。
     /// </summary>
-    internal static ListSortDirection NormalizePlaylistSortDirection(cSortParameters sortParameters)
+    internal static ListSortDirection NormalizePlaylistSortDirection(ChartListSortParameters sortParameters)
     {
         return PlaylistRequestFactory.NormalizeSortDirection(sortParameters);
     }
@@ -1145,7 +1152,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// 現在の UI 条件を反映した playlist request identity を生成します。
     /// </summary>
-    internal static PlaylistRequestIdentity CreatePlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
+    internal static PlaylistRequestIdentity CreatePlaylistRequestIdentity(BMSTable table, string folderName, PlaylistFilterType filterType, string keywordFilter, ChartModeFilter modeFilter, ChartListSortParameters sortParameters, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
     {
         return PlaylistRequestFactory.CreateIdentity(table, folderName, filterType, keywordFilter, modeFilter, sortParameters, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection);
     }
@@ -2180,7 +2187,7 @@ public partial class MainWindowViewModel : ViewModel
             Mode = mode,
             RequestedMode = requestedMode,
             Parameter = parameter,
-            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, KeywordFilter, ModeFilter, SortParameters, libraryIndexVersion, viewSnapshot.PlaylistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
+            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, KeywordFilter, (ChartModeFilter)(int)ModeFilter, SortParameters, libraryIndexVersion, viewSnapshot.PlaylistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
             UseCoalescingWindow = ShouldUsePlaylistBuildCoalescingWindow(mode, requestedMode)
         };
     }
@@ -3221,7 +3228,7 @@ public partial class MainWindowViewModel : ViewModel
             treeViewFilterTypeSelected,
             regularChartListOwner.HasTreeFilter,
             KeywordFilter,
-            ModeFilter,
+            (ChartModeFilter)(int)ModeFilter,
             SortParameters?.ColumnsName,
             IsPlaylistDetailViewActive,
             dependency,
@@ -3274,7 +3281,7 @@ public partial class MainWindowViewModel : ViewModel
         MainViewUpdateMode currentMode,
         bool folderFilterApplied,
         string keywordFilter,
-        ModeFilterType modeFilter,
+        ChartModeFilter modeFilter,
         string sortColumnName,
         bool isPlaylistDetailView,
         MainViewDataDependency dependency,
@@ -4928,7 +4935,7 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private static bool AreSameSortParameters(cSortParameters left, cSortParameters right)
+    private static bool AreSameSortParameters(ChartListSortParameters left, ChartListSortParameters right)
     {
         return left == null
             ? right == null
@@ -4945,7 +4952,7 @@ public partial class MainWindowViewModel : ViewModel
             isPlayHistory ? MainChartListSortTarget.PlayHistory : MainChartListSortTarget.Regular);
     }
 
-    private static MainChartListSortPresentation CreateMainChartListSortPresentation(cSortParameters sortParameters)
+    private static MainChartListSortPresentation CreateMainChartListSortPresentation(ChartListSortParameters sortParameters)
     {
         return sortParameters == null
             ? null
@@ -6469,13 +6476,13 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return PlaylistWorkspace.PlaylistSummaryOwnedFilter;
+            return (PlaylistSummaryOwnedFilterType)(int)PlaylistWorkspace.PlaylistSummaryOwnedFilter;
         }
         set
         {
-            if (PlaylistWorkspace.PlaylistSummaryOwnedFilter != value)
+            if (PlaylistWorkspace.PlaylistSummaryOwnedFilter != (PlaylistOwnedFilter)(int)value)
             {
-                PlaylistWorkspace.PlaylistSummaryOwnedFilter = value;
+                PlaylistWorkspace.PlaylistSummaryOwnedFilter = (PlaylistOwnedFilter)(int)value;
                 if (IsPlaylistSummaryMode)
                 {
                     RefreshPlaylistSummaryPresentationIfVisible();
@@ -9764,7 +9771,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <param name="modeStageMs">mode 適用時間。</param>
     /// <param name="sortStageMs">sort 適用時間。</param>
     /// <returns>表示用行集合。</returns>
-    internal static List<PlaylistDetailRow> ApplyPlaylistViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs)
+    internal static List<PlaylistDetailRow> ApplyPlaylistViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ChartModeFilter modeFilter, ChartListSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs)
     {
         return PlaylistDetailPresentationService.ApplyViewFromSource(
             sourceRows,
@@ -9780,7 +9787,7 @@ public partial class MainWindowViewModel : ViewModel
             out viewMaterializeMs);
     }
 
-    internal static PlaylistDetailVirtualView ApplyPlaylistVirtualViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ModeFilterType modeFilter, cSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs)
+    internal static PlaylistDetailVirtualView ApplyPlaylistVirtualViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ChartModeFilter modeFilter, ChartListSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs)
     {
         return PlaylistDetailPresentationService.ApplyVirtualViewFromSource(
             sourceRows,
@@ -9813,7 +9820,7 @@ public partial class MainWindowViewModel : ViewModel
         sourceRows ??= [];
         int sourceCount = sourceRows.Count;
         LogPlaylistViewApply("started mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive);
-        IList finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
+        IList finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, (ChartModeFilter)(int)ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
         var result = new PlaylistViewApplyResult(finalRows, sourceCount, sortProfile, keywordCount, modeCount, keywordStageMs, modeStageMs, sortStageMs, viewMaterializeMs);
         LogPlaylistViewApply("completed mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + result.SourceCount + " keywordCount=" + result.KeywordCount + " modeCount=" + result.ModeCount + " viewCount=" + result.ViewCount + " sortProfile=" + result.SortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(result.FinalRows));
         return result;
@@ -9822,7 +9829,7 @@ public partial class MainWindowViewModel : ViewModel
     private PlaylistViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)
     {
         LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(playlistViewState.View.Rows));
-        finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
+        finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, (ChartModeFilter)(int)ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
         var result = new PlaylistViewApplyResult(finalRows, sourceCount, sortProfile, keywordCount, modeCount, keywordStageMs, modeStageMs, sortStageMs, viewMaterializeMs);
         LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + result.KeywordCount + " modeCount=" + result.ModeCount + " viewCount=" + result.ViewCount + " sortProfile=" + result.SortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(result.FinalRows));
         return result;
@@ -10739,7 +10746,7 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         var sortStopwatch = Stopwatch.StartNew();
-        cSortParameters sortParameters = CaptureSortParameters(out SortSnapshot sortSnapshot);
+        ChartListSortParameters sortParameters = CaptureSortParameters(out SortSnapshot sortSnapshot);
         bool sortSucceeded = PlayHistorySortEngine.TrySort(projectionResult.Rows, sortParameters, out List<PlayHistoryRow> sortedRows, out string sortProfile);
         if (!sortSucceeded)
         {
@@ -11113,7 +11120,7 @@ public partial class MainWindowViewModel : ViewModel
             LogPlayHistoryKeywordFilter(state.PeriodRequest, state.RequestId, keywordFilter, state.SourceCount, targetRows.Count, filteredRows.Count, keywordMs);
         }
         var sortStopwatch = Stopwatch.StartNew();
-        cSortParameters sortParameters = CaptureSortParameters(out SortSnapshot sortSnapshot);
+        ChartListSortParameters sortParameters = CaptureSortParameters(out SortSnapshot sortSnapshot);
         bool sortSucceeded = PlayHistorySortEngine.TrySort(filteredRows, sortParameters, out List<PlayHistoryRow> sortedRows, out string sortProfile);
         if (!sortSucceeded)
         {
@@ -11241,7 +11248,7 @@ public partial class MainWindowViewModel : ViewModel
             if (!IsCurrentSortSnapshot(state.SortSnapshot))
             {
                 var resortStopwatch = Stopwatch.StartNew();
-                cSortParameters currentSortParameters = CaptureSortParameters(out SortSnapshot currentSortSnapshot);
+                ChartListSortParameters currentSortParameters = CaptureSortParameters(out SortSnapshot currentSortSnapshot);
                 sortSucceeded = PlayHistorySortEngine.TrySort(state.ProjectedRows, currentSortParameters, out sortedRows, out sortProfile);
                 if (!sortSucceeded)
                 {
@@ -12035,11 +12042,11 @@ public partial class MainWindowViewModel : ViewModel
         return snapshot;
     }
 
-    private cSortParameters CaptureSortParameters(out SortSnapshot snapshot)
+    private ChartListSortParameters CaptureSortParameters(out SortSnapshot snapshot)
     {
         lock (playHistoryViewRequestLock)
         {
-            cSortParameters sortParameters = _PlayHistorySortParameters == null
+            ChartListSortParameters sortParameters = _PlayHistorySortParameters == null
                 ? null
                 : new cSortParameters
                 {
@@ -12051,7 +12058,7 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private cSortParameters CaptureSortParameters()
+    private ChartListSortParameters CaptureSortParameters()
     {
         return CaptureSortParameters(out _);
     }

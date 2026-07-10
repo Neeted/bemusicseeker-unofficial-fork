@@ -63,7 +63,7 @@ internal static class PlayHistorySortEngine
 
     internal static bool TrySort(
         IEnumerable<PlayHistoryRow> source,
-        MainWindowViewModel.cSortParameters sortParameters,
+        ChartListSortParameters sortParameters,
         out List<PlayHistoryRow> sortedRows,
         out string sortProfile)
     {

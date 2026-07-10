@@ -22,7 +22,7 @@ internal static class PlaylistDetailSortEngine
     /// <summary>
     /// source row を指定条件でソートします。
     /// </summary>
-    internal static List<PlaylistDetailSourceRow> Sort(IEnumerable<PlaylistDetailSourceRow> source, MainWindowViewModel.cSortParameters sortParameters, out string sortProfile)
+    internal static List<PlaylistDetailSourceRow> Sort(IEnumerable<PlaylistDetailSourceRow> source, ChartListSortParameters sortParameters, out string sortProfile)
     {
         IEnumerable<PlaylistDetailSourceRow> safeSource = source ?? [];
         string columnName = sortParameters?.ColumnsName;

@@ -358,8 +358,8 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(
         IEnumerable<PlaylistSummaryRow> rows,
         string keywordFilter,
-        MainWindowViewModel.PlaylistSummaryOwnedFilterType ownedFilter,
-        MainWindowViewModel.cSortParameters sortParameters,
+        PlaylistOwnedFilter ownedFilter,
+        ChartListSortParameters sortParameters,
         bool useLegacySort)
     {
         var stopwatch = Stopwatch.StartNew();
@@ -466,7 +466,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal static IEnumerable<PlaylistSummaryRow> ApplyPlaylistSummaryFilters(
         IEnumerable<PlaylistSummaryRow> rows,
         string keywordFilter,
-        MainWindowViewModel.PlaylistSummaryOwnedFilterType ownedFilter)
+        PlaylistOwnedFilter ownedFilter)
     {
         IEnumerable<PlaylistSummaryRow> source = rows ?? [];
         string text = (keywordFilter ?? string.Empty).Trim();
@@ -486,7 +486,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <returns><see langword="true"/> when the row belongs in the requested ownership view.</returns>
     internal static bool IsPlaylistSummaryRowMatchedOwnedFilter(
         PlaylistSummaryRow row,
-        MainWindowViewModel.PlaylistSummaryOwnedFilterType ownedFilter)
+        PlaylistOwnedFilter ownedFilter)
     {
         if (row == null)
         {
@@ -494,8 +494,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         return ownedFilter switch
         {
-            MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedComplete => row.TotalCharts > 0 && row.OwnedCharts == row.TotalCharts,
-            MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedIncomplete => row.TotalCharts == 0 || row.OwnedCharts < row.TotalCharts,
+            PlaylistOwnedFilter.OwnedComplete => row.TotalCharts > 0 && row.OwnedCharts == row.TotalCharts,
+            PlaylistOwnedFilter.OwnedIncomplete => row.TotalCharts == 0 || row.OwnedCharts < row.TotalCharts,
             _ => true
         };
     }

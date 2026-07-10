@@ -75,7 +75,7 @@ internal static class MainViewRefreshDecisionService
         MainViewUpdateMode currentMode,
         bool folderFilterApplied,
         string keywordFilter,
-        MainWindowViewModel.ModeFilterType modeFilter,
+        ChartModeFilter modeFilter,
         string sortColumnName,
         bool isPlaylistDetailView,
         MainViewDataDependency dependency,
@@ -85,7 +85,7 @@ internal static class MainViewRefreshDecisionService
         bool fullNormalLibraryView = currentMode == MainViewUpdateMode.FolderFilterSelected
             && !folderFilterApplied
             && string.IsNullOrWhiteSpace(keywordFilter)
-            && modeFilter == MainWindowViewModel.ModeFilterType.All
+            && modeFilter == ChartModeFilter.All
             && !isPlaylistDetailView;
         if (!fullNormalLibraryView)
         {
@@ -260,7 +260,7 @@ internal static class MainViewRefreshDecisionService
     private static bool IsDuplicateSubsetDisplayRefreshEnough(
         MainViewUpdateMode currentMode,
         string keywordFilter,
-        MainWindowViewModel.ModeFilterType modeFilter,
+        ChartModeFilter modeFilter,
         bool isPlaylistDetailView,
         MainViewDataDependency sortDependency,
         MainViewDataDependency changedDependency)
@@ -268,7 +268,7 @@ internal static class MainViewRefreshDecisionService
         if (currentMode != MainViewUpdateMode.DuplicateFilterSelected
             || isPlaylistDetailView
             || !string.IsNullOrWhiteSpace(keywordFilter)
-            || modeFilter != MainWindowViewModel.ModeFilterType.All)
+            || modeFilter != ChartModeFilter.All)
         {
             return false;
         }
