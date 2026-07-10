@@ -52,6 +52,8 @@ internal sealed class RegularChartListOwner : IDisposable
     private RegularNormalLibraryTreeFilter treeFilter;
     private MainViewUpdateMode? lastAppliedColumnMode;
     private ChartListSortSpecification currentSort;
+    private string currentKeywordFilter;
+    private RegularChartModeFilter currentModeFilter = RegularChartModeFilter.All;
     private RegularChartListCompletion lastCompletion;
     private List<ChartListSourceRow> virtualSourceRows;
     private BMSLibrary virtualSourceRowsLibrary;
@@ -150,6 +152,24 @@ internal sealed class RegularChartListOwner : IDisposable
         lock (syncRoot)
         {
             return currentSort;
+        }
+    }
+
+    internal void SetFilters(string keywordFilter, RegularChartModeFilter modeFilter)
+    {
+        lock (syncRoot)
+        {
+            currentKeywordFilter = keywordFilter;
+            currentModeFilter = modeFilter;
+        }
+    }
+
+    private void CaptureFilters(out string keywordFilter, out RegularChartModeFilter modeFilter)
+    {
+        lock (syncRoot)
+        {
+            keywordFilter = currentKeywordFilter;
+            modeFilter = currentModeFilter;
         }
     }
 
@@ -1334,6 +1354,7 @@ internal sealed class RegularChartListOwner : IDisposable
             throw new ArgumentException("A library is required when bmson rows are included.", nameof(request));
         }
         ChartListSortSpecification sort = CaptureSort();
+        CaptureFilters(out string keywordFilter, out RegularChartModeFilter modeFilter);
         RegularChartListExternalVersions externalVersions = CaptureExternalVersions(request.Library, default);
 
         MainViewUpdateMode resolvedMode = ChartListRefreshCoordinator.ResolveMainColumnSettingMode(request.Mode, request.CurrentTreeMode);
@@ -1362,8 +1383,8 @@ internal sealed class RegularChartListOwner : IDisposable
                     Library = request.Library,
                     IncludeBmsonRows = request.IncludeBmsonRows,
                     TreeFilter = CaptureTreeFilter(ShouldApplyDefaultTreeFilter(request.CurrentTreeMode)),
-                    KeywordFilter = request.KeywordFilter,
-                    ModeFilter = request.ModeFilter,
+                    KeywordFilter = keywordFilter,
+                    ModeFilter = modeFilter,
                     SortColumnName = virtualSortColumn,
                     SortDirection = virtualSortDirection,
                     ExternalVersions = externalVersions,
@@ -1390,8 +1411,8 @@ internal sealed class RegularChartListOwner : IDisposable
                     ApplyResourceHealthProjection = subset.ApplyResourceHealthProjection,
                     TreeMode = request.CurrentTreeMode,
                     SubsetName = subset.Name,
-                    KeywordFilter = request.KeywordFilter,
-                    ModeFilter = request.ModeFilter,
+                    KeywordFilter = keywordFilter,
+                    ModeFilter = modeFilter,
                     SortColumnName = virtualSortColumn,
                     SortDirection = virtualSortDirection,
                     ExternalVersions = externalVersions,
@@ -1436,8 +1457,8 @@ internal sealed class RegularChartListOwner : IDisposable
             request.TreeParameter,
             request.IncludeBmsonRows,
             virtualSubsetRequiredFailure,
-            request.KeywordFilter,
-            request.ModeFilter,
+            keywordFilter,
+            modeFilter,
             sort);
         if (!refreshRequest.VirtualSubsetRequiredFailure
             && (refreshRequest.Mode == MainViewUpdateMode.FolderFilterSelected
@@ -3225,10 +3246,6 @@ internal sealed class RegularChartListEntryRequest
     internal object TreeParameter { get; set; }
 
     internal bool IncludeBmsonRows { get; set; }
-
-    internal string KeywordFilter { get; set; }
-
-    internal RegularChartModeFilter ModeFilter { get; set; }
 
     internal bool PreserveSummary { get; set; }
 

@@ -388,6 +388,44 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void RegularEntry_AppliesOwnerFilterState()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel());
+        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
+        owner.TryPublishVirtualSourceRows(
+            lookup,
+            [CreateSourceRow("Folder B", "Bravo"), CreateSourceRow("Folder A", "Alpha")]);
+        owner.SetFilters("Alpha", RegularChartModeFilter.All);
+
+        RegularChartListEntryResult result = owner.ApplyRegularView(
+            CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected));
+
+        Assert.IsTrue(result.WasCommitted);
+        Assert.AreEqual(1, table.Rows.Count);
+        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]).Title);
+    }
+
+    [TestMethod]
+    public void RegularEntry_AppliesOwnerModeFilterState()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel());
+        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
+        owner.TryPublishVirtualSourceRows(
+            lookup,
+            [CreateSourceRow("Folder A", "Seven", mode: 7), CreateSourceRow("Folder B", "Nine", mode: 9)]);
+        owner.SetFilters(string.Empty, RegularChartModeFilter.SevenKeys);
+
+        RegularChartListEntryResult result = owner.ApplyRegularView(
+            CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected));
+
+        Assert.IsTrue(result.WasCommitted);
+        Assert.AreEqual(1, table.Rows.Count);
+        Assert.AreEqual("Seven", ((LibraryChartRow)table.Rows[0]).Title);
+    }
+
+    [TestMethod]
     public void RegularEntry_SelectsDuplicateSubsetFromLibraryOwner()
     {
         var table = new MainChartListViewModel();
@@ -1149,13 +1187,11 @@ public sealed class RegularChartListOwnerTests
             RequestedMode = mode,
             CurrentTreeMode = mode,
             IncludeBmsonRows = false,
-            KeywordFilter = string.Empty,
-            ModeFilter = RegularChartModeFilter.All,
             Stopwatch = Stopwatch.StartNew()
         };
     }
 
-    private static ChartListSourceRow CreateSourceRow(string folder, string fileName)
+    private static ChartListSourceRow CreateSourceRow(string folder, string fileName, int? mode = null)
     {
         var chart = new ChartFile(
             ChartFileKind.Bms,
@@ -1170,7 +1206,7 @@ public sealed class RegularChartListOwnerTests
             tag: string.Empty,
             levelText: string.Empty,
             level: null,
-            mode: null,
+            mode: mode,
             chartInfo: null,
             bmsFile: null,
             bmsonSong: null);

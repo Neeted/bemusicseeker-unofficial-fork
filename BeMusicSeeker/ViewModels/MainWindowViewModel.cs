@@ -5895,6 +5895,7 @@ public partial class MainWindowViewModel : ViewModel
                 if (value != ModeFilterType.None)
                 {
                     _ModeFilter = value;
+                    regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
                 }
                 RaisePropertyChanged("ModeFilter");
                 if (value != ModeFilterType.None)
@@ -5918,6 +5919,7 @@ public partial class MainWindowViewModel : ViewModel
                 lock (playHistoryViewRequestLock)
                 {
                     _KeywordFilter = value;
+                    regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
                     if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
                     {
                         Interlocked.Increment(ref playHistoryKeywordFilterRevision);
@@ -6977,6 +6979,7 @@ public partial class MainWindowViewModel : ViewModel
             LogMainViewBuild,
             DispatchMainChartListAction,
             LogMainViewBuildWarning);
+        regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
         playlistDetailTerminalOwner = new PlaylistDetailTerminalOwner(
             playlistDetailBuildState,
             playlistViewState,
@@ -10449,8 +10452,6 @@ public partial class MainWindowViewModel : ViewModel
                 CurrentTreeMode = treeViewFilterTypeSelected,
                 TreeParameter = treeViewFilterParameterSelected,
                 IncludeBmsonRows = route.IncludeBmsonRows,
-                KeywordFilter = KeywordFilter,
-                ModeFilter = (RegularChartModeFilter)(int)ModeFilter,
                 PreserveSummary = IsPlaylistSummaryMode,
                 Stopwatch = viewBuildStopwatch
             });
