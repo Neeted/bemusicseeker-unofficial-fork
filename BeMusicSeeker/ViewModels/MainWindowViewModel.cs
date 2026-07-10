@@ -747,8 +747,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private string _BrowserHtml;
 
-    private readonly NormalLibraryRowCache regularBmsLibraryRowCache;
-
     private readonly RegularChartListOwner regularChartListOwner;
 
     private readonly object normalLibraryRefreshNotificationLock = new();
@@ -3414,7 +3412,7 @@ public partial class MainWindowViewModel : ViewModel
     private void RefreshChartInfoDependentViews()
     {
         MainChartList.RowProjection.CaptureVersions(files);
-        BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache();
+        BmsonLibraryRowCacheSyncResult bmsonSyncResult = regularChartListOwner.SyncBmsonRows(files);
         MainViewDataDependency libraryDependency = bmsonSyncResult.SourceChanged
             ? MainViewDataDependency.SourceMembership
             : MainViewDataDependency.ChartInfo;
@@ -4778,7 +4776,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             if (notificationBatch.NotifiesBmsFiles)
             {
-                RemoveRegularBmsLibraryRowCacheByBmsFiles(notificationBatch.RemovedBmsFiles);
+                regularChartListOwner.RemoveBmsRows(notificationBatch.RemovedBmsFiles);
             }
 
             if (!notificationBatch.NotifiesBmsonSongs)
@@ -4786,7 +4784,7 @@ public partial class MainWindowViewModel : ViewModel
                 return default;
             }
 
-            BmsonLibraryRowCacheSyncResult removeResult = RemoveBmsonLibraryRowCache(notificationBatch.RemovedBmsonSongs);
+            BmsonLibraryRowCacheSyncResult removeResult = regularChartListOwner.RemoveBmsonRows(notificationBatch.RemovedBmsonSongs);
             if (removeResult.SortKeyChanged)
             {
                 InvalidateNormalLibrarySortKeysForBmsonSync(removeResult);
@@ -4808,7 +4806,7 @@ public partial class MainWindowViewModel : ViewModel
             : null;
         if (notificationBatch.NotifiesBmsFiles)
         {
-            PruneRegularBmsLibraryRowCacheByBmsFiles(sourceOwnerView?.BmsFiles);
+            regularChartListOwner.PruneBmsRows(sourceOwnerView?.BmsFiles);
         }
 
         if (!notificationBatch.NotifiesBmsonSongs)
@@ -4816,7 +4814,7 @@ public partial class MainWindowViewModel : ViewModel
             return default;
         }
 
-        BmsonLibraryRowCacheSyncResult result = SyncBmsonLibraryRowCache(sourceOwnerView);
+        BmsonLibraryRowCacheSyncResult result = regularChartListOwner.SyncBmsonRows(files, sourceOwnerView);
         if (result.SortKeyChanged)
         {
             InvalidateNormalLibrarySortKeysForBmsonSync(result);
@@ -4979,7 +4977,7 @@ public partial class MainWindowViewModel : ViewModel
                     RaiseBmsonPlaylistReferenceDisplayChanged(row);
                 }
             }
-            foreach (LibraryChartRow row in regularBmsLibraryRowCache?.SnapshotRows() ?? [])
+            foreach (LibraryChartRow row in regularChartListOwner.SnapshotRows())
             {
                 RaiseBmsonPlaylistReferenceDisplayChanged(row);
             }
@@ -5031,36 +5029,6 @@ public partial class MainWindowViewModel : ViewModel
             + " installDestinationGeneration=" + regularChartListOwner.InstallDestinationGeneration
             + " maintenanceGeneration=" + regularChartListOwner.MaintenanceGeneration
             + " referenceTablesGeneration=" + regularChartListOwner.ReferenceTablesGeneration);
-    }
-
-    private int PruneRegularBmsLibraryRowCacheByBmsFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> currentFiles)
-    {
-        if (regularBmsLibraryRowCache == null || regularBmsLibraryRowCache.Count == 0)
-        {
-            return 0;
-        }
-        return regularBmsLibraryRowCache.PruneBmsFiles(currentFiles);
-    }
-
-    private int RemoveRegularBmsLibraryRowCacheByBmsFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> removedFiles)
-    {
-        if (regularBmsLibraryRowCache == null || regularBmsLibraryRowCache.Count == 0)
-        {
-            return 0;
-        }
-        return regularBmsLibraryRowCache.RemoveBmsFiles(removedFiles);
-    }
-
-    private LibraryChartRow CreateVirtualNormalLibraryRow(ChartListSourceRow sourceRow)
-    {
-        if (sourceRow == null)
-        {
-            return null;
-        }
-        ChartFile chart = sourceRow.Chart;
-        var row = regularBmsLibraryRowCache.GetOrCreate(chart, null) ?? LibraryChartRow.FromChartFile(chart);
-        MainChartList.RowProjection.ConfigureLibraryRow(files, row);
-        return row;
     }
 
     private bool TryApplyVirtualDefaultNormalLibraryView(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, bool includeBmsonRows, Stopwatch viewBuildStopwatch)
@@ -5152,7 +5120,11 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        var nextRowsView = new ChartListVirtualView(sourceRows, order, CreateVirtualNormalLibraryRow, distinctFolderCount);
+        var nextRowsView = new ChartListVirtualView(
+            sourceRows,
+            order,
+            row => regularChartListOwner.CreateVirtualRow(files, row),
+            distinctFolderCount);
         MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
         RegularChartListTerminalResult terminal = regularChartListOwner.TryCommitVirtual(
             lease,
@@ -8931,7 +8903,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
         MainChartList.SortRequested += MainChartListSortRequested;
-        regularBmsLibraryRowCache = new NormalLibraryRowCache();
         regularChartListOwner = new RegularChartListOwner(
             MainChartList,
             PlaylistWorkspace,
@@ -12059,7 +12030,7 @@ public partial class MainWindowViewModel : ViewModel
         ClearPlaylistSourceRows();
         if (includeBmsonRows)
         {
-            BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache();
+            BmsonLibraryRowCacheSyncResult bmsonSyncResult = regularChartListOwner.SyncBmsonRows(files);
             if (bmsonSyncResult.SortKeyChanged)
             {
                 InvalidateNormalLibrarySortKeysForBmsonSync(bmsonSyncResult);
@@ -14290,55 +14261,6 @@ public partial class MainWindowViewModel : ViewModel
         return null;
     }
 
-    private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache(OwnedChartStorageOwnerView ownerView = null)
-    {
-        ownerView ??= files?.CreateNormalLibrarySourceStorageOwnerView();
-        IReadOnlyList<LR2SongDBExtended.bmson_song> snapshot = ownerView?.BmsonSongs ?? [];
-        MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files);
-        return regularBmsLibraryRowCache.SyncBmsonRows(
-            snapshot,
-            row => MainChartList.RowProjection.ConfigureLibraryRow(files, row));
-    }
-
-    private BmsonLibraryRowCacheSyncResult RemoveBmsonLibraryRowCache(IEnumerable<LR2SongDBExtended.bmson_song> removedSongs)
-    {
-        if (regularBmsLibraryRowCache == null)
-        {
-            return default;
-        }
-        return regularBmsLibraryRowCache.RemoveBmsonSongs(removedSongs);
-    }
-
-    internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, LR2SongDBExtended.bmson_song nextSong)
-    {
-        return NormalLibraryRowCache.HasBmsonLibrarySortKeyChangedForTest(row, nextSong);
-    }
-
-    internal static bool HasBmsonLibrarySortKeyChangedForTest(LibraryChartRow row, Action<LR2SongDBExtended.bmson_song> mutateCurrentSong)
-    {
-        return NormalLibraryRowCache.HasBmsonLibrarySortKeyChangedForTest(row, mutateCurrentSong);
-    }
-
-    internal static bool HasBmsonLibrarySourceIdentityChangedForTest(LibraryChartRow row, LR2SongDBExtended.bmson_song nextSong)
-    {
-        return NormalLibraryRowCache.HasBmsonLibrarySourceIdentityChangedForTest(row, nextSong);
-    }
-
-    internal static bool HasBmsonLibrarySourceIdentityChangedForTest(LibraryChartRow row, Action<LR2SongDBExtended.bmson_song> mutateCurrentSong)
-    {
-        return NormalLibraryRowCache.HasBmsonLibrarySourceIdentityChangedForTest(row, mutateCurrentSong);
-    }
-
-    internal static IReadOnlyList<string> GetBmsonLibrarySortKeySnapshotColumnNamesForTest()
-    {
-        return NormalLibraryRowCache.GetBmsonLibrarySortKeySnapshotColumnNamesForTest();
-    }
-
-    internal static IReadOnlyList<string> GetBmsonLibrarySourceIdentitySnapshotColumnNamesForTest()
-    {
-        return NormalLibraryRowCache.GetBmsonLibrarySourceIdentitySnapshotColumnNamesForTest();
-    }
-
     internal static bool IsNormalLibraryVirtualSortKeyPropertyForTest(string propertyName)
     {
         return ChartListOrder.TryNormalizeVirtualSortColumn(propertyName, out _);
@@ -14346,7 +14268,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void SyncBmsonLibraryRowCacheWithoutRebuild(string reason = "bmson_sync_without_rebuild")
     {
-        BmsonLibraryRowCacheSyncResult result = SyncBmsonLibraryRowCache();
+        BmsonLibraryRowCacheSyncResult result = regularChartListOwner.SyncBmsonRows(files);
         if (result.SortKeyChanged)
         {
             InvalidateNormalLibrarySortKeysForBmsonSync(result, reason + "_sort_key_changed");

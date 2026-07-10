@@ -7,6 +7,9 @@ using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Views;
 
 namespace BeMusicSeeker.ViewModels;
@@ -27,6 +30,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualSubsetOrderCache = [];
     private readonly Dictionary<MainViewSummaryCacheKey, int> virtualSummaryCache = [];
     private readonly Dictionary<MainViewSummaryCacheKey, VirtualSummaryWork> virtualSummaryRunning = [];
+    private readonly NormalLibraryRowCache rowCache = new();
     private CancellationTokenSource currentCancellation;
     private long currentRequestId;
     private bool regularRequestActive;
@@ -184,6 +188,50 @@ internal sealed class RegularChartListOwner : IDisposable
                 return modeRows != null;
             }
         }
+    }
+
+    internal IReadOnlyList<LibraryChartRow> SnapshotRows()
+    {
+        return rowCache.SnapshotRows();
+    }
+
+    internal int PruneBmsRows(IEnumerable<BMSFile> currentFiles)
+    {
+        return rowCache.Count == 0 ? 0 : rowCache.PruneBmsFiles(currentFiles);
+    }
+
+    internal int RemoveBmsRows(IEnumerable<BMSFile> removedFiles)
+    {
+        return rowCache.Count == 0 ? 0 : rowCache.RemoveBmsFiles(removedFiles);
+    }
+
+    internal BmsonLibraryRowCacheSyncResult SyncBmsonRows(
+        BMSLibrary library,
+        OwnedChartStorageOwnerView ownerView = null)
+    {
+        ownerView ??= library?.CreateNormalLibrarySourceStorageOwnerView();
+        mainChartList.RowProjection.PruneTransientStatesToOwnedCharts(library);
+        return rowCache.SyncBmsonRows(
+            ownerView?.BmsonSongs ?? [],
+            row => mainChartList.RowProjection.ConfigureLibraryRow(library, row));
+    }
+
+    internal BmsonLibraryRowCacheSyncResult RemoveBmsonRows(
+        IEnumerable<LR2SongDBExtended.bmson_song> removedSongs)
+    {
+        return rowCache.RemoveBmsonSongs(removedSongs);
+    }
+
+    internal LibraryChartRow CreateVirtualRow(BMSLibrary library, ChartListSourceRow sourceRow)
+    {
+        if (sourceRow == null)
+        {
+            return null;
+        }
+        LibraryChartRow row = rowCache.GetOrCreate(sourceRow.Chart, null)
+            ?? LibraryChartRow.FromChartFile(sourceRow.Chart);
+        mainChartList.RowProjection.ConfigureLibraryRow(library, row);
+        return row;
     }
 
     internal void ResetDerivedCaches()

@@ -2369,7 +2369,7 @@ public sealed class ChartListVirtualViewTests
                 nameof(LibraryChartRow.hash),
                 nameof(LibraryChartRow.sha256)
             },
-            MainWindowViewModel.GetBmsonLibrarySortKeySnapshotColumnNamesForTest().ToArray());
+            NormalLibraryRowCache.GetBmsonLibrarySortKeySnapshotColumnNamesForTest().ToArray());
 
         AssertBmsonSortKeyChange(song => song.title = "ChangedTitle");
         AssertBmsonSortKeyChange(song => song.folder = "changed-folder");
@@ -2400,7 +2400,7 @@ public sealed class ChartListVirtualViewTests
                 nameof(LibraryChartRow.hash),
                 nameof(LibraryChartRow.sha256)
             },
-            MainWindowViewModel.GetBmsonLibrarySourceIdentitySnapshotColumnNamesForTest().ToArray());
+            NormalLibraryRowCache.GetBmsonLibrarySourceIdentitySnapshotColumnNamesForTest().ToArray());
 
         AssertBmsonSourceIdentityChange(song => song.title = "ChangedTitle");
         AssertBmsonSourceIdentityChange(song => song.folder = "changed-folder");
@@ -2920,7 +2920,7 @@ public sealed class ChartListVirtualViewTests
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(original);
 
         Assert.IsTrue(
-            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(row, next));
+            NormalLibraryRowCache.HasBmsonLibrarySortKeyChangedForTest(row, next));
     }
 
     private static void AssertBmsonSortKeyNotChanged(Action<LR2SongDBExtended.bmson_song> mutate)
@@ -2931,7 +2931,7 @@ public sealed class ChartListVirtualViewTests
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(original);
 
         Assert.IsFalse(
-            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(row, next));
+            NormalLibraryRowCache.HasBmsonLibrarySortKeyChangedForTest(row, next));
     }
 
     private static void AssertBmsonSourceIdentityChange(Action<LR2SongDBExtended.bmson_song> mutate)
@@ -2942,7 +2942,7 @@ public sealed class ChartListVirtualViewTests
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(original);
 
         Assert.IsTrue(
-            MainWindowViewModel.HasBmsonLibrarySourceIdentityChangedForTest(row, next));
+            NormalLibraryRowCache.HasBmsonLibrarySourceIdentityChangedForTest(row, next));
     }
 
     private static void AssertBmsonSourceIdentityNotChanged(Action<LR2SongDBExtended.bmson_song> mutate)
@@ -2953,7 +2953,7 @@ public sealed class ChartListVirtualViewTests
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(original);
 
         Assert.IsFalse(
-            MainWindowViewModel.HasBmsonLibrarySourceIdentityChangedForTest(row, next));
+            NormalLibraryRowCache.HasBmsonLibrarySourceIdentityChangedForTest(row, next));
     }
 
     private static void AssertBmsonSameReferenceSortKeyChange(Action<LR2SongDBExtended.bmson_song> mutate)
@@ -2961,7 +2961,7 @@ public sealed class ChartListVirtualViewTests
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(CreateBmsonSong());
 
         Assert.IsTrue(
-            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(
+            NormalLibraryRowCache.HasBmsonLibrarySortKeyChangedForTest(
                 row,
                 song =>
                 {
@@ -2974,7 +2974,7 @@ public sealed class ChartListVirtualViewTests
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(CreateBmsonSong());
 
         Assert.IsFalse(
-            MainWindowViewModel.HasBmsonLibrarySortKeyChangedForTest(
+            NormalLibraryRowCache.HasBmsonLibrarySortKeyChangedForTest(
                 row,
                 song =>
                 {

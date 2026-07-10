@@ -27,6 +27,25 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void VirtualRowCache_ReusesAndRemovesBmsOwnerRowsThroughRegularOwner()
+    {
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
+        var file = new BMSFile
+        {
+            path = @"C:\Charts\Owner\chart.bms",
+        };
+        ChartListSourceRow sourceRow = ChartListSourceRow.FromChartFile(ChartFileProjection.FromBmsFile(file));
+
+        LibraryChartRow first = owner.CreateVirtualRow(null, sourceRow);
+        LibraryChartRow second = owner.CreateVirtualRow(null, sourceRow);
+
+        Assert.AreSame(first, second);
+        Assert.AreEqual(1, owner.SnapshotRows().Count);
+        Assert.AreEqual(1, owner.RemoveBmsRows([file]));
+        Assert.AreEqual(0, owner.SnapshotRows().Count);
+    }
+
+    [TestMethod]
     public void SourceInvalidation_ConsumesEachPositiveOwnedCollectionVersionOnce()
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());

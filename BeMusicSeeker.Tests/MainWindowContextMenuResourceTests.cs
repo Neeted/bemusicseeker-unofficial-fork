@@ -1912,14 +1912,20 @@ public sealed class MainWindowContextMenuResourceTests
             "ViewModels",
             "MainWindow",
             "MainChartRowProjectionOwner.cs"));
+        string regularOwnerCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "RegularChartListOwner.cs"));
         string notificationHandler = ExtractBetween(
             viewModelCode,
             "private NormalLibraryRefreshNotificationBatch ApplyNormalLibraryRefreshNotification",
             "private bool ApplyLatestNormalLibraryRefreshNotification");
         string bmsonSync = ExtractBetween(
-            viewModelCode,
-            "private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache",
-            "internal static bool HasBmsonLibrarySortKeyChangedForTest");
+            regularOwnerCode,
+            "internal BmsonLibraryRowCacheSyncResult SyncBmsonRows",
+            "internal BmsonLibraryRowCacheSyncResult RemoveBmsonRows");
         string pruneHelper = ExtractBetween(
             projectionOwnerCode,
             "internal void PruneTransientStatesToOwnedCharts",
@@ -1932,10 +1938,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(notificationHandler, "MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files)");
         Assert.IsFalse(notificationHandler.Contains("files?.BMSFiles"));
         Assert.IsFalse(notificationHandler.Contains("files?.BmsonSongs"));
-        StringAssert.Contains(bmsonSync, "files?.CreateNormalLibrarySourceStorageOwnerView()");
-        Assert.IsFalse(bmsonSync.Contains("files?.BmsonSongs"));
+        StringAssert.Contains(bmsonSync, "library?.CreateNormalLibrarySourceStorageOwnerView()");
+        Assert.IsFalse(bmsonSync.Contains("library?.BmsonSongs"));
         Assert.IsFalse(bmsonSync.Contains("OrderBy(song => song.path"));
-        StringAssert.Contains(bmsonSync, "MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files)");
+        StringAssert.Contains(bmsonSync, "mainChartList.RowProjection.PruneTransientStatesToOwnedCharts(library)");
         Assert.IsFalse(bmsonSync.Contains("PruneSharedChartTransientStateCacheToCurrentStorageRows"));
         StringAssert.Contains(pruneHelper, "library?.CreateOwnedChartRuntimeStatePrimaryKeySnapshot()");
         Assert.IsFalse(pruneHelper.Contains("foreach (BeMusicSeeker.Models.BMSFile"));
@@ -2012,9 +2018,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsFiles");
         StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsonSongs");
         StringAssert.Contains(notificationSyncHelper, "OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles || notificationBatch.NotifiesBmsonSongs");
-        StringAssert.Contains(notificationSyncHelper, "PruneRegularBmsLibraryRowCacheByBmsFiles(sourceOwnerView?.BmsFiles)");
+        StringAssert.Contains(notificationSyncHelper, "regularChartListOwner.PruneBmsRows(sourceOwnerView?.BmsFiles)");
         Assert.IsFalse(notificationSyncHelper.Contains("files?.BMSFiles"));
-        StringAssert.Contains(notificationSyncHelper, "SyncBmsonLibraryRowCache(sourceOwnerView)");
+        StringAssert.Contains(notificationSyncHelper, "regularChartListOwner.SyncBmsonRows(files, sourceOwnerView)");
         Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles"));
         Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs"));
         Assert.IsFalse(viewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFiles"));
