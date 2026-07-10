@@ -38,13 +38,13 @@ internal static class RegularChartListFilterService
     /// <param name="sourceRows">Rows produced by the keyword stage.</param>
     /// <param name="modeFilter">Selected play-mode filter.</param>
     /// <returns>Rows that match the selected play modes, or the original rows when all modes are allowed.</returns>
-    internal static IEnumerable<LibraryChartRow> ApplyModeFilter(IEnumerable<LibraryChartRow> sourceRows, MainWindowViewModel.ModeFilterType modeFilter)
+    internal static IEnumerable<LibraryChartRow> ApplyModeFilter(IEnumerable<LibraryChartRow> sourceRows, RegularChartModeFilter modeFilter)
     {
         if (sourceRows == null)
         {
             throw new ArgumentNullException(nameof(sourceRows));
         }
-        if (modeFilter == MainWindowViewModel.ModeFilterType.All)
+        if (modeFilter == RegularChartModeFilter.All)
         {
             return sourceRows;
         }
@@ -58,26 +58,26 @@ internal static class RegularChartListFilterService
     /// </summary>
     /// <param name="modeFilter">Selected play-mode filter.</param>
     /// <returns>Accepted mode values. Null is always included to preserve legacy unknown-mode behavior.</returns>
-    internal static HashSet<int?> CreateModeFilterValueSet(MainWindowViewModel.ModeFilterType modeFilter)
+    internal static HashSet<int?> CreateModeFilterValueSet(RegularChartModeFilter modeFilter)
     {
         HashSet<int?> modeValues = [null];
-        if ((modeFilter & MainWindowViewModel.ModeFilterType._5KEYS) == MainWindowViewModel.ModeFilterType._5KEYS)
+        if ((modeFilter & RegularChartModeFilter.FiveKeys) == RegularChartModeFilter.FiveKeys)
         {
             modeValues.Add(5);
         }
-        if ((modeFilter & MainWindowViewModel.ModeFilterType._7KEYS) == MainWindowViewModel.ModeFilterType._7KEYS)
+        if ((modeFilter & RegularChartModeFilter.SevenKeys) == RegularChartModeFilter.SevenKeys)
         {
             modeValues.Add(7);
         }
-        if ((modeFilter & MainWindowViewModel.ModeFilterType._9KEYS) == MainWindowViewModel.ModeFilterType._9KEYS)
+        if ((modeFilter & RegularChartModeFilter.NineKeys) == RegularChartModeFilter.NineKeys)
         {
             modeValues.Add(9);
         }
-        if ((modeFilter & MainWindowViewModel.ModeFilterType._10KEYS) == MainWindowViewModel.ModeFilterType._10KEYS)
+        if ((modeFilter & RegularChartModeFilter.TenKeys) == RegularChartModeFilter.TenKeys)
         {
             modeValues.Add(10);
         }
-        if ((modeFilter & MainWindowViewModel.ModeFilterType._14KEYS) == MainWindowViewModel.ModeFilterType._14KEYS)
+        if ((modeFilter & RegularChartModeFilter.FourteenKeys) == RegularChartModeFilter.FourteenKeys)
         {
             modeValues.Add(14);
         }

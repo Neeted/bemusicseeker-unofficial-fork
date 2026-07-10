@@ -1962,6 +1962,12 @@ public sealed class MainWindowContextMenuResourceTests
             "ViewModels",
             "MainWindow",
             "MainChartRowProjectionOwner.cs"));
+        string regularOwnerCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "RegularChartListOwner.cs"));
 
         Assert.IsFalse(viewModelCode.Contains("chartTransientStatesByKey"));
         Assert.IsFalse(viewModelCode.Contains("chartInfoProjectionVersionCache"));
@@ -1969,7 +1975,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("private void ApplyLibraryChartRowProviders"));
         Assert.IsFalse(viewModelCode.Contains("private ChartFileTransientState TryGetSharedChartTransientState"));
         Assert.IsFalse(viewModelCode.Contains("private LR2SongDBExtended.chart_info ResolveChartInfoForProjection"));
-        StringAssert.Contains(viewModelCode, "MainChartList.RowProjection.BuildNormalSourceRows(");
+        StringAssert.Contains(regularOwnerCode, "mainChartList.RowProjection.BuildNormalSourceRows(");
         StringAssert.Contains(viewModelCode, "MainChartList.RowProjection.BuildPackageSourceRows(");
         StringAssert.Contains(viewModelCode, "MainChartList.RowProjection.BuildStandardSourceRows(");
         StringAssert.Contains(viewModelCode, "MainChartList.RowProjection.CreatePlaylistDetailSourceRow(");
@@ -2401,10 +2407,15 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private void ScheduleVirtualNormalLibraryOrderPrewarm",
             "private static int CountPrewarmDescriptorsByPriority");
+        string regularOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "RegularChartListOwner.cs");
         string virtualWarmup = ExtractBetween(
-            viewModelCode,
-            "private void RunVirtualNormalLibraryOrderPrewarm",
-            "private void LogVirtualNormalLibraryRouteSkipped");
+            regularOwnerCode,
+            "internal void RunVirtualOrderPrewarm",
+            "private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualOrderPrewarmDescriptors");
 
         StringAssert.Contains(scheduler, "ScheduleVirtualNormalLibraryOrderPrewarm(reason)");
         Assert.IsFalse(ownedWarmup.Contains("Wait()"));
@@ -2421,7 +2432,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(lifecycleScheduler, "regularChartListOwner.TryBeginVirtualOrderPrewarm");
         StringAssert.Contains(lifecycleScheduler, "using (lease)");
         int ownedRun = lifecycleScheduler.IndexOf("RunPostStartupOwnedAdjacentIndexWarmup", StringComparison.Ordinal);
-        int virtualRun = lifecycleScheduler.IndexOf("RunVirtualNormalLibraryOrderPrewarm", StringComparison.Ordinal);
+        int virtualRun = lifecycleScheduler.IndexOf("RunVirtualOrderPrewarm", StringComparison.Ordinal);
         Assert.IsTrue(ownedRun >= 0);
         Assert.IsTrue(virtualRun > ownedRun);
         Assert.IsFalse(virtualWarmup.Contains(".Wait("));

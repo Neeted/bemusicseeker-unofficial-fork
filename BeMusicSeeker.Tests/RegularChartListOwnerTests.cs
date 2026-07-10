@@ -3,6 +3,8 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
+using System.Runtime.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -62,23 +64,176 @@ public sealed class RegularChartListOwnerTests
     public void VirtualSourceRows_StaleLookupCannotRepopulateInvalidatedCache()
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
-        RegularVirtualSourceRowsLookup staleLookup = owner.LookupVirtualSourceRows(includeBmsonRows: false);
+        RegularVirtualSourceRowsLookup staleLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
 
         owner.InvalidateSource();
         owner.TryPublishVirtualSourceRows(staleLookup, rows);
-        Assert.IsFalse(owner.LookupVirtualSourceRows(includeBmsonRows: false).CacheHit);
+        Assert.IsFalse(owner.LookupVirtualSourceRows(null, includeBmsonRows: false).CacheHit);
 
-        RegularVirtualSourceRowsLookup currentLookup = owner.LookupVirtualSourceRows(includeBmsonRows: false);
+        RegularVirtualSourceRowsLookup currentLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(currentLookup, rows);
-        RegularVirtualSourceRowsLookup cached = owner.LookupVirtualSourceRows(includeBmsonRows: false);
+        RegularVirtualSourceRowsLookup cached = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         Assert.IsTrue(cached.CacheHit);
         Assert.AreSame(rows, cached.Rows);
 
-        RegularVirtualSourceRowsLookup staleAfterSortChange = owner.LookupVirtualSourceRows(includeBmsonRows: false);
+        RegularVirtualSourceRowsLookup staleAfterSortChange = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.InvalidateIdentitySortKeys(clearSourceRows: true);
         owner.TryPublishVirtualSourceRows(staleAfterSortChange, rows);
-        Assert.IsFalse(owner.LookupVirtualSourceRows(includeBmsonRows: false).CacheHit);
+        Assert.IsFalse(owner.LookupVirtualSourceRows(null, includeBmsonRows: false).CacheHit);
+    }
+
+    [TestMethod]
+    public void VirtualSourceRows_LibraryIdentityChangeInvalidatesDerivedOrders()
+    {
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
+        var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        List<ChartListSourceRow> rows = [CreateSourceRow("Folder A", "a.bms")];
+        Assert.IsTrue(owner.TryBeginVirtualRequest(firstLibrary, out RegularChartListRequestLease firstLease));
+        RegularVirtualSourceRowsLookup firstLookup = owner.LookupVirtualSourceRows(firstLibrary, includeBmsonRows: false);
+        owner.TryPublishVirtualSourceRows(firstLookup, rows);
+        NormalLibrarySortCacheKey orderKey = owner.CreateVirtualOrderKey(
+            firstLookup.SourceGeneration,
+            firstLookup.SortKeyGeneration,
+            nameof(LibraryChartRow.Title),
+            ListSortDirection.Ascending,
+            rows.Count,
+            new RegularChartListExternalVersions(0, 0, 0));
+        Assert.IsTrue(owner.TryPublishVirtualOrder(
+            orderKey,
+            CreateOrder(rows[0]),
+            new RegularChartListExternalVersions(0, 0, 0)));
+
+        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(secondLibrary, out RegularChartListPrewarmLease secondLease));
+        RegularVirtualSourceRowsLookup secondLookup = owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false);
+
+        Assert.IsFalse(secondLookup.CacheHit);
+        Assert.IsTrue(secondLookup.SourceGeneration > firstLookup.SourceGeneration);
+        Assert.IsFalse(owner.TryGetVirtualOrder(orderKey, out _));
+        Assert.IsTrue(firstLease.Token.IsCancellationRequested);
+        secondLease.Dispose();
+    }
+
+    [TestMethod]
+    public void VirtualSourceRows_ConcurrentInitialLibraryMissRejectsStalePublisher()
+    {
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
+        var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        Assert.IsTrue(owner.TryBeginVirtualRequest(firstLibrary, out RegularChartListRequestLease firstLease));
+        RegularVirtualSourceRowsLookup firstLookup = owner.LookupVirtualSourceRows(firstLibrary, includeBmsonRows: false);
+
+        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(secondLibrary, out RegularChartListPrewarmLease secondLease));
+        RegularVirtualSourceRowsLookup secondLookup = owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false);
+        owner.TryPublishVirtualSourceRows(firstLookup, [CreateSourceRow("Folder A", "a.bms")]);
+        Assert.IsFalse(owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false).CacheHit);
+        List<ChartListSourceRow> secondRows = [CreateSourceRow("Folder B", "b.bms")];
+        owner.TryPublishVirtualSourceRows(secondLookup, secondRows);
+
+        RegularVirtualSourceRowsLookup cached = owner.LookupVirtualSourceRows(secondLibrary, includeBmsonRows: false);
+        Assert.IsTrue(firstLease.Token.IsCancellationRequested);
+        Assert.IsTrue(cached.CacheHit);
+        Assert.AreSame(secondRows, cached.Rows);
+        secondLease.Dispose();
+    }
+
+    [TestMethod]
+    public void VirtualOrderPrewarm_LibrarySwitchCancelsRunningDifferentLibraryLease()
+    {
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
+        var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(firstLibrary, out RegularChartListPrewarmLease firstLease));
+
+        Assert.IsFalse(owner.TryBeginVirtualOrderPrewarm(secondLibrary, out _));
+
+        Assert.IsTrue(firstLease.Token.IsCancellationRequested);
+        firstLease.Dispose();
+    }
+
+    [TestMethod]
+    public void VirtualOrderPrewarm_BuildsOwnedOrderAndCompletesLease()
+    {
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
+        List<ChartListSourceRow> rows =
+        [
+            CreateSourceRow("Folder A", "b.bms"),
+            CreateSourceRow("Folder A", "a.bms")
+        ];
+        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
+        owner.TryPublishVirtualSourceRows(lookup, rows);
+        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
+
+        using (lease)
+        {
+            owner.RunVirtualOrderPrewarm(
+                lease,
+                library: null,
+                includeBmsonRows: false,
+                [new VirtualNormalLibrarySortDescriptor(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, 1)],
+                "test");
+        }
+
+        NormalLibrarySortCacheKey key = owner.CreateVirtualOrderKey(
+            lookup.SourceGeneration,
+            lookup.SortKeyGeneration,
+            nameof(LibraryChartRow.Title),
+            ListSortDirection.Ascending,
+            rows.Count,
+            new RegularChartListExternalVersions(0, 0, 0));
+        Assert.IsTrue(owner.TryGetVirtualOrder(key, out ChartListOrder order));
+        CollectionAssert.AreEqual(new[] { 1, 0 }, order.Indexes.ToArray());
+        Assert.IsTrue(lease.Completion.IsCompleted);
+    }
+
+    [TestMethod]
+    public void VirtualNormalLibraryApply_OwnsSourceOrderFilterAndTerminalReuse()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel());
+        List<ChartListSourceRow> sourceRows =
+        [
+            CreateSourceRow("Folder A", "Alpha"),
+            CreateSourceRow("Folder B", "Bravo"),
+            CreateSourceRow("Folder A", "Charlie")
+        ];
+        RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
+        owner.TryPublishVirtualSourceRows(lookup, sourceRows);
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var request = new RegularVirtualNormalLibraryApplyRequest
+        {
+            IncludeBmsonRows = false,
+            TreeFilter = RegularNormalLibraryTreeFilter.Create(RegularChartFolderFilterKind.Directory, @"C:\Charts\Folder A"),
+            KeywordFilter = string.Empty,
+            ModeFilter = RegularChartModeFilter.All,
+            SortColumnName = nameof(LibraryChartRow.Title),
+            SortDirection = ListSortDirection.Descending,
+            ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
+            ColumnSelection = new MainChartListColumnSelection(
+                settings,
+                reused: false,
+                elapsedMs: 0L,
+                MainViewUpdateMode.FolderFilterSelected,
+                Visibility.Collapsed,
+                new PlaylistSummaryColumnSettings()),
+            Mode = MainViewUpdateMode.FolderFilterSelected,
+            Stopwatch = Stopwatch.StartNew(),
+            Reason = "test"
+        };
+
+        RegularVirtualNormalLibraryApplyResult first = owner.TryApplyVirtualNormalLibrary(request);
+        RegularVirtualNormalLibraryApplyResult second = owner.TryApplyVirtualNormalLibrary(request);
+
+        Assert.IsTrue(first.WasCommitted);
+        Assert.IsTrue(second.WasCommitted);
+        Assert.AreSame(second.RowsView, table.Rows);
+        Assert.AreEqual(2, second.FolderCount);
+        Assert.AreEqual(2, second.RowsView.Count);
+        Assert.AreEqual("Charlie", ((LibraryChartRow)second.RowsView[0]).Title);
+        Assert.AreEqual("Alpha", ((LibraryChartRow)second.RowsView[1]).Title);
+        Assert.IsTrue(second.SourceRowsCacheHit);
+        Assert.IsTrue(second.SortCacheHit);
     }
 
     [TestMethod]
@@ -598,14 +753,14 @@ public sealed class RegularChartListOwnerTests
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
 
-        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(out RegularChartListPrewarmLease first));
+        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease first));
         Assert.IsTrue(owner.IsVirtualOrderPrewarmRunning);
-        Assert.IsFalse(owner.TryBeginVirtualOrderPrewarm(out _));
+        Assert.IsFalse(owner.TryBeginVirtualOrderPrewarm(null, out _));
 
         first.Dispose();
 
         Assert.IsFalse(owner.IsVirtualOrderPrewarmRunning);
-        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(out RegularChartListPrewarmLease second));
+        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease second));
         Assert.AreEqual(first.RunId + 1, second.RunId);
         second.Dispose();
         owner.Dispose();
@@ -615,7 +770,7 @@ public sealed class RegularChartListOwnerTests
     public async Task StopAsync_CancelsAndDrainsVirtualOrderPrewarm()
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
-        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(out RegularChartListPrewarmLease lease));
+        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
 
         Task stopTask = owner.StopAsync();
 
@@ -623,7 +778,7 @@ public sealed class RegularChartListOwnerTests
         Assert.IsFalse(stopTask.IsCompleted);
         lease.Dispose();
         await stopTask;
-        Assert.IsFalse(owner.TryBeginVirtualOrderPrewarm(out _));
+        Assert.IsFalse(owner.TryBeginVirtualOrderPrewarm(null, out _));
         Assert.IsFalse(owner.TryBeginRequest(out _));
     }
 
@@ -631,7 +786,7 @@ public sealed class RegularChartListOwnerTests
     public void SortKeyInvalidation_CancelsVirtualOrderPrewarm()
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
-        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(out RegularChartListPrewarmLease lease));
+        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
 
         owner.InvalidateIdentitySortKeys(clearSourceRows: false);
 
@@ -652,7 +807,7 @@ public sealed class RegularChartListOwnerTests
             ListSortDirection.Ascending,
             rowCount: 1,
             externalVersions: versions);
-        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(out RegularChartListPrewarmLease lease));
+        Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
 
         owner.ClearSortCache();
 
@@ -669,7 +824,7 @@ public sealed class RegularChartListOwnerTests
     public async Task StopAsync_RejectsLateVirtualCachePublication()
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());
-        RegularVirtualSourceRowsLookup sourceLookup = owner.LookupVirtualSourceRows(includeBmsonRows: false);
+        RegularVirtualSourceRowsLookup sourceLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 0);
         NormalLibrarySortCacheKey orderKey = owner.CreateVirtualOrderKey(
@@ -683,7 +838,7 @@ public sealed class RegularChartListOwnerTests
         await owner.StopAsync();
 
         owner.TryPublishVirtualSourceRows(sourceLookup, rows);
-        Assert.IsFalse(owner.LookupVirtualSourceRows(includeBmsonRows: false).CacheHit);
+        Assert.IsFalse(owner.LookupVirtualSourceRows(null, includeBmsonRows: false).CacheHit);
         Assert.IsFalse(owner.TryPublishVirtualOrder(orderKey, CreateOrder(rows[0]), versions));
         Assert.IsFalse(owner.IsCurrentVirtualGeneration(orderKey.SourceGeneration, orderKey.SortKeyGeneration));
     }
@@ -796,8 +951,8 @@ public sealed class RegularChartListOwnerTests
             includeBmsonRows: true,
             virtualSubsetRequiredFailure: false,
             keywordFilter: string.Empty,
-            MainWindowViewModel.ModeFilterType.All,
-            sortParameters: null);
+            RegularChartModeFilter.All,
+            default);
         return owner.Build(lease, request, new RegularChartListBuildInput
         {
             CurrentTreeMode = MainViewUpdateMode.FolderFilterSelected,

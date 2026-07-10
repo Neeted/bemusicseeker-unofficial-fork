@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
@@ -41,9 +42,12 @@ internal sealed class RegularChartListOwner : IDisposable
     private List<LibraryChartRow> folderSortResultSnapshot;
     private string folderSortColumnName;
     private ListSortDirection? folderSortDirection;
+    private RegularNormalLibraryTreeFilter treeFilter;
     private MainViewUpdateMode? lastAppliedColumnMode;
     private RegularChartListCompletion lastCompletion;
     private List<ChartListSourceRow> virtualSourceRows;
+    private BMSLibrary virtualSourceRowsLibrary;
+    private bool virtualSourceRowsLibraryReserved;
     private bool virtualSourceRowsAvailable;
     private long virtualSourceRowsGeneration;
     private bool virtualSourceRowsIncludeBmson;
@@ -107,6 +111,33 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
+    internal bool HasTreeFilter
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return treeFilter != null;
+            }
+        }
+    }
+
+    internal void SetTreeFilter(RegularNormalLibraryTreeFilter filter)
+    {
+        lock (syncRoot)
+        {
+            treeFilter = filter;
+        }
+    }
+
+    internal RegularNormalLibraryTreeFilter CaptureTreeFilter(bool enabled)
+    {
+        lock (syncRoot)
+        {
+            return enabled ? treeFilter : null;
+        }
+    }
+
     internal RegularChartListRequestLease BeginRequest()
     {
         if (!TryBeginRequest(out RegularChartListRequestLease lease))
@@ -133,6 +164,37 @@ internal sealed class RegularChartListOwner : IDisposable
             lease = new RegularChartListRequestLease(currentRequestId, currentCancellation.Token);
         }
         CancelAndDispose(previous);
+        return true;
+    }
+
+    internal bool TryBeginVirtualRequest(BMSLibrary library, out RegularChartListRequestLease lease)
+    {
+        CancellationTokenSource previousRequest;
+        CancellationTokenSource prewarmCancellation = null;
+        lock (syncRoot)
+        {
+            if (disposed)
+            {
+                lease = null;
+                return false;
+            }
+            if (virtualSourceRowsLibraryReserved
+                && !ReferenceEquals(virtualSourceRowsLibrary, library))
+            {
+                sourceGeneration++;
+                ClearAllSortCachesUnsafe(clearSourceRows: true);
+                prewarmCancellation = GetActivePrewarmCancellationUnsafe();
+            }
+            virtualSourceRowsLibrary = library;
+            virtualSourceRowsLibraryReserved = true;
+            previousRequest = currentCancellation;
+            currentCancellation = new CancellationTokenSource();
+            currentRequestId = MainViewBuildRequestSequence.Next();
+            regularRequestActive = true;
+            lease = new RegularChartListRequestLease(currentRequestId, currentCancellation.Token);
+        }
+        CancelAndDispose(previousRequest);
+        Cancel(prewarmCancellation);
         return true;
     }
 
@@ -275,25 +337,48 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
-    internal bool TryBeginVirtualOrderPrewarm(out RegularChartListPrewarmLease lease)
+    internal bool TryBeginVirtualOrderPrewarm(BMSLibrary library, out RegularChartListPrewarmLease lease)
     {
-        CancellationTokenSource previous;
+        CancellationTokenSource previousRequest = null;
+        CancellationTokenSource activePrewarmToCancel = null;
+        CancellationTokenSource completedPrewarmToDispose = null;
+        bool started = false;
         lock (syncRoot)
         {
-            if (disposed || !virtualOrderPrewarmCompletion.IsCompleted)
+            if (disposed)
             {
                 lease = null;
                 return false;
             }
-            previous = virtualOrderPrewarmCancellation;
-            virtualOrderPrewarmCancellation = new CancellationTokenSource();
-            lease = new RegularChartListPrewarmLease(
-                ++virtualOrderPrewarmRunId,
-                virtualOrderPrewarmCancellation.Token);
-            virtualOrderPrewarmCompletion = lease.Completion;
+            if (virtualSourceRowsLibraryReserved
+                && !ReferenceEquals(virtualSourceRowsLibrary, library))
+            {
+                sourceGeneration++;
+                previousRequest = InvalidateCurrentRequestUnsafe();
+                ClearAllSortCachesUnsafe(clearSourceRows: true);
+                activePrewarmToCancel = GetActivePrewarmCancellationUnsafe();
+            }
+            virtualSourceRowsLibrary = library;
+            virtualSourceRowsLibraryReserved = true;
+            if (!virtualOrderPrewarmCompletion.IsCompleted)
+            {
+                lease = null;
+            }
+            else
+            {
+                completedPrewarmToDispose = virtualOrderPrewarmCancellation;
+                virtualOrderPrewarmCancellation = new CancellationTokenSource();
+                lease = new RegularChartListPrewarmLease(
+                    ++virtualOrderPrewarmRunId,
+                    virtualOrderPrewarmCancellation.Token);
+                virtualOrderPrewarmCompletion = lease.Completion;
+                started = true;
+            }
         }
-        CancelAndDispose(previous);
-        return true;
+        CancelAndDispose(previousRequest);
+        Cancel(activePrewarmToCancel);
+        CancelAndDispose(completedPrewarmToDispose);
+        return started;
     }
 
     internal static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateDefaultVirtualOrderPrewarmDescriptors()
@@ -309,6 +394,146 @@ internal sealed class RegularChartListOwner : IDisposable
         }
         int processorDegree = Math.Max(1, Environment.ProcessorCount - 1);
         return Math.Max(1, Math.Min(Math.Min(processorDegree, 4), descriptorCount));
+    }
+
+    internal void RunVirtualOrderPrewarm(
+        RegularChartListPrewarmLease lease,
+        BMSLibrary library,
+        bool includeBmsonRows,
+        IReadOnlyList<VirtualNormalLibrarySortDescriptor> descriptors,
+        string reason)
+    {
+        if (lease == null)
+        {
+            throw new ArgumentNullException(nameof(lease));
+        }
+
+        var stopwatch = Stopwatch.StartNew();
+        int descriptorCount = descriptors?.Count ?? 0;
+        int degree = ResolveVirtualOrderPrewarmDegree(descriptorCount);
+        int cacheHitCount = 0;
+        int builtCount = 0;
+        int staleSkippedCount = 0;
+        int rowCount = 0;
+        long sourceGenerationAtLookup = 0L;
+        long sortKeyGenerationAtLookup = 0L;
+        try
+        {
+            lease.Token.ThrowIfCancellationRequested();
+            log("virtual_order_prewarm start reason=" + (reason ?? string.Empty)
+                + " runId=" + lease.RunId
+                + " descriptorCount=" + descriptorCount
+                + " degree=" + degree);
+            List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
+                library,
+                includeBmsonRows,
+                out bool sourceRowsCacheHit,
+                out sourceGenerationAtLookup,
+                out sortKeyGenerationAtLookup);
+            rowCount = sourceRows.Count;
+            if (!IsCurrentVirtualGeneration(sourceGenerationAtLookup, sortKeyGenerationAtLookup))
+            {
+                staleSkippedCount = descriptorCount;
+                return;
+            }
+
+            foreach (IGrouping<int, VirtualNormalLibrarySortDescriptor> stage in (descriptors ?? [])
+                .GroupBy(descriptor => descriptor.PrewarmPriority)
+                .OrderBy(group => group.Key))
+            {
+                VirtualNormalLibrarySortDescriptor[] stageDescriptors = [.. stage];
+                int stageCacheHitCount = 0;
+                int stageBuiltCount = 0;
+                int stageStaleDetected = 0;
+                int stageDegree = ResolveVirtualOrderPrewarmDegree(stageDescriptors.Length);
+                if (!IsCurrentVirtualGeneration(sourceGenerationAtLookup, sortKeyGenerationAtLookup))
+                {
+                    staleSkippedCount += stageDescriptors.Length;
+                    break;
+                }
+
+                Parallel.ForEach(
+                    stageDescriptors,
+                    new ParallelOptions
+                    {
+                        MaxDegreeOfParallelism = stageDegree,
+                        CancellationToken = lease.Token
+                    },
+                    (descriptor, loopState) =>
+                    {
+                        if (!IsCurrentVirtualGeneration(sourceGenerationAtLookup, sortKeyGenerationAtLookup))
+                        {
+                            Interlocked.Exchange(ref stageStaleDetected, 1);
+                            loopState.Stop();
+                            return;
+                        }
+                        _ = GetOrCreateVirtualNormalLibraryOrder(
+                            sourceRows,
+                            library,
+                            descriptor.ColumnName,
+                            descriptor.Direction,
+                            sourceGenerationAtLookup,
+                            sortKeyGenerationAtLookup,
+                            CaptureExternalVersions(library, default),
+                            useCache: true,
+                            out bool cacheHit,
+                            out _,
+                            out _,
+                            out _);
+                        if (cacheHit)
+                        {
+                            Interlocked.Increment(ref stageCacheHitCount);
+                        }
+                        else
+                        {
+                            Interlocked.Increment(ref stageBuiltCount);
+                        }
+                    });
+                cacheHitCount += stageCacheHitCount;
+                builtCount += stageBuiltCount;
+                if (Volatile.Read(ref stageStaleDetected) != 0
+                    || !IsCurrentVirtualGeneration(sourceGenerationAtLookup, sortKeyGenerationAtLookup))
+                {
+                    staleSkippedCount += Math.Max(0, stageDescriptors.Length - stageCacheHitCount - stageBuiltCount);
+                    break;
+                }
+            }
+
+            log("virtual_order_prewarm done reason=" + (reason ?? string.Empty)
+                + " runId=" + lease.RunId
+                + " descriptorCount=" + descriptorCount
+                + " rowCount=" + rowCount
+                + " sourceRowsReuse=" + sourceRowsCacheHit
+                + " cacheHit=" + cacheHitCount
+                + " built=" + builtCount
+                + " staleSkipped=" + staleSkippedCount
+                + " sourceGeneration=" + sourceGenerationAtLookup
+                + " sortKeyGeneration=" + sortKeyGenerationAtLookup
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
+        {
+            log("virtual_order_prewarm cancelled reason=" + (reason ?? string.Empty)
+                + " runId=" + lease.RunId
+                + " descriptorCount=" + descriptorCount
+                + " rowCount=" + rowCount
+                + " cacheHit=" + cacheHitCount
+                + " built=" + builtCount
+                + " staleSkipped=" + staleSkippedCount
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds);
+        }
+        catch (Exception ex)
+        {
+            log("virtual_order_prewarm failed reason=" + (reason ?? string.Empty)
+                + " runId=" + lease.RunId
+                + " descriptorCount=" + descriptorCount
+                + " rowCount=" + rowCount
+                + " cacheHit=" + cacheHitCount
+                + " built=" + builtCount
+                + " staleSkipped=" + staleSkippedCount
+                + " elapsedMs=" + stopwatch.ElapsedMilliseconds
+                + " exception=" + ex.GetType().Name);
+        }
     }
 
     private static IReadOnlyList<VirtualNormalLibrarySortDescriptor> CreateVirtualOrderPrewarmDescriptors(int maxPrewarmPriority)
@@ -494,17 +719,25 @@ internal sealed class RegularChartListOwner : IDisposable
         return removed;
     }
 
-    internal RegularVirtualSourceRowsLookup LookupVirtualSourceRows(bool includeBmsonRows)
+    internal RegularVirtualSourceRowsLookup LookupVirtualSourceRows(BMSLibrary library, bool includeBmsonRows)
     {
         lock (syncRoot)
         {
-            bool cacheHit = virtualSourceRowsAvailable
+            if (!virtualSourceRowsLibraryReserved)
+            {
+                virtualSourceRowsLibrary = library;
+                virtualSourceRowsLibraryReserved = true;
+            }
+            bool identityMatches = ReferenceEquals(virtualSourceRowsLibrary, library);
+            bool cacheHit = identityMatches
+                && virtualSourceRowsAvailable
                 && virtualSourceRows != null
                 && virtualSourceRowsGeneration == sourceGeneration
                 && virtualSourceRowsIncludeBmson == includeBmsonRows;
             return new RegularVirtualSourceRowsLookup(
+                library,
                 includeBmsonRows,
-                sourceGeneration,
+                identityMatches ? sourceGeneration : -1L,
                 sortKeyGeneration,
                 cacheHit ? virtualSourceRows : null,
                 cacheHit);
@@ -518,12 +751,15 @@ internal sealed class RegularChartListOwner : IDisposable
         lock (syncRoot)
         {
             if (disposed
+                || !virtualSourceRowsLibraryReserved
+                || !ReferenceEquals(virtualSourceRowsLibrary, lookup.Library)
                 || sourceGeneration != lookup.SourceGeneration
                 || sortKeyGeneration != lookup.SortKeyGeneration)
             {
                 return;
             }
             virtualSourceRows = rows;
+            virtualSourceRowsLibrary = lookup.Library;
             virtualSourceRowsAvailable = true;
             virtualSourceRowsGeneration = lookup.SourceGeneration;
             virtualSourceRowsIncludeBmson = lookup.IncludeBmsonRows;
@@ -732,7 +968,7 @@ internal sealed class RegularChartListOwner : IDisposable
         long keywordMs = stopwatch.ElapsedMilliseconds - stageStartMs;
         lease.Token.ThrowIfCancellationRequested();
         stageStartMs = stopwatch.ElapsedMilliseconds;
-        IReadOnlyList<LibraryChartRow> nextModeRows = request.ModeFilter != MainWindowViewModel.ModeFilterType.All
+        IReadOnlyList<LibraryChartRow> nextModeRows = request.ModeFilter != RegularChartModeFilter.All
             ? RegularChartListStageState.Materialize(RegularChartListFilterService.ApplyModeFilter(nextKeywordRows, request.ModeFilter))
             : nextKeywordRows;
         long modeMs = stopwatch.ElapsedMilliseconds - stageStartMs;
@@ -784,6 +1020,326 @@ internal sealed class RegularChartListOwner : IDisposable
         }
 
         return TryCommitCore(lease, null, input);
+    }
+
+    internal RegularVirtualNormalLibraryApplyResult TryApplyVirtualNormalLibrary(
+        RegularVirtualNormalLibraryApplyRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        ResetDerivedCaches();
+        if (!TryBeginVirtualRequest(request.Library, out RegularChartListRequestLease lease))
+        {
+            return RegularVirtualNormalLibraryApplyResult.NotCommitted();
+        }
+
+        Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
+        mainChartList.RowProjection.CaptureVersions(request.Library);
+
+        long stageStartMs = stopwatch.ElapsedMilliseconds;
+        List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
+            request.Library,
+            request.IncludeBmsonRows,
+            out bool sourceRowsCacheHit,
+            out long sourceRowsSourceGeneration,
+            out long sourceRowsSortKeyGeneration);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return RegularVirtualNormalLibraryApplyResult.NotCommitted();
+        }
+        long sourceRowsMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+
+        string filterIdentity = CreateVirtualNormalLibraryFilterIdentity(
+            request.TreeFilter?.Identity,
+            request.KeywordFilter,
+            request.ModeFilter,
+            mainChartList.RowProjection.ScoreSnapshotVersion,
+            mainChartList.RowProjection.ChartInfoVersion);
+        stageStartMs = stopwatch.ElapsedMilliseconds;
+        ChartListOrder fullOrder = GetOrCreateVirtualNormalLibraryOrder(
+            sourceRows,
+            request.Library,
+            request.SortColumnName,
+            request.SortDirection,
+            sourceRowsSourceGeneration,
+            sourceRowsSortKeyGeneration,
+            request.ExternalVersions,
+            useCache: true,
+            out bool sortCacheHit,
+            out NormalLibrarySortCacheKey sortCacheKey,
+            out long orderCacheLookupMs,
+            out long orderBuildMs);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return RegularVirtualNormalLibraryApplyResult.NotCommitted();
+        }
+        long sortStageMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+
+        int[] viewOrderedIndexes = ApplyVirtualNormalLibraryFilters(
+            sourceRows,
+            fullOrder.Indexes,
+            request.TreeFilter,
+            GridKeywordSearchQuery.Parse(request.KeywordFilter),
+            request.ModeFilter,
+            out int folderFilteredCount,
+            out int keywordFilteredCount,
+            out int modeFilteredCount,
+            out long folderStageMs,
+            out long keywordStageMs,
+            out long modeStageMs);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return RegularVirtualNormalLibraryApplyResult.NotCommitted();
+        }
+
+        ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
+        var summaryKey = new MainViewSummaryCacheKey(
+            sourceRowsSourceGeneration,
+            sourceRowsSortKeyGeneration,
+            modeFilteredCount,
+            request.IncludeBmsonRows,
+            filterIdentity);
+        bool summaryCacheHit = TryGetVirtualSummary(summaryKey, out int distinctFolderCount);
+        if (!summaryCacheHit)
+        {
+            distinctFolderCount = -1;
+        }
+
+        stageStartMs = stopwatch.ElapsedMilliseconds;
+        var rowsView = new ChartListVirtualView(
+            sourceRows,
+            order,
+            row => CreateVirtualRow(request.Library, row),
+            distinctFolderCount);
+        RegularChartListTerminalResult terminal = TryCommitVirtual(
+            lease,
+            new RegularChartListTerminalInput
+            {
+                RowsRequest = new MainChartListRowsApplyRequest
+                {
+                    Rows = rowsView,
+                    ColumnsSettings = request.ColumnSelection.ColumnsSettings,
+                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+                    Summary = request.PreserveSummary
+                        ? MainChartListSummaryUpdate.Preserve()
+                        : MainChartListSummaryUpdate.NormalCounts(rowsView.Count, distinctFolderCount),
+                    ColumnSettingReuse = request.ColumnSelection.Reused,
+                    ColumnPreparationMs = request.ColumnSelection.ElapsedMs,
+                    TerminalStageStartMs = stageStartMs,
+                    Stopwatch = stopwatch
+                },
+                ColumnSelection = request.ColumnSelection,
+                Mode = request.Mode,
+                Stopwatch = stopwatch
+            });
+        if (!terminal.WasCommitted)
+        {
+            return RegularVirtualNormalLibraryApplyResult.NotCommitted();
+        }
+        if (!summaryCacheHit)
+        {
+            ScheduleVirtualSummary(
+                lease,
+                summaryKey,
+                SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes),
+                rowsView,
+                request.Reason);
+        }
+
+        return new RegularVirtualNormalLibraryApplyResult(
+            terminal,
+            rowsView,
+            order,
+            sortCacheKey,
+            sourceRows.Count,
+            folderFilteredCount,
+            keywordFilteredCount,
+            modeFilteredCount,
+            distinctFolderCount,
+            sourceRowsCacheHit,
+            sortCacheHit,
+            summaryCacheHit,
+            sourceRowsMs,
+            folderStageMs,
+            keywordStageMs,
+            modeStageMs,
+            sortStageMs,
+            orderCacheLookupMs,
+            orderBuildMs);
+    }
+
+    private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
+        BMSLibrary library,
+        bool includeBmsonRows,
+        out bool cacheHit,
+        out long sourceGenerationAtLookup,
+        out long sortKeyGenerationAtLookup)
+    {
+        RegularVirtualSourceRowsLookup lookup = LookupVirtualSourceRows(library, includeBmsonRows);
+        if (lookup.CacheHit)
+        {
+            cacheHit = true;
+            sourceGenerationAtLookup = lookup.SourceGeneration;
+            sortKeyGenerationAtLookup = lookup.SortKeyGeneration;
+            return lookup.Rows as List<ChartListSourceRow> ?? [.. lookup.Rows];
+        }
+
+        OwnedChartStorageOwnerView sourceOwnerView = library?.CreateNormalLibrarySourceStorageOwnerView();
+        List<ChartListSourceRow> sourceRows = mainChartList.RowProjection.BuildNormalSourceRows(
+            library,
+            sourceOwnerView,
+            includeBmsonRows);
+        TryPublishVirtualSourceRows(lookup, sourceRows);
+        cacheHit = false;
+        sourceGenerationAtLookup = lookup.SourceGeneration;
+        sortKeyGenerationAtLookup = lookup.SortKeyGeneration;
+        return sourceRows;
+    }
+
+    private ChartListOrder GetOrCreateVirtualNormalLibraryOrder(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        BMSLibrary library,
+        string columnName,
+        ListSortDirection direction,
+        long expectedSourceGeneration,
+        long expectedSortKeyGeneration,
+        RegularChartListExternalVersions externalVersions,
+        bool useCache,
+        out bool cacheHit,
+        out NormalLibrarySortCacheKey cacheKey,
+        out long orderCacheLookupMs,
+        out long orderBuildMs)
+    {
+        var lookupStopwatch = Stopwatch.StartNew();
+        int rowCount = sourceRows?.Count ?? 0;
+        if (!ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out string normalizedColumnName))
+        {
+            throw new ArgumentException("Unsupported virtual normal library sort column.", nameof(columnName));
+        }
+
+        if (useCache)
+        {
+            cacheKey = CreateVirtualOrderKey(
+                expectedSourceGeneration,
+                expectedSortKeyGeneration,
+                normalizedColumnName,
+                direction,
+                rowCount,
+                CaptureExternalVersions(library, externalVersions));
+            if (TryGetVirtualOrder(cacheKey, out ChartListOrder cachedOrder))
+            {
+                lookupStopwatch.Stop();
+                cacheHit = true;
+                orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
+                orderBuildMs = 0L;
+                return cachedOrder;
+            }
+        }
+        else
+        {
+            cacheKey = default;
+        }
+
+        lookupStopwatch.Stop();
+        var buildStopwatch = Stopwatch.StartNew();
+        if (!ChartListOrder.TryCreate(sourceRows, normalizedColumnName, direction, out ChartListOrder order))
+        {
+            throw new ArgumentException("Unsupported virtual normal library sort column.", nameof(columnName));
+        }
+        buildStopwatch.Stop();
+        if (useCache)
+        {
+            TryPublishVirtualOrder(cacheKey, order, CaptureExternalVersions(library, externalVersions));
+        }
+        cacheHit = false;
+        orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
+        orderBuildMs = buildStopwatch.ElapsedMilliseconds;
+        return order;
+    }
+
+    private static RegularChartListExternalVersions CaptureExternalVersions(
+        BMSLibrary requestLibrary,
+        RegularChartListExternalVersions fallback)
+    {
+        return requestLibrary == null
+            ? fallback
+            : new RegularChartListExternalVersions(
+                requestLibrary.ScoreSnapshotVersion,
+                requestLibrary.ChartInfoIndexVersion,
+                requestLibrary.MaintenanceHydrationCompletedVersion);
+    }
+
+    internal static string CreateVirtualNormalLibraryFilterIdentity(
+        string folderFilterIdentity,
+        string keywordFilter,
+        RegularChartModeFilter modeFilter,
+        int scoreSnapshotVersion,
+        int chartInfoIndexVersion)
+    {
+        if (string.IsNullOrEmpty(folderFilterIdentity)
+            && string.IsNullOrWhiteSpace(keywordFilter)
+            && modeFilter == RegularChartModeFilter.All)
+        {
+            return "normal_default";
+        }
+
+        string normalizedKeywordFilter = keywordFilter ?? string.Empty;
+        bool hasKeywordFilter = !string.IsNullOrWhiteSpace(normalizedKeywordFilter);
+        string folderIdentity = string.IsNullOrEmpty(folderFilterIdentity) ? "none" : folderFilterIdentity;
+        string identity = "normal_filter:folder=" + folderIdentity
+            + ";keyword=" + StringComparer.Ordinal.GetHashCode(normalizedKeywordFilter).ToString(CultureInfo.InvariantCulture);
+        if (hasKeywordFilter)
+        {
+            identity += ";score=" + scoreSnapshotVersion.ToString(CultureInfo.InvariantCulture)
+                + ";chart=" + chartInfoIndexVersion.ToString(CultureInfo.InvariantCulture);
+        }
+        return identity + ";mode=" + ((int)modeFilter).ToString(CultureInfo.InvariantCulture);
+    }
+
+    internal static int[] ApplyVirtualNormalLibraryFilters(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        IReadOnlyList<int> orderedIndexes,
+        RegularNormalLibraryTreeFilter treeFilter,
+        GridKeywordSearchQuery keywordQuery,
+        RegularChartModeFilter modeFilter,
+        out int folderFilteredCount,
+        out int keywordFilteredCount,
+        out int modeFilteredCount,
+        out long folderStageMs,
+        out long keywordStageMs,
+        out long modeStageMs)
+    {
+        int[] indexes = [.. (orderedIndexes ?? []).Where(index => sourceRows != null && index >= 0 && index < sourceRows.Count)];
+        var stageStopwatch = Stopwatch.StartNew();
+        if (treeFilter != null)
+        {
+            indexes = [.. indexes.Where(index => treeFilter.Matches(sourceRows[index]))];
+        }
+        folderFilteredCount = indexes.Length;
+        folderStageMs = stageStopwatch.ElapsedMilliseconds;
+
+        stageStopwatch.Restart();
+        if (keywordQuery != null && keywordQuery.HasTokens)
+        {
+            indexes = indexes.AsParallel().AsOrdered()
+                .Where(index => keywordQuery.MatchesChartListSourceRow(sourceRows[index]))
+                .ToArray();
+        }
+        keywordFilteredCount = indexes.Length;
+        keywordStageMs = stageStopwatch.ElapsedMilliseconds;
+
+        stageStopwatch.Restart();
+        if (modeFilter != RegularChartModeFilter.All)
+        {
+            HashSet<int?> modeValues = RegularChartListFilterService.CreateModeFilterValueSet(modeFilter);
+            indexes = [.. indexes.Where(index => modeValues.Contains(sourceRows[index]?.Mode))];
+        }
+        modeFilteredCount = indexes.Length;
+        modeStageMs = stageStopwatch.ElapsedMilliseconds;
+        return indexes;
     }
 
     internal bool TryGetVirtualSummary(MainViewSummaryCacheKey key, out int distinctFolderCount)
@@ -1099,7 +1655,7 @@ internal sealed class RegularChartListOwner : IDisposable
         bool fullNormalResult = input.CurrentTreeMode == MainViewUpdateMode.FolderFilterSelected
             && !input.HasVirtualNormalLibraryTreeFilter
             && string.IsNullOrWhiteSpace(request.KeywordFilter)
-            && request.ModeFilter == MainWindowViewModel.ModeFilterType.All
+            && request.ModeFilter == RegularChartModeFilter.All
             && !input.IsPlaylistDetailView
             && rows.Count == stage.FolderCount && rows.Count == stage.KeywordCount && rows.Count == stage.ModeCount;
 
@@ -1129,7 +1685,7 @@ internal sealed class RegularChartListOwner : IDisposable
         lease.Token.ThrowIfCancellationRequested();
         List<LibraryChartRow> sortedRows = LibraryChartRowSortEngine.SortForMainView(
             rows,
-            request.SortParameters,
+            request.Sort,
             input.IsPlaylistDetailView,
             useLegacySortForDataGrid: false,
             out string sortProfile,
@@ -1519,6 +2075,91 @@ internal sealed class RegularChartListTerminalInput
     internal MainChartListColumnSelection ColumnSelection { get; set; }
     internal MainViewUpdateMode Mode { get; set; }
     internal Stopwatch Stopwatch { get; set; }
+}
+
+internal sealed class RegularVirtualNormalLibraryApplyRequest
+{
+    internal BMSLibrary Library { get; set; }
+    internal bool IncludeBmsonRows { get; set; }
+    internal RegularNormalLibraryTreeFilter TreeFilter { get; set; }
+    internal string KeywordFilter { get; set; }
+    internal RegularChartModeFilter ModeFilter { get; set; }
+    internal string SortColumnName { get; set; }
+    internal ListSortDirection SortDirection { get; set; }
+    internal RegularChartListExternalVersions ExternalVersions { get; set; }
+    internal MainChartListColumnSelection ColumnSelection { get; set; }
+    internal bool PreserveSummary { get; set; }
+    internal MainViewUpdateMode Mode { get; set; }
+    internal Stopwatch Stopwatch { get; set; }
+    internal string Reason { get; set; }
+}
+
+internal readonly struct RegularVirtualNormalLibraryApplyResult
+{
+    internal RegularVirtualNormalLibraryApplyResult(
+        RegularChartListTerminalResult terminal,
+        ChartListVirtualView rowsView,
+        ChartListOrder order,
+        NormalLibrarySortCacheKey sortCacheKey,
+        int sourceRowCount,
+        int folderCount,
+        int keywordCount,
+        int modeCount,
+        int distinctFolderCount,
+        bool sourceRowsCacheHit,
+        bool sortCacheHit,
+        bool summaryCacheHit,
+        long sourceRowsMs,
+        long folderMs,
+        long keywordMs,
+        long modeMs,
+        long sortMs,
+        long orderCacheLookupMs,
+        long orderBuildMs)
+    {
+        Terminal = terminal;
+        RowsView = rowsView;
+        Order = order;
+        SortCacheKey = sortCacheKey;
+        SourceRowCount = sourceRowCount;
+        FolderCount = folderCount;
+        KeywordCount = keywordCount;
+        ModeCount = modeCount;
+        DistinctFolderCount = distinctFolderCount;
+        SourceRowsCacheHit = sourceRowsCacheHit;
+        SortCacheHit = sortCacheHit;
+        SummaryCacheHit = summaryCacheHit;
+        SourceRowsMs = sourceRowsMs;
+        FolderMs = folderMs;
+        KeywordMs = keywordMs;
+        ModeMs = modeMs;
+        SortMs = sortMs;
+        OrderCacheLookupMs = orderCacheLookupMs;
+        OrderBuildMs = orderBuildMs;
+    }
+
+    internal bool WasCommitted => Terminal.WasCommitted;
+    internal RegularChartListTerminalResult Terminal { get; }
+    internal ChartListVirtualView RowsView { get; }
+    internal ChartListOrder Order { get; }
+    internal NormalLibrarySortCacheKey SortCacheKey { get; }
+    internal int SourceRowCount { get; }
+    internal int FolderCount { get; }
+    internal int KeywordCount { get; }
+    internal int ModeCount { get; }
+    internal int DistinctFolderCount { get; }
+    internal bool SourceRowsCacheHit { get; }
+    internal bool SortCacheHit { get; }
+    internal bool SummaryCacheHit { get; }
+    internal long SourceRowsMs { get; }
+    internal long FolderMs { get; }
+    internal long KeywordMs { get; }
+    internal long ModeMs { get; }
+    internal long SortMs { get; }
+    internal long OrderCacheLookupMs { get; }
+    internal long OrderBuildMs { get; }
+
+    internal static RegularVirtualNormalLibraryApplyResult NotCommitted() => default;
 }
 
 internal readonly struct NormalLibrarySortCacheGenerationSnapshot

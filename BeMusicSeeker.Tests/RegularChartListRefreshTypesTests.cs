@@ -11,11 +11,10 @@ public sealed class RegularChartListRefreshTypesTests
     [TestMethod]
     public void RegularChartListRefreshRequest_NormalizesSortInputs()
     {
-        var sortParameters = new MainWindowViewModel.cSortParameters
-        {
-            ColumnsName = nameof(LibraryChartRow.rank),
-            Direction = ListSortDirection.Descending
-        };
+        ChartListSortSpecification sort = ChartListSortSpecification.Create(
+            nameof(LibraryChartRow.rank),
+            ListSortDirection.Descending,
+            hasValue: true);
 
         var request = new RegularChartListRefreshRequest(
             MainViewUpdateMode.FolderFilterSelected,
@@ -26,8 +25,8 @@ public sealed class RegularChartListRefreshTypesTests
             includeBmsonRows: true,
             virtualSubsetRequiredFailure: false,
             keywordFilter: null,
-            MainWindowViewModel.ModeFilterType._7KEYS,
-            sortParameters);
+            RegularChartModeFilter.SevenKeys,
+            sort);
 
         Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, request.Mode);
         Assert.AreEqual(MainViewUpdateMode.TreeViewFilterNotChanged, request.RequestedMode);
@@ -36,14 +35,13 @@ public sealed class RegularChartListRefreshTypesTests
         Assert.IsTrue(request.IncludeBmsonRows);
         Assert.IsFalse(request.VirtualSubsetRequiredFailure);
         Assert.AreEqual(string.Empty, request.KeywordFilter);
-        Assert.AreEqual(MainWindowViewModel.ModeFilterType._7KEYS, request.ModeFilter);
+        Assert.AreEqual(RegularChartModeFilter.SevenKeys, request.ModeFilter);
         Assert.IsTrue(request.HasSortParameters);
         Assert.AreEqual(nameof(LibraryChartRow.rateDouble), request.SortColumnName);
         Assert.AreEqual(nameof(LibraryChartRow.rank), request.RequestedSortColumnName);
         Assert.AreEqual(ListSortDirection.Descending, request.SortDirection);
-        Assert.AreNotSame(sortParameters, request.SortParameters);
-        Assert.AreEqual(nameof(LibraryChartRow.rank), request.SortParameters.ColumnsName);
-        Assert.AreEqual(ListSortDirection.Descending, request.SortParameters.Direction);
+        Assert.AreEqual(nameof(LibraryChartRow.rank), request.Sort.RequestedColumnName);
+        Assert.AreEqual(ListSortDirection.Descending, request.Sort.Direction);
     }
 
     [TestMethod]
@@ -85,5 +83,24 @@ public sealed class RegularChartListRefreshTypesTests
         StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.TryBeginRequest(");
         StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.Build(");
         StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.TryCommit(");
+    }
+
+    [TestMethod]
+    public void VirtualDefaultRoute_DelegatesCompleteWorkflowWithoutRootCacheHelpers()
+    {
+        string route = SourceTextTestHelper.ReadMainWindowViewModelMethodBody(
+            "private bool TryApplyVirtualDefaultNormalLibraryView(");
+        string root = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+
+        StringAssert.Contains(route, "regularChartListOwner.TryApplyVirtualNormalLibrary(");
+        Assert.IsFalse(route.Contains("new ChartListVirtualView("));
+        Assert.IsFalse(route.Contains("TryCommitVirtual("));
+        Assert.IsFalse(root.Contains("private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows("));
+        Assert.IsFalse(root.Contains("private ChartListOrder GetOrCreateVirtualNormalLibraryOrder("));
+        Assert.IsFalse(root.Contains("private static int[] ApplyVirtualNormalLibraryFilters("));
+        Assert.IsFalse(root.Contains("private void RunVirtualNormalLibraryOrderPrewarm("));
     }
 }

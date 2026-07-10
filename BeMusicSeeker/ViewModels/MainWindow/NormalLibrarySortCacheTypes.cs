@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -378,18 +379,22 @@ internal readonly struct RegularChartListExternalVersions
 internal readonly struct RegularVirtualSourceRowsLookup
 {
     internal RegularVirtualSourceRowsLookup(
+        BMSLibrary library,
         bool includeBmsonRows,
         long sourceGeneration,
         long sortKeyGeneration,
         IReadOnlyList<ChartListSourceRow> rows,
         bool cacheHit)
     {
+        Library = library;
         IncludeBmsonRows = includeBmsonRows;
         SourceGeneration = sourceGeneration;
         SortKeyGeneration = sortKeyGeneration;
         Rows = rows;
         CacheHit = cacheHit;
     }
+
+    internal BMSLibrary Library { get; }
 
     internal bool IncludeBmsonRows { get; }
 

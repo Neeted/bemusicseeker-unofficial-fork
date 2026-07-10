@@ -73,24 +73,59 @@ internal readonly struct LibraryChartSortMetrics
 /// 通常一覧の BMS / bmson 共通 row をソートします。
 /// 既存 BMSFile sort と同じ列名を受け、bmson row を BMSFile 前提から切り離します。
 /// </summary>
+internal readonly struct ChartListSortSpecification
+{
+    private ChartListSortSpecification(bool hasValue, string requestedColumnName, ListSortDirection direction)
+    {
+        HasValue = hasValue;
+        RequestedColumnName = requestedColumnName;
+        Direction = direction;
+        ColumnName = NormalizeColumnName(requestedColumnName);
+    }
+
+    internal bool HasValue { get; }
+
+    internal string RequestedColumnName { get; }
+
+    internal string ColumnName { get; }
+
+    internal ListSortDirection Direction { get; }
+
+    internal static ChartListSortSpecification Create(string columnName, ListSortDirection direction, bool hasValue)
+    {
+        return new ChartListSortSpecification(hasValue, columnName, direction);
+    }
+
+    private static string NormalizeColumnName(string columnName)
+    {
+        if (string.IsNullOrWhiteSpace(columnName))
+        {
+            return nameof(LibraryChartRow.Title);
+        }
+        return string.Equals(columnName, nameof(LibraryChartRow.rank), StringComparison.Ordinal)
+            ? nameof(LibraryChartRow.rateDouble)
+            : columnName;
+    }
+}
+
 internal static class LibraryChartRowSortEngine
 {
-    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, MainWindowViewModel.cSortParameters sortParameters, bool isPlaylistDetailView, out string sortProfile)
+    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, ChartListSortSpecification sort, bool isPlaylistDetailView, out string sortProfile)
     {
-        return SortForMainView(source, sortParameters, isPlaylistDetailView, useLegacySortForDataGrid: true, out sortProfile);
+        return SortForMainView(source, sort, isPlaylistDetailView, useLegacySortForDataGrid: true, out sortProfile);
     }
 
-    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, MainWindowViewModel.cSortParameters sortParameters, bool isPlaylistDetailView, bool useLegacySortForDataGrid, out string sortProfile)
+    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, ChartListSortSpecification sort, bool isPlaylistDetailView, bool useLegacySortForDataGrid, out string sortProfile)
     {
-        return SortForMainView(source, sortParameters, isPlaylistDetailView, useLegacySortForDataGrid, out sortProfile, out _);
+        return SortForMainView(source, sort, isPlaylistDetailView, useLegacySortForDataGrid, out sortProfile, out _);
     }
 
-    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, MainWindowViewModel.cSortParameters sortParameters, bool isPlaylistDetailView, bool useLegacySortForDataGrid, out string sortProfile, out LibraryChartSortMetrics metrics)
+    internal static List<LibraryChartRow> SortForMainView(IEnumerable<LibraryChartRow> source, ChartListSortSpecification sort, bool isPlaylistDetailView, bool useLegacySortForDataGrid, out string sortProfile, out LibraryChartSortMetrics metrics)
     {
         List<LibraryChartRow> safeSource = source as List<LibraryChartRow> ?? [.. (source ?? [])];
         var stopwatch = Stopwatch.StartNew();
-        string columnName = sortParameters?.ColumnsName;
-        ListSortDirection direction = sortParameters?.Direction ?? ListSortDirection.Ascending;
+        string columnName = sort.ColumnName;
+        ListSortDirection direction = sort.Direction;
         string propertyTypeName = "(null)";
         string stringSortKind = "fallback";
         List<LibraryChartRow> sortedRows;

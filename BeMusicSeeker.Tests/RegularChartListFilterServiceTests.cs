@@ -37,7 +37,7 @@ public sealed class RegularChartListFilterServiceTests
         List<LibraryChartRow> rows = [unknown, fiveKeys, sevenKeys];
 
         List<LibraryChartRow> filtered = RegularChartListFilterService
-            .ApplyModeFilter(rows, MainWindowViewModel.ModeFilterType._7KEYS)
+            .ApplyModeFilter(rows, RegularChartModeFilter.SevenKeys)
             .ToList();
 
         CollectionAssert.AreEqual(new[] { unknown, sevenKeys }, filtered);
@@ -47,7 +47,7 @@ public sealed class RegularChartListFilterServiceTests
     public void CreateModeFilterValueSet_PreservesLegacyUnknownMode()
     {
         HashSet<int?> values = RegularChartListFilterService.CreateModeFilterValueSet(
-            MainWindowViewModel.ModeFilterType._5KEYS | MainWindowViewModel.ModeFilterType._14KEYS);
+            RegularChartModeFilter.FiveKeys | RegularChartModeFilter.FourteenKeys);
 
         CollectionAssert.AreEquivalent(new int?[] { null, 5, 14 }, values.ToArray());
     }
@@ -56,7 +56,7 @@ public sealed class RegularChartListFilterServiceTests
     public void ApplyFilters_RejectNullSourceRows()
     {
         Assert.ThrowsException<ArgumentNullException>(() => RegularChartListFilterService.ApplyKeywordFilter(null, "alpha").ToList());
-        Assert.ThrowsException<ArgumentNullException>(() => RegularChartListFilterService.ApplyModeFilter(null, MainWindowViewModel.ModeFilterType._7KEYS).ToList());
+        Assert.ThrowsException<ArgumentNullException>(() => RegularChartListFilterService.ApplyModeFilter(null, RegularChartModeFilter.SevenKeys).ToList());
     }
 
     private static LibraryChartRow CreateRow(string path, string title, int? mode)

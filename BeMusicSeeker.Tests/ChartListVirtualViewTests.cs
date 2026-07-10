@@ -1045,20 +1045,22 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
         int[] existingOrderIndexes = fullOrder.Indexes.AsEnumerable().Reverse().ToArray();
         var keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
-        Func<ChartListSourceRow, bool> folderFilter = MainWindowViewModel.CreateVirtualNormalLibraryFolderFilterForTest(
-            MainWindowViewModel.FolderFilterType.DirectoryFilter,
-            "folder-z",
-            out string folderFilterIdentity);
+        RegularNormalLibraryTreeFilter folderFilter = RegularNormalLibraryTreeFilter.Create(
+            RegularChartFolderFilterKind.Directory,
+            "folder-z");
 
-        int[] filteredIndexes = MainWindowViewModel.ApplyVirtualNormalLibraryFiltersForTest(
+        int[] filteredIndexes = RegularChartListOwner.ApplyVirtualNormalLibraryFilters(
             sourceRows,
             existingOrderIndexes,
             folderFilter,
             keywordQuery,
-            MainWindowViewModel.ModeFilterType._5KEYS | MainWindowViewModel.ModeFilterType._7KEYS,
+            RegularChartModeFilter.FiveKeys | RegularChartModeFilter.SevenKeys,
             out int folderCount,
             out int keywordCount,
-            out int modeCount);
+            out int modeCount,
+            out _,
+            out _,
+            out _);
         ChartListOrder filteredOrder = fullOrder.WithIndexes(filteredIndexes);
         int createdCount = 0;
         var view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
@@ -1067,7 +1069,7 @@ public sealed class ChartListVirtualViewTests
             return MaterializeSourceRow(row);
         });
 
-        Assert.AreEqual("directory:folder-z" + Path.DirectorySeparatorChar, folderFilterIdentity);
+        Assert.AreEqual("directory:folder-z" + Path.DirectorySeparatorChar, folderFilter.Identity);
         CollectionAssert.AreEqual(new[] { "Bravo", "Delta", "Echo" }, filteredIndexes.Select(index => sourceRows[index].Title).ToArray());
         Assert.AreEqual(3, folderCount);
         Assert.AreEqual(3, keywordCount);
@@ -1084,17 +1086,15 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualNormalLibraryFilterIdentity_UsesStableFolderFilterIdentity()
     {
-        _ = MainWindowViewModel.CreateVirtualNormalLibraryFolderFilterForTest(
-            MainWindowViewModel.FolderFilterType.DirectoryFilter,
-            @"D:\BMS\1 EVENT",
-            out string folderIdentity);
-        _ = MainWindowViewModel.CreateVirtualNormalLibraryFolderFilterForTest(
-            MainWindowViewModel.FolderFilterType.DirectoryFilter,
-            @"D:\BMS\1 EVENT\",
-            out string sameFolderIdentity);
+        string folderIdentity = RegularNormalLibraryTreeFilter.Create(
+            RegularChartFolderFilterKind.Directory,
+            @"D:\BMS\1 EVENT").Identity;
+        string sameFolderIdentity = RegularNormalLibraryTreeFilter.Create(
+            RegularChartFolderFilterKind.Directory,
+            @"D:\BMS\1 EVENT\").Identity;
 
-        string identity = MainWindowViewModel.CreateVirtualNormalLibraryFilterIdentityForTest(folderIdentity, string.Empty, MainWindowViewModel.ModeFilterType.All, 1, 1);
-        string sameIdentity = MainWindowViewModel.CreateVirtualNormalLibraryFilterIdentityForTest(sameFolderIdentity, string.Empty, MainWindowViewModel.ModeFilterType.All, 9, 9);
+        string identity = RegularChartListOwner.CreateVirtualNormalLibraryFilterIdentity(folderIdentity, string.Empty, RegularChartModeFilter.All, 1, 1);
+        string sameIdentity = RegularChartListOwner.CreateVirtualNormalLibraryFilterIdentity(sameFolderIdentity, string.Empty, RegularChartModeFilter.All, 9, 9);
 
         Assert.AreEqual(folderIdentity, sameFolderIdentity);
         Assert.AreEqual(identity, sameIdentity);
@@ -2507,7 +2507,10 @@ public sealed class ChartListVirtualViewTests
         });
         List<LibraryChartRow> legacySorted = LibraryChartRowSortEngine.SortForMainView(
             bmsRows.Concat(bmsons.Select(LibraryChartRow.FromBmsonSong)),
-            sortParameters,
+            ChartListSortSpecification.Create(
+                sortParameters.ColumnsName,
+                sortParameters.Direction,
+                hasValue: true),
             isPlaylistDetailView: false,
             useLegacySortForDataGrid: false,
             out _);

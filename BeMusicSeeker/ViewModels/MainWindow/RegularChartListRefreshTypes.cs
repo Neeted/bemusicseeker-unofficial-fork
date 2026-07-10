@@ -1,9 +1,95 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
+
+[Flags]
+internal enum RegularChartModeFilter
+{
+    None = 0,
+    FiveKeys = 1,
+    SevenKeys = 2,
+    NineKeys = 4,
+    TenKeys = 8,
+    FourteenKeys = 0x10,
+    All = 0x1F
+}
+
+internal enum RegularChartFolderFilterKind
+{
+    Directory,
+    Artist
+}
+
+internal sealed class RegularNormalLibraryTreeFilter
+{
+    private RegularNormalLibraryTreeFilter(RegularChartFolderFilterKind kind, string term, string identity)
+    {
+        Kind = kind;
+        Term = term ?? string.Empty;
+        Identity = identity ?? string.Empty;
+    }
+
+    internal RegularChartFolderFilterKind Kind { get; }
+
+    internal string Term { get; }
+
+    internal string Identity { get; }
+
+    internal static RegularNormalLibraryTreeFilter Create(RegularChartFolderFilterKind kind, string filterKey)
+    {
+        if (string.IsNullOrWhiteSpace(filterKey))
+        {
+            return null;
+        }
+
+        if (kind == RegularChartFolderFilterKind.Directory)
+        {
+            string directoryTerm = EnsureTrailingDirectorySeparator(filterKey);
+            return new RegularNormalLibraryTreeFilter(kind, directoryTerm, "directory:" + directoryTerm);
+        }
+        return new RegularNormalLibraryTreeFilter(kind, filterKey, "artist:" + filterKey);
+    }
+
+    internal bool Matches(ChartListSourceRow row)
+    {
+        return row != null && Matches(row.Path, row.Artist);
+    }
+
+    internal bool Matches(LibraryChartRow row)
+    {
+        return row != null && Matches(row.path, row.Artist);
+    }
+
+    internal bool Matches(ChartFile chart)
+    {
+        return chart != null && Matches(chart.Path, chart.Artist);
+    }
+
+    private bool Matches(string path, string artist)
+    {
+        return Kind == RegularChartFolderFilterKind.Directory
+            ? ContainsIgnoreCase(path, Term)
+            : ContainsIgnoreCase(artist, Term);
+    }
+
+    private static string EnsureTrailingDirectorySeparator(string path)
+    {
+        string normalizedPath = (path ?? string.Empty).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return normalizedPath + Path.DirectorySeparatorChar;
+    }
+
+    private static bool ContainsIgnoreCase(string value, string term)
+    {
+        return !string.IsNullOrEmpty(value)
+            && !string.IsNullOrEmpty(term)
+            && value.IndexOf(term, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+}
 
 /// <summary>
 /// Captures the normalized inputs for the materialized regular chart-list pipeline.
@@ -22,7 +108,7 @@ internal readonly struct RegularChartListRefreshRequest
     /// <param name="virtualSubsetRequiredFailure">Whether a virtual subset request could not be fulfilled.</param>
     /// <param name="keywordFilter">Keyword filter text captured for the request.</param>
     /// <param name="modeFilter">Mode filter captured for the request.</param>
-    /// <param name="sortParameters">Sort parameters captured for the request.</param>
+    /// <param name="sort">Sort specification captured for the request.</param>
     internal RegularChartListRefreshRequest(
         MainViewUpdateMode mode,
         MainViewUpdateMode requestedMode,
@@ -32,8 +118,8 @@ internal readonly struct RegularChartListRefreshRequest
         bool includeBmsonRows,
         bool virtualSubsetRequiredFailure,
         string keywordFilter,
-        MainWindowViewModel.ModeFilterType modeFilter,
-        MainWindowViewModel.cSortParameters sortParameters)
+        RegularChartModeFilter modeFilter,
+        ChartListSortSpecification sort)
     {
         Mode = mode;
         RequestedMode = requestedMode;
@@ -44,17 +130,13 @@ internal readonly struct RegularChartListRefreshRequest
         VirtualSubsetRequiredFailure = virtualSubsetRequiredFailure;
         KeywordFilter = keywordFilter ?? string.Empty;
         ModeFilter = modeFilter;
-        SortColumnName = NormalizeSortColumnName(sortParameters);
-        RequestedSortColumnName = sortParameters?.ColumnsName;
-        SortDirection = sortParameters?.Direction ?? ListSortDirection.Ascending;
-        HasSortParameters = sortParameters != null;
-        SortParameters = sortParameters == null
-            ? null
-            : new MainWindowViewModel.cSortParameters
-            {
-                ColumnsName = sortParameters.ColumnsName,
-                Direction = sortParameters.Direction
-            };
+        SortColumnName = string.IsNullOrWhiteSpace(sort.ColumnName)
+            ? nameof(LibraryChartRow.Title)
+            : sort.ColumnName;
+        RequestedSortColumnName = sort.RequestedColumnName;
+        SortDirection = sort.Direction;
+        HasSortParameters = sort.HasValue;
+        Sort = sort;
     }
 
     /// <summary>
@@ -100,7 +182,7 @@ internal readonly struct RegularChartListRefreshRequest
     /// <summary>
     /// Gets the mode filter captured for the request.
     /// </summary>
-    internal MainWindowViewModel.ModeFilterType ModeFilter { get; }
+    internal RegularChartModeFilter ModeFilter { get; }
 
     /// <summary>
     /// Gets a value indicating whether explicit sort parameters were supplied.
@@ -125,21 +207,7 @@ internal readonly struct RegularChartListRefreshRequest
     /// <summary>
     /// Gets a cloned sort parameter snapshot for the regular pipeline.
     /// </summary>
-    internal MainWindowViewModel.cSortParameters SortParameters { get; }
-
-    private static string NormalizeSortColumnName(MainWindowViewModel.cSortParameters sortParameters)
-    {
-        string columnName = sortParameters?.ColumnsName;
-        if (string.IsNullOrWhiteSpace(columnName))
-        {
-            return nameof(LibraryChartRow.Title);
-        }
-        if (string.Equals(columnName, nameof(LibraryChartRow.rank), StringComparison.Ordinal))
-        {
-            return nameof(LibraryChartRow.rateDouble);
-        }
-        return columnName;
-    }
+    internal ChartListSortSpecification Sort { get; }
 }
 
 /// <summary>
