@@ -2137,14 +2137,6 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void NormalLibrarySourceGeneration_UsesOwnedVersionToSeparateSourceAndOverlayChanges()
-    {
-        Assert.IsTrue(MainWindowViewModel.ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersionForTest(0, 0));
-        Assert.IsTrue(MainWindowViewModel.ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersionForTest(2, 1));
-        Assert.IsFalse(MainWindowViewModel.ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersionForTest(2, 2));
-    }
-
-    [TestMethod]
     public void MainSummaryCacheKey_UsesGenerationsForIdentity()
     {
         var current = new MainViewSummaryCacheKey(7, 11, 3, includeBmsonRows: true, "normal_default");

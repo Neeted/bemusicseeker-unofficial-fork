@@ -751,21 +751,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly RegularChartListOwner regularChartListOwner;
 
-    private readonly object normalLibrarySortCacheLock = new();
-
-    private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualNormalLibraryOrderCache = [];
-
-    private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualChartSubsetOrderCache = [];
-
-    private List<ChartListSourceRow> virtualNormalLibrarySourceRowCache;
-
-    private bool virtualNormalLibrarySourceRowCacheAvailable;
-
-    private long virtualNormalLibrarySourceRowCacheSourceGeneration;
-
-    private bool virtualNormalLibrarySourceRowCacheIncludeBmsonRows;
-
-    private int virtualNormalLibrarySourceRowCacheRowCount;
+    private readonly object normalLibraryRefreshNotificationLock = new();
 
     private readonly object virtualNormalLibraryOrderPrewarmLock = new();
 
@@ -784,20 +770,6 @@ public partial class MainWindowViewModel : ViewModel
     private int chartInfoProjectionVersionCache;
 
     private int scoreSnapshotProjectionVersionCache;
-
-    private long normalLibrarySourceGeneration;
-
-    private long normalLibrarySortKeyGeneration;
-
-    private long normalLibraryWarningGeneration;
-
-    private long normalLibraryInstallDestinationGeneration;
-
-    private long normalLibraryMaintenanceGeneration;
-
-    private long normalLibraryReferenceTablesGeneration;
-
-    private int normalLibrarySourceHandledOwnedCollectionVersion;
 
     private int normalLibraryRefreshHandledNotificationVersion;
 
@@ -4615,14 +4587,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void IncrementNormalLibrarySourceGeneration(string reason)
     {
-        int cacheCount;
-        lock (normalLibrarySortCacheLock)
-        {
-            normalLibrarySourceGeneration++;
-            cacheCount = GetNormalLibraryCacheCountLocked();
-            regularChartListOwner.ClearSortCache();
-            ClearVirtualNormalLibraryCachesLocked();
-        }
+        int cacheCount = regularChartListOwner.InvalidateSource();
         LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
     }
 
@@ -4633,22 +4598,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(int currentVersion, string reason)
     {
-        int cacheCount = 0;
-        bool incremented = false;
-        lock (normalLibrarySortCacheLock)
-        {
-            if (ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersion(currentVersion, normalLibrarySourceHandledOwnedCollectionVersion))
-            {
-                normalLibrarySourceHandledOwnedCollectionVersion = currentVersion;
-                normalLibrarySourceGeneration++;
-                cacheCount = GetNormalLibraryCacheCountLocked();
-                regularChartListOwner.ClearSortCache();
-                ClearVirtualNormalLibraryCachesLocked();
-                incremented = true;
-            }
-        }
-
-        if (!incremented)
+        if (!regularChartListOwner.TryInvalidateSourceForOwnedCollectionVersion(currentVersion, out int cacheCount))
         {
             return false;
         }
@@ -4768,7 +4718,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return NormalLibraryRefreshNotificationBatch.Empty;
         }
-        lock (normalLibrarySortCacheLock)
+        lock (normalLibraryRefreshNotificationLock)
         {
             if (notificationBatch.LatestVersion <= normalLibraryRefreshHandledNotificationVersion)
             {
@@ -4903,17 +4853,6 @@ public partial class MainWindowViewModel : ViewModel
         return result;
     }
 
-    private static bool ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersion(int currentOwnedCollectionVersion, int handledOwnedCollectionVersion)
-    {
-        return currentOwnedCollectionVersion <= 0
-            || currentOwnedCollectionVersion != handledOwnedCollectionVersion;
-    }
-
-    internal static bool ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersionForTest(int currentOwnedCollectionVersion, int handledOwnedCollectionVersion)
-    {
-        return ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersion(currentOwnedCollectionVersion, handledOwnedCollectionVersion);
-    }
-
     internal MainViewOperationSection CurrentMainViewOperationSection => ResolveMainViewOperationSection(treeViewFilterTypeSelected);
 
     internal ChartOperationSourceScope CurrentMainViewChartOperationSourceScope => ResolveMainViewChartOperationSourceScope(CurrentMainViewOperationSection);
@@ -4956,19 +4895,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private void OnNormalLibrarySortKeyChanged(string propertyName)
     {
-        int cacheCount;
         bool clearSourceRows = ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(propertyName);
-        lock (normalLibrarySortCacheLock)
-        {
-            normalLibrarySortKeyGeneration++;
-            cacheCount = GetNormalLibraryCacheCountLocked();
-            regularChartListOwner.ClearSortCache();
-            ClearVirtualNormalLibraryOrderCachesLocked();
-            if (clearSourceRows)
-            {
-                ClearVirtualNormalLibrarySourceRowsLocked();
-            }
-        }
+        int cacheCount = regularChartListOwner.InvalidateIdentitySortKeys(clearSourceRows);
         LogNormalLibrarySortCacheInvalidation("sort_key", propertyName, cacheCount);
     }
 
@@ -5000,34 +4928,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private void InvalidateNormalLibrarySortDependency(MainViewDataDependency dependency, string reason)
     {
-        int cacheCount;
-        int removedCount;
-        lock (normalLibrarySortCacheLock)
-        {
-            IncrementNormalLibrarySortDependencyGenerationLocked(dependency);
-            cacheCount = GetNormalLibraryCacheCountLocked();
-            removedCount = PruneNormalLibrarySortCachesForDependencyLocked(dependency);
-        }
+        int removedCount = regularChartListOwner.InvalidateSortCacheByDependency(dependency, out int cacheCount);
         LogNormalLibrarySortCacheInvalidation("dependency", reason, cacheCount, dependency, removedCount);
-    }
-
-    private void IncrementNormalLibrarySortDependencyGenerationLocked(MainViewDataDependency dependency)
-    {
-        switch (dependency)
-        {
-            case MainViewDataDependency.Warning:
-                normalLibraryWarningGeneration++;
-                break;
-            case MainViewDataDependency.InstallDestination:
-                normalLibraryInstallDestinationGeneration++;
-                break;
-            case MainViewDataDependency.Maintenance:
-                normalLibraryMaintenanceGeneration++;
-                break;
-            case MainViewDataDependency.ReferenceTables:
-                normalLibraryReferenceTablesGeneration++;
-                break;
-        }
     }
 
     private void InvalidateNormalLibrarySortKeysForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reason = null)
@@ -5095,13 +4997,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private void ClearNormalLibrarySortCache()
     {
-        int cacheCount;
-        lock (normalLibrarySortCacheLock)
-        {
-            cacheCount = GetNormalLibraryCacheCountLocked();
-            regularChartListOwner.ClearSortCache();
-            ClearVirtualNormalLibraryCachesLocked();
-        }
+        int cacheCount = regularChartListOwner.CacheCount;
+        regularChartListOwner.ClearSortCache();
         LogNormalLibrarySortCacheInvalidation("clear", "explicit", cacheCount);
     }
 
@@ -5140,90 +5037,9 @@ public partial class MainWindowViewModel : ViewModel
         row?.RaisePlaylistReferenceDisplayChanged();
     }
 
-    private int GetNormalLibraryCacheCountLocked()
-    {
-        return regularChartListOwner.SortCacheCount
-            + virtualNormalLibraryOrderCache.Count
-            + virtualChartSubsetOrderCache.Count
-            + (virtualNormalLibrarySourceRowCacheAvailable ? 1 : 0);
-    }
-
-    private void ClearVirtualNormalLibraryCachesLocked()
-    {
-        ClearVirtualNormalLibraryOrderCachesLocked();
-        ClearVirtualNormalLibrarySourceRowsLocked();
-    }
-
-    private void ClearVirtualNormalLibraryOrderCachesLocked()
-    {
-        virtualNormalLibraryOrderCache.Clear();
-        virtualChartSubsetOrderCache.Clear();
-    }
-
-    private void ClearVirtualNormalLibrarySourceRowsLocked()
-    {
-        virtualNormalLibrarySourceRowCache = null;
-        virtualNormalLibrarySourceRowCacheAvailable = false;
-        virtualNormalLibrarySourceRowCacheRowCount = 0;
-    }
-
     private void ClearVirtualNormalLibrarySourceRows()
     {
-        lock (normalLibrarySortCacheLock)
-        {
-            ClearVirtualNormalLibrarySourceRowsLocked();
-        }
-    }
-
-    private int PruneNormalLibrarySortCachesForDependencyLocked(MainViewDataDependency dependency)
-    {
-        int removedCount = 0;
-        removedCount += regularChartListOwner.InvalidateSortCacheByDependency(dependency);
-        removedCount += PruneNormalLibrarySortCacheForDependencyLocked(virtualNormalLibraryOrderCache, dependency);
-        removedCount += PruneVirtualChartSubsetSortCacheForDependencyLocked(dependency);
-        return removedCount;
-    }
-
-    private static int PruneNormalLibrarySortCacheForDependencyLocked<TValue>(Dictionary<NormalLibrarySortCacheKey, TValue> cache, MainViewDataDependency dependency)
-    {
-        if (cache == null || cache.Count == 0)
-        {
-            return 0;
-        }
-        NormalLibrarySortCacheKey[] keys = [.. cache.Keys.Where(key => DoesVirtualSortColumnDependOn(key.ColumnName, dependency))];
-        foreach (NormalLibrarySortCacheKey key in keys)
-        {
-            cache.Remove(key);
-        }
-        return keys.Length;
-    }
-
-    private int PruneVirtualChartSubsetSortCacheForDependencyLocked(MainViewDataDependency dependency)
-    {
-        if (virtualChartSubsetOrderCache.Count == 0)
-        {
-            return 0;
-        }
-        VirtualChartSubsetSortCacheKey[] keys = [.. virtualChartSubsetOrderCache.Keys.Where(key => DoesVirtualSortColumnDependOn(key.ColumnName, dependency))];
-        foreach (VirtualChartSubsetSortCacheKey key in keys)
-        {
-            virtualChartSubsetOrderCache.Remove(key);
-        }
-        return keys.Length;
-    }
-
-    private static bool DoesVirtualSortColumnDependOn(string columnName, MainViewDataDependency dependency)
-    {
-        if (!ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata))
-        {
-            return false;
-        }
-        if (metadata.Dependency == dependency)
-        {
-            return true;
-        }
-        return metadata.Dependency == MainViewDataDependency.Warning
-            && (dependency == MainViewDataDependency.InstallDestination || dependency == MainViewDataDependency.Maintenance);
+        regularChartListOwner.InvalidateVirtualSourceRows();
     }
 
     private static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(string reason)
@@ -5241,8 +5057,8 @@ public partial class MainWindowViewModel : ViewModel
         LogMainViewBuild("normal_library_sort_cache_invalidate reason=" + (reason ?? string.Empty)
             + " detail=" + (detail ?? string.Empty)
             + " cacheCountBefore=" + cacheCountBefore
-            + " sourceGeneration=" + normalLibrarySourceGeneration
-            + " sortKeyGeneration=" + normalLibrarySortKeyGeneration);
+            + " sourceGeneration=" + regularChartListOwner.SourceGeneration
+            + " sortKeyGeneration=" + regularChartListOwner.SortKeyGeneration);
     }
 
     private void LogNormalLibrarySortCacheInvalidation(string reason, string detail, int cacheCountBefore, MainViewDataDependency dependency, int removedCount)
@@ -5252,12 +5068,12 @@ public partial class MainWindowViewModel : ViewModel
             + " dependency=" + dependency
             + " cacheCountBefore=" + cacheCountBefore
             + " removed=" + removedCount
-            + " sourceGeneration=" + normalLibrarySourceGeneration
-            + " sortKeyGeneration=" + normalLibrarySortKeyGeneration
-            + " warningGeneration=" + normalLibraryWarningGeneration
-            + " installDestinationGeneration=" + normalLibraryInstallDestinationGeneration
-            + " maintenanceGeneration=" + normalLibraryMaintenanceGeneration
-            + " referenceTablesGeneration=" + normalLibraryReferenceTablesGeneration);
+            + " sourceGeneration=" + regularChartListOwner.SourceGeneration
+            + " sortKeyGeneration=" + regularChartListOwner.SortKeyGeneration
+            + " warningGeneration=" + regularChartListOwner.WarningGeneration
+            + " installDestinationGeneration=" + regularChartListOwner.InstallDestinationGeneration
+            + " maintenanceGeneration=" + regularChartListOwner.MaintenanceGeneration
+            + " referenceTablesGeneration=" + regularChartListOwner.ReferenceTablesGeneration);
     }
 
     private int PruneRegularBmsLibraryRowCacheByBmsFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> currentFiles)
@@ -5664,13 +5480,11 @@ public partial class MainWindowViewModel : ViewModel
         UpdateChartInfoProjectionVersionCache();
         UpdateScoreSnapshotProjectionVersionCache();
 
-        long sourceGenerationAtLookup;
-        long sortKeyGenerationAtLookup;
-        lock (normalLibrarySortCacheLock)
-        {
-            sourceGenerationAtLookup = normalLibrarySourceGeneration;
-            sortKeyGenerationAtLookup = normalLibrarySortKeyGeneration;
-        }
+        NormalLibrarySortCacheGenerationSnapshot subsetGeneration = regularChartListOwner.CaptureSortGeneration(
+            normalizedSortColumn,
+            CaptureRegularChartListExternalVersions());
+        long sourceGenerationAtLookup = subsetGeneration.Source;
+        long sortKeyGenerationAtLookup = subsetGeneration.SortKey;
 
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         bool applyResourceHealthProjection = ShouldApplyResourceHealthProjectionForVirtualSubset(treeMode);
@@ -5862,22 +5676,13 @@ public partial class MainWindowViewModel : ViewModel
         out long sourceGeneration,
         out long sortKeyGeneration)
     {
-        long sourceGenerationAtLookup;
-        long sortKeyGenerationAtLookup;
-        lock (normalLibrarySortCacheLock)
+        RegularVirtualSourceRowsLookup lookup = regularChartListOwner.LookupVirtualSourceRows(includeBmsonRows);
+        if (lookup.CacheHit)
         {
-            sourceGenerationAtLookup = normalLibrarySourceGeneration;
-            sortKeyGenerationAtLookup = normalLibrarySortKeyGeneration;
-            if (virtualNormalLibrarySourceRowCacheAvailable
-                && virtualNormalLibrarySourceRowCache != null
-                && virtualNormalLibrarySourceRowCacheSourceGeneration == sourceGenerationAtLookup
-                && virtualNormalLibrarySourceRowCacheIncludeBmsonRows == includeBmsonRows)
-            {
-                cacheHit = true;
-                sourceGeneration = sourceGenerationAtLookup;
-                sortKeyGeneration = sortKeyGenerationAtLookup;
-                return virtualNormalLibrarySourceRowCache;
-            }
+            cacheHit = true;
+            sourceGeneration = lookup.SourceGeneration;
+            sortKeyGeneration = lookup.SortKeyGeneration;
+            return lookup.Rows as List<ChartListSourceRow> ?? [.. lookup.Rows];
         }
 
         OwnedChartStorageOwnerView sourceOwnerView = files?.CreateNormalLibrarySourceStorageOwnerView();
@@ -5885,21 +5690,10 @@ public partial class MainWindowViewModel : ViewModel
             ? 0
             : sourceOwnerView.BmsFiles.Count + (includeBmsonRows ? sourceOwnerView.BmsonSongs.Count : 0);
         List<ChartListSourceRow> sourceRows = BuildVirtualNormalLibrarySourceRows(sourceOwnerView, includeBmsonRows, expectedRowCount);
-        lock (normalLibrarySortCacheLock)
-        {
-            if (normalLibrarySourceGeneration == sourceGenerationAtLookup
-                && normalLibrarySortKeyGeneration == sortKeyGenerationAtLookup)
-            {
-                virtualNormalLibrarySourceRowCache = sourceRows;
-                virtualNormalLibrarySourceRowCacheAvailable = true;
-                virtualNormalLibrarySourceRowCacheSourceGeneration = sourceGenerationAtLookup;
-                virtualNormalLibrarySourceRowCacheIncludeBmsonRows = includeBmsonRows;
-                virtualNormalLibrarySourceRowCacheRowCount = sourceRows.Count;
-            }
-        }
+        regularChartListOwner.TryPublishVirtualSourceRows(lookup, sourceRows);
         cacheHit = false;
-        sourceGeneration = sourceGenerationAtLookup;
-        sortKeyGeneration = sortKeyGenerationAtLookup;
+        sourceGeneration = lookup.SourceGeneration;
+        sortKeyGeneration = lookup.SortKeyGeneration;
         return sourceRows;
     }
 
@@ -5999,23 +5793,20 @@ public partial class MainWindowViewModel : ViewModel
 
         if (useCache)
         {
-            lock (normalLibrarySortCacheLock)
+            cacheKey = regularChartListOwner.CreateVirtualOrderKey(
+                sourceGeneration,
+                sortKeyGeneration,
+                normalizedColumnName,
+                direction,
+                rowCount,
+                CaptureRegularChartListExternalVersions());
+            if (regularChartListOwner.TryGetVirtualOrder(cacheKey, out ChartListOrder cachedOrder))
             {
-                cacheKey = CreateNormalLibrarySortCacheKey(
-                    sourceGeneration,
-                    sortKeyGeneration,
-                    normalizedColumnName,
-                    direction,
-                    rowCount);
-                if (virtualNormalLibraryOrderCache.TryGetValue(cacheKey, out ChartListOrder cachedOrder)
-                    && cachedOrder != null)
-                {
-                    lookupStopwatch.Stop();
-                    cacheHit = true;
-                    orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
-                    orderBuildMs = 0L;
-                    return cachedOrder;
-                }
+                lookupStopwatch.Stop();
+                cacheHit = true;
+                orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
+                orderBuildMs = 0L;
+                return cachedOrder;
             }
         }
         else
@@ -6031,13 +5822,10 @@ public partial class MainWindowViewModel : ViewModel
         buildStopwatch.Stop();
         if (useCache)
         {
-            lock (normalLibrarySortCacheLock)
-            {
-                if (IsNormalLibrarySortCacheKeyCurrentLocked(cacheKey))
-                {
-                    virtualNormalLibraryOrderCache[cacheKey] = order;
-                }
-            }
+            regularChartListOwner.TryPublishVirtualOrder(
+                cacheKey,
+                order,
+                CaptureRegularChartListExternalVersions());
         }
         cacheHit = false;
         orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
@@ -6066,26 +5854,23 @@ public partial class MainWindowViewModel : ViewModel
             throw new ArgumentException("Unsupported virtual chart subset sort column.", nameof(columnName));
         }
 
-        cacheKey = CreateVirtualChartSubsetSortCacheKey(
+        cacheKey = regularChartListOwner.CreateVirtualSubsetOrderKey(
             sourceGeneration,
             sortKeyGeneration,
-            treeMode,
+            (int)treeMode,
             subsetName,
             sourceRowsSignature,
             normalizedColumnName,
             direction,
-            rowCount);
-        lock (normalLibrarySortCacheLock)
+            rowCount,
+            CaptureRegularChartListExternalVersions());
+        if (regularChartListOwner.TryGetVirtualSubsetOrder(cacheKey, out ChartListOrder cachedOrder))
         {
-            if (virtualChartSubsetOrderCache.TryGetValue(cacheKey, out ChartListOrder cachedOrder)
-                && cachedOrder != null)
-            {
-                lookupStopwatch.Stop();
-                cacheHit = true;
-                orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
-                orderBuildMs = 0L;
-                return cachedOrder;
-            }
+            lookupStopwatch.Stop();
+            cacheHit = true;
+            orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
+            orderBuildMs = 0L;
+            return cachedOrder;
         }
 
         lookupStopwatch.Stop();
@@ -6095,13 +5880,10 @@ public partial class MainWindowViewModel : ViewModel
             throw new ArgumentException("Unsupported virtual chart subset sort column.", nameof(columnName));
         }
         buildStopwatch.Stop();
-        lock (normalLibrarySortCacheLock)
-        {
-            if (IsVirtualChartSubsetSortCacheKeyCurrentLocked(cacheKey))
-            {
-                virtualChartSubsetOrderCache[cacheKey] = order;
-            }
-        }
+        regularChartListOwner.TryPublishVirtualSubsetOrder(
+            cacheKey,
+            order,
+            CaptureRegularChartListExternalVersions());
 
         cacheHit = false;
         orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
@@ -6109,181 +5891,19 @@ public partial class MainWindowViewModel : ViewModel
         return order;
     }
 
-    private NormalLibrarySortCacheKey CreateNormalLibrarySortCacheKey(
-        long sourceGeneration,
-        long sortKeyGeneration,
-        string columnName,
-        ListSortDirection direction,
-        int rowCount)
-    {
-        ResolveVirtualSortDependencyGenerations(
-            columnName,
-            out long scoreGeneration,
-            out long chartInfoGeneration,
-            out long maintenanceGeneration,
-            out long warningGeneration,
-            out long installDestinationGeneration,
-            out long referenceTablesGeneration);
-        return new NormalLibrarySortCacheKey(
-            sourceGeneration,
-            sortKeyGeneration,
-            scoreGeneration,
-            chartInfoGeneration,
-            maintenanceGeneration,
-            warningGeneration,
-            installDestinationGeneration,
-            referenceTablesGeneration,
-            columnName,
-            direction,
-            rowCount);
-    }
-
     private NormalLibrarySortCacheGenerationSnapshot CaptureNormalLibrarySortCacheGeneration(string columnName)
     {
-        lock (normalLibrarySortCacheLock)
-        {
-            ResolveVirtualSortDependencyGenerations(
-                columnName,
-                out long scoreGeneration,
-                out long chartInfoGeneration,
-                out long maintenanceGeneration,
-                out long warningGeneration,
-                out long installDestinationGeneration,
-                out long referenceTablesGeneration);
-            return new NormalLibrarySortCacheGenerationSnapshot(
-                normalLibrarySourceGeneration,
-                normalLibrarySortKeyGeneration,
-                scoreGeneration,
-                chartInfoGeneration,
-                maintenanceGeneration,
-                warningGeneration,
-                installDestinationGeneration,
-                referenceTablesGeneration);
-        }
-    }
-
-    private VirtualChartSubsetSortCacheKey CreateVirtualChartSubsetSortCacheKey(
-        long sourceGeneration,
-        long sortKeyGeneration,
-        MainViewUpdateMode treeMode,
-        string subsetName,
-        long sourceRowsSignature,
-        string columnName,
-        ListSortDirection direction,
-        int rowCount)
-    {
-        ResolveVirtualSortDependencyGenerations(
+        return regularChartListOwner.CaptureSortGeneration(
             columnName,
-            out long scoreGeneration,
-            out long chartInfoGeneration,
-            out long maintenanceGeneration,
-            out long warningGeneration,
-            out long installDestinationGeneration,
-            out long referenceTablesGeneration);
-        return new VirtualChartSubsetSortCacheKey(
-            sourceGeneration,
-            sortKeyGeneration,
-            scoreGeneration,
-            chartInfoGeneration,
-            maintenanceGeneration,
-            warningGeneration,
-            installDestinationGeneration,
-            referenceTablesGeneration,
-            (int)treeMode,
-            subsetName,
-            sourceRowsSignature,
-            columnName,
-            direction,
-            rowCount);
+            CaptureRegularChartListExternalVersions());
     }
 
-    private void ResolveVirtualSortDependencyGenerations(
-        string columnName,
-        out long scoreGeneration,
-        out long chartInfoGeneration,
-        out long maintenanceGeneration,
-        out long warningGeneration,
-        out long installDestinationGeneration,
-        out long referenceTablesGeneration)
+    private RegularChartListExternalVersions CaptureRegularChartListExternalVersions()
     {
-        scoreGeneration = 0;
-        chartInfoGeneration = 0;
-        maintenanceGeneration = 0;
-        warningGeneration = 0;
-        installDestinationGeneration = 0;
-        referenceTablesGeneration = 0;
-        if (ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata))
-        {
-            switch (metadata.Dependency)
-            {
-                case MainViewDataDependency.Score:
-                    scoreGeneration = files?.ScoreSnapshotVersion ?? 0;
-                    break;
-                case MainViewDataDependency.ChartInfo:
-                    chartInfoGeneration = files?.ChartInfoIndexVersion ?? 0;
-                    break;
-                case MainViewDataDependency.Maintenance:
-                    maintenanceGeneration = GetNormalLibraryMaintenanceSortGeneration();
-                    break;
-                case MainViewDataDependency.Warning:
-                    warningGeneration = normalLibraryWarningGeneration;
-                    installDestinationGeneration = normalLibraryInstallDestinationGeneration;
-                    maintenanceGeneration = GetNormalLibraryMaintenanceSortGeneration();
-                    break;
-                case MainViewDataDependency.InstallDestination:
-                    installDestinationGeneration = normalLibraryInstallDestinationGeneration;
-                    break;
-                case MainViewDataDependency.ReferenceTables:
-                    referenceTablesGeneration = normalLibraryReferenceTablesGeneration;
-                    break;
-            }
-        }
-    }
-
-    private long GetNormalLibraryMaintenanceSortGeneration()
-    {
-        long hydrationVersion = files?.MaintenanceHydrationCompletedVersion ?? 0;
-        return (hydrationVersion << 32) ^ (normalLibraryMaintenanceGeneration & 0xffffffffL);
-    }
-
-    private bool IsNormalLibrarySortCacheKeyCurrentLocked(NormalLibrarySortCacheKey key)
-    {
-        ResolveVirtualSortDependencyGenerations(
-            key.ColumnName,
-            out long scoreGeneration,
-            out long chartInfoGeneration,
-            out long maintenanceGeneration,
-            out long warningGeneration,
-            out long installDestinationGeneration,
-            out long referenceTablesGeneration);
-        return normalLibrarySourceGeneration == key.SourceGeneration
-            && normalLibrarySortKeyGeneration == key.SortKeyGeneration
-            && scoreGeneration == key.ScoreGeneration
-            && chartInfoGeneration == key.ChartInfoGeneration
-            && maintenanceGeneration == key.MaintenanceGeneration
-            && warningGeneration == key.WarningGeneration
-            && installDestinationGeneration == key.InstallDestinationGeneration
-            && referenceTablesGeneration == key.ReferenceTablesGeneration;
-    }
-
-    private bool IsVirtualChartSubsetSortCacheKeyCurrentLocked(VirtualChartSubsetSortCacheKey key)
-    {
-        ResolveVirtualSortDependencyGenerations(
-            key.ColumnName,
-            out long scoreGeneration,
-            out long chartInfoGeneration,
-            out long maintenanceGeneration,
-            out long warningGeneration,
-            out long installDestinationGeneration,
-            out long referenceTablesGeneration);
-        return normalLibrarySourceGeneration == key.SourceGeneration
-            && normalLibrarySortKeyGeneration == key.SortKeyGeneration
-            && scoreGeneration == key.ScoreGeneration
-            && chartInfoGeneration == key.ChartInfoGeneration
-            && maintenanceGeneration == key.MaintenanceGeneration
-            && warningGeneration == key.WarningGeneration
-            && installDestinationGeneration == key.InstallDestinationGeneration
-            && referenceTablesGeneration == key.ReferenceTablesGeneration;
+        return new RegularChartListExternalVersions(
+            files?.ScoreSnapshotVersion ?? 0,
+            files?.ChartInfoIndexVersion ?? 0,
+            files?.MaintenanceHydrationCompletedVersion ?? 0);
     }
 
     private static long GetSortCacheGenerationForLog(NormalLibrarySortCacheKey key)
@@ -6455,10 +6075,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool IsCurrentVirtualNormalLibraryGeneration(long sourceGeneration, long sortKeyGeneration)
     {
-        lock (normalLibrarySortCacheLock)
-        {
-            return !IsVirtualNormalLibraryGenerationStale(sourceGeneration, sortKeyGeneration, normalLibrarySourceGeneration, normalLibrarySortKeyGeneration);
-        }
+        return regularChartListOwner.IsCurrentVirtualGeneration(sourceGeneration, sortKeyGeneration);
     }
 
     private static bool IsVirtualNormalLibraryGenerationStale(long expectedSourceGeneration, long expectedSortKeyGeneration, long currentSourceGeneration, long currentSortKeyGeneration)

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 
 namespace BeMusicSeeker.ViewModels;
@@ -347,4 +348,56 @@ internal readonly struct VirtualNormalLibrarySortDescriptor : IEquatable<Virtual
             return hashCode;
         }
     }
+}
+
+/// <summary>
+/// Captures library-owned versions that participate in regular chart sort cache identity.
+/// </summary>
+internal readonly struct RegularChartListExternalVersions
+{
+    internal RegularChartListExternalVersions(
+        long score,
+        long chartInfo,
+        long maintenanceHydration)
+    {
+        Score = score;
+        ChartInfo = chartInfo;
+        MaintenanceHydration = maintenanceHydration;
+    }
+
+    internal long Score { get; }
+
+    internal long ChartInfo { get; }
+
+    internal long MaintenanceHydration { get; }
+}
+
+/// <summary>
+/// Describes one source-row cache lookup and the generations against which a miss was built.
+/// </summary>
+internal readonly struct RegularVirtualSourceRowsLookup
+{
+    internal RegularVirtualSourceRowsLookup(
+        bool includeBmsonRows,
+        long sourceGeneration,
+        long sortKeyGeneration,
+        IReadOnlyList<ChartListSourceRow> rows,
+        bool cacheHit)
+    {
+        IncludeBmsonRows = includeBmsonRows;
+        SourceGeneration = sourceGeneration;
+        SortKeyGeneration = sortKeyGeneration;
+        Rows = rows;
+        CacheHit = cacheHit;
+    }
+
+    internal bool IncludeBmsonRows { get; }
+
+    internal long SourceGeneration { get; }
+
+    internal long SortKeyGeneration { get; }
+
+    internal IReadOnlyList<ChartListSourceRow> Rows { get; }
+
+    internal bool CacheHit { get; }
 }

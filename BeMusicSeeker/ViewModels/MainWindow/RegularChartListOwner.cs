@@ -22,6 +22,8 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly Action<string> log;
     private readonly Action<Action> dispatchToUi;
     private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> sortCache = [];
+    private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualOrderCache = [];
+    private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualSubsetOrderCache = [];
     private readonly Dictionary<MainViewSummaryCacheKey, int> virtualSummaryCache = [];
     private readonly Dictionary<MainViewSummaryCacheKey, VirtualSummaryWork> virtualSummaryRunning = [];
     private CancellationTokenSource currentCancellation;
@@ -36,6 +38,17 @@ internal sealed class RegularChartListOwner : IDisposable
     private ListSortDirection? folderSortDirection;
     private MainViewUpdateMode? lastAppliedColumnMode;
     private RegularChartListCompletion lastCompletion;
+    private List<ChartListSourceRow> virtualSourceRows;
+    private bool virtualSourceRowsAvailable;
+    private long virtualSourceRowsGeneration;
+    private bool virtualSourceRowsIncludeBmson;
+    private long sourceGeneration;
+    private long sortKeyGeneration;
+    private long warningGeneration;
+    private long installDestinationGeneration;
+    private long maintenanceGeneration;
+    private long referenceTablesGeneration;
+    private int handledOwnedCollectionVersion;
     private int virtualSummaryCacheVersion;
     private int virtualSummaryRunId;
     private bool disposed;
@@ -189,26 +202,117 @@ internal sealed class RegularChartListOwner : IDisposable
         CancellationTokenSource previous;
         lock (syncRoot)
         {
-            previous = currentCancellation;
-            currentCancellation = null;
-            currentRequestId = 0L;
-            regularRequestActive = false;
-            sortCache.Clear();
-            virtualSummaryCache.Clear();
-            virtualSummaryCacheVersion++;
+            previous = InvalidateCurrentRequestUnsafe();
+            ClearAllSortCachesUnsafe(clearSourceRows: true);
         }
         CancelAndDispose(previous);
     }
 
-    internal int SortCacheCount
+    internal int CacheCount
     {
         get
         {
             lock (syncRoot)
             {
-                return sortCache.Count;
+                return GetCacheCountUnsafe();
             }
         }
+    }
+
+    internal long SourceGeneration
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return sourceGeneration;
+            }
+        }
+    }
+
+    internal long SortKeyGeneration
+    {
+        get
+        {
+            lock (syncRoot)
+            {
+                return sortKeyGeneration;
+            }
+        }
+    }
+
+    internal long WarningGeneration => ReadGeneration(() => warningGeneration);
+
+    internal long InstallDestinationGeneration => ReadGeneration(() => installDestinationGeneration);
+
+    internal long MaintenanceGeneration => ReadGeneration(() => maintenanceGeneration);
+
+    internal long ReferenceTablesGeneration => ReadGeneration(() => referenceTablesGeneration);
+
+    internal int InvalidateSource()
+    {
+        CancellationTokenSource previous;
+        int cacheCount;
+        lock (syncRoot)
+        {
+            cacheCount = GetCacheCountUnsafe();
+            sourceGeneration++;
+            previous = InvalidateCurrentRequestUnsafe();
+            ClearAllSortCachesUnsafe(clearSourceRows: true);
+        }
+        CancelAndDispose(previous);
+        return cacheCount;
+    }
+
+    internal bool TryInvalidateSourceForOwnedCollectionVersion(int currentVersion, out int cacheCount)
+    {
+        CancellationTokenSource previous = null;
+        lock (syncRoot)
+        {
+            if (currentVersion > 0 && currentVersion == handledOwnedCollectionVersion)
+            {
+                cacheCount = 0;
+                return false;
+            }
+            handledOwnedCollectionVersion = currentVersion;
+            cacheCount = GetCacheCountUnsafe();
+            sourceGeneration++;
+            previous = InvalidateCurrentRequestUnsafe();
+            ClearAllSortCachesUnsafe(clearSourceRows: true);
+        }
+        CancelAndDispose(previous);
+        return true;
+    }
+
+    internal void InvalidateVirtualSourceRows()
+    {
+        lock (syncRoot)
+        {
+            ClearVirtualSourceRowsUnsafe();
+        }
+    }
+
+    internal int InvalidateIdentitySortKeys(bool clearSourceRows)
+    {
+        CancellationTokenSource previous;
+        int cacheCount;
+        lock (syncRoot)
+        {
+            cacheCount = GetCacheCountUnsafe();
+            sortKeyGeneration++;
+            previous = InvalidateCurrentRequestUnsafe();
+            sortCache.Clear();
+            virtualOrderCache.Clear();
+            virtualSubsetOrderCache.Clear();
+            virtualSummaryCache.Clear();
+            virtualSummaryCacheVersion++;
+            if (clearSourceRows)
+            {
+                ClearVirtualSourceRowsUnsafe();
+            }
+        }
+        CancelAndDispose(previous);
+        return cacheCount;
     }
 
     internal static bool IsSortCacheCandidate(string columnName)
@@ -216,21 +320,213 @@ internal sealed class RegularChartListOwner : IDisposable
         return ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out _);
     }
 
-    internal int InvalidateSortCacheByDependency(MainViewDataDependency dependency)
+    internal int InvalidateSortCacheByDependency(MainViewDataDependency dependency, out int cacheCount)
     {
-        InvalidatePendingRequest();
+        CancellationTokenSource previous;
+        int removed;
         lock (syncRoot)
         {
-            NormalLibrarySortCacheKey[] keys = [.. sortCache.Keys];
-            int removed = 0;
-            foreach (NormalLibrarySortCacheKey key in keys)
+            IncrementDependencyGenerationUnsafe(dependency);
+            cacheCount = GetCacheCountUnsafe();
+            previous = InvalidateCurrentRequestUnsafe();
+            removed = PruneCacheUnsafe(sortCache, dependency)
+                + PruneCacheUnsafe(virtualOrderCache, dependency)
+                + PruneCacheUnsafe(virtualSubsetOrderCache, dependency);
+        }
+        CancelAndDispose(previous);
+        return removed;
+    }
+
+    internal RegularVirtualSourceRowsLookup LookupVirtualSourceRows(bool includeBmsonRows)
+    {
+        lock (syncRoot)
+        {
+            bool cacheHit = virtualSourceRowsAvailable
+                && virtualSourceRows != null
+                && virtualSourceRowsGeneration == sourceGeneration
+                && virtualSourceRowsIncludeBmson == includeBmsonRows;
+            return new RegularVirtualSourceRowsLookup(
+                includeBmsonRows,
+                sourceGeneration,
+                sortKeyGeneration,
+                cacheHit ? virtualSourceRows : null,
+                cacheHit);
+        }
+    }
+
+    internal void TryPublishVirtualSourceRows(
+        RegularVirtualSourceRowsLookup lookup,
+        List<ChartListSourceRow> rows)
+    {
+        lock (syncRoot)
+        {
+            if (sourceGeneration != lookup.SourceGeneration
+                || sortKeyGeneration != lookup.SortKeyGeneration)
             {
-                if (DoesSortColumnDependOn(key.ColumnName, dependency) && sortCache.Remove(key))
-                {
-                    removed++;
-                }
+                return;
             }
-            return removed;
+            virtualSourceRows = rows;
+            virtualSourceRowsAvailable = true;
+            virtualSourceRowsGeneration = lookup.SourceGeneration;
+            virtualSourceRowsIncludeBmson = lookup.IncludeBmsonRows;
+        }
+    }
+
+    internal NormalLibrarySortCacheGenerationSnapshot CaptureSortGeneration(
+        string columnName,
+        RegularChartListExternalVersions externalVersions)
+    {
+        lock (syncRoot)
+        {
+            ResolveDependencyGenerationsUnsafe(
+                columnName,
+                externalVersions,
+                out long score,
+                out long chartInfo,
+                out long maintenance,
+                out long warning,
+                out long installDestination,
+                out long referenceTables);
+            return new NormalLibrarySortCacheGenerationSnapshot(
+                sourceGeneration,
+                sortKeyGeneration,
+                score,
+                chartInfo,
+                maintenance,
+                warning,
+                installDestination,
+                referenceTables);
+        }
+    }
+
+    internal NormalLibrarySortCacheKey CreateVirtualOrderKey(
+        long expectedSourceGeneration,
+        long expectedSortKeyGeneration,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount,
+        RegularChartListExternalVersions externalVersions)
+    {
+        lock (syncRoot)
+        {
+            ResolveDependencyGenerationsUnsafe(
+                columnName,
+                externalVersions,
+                out long score,
+                out long chartInfo,
+                out long maintenance,
+                out long warning,
+                out long installDestination,
+                out long referenceTables);
+            return new NormalLibrarySortCacheKey(
+                expectedSourceGeneration,
+                expectedSortKeyGeneration,
+                score,
+                chartInfo,
+                maintenance,
+                warning,
+                installDestination,
+                referenceTables,
+                columnName,
+                direction,
+                rowCount);
+        }
+    }
+
+    internal VirtualChartSubsetSortCacheKey CreateVirtualSubsetOrderKey(
+        long expectedSourceGeneration,
+        long expectedSortKeyGeneration,
+        int treeMode,
+        string subsetName,
+        long sourceRowsSignature,
+        string columnName,
+        ListSortDirection direction,
+        int rowCount,
+        RegularChartListExternalVersions externalVersions)
+    {
+        lock (syncRoot)
+        {
+            ResolveDependencyGenerationsUnsafe(
+                columnName,
+                externalVersions,
+                out long score,
+                out long chartInfo,
+                out long maintenance,
+                out long warning,
+                out long installDestination,
+                out long referenceTables);
+            return new VirtualChartSubsetSortCacheKey(
+                expectedSourceGeneration,
+                expectedSortKeyGeneration,
+                score,
+                chartInfo,
+                maintenance,
+                warning,
+                installDestination,
+                referenceTables,
+                treeMode,
+                subsetName,
+                sourceRowsSignature,
+                columnName,
+                direction,
+                rowCount);
+        }
+    }
+
+    internal bool TryGetVirtualOrder(NormalLibrarySortCacheKey key, out ChartListOrder order)
+    {
+        lock (syncRoot)
+        {
+            return virtualOrderCache.TryGetValue(key, out order) && order != null;
+        }
+    }
+
+    internal bool TryGetVirtualSubsetOrder(VirtualChartSubsetSortCacheKey key, out ChartListOrder order)
+    {
+        lock (syncRoot)
+        {
+            return virtualSubsetOrderCache.TryGetValue(key, out order) && order != null;
+        }
+    }
+
+    internal bool TryPublishVirtualOrder(
+        NormalLibrarySortCacheKey key,
+        ChartListOrder order,
+        RegularChartListExternalVersions currentExternalVersions)
+    {
+        lock (syncRoot)
+        {
+            if (!IsCurrentUnsafe(key, currentExternalVersions))
+            {
+                return false;
+            }
+            virtualOrderCache[key] = order;
+            return true;
+        }
+    }
+
+    internal bool TryPublishVirtualSubsetOrder(
+        VirtualChartSubsetSortCacheKey key,
+        ChartListOrder order,
+        RegularChartListExternalVersions currentExternalVersions)
+    {
+        lock (syncRoot)
+        {
+            if (!IsCurrentUnsafe(key, currentExternalVersions))
+            {
+                return false;
+            }
+            virtualSubsetOrderCache[key] = order;
+            return true;
+        }
+    }
+
+    internal bool IsCurrentVirtualGeneration(long expectedSourceGeneration, long expectedSortKeyGeneration)
+    {
+        lock (syncRoot)
+        {
+            return sourceGeneration == expectedSourceGeneration
+                && sortKeyGeneration == expectedSortKeyGeneration;
         }
     }
 
@@ -722,6 +1018,207 @@ internal sealed class RegularChartListOwner : IDisposable
         return metadata.Dependency == dependency
             || (metadata.Dependency == MainViewDataDependency.Warning
                 && dependency is MainViewDataDependency.InstallDestination or MainViewDataDependency.Maintenance);
+    }
+
+    private CancellationTokenSource InvalidateCurrentRequestUnsafe()
+    {
+        CancellationTokenSource previous = currentCancellation;
+        currentCancellation = null;
+        currentRequestId = 0L;
+        regularRequestActive = false;
+        return previous;
+    }
+
+    private long ReadGeneration(Func<long> accessor)
+    {
+        lock (syncRoot)
+        {
+            return accessor();
+        }
+    }
+
+    private int GetCacheCountUnsafe()
+    {
+        return sortCache.Count
+            + virtualOrderCache.Count
+            + virtualSubsetOrderCache.Count
+            + (virtualSourceRowsAvailable ? 1 : 0);
+    }
+
+    private void ClearAllSortCachesUnsafe(bool clearSourceRows)
+    {
+        sortCache.Clear();
+        virtualOrderCache.Clear();
+        virtualSubsetOrderCache.Clear();
+        virtualSummaryCache.Clear();
+        virtualSummaryCacheVersion++;
+        if (clearSourceRows)
+        {
+            ClearVirtualSourceRowsUnsafe();
+        }
+    }
+
+    private void ClearVirtualSourceRowsUnsafe()
+    {
+        virtualSourceRows = null;
+        virtualSourceRowsAvailable = false;
+    }
+
+    private void IncrementDependencyGenerationUnsafe(MainViewDataDependency dependency)
+    {
+        switch (dependency)
+        {
+            case MainViewDataDependency.Warning:
+                warningGeneration++;
+                break;
+            case MainViewDataDependency.InstallDestination:
+                installDestinationGeneration++;
+                break;
+            case MainViewDataDependency.Maintenance:
+                maintenanceGeneration++;
+                break;
+            case MainViewDataDependency.ReferenceTables:
+                referenceTablesGeneration++;
+                break;
+        }
+    }
+
+    private static int PruneCacheUnsafe<TValue>(
+        Dictionary<NormalLibrarySortCacheKey, TValue> cache,
+        MainViewDataDependency dependency)
+    {
+        NormalLibrarySortCacheKey[] keys = [.. cache.Keys];
+        int removed = 0;
+        foreach (NormalLibrarySortCacheKey key in keys)
+        {
+            if (DoesSortColumnDependOn(key.ColumnName, dependency) && cache.Remove(key))
+            {
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    private static int PruneCacheUnsafe(
+        Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> cache,
+        MainViewDataDependency dependency)
+    {
+        VirtualChartSubsetSortCacheKey[] keys = [.. cache.Keys];
+        int removed = 0;
+        foreach (VirtualChartSubsetSortCacheKey key in keys)
+        {
+            if (DoesSortColumnDependOn(key.ColumnName, dependency) && cache.Remove(key))
+            {
+                removed++;
+            }
+        }
+        return removed;
+    }
+
+    private void ResolveDependencyGenerationsUnsafe(
+        string columnName,
+        RegularChartListExternalVersions externalVersions,
+        out long score,
+        out long chartInfo,
+        out long maintenance,
+        out long warning,
+        out long installDestination,
+        out long referenceTables)
+    {
+        score = 0L;
+        chartInfo = 0L;
+        maintenance = 0L;
+        warning = 0L;
+        installDestination = 0L;
+        referenceTables = 0L;
+        if (!ChartListOrder.TryGetVirtualSortColumnMetadata(columnName, out ChartListOrderColumnMetadata metadata))
+        {
+            return;
+        }
+
+        switch (metadata.Dependency)
+        {
+            case MainViewDataDependency.Score:
+                score = externalVersions.Score;
+                break;
+            case MainViewDataDependency.ChartInfo:
+                chartInfo = externalVersions.ChartInfo;
+                break;
+            case MainViewDataDependency.Maintenance:
+                maintenance = GetMaintenanceGenerationUnsafe(externalVersions);
+                break;
+            case MainViewDataDependency.Warning:
+                warning = warningGeneration;
+                installDestination = installDestinationGeneration;
+                maintenance = GetMaintenanceGenerationUnsafe(externalVersions);
+                break;
+            case MainViewDataDependency.InstallDestination:
+                installDestination = installDestinationGeneration;
+                break;
+            case MainViewDataDependency.ReferenceTables:
+                referenceTables = referenceTablesGeneration;
+                break;
+        }
+    }
+
+    private long GetMaintenanceGenerationUnsafe(RegularChartListExternalVersions externalVersions)
+    {
+        return (externalVersions.MaintenanceHydration << 32)
+            ^ (maintenanceGeneration & 0xffffffffL);
+    }
+
+    private bool IsCurrentUnsafe(
+        NormalLibrarySortCacheKey key,
+        RegularChartListExternalVersions externalVersions)
+    {
+        NormalLibrarySortCacheGenerationSnapshot current = CaptureSortGenerationUnsafe(key.ColumnName, externalVersions);
+        return sourceGeneration == key.SourceGeneration
+            && sortKeyGeneration == key.SortKeyGeneration
+            && current.Score == key.ScoreGeneration
+            && current.ChartInfo == key.ChartInfoGeneration
+            && current.Maintenance == key.MaintenanceGeneration
+            && current.Warning == key.WarningGeneration
+            && current.InstallDestination == key.InstallDestinationGeneration
+            && current.ReferenceTables == key.ReferenceTablesGeneration;
+    }
+
+    private bool IsCurrentUnsafe(
+        VirtualChartSubsetSortCacheKey key,
+        RegularChartListExternalVersions externalVersions)
+    {
+        NormalLibrarySortCacheGenerationSnapshot current = CaptureSortGenerationUnsafe(key.ColumnName, externalVersions);
+        return sourceGeneration == key.SourceGeneration
+            && sortKeyGeneration == key.SortKeyGeneration
+            && current.Score == key.ScoreGeneration
+            && current.ChartInfo == key.ChartInfoGeneration
+            && current.Maintenance == key.MaintenanceGeneration
+            && current.Warning == key.WarningGeneration
+            && current.InstallDestination == key.InstallDestinationGeneration
+            && current.ReferenceTables == key.ReferenceTablesGeneration;
+    }
+
+    private NormalLibrarySortCacheGenerationSnapshot CaptureSortGenerationUnsafe(
+        string columnName,
+        RegularChartListExternalVersions externalVersions)
+    {
+        ResolveDependencyGenerationsUnsafe(
+            columnName,
+            externalVersions,
+            out long score,
+            out long chartInfo,
+            out long maintenance,
+            out long warning,
+            out long installDestination,
+            out long referenceTables);
+        return new NormalLibrarySortCacheGenerationSnapshot(
+            sourceGeneration,
+            sortKeyGeneration,
+            score,
+            chartInfo,
+            maintenance,
+            warning,
+            installDestination,
+            referenceTables);
     }
 
     private static void CancelAndDispose(CancellationTokenSource cancellation)

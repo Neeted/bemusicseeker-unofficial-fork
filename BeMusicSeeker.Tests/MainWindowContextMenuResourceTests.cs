@@ -1952,7 +1952,7 @@ public sealed class MainWindowContextMenuResourceTests
         string notificationSyncHelper = ExtractBetween(
             viewModelCode,
             "private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification",
-            "private static bool ShouldConsumeNormalLibrarySourceGenerationForOwnedCollectionVersion");
+            "internal MainViewOperationSection CurrentMainViewOperationSection");
         string notificationBatchApplier = ExtractBetween(
             viewModelCode,
             "private void ApplyNormalLibraryRefreshNotificationBatch",
