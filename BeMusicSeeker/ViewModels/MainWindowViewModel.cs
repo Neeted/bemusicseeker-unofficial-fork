@@ -3943,7 +3943,7 @@ public partial class MainWindowViewModel : ViewModel
                     }
                     LogDeferredPlaylistReference("playlist_ref_deferred run version=" + requestVersion + " tableCount=" + list.Count);
                     files.SynchronizeReferenceBMSTables(list);
-                    InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+                    InvalidateNormalLibraryReferenceTableSortKeys();
                     int presentationRequestVersion = requestVersion;
                     DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
                     {
@@ -4021,7 +4021,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             files.ReplaceReferenceBMSTable(updateContext.OldTable, updateContext.NewTable, updateContext.OldEntriesSnapshot, updateContext.NewEntriesSnapshot);
-            InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+            InvalidateNormalLibraryReferenceTableSortKeys();
         };
     }
 
@@ -4619,11 +4619,11 @@ public partial class MainWindowViewModel : ViewModel
         installDestinationStateChanged = notificationBatch?.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged) == true;
         if (!sourceGenerationChanged && installDestinationStateChanged)
         {
-            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         }
         if (notificationBatch?.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged) == true)
         {
-            InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, NormalLibraryWarningChangedReason);
         }
         return notificationBatch?.HasRefreshNotification == true;
     }
@@ -4879,37 +4879,19 @@ public partial class MainWindowViewModel : ViewModel
         };
     }
 
-    private void OnNormalLibrarySortKeyChanged(string propertyName)
+    private void InvalidateNormalLibraryIdentitySortKeys(string reason)
     {
-        bool clearSourceRows = ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(propertyName);
+        bool clearSourceRows = ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(reason);
         int cacheCount = regularChartListOwner.InvalidateIdentitySortKeys(clearSourceRows);
-        LogNormalLibrarySortCacheInvalidation("sort_key", propertyName, cacheCount);
+        LogNormalLibrarySortCacheInvalidation("sort_key", reason, cacheCount);
     }
 
-    private void InvalidateNormalLibrarySortKeys(string reason)
+    private void InvalidateNormalLibraryReferenceTableSortKeys()
     {
-        if (string.Equals(reason, NormalLibraryReferenceTablesChangedReason, StringComparison.Ordinal))
-        {
-            NotifyBmsonPlaylistReferenceDisplayChanged();
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.ReferenceTables, reason);
-            return;
-        }
-        if (string.Equals(reason, NormalLibraryInstallDestinationChangedReason, StringComparison.Ordinal))
-        {
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, reason);
-            return;
-        }
-        if (string.Equals(reason, NormalLibraryMaintenanceChangedReason, StringComparison.Ordinal))
-        {
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance, reason);
-            return;
-        }
-        if (string.Equals(reason, NormalLibraryWarningChangedReason, StringComparison.Ordinal))
-        {
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, reason);
-            return;
-        }
-        OnNormalLibrarySortKeyChanged(reason ?? string.Empty);
+        NotifyBmsonPlaylistReferenceDisplayChanged();
+        InvalidateNormalLibrarySortDependency(
+            MainViewDataDependency.ReferenceTables,
+            NormalLibraryReferenceTablesChangedReason);
     }
 
     private void InvalidateNormalLibrarySortDependency(MainViewDataDependency dependency, string reason)
@@ -4925,7 +4907,7 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
 
-        InvalidateNormalLibrarySortKeys(result.SourceIdentityChanged
+        InvalidateNormalLibraryIdentitySortKeys(result.SourceIdentityChanged
             ? NormalLibraryBmsonSourceIdentityChangedReason
             : (string.IsNullOrWhiteSpace(reason) ? NormalLibraryBmsonSortKeyChangedReason : reason));
     }
@@ -4972,7 +4954,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             if (string.Equals(reason, NormalLibraryBmsPathChangedReason, StringComparison.Ordinal))
             {
-                InvalidateNormalLibrarySortKeys(reason);
+                InvalidateNormalLibraryIdentitySortKeys(reason);
             }
             else if (string.Equals(reason, NormalLibraryBmsonPathChangedReason, StringComparison.Ordinal))
             {
@@ -5031,11 +5013,6 @@ public partial class MainWindowViewModel : ViewModel
     private static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(string reason)
     {
         return MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange(reason);
-    }
-
-    internal static bool ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChangeForTest(string reason)
-    {
-        return ShouldClearVirtualNormalLibrarySourceRowsForSortKeyChange(reason);
     }
 
     private void LogNormalLibrarySortCacheInvalidation(string reason, string detail, int cacheCountBefore)
@@ -10748,7 +10725,7 @@ public partial class MainWindowViewModel : ViewModel
             TryCompleteStartupProgressChartInfoBackfill(files.ChartInfoBackfillCompletedVersion);
             if ((files?.ChartInfoBackfillDigestBackfilledCount ?? 0) > 0)
             {
-                InvalidateNormalLibrarySortKeys(NormalLibraryChartInfoDigestBackfilledReason);
+                InvalidateNormalLibraryIdentitySortKeys(NormalLibraryChartInfoDigestBackfilledReason);
             }
             RefreshChartInfoDependentViews();
         });
@@ -15211,7 +15188,7 @@ public partial class MainWindowViewModel : ViewModel
     internal void FixEncodingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string encoding = "")
     {
         files.SetBMSFilesEncoding(bmsFiles, encoding);
-        InvalidateNormalLibrarySortKeys(NormalLibraryBmsTitleChangedReason);
+        InvalidateNormalLibraryIdentitySortKeys(NormalLibraryBmsTitleChangedReason);
     }
 
     private void ForceResourceHealthCheckCharts(IEnumerable<ChartFile> charts)
@@ -15403,7 +15380,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void RefreshResourceHealthViewsAfterMaintenanceChanged(string filterReason, string dependencyReason)
     {
-        InvalidateNormalLibrarySortKeys(NormalLibraryMaintenanceChangedReason);
+        InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance, NormalLibraryMaintenanceChangedReason);
         Action refresh = delegate
         {
             if (treeViewFilterTypeSelected == MainViewUpdateMode.FileMissingFilterSelected
@@ -15441,7 +15418,7 @@ public partial class MainWindowViewModel : ViewModel
     private void RefreshDuplicatePresentationAfterGroupsChanged(string reason)
     {
         string refreshReason = string.IsNullOrWhiteSpace(reason) ? "bms_files_duplicated_changed" : reason;
-        InvalidateNormalLibrarySortKeys(NormalLibraryWarningChangedReason);
+        InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, NormalLibraryWarningChangedReason);
         if (!TrySuppress(UiRefreshChannel.DuplicateTree)
             && !TryDeferStartupPresentationRefresh(UiRefreshChannel.DuplicateTree, refreshReason))
         {
@@ -15508,7 +15485,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             files.SearchEstimatedInstallationDirectory(packages);
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
@@ -15526,7 +15503,7 @@ public partial class MainWindowViewModel : ViewModel
                 files.SearchMergeDestinationForPendingPackage(list[num]);
             }
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
@@ -15596,7 +15573,7 @@ public partial class MainWindowViewModel : ViewModel
                 UpdateSharedChartTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
@@ -15616,7 +15593,7 @@ public partial class MainWindowViewModel : ViewModel
                 UpdateSharedChartTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
@@ -15795,7 +15772,7 @@ public partial class MainWindowViewModel : ViewModel
             try
             {
                 files.AddReferenceBMSTablesToPackageCharts(BMSTables, list);
-                InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+                InvalidateNormalLibraryReferenceTableSortKeys();
             }
             finally
             {
@@ -19684,7 +19661,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             files.SearchCorrectInstallationDirectoryCharts(entries);
             UpdateSharedChartTransientStates(entries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
-            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
     }
 
@@ -19727,7 +19704,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             UpdateSharedChartTransientStates(changedEntries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree, requiresLibrary: false);
-        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
     }
 
     internal void ClearInstallDestinationForPendingCharts(PendingInstallDestinationTargetSnapshot targets)
@@ -19780,7 +19757,7 @@ public partial class MainWindowViewModel : ViewModel
                 UpdateSharedChartTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-        InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+        InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
     }
 
     internal void ClearInstallDestinationForCharts(IRepairInstalledLocationTargetSnapshot targets)
@@ -19825,7 +19802,7 @@ public partial class MainWindowViewModel : ViewModel
                 files.RemoveInstallDestination(entries);
                 UpdateSharedChartTransientStates(entries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
-            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         }
     }
 
@@ -19884,7 +19861,7 @@ public partial class MainWindowViewModel : ViewModel
         if (changed)
         {
             UpdateSharedChartTransientStates([changedEntry.Chart], forceInstallDestinationProjection: true);
-            InvalidateNormalLibrarySortKeys(NormalLibraryInstallDestinationChangedReason);
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         }
         return changed;
     }
@@ -20216,7 +20193,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             files.RemoveReferenceBMSTables(table);
         }
-        InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+        InvalidateNormalLibraryReferenceTableSortKeys();
         QueuePlaylistSummaryRefreshIfVisible(reason ?? "playlist_registered", invalidateTableCountCache: true);
     }
 
@@ -21067,7 +21044,7 @@ public partial class MainWindowViewModel : ViewModel
         files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts);
         tables.FreeReaderLockBMSTables();
         RefreshChartRowsViewForPlaylist(bmsTable);
-        InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+        InvalidateNormalLibraryReferenceTableSortKeys();
     }
 
     /// <summary>
@@ -21137,7 +21114,7 @@ public partial class MainWindowViewModel : ViewModel
         tables.AcquireReaderLockBMSTables();
         files.RemoveReferenceBMSTables(bmsTable, bmsEntries);
         tables.FreeReaderLockBMSTables();
-        InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+        InvalidateNormalLibraryReferenceTableSortKeys();
     }
 
     private void RefreshChartRowsViewForPlaylist(BMSTable bmsTableUpdated)
@@ -21217,7 +21194,7 @@ public partial class MainWindowViewModel : ViewModel
                 lr2config.Save();
             }
             files.RemoveReferenceBMSTables(bmsTable);
-            InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+            InvalidateNormalLibraryReferenceTableSortKeys();
         }
         finally
         {

@@ -814,7 +814,7 @@ public partial class MainWindowViewModel
                         ownerViewModel.files.ReplaceReferenceBMSTable(sourceTable, bmsTable, oldEntriesSnapshot);
                         ownerViewModel.ReplaceCurrentPlaylistSelectionTable(sourceTable, bmsTable);
                         ownerViewModel.RemapCurrentPlaylistFolderSelection(bmsTable, prefixFolderSelectionMap);
-                        ownerViewModel.InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+                        ownerViewModel.InvalidateNormalLibraryReferenceTableSortKeys();
                         ownerViewModel.UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(sourceTable, bmsTable, uri, bmsTable.last_update != last_update));
                         externalResyncApplied = true;
                         flag = false;
@@ -858,7 +858,7 @@ public partial class MainWindowViewModel
             if (flag)
             {
                 ownerViewModel.files.RefreshReferenceDisplayForTable(bmsTable);
-                ownerViewModel.InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason);
+                ownerViewModel.InvalidateNormalLibraryReferenceTableSortKeys();
                 if (entryFolderProjectionChanged)
                 {
                     ownerViewModel.RefreshChartRowsViewForPlaylist(bmsTable);

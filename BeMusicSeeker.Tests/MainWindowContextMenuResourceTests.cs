@@ -2074,6 +2074,20 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void RegularChartCacheInvalidationUsesTypedOwnerDependencies()
+    {
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+
+        Assert.IsFalse(viewModelCode.Contains("private void InvalidateNormalLibrarySortKeys(string reason)"));
+        StringAssert.Contains(viewModelCode, "regularChartListOwner.InvalidateIdentitySortKeys(clearSourceRows)");
+        StringAssert.Contains(viewModelCode, "regularChartListOwner.InvalidateSortCacheByDependency(dependency");
+        StringAssert.Contains(viewModelCode, "InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination");
+        StringAssert.Contains(viewModelCode, "InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance");
+        StringAssert.Contains(viewModelCode, "InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning");
+        StringAssert.Contains(viewModelCode, "InvalidateNormalLibraryReferenceTableSortKeys()");
+    }
+
+    [TestMethod]
     public void ChartContextMenu_BmsOnlyAndChartCommonHandlersUseExpectedSelectionHelpers()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
@@ -2464,7 +2478,7 @@ public sealed class MainWindowContextMenuResourceTests
         {
             replaceIndex = source.IndexOf("ownerViewModel.files.ReplaceReferenceBMSTable(", StringComparison.Ordinal);
         }
-        int invalidateIndex = source.IndexOf("InvalidateNormalLibrarySortKeys(NormalLibraryReferenceTablesChangedReason)", StringComparison.Ordinal);
+        int invalidateIndex = source.IndexOf("InvalidateNormalLibraryReferenceTableSortKeys()", StringComparison.Ordinal);
 
         Assert.IsTrue(replaceIndex >= 0);
         Assert.IsTrue(invalidateIndex > replaceIndex);
