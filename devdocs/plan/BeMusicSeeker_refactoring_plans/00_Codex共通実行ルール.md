@@ -16,14 +16,14 @@
 1. [PLAN_STATUS](./PLAN_STATUS.md) の active outcome と acceptance criteria を読む。
 2. `git status --short` で既存差分を確認する。
 3. active outcome がなければ、総合計画の ordered backlog から最初の未完・非 blocked outcome を選ぶ。
-4. outcome 内の次 implementation unit を内部作業計画へ分解する。
+4. outcome 内の次 implementation unit を、通常経路の owner 変更と旧経路削除が一緒に終わる vertical slice として選ぶ。
 5. checkpoint、decision、inventory、調査メモを新規作成せず実装へ進む。
 
 future outcome を先に詳細設計しない。active outcome に必要な範囲だけ、実ソースと behavior test を読んで判断する。
 
 ## Implementation unit の条件
 
-implementation unit は次を満たすまとまりにする。
+implementation unit は次を満たすまとまりにする。原則として 1 つの user-visible workflow または 1 つの ownership boundary を端から端まで閉じ、seam 1 個、method 1 個、test 1 個を単位にしない。
 
 - 同じ outcome の acceptance criteria を少なくとも 1 つ前進させる。
 - build 可能で、関連 behavior を検証できる。
@@ -31,7 +31,7 @@ implementation unit は次を満たすまとまりにする。
 - 旧 owner の責務、旧 route、旧 binding、旧 test seam のいずれかを減らす。
 - 構造変更と意図的な挙動変更を混ぜない。
 
-DTO、interface、result、planner、host、diagnostics API の追加だけで implementation unit を完了しない。安全上どうしても scaffolding commit が必要な場合も、同じ outcome を継続し、直後の unit で通常経路への接続と旧経路削除を行う。
+DTO、interface、result、planner、host、diagnostics API の追加だけで implementation unit を完了しない。安全上どうしても一時 scaffolding が必要でも、同じ未コミット unit 内で通常経路への接続と旧経路削除まで進める。build 可能な中間 commit を作るためだけに ownership 移管を分割しない。
 
 ## 実装・レビュー・commit ループ
 
@@ -43,18 +43,32 @@ DTO、interface、result、planner、host、diagnostics API の追加だけで i
 6. 修正の影響を受ける build / test を再実行する。
 7. 重大指摘がなくなるまで同じサブエージェントまたは別のサブエージェントへ再レビューを依頼する。
 8. この unit で outcome を閉じる場合は、開始 commit からの全変更と現行コードを対象に full test とサブエージェント静的アーキテクチャレビューを行う。指摘があれば同じ unit で修正・再テスト・再レビューする。
-9. outcome の全 acceptance criteria を満たした場合は、`PLAN_STATUS.md` で当該 outcome を `completed`、次 outcome を `ready` にする。Active outcome セクションを次 outcome の目的 / acceptance criteria / non-goals へ置き換え、Next action も更新する。この status 更新を含む最終未コミット差分を再レビューする。
+9. outcome の全 acceptance criteria を満たした場合は、`PLAN_STATUS.md` で当該 outcome を `completed`、次 outcome を `ready` にする。Active outcome セクションを次 outcome の目的 / acceptance criteria / non-goals へ置き換える。この status 更新を含む最終未コミット差分を再レビューする。
 10. 最終差分に対して必要な build / test / format / analyzer / `git diff --check` を実行する。
-11. outcome ID を含む commit message で commit する。commit body に実行した test と review 結果を記録する。
+11. outcome ID を含む commit message で commit する。検証・レビュー結果は command output と Git diff / commit で追跡し、定型的な証跡資料は追加しない。
 12. outcome が未完なら docs-only checkpoint を挟まず同じ outcome の次 unit へ、完了したなら `ready` にした次 outcome へ進む。
 
 `GATE-01` だけは完了時に `completed` ではなく `gate met` とし、Active outcome を `none`、次 outcome を設定しない。Release Freeze は `gate met / explicit release instruction required` と記録し、`.NET 10` migration plan またはリリース作業を自動開始しない。
 
 レビュー修正後の再テストを省略しない。レビュー前の test 結果を最終差分の検証結果として扱わない。
 
+root agent を唯一の writer / stager / committer とする。調査・レビューのサブエージェントは読み取り専用とし、review 依頼後は root も対象差分を変更しない。修正した場合は新しい snapshot として再レビューする。依頼には absolute repo path、scope (`worktree` または `<outcome-base>..HEAD + worktree`)、base / head SHA、untracked file 一覧を含める。
+
 ## 標準確認
 
 PowerShell 7 で実行する。
+
+通常は統合入口を使う。
+
+```powershell
+pwsh -File .\scripts\verify-refactor.ps1 -Mode Quick
+pwsh -File .\scripts\verify-refactor.ps1 -Mode Quick -TestFilter '<関連 test filter>'
+pwsh -File .\scripts\verify-refactor.ps1 -Mode Full
+```
+
+`Quick` は build、test、whitespace、diff check、`Full` はこれに restore、tool restore、Roslynator を加える。`Quick` で filter を省略した場合は全 test を実行する。共有 model、root ViewModel、DB、file system、settings、dispatcher、lock / concurrency に触れた場合と outcome 完了時は `Full` を使う。
+
+script が環境要因で使えない場合の個別コマンドは次のとおり。
 
 ```powershell
 dotnet build .\BeMusicSeeker.sln /p:Configuration=Release
@@ -65,9 +79,9 @@ dotnet roslynator analyze .\BeMusicSeeker.sln --msbuild-path $msbuildPath --prop
 git diff --check
 ```
 
-小さい unit は targeted test を先に実行してよい。共有 model、root ViewModel、DB、file system、settings、dispatcher、lock / concurrency に触れた場合は commit 前に full test を実行する。すべての outcome 完了時に full test を実行する。
+小さい unit は targeted test を先に実行してよい。レビュー修正後は、最終差分に対して統合入口を再実行する。
 
-SDK は `global.json` の .NET SDK 10 系を使う。Roslynator 0.12.0 が MSBuild 18 で動作しない間は、上記のとおり Visual Studio 2022 / MSBuild 17 を指定する。analyzer Gate はコマンドが正常終了し、今回差分による warning が増えていないこととする。既存 warning は `.codex/AGENTS.md` の分類規則に従い、info 診断は目的を定めた棚卸しでだけ扱う。
+SDK は `global.json` の .NET SDK 10 系を使う。Roslynator 0.12.0 が MSBuild 18 で動作しない間は、上記のとおり Visual Studio 2022 / MSBuild 17 を指定する。analyzer Gate はコマンドが正常終了し、今回差分による warning が増えていないこととする。既存 warning は root `AGENTS.md` の方針に従い、info 診断は目的を定めた棚卸しでだけ扱う。
 
 ### UI outcome の smoke check
 
@@ -129,7 +143,7 @@ active な計画資料は次の 4 ファイルに限定する。
 - `PLAN_STATUS.md`
 - `DOTNET10_MIGRATION_BLOCKERS.md`
 
-`PLAN_STATUS.md` は baseline、active outcome と acceptance criteria、outcome states、Gate scorecard、active outcome blocker、Next action だけを持つ。完了履歴、テスト件数、行数推移、次 seam の調査ログは Git commit に残す。
+`PLAN_STATUS.md` は baseline、active outcome と acceptance criteria、outcome states、Gate scorecard、active outcome blocker だけを持つ。更新は outcome transition、blocker の発生 / 解消、Gate evidence の実質的変化に限定する。完了履歴、テスト件数、行数推移、次 unit / seam の調査ログは Git commit とコード差分に残す。
 
 永続判断は原則として関連する正本の target / Gate / blocker policy へ反映する。独立 ADR は次をすべて満たす場合だけ、4文書制を拡張する理由とともにユーザーへ提案し、承認後に追加する。
 

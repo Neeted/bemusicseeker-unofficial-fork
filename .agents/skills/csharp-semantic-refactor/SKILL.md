@@ -14,8 +14,8 @@ Do not use text replacement as the primary method for C# symbol changes.
 Semantic tools first:
 1. Repo-local `dotnet roslynator rename-symbol`, when the target can be safely expressed with a narrow `--match` and verified by target-list output plus immediate `git diff` audit.
 2. Other callable Roslyn or LSP rename tool, if configured.
-3. VS Code F2 Rename Symbol / C# Dev Kit, applied by the user for location-specific single-symbol renames or when CLI matching is not safe.
-4. Compiler-driven edits for API/signature refactors.
+3. Compiler-driven edits for API/signature refactors and private/local changes whose complete call-site set can be verified by the compiler and targeted audit.
+4. VS Code F2 Rename Symbol / C# Dev Kit, applied by the user only when a required location-specific rename cannot be selected safely by an available automated tool.
 5. Targeted text edits only for classified non-symbol artifacts.
 
 Use `rg` for discovery and audit only. Never use `rg`, `sed`, PowerShell replacement, or case-insensitive repository-wide replacement to edit C# identifiers.
@@ -31,7 +31,7 @@ dotnet roslynator analyze --help
 dotnet format --help
 ```
 
-The repo standard is the SDK command documented in `.codex/AGENTS.md`: `dotnet format whitespace ... --verify-no-changes`. Use `dotnet format style` or `dotnet format analyzers` only when the change specifically needs style/analyzer formatting checks.
+The repo standard is the verification entry point documented in `AGENTS.md`: `scripts/verify-refactor.ps1`. Use `dotnet format style` or `dotnet format analyzers` only when the change specifically needs style/analyzer formatting checks.
 
 If local tools are declared but commands are unavailable, run `dotnet tool restore` and retry.
 
@@ -59,7 +59,7 @@ For BeMusicSeeker chart abstraction, classify every old `BMS*` name as one of:
 
 ## Before editing
 
-Report:
+Check internally before editing:
 
 - current branch and whether the worktree has unrelated changes.
 - target symbol
@@ -72,7 +72,9 @@ Report:
 - whether XAML, resources, settings, config, DB schema, migrations, serialization, generated files, logs, or docs may be involved
 - expected semantic scope and expected non-symbol follow-up files
 
-If no semantic rename tool is callable, stop after this report and ask the user to run VS Code F2 Rename Symbol. Include:
+Do not stop merely because one rename tool is unavailable. For private/local symbols and API/signature changes whose scope can be verified by compiler errors, tests, and a targeted old-name audit, use compiler-driven edits. If the rename is optional cleanup, omit it rather than blocking the active outcome.
+
+Ask the user to run VS Code F2 Rename Symbol only when the rename is required, its symbol scope cannot be selected safely by an available automated tool, and compiler-driven edits cannot prove complete coverage. Include:
 
 - file and location
 - target symbol
@@ -135,7 +137,7 @@ Check the relevant artifact types after semantic rename:
 
 ## After editing
 
-Run the standard repository checks defined in `.codex/AGENTS.md` `## 4. ビルド環境とコマンド`.
+Run the standard repository checks defined in root `AGENTS.md` and `devdocs/plan/BeMusicSeeker_refactoring_plans/00_Codex共通実行ルール.md`.
 
 For semantic refactors, also verify:
 

@@ -67,6 +67,14 @@ DTO、result、helper、rename、test fixture、partial split、signature 調整
 
 main chart list、playback、playlist workspace、play history、settings、library refresh、package operation の state と workflow は feature owner が持つ。root の binding relay、PropertyChanged 再中継、private workflow host は完了後に削除する。
 
+main table 周辺は、次の三つの ownership boundary を混ぜない。
+
+- **Main table presentation owner**: 現在 rows、column presentation、selection、table sort interaction、atomic apply、旧 rows の dispose、PropertyChanged と適用完了通知を持つ。
+- **Mode workflow owner**: request identity、source / query / filter / sort の意味、cache、cancellation、freshness、presentation result の生成を mode ごとに持つ。regular chart は UI-01、playlist workspace と play history の workflow はそれぞれ UI-03 / UI-04 の owner が最終的に持つ。
+- **Shell / composition**: 現在 mode の選択、mode owner と table presentation owner の接続、Window 固有 event の request 変換、feature 間の最小限の coordination だけを持つ。
+
+mode workflow owner は immutable な presentation result を生成し、table presentation owner が terminal apply を atomic に行う。UI-01 は playlist / play-history workflow 全体を MainChartList へ吸収せず、現 owner から result を受ける production contract と table 側の適用責務までを閉じる。
+
 ### Domain
 
 `BMSLibrary` は public compatibility API、event surface、依存の composition、複数 owner をまたぐ最小限の coordination に限定する。initialization / scan、package install、file operation、maintenance / resource health、LR2 song.db sync、playlist reference は、それぞれ状態と挙動を同じ owner が持つ。
@@ -74,6 +82,8 @@ main chart list、playback、playlist workspace、play history、settings、libr
 `BMSPlaylist` は public compatibility API と playlist aggregate entry に限定する。persistence / reload、external sync、custom-folder output、BMT export、recommended-table build、operation notification は独立して検証できる owner へ移す。
 
 新しい owner は `Window`、`Control`、`MessageBox`、`Settings.Default`、`NLog`、無制御な DB connection / transaction、無制御な `Dispatcher` を直接参照しない。必要な能力は用途別の小さな contract として受け取る。
+
+active outcome の成立に不可欠な platform / composition contract は、production 経路へ即座に接続する最小単位に限り後続 outcome から前倒ししてよい。未使用 interface、総合 facade、将来用の state 保存は追加しない。
 
 ### Configuration と platform boundary
 
@@ -120,11 +130,11 @@ Codex は [PLAN_STATUS](./PLAN_STATUS.md) の active outcome を進める。acti
 
 | Order | Outcome | Exit condition |
 |---:|---|---|
-| 1 | `UI-01 Main chart list ownership` | 全表示モードの request から terminal apply までを feature owner が持ち、XAML が child state / command を直接 bind し、root relay と callback host が削除される |
+| 1 | `UI-01 Main table presentation and regular chart ownership` | main table presentation と regular chart workflow の owner が閉じ、playlist / play-history owner からの result contract が production 接続され、XAML の child binding と root relay / callback host 削除が完了する |
 | 2 | `APP-01 Composition and configuration ownership` | startup と settings load / edit / save が明示的 owner を通り、後続 feature / service が global settings を直接取得せず構築される |
 | 3 | `UI-02 Playback ownership` | playback state / command / progress が child View / ViewModel と player adapter に移り、code-behind は view-host 操作だけになる |
-| 4 | `UI-03 Playlist workspace ownership` | tree、detail build / apply、drag-drop、reload / edit workflow が workspace owner に移り、root と code-behind の playlist workflow がなくなる |
-| 5 | `UI-04 Play history ownership` | query、filter、selection、interaction workflow が feature owner に移り、root relay と UI workflow がなくなる |
+| 4 | `UI-03 Playlist workspace ownership` | tree、source query / cache / cancellation、detail / summary result generation、feature-local interaction、drag-drop、reload / edit workflow が workspace owner に移り、result の main-table terminal apply を除く root / code-behind の playlist workflow がなくなる |
+| 5 | `UI-04 Play history ownership` | source query / cache / cancellation、filter、result generation、selected row の feature-local action interpretation が feature owner に移り、main-table selection state / terminal apply を除く root relay と UI workflow がなくなる |
 | 6 | `LIB-01 Initialization and scan ownership` | startup scan、file diff、parse、commit、post-scan maintenance が明示的 pipeline owner に移り、facade は request / lifecycle bridge になる |
 | 7 | `LIB-02 Package and file-operation ownership` | package install / repair / merge / rename / delete が state owner と用途別 gateway を通り、temporary host 群と重複 orchestration が整理される |
 | 8 | `LIB-03 Maintenance and resource-health ownership` | hydration、mutation、dispatch、index rebuild の状態と挙動が一つの bounded owner に集約され、C65-C103 由来の bridge / test seam が整理される |
@@ -147,6 +157,10 @@ Codex は [PLAN_STATUS](./PLAN_STATUS.md) の active outcome を進める。acti
 - private 実装配置ではなく behavior を検証する test がある。
 - outcome 開始時より root の責務または migration blocker が測定可能に減っている。
 - outcome 全体の検証と静的レビューが完了している。
+
+implementation unit は seam や private helper の個数ではなく、1 つの user-visible workflow または ownership boundary を通常経路から旧経路削除まで閉じる大きさにする。新 owner への委譲だけを追加して旧 owner を残す commit、調査結果だけの commit、完了証跡だけの docs commit は作らない。
+
+UI outcome の完了時は、移管済み child owner から `Application.Current`、`DispatcherHelper.UIDispatcher`、`MainWindowViewModel` の nested contract、`*ForTest` production method、root PropertyChanged relay、root callback / workflow host がなくなっていることを検索と静的レビューで確認する。例外が必要なら暗黙に残さず、当該 outcome の acceptance criteria で許可境界として説明する。
 
 完了結果の履歴は Git commit に残し、計画資料には outcome の状態だけを記録する。
 
