@@ -93,8 +93,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainTable, "SelectedIndex=\"{Binding SelectedIndex, Mode=TwoWay}\"");
         StringAssert.Contains(mainTable, "RowDragKind=\"{Binding RowDragKind, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "ColumnsSettings=\"{Binding ColumnsSettings, Mode=OneWay}\"");
-        StringAssert.Contains(mainTable, "SortColumnName=\"{Binding DataContext.MainTableSortParameters.ColumnsName, ElementName=window, Mode=OneWay}\"");
-        StringAssert.Contains(mainTable, "SortDirection=\"{Binding DataContext.MainTableSortParameters.Direction, ElementName=window, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "SortColumnName=\"{Binding SortParameters.ColumnsName, Mode=OneWay}\"");
+        StringAssert.Contains(mainTable, "SortDirection=\"{Binding SortParameters.Direction, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "Visibility=\"{Binding DataContext.IsPlaylistSummaryMode, ElementName=window, Converter={qc:QuickConverter '!$P ? Visibility.Visible : Visibility.Collapsed'}}\"");
         StringAssert.Contains(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings.Title.Visibility, Source={StaticResource vm}");
         Assert.AreEqual(69, CountOccurrences(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings."));
@@ -109,7 +109,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "IsChecked=\"{Binding PlaylistWorkspace.PlaylistSummaryColumnsSettings.PlaylistId.Visibility, Source={StaticResource vm}");
         Assert.IsFalse(xaml.Contains("IsChecked=\"{Binding PlaylistSummaryColumnsSettings."));
         Assert.IsFalse(xaml.Contains("Text=\"{Binding GridSummaryText}\""));
-        Assert.IsFalse(mainTable.Contains("SortColumnName=\"{Binding SortParameters.ColumnsName"));
+        Assert.IsFalse(mainTable.Contains("DataContext.MainTableSortParameters"));
         Assert.IsFalse(mainTable.Contains("RowDragKind=\"PlaylistDropCandidateRows\""));
         Assert.IsFalse(MainWindow.TryResolveTableContextMenuPolicyForTest(playHistoryRow, ChartOperationSourceScope.Library, out bool playHistoryMissingContextMenu));
         Assert.IsFalse(playHistoryMissingContextMenu);

@@ -100,8 +100,6 @@ public partial class MainWindowViewModel : ViewModel
 
     internal event EventHandler PlaybackStarted;
 
-    internal event EventHandler MainTableDisplayRefreshRequested;
-
     /// <summary>
     /// Gets status-bar progress presentation state owned outside the shell ViewModel while legacy root bindings remain in place.
     /// </summary>
@@ -3465,7 +3463,7 @@ public partial class MainWindowViewModel : ViewModel
             return false;
         }
         virtualView.ForEachRealizedRow(row => row.RefreshDisplayForDataDependency(dependency));
-        RaiseMainTableDisplayRefreshRequested();
+        MainChartList.RequestDisplayRefresh();
         return true;
     }
 
@@ -7799,7 +7797,7 @@ public partial class MainWindowViewModel : ViewModel
                 RaisePropertyChanged("SortParameters");
                 if (!IsPlayHistoryViewActive)
                 {
-                    RaisePropertyChanged("MainTableSortParameters");
+                    SyncMainChartListSortPresentation();
                 }
             }
         }
@@ -7828,23 +7826,9 @@ public partial class MainWindowViewModel : ViewModel
                 RaisePropertyChanged("PlayHistorySortParameters");
                 if (IsPlayHistoryViewActive)
                 {
-                    RaisePropertyChanged("MainTableSortParameters");
+                    SyncMainChartListSortPresentation();
                 }
             }
-        }
-    }
-
-    public cSortParameters MainTableSortParameters => IsPlayHistoryViewActive ? PlayHistorySortParameters : SortParameters;
-
-    public cSortParameters PlaylistSummarySortParameters
-    {
-        get
-        {
-            return PlaylistWorkspace.PlaylistSummarySortParameters;
-        }
-        private set
-        {
-            PlaylistWorkspace.PlaylistSummarySortParameters = value;
         }
     }
 
@@ -7855,6 +7839,14 @@ public partial class MainWindowViewModel : ViewModel
             : right != null
                 && left.ColumnsName == right.ColumnsName
                 && left.Direction == right.Direction;
+    }
+
+    private void SyncMainChartListSortPresentation()
+    {
+        bool isPlayHistory = IsPlayHistoryViewActive;
+        MainChartList.SetSortPresentation(
+            isPlayHistory ? PlayHistorySortParameters : SortParameters,
+            isPlayHistory ? MainChartListSortTarget.PlayHistory : MainChartListSortTarget.Regular);
     }
 
     /// <summary>
@@ -9861,6 +9853,8 @@ public partial class MainWindowViewModel : ViewModel
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
         PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
+        PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
+        MainChartList.SortRequested += MainChartListSortRequested;
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -9889,6 +9883,16 @@ public partial class MainWindowViewModel : ViewModel
     private void PlaylistWorkspacePlaylistSummaryViewApplied(object sender, PlaylistSummaryViewAppliedEventArgs e)
     {
         TrySchedulePlaylistReloadCleanup();
+    }
+
+    private void PlaylistWorkspacePlaylistSummarySortRequested(object sender, EventArgs e)
+    {
+        RefreshPlaylistSummaryPresentationIfVisible();
+    }
+
+    private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs e)
+    {
+        ApplyMainChartListSort(e.ColumnName, e.Direction, e.Target);
     }
 
     private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -10606,11 +10610,6 @@ public partial class MainWindowViewModel : ViewModel
     private void RaisePlaybackStarted()
     {
         RaiseUiInteractionOnUiThread(PlaybackStarted, nameof(PlaybackStarted));
-    }
-
-    private void RaiseMainTableDisplayRefreshRequested()
-    {
-        RaiseUiInteractionOnUiThread(MainTableDisplayRefreshRequested, nameof(MainTableDisplayRefreshRequested));
     }
 
     private static void LogUiInteractionSkippedOnShutdown(string interactionName)
@@ -12903,7 +12902,7 @@ public partial class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
             RaisePropertyChanged(() => IsPlayHistoryViewActive);
-            RaisePropertyChanged("MainTableSortParameters");
+            SyncMainChartListSortPresentation();
         }
         ChartListRefreshRoute route = ChartListRefreshCoordinator.ResolveRoute(mode, requestedMode, treeViewFilterTypeSelected, files != null);
         if (route.Kind == ChartListRefreshRouteKind.MissingFiles)
@@ -14352,7 +14351,7 @@ public partial class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             RaisePropertyChanged(() => CurrentMainViewChartOperationSourceScope);
             RaisePropertyChanged(() => IsPlayHistoryViewActive);
-            RaisePropertyChanged("MainTableSortParameters");
+            SyncMainChartListSortPresentation();
         }
         return requestId;
     }
@@ -15711,14 +15710,12 @@ public partial class MainWindowViewModel : ViewModel
         internal PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings { get; }
     }
 
-    public void ExecSort(string columnName, ListSortDirection direction)
+    private void ApplyMainChartListSort(
+        string columnName,
+        ListSortDirection direction,
+        MainChartListSortTarget target)
     {
-        ExecSort(columnName, direction, IsPlayHistoryViewActive);
-    }
-
-    public void ExecSort(string columnName, ListSortDirection direction, bool isPlayHistorySort)
-    {
-        if (isPlayHistorySort)
+        if (target == MainChartListSortTarget.PlayHistory)
         {
             if (PlayHistorySortParameters == null || PlayHistorySortParameters.ColumnsName != columnName || PlayHistorySortParameters.Direction != direction)
             {
@@ -15746,23 +15743,6 @@ public partial class MainWindowViewModel : ViewModel
             {
                 RefreshChartRowsView(MainViewUpdateMode.SortUpdated);
             }
-        }
-    }
-
-    public void ExecPlaylistSummarySort(string columnName, ListSortDirection direction)
-    {
-        if (string.IsNullOrWhiteSpace(columnName))
-        {
-            columnName = nameof(PlaylistSummaryRow.Name);
-        }
-        if (PlaylistSummarySortParameters == null || PlaylistSummarySortParameters.ColumnsName != columnName || PlaylistSummarySortParameters.Direction != direction)
-        {
-            PlaylistSummarySortParameters = new cSortParameters
-            {
-                ColumnsName = columnName,
-                Direction = direction
-            };
-            RefreshPlaylistSummaryPresentationIfVisible();
         }
     }
 
@@ -19048,7 +19028,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             RaisePropertyChanged(() => IsPlayHistoryViewActive);
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
-            RaisePropertyChanged("MainTableSortParameters");
+            SyncMainChartListSortPresentation();
         }
         RefreshPlaylistSummaryPresentationIfVisible();
     }
@@ -19799,9 +19779,9 @@ public partial class MainWindowViewModel : ViewModel
 
     public bool IsPlaylistSummarySortedByBmtSortAscending()
     {
-        return PlaylistSummarySortParameters != null
-            && PlaylistSummarySortParameters.ColumnsName == nameof(PlaylistSummaryRow.BmtSort)
-            && PlaylistSummarySortParameters.Direction == ListSortDirection.Ascending;
+        return PlaylistWorkspace.PlaylistSummarySortParameters != null
+            && PlaylistWorkspace.PlaylistSummarySortParameters.ColumnsName == nameof(PlaylistSummaryRow.BmtSort)
+            && PlaylistWorkspace.PlaylistSummarySortParameters.Direction == ListSortDirection.Ascending;
     }
 
     /// <summary>

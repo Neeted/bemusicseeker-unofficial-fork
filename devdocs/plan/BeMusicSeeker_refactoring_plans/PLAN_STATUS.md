@@ -79,4 +79,4 @@ Non-goals:
 
 ## Next action
 
-UI-01 の main table sort / display refresh を child owner の state / request / event へ直接接続し、XAML・code-behind・root の relay を削除する。その後、regular chart / playlist detail / play history の request・cache・terminal apply ownershipを統合監査する。docs-only checkpoint は作らない。
+UI-01 の regular chart / playlist detail / play history について、request identity・cache・cancellation・terminal apply を child owner transition に統合し、root private workflow / callback host を削除する。全 mode の統合監査後に UI-01 completion review を行う。docs-only checkpoint は作らない。

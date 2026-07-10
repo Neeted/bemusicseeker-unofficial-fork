@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Threading;
@@ -86,6 +87,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied;
 
     /// <summary>
+    /// Raised after the child owner accepts a different playlist-summary sort.
+    /// </summary>
+    internal event EventHandler PlaylistSummarySortRequested;
+
+    /// <summary>
     /// Gets or sets the current playlist summary sort parameters.
     /// </summary>
     public MainWindowViewModel.cSortParameters PlaylistSummarySortParameters
@@ -102,6 +108,31 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
                 RaisePropertyChanged(nameof(PlaylistSummarySortParameters));
             }
         }
+    }
+
+    /// <summary>
+    /// Accepts a summary-table sort interaction and updates the child-owned presentation state.
+    /// </summary>
+    /// <param name="columnName">The requested summary-row sort member.</param>
+    /// <param name="direction">The requested direction.</param>
+    internal void RequestPlaylistSummarySort(string columnName, ListSortDirection direction)
+    {
+        string normalizedColumnName = string.IsNullOrWhiteSpace(columnName)
+            ? nameof(PlaylistSummaryRow.Name)
+            : columnName;
+        if (playlistSummarySortParameters != null
+            && playlistSummarySortParameters.ColumnsName == normalizedColumnName
+            && playlistSummarySortParameters.Direction == direction)
+        {
+            return;
+        }
+
+        PlaylistSummarySortParameters = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = normalizedColumnName,
+            Direction = direction
+        };
+        PlaylistSummarySortRequested?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>

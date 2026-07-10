@@ -1,8 +1,11 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Windows;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
 using Livet;
@@ -22,6 +25,10 @@ public sealed class MainChartListViewModel : ViewModel
 
     private string summaryText = string.Empty;
 
+    private MainWindowViewModel.cSortParameters sortParameters;
+
+    private MainChartListSortTarget sortTarget;
+
     /// <summary>
     /// Raised immediately before a different row collection replaces the active main-table rows.
     /// </summary>
@@ -30,6 +37,16 @@ public sealed class MainChartListViewModel : ViewModel
     internal event EventHandler RowsReplacementCanceled;
 
     internal event EventHandler RowsReplacementPublishFailed;
+
+    /// <summary>
+    /// Raised when the table asks the shell workflow to rebuild rows using a new sort.
+    /// </summary>
+    internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;
+
+    /// <summary>
+    /// Raised on the UI thread when provider-backed visible cells need repainting without replacing rows.
+    /// </summary>
+    internal event EventHandler DisplayRefreshRequested;
 
     internal void PrepareRowsReplacement()
     {
@@ -117,6 +134,116 @@ public sealed class MainChartListViewModel : ViewModel
                 summaryText = next;
                 RaisePropertyChanged(nameof(SummaryText));
             }
+        }
+    }
+
+    /// <summary>
+    /// Gets the sort currently presented by the main chart table.
+    /// </summary>
+    public MainWindowViewModel.cSortParameters SortParameters => sortParameters;
+
+    /// <summary>
+    /// Updates the active sort presentation when the shell changes between regular and play-history views.
+    /// </summary>
+    /// <param name="value">The active sort parameters.</param>
+    /// <param name="target">The workflow that owns the active sort.</param>
+    internal void SetSortPresentation(MainWindowViewModel.cSortParameters value, MainChartListSortTarget target)
+    {
+        Dispatcher dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher != null && !dispatcher.CheckAccess())
+        {
+            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                return;
+            }
+            try
+            {
+                dispatcher.Invoke(
+                    DispatcherPriority.Normal,
+                    new Action(() => SetSortPresentationCore(value, target)));
+            }
+            catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+            }
+            catch (OperationCanceledException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+            }
+            return;
+        }
+        SetSortPresentationCore(value, target);
+    }
+
+    private void SetSortPresentationCore(MainWindowViewModel.cSortParameters value, MainChartListSortTarget target)
+    {
+        bool changed = sortTarget != target
+            || !AreSameSortParameters(sortParameters, value);
+        sortTarget = target;
+        sortParameters = value;
+        if (changed)
+        {
+            RaisePropertyChanged(nameof(SortParameters));
+        }
+    }
+
+    /// <summary>
+    /// Captures a table sort interaction together with the workflow currently presented by the child owner.
+    /// </summary>
+    /// <param name="columnName">The requested sort member.</param>
+    /// <param name="direction">The requested direction.</param>
+    /// <returns>The immutable request, or <see langword="null"/> when no column was supplied.</returns>
+    internal MainChartListSortRequestedEventArgs CaptureSortRequest(string columnName, ListSortDirection direction)
+    {
+        if (string.IsNullOrWhiteSpace(columnName))
+        {
+            return null;
+        }
+        return new MainChartListSortRequestedEventArgs(columnName, direction, sortTarget);
+    }
+
+    /// <summary>
+    /// Publishes a previously captured sort request so view changes cannot redirect delayed work.
+    /// </summary>
+    /// <param name="request">The immutable request captured at interaction time.</param>
+    internal void RequestSort(MainChartListSortRequestedEventArgs request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        SortRequested?.Invoke(this, request);
+    }
+
+    /// <summary>
+    /// Requests repaint of the existing main-table rows while preserving the ItemsSource and selection.
+    /// </summary>
+    internal void RequestDisplayRefresh()
+    {
+        EventHandler handler = DisplayRefreshRequested;
+        if (handler == null)
+        {
+            return;
+        }
+
+        void RaiseRefresh() => handler(this, EventArgs.Empty);
+        Dispatcher dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher == null || dispatcher.CheckAccess())
+        {
+            RaiseRefresh();
+            return;
+        }
+        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+        try
+        {
+            dispatcher.Invoke(DispatcherPriority.Normal, (Action)RaiseRefresh);
+        }
+        catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
+        }
+        catch (OperationCanceledException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+        {
         }
     }
 
@@ -425,6 +552,17 @@ public sealed class MainChartListViewModel : ViewModel
         return CustomTableRowDragKind.PlaylistDropCandidateRows;
     }
 
+    private static bool AreSameSortParameters(
+        MainWindowViewModel.cSortParameters left,
+        MainWindowViewModel.cSortParameters right)
+    {
+        return left == null
+            ? right == null
+            : right != null
+                && left.ColumnsName == right.ColumnsName
+                && left.Direction == right.Direction;
+    }
+
     private string ResolveSummaryText(MainChartListSummaryUpdate summary)
     {
         return summary.Kind switch
@@ -507,6 +645,53 @@ public sealed class MainChartListViewModel : ViewModel
             }
         }
     }
+}
+
+/// <summary>
+/// Identifies which root workflow owns a sort interaction shown by the shared main table.
+/// </summary>
+internal enum MainChartListSortTarget
+{
+    /// <summary>
+    /// The normal library or playlist-detail workflow.
+    /// </summary>
+    Regular,
+
+    /// <summary>
+    /// The play-history workflow.
+    /// </summary>
+    PlayHistory
+}
+
+/// <summary>
+/// Carries one main-table sort interaction from the child owner to the existing build orchestration.
+/// </summary>
+internal sealed class MainChartListSortRequestedEventArgs : EventArgs
+{
+    internal MainChartListSortRequestedEventArgs(
+        string columnName,
+        ListSortDirection direction,
+        MainChartListSortTarget target)
+    {
+        ColumnName = columnName ?? string.Empty;
+        Direction = direction;
+        Target = target;
+    }
+
+    /// <summary>
+    /// Gets the requested sort member.
+    /// </summary>
+    internal string ColumnName { get; }
+
+    /// <summary>
+    /// Gets the requested direction.
+    /// </summary>
+    internal ListSortDirection Direction { get; }
+
+    /// <summary>
+    /// Gets the workflow that was active when the interaction occurred.
+    /// </summary>
+    internal MainChartListSortTarget Target { get; }
 }
 
 internal enum MainChartListSelectionPolicy

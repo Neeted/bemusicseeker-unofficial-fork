@@ -513,6 +513,46 @@ public sealed class ChartListVirtualViewTests
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.RowDragKind));
     }
 
+    [TestMethod]
+    public void MainChartList_SortPresentationOwnsBindingAndRequestScope()
+    {
+        var mainChartList = new MainChartListViewModel();
+        var sort = new MainWindowViewModel.cSortParameters
+        {
+            ColumnsName = nameof(PlayHistoryRow.PlayedAt),
+            Direction = ListSortDirection.Descending
+        };
+        MainChartListSortRequestedEventArgs? request = null;
+        var propertyNames = new List<string>();
+        mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        mainChartList.SortRequested += (_, e) => request = e;
+
+        mainChartList.SetSortPresentation(sort, MainChartListSortTarget.PlayHistory);
+        MainChartListSortRequestedEventArgs captured = mainChartList.CaptureSortRequest(
+            nameof(PlayHistoryRow.Title),
+            ListSortDirection.Ascending);
+        mainChartList.RequestSort(captured);
+
+        Assert.AreSame(sort, mainChartList.SortParameters);
+        CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SortParameters));
+        Assert.IsNotNull(request);
+        Assert.AreEqual(nameof(PlayHistoryRow.Title), request.ColumnName);
+        Assert.AreEqual(ListSortDirection.Ascending, request.Direction);
+        Assert.AreEqual(MainChartListSortTarget.PlayHistory, request.Target);
+    }
+
+    [TestMethod]
+    public void MainChartList_DisplayRefreshRaisesDirectOwnerEvent()
+    {
+        var mainChartList = new MainChartListViewModel();
+        int raisedCount = 0;
+        mainChartList.DisplayRefreshRequested += (_, _) => raisedCount++;
+
+        mainChartList.RequestDisplayRefresh();
+
+        Assert.AreEqual(1, raisedCount);
+    }
+
     private static List<LibraryChartRow> CreateSummaryRows()
     {
         return

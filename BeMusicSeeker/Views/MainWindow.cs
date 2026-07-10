@@ -515,7 +515,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.MainChartList.RowsReplacing += MainChartList_RowsReplacing;
         viewModel.MainChartList.RowsReplacementCanceled += MainChartList_RowsReplacementCanceled;
         viewModel.MainChartList.RowsReplacementPublishFailed += MainChartList_RowsReplacementCanceled;
-        viewModel.MainTableDisplayRefreshRequested += MainWindowViewModel_MainTableDisplayRefreshRequested;
+        viewModel.MainChartList.DisplayRefreshRequested += MainChartList_DisplayRefreshRequested;
     }
 
     private void UnsubscribeViewModelUiInteractions()
@@ -532,7 +532,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.MainChartList.RowsReplacing -= MainChartList_RowsReplacing;
         subscribedViewModel.MainChartList.RowsReplacementCanceled -= MainChartList_RowsReplacementCanceled;
         subscribedViewModel.MainChartList.RowsReplacementPublishFailed -= MainChartList_RowsReplacementCanceled;
-        subscribedViewModel.MainTableDisplayRefreshRequested -= MainWindowViewModel_MainTableDisplayRefreshRequested;
+        subscribedViewModel.MainChartList.DisplayRefreshRequested -= MainChartList_DisplayRefreshRequested;
         subscribedViewModel = null;
     }
 
@@ -609,7 +609,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void MainWindowViewModel_MainTableDisplayRefreshRequested(object sender, EventArgs e)
+    private void MainChartList_DisplayRefreshRequested(object sender, EventArgs e)
     {
         RefreshMainTableDisplay();
     }
@@ -1198,10 +1198,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        bool isPlayHistorySort = viewModel.IsPlayHistoryViewActive;
+        MainChartListSortRequestedEventArgs request = viewModel.MainChartList.CaptureSortRequest(e.SortMemberPath, e.Direction);
+        if (request == null)
+        {
+            return;
+        }
         await Task.Run(delegate
         {
-            viewModel.ExecSort(e.SortMemberPath, e.Direction, isPlayHistorySort);
+            viewModel.MainChartList.RequestSort(request);
         }).Logging("customTableView_SortRequested");
     }
 
@@ -1217,7 +1221,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ExecPlaylistSummarySort(e.SortMemberPath, e.Direction);
+            viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);
         }).Logging("customTablePlaylistSummary_SortRequested");
     }
 

@@ -1499,7 +1499,7 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void ExecSort_KeepsPlayHistorySortSeparateFromMainSort()
+    public void MainChartListSortRequest_KeepsPlayHistorySortSeparateFromMainSort()
     {
         var viewModel = new MainWindowViewModel();
         SetPrivateField(
@@ -1507,29 +1507,31 @@ public sealed class PlayHistoryReadModelTests
             "treeViewFilterTypeSelected",
             MainViewUpdateMode.FolderFilterSelected);
 
-        viewModel.ExecSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
+        viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
+        viewModel.MainChartList.RequestSort(viewModel.MainChartList.CaptureSortRequest(nameof(BMSFile.Title), ListSortDirection.Ascending));
 
         Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
         Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
         Assert.IsNull(viewModel.PlayHistorySortParameters);
-        Assert.AreSame(viewModel.SortParameters, viewModel.MainTableSortParameters);
+        Assert.AreSame(viewModel.SortParameters, viewModel.MainChartList.SortParameters);
 
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
             MainViewUpdateMode.PlayHistorySelected);
 
-        viewModel.ExecSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
+        viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
+        viewModel.MainChartList.RequestSort(viewModel.MainChartList.CaptureSortRequest(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending));
 
         Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
         Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
         Assert.AreEqual(ListSortDirection.Descending, viewModel.PlayHistorySortParameters.Direction);
-        Assert.AreSame(viewModel.PlayHistorySortParameters, viewModel.MainTableSortParameters);
+        Assert.AreSame(viewModel.PlayHistorySortParameters, viewModel.MainChartList.SortParameters);
     }
 
     [TestMethod]
-    public void ExecSort_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
+    public void MainChartListSortRequest_UsesCapturedSortScopeWhenViewChangesBeforeExecution()
     {
         var viewModel = new MainWindowViewModel();
         SetPrivateField(
@@ -1537,24 +1539,34 @@ public sealed class PlayHistoryReadModelTests
             "treeViewFilterTypeSelected",
             MainViewUpdateMode.FolderFilterSelected);
 
-        viewModel.ExecSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending, isPlayHistorySort: true);
+        viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
+        MainChartListSortRequestedEventArgs playHistoryRequest = viewModel.MainChartList.CaptureSortRequest(
+            nameof(PlayHistoryRow.PlayedAt),
+            ListSortDirection.Descending);
+        viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
+        viewModel.MainChartList.RequestSort(playHistoryRequest);
 
         Assert.IsNull(viewModel.SortParameters);
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
         Assert.AreEqual(ListSortDirection.Descending, viewModel.PlayHistorySortParameters.Direction);
-        Assert.IsNull(viewModel.MainTableSortParameters);
+        Assert.IsNull(viewModel.MainChartList.SortParameters);
 
         SetPrivateField(
             viewModel,
             "treeViewFilterTypeSelected",
             MainViewUpdateMode.PlayHistorySelected);
 
-        viewModel.ExecSort(nameof(BMSFile.Title), ListSortDirection.Ascending, isPlayHistorySort: false);
+        viewModel.MainChartList.SetSortPresentation(viewModel.PlayHistorySortParameters, MainChartListSortTarget.Regular);
+        MainChartListSortRequestedEventArgs regularRequest = viewModel.MainChartList.CaptureSortRequest(
+            nameof(BMSFile.Title),
+            ListSortDirection.Ascending);
+        viewModel.MainChartList.SetSortPresentation(viewModel.PlayHistorySortParameters, MainChartListSortTarget.PlayHistory);
+        viewModel.MainChartList.RequestSort(regularRequest);
 
         Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
         Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
-        Assert.AreSame(viewModel.PlayHistorySortParameters, viewModel.MainTableSortParameters);
+        Assert.AreSame(viewModel.PlayHistorySortParameters, viewModel.MainChartList.SortParameters);
     }
 
     [TestMethod]

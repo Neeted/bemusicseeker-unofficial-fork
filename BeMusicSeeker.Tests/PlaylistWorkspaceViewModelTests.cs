@@ -23,6 +23,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
         string logicalSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
+        string mainChartListSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
 
         foreach (string rootField in new[]
         {
@@ -84,6 +86,17 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(buildOwnerSource, "private PlaylistSummaryRowsBuildResult BuildPlaylistSummaryRows(");
         StringAssert.Contains(buildOwnerSource, "internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;");
+        Assert.AreEqual(-1, rootSource.IndexOf("MainTableDisplayRefreshRequested", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("MainTableSortParameters", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("public void ExecSort", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("public void ExecPlaylistSummarySort", StringComparison.Ordinal));
+        StringAssert.Contains(mainChartListSource, "internal event EventHandler DisplayRefreshRequested;");
+        StringAssert.Contains(mainChartListSource, "internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;");
+        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummarySort(");
+        StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.DisplayRefreshRequested += MainChartList_DisplayRefreshRequested;");
+        StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.CaptureSortRequest(e.SortMemberPath, e.Direction);");
+        StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.RequestSort(request);");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
     }
 
     [TestMethod]
@@ -110,6 +123,25 @@ public sealed class PlaylistWorkspaceViewModelTests
         CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.GridHeaderText));
         CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.PlaylistSummaryKeywordFilter));
         CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.PlaylistSummaryOwnedFilter));
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummarySortRequestCommitsOwnerStateBeforeEvent()
+    {
+        var workspace = new PlaylistWorkspaceViewModel();
+        int raisedCount = 0;
+        workspace.PlaylistSummarySortRequested += (_, _) =>
+        {
+            raisedCount++;
+            Assert.AreEqual(nameof(PlaylistSummaryRow.TotalCharts), workspace.PlaylistSummarySortParameters.ColumnsName);
+            Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistSummarySortParameters.Direction);
+        };
+
+        workspace.RequestPlaylistSummarySort(
+            nameof(PlaylistSummaryRow.TotalCharts),
+            System.ComponentModel.ListSortDirection.Descending);
+
+        Assert.AreEqual(1, raisedCount);
     }
 
     [TestMethod]
