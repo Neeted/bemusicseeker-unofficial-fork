@@ -545,7 +545,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly PlaylistDetailViewState playlistViewState = new();
 
-    private PlaylistOpenInteractionState currentPlaylistOpenInteraction;
     private readonly PlaylistDetailBuildState playlistDetailBuildState = new();
 
     private readonly PlaylistDetailTerminalOwner playlistDetailTerminalOwner;
@@ -2023,7 +2022,7 @@ public partial class MainWindowViewModel : ViewModel
         };
         lock (playlistViewState.SyncRoot)
         {
-            currentPlaylistOpenInteraction = interaction;
+            playlistViewState.CurrentOpenInteraction = interaction;
         }
         LogPlaylistOpen("playlist_open_request requestVersion=" + request.RequestVersion + " requestedMode=" + request.RequestedMode + " mode=" + request.Mode + " table=" + FormatPlaylistTableNameForLog(request.Identity.Table) + " folder=" + FormatPlaylistFolderNameForLog(request.Identity.FolderName) + " filterType=" + request.Identity.FilterType);
         LogPlaylistOpen("playlist_open_ready_state requestVersion=" + request.RequestVersion + " startupReadyDataReached=" + readiness.StartupReadyDataReached.ToString().ToLowerInvariant() + " startupReadyUiReached=" + readiness.StartupReadyUiReached.ToString().ToLowerInvariant() + " startupReadyOperableReached=" + readiness.StartupReadyOperableReached.ToString().ToLowerInvariant() + " playlistRefDeferredRunning=" + readiness.PlaylistRefDeferredRunning.ToString().ToLowerInvariant() + " playlistRefDeferredLastCompletedVersion=" + readiness.PlaylistRefDeferredLastCompletedVersion + " maintenanceHydrationRunning=" + readiness.MaintenanceHydrationRunning.ToString().ToLowerInvariant() + " maintenanceHydrationLastCompletedVersion=" + readiness.MaintenanceHydrationLastCompletedVersion + " playlistLibraryIndexState=" + readiness.PlaylistLibraryIndexState + " playlistLibraryIndexBuildMs=" + readiness.PlaylistLibraryIndexBuildMs + " scoreSnapshotReady=" + readiness.ScoreSnapshotReady.ToString().ToLowerInvariant() + " scoreSnapshotVersion=" + readiness.ScoreSnapshotVersion + " scoreHydrationRunning=" + readiness.ScoreHydrationRunning.ToString().ToLowerInvariant() + " scoreHydrationCompletedVersion=" + readiness.ScoreHydrationCompletedVersion + " rankingRefreshRunning=" + readiness.RankingRefreshRunning.ToString().ToLowerInvariant() + " rankingRefreshCompletedVersion=" + readiness.RankingRefreshCompletedVersion);
@@ -2040,9 +2039,9 @@ public partial class MainWindowViewModel : ViewModel
         }
         lock (playlistViewState.SyncRoot)
         {
-            if (currentPlaylistOpenInteraction != null && currentPlaylistOpenInteraction.RequestVersion == request.RequestVersion && !currentPlaylistOpenInteraction.BuildStartedAtUtc.HasValue)
+            if (playlistViewState.CurrentOpenInteraction != null && playlistViewState.CurrentOpenInteraction.RequestVersion == request.RequestVersion && !playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc.HasValue)
             {
-                currentPlaylistOpenInteraction.BuildStartedAtUtc = DateTime.UtcNow;
+                playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc = DateTime.UtcNow;
             }
         }
     }
@@ -2059,17 +2058,17 @@ public partial class MainWindowViewModel : ViewModel
         DateTime completedAtUtc = DateTime.UtcNow;
         lock (playlistViewState.SyncRoot)
         {
-            if (currentPlaylistOpenInteraction != null && currentPlaylistOpenInteraction.RequestVersion == request.RequestVersion)
+            if (playlistViewState.CurrentOpenInteraction != null && playlistViewState.CurrentOpenInteraction.RequestVersion == request.RequestVersion)
             {
-                if (!currentPlaylistOpenInteraction.BuildStartedAtUtc.HasValue)
+                if (!playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc.HasValue)
                 {
-                    currentPlaylistOpenInteraction.BuildStartedAtUtc = completedAtUtc;
+                    playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc = completedAtUtc;
                 }
-                currentPlaylistOpenInteraction.BuildCompletedAtUtc = completedAtUtc;
-                currentPlaylistOpenInteraction.ExpectedSourceGenerationId = playlistViewState.Source.GenerationId;
-                currentPlaylistOpenInteraction.ExpectedViewGenerationId = playlistViewState.View.GenerationId;
-                currentPlaylistOpenInteraction.ViewCount = viewCount;
-                currentPlaylistOpenInteraction.VisibleCompletedLogged = false;
+                playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc = completedAtUtc;
+                playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId = playlistViewState.Source.GenerationId;
+                playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId = playlistViewState.View.GenerationId;
+                playlistViewState.CurrentOpenInteraction.ViewCount = viewCount;
+                playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged = false;
             }
         }
     }
@@ -2089,16 +2088,16 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistOpenInteractionState interaction = null;
         lock (playlistViewState.SyncRoot)
         {
-            if (currentPlaylistOpenInteraction == null || currentPlaylistOpenInteraction.VisibleCompletedLogged || !currentPlaylistOpenInteraction.BuildCompletedAtUtc.HasValue)
+            if (playlistViewState.CurrentOpenInteraction == null || playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged || !playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc.HasValue)
             {
                 return;
             }
-            if (currentPlaylistOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || currentPlaylistOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
+            if (playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
             {
                 return;
             }
-            currentPlaylistOpenInteraction.VisibleCompletedLogged = true;
-            interaction = currentPlaylistOpenInteraction;
+            playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged = true;
+            interaction = playlistViewState.CurrentOpenInteraction;
         }
         long requestToBuildStartMs = interaction.BuildStartedAtUtc.HasValue ? (long)(interaction.BuildStartedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds : -1L;
         long requestToBuildCompleteMs = (long)(interaction.BuildCompletedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds;
@@ -2121,15 +2120,15 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistOpenInteractionState interaction = null;
         lock (playlistViewState.SyncRoot)
         {
-            if (currentPlaylistOpenInteraction == null || !currentPlaylistOpenInteraction.BuildCompletedAtUtc.HasValue)
+            if (playlistViewState.CurrentOpenInteraction == null || !playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc.HasValue)
             {
                 return false;
             }
-            if (currentPlaylistOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || currentPlaylistOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
+            if (playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
             {
                 return false;
             }
-            interaction = currentPlaylistOpenInteraction;
+            interaction = playlistViewState.CurrentOpenInteraction;
         }
         long requestToBuildStartMs = interaction.BuildStartedAtUtc.HasValue ? (long)(interaction.BuildStartedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds : -1L;
         long requestToBuildCompleteMs = (long)(interaction.BuildCompletedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds;
@@ -4940,102 +4939,19 @@ public partial class MainWindowViewModel : ViewModel
 
     private void ClearPlaylistSourceRows()
     {
-        PlaylistSourceClearCommitResult commit = CommitPlaylistSourceClearWithoutCallbacks();
-        PublishPlaylistSourceClear(commit);
+        PlaylistSourceClearCommitResult commit = playlistDetailTerminalOwner.CommitSourceClearWithoutCallbacks();
+        playlistDetailTerminalOwner.PublishSourceClear(commit);
+        LogPlaylistSourceClear(commit);
     }
 
-    private PlaylistSourceClearCommitResult CommitPlaylistSourceClearWithoutCallbacks()
-    {
-        List<PlaylistDetailSourceRow> sourceRowsToDispose = null;
-        IList currentViewRows = null;
-        long previousGenerationId = 0L;
-        CancellationTokenSource buildCancellation = null;
-        lock (playlistDetailBuildState.SyncRoot)
-        {
-            playlistDetailBuildState.RequestVersion++;
-            playlistDetailBuildState.PendingRequest = null;
-            buildCancellation = playlistDetailBuildState.CurrentBuildCancellation;
-            lock (playlistViewState.SyncRoot)
-            {
-                sourceRowsToDispose = playlistViewState.Source.Rows;
-                previousGenerationId = playlistViewState.Source.GenerationId;
-                currentViewRows = playlistViewState.View.Rows;
-                long previousViewGenerationId = playlistViewState.View.GenerationId;
-                if (sourceRowsToDispose != null)
-                {
-                    playlistViewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRowsToDispose);
-                    playlistViewState.Source.PreviousGenerationId = previousGenerationId;
-                }
-                if (currentViewRows != null)
-                {
-                    playlistViewState.View.PreviousRowsWeakReference = new WeakReference<IList>(currentViewRows);
-                    playlistViewState.View.PreviousGenerationId = previousViewGenerationId;
-                }
-                playlistViewState.Source.Rows = [];
-                playlistViewState.View.Rows = new List<object>();
-                playlistViewState.Source.CurrentTable = null;
-                playlistViewState.Source.CurrentFolderName = null;
-                playlistViewState.Source.CurrentFilterType = PlaylistFilterType.PlaylistFilter;
-                playlistViewState.View.CurrentIdentity = null;
-                playlistViewState.Source.CurrentIdentity = null;
-                currentPlaylistOpenInteraction = null;
-                playlistViewState.Source.LastBuiltLibraryIndexVersion = 0L;
-                playlistViewState.Source.LastBuiltPlaylistRevision = 0L;
-                playlistViewState.Source.LastBuiltScoreSnapshotVersion = 0;
-                playlistViewState.Source.LastBuiltChartInfoIndexVersion = 0;
-                playlistViewState.Source.GenerationId = 0L;
-                playlistViewState.View.GenerationId = 0L;
-                playlistViewState.View.LastAppliedCount = 0;
-                playlistViewState.Source.IsPlaylistCellEditing = false;
-                playlistViewState.Source.PendingScoreSnapshotRefreshVersion = 0;
-            }
-            playlistDetailBuildState.CurrentBuildRequest = null;
-        }
-        return new PlaylistSourceClearCommitResult(
-            sourceRowsToDispose,
-            currentViewRows,
-            previousGenerationId,
-            buildCancellation);
-    }
-
-    private void PublishPlaylistSourceClear(PlaylistSourceClearCommitResult commit)
+    private void LogPlaylistSourceClear(PlaylistSourceClearCommitResult commit)
     {
         if (commit == null)
         {
             throw new ArgumentNullException(nameof(commit));
         }
-        try
-        {
-            commit.BuildCancellation?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-        }
         LogPlaylistWeakReferenceStatus("before_source_clear");
         LogPlaylistRetention("playlist_source_replace action=clear generationId=" + commit.PreviousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(commit.SourceRows) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(commit.ViewRows));
-    }
-
-    private sealed class PlaylistSourceClearCommitResult
-    {
-        internal PlaylistSourceClearCommitResult(
-            List<PlaylistDetailSourceRow> sourceRows,
-            IList viewRows,
-            long previousGenerationId,
-            CancellationTokenSource buildCancellation)
-        {
-            SourceRows = sourceRows;
-            ViewRows = viewRows;
-            PreviousGenerationId = previousGenerationId;
-            BuildCancellation = buildCancellation;
-        }
-
-        internal List<PlaylistDetailSourceRow> SourceRows { get; }
-
-        internal IList ViewRows { get; }
-
-        internal long PreviousGenerationId { get; }
-
-        internal CancellationTokenSource BuildCancellation { get; }
     }
 
     /// <summary>

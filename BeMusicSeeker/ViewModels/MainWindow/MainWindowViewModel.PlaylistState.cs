@@ -220,67 +220,6 @@ public partial class MainWindowViewModel
     }
 
     /// <summary>
-    /// playlist open 要求時点の readiness 情報です。
-    /// </summary>
-    private sealed class PlaylistOpenReadinessSnapshot
-    {
-        internal bool StartupReadyDataReached;
-
-        internal bool StartupReadyUiReached;
-
-        internal bool StartupReadyOperableReached;
-
-        internal bool PlaylistRefDeferredRunning;
-
-        internal int PlaylistRefDeferredLastCompletedVersion;
-
-        internal bool MaintenanceHydrationRunning;
-
-        internal int MaintenanceHydrationLastCompletedVersion;
-
-        internal string PlaylistLibraryIndexState = "inline";
-
-        internal long PlaylistLibraryIndexBuildMs;
-
-        internal bool ScoreSnapshotReady;
-
-        internal int ScoreSnapshotVersion;
-
-        internal bool ScoreHydrationRunning;
-
-        internal int ScoreHydrationCompletedVersion;
-
-        internal bool RankingRefreshRunning;
-
-        internal int RankingRefreshCompletedVersion;
-    }
-    /// <summary>
-    /// playlist open 1 件の request/build/render 相関を保持します。
-    /// </summary>
-    private sealed class PlaylistOpenInteractionState
-    {
-        internal int RequestVersion;
-
-        internal PlaylistRequestIdentity Identity;
-
-        internal DateTime RequestedAtUtc;
-
-        internal DateTime? BuildStartedAtUtc;
-
-        internal DateTime? BuildCompletedAtUtc;
-
-        internal long ExpectedSourceGenerationId;
-
-        internal long ExpectedViewGenerationId;
-
-        internal int ViewCount;
-
-        internal bool VisibleCompletedLogged;
-
-        internal PlaylistOpenReadinessSnapshot Readiness = new();
-    }
-
-    /// <summary>
     /// プレイリスト再読み込みの起点種別です。
     /// full reload 後 cleanup の対象判定とログ分類に利用します。
     /// </summary>

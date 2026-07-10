@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -138,6 +139,71 @@ internal sealed class PlaylistDetailTerminalOwner
         return result;
     }
 
+    internal PlaylistSourceClearCommitResult CommitSourceClearWithoutCallbacks()
+    {
+        List<PlaylistDetailSourceRow> sourceRows;
+        IList viewRows;
+        long previousGenerationId;
+        CancellationTokenSource buildCancellation;
+        lock (buildState.SyncRoot)
+        {
+            buildState.RequestVersion++;
+            buildState.PendingRequest = null;
+            buildCancellation = buildState.CurrentBuildCancellation;
+            lock (viewState.SyncRoot)
+            {
+                sourceRows = viewState.Source.Rows;
+                previousGenerationId = viewState.Source.GenerationId;
+                viewRows = viewState.View.Rows;
+                long previousViewGenerationId = viewState.View.GenerationId;
+                if (sourceRows != null)
+                {
+                    viewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(sourceRows);
+                    viewState.Source.PreviousGenerationId = previousGenerationId;
+                }
+                if (viewRows != null)
+                {
+                    viewState.View.PreviousRowsWeakReference = new WeakReference<IList>(viewRows);
+                    viewState.View.PreviousGenerationId = previousViewGenerationId;
+                }
+                viewState.Source.Rows = [];
+                viewState.View.Rows = new List<object>();
+                viewState.Source.CurrentTable = null;
+                viewState.Source.CurrentFolderName = null;
+                viewState.Source.CurrentFilterType = MainWindowViewModel.PlaylistFilterType.PlaylistFilter;
+                viewState.View.CurrentIdentity = null;
+                viewState.Source.CurrentIdentity = null;
+                viewState.CurrentOpenInteraction = null;
+                viewState.Source.LastBuiltLibraryIndexVersion = 0L;
+                viewState.Source.LastBuiltPlaylistRevision = 0L;
+                viewState.Source.LastBuiltScoreSnapshotVersion = 0;
+                viewState.Source.LastBuiltChartInfoIndexVersion = 0;
+                viewState.Source.GenerationId = 0L;
+                viewState.View.GenerationId = 0L;
+                viewState.View.LastAppliedCount = 0;
+                viewState.Source.IsPlaylistCellEditing = false;
+                viewState.Source.PendingScoreSnapshotRefreshVersion = 0;
+            }
+            buildState.CurrentBuildRequest = null;
+        }
+        return new PlaylistSourceClearCommitResult(sourceRows, viewRows, previousGenerationId, buildCancellation);
+    }
+
+    internal void PublishSourceClear(PlaylistSourceClearCommitResult commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
+        try
+        {
+            commit.BuildCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
     private static void TryTerminalAction(Action action, ICollection<Exception> exceptions)
     {
         try
@@ -149,6 +215,26 @@ internal sealed class PlaylistDetailTerminalOwner
             exceptions.Add(ex);
         }
     }
+}
+
+internal sealed class PlaylistSourceClearCommitResult
+{
+    internal PlaylistSourceClearCommitResult(
+        List<PlaylistDetailSourceRow> sourceRows,
+        IList viewRows,
+        long previousGenerationId,
+        CancellationTokenSource buildCancellation)
+    {
+        SourceRows = sourceRows;
+        ViewRows = viewRows;
+        PreviousGenerationId = previousGenerationId;
+        BuildCancellation = buildCancellation;
+    }
+
+    internal List<PlaylistDetailSourceRow> SourceRows { get; }
+    internal IList ViewRows { get; }
+    internal long PreviousGenerationId { get; }
+    internal CancellationTokenSource BuildCancellation { get; }
 }
 
 internal sealed class PlaylistDetailTerminalRequest

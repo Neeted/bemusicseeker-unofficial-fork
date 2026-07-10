@@ -126,7 +126,7 @@ public partial class MainWindowViewModel
                     else
                     {
                         mainRowsCommit = owner.MainChartList.CommitPreparedRowsWithoutDisposal(prepared);
-                        result.PlaylistSourceClear = owner.CommitPlaylistSourceClearWithoutCallbacks();
+                        result.PlaylistSourceClear = owner.playlistDetailTerminalOwner.CommitSourceClearWithoutCallbacks();
                         result.BindingMode = owner.PlaylistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
                         result.ColumnPresentation = owner.PlaylistWorkspace.CommitColumnPresentationWithoutNotification(
                             request.ColumnSelection.PlaylistColumnSettingsVisibility,
@@ -211,7 +211,13 @@ public partial class MainWindowViewModel
             }
             if (result.PlaylistSourceClear != null)
             {
-                TryPublish(() => owner.PublishPlaylistSourceClear(result.PlaylistSourceClear), publishExceptions);
+                TryPublish(
+                    () =>
+                    {
+                        owner.playlistDetailTerminalOwner.PublishSourceClear(result.PlaylistSourceClear);
+                        owner.LogPlaylistSourceClear(result.PlaylistSourceClear);
+                    },
+                    publishExceptions);
             }
             if (publishExceptions.Count > 0)
             {

@@ -39,4 +39,5 @@ internal sealed class PlaylistDetailViewState
     internal readonly object SyncRoot = new();
     internal readonly PlaylistDetailSourceSnapshotState Source = new();
     internal readonly PlaylistDetailViewSnapshotState View = new();
+    internal PlaylistOpenInteractionState CurrentOpenInteraction;
 }

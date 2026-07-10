@@ -164,9 +164,11 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "CreatePlaylistBuildRequestViewSnapshotUnsafe");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
         StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
-        StringAssert.Contains(rootSource, "playlistDetailBuildState.RequestVersion++;");
-        StringAssert.Contains(rootSource, "playlistDetailBuildState.PendingRequest = null;");
-        StringAssert.Contains(rootSource, "commit.BuildCancellation?.Cancel();");
+        StringAssert.Contains(terminalOwnerSource, "buildState.RequestVersion++;");
+        StringAssert.Contains(terminalOwnerSource, "buildState.PendingRequest = null;");
+        StringAssert.Contains(terminalOwnerSource, "commit.BuildCancellation?.Cancel();");
+        Assert.AreEqual(-1, rootSource.IndexOf("CommitPlaylistSourceClearWithoutCallbacks", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PublishPlaylistSourceClear", StringComparison.Ordinal));
         StringAssert.Contains(rootSource, "PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot)");
         StringAssert.Contains(rootSource, "TryCommitPlaylistDetailTerminal(");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");
@@ -330,6 +332,82 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, laterRow.DisposeCount);
         Assert.IsTrue(tableNotifications > 0);
         Assert.IsTrue(workspaceNotifications > 0);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailTerminal_SourceClearCommitsStateBeforePublishingCancellation()
+    {
+        var pendingRequest = new PlaylistBuildRequest { RequestVersion = 7 };
+        var buildCancellation = new CancellationTokenSource();
+        var buildState = new PlaylistDetailBuildState
+        {
+            RequestVersion = 7,
+            PendingRequest = pendingRequest,
+            CurrentBuildRequest = pendingRequest,
+            CurrentBuildCancellation = buildCancellation
+        };
+        var sourceRows = new List<PlaylistDetailSourceRow> { CreateSourceRow("11111111111111111111111111111111", "Source", 7) };
+        var viewRow = new TrackingDisposableRow();
+        var viewRows = new List<object> { viewRow };
+        var viewState = new PlaylistDetailViewState
+        {
+            CurrentOpenInteraction = new PlaylistOpenInteractionState { RequestVersion = 7 }
+        };
+        viewState.Source.Rows = sourceRows;
+        viewState.Source.GenerationId = 11;
+        viewState.Source.CurrentFolderName = "folder";
+        viewState.Source.LastBuiltLibraryIndexVersion = 3;
+        viewState.Source.IsPlaylistCellEditing = true;
+        viewState.View.Rows = viewRows;
+        viewState.View.GenerationId = 13;
+        viewState.View.LastAppliedCount = 1;
+        var owner = new PlaylistDetailTerminalOwner(
+            buildState,
+            viewState,
+            new MainChartListViewModel(),
+            new PlaylistWorkspaceViewModel(),
+            _ => { });
+
+        PlaylistSourceClearCommitResult commit = owner.CommitSourceClearWithoutCallbacks();
+
+        Assert.AreEqual(8, buildState.RequestVersion);
+        Assert.IsNull(buildState.PendingRequest);
+        Assert.IsNull(buildState.CurrentBuildRequest);
+        Assert.IsFalse(buildCancellation.IsCancellationRequested);
+        Assert.AreSame(sourceRows, commit.SourceRows);
+        Assert.AreSame(viewRows, commit.ViewRows);
+        Assert.AreEqual(11, commit.PreviousGenerationId);
+        Assert.AreEqual(0, viewState.Source.Rows.Count);
+        Assert.AreEqual(0, viewState.View.Rows.Count);
+        Assert.AreEqual(0, viewState.Source.GenerationId);
+        Assert.AreEqual(0, viewState.View.GenerationId);
+        Assert.AreEqual(0, viewState.View.LastAppliedCount);
+        Assert.IsNull(viewState.Source.CurrentFolderName);
+        Assert.AreEqual(0, viewState.Source.LastBuiltLibraryIndexVersion);
+        Assert.IsFalse(viewState.Source.IsPlaylistCellEditing);
+        Assert.IsNull(viewState.CurrentOpenInteraction);
+        Assert.AreEqual(0, viewRow.DisposeCount, "Source clear must not duplicate main-table row disposal.");
+
+        owner.PublishSourceClear(commit);
+
+        Assert.IsTrue(buildCancellation.IsCancellationRequested);
+        Assert.AreEqual(0, viewRow.DisposeCount);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailTerminal_SourceClearPublishIgnoresDisposedCancellation()
+    {
+        var cancellation = new CancellationTokenSource();
+        cancellation.Dispose();
+        var owner = new PlaylistDetailTerminalOwner(
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            new MainChartListViewModel(),
+            new PlaylistWorkspaceViewModel(),
+            _ => { });
+        var commit = new PlaylistSourceClearCommitResult(null, null, 0, cancellation);
+
+        owner.PublishSourceClear(commit);
     }
 
     [TestMethod]
