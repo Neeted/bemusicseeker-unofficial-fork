@@ -13,10 +13,10 @@ public sealed class MainColumnSettingModeTests
     {
         int currentTreeMode = (int)MainViewUpdateMode.PendingInstallFolderSelected;
 
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.TreeViewFilterNotChanged, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.KeywordFilterUpdated, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.ModeFilterUpdated, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.SortUpdated, currentTreeMode));
+        Assert.AreEqual((MainViewUpdateMode)currentTreeMode, ChartListRefreshCoordinator.ResolveMainColumnSettingMode(MainViewUpdateMode.TreeViewFilterNotChanged, (MainViewUpdateMode)currentTreeMode));
+        Assert.AreEqual((MainViewUpdateMode)currentTreeMode, ChartListRefreshCoordinator.ResolveMainColumnSettingMode(MainViewUpdateMode.KeywordFilterUpdated, (MainViewUpdateMode)currentTreeMode));
+        Assert.AreEqual((MainViewUpdateMode)currentTreeMode, ChartListRefreshCoordinator.ResolveMainColumnSettingMode(MainViewUpdateMode.ModeFilterUpdated, (MainViewUpdateMode)currentTreeMode));
+        Assert.AreEqual((MainViewUpdateMode)currentTreeMode, ChartListRefreshCoordinator.ResolveMainColumnSettingMode(MainViewUpdateMode.SortUpdated, (MainViewUpdateMode)currentTreeMode));
     }
 
     [TestMethod]
@@ -24,10 +24,10 @@ public sealed class MainColumnSettingModeTests
     {
         int currentTreeMode = (int)MainViewUpdateMode.PlayHistorySelected;
 
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.TreeViewFilterNotChanged, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.KeywordFilterUpdated, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.ModeFilterUpdated, currentTreeMode));
-        Assert.AreEqual(currentTreeMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest((int)MainViewUpdateMode.SortUpdated, currentTreeMode));
+        Assert.AreEqual((MainViewUpdateMode)currentTreeMode, ChartListRefreshCoordinator.ResolveMainColumnSettingMode(MainViewUpdateMode.TreeViewFilterNotChanged, (MainViewUpdateMode)currentTreeMode));
+        Assert.AreEqual((MainViewUpdateMode)currentTreeMode, ChartListRefreshCoordinator.ResolveMainColumnSettingMode(MainViewUpdateMode.KeywordFilterUpdated, (MainViewUpdateMode)currentTreeMode));
+        Assert.AreEqual((MainViewUpdateMode)currentTreeMode, ChartListRefreshCoordinator.ResolveMainColumnSettingMode(MainViewUpdateMode.ModeFilterUpdated, (MainViewUpdateMode)currentTreeMode));
+        Assert.AreEqual((MainViewUpdateMode)currentTreeMode, ChartListRefreshCoordinator.ResolveMainColumnSettingMode(MainViewUpdateMode.SortUpdated, (MainViewUpdateMode)currentTreeMode));
     }
 
     [TestMethod]
@@ -36,20 +36,7 @@ public sealed class MainColumnSettingModeTests
         int explicitMode = (int)MainViewUpdateMode.FolderFilterSelected;
         int currentTreeMode = (int)MainViewUpdateMode.PendingInstallFolderSelected;
 
-        Assert.AreEqual(explicitMode, MainWindowViewModel.ResolveMainColumnSettingModeForTest(explicitMode, currentTreeMode));
-    }
-
-    [TestMethod]
-    public void ShouldReuseMainColumnSetting_ReusesSameResolvedModeWhenSettingsAreReady()
-    {
-        int resolvedMode = (int)MainViewUpdateMode.FolderFilterSelected;
-
-        Assert.IsTrue(MainWindowViewModel.ShouldReuseMainColumnSettingForTest(
-            resolvedMode,
-            resolvedMode,
-            targetSettingsReady: true,
-            playlistSummarySettingsReady: true,
-            isInit: false));
+        Assert.AreEqual((MainViewUpdateMode)explicitMode, ChartListRefreshCoordinator.ResolveMainColumnSettingMode((MainViewUpdateMode)explicitMode, (MainViewUpdateMode)currentTreeMode));
     }
 
     [TestMethod]
@@ -75,25 +62,6 @@ public sealed class MainColumnSettingModeTests
         Assert.IsFalse(MainWindowViewModel.IsPlayHistoryMainViewModeForTest(
             MainViewUpdateMode.SortUpdated,
             MainViewUpdateMode.FolderFilterSelected));
-    }
-
-    [TestMethod]
-    public void IsMainColumnSettingTargetReady_UsesPlayHistorySettingsForPlayHistoryMode()
-    {
-        var settings = new Settings
-        {
-            PlayHistoryCustomTableColumnSettings = null
-        };
-
-        Assert.IsFalse(MainWindowViewModel.IsMainColumnSettingTargetReadyForTest(
-            MainViewUpdateMode.PlayHistorySelected,
-            settings));
-
-        settings.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
-
-        Assert.IsTrue(MainWindowViewModel.IsMainColumnSettingTargetReadyForTest(
-            MainViewUpdateMode.PlayHistorySelected,
-            settings));
     }
 
     [TestMethod]
@@ -125,35 +93,4 @@ public sealed class MainColumnSettingModeTests
             mainChartList.RowDragKind);
     }
 
-    [TestMethod]
-    public void ShouldReuseMainColumnSetting_DoesNotReuseWhenModeChangesOrSettingsAreMissing()
-    {
-        int resolvedMode = (int)MainViewUpdateMode.FolderFilterSelected;
-        int otherMode = (int)MainViewUpdateMode.PendingInstallFolderSelected;
-
-        Assert.IsFalse(MainWindowViewModel.ShouldReuseMainColumnSettingForTest(
-            resolvedMode,
-            otherMode,
-            targetSettingsReady: true,
-            playlistSummarySettingsReady: true,
-            isInit: false));
-        Assert.IsFalse(MainWindowViewModel.ShouldReuseMainColumnSettingForTest(
-            resolvedMode,
-            resolvedMode,
-            targetSettingsReady: false,
-            playlistSummarySettingsReady: true,
-            isInit: false));
-        Assert.IsFalse(MainWindowViewModel.ShouldReuseMainColumnSettingForTest(
-            resolvedMode,
-            resolvedMode,
-            targetSettingsReady: true,
-            playlistSummarySettingsReady: false,
-            isInit: false));
-        Assert.IsFalse(MainWindowViewModel.ShouldReuseMainColumnSettingForTest(
-            resolvedMode,
-            resolvedMode,
-            targetSettingsReady: true,
-            playlistSummarySettingsReady: true,
-            isInit: true));
-    }
 }

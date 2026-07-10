@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -1091,6 +1092,47 @@ public sealed class RegularChartListOwnerTests
         Assert.IsTrue(workspaceNotifications > 0);
     }
 
+    [TestMethod]
+    public void ColumnSettingOwner_LoadCommitAndReuseOwnsMainAndWorkspacePresentation()
+    {
+        CustomTableColumnSettings previousStandard = Settings.Default.StandardCustomTableColumnSettings;
+        PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
+        try
+        {
+            var table = new MainChartListViewModel();
+            var workspace = new PlaylistWorkspaceViewModel();
+            RegularChartListOwner owner = CreateOwner(table, workspace);
+            Settings.Default.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+            Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
+
+            MainChartListColumnSelection first = owner.ResolveColumnSettingForViewUpdate(
+                MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected);
+            owner.CommitColumnSetting(first);
+            table.ColumnsSettings = first.ColumnsSettings;
+            MainChartListColumnSelection second = owner.ResolveColumnSettingForViewUpdate(
+                MainViewUpdateMode.SortUpdated,
+                MainViewUpdateMode.FolderFilterSelected);
+
+            Assert.IsFalse(first.Reused);
+            Assert.IsTrue(second.Reused);
+            Assert.AreSame(table.ColumnsSettings, second.ColumnsSettings);
+            Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
+            Assert.AreEqual(Visibility.Collapsed, workspace.ColumnSettingsVisibilityForPlaylist);
+
+            CustomTableColumnSettings beforeInit = Settings.Default.StandardCustomTableColumnSettings;
+            owner.LoadAndCommitColumnSetting(MainViewUpdateMode.FolderFilterSelected);
+
+            Assert.AreNotSame(beforeInit, Settings.Default.StandardCustomTableColumnSettings);
+            Assert.AreSame(Settings.Default.StandardCustomTableColumnSettings, table.ColumnsSettings);
+        }
+        finally
+        {
+            Settings.Default.StandardCustomTableColumnSettings = previousStandard;
+            Settings.Default.PlaylistSummaryColumnsSettings = previousSummary;
+        }
+    }
+
     private static RegularChartListOwner CreateOwner(
         MainChartListViewModel table,
         PlaylistWorkspaceViewModel workspace)
@@ -1106,14 +1148,6 @@ public sealed class RegularChartListOwnerTests
         MainViewUpdateMode mode,
         RegularChartListSourceCatalog sources)
     {
-        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-        var columnSelection = new MainChartListColumnSelection(
-            settings,
-            reused: false,
-            elapsedMs: 0L,
-            mode,
-            Visibility.Collapsed,
-            new PlaylistSummaryColumnSettings());
         return new RegularChartListEntryRequest
         {
             Mode = mode,
@@ -1125,8 +1159,6 @@ public sealed class RegularChartListOwnerTests
             Sort = ChartListSortSpecification.Create(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, hasValue: true),
             Sources = sources,
             ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
-            ColumnSelection = columnSelection,
-            TreeColumnSelection = columnSelection,
             Stopwatch = Stopwatch.StartNew()
         };
     }

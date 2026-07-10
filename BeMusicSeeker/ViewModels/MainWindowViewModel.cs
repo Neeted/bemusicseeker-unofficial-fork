@@ -689,8 +689,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private int normalLibraryRefreshHandledNotificationVersion;
 
-    private const long ColumnSettingSlowLogThresholdMs = 100L;
-
     private const int PlaylistBuildCoalescingWindowMs = 50;
 
     private const long PlaylistOpenSlowLogThresholdMs = 1000L;
@@ -1450,25 +1448,6 @@ public partial class MainWindowViewModel : ViewModel
     private static MainViewUpdateMode ResolvePlaylistColumnSettingMode(PlaylistFilterType filterType)
     {
         return (filterType == PlaylistFilterType.PlaylistNotOwnedFilterSelected) ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected : MainViewUpdateMode.PlaylistFilterSelected;
-    }
-
-    /// <summary>
-    /// main view 更新契機を、実際に適用する列設定モードへ解決します。
-    /// </summary>
-    private static MainViewUpdateMode ResolveMainColumnSettingMode(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
-    {
-        return ChartListRefreshCoordinator.ResolveMainColumnSettingMode(mode, currentTreeMode);
-    }
-
-    internal static int ResolveMainColumnSettingModeForTest(int mode, int currentTreeMode)
-    {
-        return (int)ResolveMainColumnSettingMode((MainViewUpdateMode)mode, (MainViewUpdateMode)currentTreeMode);
-    }
-
-    internal static bool ShouldReuseMainColumnSettingForTest(int resolvedMode, int? lastAppliedMode, bool targetSettingsReady, bool playlistSummarySettingsReady, bool isInit)
-    {
-        MainViewUpdateMode? typedLastAppliedMode = lastAppliedMode.HasValue ? (MainViewUpdateMode?)((MainViewUpdateMode)lastAppliedMode.Value) : null;
-        return CanReuseMainColumnSetting((MainViewUpdateMode)resolvedMode, typedLastAppliedMode, targetSettingsReady, playlistSummarySettingsReady, isInit);
     }
 
     /// <summary>
@@ -9946,7 +9925,7 @@ public partial class MainWindowViewModel : ViewModel
         Stopwatch viewBuildStopwatch)
     {
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        MainChartListColumnSelection columnSelection = loadColumnSetting(columnSettingMode);
+        MainChartListColumnSelection columnSelection = regularChartListOwner.LoadColumnSetting(columnSettingMode, treeViewFilterTypeSelected);
         long callbackStageMs = 0L;
         PlaylistDetailTerminalCommitResult commitResult = playlistDetailTerminalOwner.TryApply(
             new PlaylistDetailTerminalRequest
@@ -10548,10 +10527,6 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         ClearPlaylistSourceRows();
-        MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(route.Mode);
-        MainChartListColumnSelection treeColumnSelection = route.Mode == treeViewFilterTypeSelected
-            ? columnSelection
-            : ResolveMainColumnSettingForViewUpdate(treeViewFilterTypeSelected);
         RegularChartListEntryResult regularResult = regularChartListOwner.ApplyRegularView(
             new RegularChartListEntryRequest
             {
@@ -10570,8 +10545,6 @@ public partial class MainWindowViewModel : ViewModel
                     SortParameters != null),
                 Sources = CaptureRegularChartListSourceCatalog(),
                 ExternalVersions = CaptureRegularChartListExternalVersions(),
-                ColumnSelection = columnSelection,
-                TreeColumnSelection = treeColumnSelection,
                 PreserveSummary = IsPlaylistSummaryMode,
                 Stopwatch = viewBuildStopwatch
             });
@@ -11457,7 +11430,7 @@ public partial class MainWindowViewModel : ViewModel
                 ? MainChartList.Rows
                 : new PlayHistoryVirtualView(sortedRows, CountDistinctPlayHistoryFolderLabels(sortedRows));
             columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
+            columnSelection = regularChartListOwner.ResolveColumnSettingForViewUpdate(mode, treeViewFilterTypeSelected);
             diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
             gridSummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
             summaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
@@ -12501,9 +12474,7 @@ public partial class MainWindowViewModel : ViewModel
 
     public void LoadColumnSetting()
     {
-        MainChartListColumnSelection selection = loadColumnSetting(MainViewUpdateMode.TreeViewFilterNotChanged, isInit: true);
-        MainChartList.ColumnsSettings = selection.ColumnsSettings;
-        CommitMainColumnSetting(selection);
+        regularChartListOwner.LoadAndCommitColumnSetting(treeViewFilterTypeSelected);
     }
 
     /// <summary>
@@ -12511,269 +12482,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public void ResetPlaylistSummaryColumnSetting()
     {
-        Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
-        Settings.Default.PlaylistSummaryColumnsSettings.EnsureCompatibility();
-        PlaylistWorkspace.PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
-    }
-
-    private MainChartListColumnSelection ResolveMainColumnSettingForViewUpdate(MainViewUpdateMode mode)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        MainViewUpdateMode resolvedMode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
-        bool targetSettingsReady = IsMainColumnSettingTargetReady(resolvedMode);
-        bool playlistSummarySettingsReady = Settings.Default.PlaylistSummaryColumnsSettings != null;
-        if (CanReuseMainColumnSetting(resolvedMode, regularChartListOwner.LastAppliedColumnMode, targetSettingsReady, playlistSummarySettingsReady, isInit: false))
-        {
-            return new MainChartListColumnSelection(
-                MainChartList.ColumnsSettings,
-                reused: true,
-                stopwatch.ElapsedMilliseconds,
-                appliedMode: null,
-                ResolvePlaylistColumnSettingsVisibility(resolvedMode),
-                Settings.Default.PlaylistSummaryColumnsSettings);
-        }
-        return loadColumnSetting(resolvedMode);
-    }
-
-    private static bool CanReuseMainColumnSetting(
-        MainViewUpdateMode resolvedMode,
-        MainViewUpdateMode? lastAppliedMode,
-        bool targetSettingsReady,
-        bool playlistSummarySettingsReady,
-        bool isInit)
-    {
-        return !isInit
-            && lastAppliedMode.HasValue
-            && lastAppliedMode.Value == resolvedMode
-            && targetSettingsReady
-            && playlistSummarySettingsReady;
-    }
-
-    private static Visibility ResolvePlaylistColumnSettingsVisibility(MainViewUpdateMode mode)
-    {
-        return mode is MainViewUpdateMode.PlaylistFilterSelected or MainViewUpdateMode.PlaylistNotOwnedFilterSelected
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-    }
-
-    private bool IsMainColumnSettingTargetReady(MainViewUpdateMode mode)
-    {
-        return IsMainColumnSettingTargetReady(mode, Settings.Default);
-    }
-
-    private static bool IsMainColumnSettingTargetReady(MainViewUpdateMode mode, Settings settings)
-    {
-        if (settings == null)
-        {
-            return false;
-        }
-        return mode switch
-        {
-            MainViewUpdateMode.PlaylistFilterSelected or MainViewUpdateMode.PlaylistNotOwnedFilterSelected => settings.PlaylistCustomTableColumnSettings != null,
-            MainViewUpdateMode.FolderFilterSelected => settings.StandardCustomTableColumnSettings != null,
-            MainViewUpdateMode.UnregisteredFilterSelected => settings.UnregisteredCustomTableColumnSettings != null,
-            MainViewUpdateMode.ZeroNoteFilterSelected => settings.ZeroNoteCustomTableColumnSettings != null,
-            MainViewUpdateMode.ChartInfoParseErrorFilterSelected => settings.ChartInfoParseErrorCustomTableColumnSettings != null,
-            MainViewUpdateMode.FileMissingFilterSelected or MainViewUpdateMode.FileMissingIgnoredFilterSelected or MainViewUpdateMode.FullScanAllChartsFilterSelected or MainViewUpdateMode.NewlyInstalledFolderSelected => settings.FullScanCustomTableColumnSettings != null,
-            MainViewUpdateMode.DuplicateFilterSelected => settings.DuplicateCustomTableColumnSettings != null,
-            MainViewUpdateMode.GarbledFilterSelected or MainViewUpdateMode.GarbleFixedFilterSelected => settings.EncodingCustomTableColumnSettings != null,
-            MainViewUpdateMode.PendingInstallFolderSelected => settings.InstallCustomTableColumnSettings != null,
-            MainViewUpdateMode.PlayHistorySelected => settings.PlayHistoryCustomTableColumnSettings != null,
-            _ => false,
-        };
-    }
-
-    internal static bool IsMainColumnSettingTargetReadyForTest(MainViewUpdateMode mode, Settings settings)
-    {
-        return IsMainColumnSettingTargetReady(mode, settings);
-    }
-
-    private MainChartListColumnSelection loadColumnSetting(MainViewUpdateMode mode, bool isInit = false)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        long stageStartMs = stopwatch.ElapsedMilliseconds;
-        long caseEnsureMs = 0L;
-        long caseAssignMs = 0L;
-        Visibility targetColumnSettingsVisibilityForPlaylist = Visibility.Collapsed;
-        CustomTableColumnSettings targetColumnsSettings = MainChartList.ColumnsSettings;
-        string caseLabel = "none";
-
-        if (mode == MainViewUpdateMode.TreeViewFilterNotChanged)
-        {
-            mode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
-        }
-        long normalizeMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-        bool modeHandled = true;
-        switch (mode)
-        {
-            case MainViewUpdateMode.PlaylistFilterSelected:
-            case MainViewUpdateMode.PlaylistNotOwnedFilterSelected:
-                caseLabel = "playlist";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.PlaylistCustomTableColumnSettings == null)
-                {
-                    Settings.Default.PlaylistCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
-                }
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.PlaylistCustomTableColumnSettings;
-                targetColumnSettingsVisibilityForPlaylist = Visibility.Visible;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            case MainViewUpdateMode.FolderFilterSelected:
-                caseLabel = "standard";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.StandardCustomTableColumnSettings == null)
-                {
-                    Settings.Default.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-                }
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.StandardCustomTableColumnSettings;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            case MainViewUpdateMode.UnregisteredFilterSelected:
-                caseLabel = "unregistered";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.UnregisteredCustomTableColumnSettings == null)
-                {
-                    Settings.Default.UnregisteredCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.UNREGISTERED);
-                }
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.UnregisteredCustomTableColumnSettings;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            case MainViewUpdateMode.ZeroNoteFilterSelected:
-                caseLabel = "zero-note";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.ZeroNoteCustomTableColumnSettings == null)
-                {
-                    Settings.Default.ZeroNoteCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ZERO_NOTE);
-                }
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.ZeroNoteCustomTableColumnSettings;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            case MainViewUpdateMode.ChartInfoParseErrorFilterSelected:
-                caseLabel = "chart-info-parse-error";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.ChartInfoParseErrorCustomTableColumnSettings == null)
-                {
-                    Settings.Default.ChartInfoParseErrorCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR);
-                }
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            case MainViewUpdateMode.FileMissingFilterSelected:
-            case MainViewUpdateMode.FileMissingIgnoredFilterSelected:
-            case MainViewUpdateMode.FullScanAllChartsFilterSelected:
-            case MainViewUpdateMode.NewlyInstalledFolderSelected:
-                caseLabel = "fullscan";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.FullScanCustomTableColumnSettings == null)
-                {
-                    Settings.Default.FullScanCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN);
-                }
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.FullScanCustomTableColumnSettings;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            case MainViewUpdateMode.DuplicateFilterSelected:
-                caseLabel = "duplicate";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.DuplicateCustomTableColumnSettings == null)
-                {
-                    Settings.Default.DuplicateCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE);
-                }
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.DuplicateCustomTableColumnSettings;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            case MainViewUpdateMode.GarbledFilterSelected:
-            case MainViewUpdateMode.GarbleFixedFilterSelected:
-                caseLabel = "encoding";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.EncodingCustomTableColumnSettings == null)
-                {
-                    Settings.Default.EncodingCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ENCODING);
-                }
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.EncodingCustomTableColumnSettings;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            case MainViewUpdateMode.PendingInstallFolderSelected:
-                caseLabel = "install";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.InstallCustomTableColumnSettings == null)
-                {
-                    Settings.Default.InstallCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL);
-                }
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.InstallCustomTableColumnSettings;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            case MainViewUpdateMode.PlayHistorySelected:
-                caseLabel = "play-history";
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                if (isInit || Settings.Default.PlayHistoryCustomTableColumnSettings == null)
-                {
-                    Settings.Default.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
-                }
-                Settings.Default.PlayHistoryCustomTableColumnSettings.EnsurePlayHistoryColumnDefaults();
-                caseEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                stageStartMs = stopwatch.ElapsedMilliseconds;
-                targetColumnsSettings = Settings.Default.PlayHistoryCustomTableColumnSettings;
-                caseAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-                break;
-            default:
-                modeHandled = false;
-                break;
-        }
-        stageStartMs = stopwatch.ElapsedMilliseconds;
-        Visibility targetVisibility = targetColumnSettingsVisibilityForPlaylist;
-        long visibilityMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-        stageStartMs = stopwatch.ElapsedMilliseconds;
-        if (Settings.Default.PlaylistSummaryColumnsSettings == null)
-        {
-            Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
-        }
-        Settings.Default.PlaylistSummaryColumnsSettings.EnsureCompatibility();
-        long playlistSummaryEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-        stageStartMs = stopwatch.ElapsedMilliseconds;
-        PlaylistSummaryColumnSettings targetPlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
-        long playlistSummaryAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
-        long totalMs = stopwatch.ElapsedMilliseconds;
-        if (totalMs >= ColumnSettingSlowLogThresholdMs)
-        {
-            LogMainViewBuild("column_setting_slow mode=" + mode + " case=" + caseLabel + " isInit=" + isInit + " totalMs=" + totalMs + " normalizeMs=" + normalizeMs + " visibilityMs=" + visibilityMs + " caseEnsureMs=" + caseEnsureMs + " caseAssignMs=" + caseAssignMs + " playlistSummaryEnsureMs=" + playlistSummaryEnsureMs + " playlistSummaryAssignMs=" + playlistSummaryAssignMs + " thresholdMs=" + ColumnSettingSlowLogThresholdMs);
-        }
-        return new MainChartListColumnSelection(
-            targetColumnsSettings,
-            reused: false,
-            totalMs,
-            modeHandled ? mode : null,
-            targetVisibility,
-            targetPlaylistSummaryColumnsSettings);
-    }
-
-    private void CommitMainColumnSetting(MainChartListColumnSelection selection)
-    {
-        PlaylistColumnPresentationCommit presentationCommit = PlaylistWorkspace.CommitColumnPresentationWithoutNotification(
-            selection.PlaylistColumnSettingsVisibility,
-            selection.PlaylistSummaryColumnsSettings);
-        if (selection.AppliedMode.HasValue)
-        {
-            regularChartListOwner.CommitExternalColumnMode(selection.AppliedMode);
-        }
-        PlaylistWorkspace.PublishColumnPresentation(presentationCommit);
+        regularChartListOwner.ResetPlaylistSummaryColumnSetting();
     }
 
     private void ApplyMainChartListSort(
