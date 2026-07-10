@@ -803,64 +803,93 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void PlayHistoryTerminal_PreparationRunsOutsideFreshnessLockAndCancelsStaleCommit()
     {
-        var viewModel = new MainWindowViewModel();
+        PlayHistoryTerminalOwner owner = CreatePlayHistoryTerminalOwner(out PlayHistoryPresentationState state, out MainChartListViewModel table);
         var oldRows = new List<object>();
         var candidateRows = new List<object> { new object() };
-        viewModel.MainChartList.Rows = oldRows;
-        long requestId = viewModel.BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest.All());
+        table.Rows = oldRows;
+        state.RequestGeneration = 1;
         int canceledCount = 0;
-        bool cancellationCallbackCompleted = false;
-        using IDisposable cancellationRegistration = viewModel.RegisterPlayHistoryCancellationCallbackForTest(
-            requestId,
-            () =>
-            {
-                Task<long> nestedInvalidateTask = Task.Run(viewModel.RegisterPlayHistoryFilterRequest);
-                cancellationCallbackCompleted = nestedInvalidateTask.Wait(TimeSpan.FromSeconds(5));
-            });
-        viewModel.MainChartList.RowsReplacementCanceled += (_, _) => canceledCount++;
-        viewModel.MainChartList.RowsReplacing += (_, _) =>
+        table.RowsReplacementCanceled += (_, _) => canceledCount++;
+        table.RowsReplacing += (_, _) =>
         {
-            Task<long> invalidateTask = Task.Run(viewModel.RegisterPlayHistoryFilterRequest);
+            Task invalidateTask = Task.Run(() =>
+            {
+                lock (state.SyncRoot)
+                {
+                    state.RequestGeneration++;
+                }
+            });
             Assert.IsTrue(invalidateTask.Wait(TimeSpan.FromSeconds(5)), "RowsReplacing must not run while the play-history freshness lock is held.");
         };
 
-        bool applied = viewModel.TryCommitPlayHistoryRowsForTest(requestId, candidateRows, "candidate summary");
+        PlayHistoryTerminalCommitResult result = owner.TryApply(CreatePlayHistoryTerminalRequest(candidateRows, "candidate summary", requestId: 1));
 
-        Assert.IsFalse(applied);
-        Assert.AreSame(oldRows, viewModel.MainChartList.Rows);
-        Assert.AreNotEqual("candidate summary", viewModel.MainChartList.SummaryText);
+        Assert.IsFalse(result.Applied);
+        Assert.AreSame(oldRows, table.Rows);
+        Assert.AreNotEqual("candidate summary", table.SummaryText);
         Assert.AreEqual(1, canceledCount);
-        Assert.IsTrue(cancellationCallbackCompleted, "Cancellation callbacks must run after releasing the play-history freshness lock.");
     }
 
     [TestMethod]
     public void PlayHistoryTerminal_PublishesExplicitSummaryWithCommittedMainState()
     {
-        var viewModel = new MainWindowViewModel();
+        PlayHistoryTerminalOwner owner = CreatePlayHistoryTerminalOwner(out PlayHistoryPresentationState state, out MainChartListViewModel table);
         var candidateRows = new List<object> { new object(), new object() };
-        viewModel.MainChartList.Rows = new List<object>();
-        viewModel.MainChartList.SelectedIndex = 3;
-        long requestId = viewModel.BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest.All());
+        table.Rows = new List<object>();
+        table.SelectedIndex = 3;
+        state.RequestGeneration = 1;
         int preparingCount = 0;
         var propertyNames = new List<string>();
-        viewModel.MainChartList.RowsReplacing += (_, _) => preparingCount++;
-        viewModel.MainChartList.PropertyChanged += (_, e) =>
+        table.RowsReplacing += (_, _) => preparingCount++;
+        table.PropertyChanged += (_, e) =>
         {
             propertyNames.Add(e.PropertyName);
-            Assert.AreSame(candidateRows, viewModel.MainChartList.Rows);
-            Assert.AreEqual("play-history explicit summary", viewModel.MainChartList.SummaryText);
-            Assert.AreEqual(-1, viewModel.MainChartList.SelectedIndex);
-            Assert.AreEqual(CustomTableColumnSettings.ViewKind.PLAY_HISTORY, viewModel.MainChartList.ColumnsSettings.Kind);
+            Assert.AreSame(candidateRows, table.Rows);
+            Assert.AreEqual("play-history explicit summary", table.SummaryText);
+            Assert.AreEqual(-1, table.SelectedIndex);
+            Assert.AreEqual(CustomTableColumnSettings.ViewKind.PLAY_HISTORY, table.ColumnsSettings.Kind);
         };
 
-        bool applied = viewModel.TryCommitPlayHistoryRowsForTest(requestId, candidateRows, "play-history explicit summary");
+        PlayHistoryTerminalCommitResult result = owner.TryApply(CreatePlayHistoryTerminalRequest(candidateRows, "play-history explicit summary", requestId: 1));
 
-        Assert.IsTrue(applied);
+        Assert.IsTrue(result.Applied);
         Assert.AreEqual(1, preparingCount);
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.Rows));
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SummaryText));
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SelectedIndex));
-        Assert.AreEqual("play-history explicit summary", viewModel.MainChartList.SummaryText);
+        Assert.AreEqual("play-history explicit summary", table.SummaryText);
+    }
+
+    [TestMethod]
+    public void PlayHistoryTerminal_PostCommitFailureTransfersOwnershipAndContinuesPublishing()
+    {
+        var oldRow = new CountingDisposable();
+        var candidateRows = new List<object> { new object() };
+        PlayHistoryTerminalOwner owner = CreatePlayHistoryTerminalOwner(
+            out PlayHistoryPresentationState state,
+            out MainChartListViewModel table,
+            _ => throw new InvalidOperationException("feature notification failed"));
+        state.RequestGeneration = 1;
+        table.Rows = new List<object> { oldRow };
+        int tableNotifications = 0;
+        table.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainChartListViewModel.Rows))
+            {
+                tableNotifications++;
+            }
+        };
+        PlayHistoryTerminalRequest request = CreatePlayHistoryTerminalRequest(candidateRows, "committed", requestId: 1);
+        request.SummaryCards = [new PlayHistorySummaryCard("Label", "Value")];
+
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
+            () => owner.TryApply(request));
+
+        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.AreSame(candidateRows, table.Rows);
+        Assert.AreEqual(1, oldRow.DisposeCount);
+        Assert.IsTrue(tableNotifications > 0);
+        Assert.AreSame(request.SummaryCards, state.SummaryCards);
     }
 
     [TestMethod]
@@ -3278,6 +3307,74 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
+    private static PlayHistoryTerminalOwner CreatePlayHistoryTerminalOwner(
+        out PlayHistoryPresentationState state,
+        out MainChartListViewModel table)
+    {
+        return CreatePlayHistoryTerminalOwner(out state, out table, _ => { });
+    }
+
+    private static PlayHistoryTerminalOwner CreatePlayHistoryTerminalOwner(
+        out PlayHistoryPresentationState state,
+        out MainChartListViewModel table,
+        Action<string> publishPropertyChanged)
+    {
+        state = new PlayHistoryPresentationState();
+        table = new MainChartListViewModel();
+        var workspace = new PlaylistWorkspaceViewModel();
+        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
+        var playlistOwner = new PlaylistDetailTerminalOwner(
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            table,
+            workspace,
+            regularOwner.CommitExternalColumnMode);
+        return new PlayHistoryTerminalOwner(state, table, workspace, regularOwner, playlistOwner, publishPropertyChanged, _ => { });
+    }
+
+    private static PlayHistoryTerminalRequest CreatePlayHistoryTerminalRequest(System.Collections.IList rows, string summaryText, long requestId)
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
+        var columnSelection = new MainChartListColumnSelection(
+            settings,
+            reused: false,
+            elapsedMs: 0,
+            MainViewUpdateMode.PlayHistorySelected,
+            System.Windows.Visibility.Collapsed,
+            new PlaylistSummaryColumnSettings());
+        var viewState = new PlayHistoryViewState(
+            requestId,
+            PlayHistoryPeriodRequest.All(),
+            [],
+            [],
+            [],
+            [],
+            PlayHistoryProvider.Lr2,
+            default,
+            sourceCount: 0,
+            default,
+            keywordFilter: string.Empty,
+            keywordFilterRevision: 0,
+            PlayHistoryDisplayTargetItem.All,
+            displayTargetRevision: 0);
+        return new PlayHistoryTerminalRequest
+        {
+            ViewState = viewState,
+            Rows = rows,
+            ColumnSelection = columnSelection,
+            SummaryCards = [],
+            DiagnosticText = string.Empty,
+            MainRowsRequest = new MainChartListRowsApplyRequest
+            {
+                Rows = rows,
+                ColumnsSettings = settings,
+                SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                Summary = MainChartListSummaryUpdate.Explicit(summaryText),
+                Stopwatch = Stopwatch.StartNew()
+            }
+        };
+    }
+
     private sealed class ThrowingFolderBmsFile : BMSFile
     {
         public override string Folder
@@ -3297,6 +3394,16 @@ public sealed class ChartListVirtualViewTests
         public void Dispose()
         {
             throw new InvalidOperationException("dispose failed");
+        }
+    }
+
+    private sealed class CountingDisposable : IDisposable
+    {
+        internal int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            DisposeCount++;
         }
     }
 }

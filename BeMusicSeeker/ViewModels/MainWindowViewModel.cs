@@ -627,25 +627,47 @@ public partial class MainWindowViewModel : ViewModel
 
     private string _WindowTitle = "BeMusicSeeker Unofficial Fork - ";
 
-    private readonly object playHistoryViewRequestLock = new();
+    private readonly PlayHistoryPresentationState playHistoryPresentationState = new();
 
-    private long playHistoryViewRequestGeneration;
+    private readonly PlayHistoryTerminalOwner playHistoryTerminalOwner;
 
-    private long playHistorySortRevision;
+    private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
 
-    private CancellationTokenSource playHistoryViewRequestCancellation;
+    private long playHistoryViewRequestGeneration
+    {
+        get => playHistoryPresentationState.RequestGeneration;
+        set => playHistoryPresentationState.RequestGeneration = value;
+    }
 
-    private PlayHistoryViewState playHistoryViewState;
+    private long playHistorySortRevision
+    {
+        get => playHistoryPresentationState.SortRevision;
+        set => playHistoryPresentationState.SortRevision = value;
+    }
+
+    private CancellationTokenSource playHistoryViewRequestCancellation
+    {
+        get => playHistoryPresentationState.RequestCancellation;
+        set => playHistoryPresentationState.RequestCancellation = value;
+    }
+
+    private ref PlayHistoryViewState playHistoryViewState => ref playHistoryPresentationState.CurrentView;
+
+    private ref long playHistoryKeywordFilterRevision => ref playHistoryPresentationState.KeywordRevision;
+
+    private long playHistoryDisplayTargetRevision;
+
+    private ref IReadOnlyList<PlayHistoryPeriodTreeItem> _PlayHistoryArchivePeriodTree => ref playHistoryPresentationState.ArchivePeriodTree;
+
+    private ref IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards => ref playHistoryPresentationState.SummaryCards;
+
+    private ref string _PlayHistorySummaryDiagnosticText => ref playHistoryPresentationState.DiagnosticText;
 
     private readonly PlayHistoryReadCache playHistoryReadCache = new();
-
-    private long playHistoryKeywordFilterRevision;
 
     private long playHistoryKeywordFilterQueuedRevision;
 
     private int playHistoryKeywordFilterActiveCount;
-
-    private IReadOnlyList<PlayHistoryPeriodTreeItem> _PlayHistoryArchivePeriodTree = [];
 
     private cSortParameters _SortParameters;
 
@@ -687,15 +709,11 @@ public partial class MainWindowViewModel : ViewModel
 
     private long lastPlaylistDetailBuildElapsedMs;
 
-    private IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards = [];
-
     private ListenerCommand<PlayHistorySummaryCard> _TogglePlayHistorySummaryCardFilterCommand;
 
     private readonly object lockPlayHistorySummaryFilter = new();
 
     private readonly HashSet<string> selectedPlayHistorySummaryFilterKeys = new(StringComparer.Ordinal);
-
-    private string _PlayHistorySummaryDiagnosticText = string.Empty;
 
     private readonly DropInstallQueueProcessor dropInstallQueueProcessor;
 
@@ -792,8 +810,6 @@ public partial class MainWindowViewModel : ViewModel
     private bool _IsKeywordSearchSuggestionPopupOpen;
 
     private string _KeywordSearchSuggestionHeaderText = string.Empty;
-
-    private long playHistoryDisplayTargetRevision;
 
     private long playHistoryDisplayTargetQueuedRevision;
 
@@ -5003,6 +5019,10 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     _PlayHistorySortParameters = value;
                     playHistorySortRevision++;
+                    playHistoryPresentationState.CurrentSortSnapshot = new SortSnapshot(
+                        _PlayHistorySortParameters?.ColumnsName,
+                        _PlayHistorySortParameters?.Direction,
+                        playHistorySortRevision);
                     changed = true;
                 }
             }
@@ -6040,12 +6060,20 @@ public partial class MainWindowViewModel : ViewModel
         {
             if (!(_KeywordFilter == value))
             {
-                _KeywordFilter = value;
+                lock (playHistoryViewRequestLock)
+                {
+                    _KeywordFilter = value;
+                    if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
+                    {
+                        Interlocked.Increment(ref playHistoryKeywordFilterRevision);
+                        playHistoryPresentationState.CurrentKeywordIdentity = NormalizePlaylistKeywordFilter(_KeywordFilter);
+                    }
+                }
                 RaisePropertyChanged("KeywordFilter");
                 UpdateKeywordSearchPresentation();
                 if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
                 {
-                    QueuePlayHistoryKeywordFilterRefresh();
+                    QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false);
                 }
                 else
                 {
@@ -6317,9 +6345,22 @@ public partial class MainWindowViewModel : ViewModel
             Settings.Default.PlayHistorySelectedDisplayTargetIdentity = nextIdentity;
         }
 
+        if (identityChanged || selectedItemChanged)
+        {
+            lock (playHistoryViewRequestLock)
+            {
+                if (selectedItemChanged)
+                {
+                    _SelectedPlayHistoryDisplayTarget = next;
+                }
+                Interlocked.Increment(ref playHistoryDisplayTargetRevision);
+                playHistoryPresentationState.DisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
+                playHistoryPresentationState.CurrentDisplayTargetIdentity = nextIdentity;
+            }
+        }
+
         if (selectedItemChanged)
         {
-            _SelectedPlayHistoryDisplayTarget = next;
             RaisePropertyChanged("SelectedPlayHistoryDisplayTarget");
             RaisePropertyChanged("SelectedPlayHistoryDisplayTargetIdentity");
         }
@@ -6332,7 +6373,7 @@ public partial class MainWindowViewModel : ViewModel
             && queueRefreshWhenSelectionChanges
             && (previousSelected.UsesProjection || next.UsesProjection))
         {
-            QueuePlayHistoryDisplayTargetRefresh();
+            QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
         }
     }
 
@@ -7087,6 +7128,14 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             PlaylistWorkspace,
             regularChartListOwner.CommitExternalColumnMode);
+        playHistoryTerminalOwner = new PlayHistoryTerminalOwner(
+            playHistoryPresentationState,
+            MainChartList,
+            PlaylistWorkspace,
+            regularChartListOwner,
+            playlistDetailTerminalOwner,
+            RaisePropertyChanged,
+            LogPlaylistSourceClear);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         preferredPlayHistoryDisplayTargetIdentity = NormalizePlayHistoryDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
@@ -11452,11 +11501,10 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistoryTerminalCommitResult terminalCommit;
         try
         {
-            terminalCommit = PlayHistoryTerminalTransition.TryCommit(
-                this,
+            terminalCommit = playHistoryTerminalOwner.TryApply(
                 new PlayHistoryTerminalRequest
                 {
-                    State = state,
+                    ViewState = state,
                     Rows = nextRowsView,
                     ColumnSelection = columnSelection,
                     ArchivePeriodTree = archivePeriodTree,
@@ -11777,6 +11825,9 @@ public partial class MainWindowViewModel : ViewModel
             previousCancellation = InvalidatePlayHistoryFilterRequestUnsafe();
             playHistoryViewRequestCancellation = new CancellationTokenSource();
             requestId = playHistoryViewRequestGeneration;
+            playHistoryPresentationState.CurrentKeywordIdentity = NormalizePlaylistKeywordFilter(KeywordFilter);
+            playHistoryPresentationState.CurrentDisplayTargetIdentity = SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty;
+            playHistoryPresentationState.DisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
             treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
             treeViewFilterParameterSelected = new PlayHistoryViewRequest(request ?? PlayHistoryPeriodRequest.All(), requestId);
         }
@@ -11813,6 +11864,7 @@ public partial class MainWindowViewModel : ViewModel
             long keywordRevision = advanceRevision
                 ? Interlocked.Increment(ref playHistoryKeywordFilterRevision)
                 : Interlocked.Read(ref playHistoryKeywordFilterRevision);
+            playHistoryPresentationState.CurrentKeywordIdentity = NormalizePlaylistKeywordFilter(KeywordFilter);
             if (Interlocked.Read(ref playHistoryKeywordFilterQueuedRevision) == keywordRevision)
             {
                 return;
@@ -11854,6 +11906,8 @@ public partial class MainWindowViewModel : ViewModel
                 if (advanceRevision)
                 {
                     Interlocked.Increment(ref playHistoryDisplayTargetRevision);
+                    playHistoryPresentationState.DisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
+                    playHistoryPresentationState.CurrentDisplayTargetIdentity = SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty;
                 }
                 return;
             }
@@ -11863,12 +11917,16 @@ public partial class MainWindowViewModel : ViewModel
                 if (advanceRevision)
                 {
                     Interlocked.Increment(ref playHistoryDisplayTargetRevision);
+                    playHistoryPresentationState.DisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
+                    playHistoryPresentationState.CurrentDisplayTargetIdentity = SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty;
                 }
                 return;
             }
             long targetRevision = advanceRevision
                 ? Interlocked.Increment(ref playHistoryDisplayTargetRevision)
                 : Interlocked.Read(ref playHistoryDisplayTargetRevision);
+            playHistoryPresentationState.CurrentDisplayTargetIdentity = SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty;
+            playHistoryPresentationState.DisplayTargetRevision = targetRevision;
             if (Interlocked.Read(ref playHistoryDisplayTargetQueuedRevision) == targetRevision)
             {
                 return;
@@ -11919,15 +11977,6 @@ public partial class MainWindowViewModel : ViewModel
                 ? playHistoryViewRequestCancellation?.Token ?? new CancellationToken(canceled: true)
                 : new CancellationToken(canceled: true);
         }
-    }
-
-    internal IDisposable RegisterPlayHistoryCancellationCallbackForTest(long requestId, Action callback)
-    {
-        if (callback == null)
-        {
-            throw new ArgumentNullException(nameof(callback));
-        }
-        return GetPlayHistoryFilterCancellationToken(requestId).Register(callback);
     }
 
     private CancellationTokenSource InvalidatePlayHistoryFilterRequestUnsafe()
@@ -12166,7 +12215,7 @@ public partial class MainWindowViewModel : ViewModel
                     ColumnsName = _PlayHistorySortParameters.ColumnsName,
                     Direction = _PlayHistorySortParameters.Direction
                 };
-            snapshot = SortSnapshot.From(sortParameters, playHistorySortRevision);
+            snapshot = new SortSnapshot(sortParameters?.ColumnsName, sortParameters?.Direction, playHistorySortRevision);
             return sortParameters;
         }
     }
@@ -12419,112 +12468,6 @@ public partial class MainWindowViewModel : ViewModel
         internal long KeywordFilterRevision { get; }
 
         internal long DisplayTargetRevision { get; }
-    }
-
-    private sealed class PlayHistoryViewState
-    {
-        internal PlayHistoryViewState(
-            long requestId,
-            PlayHistoryPeriodRequest periodRequest,
-            IReadOnlyList<PlayHistoryRow> allProjectedRows,
-            IReadOnlyList<PlayHistoryRow> filterSourceRows,
-            IReadOnlyList<PlayHistoryRow> projectedRows,
-            IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
-            PlayHistoryProvider provider,
-            Lr2PlayHistorySchemaStatus schemaStatus,
-            int sourceCount,
-            SortSnapshot sortSnapshot,
-            string keywordFilter,
-            long keywordFilterRevision,
-            PlayHistoryDisplayTargetItem displayTarget,
-            long displayTargetRevision,
-            PlayHistoryPeriodSummaryOverride summaryOverride = null)
-        {
-            RequestId = requestId;
-            PeriodRequest = periodRequest ?? PlayHistoryPeriodRequest.All();
-            AllProjectedRows = allProjectedRows ?? [];
-            FilterSourceRows = filterSourceRows ?? [];
-            ProjectedRows = projectedRows ?? [];
-            Diagnostics = diagnostics ?? [];
-            Provider = provider;
-            SchemaStatus = schemaStatus;
-            SourceCount = sourceCount;
-            SortSnapshot = sortSnapshot;
-            KeywordFilter = keywordFilter ?? string.Empty;
-            KeywordFilterIdentity = NormalizePlaylistKeywordFilter(KeywordFilter);
-            KeywordFilterRevision = keywordFilterRevision;
-            DisplayTarget = displayTarget ?? PlayHistoryDisplayTargetItem.All;
-            DisplayTargetIdentity = DisplayTarget.Identity;
-            DisplayTargetRevision = displayTargetRevision;
-            SummaryOverride = summaryOverride;
-        }
-
-        internal long RequestId { get; }
-
-        internal PlayHistoryPeriodRequest PeriodRequest { get; }
-
-        internal IReadOnlyList<PlayHistoryRow> AllProjectedRows { get; }
-
-        internal IReadOnlyList<PlayHistoryRow> FilterSourceRows { get; }
-
-        internal IReadOnlyList<PlayHistoryRow> ProjectedRows { get; }
-
-        internal IReadOnlyList<PlayHistoryDiagnostic> Diagnostics { get; }
-
-        internal PlayHistoryProvider Provider { get; }
-
-        internal Lr2PlayHistorySchemaStatus SchemaStatus { get; }
-
-        internal int SourceCount { get; }
-
-        internal SortSnapshot SortSnapshot { get; }
-
-        internal string KeywordFilter { get; }
-
-        internal string KeywordFilterIdentity { get; }
-
-        internal long KeywordFilterRevision { get; }
-
-        internal PlayHistoryDisplayTargetItem DisplayTarget { get; }
-
-        internal string DisplayTargetIdentity { get; }
-
-        internal long DisplayTargetRevision { get; }
-
-        internal PlayHistoryPeriodSummaryOverride SummaryOverride { get; }
-    }
-
-    private readonly struct SortSnapshot
-    {
-        internal static SortSnapshot From(cSortParameters sortParameters, long revision)
-        {
-            return new SortSnapshot(sortParameters?.ColumnsName, sortParameters?.Direction, revision);
-        }
-
-        internal SortSnapshot(string columnName, ListSortDirection? direction, long revision)
-        {
-            ColumnName = columnName ?? string.Empty;
-            Direction = direction;
-            Revision = revision;
-        }
-
-        internal string ColumnName { get; }
-
-        internal ListSortDirection? Direction { get; }
-
-        internal long Revision { get; }
-
-        internal static bool Equals(SortSnapshot left, SortSnapshot right)
-        {
-            return string.Equals(left.ColumnName, right.ColumnName, StringComparison.Ordinal)
-                && left.Direction == right.Direction
-                && left.Revision == right.Revision;
-        }
-
-        public override string ToString()
-        {
-            return (string.IsNullOrWhiteSpace(ColumnName) ? "(default)" : ColumnName) + ":" + (Direction?.ToString() ?? "(default)") + "#" + Revision.ToString(CultureInfo.InvariantCulture);
-        }
     }
 
     private static bool ShouldIncludeBmsonLibraryRowsInMainView(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
