@@ -2060,6 +2060,20 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void VirtualChartSubsetRoutesTerminalApplyThroughRegularChartOwner()
+    {
+        string workflow = SourceTextTestHelper.ReadMainWindowViewModelMethodBody(
+            "private bool TryApplyVirtualChartSubsetLibraryView");
+
+        StringAssert.Contains(workflow, "regularChartListOwner.TryBeginRequest");
+        StringAssert.Contains(workflow, "lease.Token.IsCancellationRequested");
+        StringAssert.Contains(workflow, "regularChartListOwner.TryCommitVirtual");
+        StringAssert.Contains(workflow, "if (!terminal.WasCommitted)");
+        Assert.IsFalse(workflow.Contains("MainChartList.ApplyRows("));
+        Assert.IsFalse(workflow.Contains("CommitMainColumnSetting("));
+    }
+
+    [TestMethod]
     public void ChartContextMenu_BmsOnlyAndChartCommonHandlersUseExpectedSelectionHelpers()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();

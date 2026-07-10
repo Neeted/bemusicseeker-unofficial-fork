@@ -5463,6 +5463,10 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         regularChartListOwner.ResetDerivedCaches();
+        if (!regularChartListOwner.TryBeginRequest(out RegularChartListRequestLease lease))
+        {
+            return true;
+        }
         UpdateChartInfoProjectionVersionCache();
         UpdateScoreSnapshotProjectionVersionCache();
 
@@ -5495,6 +5499,10 @@ public partial class MainWindowViewModel : ViewModel
                 GetChartInfoProjectionVersion,
                 GetScoreSnapshotProjectionVersion,
                 ResolveScoreSnapshotForSourceRow);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return true;
+        }
         long sourceRowsMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
         long folderStageMs = sourceRowsMs;
         int folderCount = sourceRows.Count;
@@ -5514,6 +5522,10 @@ public partial class MainWindowViewModel : ViewModel
             out VirtualChartSubsetSortCacheKey sortCacheKey,
             out long orderCacheLookupMs,
             out long orderBuildMs);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return true;
+        }
         long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
 
         var keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
@@ -5526,6 +5538,10 @@ public partial class MainWindowViewModel : ViewModel
             out int modeCount,
             out long keywordStageMs,
             out long modeStageMs);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return true;
+        }
 
         ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
         IReadOnlyList<ChartListSourceRow> orderedRows = RegularChartListOwner.SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes);
@@ -5538,20 +5554,32 @@ public partial class MainWindowViewModel : ViewModel
             row => CreateVirtualChartSubsetRow(row, applyResourceHealthProjection),
             distinctFolderCount);
         MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
-        MainChartListRowsApplyResult applyResult = MainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        RegularChartListTerminalResult terminal = regularChartListOwner.TryCommitVirtual(
+            lease,
+            new RegularChartListTerminalInput
+            {
+                RowsRequest = new MainChartListRowsApplyRequest
+                {
+                    Rows = nextRowsView,
+                    ColumnsSettings = columnSelection.ColumnsSettings,
+                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+                    Summary = IsPlaylistSummaryMode
+                        ? MainChartListSummaryUpdate.Preserve()
+                        : MainChartListSummaryUpdate.NormalCounts(nextRowsView.Count, distinctFolderCount),
+                    ColumnSettingReuse = columnSelection.Reused,
+                    ColumnPreparationMs = columnSelection.ElapsedMs,
+                    TerminalStageStartMs = stageStartMs,
+                    Stopwatch = viewBuildStopwatch
+                },
+                ColumnSelection = columnSelection,
+                Mode = mode,
+                Stopwatch = viewBuildStopwatch
+            });
+        if (!terminal.WasCommitted)
         {
-            Rows = nextRowsView,
-            ColumnsSettings = columnSelection.ColumnsSettings,
-            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
-            Summary = IsPlaylistSummaryMode
-                ? MainChartListSummaryUpdate.Preserve()
-                : MainChartListSummaryUpdate.NormalCounts(nextRowsView.Count, distinctFolderCount),
-            ColumnSettingReuse = columnSelection.Reused,
-            ColumnPreparationMs = columnSelection.ElapsedMs,
-            TerminalStageStartMs = stageStartMs,
-            Stopwatch = viewBuildStopwatch
-        });
-        CommitMainColumnSetting(columnSelection);
+            return true;
+        }
+        MainChartListRowsApplyResult applyResult = terminal.RowsApply;
         if (applyResourceHealthProjection)
         {
             LogResourceHealthProjection(mode, nextRowsView.Count);
