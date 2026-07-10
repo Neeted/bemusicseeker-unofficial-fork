@@ -76,15 +76,14 @@ public sealed class RegularChartListRefreshTypesTests
     }
 
     [TestMethod]
-    public void ApplyMainLibraryChartListView_ConnectsRegularRequestAndStageState()
+    public void ApplyMainLibraryChartListView_DelegatesMaterializedOwnership()
     {
         string mainLibraryWorkflow = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void ApplyMainLibraryChartListView(");
 
         StringAssert.Contains(mainLibraryWorkflow, "new RegularChartListRefreshRequest(");
         StringAssert.Contains(mainLibraryWorkflow, "regularRequest.VirtualSubsetRequiredFailure");
-        StringAssert.Contains(mainLibraryWorkflow, "RegularChartListStageState.Materialize(ChartRowsFolderView)");
-        StringAssert.Contains(mainLibraryWorkflow, "new RegularChartListSortContext");
-        StringAssert.Contains(mainLibraryWorkflow, "TryGetNormalLibrarySortCache = TryGetNormalLibrarySortCacheForCoordinator");
-        StringAssert.Contains(mainLibraryWorkflow, "RegularChartListSortCoordinator.ApplySort(regularRequest, regularStage, sortContext)");
+        StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.TryBeginRequest(");
+        StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.Build(");
+        StringAssert.Contains(mainLibraryWorkflow, "regularChartListOwner.TryCommit(");
     }
 }

@@ -840,52 +840,6 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void ChartListRefreshCoordinator_CreateRegularBuildCompletionFormatsTerminalLog()
-    {
-        var request = new RegularChartListBuildLogRequest
-        {
-            Mode = MainViewUpdateMode.FolderFilterSelected,
-            RequestedMode = MainViewUpdateMode.SortUpdated,
-            ParameterType = "String",
-            FolderMs = 1,
-            KeywordMs = 2,
-            ModeMs = 3,
-            SortMs = 4,
-            SortReuse = true,
-            SortProfile = "reuse",
-            FastSortEnabled = true,
-            IsPlaylistDetailView = true,
-            ColumnMs = 5,
-            PrepareSwapMs = 6,
-            ColumnSettingMs = 7,
-            SetViewMs = 8,
-            ColumnSettingReuse = true,
-            CallbackMs = 9,
-            FolderCount = 10,
-            KeywordCount = 11,
-            ModeCount = 12,
-            ViewCount = 13,
-            SortColumn = nameof(LibraryChartRow.Title),
-            SortDirection = ListSortDirection.Descending.ToString()
-        };
-
-        RegularChartListBuildCompletion completion = ChartListRefreshCoordinator.CreateRegularBuildCompletion(
-            request,
-            Stopwatch.StartNew(),
-            () => 42);
-
-        Assert.AreEqual(42, completion.RequestId);
-        Assert.IsTrue(completion.EndTimestamp > 0);
-        Assert.IsTrue(completion.ThreadId > 0);
-        Assert.IsTrue(completion.ElapsedMs >= 0);
-        Assert.IsTrue(completion.IsPlaylistDetailView);
-        StringAssert.StartsWith(completion.LogMessage, "main_view_build mode=FolderFilterSelected requestedMode=SortUpdated");
-        StringAssert.Contains(completion.LogMessage, "prepareSwapMs=6 columnSettingMs=7 setViewMs=8");
-        StringAssert.Contains(completion.LogMessage, "folderCount=10 keywordCount=11 modeCount=12 viewCount=13");
-        StringAssert.Contains(completion.LogMessage, "sortColumn=Title sortDirection=Descending");
-    }
-
-    [TestMethod]
     public void ChartListRefreshCoordinator_CreateVirtualSortMetricsPreservesOrderFields()
     {
         List<BMSFile> files =

@@ -1,6 +1,4 @@
 using System;
-using System.Diagnostics;
-using System.Threading;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -64,69 +62,6 @@ internal static class ChartListRefreshCoordinator
             currentTreeMode,
             isPlaylistTreeActive: false,
             includeBmsonRows: ShouldIncludeBmsonLibraryRows(mode, currentTreeMode));
-    }
-
-    /// <summary>
-    /// Creates completion metadata and the regular chart-list build log message for the shell to publish.
-    /// </summary>
-    /// <param name="request">Regular chart-list build log request.</param>
-    /// <param name="viewBuildStopwatch">Stopwatch used by the owning refresh workflow.</param>
-    /// <param name="nextBuildRequestId">Callback that allocates the next main-view build request id.</param>
-    /// <returns>Completion metadata and formatted build log message.</returns>
-    internal static RegularChartListBuildCompletion CreateRegularBuildCompletion(
-        RegularChartListBuildLogRequest request,
-        Stopwatch viewBuildStopwatch,
-        Func<long> nextBuildRequestId)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-        if (viewBuildStopwatch == null)
-        {
-            throw new ArgumentNullException(nameof(viewBuildStopwatch));
-        }
-        if (nextBuildRequestId == null)
-        {
-            throw new ArgumentNullException(nameof(nextBuildRequestId));
-        }
-
-        long requestId = nextBuildRequestId();
-        long endTimestamp = Stopwatch.GetTimestamp();
-        int threadId = Thread.CurrentThread.ManagedThreadId;
-        long elapsedMs = viewBuildStopwatch.ElapsedMilliseconds;
-        string message = "main_view_build mode=" + request.Mode
-            + " requestedMode=" + request.RequestedMode
-            + " parameterType=" + (request.ParameterType ?? "(null)")
-            + " folderMs=" + request.FolderMs
-            + " keywordMs=" + request.KeywordMs
-            + " modeMs=" + request.ModeMs
-            + " sortMs=" + request.SortMs
-            + " sortReuse=" + request.SortReuse
-            + " sortProfile=" + (request.SortProfile ?? string.Empty)
-            + " sortEngine=fast fastSortEnabled=" + request.FastSortEnabled
-            + " isPlaylistDetailView=" + request.IsPlaylistDetailView
-            + " columnMs=" + request.ColumnMs
-            + " prepareSwapMs=" + request.PrepareSwapMs
-            + " columnSettingMs=" + request.ColumnSettingMs
-            + " setViewMs=" + request.SetViewMs
-            + " columnSettingReuse=" + request.ColumnSettingReuse
-            + " callbackMs=" + request.CallbackMs
-            + " totalMs=" + elapsedMs
-            + " folderCount=" + request.FolderCount
-            + " keywordCount=" + request.KeywordCount
-            + " modeCount=" + request.ModeCount
-            + " viewCount=" + request.ViewCount
-            + " sortColumn=" + (request.SortColumn ?? string.Empty)
-            + " sortDirection=" + (request.SortDirection ?? string.Empty);
-
-        return new RegularChartListBuildCompletion(
-            requestId,
-            endTimestamp,
-            threadId,
-            elapsedMs,
-            request.IsPlaylistDetailView,
-            message);
     }
 
     /// <summary>
@@ -347,90 +282,4 @@ internal readonly struct ChartListRefreshRoute
     /// Gets a value indicating whether normal library rows should include bmson-backed charts.
     /// </summary>
     internal bool IncludeBmsonRows { get; }
-}
-
-/// <summary>
-/// Carries regular chart-list build fields used to format the terminal log message.
-/// </summary>
-internal sealed class RegularChartListBuildLogRequest
-{
-    internal MainViewUpdateMode Mode { get; set; }
-
-    internal MainViewUpdateMode RequestedMode { get; set; }
-
-    internal string ParameterType { get; set; }
-
-    internal long FolderMs { get; set; }
-
-    internal long KeywordMs { get; set; }
-
-    internal long ModeMs { get; set; }
-
-    internal long SortMs { get; set; }
-
-    internal bool SortReuse { get; set; }
-
-    internal string SortProfile { get; set; }
-
-    internal bool FastSortEnabled { get; set; }
-
-    internal bool IsPlaylistDetailView { get; set; }
-
-    internal long ColumnMs { get; set; }
-
-    internal long PrepareSwapMs { get; set; }
-
-    internal long ColumnSettingMs { get; set; }
-
-    internal long SetViewMs { get; set; }
-
-    internal bool ColumnSettingReuse { get; set; }
-
-    internal long CallbackMs { get; set; }
-
-    internal int FolderCount { get; set; }
-
-    internal int KeywordCount { get; set; }
-
-    internal int ModeCount { get; set; }
-
-    internal int ViewCount { get; set; }
-
-    internal string SortColumn { get; set; }
-
-    internal string SortDirection { get; set; }
-}
-
-/// <summary>
-/// Carries regular chart-list build completion metadata for root-owned publication.
-/// </summary>
-internal readonly struct RegularChartListBuildCompletion
-{
-    internal RegularChartListBuildCompletion(
-        long requestId,
-        long endTimestamp,
-        int threadId,
-        long elapsedMs,
-        bool isPlaylistDetailView,
-        string logMessage)
-    {
-        RequestId = requestId;
-        EndTimestamp = endTimestamp;
-        ThreadId = threadId;
-        ElapsedMs = elapsedMs;
-        IsPlaylistDetailView = isPlaylistDetailView;
-        LogMessage = logMessage ?? string.Empty;
-    }
-
-    internal long RequestId { get; }
-
-    internal long EndTimestamp { get; }
-
-    internal int ThreadId { get; }
-
-    internal long ElapsedMs { get; }
-
-    internal bool IsPlaylistDetailView { get; }
-
-    internal string LogMessage { get; }
 }

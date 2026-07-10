@@ -133,12 +133,10 @@ public partial class MainWindowViewModel
                             request.ColumnSelection.PlaylistSummaryColumnsSettings);
                         if (request.ColumnSelection.AppliedMode.HasValue)
                         {
-                            owner.lastAppliedMainColumnSettingMode = request.ColumnSelection.AppliedMode.Value;
+                            owner.regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
                         }
 
-                        owner.ChartRowsFolderView = [];
-                        owner.ChartRowsKeywordFilterView = [];
-                        owner.ChartRowsModeFilterView = [];
+                        owner.regularChartListOwner.ResetDerivedCaches();
 
                         if (request.ArchivePeriodTree != null
                             && !ReferenceEquals(owner._PlayHistoryArchivePeriodTree, request.ArchivePeriodTree)

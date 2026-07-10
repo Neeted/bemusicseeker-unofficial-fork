@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -28,6 +29,8 @@ public sealed class MainChartListViewModel : ViewModel
     private MainWindowViewModel.cSortParameters sortParameters;
 
     private MainChartListSortTarget sortTarget;
+
+    private long rowsCommitGeneration;
 
     /// <summary>
     /// Raised immediately before a different row collection replaces the active main-table rows.
@@ -360,7 +363,22 @@ public sealed class MainChartListViewModel : ViewModel
         if (rowsChanged && !request.RowsAlreadyPrepared)
         {
             long prepareStartMs = request.Stopwatch.ElapsedMilliseconds;
-            PrepareRowsReplacement();
+            try
+            {
+                PrepareRowsReplacement();
+            }
+            catch (Exception prepareException)
+            {
+                try
+                {
+                    CancelRowsReplacement();
+                }
+                catch (Exception cleanupException)
+                {
+                    throw new AggregateException(prepareException, cleanupException);
+                }
+                throw;
+            }
             prepareSwapMs = request.Stopwatch.ElapsedMilliseconds - prepareStartMs;
             rowsReplacementPrepared = true;
         }
@@ -422,12 +440,14 @@ public sealed class MainChartListViewModel : ViewModel
         selectedIndex = prepared.NextSelectedIndex;
         summaryText = prepared.NextSummaryText;
         prepared.Committed = true;
+        long commitGeneration = Interlocked.Increment(ref rowsCommitGeneration);
 
         return new MainChartListRowsCommit(
             prepared,
             columnSettingMs,
             request.Stopwatch.ElapsedMilliseconds - setViewStartMs,
-            previousRows);
+            previousRows,
+            commitGeneration);
     }
 
     internal void DisposeCommittedRows(MainChartListRowsCommit commit)
@@ -464,23 +484,26 @@ public sealed class MainChartListViewModel : ViewModel
         long columnNotificationMs = 0L;
         try
         {
-            if (prepared.ColumnsChanged)
+            if (prepared.ColumnsChanged && IsCurrentRowsCommit(commit))
             {
                 long columnNotificationStartMs = request.Stopwatch.ElapsedMilliseconds;
                 RaisePropertyChanged(nameof(ColumnsSettings));
-                RaisePropertyChanged(nameof(RowDragKind));
+                if (IsCurrentRowsCommit(commit))
+                {
+                    RaisePropertyChanged(nameof(RowDragKind));
+                }
                 columnNotificationMs = request.Stopwatch.ElapsedMilliseconds - columnNotificationStartMs;
                 columnSettingMs += columnNotificationMs;
             }
-            if (prepared.RowsChanged)
+            if (prepared.RowsChanged && IsCurrentRowsCommit(commit))
             {
                 RaisePropertyChanged(nameof(Rows));
             }
-            if (prepared.SummaryChanged)
+            if (prepared.SummaryChanged && IsCurrentRowsCommit(commit))
             {
                 RaisePropertyChanged(nameof(SummaryText));
             }
-            if (prepared.SelectionChanged)
+            if (prepared.SelectionChanged && IsCurrentRowsCommit(commit))
             {
                 RaisePropertyChanged(nameof(SelectedIndex));
             }
@@ -506,6 +529,11 @@ public sealed class MainChartListViewModel : ViewModel
             setViewMs,
             columnStageMs,
             request.ColumnSettingReuse);
+    }
+
+    private bool IsCurrentRowsCommit(MainChartListRowsCommit commit)
+    {
+        return commit.Generation == Interlocked.Read(ref rowsCommitGeneration);
     }
 
     internal void CancelPreparedRowsApply(MainChartListPreparedRowsApply prepared)
@@ -830,12 +858,14 @@ internal sealed class MainChartListRowsCommit
         MainChartListPreparedRowsApply prepared,
         long columnSettingMs,
         long commitSetViewMs,
-        IList previousRowsPendingDisposal)
+        IList previousRowsPendingDisposal,
+        long generation)
     {
         Prepared = prepared;
         ColumnSettingMs = columnSettingMs;
         CommitSetViewMs = commitSetViewMs;
         PreviousRowsPendingDisposal = previousRowsPendingDisposal;
+        Generation = generation;
     }
 
     internal MainChartListPreparedRowsApply Prepared { get; }
@@ -843,6 +873,8 @@ internal sealed class MainChartListRowsCommit
     internal long ColumnSettingMs { get; }
 
     internal long CommitSetViewMs { get; }
+
+    internal long Generation { get; }
 
     internal IList PreviousRowsPendingDisposal { get; set; }
 

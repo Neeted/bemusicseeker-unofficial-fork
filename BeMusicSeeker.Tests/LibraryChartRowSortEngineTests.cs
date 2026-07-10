@@ -245,34 +245,34 @@ public sealed class LibraryChartRowSortEngineTests
     [TestCategory("SortEngine")]
     public void NormalLibrarySortCacheCandidate_AllowsVirtualRegistryColumns()
     {
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(null));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(string.Empty));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Title)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.path)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Folder)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.Artist)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.genre)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.mode)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.tag)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.hash)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.sha256)));
-        Assert.IsFalse(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest("Path"));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.instl_dst)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.RefTablesSymbols)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.clear)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.rateDouble)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.score)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.maxcombo)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.minbp)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.ChartTotalSortKey)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.WarningDigestText)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.WAVHealth)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.BGAHealth)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.MovieHealth)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibrarySortCacheCandidateForTest(nameof(LibraryChartRow.encoding)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(null));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(string.Empty));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.Title)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.path)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.Folder)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.Artist)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.genre)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.mode)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.tag)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.hash)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.sha256)));
+        Assert.IsFalse(RegularChartListOwner.IsSortCacheCandidate("Path"));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.instl_dst)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.InstallDestinationTitle)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.InstallDestinationArtist)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.RefTablesSymbols)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.clear)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.rateDouble)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.score)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.maxcombo)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.minbp)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.ChartLevelSortKey)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.ChartTotalSortKey)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.WarningDigestText)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.WAVHealth)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.BGAHealth)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.MovieHealth)));
+        Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(nameof(LibraryChartRow.encoding)));
     }
 
     [TestMethod]

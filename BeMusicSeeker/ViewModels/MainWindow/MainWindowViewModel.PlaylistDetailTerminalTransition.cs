@@ -129,7 +129,7 @@ public partial class MainWindowViewModel
                                 request.ColumnSelection.PlaylistSummaryColumnsSettings);
                             if (request.ColumnSelection.AppliedMode.HasValue)
                             {
-                                owner.lastAppliedMainColumnSettingMode = request.ColumnSelection.AppliedMode.Value;
+                                owner.regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
                             }
 
                             result.SourceGenerationId = viewState.Source.GenerationId;

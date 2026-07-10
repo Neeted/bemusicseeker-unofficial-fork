@@ -731,12 +731,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private int playHistoryKeywordFilterActiveCount;
 
-    private IEnumerable<LibraryChartRow> ChartRowsFolderView;
-
-    private IEnumerable<LibraryChartRow> ChartRowsKeywordFilterView;
-
-    private IEnumerable<LibraryChartRow> ChartRowsModeFilterView;
-
     private IReadOnlyList<PlayHistoryPeriodTreeItem> _PlayHistoryArchivePeriodTree = [];
 
     private cSortParameters _SortParameters;
@@ -753,17 +747,9 @@ public partial class MainWindowViewModel : ViewModel
 
     private string _BrowserHtml;
 
-    private List<LibraryChartRow> folderSortSourceSnapshot;
-
-    private List<LibraryChartRow> folderSortResultSnapshot;
-
-    private string folderSortColumnName;
-
-    private ListSortDirection? folderSortDirection;
-
     private readonly NormalLibraryRowCache regularBmsLibraryRowCache;
 
-    private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> normalLibrarySortCache = [];
+    private readonly RegularChartListOwner regularChartListOwner;
 
     private readonly object normalLibrarySortCacheLock = new();
 
@@ -815,8 +801,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private int normalLibraryRefreshHandledNotificationVersion;
 
-    private MainViewUpdateMode? lastAppliedMainColumnSettingMode;
-
     private readonly Dictionary<string, ChartFileTransientState> chartTransientStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly object mainSummaryFolderCountCacheLock = new();
@@ -834,8 +818,6 @@ public partial class MainWindowViewModel : ViewModel
     private const long PlaylistOpenSlowLogThresholdMs = 1000L;
 
     private const long PlaylistScoreProbeSlowLogThresholdMs = 500L;
-
-    private static long mainViewBuildRequestIdSeed;
 
     private long lastMainViewBuildRequestId;
 
@@ -3500,7 +3482,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             IncrementNormalLibrarySourceGenerationForBmsonSync(bmsonSyncResult, "bmson");
         }
-        ResetRegularDerivedViewCaches();
+        regularChartListOwner.ResetDerivedCaches();
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
         {
             QueuePlaylistSummaryDataRefresh(invalidateTableCountCache: true);
@@ -4736,7 +4718,9 @@ public partial class MainWindowViewModel : ViewModel
                 + " cacheHit=False");
             Action reflect = () =>
             {
-                if (!IsPlaylistSummaryMode && IsCurrentMainSummaryFolderCountKey(key))
+                if (!IsPlaylistSummaryMode
+                    && IsCurrentMainSummaryFolderCountKey(key)
+                    && regularChartListOwner.IsCurrentRegularRows(expectedRowsView))
                 {
                     MainChartList.TryUpdateNormalSummary(expectedRowsView, key.RowCount, distinctFolderCount);
                 }
@@ -4788,21 +4772,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    /// <summary>
-    /// 通常一覧の chart row cache を無効化します。
-    /// folder/keyword/mode の各段を再計算する必要がある場合にだけ呼びます。
-    /// </summary>
-    private void ResetRegularDerivedViewCaches()
-    {
-        ChartRowsFolderView = null;
-        ChartRowsKeywordFilterView = null;
-        ChartRowsModeFilterView = null;
-        folderSortSourceSnapshot = null;
-        folderSortResultSnapshot = null;
-        folderSortColumnName = null;
-        folderSortDirection = null;
-    }
-
     private void IncrementNormalLibrarySourceGeneration(string reason)
     {
         int cacheCount;
@@ -4810,7 +4779,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             normalLibrarySourceGeneration++;
             cacheCount = GetNormalLibraryCacheCountLocked();
-            normalLibrarySortCache.Clear();
+            regularChartListOwner.ClearSortCache();
             ClearVirtualNormalLibraryCachesLocked();
         }
         ClearMainSummaryFolderCountCache();
@@ -4833,7 +4802,7 @@ public partial class MainWindowViewModel : ViewModel
                 normalLibrarySourceHandledOwnedCollectionVersion = currentVersion;
                 normalLibrarySourceGeneration++;
                 cacheCount = GetNormalLibraryCacheCountLocked();
-                normalLibrarySortCache.Clear();
+                regularChartListOwner.ClearSortCache();
                 ClearVirtualNormalLibraryCachesLocked();
                 incremented = true;
             }
@@ -4906,7 +4875,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void RefreshNormalLibraryAfterSourceChanged(string reason)
     {
-        ResetRegularDerivedViewCaches();
+        regularChartListOwner.ResetDerivedCaches();
         if (TrySuppress(UiRefreshChannel.LibraryMainView))
         {
             RefreshPlaylistSummaryIfVisible(reason);
@@ -5154,7 +5123,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             normalLibrarySortKeyGeneration++;
             cacheCount = GetNormalLibraryCacheCountLocked();
-            normalLibrarySortCache.Clear();
+            regularChartListOwner.ClearSortCache();
             ClearVirtualNormalLibraryOrderCachesLocked();
             if (clearSourceRows)
             {
@@ -5292,7 +5261,7 @@ public partial class MainWindowViewModel : ViewModel
         lock (normalLibrarySortCacheLock)
         {
             cacheCount = GetNormalLibraryCacheCountLocked();
-            normalLibrarySortCache.Clear();
+            regularChartListOwner.ClearSortCache();
             ClearVirtualNormalLibraryCachesLocked();
         }
         ClearMainSummaryFolderCountCache();
@@ -5336,7 +5305,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private int GetNormalLibraryCacheCountLocked()
     {
-        return normalLibrarySortCache.Count
+        return regularChartListOwner.SortCacheCount
             + virtualNormalLibraryOrderCache.Count
             + virtualChartSubsetOrderCache.Count
             + (virtualNormalLibrarySourceRowCacheAvailable ? 1 : 0);
@@ -5372,7 +5341,7 @@ public partial class MainWindowViewModel : ViewModel
     private int PruneNormalLibrarySortCachesForDependencyLocked(MainViewDataDependency dependency)
     {
         int removedCount = 0;
-        removedCount += PruneNormalLibrarySortCacheForDependencyLocked(normalLibrarySortCache, dependency);
+        removedCount += regularChartListOwner.InvalidateSortCacheByDependency(dependency);
         removedCount += PruneNormalLibrarySortCacheForDependencyLocked(virtualNormalLibraryOrderCache, dependency);
         removedCount += PruneVirtualChartSubsetSortCacheForDependencyLocked(dependency);
         return removedCount;
@@ -5667,7 +5636,7 @@ public partial class MainWindowViewModel : ViewModel
             LogVirtualNormalLibrarySortReset(mode, requestedMode, includeBmsonRows, routeSkipReason, normalizedSortColumn, sortDirection);
             SortParameters = null;
         }
-        ResetRegularDerivedViewCaches();
+        regularChartListOwner.ResetDerivedCaches();
         UpdateChartInfoProjectionVersionCache();
         UpdateScoreSnapshotProjectionVersionCache();
 
@@ -5821,7 +5790,7 @@ public partial class MainWindowViewModel : ViewModel
             sortDirection = ListSortDirection.Ascending;
         }
 
-        ResetRegularDerivedViewCaches();
+        regularChartListOwner.ResetDerivedCaches();
         UpdateChartInfoProjectionVersionCache();
         UpdateScoreSnapshotProjectionVersionCache();
 
@@ -5969,7 +5938,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void CompleteMainViewBuild(MainViewUpdateMode mode)
     {
-        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
+        long mainViewBuildRequestId = MainViewBuildRequestSequence.Next();
         long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
         Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
         Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
@@ -6297,6 +6266,30 @@ public partial class MainWindowViewModel : ViewModel
             columnName,
             direction,
             rowCount);
+    }
+
+    private NormalLibrarySortCacheGenerationSnapshot CaptureNormalLibrarySortCacheGeneration(string columnName)
+    {
+        lock (normalLibrarySortCacheLock)
+        {
+            ResolveVirtualSortDependencyGenerations(
+                columnName,
+                out long scoreGeneration,
+                out long chartInfoGeneration,
+                out long maintenanceGeneration,
+                out long warningGeneration,
+                out long installDestinationGeneration,
+                out long referenceTablesGeneration);
+            return new NormalLibrarySortCacheGenerationSnapshot(
+                normalLibrarySourceGeneration,
+                normalLibrarySortKeyGeneration,
+                scoreGeneration,
+                chartInfoGeneration,
+                maintenanceGeneration,
+                warningGeneration,
+                installDestinationGeneration,
+                referenceTablesGeneration);
+        }
     }
 
     private VirtualChartSubsetSortCacheKey CreateVirtualChartSubsetSortCacheKey(
@@ -7648,13 +7641,13 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="mode">今回の更新モード。</param>
     /// <returns>regular cache の再構築が必要なら <see langword="true"/>。</returns>
-    private static bool ShouldRebuildRegularFolderStage(MainViewUpdateMode mode, IEnumerable<LibraryChartRow> folderView, IEnumerable<LibraryChartRow> keywordView, IEnumerable<LibraryChartRow> modeView, MainViewUpdateMode currentTreeMode)
+    private static bool ShouldRebuildRegularFolderStage(MainViewUpdateMode mode, bool hasFolderView, bool hasKeywordView, bool hasModeView, MainViewUpdateMode currentTreeMode)
     {
         return MainViewRefreshDecisionService.ShouldRebuildRegularFolderStage(
             mode,
-            folderView != null,
-            keywordView != null,
-            modeView != null,
+            hasFolderView,
+            hasKeywordView,
+            hasModeView,
             currentTreeMode);
     }
 
@@ -7853,22 +7846,49 @@ public partial class MainWindowViewModel : ViewModel
     /// 最新の一覧更新要求を識別するIDを返します。
     /// MainWindow 側の描画遅延計測ログを main_view_build と突き合わせるために使用します。
     /// </summary>
-    public long LastMainViewBuildRequestId => Interlocked.Read(ref lastMainViewBuildRequestId);
+    public long LastMainViewBuildRequestId
+    {
+        get
+        {
+            RegularChartListCompletion regular = regularChartListOwner.LastCompletion;
+            return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
+                ? regular.RequestId
+                : Interlocked.Read(ref lastMainViewBuildRequestId);
+        }
+    }
 
     /// <summary>
     /// 最新の main_view_build 完了時刻 (Stopwatch タイムスタンプ) を返します。
     /// </summary>
-    public long LastMainViewBuildEndTimestamp => Interlocked.Read(ref lastMainViewBuildEndTimestamp);
+    public long LastMainViewBuildEndTimestamp => Math.Max(Interlocked.Read(ref lastMainViewBuildEndTimestamp), regularChartListOwner.LastCompletion.EndTimestamp);
 
     /// <summary>
     /// 最新の main_view_build を実行したスレッドIDを返します。
     /// </summary>
-    public int LastMainViewBuildThreadId => Volatile.Read(ref lastMainViewBuildThreadId);
+    public int LastMainViewBuildThreadId
+    {
+        get
+        {
+            RegularChartListCompletion regular = regularChartListOwner.LastCompletion;
+            return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
+                ? regular.ThreadId
+                : Volatile.Read(ref lastMainViewBuildThreadId);
+        }
+    }
 
     /// <summary>
     /// 最新の main_view_build 実行時モードを int 値で返します。
     /// </summary>
-    public int LastMainViewBuildMode => Volatile.Read(ref lastMainViewBuildMode);
+    public int LastMainViewBuildMode
+    {
+        get
+        {
+            RegularChartListCompletion regular = regularChartListOwner.LastCompletion;
+            return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
+                ? (int)regular.Mode
+                : Volatile.Read(ref lastMainViewBuildMode);
+        }
+    }
 
     /// <summary>
     /// 現在プレビュー再生（または再生準備）中である BMS ファイルを表す状態プロパティです。
@@ -9856,6 +9876,9 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
         MainChartList.SortRequested += MainChartListSortRequested;
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
+        regularChartListOwner = new RegularChartListOwner(
+            MainChartList,
+            PlaylistWorkspace);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         preferredPlayHistoryDisplayTargetIdentity = NormalizePlayHistoryDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
@@ -9935,6 +9958,7 @@ public partial class MainWindowViewModel : ViewModel
 
     internal Task<ShutdownPreparationResult> PrepareShutdownAsync(string reason)
     {
+        regularChartListOwner.Dispose();
         lock (shutdownPreparationLock)
         {
             if (shutdownPreparationTask == null)
@@ -12339,7 +12363,7 @@ public partial class MainWindowViewModel : ViewModel
         string parameterType = parameter?.GetType().Name ?? "(null)";
         bool fastSortEnabled = true;
         bool isPlaylistDetailForLog = IsPlaylistViewMode(mode) || IsPlaylistViewMode(treeViewFilterTypeSelected);
-        long mainViewBuildRequestId = Interlocked.Increment(ref mainViewBuildRequestIdSeed);
+        long mainViewBuildRequestId = MainViewBuildRequestSequence.Next();
         long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
         Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
         Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
@@ -12846,6 +12870,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ、無い場合は null。</param>
     private void RefreshChartRowsView(MainViewUpdateMode mode, object parameter = null)
     {
+        regularChartListOwner.InvalidatePendingRequest();
         var viewBuildStopwatch = Stopwatch.StartNew();
         MainViewUpdateMode requestedMode = mode;
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
@@ -12966,14 +12991,22 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         bool virtualChartSubsetRequiredFailure = false;
+        bool hasFolderRowsOverride = false;
+        IEnumerable<LibraryChartRow> folderRowsOverride = null;
         if (IsVirtualChartSubsetRequiredForRequest(mode, treeViewFilterTypeSelected))
         {
             LogVirtualChartSubsetRequiredFailure(mode, requestedMode, treeViewFilterTypeSelected);
-            ChartRowsFolderView = [];
+            hasFolderRowsOverride = true;
+            folderRowsOverride = [];
             virtualChartSubsetRequiredFailure = true;
         }
         if (!virtualChartSubsetRequiredFailure
-            && ShouldRebuildRegularFolderStage(mode, ChartRowsFolderView, ChartRowsKeywordFilterView, ChartRowsModeFilterView, treeViewFilterTypeSelected))
+            && ShouldRebuildRegularFolderStage(
+                mode,
+                regularChartListOwner.HasFolderRows,
+                regularChartListOwner.HasKeywordRows,
+                regularChartListOwner.HasModeRows,
+                treeViewFilterTypeSelected))
         {
             mode = treeViewFilterTypeSelected;
             parameter = treeViewFilterParameterSelected;
@@ -12997,153 +13030,96 @@ public partial class MainWindowViewModel : ViewModel
                 case MainViewUpdateMode.FolderFilterSelected:
                 case MainViewUpdateMode.FullScanAllChartsFilterSelected:
                     LogVirtualNormalLibraryRequiredFailure(regularRequest.Mode, regularRequest.RequestedMode, regularRequest.IncludeBmsonRows);
-                    ChartRowsFolderView = [];
+                    hasFolderRowsOverride = true;
+                    folderRowsOverride = [];
                     break;
             }
         }
-        regularStage.FolderRows = RegularChartListStageState.Materialize(ChartRowsFolderView);
-        ChartRowsFolderView = regularStage.FolderRows;
-        folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        folderCount = regularStage.FolderCount;
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (regularRequest.Mode <= MainViewUpdateMode.KeywordFilterUpdated)
-        {
-            if (!string.IsNullOrWhiteSpace(regularRequest.KeywordFilter))
-            {
-                ChartRowsKeywordFilterView = [];
-                ChartRowsKeywordFilterView = RegularChartListFilterService.ApplyKeywordFilter(ChartRowsFolderView, regularRequest.KeywordFilter);
-            }
-            else
-            {
-                ChartRowsKeywordFilterView = ChartRowsFolderView;
-            }
-        }
-        regularStage.KeywordRows = RegularChartListStageState.Materialize(ChartRowsKeywordFilterView);
-        ChartRowsKeywordFilterView = regularStage.KeywordRows;
-        keywordStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        keywordCount = regularStage.KeywordCount;
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        if (regularRequest.Mode <= MainViewUpdateMode.ModeFilterUpdated)
-        {
-            if (regularRequest.ModeFilter != ModeFilterType.All)
-            {
-                ChartRowsModeFilterView = RegularChartListFilterService.ApplyModeFilter(ChartRowsKeywordFilterView, regularRequest.ModeFilter);
-            }
-            else
-            {
-                ChartRowsModeFilterView = ChartRowsKeywordFilterView;
-            }
-        }
-        regularStage.ModeRows = RegularChartListStageState.Materialize(ChartRowsModeFilterView);
-        ChartRowsModeFilterView = regularStage.ModeRows;
-        modeStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        modeCount = regularStage.ModeCount;
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         bool isPlaylistDetailView = mode == MainViewUpdateMode.PlaylistFilterSelected || mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
-        var sortContext = new RegularChartListSortContext
+        if (!regularChartListOwner.TryBeginRequest(out RegularChartListRequestLease lease))
         {
-            CurrentTreeMode = treeViewFilterTypeSelected,
-            HasVirtualNormalLibraryTreeFilter = virtualNormalLibraryTreeFilter != null,
-            IsPlaylistDetailView = isPlaylistDetailView,
-            FolderSortSourceSnapshot = folderSortSourceSnapshot,
-            FolderSortResultSnapshot = folderSortResultSnapshot,
-            FolderSortColumnName = folderSortColumnName,
-            FolderSortDirection = folderSortDirection,
-            TryGetNormalLibrarySortCache = TryGetNormalLibrarySortCacheForCoordinator,
-            TryNormalizeSortCacheColumn = TryNormalizeNormalLibrarySortCacheColumn,
-            CreateSortCacheKey = (normalizedColumnName, direction, rowCount) =>
-            {
-                lock (normalLibrarySortCacheLock)
+            return;
+        }
+        RegularChartListBuildResult build;
+        try
+        {
+            build = regularChartListOwner.Build(
+                lease,
+                regularRequest,
+                new RegularChartListBuildInput
                 {
-                    return CreateNormalLibrarySortCacheKey(
-                        normalLibrarySourceGeneration,
-                        normalLibrarySortKeyGeneration,
-                        normalizedColumnName,
-                        direction,
-                        rowCount);
-                }
-            },
-            StoreSortCache = StoreNormalLibrarySortCache,
-            CreateSortCacheMetrics = CreateNormalLibrarySortCacheMetrics,
-            GetSortCacheGenerationForLog = GetSortCacheGenerationForLog,
-            LogSortDetail = LogMainSortDetail
-        };
-        RegularChartListSortResult sortResult = RegularChartListSortCoordinator.ApplySort(regularRequest, regularStage, sortContext);
-        IList nextRowsView = sortResult.RowsView;
-        sortReuse = sortResult.SortReuse;
-        sortProfile = sortResult.SortProfile;
-        folderSortSourceSnapshot = sortResult.FolderSortSourceSnapshot;
-        folderSortResultSnapshot = sortResult.FolderSortResultSnapshot;
-        folderSortColumnName = sortResult.FolderSortColumnName;
-        folderSortDirection = sortResult.FolderSortDirection;
-        sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
+                    CurrentTreeMode = treeViewFilterTypeSelected,
+                    HasVirtualNormalLibraryTreeFilter = virtualNormalLibraryTreeFilter != null,
+                    IsPlaylistDetailView = isPlaylistDetailView,
+                    HasFolderRowsOverride = hasFolderRowsOverride,
+                    FolderRowsOverride = folderRowsOverride,
+                    SortCacheGeneration = CaptureNormalLibrarySortCacheGeneration(regularRequest.SortColumnName),
+                    Stopwatch = viewBuildStopwatch
+                });
+        }
+        catch (OperationCanceledException) when (lease.Token.IsCancellationRequested)
+        {
+            return;
+        }
+        regularStage = build.Stage;
+        folderStageMs = build.FolderMs;
+        keywordStageMs = build.KeywordMs;
+        modeStageMs = build.ModeMs;
+        folderCount = regularStage.FolderCount;
+        keywordCount = regularStage.KeywordCount;
+        modeCount = regularStage.ModeCount;
+        IList nextRowsView = build.Sort.RowsView;
+        sortReuse = build.Sort.SortReuse;
+        sortProfile = build.Sort.SortProfile;
         viewCount = nextRowsView?.Count ?? 0;
+        sortStageMs = build.SortMs;
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
-        MainChartListRowsApplyResult applyResult = MainChartList.ApplyRows(new MainChartListRowsApplyRequest
+        RegularChartListTerminalResult terminal = regularChartListOwner.TryCommit(
+            lease,
+            build,
+            new RegularChartListTerminalInput
+            {
+                RowsRequest = new MainChartListRowsApplyRequest
+                {
+                    Rows = nextRowsView,
+                    ColumnsSettings = columnSelection.ColumnsSettings,
+                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+                    Summary = IsPlaylistSummaryMode
+                        ? MainChartListSummaryUpdate.Preserve()
+                        : MainChartListSummaryUpdate.NormalRows(nextRowsView),
+                    ColumnSettingReuse = columnSelection.Reused,
+                    ColumnPreparationMs = columnSelection.ElapsedMs,
+                    TerminalStageStartMs = stageStartMs,
+                    Stopwatch = viewBuildStopwatch
+                },
+                ColumnSelection = columnSelection,
+                Mode = mode,
+                Stopwatch = viewBuildStopwatch
+            });
+        if (!terminal.WasCommitted)
         {
-            Rows = nextRowsView,
-            ColumnsSettings = columnSelection.ColumnsSettings,
-            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
-            Summary = IsPlaylistSummaryMode
-                ? MainChartListSummaryUpdate.Preserve()
-                : MainChartListSummaryUpdate.NormalRows(nextRowsView),
-            ColumnSettingReuse = columnSelection.Reused,
-            ColumnPreparationMs = columnSelection.ElapsedMs,
-            TerminalStageStartMs = stageStartMs,
-            Stopwatch = viewBuildStopwatch
-        });
-        CommitMainColumnSetting(columnSelection);
-        long prepareSwapMs = applyResult.PrepareSwapMs;
-        long columnSettingMs = applyResult.ColumnSettingMs;
-        long setViewMs = applyResult.SetViewMs;
-        bool columnSettingReuse = applyResult.ColumnSettingReuse;
-        columnStageMs = applyResult.ColumnStageMs;
+            return;
+        }
+        long prepareSwapMs = terminal.RowsApply.PrepareSwapMs;
+        long columnSettingMs = terminal.RowsApply.ColumnSettingMs;
+        long setViewMs = terminal.RowsApply.SetViewMs;
+        bool columnSettingReuse = terminal.RowsApply.ColumnSettingReuse;
+        columnStageMs = terminal.RowsApply.ColumnStageMs;
         callbackStageMs = 0L;
         string sortColumn = regularRequest.HasSortParameters ? (regularRequest.RequestedSortColumnName ?? "(default_title)") : "(default_title)";
         string sortDirection = regularRequest.SortDirection.ToString();
         string parameterType = parameter?.GetType().Name ?? "(null)";
         bool fastSortEnabled = true;
         bool isPlaylistDetailForLog = mode == MainViewUpdateMode.PlaylistFilterSelected || mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected || treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
-        RegularChartListBuildCompletion buildCompletion = ChartListRefreshCoordinator.CreateRegularBuildCompletion(
-            new RegularChartListBuildLogRequest
-            {
-                Mode = mode,
-                RequestedMode = requestedMode,
-                ParameterType = parameterType,
-                FolderMs = folderStageMs,
-                KeywordMs = keywordStageMs,
-                ModeMs = modeStageMs,
-                SortMs = sortStageMs,
-                SortReuse = sortReuse,
-                SortProfile = sortProfile,
-                FastSortEnabled = fastSortEnabled,
-                IsPlaylistDetailView = isPlaylistDetailForLog,
-                ColumnMs = columnStageMs,
-                PrepareSwapMs = prepareSwapMs,
-                ColumnSettingMs = columnSettingMs,
-                SetViewMs = setViewMs,
-                ColumnSettingReuse = columnSettingReuse,
-                CallbackMs = callbackStageMs,
-                FolderCount = folderCount,
-                KeywordCount = keywordCount,
-                ModeCount = modeCount,
-                ViewCount = viewCount,
-                SortColumn = sortColumn,
-                SortDirection = sortDirection
-            },
-            viewBuildStopwatch,
-            () => Interlocked.Increment(ref mainViewBuildRequestIdSeed));
-        Interlocked.Exchange(ref lastMainViewBuildRequestId, buildCompletion.RequestId);
-        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, buildCompletion.EndTimestamp);
-        Volatile.Write(ref lastMainViewBuildThreadId, buildCompletion.ThreadId);
-        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
-        if (buildCompletion.IsPlaylistDetailView)
-        {
-            Interlocked.Exchange(ref lastPlaylistDetailBuildCompletedTimestamp, buildCompletion.EndTimestamp);
-            Interlocked.Exchange(ref lastPlaylistDetailBuildElapsedMs, buildCompletion.ElapsedMs);
-        }
-        LogMainViewBuild(buildCompletion.LogMessage);
+        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType
+            + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs
+            + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile
+            + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog
+            + " columnMs=" + columnStageMs + " prepareSwapMs=" + prepareSwapMs + " columnSettingMs=" + columnSettingMs
+            + " setViewMs=" + setViewMs + " columnSettingReuse=" + columnSettingReuse + " callbackMs=" + callbackStageMs
+            + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount
+            + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
     }
 
     private void ApplyPlayHistoryView(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
@@ -15149,94 +15125,6 @@ public partial class MainWindowViewModel : ViewModel
             + " sortMs=" + metrics.SortMs);
     }
 
-    private static bool TryNormalizeNormalLibrarySortCacheColumn(string columnName, out string normalizedColumnName)
-    {
-        return ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out normalizedColumnName);
-    }
-
-    internal static bool IsNormalLibrarySortCacheCandidateForTest(string columnName)
-    {
-        return TryNormalizeNormalLibrarySortCacheColumn(columnName, out _);
-    }
-
-    private bool TryGetNormalLibrarySortCache(
-        bool isEligible,
-        string columnName,
-        ListSortDirection direction,
-        int rowCount,
-        out List<LibraryChartRow> rows,
-        out NormalLibrarySortCacheKey cacheKey,
-        out string cacheColumnName)
-    {
-        rows = null;
-        cacheKey = default;
-        cacheColumnName = string.Empty;
-        if (!isEligible || !TryNormalizeNormalLibrarySortCacheColumn(columnName, out cacheColumnName))
-        {
-            return false;
-        }
-        lock (normalLibrarySortCacheLock)
-        {
-            cacheKey = CreateNormalLibrarySortCacheKey(normalLibrarySourceGeneration, normalLibrarySortKeyGeneration, cacheColumnName, direction, rowCount);
-            return normalLibrarySortCache.TryGetValue(cacheKey, out rows);
-        }
-    }
-
-    private bool TryGetNormalLibrarySortCacheForCoordinator(
-        bool isEligible,
-        string columnName,
-        ListSortDirection direction,
-        int rowCount,
-        out List<LibraryChartRow> rows,
-        out NormalLibrarySortCacheKey cacheKey)
-    {
-        return TryGetNormalLibrarySortCache(isEligible, columnName, direction, rowCount, out rows, out cacheKey, out _);
-    }
-
-    private void StoreNormalLibrarySortCache(NormalLibrarySortCacheKey cacheKey, List<LibraryChartRow> rows)
-    {
-        if (rows == null || string.IsNullOrWhiteSpace(cacheKey.ColumnName))
-        {
-            return;
-        }
-        lock (normalLibrarySortCacheLock)
-        {
-            if (IsNormalLibrarySortCacheKeyCurrentLocked(cacheKey))
-            {
-                normalLibrarySortCache[cacheKey] = rows;
-            }
-        }
-    }
-
-    private static LibraryChartSortMetrics CreateNormalLibrarySortCacheMetrics(NormalLibrarySortCacheKey cacheKey, long sortMs, bool cacheHit)
-    {
-        string sortProfile = "library_chart_string_fast_ordinal_ignore_case";
-        string stringSortKind = "ordinal_ignore_case";
-        string propertyTypeName = nameof(String);
-        if (ChartListOrder.TryGetVirtualSortColumnMetadata(cacheKey.ColumnName, out ChartListOrderColumnMetadata metadata))
-        {
-            propertyTypeName = metadata.PropertyTypeName;
-            stringSortKind = metadata.StringSortKind;
-            if (metadata.KeyKind == ChartListOrderKeyKind.Comparable)
-            {
-                sortProfile = "library_chart_typed";
-            }
-        }
-
-        return new LibraryChartSortMetrics(
-            cacheKey.RowCount,
-            cacheKey.ColumnName,
-            cacheKey.Direction,
-            propertyTypeName,
-            sortProfile,
-            stringSortKind,
-            sortMs,
-            sortReuse: cacheHit,
-            sortCacheKey: cacheKey.ColumnName,
-            sortCacheGeneration: GetSortCacheGenerationForLog(cacheKey),
-            sortCacheHit: cacheHit);
-    }
-
     private List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts)
     {
         List<LibraryChartRow> rows = [.. (charts ?? [])
@@ -15425,7 +15313,7 @@ public partial class MainWindowViewModel : ViewModel
         MainViewUpdateMode resolvedMode = ResolveMainColumnSettingMode(mode, treeViewFilterTypeSelected);
         bool targetSettingsReady = IsMainColumnSettingTargetReady(resolvedMode);
         bool playlistSummarySettingsReady = Settings.Default.PlaylistSummaryColumnsSettings != null;
-        if (CanReuseMainColumnSetting(resolvedMode, lastAppliedMainColumnSettingMode, targetSettingsReady, playlistSummarySettingsReady, isInit: false))
+        if (CanReuseMainColumnSetting(resolvedMode, regularChartListOwner.LastAppliedColumnMode, targetSettingsReady, playlistSummarySettingsReady, isInit: false))
         {
             return new MainChartListColumnSelection(
                 MainChartList.ColumnsSettings,
@@ -15674,40 +15562,9 @@ public partial class MainWindowViewModel : ViewModel
             selection.PlaylistSummaryColumnsSettings);
         if (selection.AppliedMode.HasValue)
         {
-            lastAppliedMainColumnSettingMode = selection.AppliedMode.Value;
+            regularChartListOwner.CommitExternalColumnMode(selection.AppliedMode);
         }
         PlaylistWorkspace.PublishColumnPresentation(presentationCommit);
-    }
-
-    private readonly struct MainChartListColumnSelection
-    {
-        internal MainChartListColumnSelection(
-            CustomTableColumnSettings columnsSettings,
-            bool reused,
-            long elapsedMs,
-            MainViewUpdateMode? appliedMode,
-            Visibility playlistColumnSettingsVisibility,
-            PlaylistSummaryColumnSettings playlistSummaryColumnsSettings)
-        {
-            ColumnsSettings = columnsSettings;
-            Reused = reused;
-            ElapsedMs = elapsedMs;
-            AppliedMode = appliedMode;
-            PlaylistColumnSettingsVisibility = playlistColumnSettingsVisibility;
-            PlaylistSummaryColumnsSettings = playlistSummaryColumnsSettings;
-        }
-
-        internal CustomTableColumnSettings ColumnsSettings { get; }
-
-        internal bool Reused { get; }
-
-        internal long ElapsedMs { get; }
-
-        internal MainViewUpdateMode? AppliedMode { get; }
-
-        internal Visibility PlaylistColumnSettingsVisibility { get; }
-
-        internal PlaylistSummaryColumnSettings PlaylistSummaryColumnsSettings { get; }
     }
 
     private void ApplyMainChartListSort(

@@ -21,6 +21,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private Visibility columnSettingsVisibilityForPlaylist = Visibility.Collapsed;
 
+    private long columnPresentationGeneration;
+
     private ObservableCollection<PlaylistSummaryRow> playlistSummaryView = [];
 
     private string playlistSummaryText = string.Empty;
@@ -159,7 +161,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         bool summaryColumnsChanged = !ReferenceEquals(playlistSummaryColumnsSettings, summaryColumnsSettings);
         columnSettingsVisibilityForPlaylist = visibility;
         playlistSummaryColumnsSettings = summaryColumnsSettings;
-        return new PlaylistColumnPresentationCommit(visibilityChanged, summaryColumnsChanged);
+        long generation = visibilityChanged || summaryColumnsChanged
+            ? Interlocked.Increment(ref columnPresentationGeneration)
+            : Interlocked.Read(ref columnPresentationGeneration);
+        return new PlaylistColumnPresentationCommit(
+            visibilityChanged,
+            summaryColumnsChanged,
+            generation);
     }
 
     internal void PublishColumnPresentation(PlaylistColumnPresentationCommit commit)
@@ -168,14 +176,19 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(commit));
         }
-        if (commit.VisibilityChanged)
+        if (commit.VisibilityChanged && IsCurrentColumnPresentationCommit(commit))
         {
             RaisePropertyChanged(nameof(ColumnSettingsVisibilityForPlaylist));
         }
-        if (commit.SummaryColumnsChanged)
+        if (commit.SummaryColumnsChanged && IsCurrentColumnPresentationCommit(commit))
         {
             RaisePropertyChanged(nameof(PlaylistSummaryColumnsSettings));
         }
+    }
+
+    private bool IsCurrentColumnPresentationCommit(PlaylistColumnPresentationCommit commit)
+    {
+        return commit.Generation == Interlocked.Read(ref columnPresentationGeneration);
     }
 
     internal PlaylistBindingModeCommit CommitBindingModeWithoutNotification(bool playlistDetailActive)
@@ -945,15 +958,18 @@ internal sealed class PlaylistSummaryPublishException : Exception
 
 internal sealed class PlaylistColumnPresentationCommit
 {
-    internal PlaylistColumnPresentationCommit(bool visibilityChanged, bool summaryColumnsChanged)
+    internal PlaylistColumnPresentationCommit(bool visibilityChanged, bool summaryColumnsChanged, long generation)
     {
         VisibilityChanged = visibilityChanged;
         SummaryColumnsChanged = summaryColumnsChanged;
+        Generation = generation;
     }
 
     internal bool VisibilityChanged { get; }
 
     internal bool SummaryColumnsChanged { get; }
+
+    internal long Generation { get; }
 }
 
 internal sealed class PlaylistBindingModeCommit
