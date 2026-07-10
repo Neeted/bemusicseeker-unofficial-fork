@@ -68,7 +68,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)");
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(");
         StringAssert.Contains(workspaceSource, "internal long LastPlaylistSummaryBuildCompletedTimestamp");
-        StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; } = new();");
+        StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace = new PlaylistWorkspaceViewModel(DispatchMainChartListAction);");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;");
         Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied", StringComparison.Ordinal));
@@ -85,6 +86,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(buildOwnerSource, "internal long RebuildPlaylistSummaryView(");
         StringAssert.Contains(buildOwnerSource, "private PlaylistSummaryRowsBuildResult BuildPlaylistSummaryRows(");
         StringAssert.Contains(buildOwnerSource, "internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(");
+        Assert.AreEqual(-1, buildOwnerSource.IndexOf("DispatcherHelper.UIDispatcher", StringComparison.Ordinal));
+        StringAssert.Contains(buildOwnerSource, "dispatchPresentation(Reflect);");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;");
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableDisplayRefreshRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableSortParameters", StringComparison.Ordinal));
@@ -132,7 +135,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummarySortRequestCommitsOwnerStateBeforeEvent()
     {
-        var workspace = new PlaylistWorkspaceViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
         int raisedCount = 0;
         workspace.PlaylistSummarySortRequested += (_, _) =>
         {
@@ -207,7 +210,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryApplyRejectsStaleGenerationAndInactiveMode()
     {
-        var workspace = new PlaylistWorkspaceViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
@@ -261,7 +264,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryPublishFailureStillRaisesAppliedEvent()
     {
-        var workspace = new PlaylistWorkspaceViewModel { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
         var rows = new ObservableCollection<PlaylistSummaryRow> { new() };
@@ -291,7 +294,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryAppliedInvokesLaterSubscriberAfterEarlierFailure()
     {
-        var workspace = new PlaylistWorkspaceViewModel { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
         bool laterSubscriberCalled = false;
@@ -311,7 +314,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryDataBuildCancelsSupersededAndHiddenWork()
     {
-        var workspace = new PlaylistWorkspaceViewModel { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
 
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest first));
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest second));
@@ -332,7 +335,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceTableCountCacheReusesContentKeyAcrossDataGenerations()
     {
-        var workspace = new PlaylistWorkspaceViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
         var expected = new PlaylistSummaryCountResult
         {
             ScannedEntries = 4,
@@ -357,7 +360,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceTableCountCacheRejectsResultFromBuildBeforeInvalidation()
     {
-        var workspace = new PlaylistWorkspaceViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
         workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest staleBuild));
         var staleResult = new PlaylistSummaryCountResult
@@ -380,7 +383,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryDataBuildCannotRestartAfterShutdownStop()
     {
-        var workspace = new PlaylistWorkspaceViewModel { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
 
@@ -401,7 +404,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceDeferredDataRefreshCancelsBuildAndDominatesPresentation()
     {
-        var workspace = new PlaylistWorkspaceViewModel { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
 
@@ -422,7 +425,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceDeferredRefreshIsAtomicWithExternalDataPriorityAndModeExit()
     {
-        var workspace = new PlaylistWorkspaceViewModel { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
 
         Assert.AreEqual(
@@ -441,7 +444,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceDataRefreshRequestOwnsVisibilityAndDeferralDecision()
     {
-        var workspace = new PlaylistWorkspaceViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
         long hiddenDataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
         long hiddenCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
 

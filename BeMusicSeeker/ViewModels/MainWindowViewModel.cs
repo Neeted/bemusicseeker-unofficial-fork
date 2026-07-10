@@ -118,7 +118,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// Gets playlist detail/summary presentation state while shell workflows remain in the root ViewModel.
     /// </summary>
-    public PlaylistWorkspaceViewModel PlaylistWorkspace { get; } = new();
+    public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
 
     internal MainWindowRuntimeContext RuntimeContext { get; }
 
@@ -6966,6 +6966,7 @@ public partial class MainWindowViewModel : ViewModel
             () => bmsPlayer,
             () => DispatcherHelper.UIDispatcher);
         MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction);
+        PlaylistWorkspace = new PlaylistWorkspaceViewModel(DispatchMainChartListAction);
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;

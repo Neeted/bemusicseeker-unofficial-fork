@@ -15,6 +15,13 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 {
+    private readonly Action<Action> dispatchPresentation;
+
+    public PlaylistWorkspaceViewModel(Action<Action> dispatchPresentation)
+    {
+        this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
+    }
+
     private MainWindowViewModel.cSortParameters playlistSummarySortParameters;
 
     private PlaylistSummaryColumnSettings playlistSummaryColumnsSettings;

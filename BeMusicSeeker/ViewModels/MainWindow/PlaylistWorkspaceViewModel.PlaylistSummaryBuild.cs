@@ -7,7 +7,6 @@ using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -315,15 +314,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             });
         }
 
-        Dispatcher dispatcher = DispatcherHelper.UIDispatcher;
-        if (dispatcher == null || dispatcher.CheckAccess())
-        {
-            Reflect();
-        }
-        else
-        {
-            dispatcher.BeginInvoke((Action)Reflect);
-        }
+        dispatchPresentation(Reflect);
 
         Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);
         LogBuild(logger, "playlist_summary_present inputCount=" + safeRawRows.Count

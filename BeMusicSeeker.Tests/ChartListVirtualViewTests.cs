@@ -3313,7 +3313,7 @@ public sealed class ChartListVirtualViewTests
     {
         state = new PlayHistoryPresentationState();
         table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         var playlistOwner = new PlaylistDetailTerminalOwner(
             new PlaylistDetailBuildState(),

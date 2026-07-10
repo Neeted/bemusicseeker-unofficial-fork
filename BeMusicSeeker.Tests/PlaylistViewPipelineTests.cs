@@ -264,7 +264,7 @@ public sealed class PlaylistViewPipelineTests
         var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -304,7 +304,7 @@ public sealed class PlaylistViewPipelineTests
         var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };
@@ -365,7 +365,7 @@ public sealed class PlaylistViewPipelineTests
             buildState,
             viewState,
             new MainChartListViewModel(),
-            new PlaylistWorkspaceViewModel(),
+            new PlaylistWorkspaceViewModel(action => action()),
             _ => { });
 
         PlaylistSourceClearCommitResult commit = owner.CommitSourceClearWithoutCallbacks();
@@ -403,7 +403,7 @@ public sealed class PlaylistViewPipelineTests
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState(),
             new MainChartListViewModel(),
-            new PlaylistWorkspaceViewModel(),
+            new PlaylistWorkspaceViewModel(action => action()),
             _ => { });
         var commit = new PlaylistSourceClearCommitResult(null, null, 0, cancellation);
 
