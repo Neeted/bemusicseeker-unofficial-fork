@@ -1115,13 +1115,15 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(ChartListOrder.TryCreate(sourceRows, nameof(LibraryChartRow.path), ListSortDirection.Descending, out ChartListOrder fullOrder));
         var keywordQuery = GridKeywordSearchQuery.Parse("artist:target");
 
-        int[] filteredIndexes = MainWindowViewModel.ApplyVirtualChartSubsetFiltersForTest(
+        int[] filteredIndexes = RegularChartListOwner.ApplyVirtualChartSubsetFilters(
             sourceRows,
             fullOrder.Indexes,
             keywordQuery,
-            MainWindowViewModel.ModeFilterType._5KEYS | MainWindowViewModel.ModeFilterType._7KEYS,
+            RegularChartModeFilter.FiveKeys | RegularChartModeFilter.SevenKeys,
             out int keywordCount,
-            out int modeCount);
+            out int modeCount,
+            out _,
+            out _);
         ChartListOrder filteredOrder = fullOrder.WithIndexes(filteredIndexes);
         int createdCount = 0;
         var view = new ChartListVirtualView(sourceRows, filteredOrder, row =>
@@ -1147,9 +1149,9 @@ public sealed class ChartListVirtualViewTests
     {
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(CreateSampleSortFiles());
         List<ChartListSourceRow> reorderedRows = [.. sourceRows.AsEnumerable().Reverse()];
-        long signature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(sourceRows);
-        long sameSignature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(BuildOwnerBackedSourceRows(CreateSampleSortFiles()));
-        long reorderedSignature = MainWindowViewModel.ComputeVirtualChartSubsetSourceRowsSignatureForTest(reorderedRows);
+        long signature = RegularChartListOwner.ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
+        long sameSignature = RegularChartListOwner.ComputeVirtualChartSubsetSourceRowsSignature(BuildOwnerBackedSourceRows(CreateSampleSortFiles()));
+        long reorderedSignature = RegularChartListOwner.ComputeVirtualChartSubsetSourceRowsSignature(reorderedRows);
         int treeMode = (int)MainViewUpdateMode.FileMissingFilterSelected;
 
         var current = new VirtualChartSubsetSortCacheKey(
@@ -1300,20 +1302,20 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualChartSubsetTreeModes_AreLimitedToChartCollections()
     {
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.FileMissingFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.FileMissingIgnoredFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.DuplicateFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.GarbledFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.GarbleFixedFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.UnregisteredFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.ZeroNoteFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.ChartInfoParseErrorFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.NewlyInstalledFolderSelected));
-        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.PendingInstallFolderSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.FileMissingFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.FileMissingIgnoredFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.DuplicateFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.GarbledFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.GarbleFixedFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.UnregisteredFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.ZeroNoteFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.ChartInfoParseErrorFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.NewlyInstalledFolderSelected));
+        Assert.IsTrue(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.PendingInstallFolderSelected));
 
-        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.FullScanAllChartsFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.FolderFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)MainViewUpdateMode.PlaylistFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.FullScanAllChartsFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.FolderFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode.PlaylistFilterSelected));
     }
 
     [TestMethod]
@@ -1936,7 +1938,7 @@ public sealed class ChartListVirtualViewTests
             bool expectedTreeSupport = treeModes.Contains(treeMode);
             Assert.AreEqual(
                 expectedTreeSupport,
-                MainWindowViewModel.IsVirtualChartSubsetTreeModeSupportedForTest((int)treeMode),
+                MainWindowViewModel.IsVirtualChartSubsetTreeModeSupported(treeMode),
                 treeMode + " tree support");
             foreach (MainViewUpdateMode requestMode in allModes)
             {
@@ -1944,12 +1946,12 @@ public sealed class ChartListVirtualViewTests
                     && (requestMode == treeMode || refreshModes.Contains(requestMode));
                 Assert.AreEqual(
                     expectedRequestSupport,
-                    MainWindowViewModel.IsVirtualChartSubsetRequestModeSupportedForTest((int)requestMode, (int)treeMode),
+                    MainWindowViewModel.IsVirtualChartSubsetRequestModeSupported(requestMode, treeMode),
                     treeMode + " request " + requestMode);
                 bool expectedRequired = expectedRequestSupport || treeModes.Contains(requestMode);
                 Assert.AreEqual(
                     expectedRequired,
-                    MainWindowViewModel.IsVirtualChartSubsetRequiredForRequestForTest((int)requestMode, (int)treeMode),
+                    MainWindowViewModel.IsVirtualChartSubsetRequiredForRequest(requestMode, treeMode),
                     treeMode + " required " + requestMode);
             }
         }
@@ -1981,7 +1983,16 @@ public sealed class ChartListVirtualViewTests
             ],
             [Path.Combine("C:\\BMS", "DirA"), Path.Combine("C:\\BMS", "DirB")]);
 
-        List<ChartListSourceRow> rows = MainWindowViewModel.CreateDuplicateVirtualSourceRowsForTest([duplicateGroup], duplicateGroup);
+        Assert.IsTrue(MainWindowViewModel.TryGetVirtualDuplicateSourceChartsCore(
+            [duplicateGroup],
+            duplicateGroup,
+            out IEnumerable<ChartFile> sourceCharts,
+            out _));
+        List<ChartListSourceRow> rows = ChartListSourceRow.BuildStandardLibraryRows(
+            sourceCharts,
+            ChartListSourceProjectionMode.PreserveSourceProjection,
+            resourceHealthProjectionProvider: null,
+            playlistReferenceDisplayProvider: null);
 
         Assert.AreEqual(2, rows.Count);
         Assert.AreSame(bmsFile, rows.Single(row => row.Chart.GetBmsStorageOwner() != null).Chart.GetBmsStorageOwner());
@@ -2068,16 +2079,16 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void VirtualChartSubsetResourceHealthProjection_MatchesMaterializedModes()
     {
-        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainViewUpdateMode.FileMissingFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainViewUpdateMode.FileMissingIgnoredFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainViewUpdateMode.NewlyInstalledFolderSelected));
+        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.FileMissingFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.FileMissingIgnoredFilterSelected));
+        Assert.IsTrue(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.NewlyInstalledFolderSelected));
 
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainViewUpdateMode.FullScanAllChartsFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainViewUpdateMode.GarbledFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainViewUpdateMode.UnregisteredFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainViewUpdateMode.ZeroNoteFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainViewUpdateMode.ChartInfoParseErrorFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubsetForTest((int)MainViewUpdateMode.PendingInstallFolderSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.FullScanAllChartsFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.GarbledFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.UnregisteredFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.ZeroNoteFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.ChartInfoParseErrorFilterSelected));
+        Assert.IsFalse(MainWindowViewModel.ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode.PendingInstallFolderSelected));
     }
 
     [TestMethod]

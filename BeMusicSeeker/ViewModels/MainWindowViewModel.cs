@@ -4325,70 +4325,6 @@ public partial class MainWindowViewModel : ViewModel
             && left.FinalizationFilter == right.FinalizationFilter;
     }
 
-    internal static string FormatMainGridSummaryTextForTest(int rowCount, int distinctFolderCount)
-    {
-        return MainChartListViewModel.FormatSummaryTextForTest(rowCount, distinctFolderCount);
-    }
-
-    private static int[] ApplyVirtualChartSubsetFilters(
-        IReadOnlyList<ChartListSourceRow> sourceRows,
-        IReadOnlyList<int> orderedIndexes,
-        GridKeywordSearchQuery keywordQuery,
-        ModeFilterType modeFilter,
-        out int keywordFilteredCount,
-        out int modeFilteredCount,
-        out long keywordStageMs,
-        out long modeStageMs)
-    {
-        int[] viewOrderedIndexes = [.. (orderedIndexes ?? []).Where(index => sourceRows != null && index >= 0 && index < sourceRows.Count)];
-
-        var stageStopwatch = Stopwatch.StartNew();
-        if (keywordQuery != null && keywordQuery.HasTokens)
-        {
-            viewOrderedIndexes = viewOrderedIndexes
-                .AsParallel()
-                .AsOrdered()
-                .Where(index => keywordQuery.MatchesChartListSourceRow(sourceRows[index]))
-                .ToArray();
-        }
-        keywordFilteredCount = viewOrderedIndexes.Length;
-        keywordStageMs = stageStopwatch.ElapsedMilliseconds;
-
-        stageStopwatch.Restart();
-        if (modeFilter != ModeFilterType.All)
-        {
-            HashSet<int?> modeValues = CreateModeFilterValueSet(modeFilter);
-            viewOrderedIndexes = [.. viewOrderedIndexes
-                .Where(index =>
-                {
-                    ChartListSourceRow row = sourceRows[index];
-                    return row != null && modeValues.Contains(row.Mode);
-                })];
-        }
-        modeFilteredCount = viewOrderedIndexes.Length;
-        modeStageMs = stageStopwatch.ElapsedMilliseconds;
-        return viewOrderedIndexes;
-    }
-
-    internal static int[] ApplyVirtualChartSubsetFiltersForTest(
-        IReadOnlyList<ChartListSourceRow> sourceRows,
-        IReadOnlyList<int> orderedIndexes,
-        GridKeywordSearchQuery keywordQuery,
-        ModeFilterType modeFilter,
-        out int keywordFilteredCount,
-        out int modeFilteredCount)
-    {
-        return ApplyVirtualChartSubsetFilters(
-            sourceRows,
-            orderedIndexes,
-            keywordQuery,
-            modeFilter,
-            out keywordFilteredCount,
-            out modeFilteredCount,
-            out _,
-            out _);
-    }
-
     private void IncrementNormalLibrarySourceGeneration(string reason)
     {
         int cacheCount = regularChartListOwner.InvalidateSource();
@@ -4943,6 +4879,16 @@ public partial class MainWindowViewModel : ViewModel
         return true;
     }
 
+    private void CompleteMainViewBuild(MainViewUpdateMode mode)
+    {
+        long mainViewBuildRequestId = MainViewBuildRequestSequence.Next();
+        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
+        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
+        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
+        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
+        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
+    }
+
     private bool TryApplyVirtualChartSubsetLibraryView(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
     {
         MainViewUpdateMode treeMode = treeViewFilterTypeSelected;
@@ -4966,119 +4912,45 @@ public partial class MainWindowViewModel : ViewModel
             sortDirection = ListSortDirection.Ascending;
         }
 
-        regularChartListOwner.ResetDerivedCaches();
-        if (!regularChartListOwner.TryBeginRequest(out RegularChartListRequestLease lease))
-        {
-            return true;
-        }
-        MainChartList.RowProjection.CaptureVersions(files);
-
-        NormalLibrarySortCacheGenerationSnapshot subsetGeneration = regularChartListOwner.CaptureSortGeneration(
-            normalizedSortColumn,
-            CaptureRegularChartListExternalVersions());
-        long sourceGenerationAtLookup = subsetGeneration.Source;
-        long sortKeyGenerationAtLookup = subsetGeneration.SortKey;
-
-        long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         bool applyResourceHealthProjection = ShouldApplyResourceHealthProjectionForVirtualSubset(treeMode);
-        List<ChartListSourceRow> sourceRows = subsetEntries != null
-            ? MainChartList.RowProjection.BuildPackageSourceRows(files, subsetEntries, applyResourceHealthProjection)
-            : MainChartList.RowProjection.BuildStandardSourceRows(files, subsetCharts, subsetProjectionMode, applyResourceHealthProjection);
-        if (lease.Token.IsCancellationRequested)
-        {
-            return true;
-        }
-        long sourceRowsMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        long folderStageMs = sourceRowsMs;
-        int folderCount = sourceRows.Count;
-        long sourceRowsSignature = ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
-
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        ChartListOrder fullOrder = GetOrCreateVirtualChartSubsetOrder(
-            sourceRows,
-            normalizedSortColumn,
-            sortDirection,
-            treeMode,
-            subsetName,
-            sourceRowsSignature,
-            sourceGenerationAtLookup,
-            sortKeyGenerationAtLookup,
-            out bool sortCacheHit,
-            out VirtualChartSubsetSortCacheKey sortCacheKey,
-            out long orderCacheLookupMs,
-            out long orderBuildMs);
-        if (lease.Token.IsCancellationRequested)
-        {
-            return true;
-        }
-        long sortStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-
-        var keywordQuery = GridKeywordSearchQuery.Parse(KeywordFilter);
-        int[] viewOrderedIndexes = ApplyVirtualChartSubsetFilters(
-            sourceRows,
-            fullOrder.Indexes,
-            keywordQuery,
-            ModeFilter,
-            out int keywordCount,
-            out int modeCount,
-            out long keywordStageMs,
-            out long modeStageMs);
-        if (lease.Token.IsCancellationRequested)
-        {
-            return true;
-        }
-
-        ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
-        IReadOnlyList<ChartListSourceRow> orderedRows = RegularChartListOwner.SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes);
-        int distinctFolderCount = RegularChartListOwner.CountDistinctFolders(orderedRows);
-
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        var nextRowsView = new ChartListVirtualView(
-            sourceRows,
-            order,
-            row => MainChartList.RowProjection.CreateSubsetRow(files, row, applyResourceHealthProjection),
-            distinctFolderCount);
         MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
-        RegularChartListTerminalResult terminal = regularChartListOwner.TryCommitVirtual(
-            lease,
-            new RegularChartListTerminalInput
+        RegularVirtualChartSubsetApplyResult result = regularChartListOwner.TryApplyVirtualChartSubset(
+            new RegularVirtualChartSubsetApplyRequest
             {
-                RowsRequest = new MainChartListRowsApplyRequest
-                {
-                    Rows = nextRowsView,
-                    ColumnsSettings = columnSelection.ColumnsSettings,
-                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
-                    Summary = IsPlaylistSummaryMode
-                        ? MainChartListSummaryUpdate.Preserve()
-                        : MainChartListSummaryUpdate.NormalCounts(nextRowsView.Count, distinctFolderCount),
-                    ColumnSettingReuse = columnSelection.Reused,
-                    ColumnPreparationMs = columnSelection.ElapsedMs,
-                    TerminalStageStartMs = stageStartMs,
-                    Stopwatch = viewBuildStopwatch
-                },
+                Library = files,
+                SourceCharts = subsetCharts,
+                SourceEntries = subsetEntries,
+                SourceProjectionMode = subsetProjectionMode,
+                ApplyResourceHealthProjection = applyResourceHealthProjection,
+                TreeMode = treeMode,
+                SubsetName = subsetName,
+                KeywordFilter = KeywordFilter,
+                ModeFilter = (RegularChartModeFilter)(int)ModeFilter,
+                SortColumnName = normalizedSortColumn,
+                SortDirection = sortDirection,
+                ExternalVersions = CaptureRegularChartListExternalVersions(),
                 ColumnSelection = columnSelection,
+                PreserveSummary = IsPlaylistSummaryMode,
                 Mode = mode,
                 Stopwatch = viewBuildStopwatch
             });
-        if (!terminal.WasCommitted)
+        if (!result.WasCommitted)
         {
             return true;
         }
-        MainChartListRowsApplyResult applyResult = terminal.RowsApply;
+        MainChartListRowsApplyResult applyResult = result.Terminal.RowsApply;
         if (applyResourceHealthProjection)
         {
-            LogResourceHealthProjection(mode, nextRowsView.Count);
+            LogResourceHealthProjection(mode, result.RowsView.Count);
         }
-
         CompleteMainViewBuild(mode);
-
         LogMainSortDetail(ChartListRefreshCoordinator.CreateVirtualSortMetrics(
-            order,
-            sortStageMs,
-            sortCacheHit,
-            GetSortCacheGenerationForLog(sortCacheKey),
-            orderCacheLookupMs,
-            orderBuildMs));
+            result.Order,
+            result.SortMs,
+            result.SortCacheHit,
+            GetSortCacheGenerationForLog(result.SortCacheKey),
+            result.OrderCacheLookupMs,
+            result.OrderBuildMs));
 
         string sortColumn = SortParameters?.ColumnsName ?? "(default_title)";
         string sortDirectionText = SortParameters?.Direction.ToString() ?? "Ascending";
@@ -5088,15 +4960,15 @@ public partial class MainWindowViewModel : ViewModel
             + " treeMode=" + treeMode
             + " subset=" + subsetName
             + " parameterType=" + parameterType
-            + " folderMs=" + folderStageMs
-            + " keywordMs=" + keywordStageMs
-            + " modeMs=" + modeStageMs
-            + " sortMs=" + sortStageMs
-            + " sortReuse=" + sortCacheHit
-            + " sortProfile=" + order.SortProfile + (sortCacheHit ? "_reuse" : string.Empty)
+            + " folderMs=" + result.SourceRowsMs
+            + " keywordMs=" + result.KeywordMs
+            + " modeMs=" + result.ModeMs
+            + " sortMs=" + result.SortMs
+            + " sortReuse=" + result.SortCacheHit
+            + " sortProfile=" + result.Order.SortProfile + (result.SortCacheHit ? "_reuse" : string.Empty)
             + " sortEngine=virtual fastSortEnabled=True"
             + " isPlaylistDetailView=False"
-            + " sourceRowsMs=" + sourceRowsMs
+            + " sourceRowsMs=" + result.SourceRowsMs
             + " columnMs=" + applyResult.ColumnStageMs
             + " prepareSwapMs=" + applyResult.PrepareSwapMs
             + " columnSettingMs=" + applyResult.ColumnSettingMs
@@ -5104,29 +4976,19 @@ public partial class MainWindowViewModel : ViewModel
             + " columnSettingReuse=" + applyResult.ColumnSettingReuse
             + " callbackMs=0"
             + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds
-            + " folderCount=" + folderCount
-            + " keywordCount=" + keywordCount
-            + " modeCount=" + modeCount
-            + " viewCount=" + nextRowsView.Count
+            + " folderCount=" + result.SourceRowCount
+            + " keywordCount=" + result.KeywordCount
+            + " modeCount=" + result.ModeCount
+            + " viewCount=" + result.RowsView.Count
             + " sortColumn=" + sortColumn
             + " sortDirection=" + sortDirectionText
             + " virtual=True"
-            + " sourceRows=" + sourceRows.Count
-            + " orderedRows=" + order.Count
-            + " viewRowsCreated=" + nextRowsView.RealizedRowCount
-            + " distinctFolderCount=" + distinctFolderCount
-            + " sourceRowsSignature=" + sourceRowsSignature);
+            + " sourceRows=" + result.SourceRowCount
+            + " orderedRows=" + result.Order.Count
+            + " viewRowsCreated=" + result.RowsView.RealizedRowCount
+            + " distinctFolderCount=" + result.DistinctFolderCount
+            + " sourceRowsSignature=" + result.SourceRowsSignature);
         return true;
-    }
-
-    private void CompleteMainViewBuild(MainViewUpdateMode mode)
-    {
-        long mainViewBuildRequestId = MainViewBuildRequestSequence.Next();
-        long mainViewBuildEndTimestamp = Stopwatch.GetTimestamp();
-        Interlocked.Exchange(ref lastMainViewBuildRequestId, mainViewBuildRequestId);
-        Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
-        Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
-        Volatile.Write(ref lastMainViewBuildMode, (int)mode);
     }
 
     private object GetVirtualChartSubsetParameter(MainViewUpdateMode treeMode, object parameter)
@@ -5141,64 +5003,6 @@ public partial class MainWindowViewModel : ViewModel
             return parameter;
         }
         return NormalizeDuplicateViewParameter(treeViewFilterParameterSelected ?? parameter);
-    }
-
-    private ChartListOrder GetOrCreateVirtualChartSubsetOrder(
-        IReadOnlyList<ChartListSourceRow> sourceRows,
-        string columnName,
-        ListSortDirection direction,
-        MainViewUpdateMode treeMode,
-        string subsetName,
-        long sourceRowsSignature,
-        long sourceGeneration,
-        long sortKeyGeneration,
-        out bool cacheHit,
-        out VirtualChartSubsetSortCacheKey cacheKey,
-        out long orderCacheLookupMs,
-        out long orderBuildMs)
-    {
-        var lookupStopwatch = Stopwatch.StartNew();
-        int rowCount = sourceRows?.Count ?? 0;
-        if (!ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out string normalizedColumnName))
-        {
-            throw new ArgumentException("Unsupported virtual chart subset sort column.", nameof(columnName));
-        }
-
-        cacheKey = regularChartListOwner.CreateVirtualSubsetOrderKey(
-            sourceGeneration,
-            sortKeyGeneration,
-            (int)treeMode,
-            subsetName,
-            sourceRowsSignature,
-            normalizedColumnName,
-            direction,
-            rowCount,
-            CaptureRegularChartListExternalVersions());
-        if (regularChartListOwner.TryGetVirtualSubsetOrder(cacheKey, out ChartListOrder cachedOrder))
-        {
-            lookupStopwatch.Stop();
-            cacheHit = true;
-            orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
-            orderBuildMs = 0L;
-            return cachedOrder;
-        }
-
-        lookupStopwatch.Stop();
-        var buildStopwatch = Stopwatch.StartNew();
-        if (!ChartListOrder.TryCreate(sourceRows, normalizedColumnName, direction, out ChartListOrder order))
-        {
-            throw new ArgumentException("Unsupported virtual chart subset sort column.", nameof(columnName));
-        }
-        buildStopwatch.Stop();
-        regularChartListOwner.TryPublishVirtualSubsetOrder(
-            cacheKey,
-            order,
-            CaptureRegularChartListExternalVersions());
-
-        cacheHit = false;
-        orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
-        orderBuildMs = buildStopwatch.ElapsedMilliseconds;
-        return order;
     }
 
     private NormalLibrarySortCacheGenerationSnapshot CaptureNormalLibrarySortCacheGeneration(string columnName)
@@ -5272,34 +5076,6 @@ public partial class MainWindowViewModel : ViewModel
             return key.MaintenanceGeneration;
         }
         return key.SortKeyGeneration;
-    }
-
-    internal static long ComputeVirtualChartSubsetSourceRowsSignatureForTest(IReadOnlyList<ChartListSourceRow> sourceRows)
-    {
-        return ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
-    }
-
-    private static long ComputeVirtualChartSubsetSourceRowsSignature(IReadOnlyList<ChartListSourceRow> sourceRows)
-    {
-        unchecked
-        {
-            long hash = 17L;
-            hash = (hash * 397L) ^ (sourceRows?.Count ?? 0);
-            if (sourceRows == null)
-            {
-                return hash;
-            }
-
-            foreach (ChartListSourceRow row in sourceRows)
-            {
-                hash = (hash * 397L) ^ (row?.Kind == ChartFileKind.Bms ? 1 : 2);
-                hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Path ?? string.Empty);
-                hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Hash ?? string.Empty);
-                hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Sha256 ?? string.Empty);
-                hash = (hash * 397L) ^ (row?.PackageEntry?.ProjectionVersion ?? 0);
-            }
-            return hash;
-        }
     }
 
     private void SchedulePostStartupBestEffortWarmups(string reason)
@@ -5622,26 +5398,6 @@ public partial class MainWindowViewModel : ViewModel
         return ShouldApplyVirtualNormalLibraryFolderFilter((MainViewUpdateMode)treeMode);
     }
 
-    internal static bool IsVirtualChartSubsetTreeModeSupportedForTest(int mode)
-    {
-        return IsVirtualChartSubsetTreeModeSupported((MainViewUpdateMode)mode);
-    }
-
-    internal static bool IsVirtualChartSubsetRequestModeSupportedForTest(int mode, int treeMode)
-    {
-        return IsVirtualChartSubsetRequestModeSupported((MainViewUpdateMode)mode, (MainViewUpdateMode)treeMode);
-    }
-
-    internal static bool IsVirtualChartSubsetRequiredForRequestForTest(int mode, int treeMode)
-    {
-        return IsVirtualChartSubsetRequiredForRequest((MainViewUpdateMode)mode, (MainViewUpdateMode)treeMode);
-    }
-
-    internal static bool ShouldApplyResourceHealthProjectionForVirtualSubsetForTest(int mode)
-    {
-        return ShouldApplyResourceHealthProjectionForVirtualSubset((MainViewUpdateMode)mode);
-    }
-
     private static bool IsVirtualNormalLibraryModeSupported(MainViewUpdateMode mode)
     {
         return MainViewRefreshDecisionService.IsVirtualNormalLibraryModeSupported(mode);
@@ -5668,7 +5424,7 @@ public partial class MainWindowViewModel : ViewModel
         return treeMode != MainViewUpdateMode.FullScanAllChartsFilterSelected;
     }
 
-    private static bool IsVirtualChartSubsetRequestModeSupported(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
+    internal static bool IsVirtualChartSubsetRequestModeSupported(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
     {
         return IsVirtualChartSubsetTreeModeSupported(treeMode)
             && (mode == treeMode
@@ -5678,13 +5434,13 @@ public partial class MainWindowViewModel : ViewModel
                 || mode == MainViewUpdateMode.SortUpdated);
     }
 
-    private static bool IsVirtualChartSubsetRequiredForRequest(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
+    internal static bool IsVirtualChartSubsetRequiredForRequest(MainViewUpdateMode mode, MainViewUpdateMode treeMode)
     {
         return IsVirtualChartSubsetRequestModeSupported(mode, treeMode)
             || IsVirtualChartSubsetTreeModeSupported(mode);
     }
 
-    private static bool IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode mode)
+    internal static bool IsVirtualChartSubsetTreeModeSupported(MainViewUpdateMode mode)
     {
         return mode == MainViewUpdateMode.FileMissingFilterSelected
             || mode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
@@ -5695,12 +5451,6 @@ public partial class MainWindowViewModel : ViewModel
             || mode == MainViewUpdateMode.ZeroNoteFilterSelected
             || mode == MainViewUpdateMode.ChartInfoParseErrorFilterSelected
             || mode == MainViewUpdateMode.NewlyInstalledFolderSelected
-            || mode == MainViewUpdateMode.PendingInstallFolderSelected;
-    }
-
-    private static bool IsVirtualPackageSubsetTreeMode(MainViewUpdateMode mode)
-    {
-        return mode == MainViewUpdateMode.NewlyInstalledFolderSelected
             || mode == MainViewUpdateMode.PendingInstallFolderSelected;
     }
 
@@ -5788,7 +5538,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         if (packages == null)
         {
-            sourceCharts = [];
+            sourceCharts = null;
             sourceEntries = [];
             subsetName = allSubsetName;
             return true;
@@ -5796,14 +5546,14 @@ public partial class MainWindowViewModel : ViewModel
         if (parameter is ChartPackage package)
         {
             PackageChartSourceSnapshot packageSnapshot = CreatePackageChartSourceSnapshot(package);
-            sourceCharts = [];
+            sourceCharts = null;
             sourceEntries = packageSnapshot.Entries;
             subsetName = packageSubsetName;
             return true;
         }
 
         PackageChartSourceSnapshot snapshot = CreatePackageChartSourceSnapshot(packages);
-        sourceCharts = [];
+        sourceCharts = null;
         sourceEntries = snapshot.Entries;
         subsetName = allSubsetName;
         return true;
@@ -5932,7 +5682,7 @@ public partial class MainWindowViewModel : ViewModel
         return TryGetVirtualDuplicateSourceChartsCore(DuplicateChartGroups, parameter, out sourceCharts, out subsetName);
     }
 
-    private static bool TryGetVirtualDuplicateSourceChartsCore(
+    internal static bool TryGetVirtualDuplicateSourceChartsCore(
         IEnumerable<DuplicateGroup> duplicateGroups,
         object parameter,
         out IEnumerable<ChartFile> sourceCharts,
@@ -6008,29 +5758,11 @@ public partial class MainWindowViewModel : ViewModel
             .Where(chart => !string.IsNullOrWhiteSpace(chart.Path) && chart.Path.StartsWith(folderPrefix, StringComparison.OrdinalIgnoreCase))];
     }
 
-    private static bool ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode treeMode)
+    internal static bool ShouldApplyResourceHealthProjectionForVirtualSubset(MainViewUpdateMode treeMode)
     {
         return treeMode == MainViewUpdateMode.FileMissingFilterSelected
             || treeMode == MainViewUpdateMode.FileMissingIgnoredFilterSelected
             || treeMode == MainViewUpdateMode.NewlyInstalledFolderSelected;
-    }
-
-    internal static List<ChartListSourceRow> CreateDuplicateVirtualSourceRowsForTest(IEnumerable<DuplicateGroup> duplicateGroups, object parameter)
-    {
-        if (!TryGetVirtualDuplicateSourceChartsCore(duplicateGroups, parameter, out IEnumerable<ChartFile> sourceCharts, out _))
-        {
-            return [];
-        }
-        return ChartListSourceRow.BuildStandardLibraryRows(
-            sourceCharts,
-            ChartListSourceProjectionMode.PreserveSourceProjection,
-            resourceHealthProjectionProvider: null,
-            playlistReferenceDisplayProvider: null);
-    }
-
-    private static HashSet<int?> CreateModeFilterValueSet(ModeFilterType modeFilter)
-    {
-        return RegularChartListFilterService.CreateModeFilterValueSet((RegularChartModeFilter)(int)modeFilter);
     }
 
     /// <summary>

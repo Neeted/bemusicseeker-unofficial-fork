@@ -237,6 +237,54 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void VirtualChartSubsetApply_OwnsProjectionOrderFilterAndTerminalReuse()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel());
+        List<ChartFile> charts =
+        [
+            CreateSourceRow("Folder A", "Alpha").Chart,
+            CreateSourceRow("Folder B", "Bravo").Chart,
+            CreateSourceRow("Folder A", "Charlie").Chart
+        ];
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var request = new RegularVirtualChartSubsetApplyRequest
+        {
+            SourceCharts = charts,
+            SourceProjectionMode = ChartListSourceProjectionMode.PreserveSourceProjection,
+            TreeMode = MainViewUpdateMode.FileMissingFilterSelected,
+            SubsetName = "file_missing",
+            KeywordFilter = string.Empty,
+            ModeFilter = RegularChartModeFilter.All,
+            SortColumnName = nameof(LibraryChartRow.Title),
+            SortDirection = ListSortDirection.Descending,
+            ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
+            ColumnSelection = new MainChartListColumnSelection(
+                settings,
+                reused: false,
+                elapsedMs: 0L,
+                MainViewUpdateMode.FileMissingFilterSelected,
+                Visibility.Collapsed,
+                new PlaylistSummaryColumnSettings()),
+            Mode = MainViewUpdateMode.FileMissingFilterSelected,
+            Stopwatch = Stopwatch.StartNew()
+        };
+
+        RegularVirtualChartSubsetApplyResult first = owner.TryApplyVirtualChartSubset(request);
+        RegularVirtualChartSubsetApplyResult second = owner.TryApplyVirtualChartSubset(request);
+
+        Assert.IsTrue(first.WasCommitted);
+        Assert.IsTrue(second.WasCommitted);
+        Assert.AreSame(second.RowsView, table.Rows);
+        Assert.AreEqual(3, second.RowsView.Count);
+        Assert.AreEqual("Charlie", ((LibraryChartRow)second.RowsView[0]).Title);
+        Assert.AreEqual("Bravo", ((LibraryChartRow)second.RowsView[1]).Title);
+        Assert.AreEqual("Alpha", ((LibraryChartRow)second.RowsView[2]).Title);
+        Assert.IsTrue(second.SortCacheHit);
+        Assert.AreEqual(2, second.DistinctFolderCount);
+    }
+
+    [TestMethod]
     public void DependencyInvalidation_PrunesDefaultAndSubsetOrderCachesTogether()
     {
         RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel());

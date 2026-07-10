@@ -1029,7 +1029,6 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             throw new ArgumentNullException(nameof(request));
         }
-
         ResetDerivedCaches();
         if (!TryBeginVirtualRequest(request.Library, out RegularChartListRequestLease lease))
         {
@@ -1169,6 +1168,257 @@ internal sealed class RegularChartListOwner : IDisposable
             sortStageMs,
             orderCacheLookupMs,
             orderBuildMs);
+    }
+
+    internal RegularVirtualChartSubsetApplyResult TryApplyVirtualChartSubset(
+        RegularVirtualChartSubsetApplyRequest request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if ((request.SourceCharts == null) == (request.SourceEntries == null))
+        {
+            throw new ArgumentException("Exactly one virtual subset source must be provided.", nameof(request));
+        }
+
+        ResetDerivedCaches();
+        if (!TryBeginVirtualRequest(request.Library, out RegularChartListRequestLease lease))
+        {
+            return default;
+        }
+
+        Stopwatch stopwatch = request.Stopwatch ?? Stopwatch.StartNew();
+        mainChartList.RowProjection.CaptureVersions(request.Library);
+        NormalLibrarySortCacheGenerationSnapshot generation = CaptureSortGeneration(
+            request.SortColumnName,
+            request.ExternalVersions);
+
+        long stageStartMs = stopwatch.ElapsedMilliseconds;
+        List<ChartListSourceRow> sourceRows = request.SourceEntries != null
+            ? mainChartList.RowProjection.BuildPackageSourceRows(
+                request.Library,
+                request.SourceEntries,
+                request.ApplyResourceHealthProjection)
+            : mainChartList.RowProjection.BuildStandardSourceRows(
+                request.Library,
+                request.SourceCharts,
+                request.SourceProjectionMode,
+                request.ApplyResourceHealthProjection);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return default;
+        }
+        long sourceRowsMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+        long sourceRowsSignature = ComputeVirtualChartSubsetSourceRowsSignature(sourceRows);
+
+        stageStartMs = stopwatch.ElapsedMilliseconds;
+        ChartListOrder fullOrder = GetOrCreateVirtualChartSubsetOrder(
+            sourceRows,
+            request.Library,
+            request.SortColumnName,
+            request.SortDirection,
+            (int)request.TreeMode,
+            request.SubsetName,
+            sourceRowsSignature,
+            generation.Source,
+            generation.SortKey,
+            request.ExternalVersions,
+            out bool sortCacheHit,
+            out VirtualChartSubsetSortCacheKey sortCacheKey,
+            out long orderCacheLookupMs,
+            out long orderBuildMs);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return default;
+        }
+        long sortStageMs = stopwatch.ElapsedMilliseconds - stageStartMs;
+
+        int[] viewOrderedIndexes = ApplyVirtualChartSubsetFilters(
+            sourceRows,
+            fullOrder.Indexes,
+            GridKeywordSearchQuery.Parse(request.KeywordFilter),
+            request.ModeFilter,
+            out int keywordCount,
+            out int modeCount,
+            out long keywordStageMs,
+            out long modeStageMs);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return default;
+        }
+
+        ChartListOrder order = fullOrder.WithIndexes(viewOrderedIndexes);
+        IReadOnlyList<ChartListSourceRow> orderedRows = SelectSourceRowsByOrder(sourceRows, viewOrderedIndexes);
+        int distinctFolderCount = CountDistinctFolders(orderedRows);
+        if (lease.Token.IsCancellationRequested)
+        {
+            return default;
+        }
+        stageStartMs = stopwatch.ElapsedMilliseconds;
+        var rowsView = new ChartListVirtualView(
+            sourceRows,
+            order,
+            row => mainChartList.RowProjection.CreateSubsetRow(
+                request.Library,
+                row,
+                request.ApplyResourceHealthProjection),
+            distinctFolderCount);
+        RegularChartListTerminalResult terminal = TryCommitVirtual(
+            lease,
+            new RegularChartListTerminalInput
+            {
+                RowsRequest = new MainChartListRowsApplyRequest
+                {
+                    Rows = rowsView,
+                    ColumnsSettings = request.ColumnSelection.ColumnsSettings,
+                    SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+                    Summary = request.PreserveSummary
+                        ? MainChartListSummaryUpdate.Preserve()
+                        : MainChartListSummaryUpdate.NormalCounts(rowsView.Count, distinctFolderCount),
+                    ColumnSettingReuse = request.ColumnSelection.Reused,
+                    ColumnPreparationMs = request.ColumnSelection.ElapsedMs,
+                    TerminalStageStartMs = stageStartMs,
+                    Stopwatch = stopwatch
+                },
+                ColumnSelection = request.ColumnSelection,
+                Mode = request.Mode,
+                Stopwatch = stopwatch
+            });
+        if (!terminal.WasCommitted)
+        {
+            return default;
+        }
+
+        return new RegularVirtualChartSubsetApplyResult(
+            terminal,
+            rowsView,
+            order,
+            sortCacheKey,
+            sourceRows.Count,
+            keywordCount,
+            modeCount,
+            distinctFolderCount,
+            sourceRowsSignature,
+            sourceRowsMs,
+            keywordStageMs,
+            modeStageMs,
+            sortStageMs,
+            sortCacheHit,
+            orderCacheLookupMs,
+            orderBuildMs);
+    }
+
+    private ChartListOrder GetOrCreateVirtualChartSubsetOrder(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        BMSLibrary library,
+        string columnName,
+        ListSortDirection direction,
+        int treeMode,
+        string subsetName,
+        long sourceRowsSignature,
+        long expectedSourceGeneration,
+        long expectedSortKeyGeneration,
+        RegularChartListExternalVersions externalVersions,
+        out bool cacheHit,
+        out VirtualChartSubsetSortCacheKey cacheKey,
+        out long orderCacheLookupMs,
+        out long orderBuildMs)
+    {
+        var lookupStopwatch = Stopwatch.StartNew();
+        int rowCount = sourceRows?.Count ?? 0;
+        if (!ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out string normalizedColumnName))
+        {
+            throw new ArgumentException("Unsupported virtual chart subset sort column.", nameof(columnName));
+        }
+        cacheKey = CreateVirtualSubsetOrderKey(
+            expectedSourceGeneration,
+            expectedSortKeyGeneration,
+            treeMode,
+            subsetName,
+            sourceRowsSignature,
+            normalizedColumnName,
+            direction,
+            rowCount,
+            CaptureExternalVersions(library, externalVersions));
+        if (TryGetVirtualSubsetOrder(cacheKey, out ChartListOrder cachedOrder))
+        {
+            lookupStopwatch.Stop();
+            cacheHit = true;
+            orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
+            orderBuildMs = 0L;
+            return cachedOrder;
+        }
+
+        lookupStopwatch.Stop();
+        var buildStopwatch = Stopwatch.StartNew();
+        if (!ChartListOrder.TryCreate(sourceRows, normalizedColumnName, direction, out ChartListOrder order))
+        {
+            throw new ArgumentException("Unsupported virtual chart subset sort column.", nameof(columnName));
+        }
+        buildStopwatch.Stop();
+        TryPublishVirtualSubsetOrder(
+            cacheKey,
+            order,
+            CaptureExternalVersions(library, externalVersions));
+        cacheHit = false;
+        orderCacheLookupMs = lookupStopwatch.ElapsedMilliseconds;
+        orderBuildMs = buildStopwatch.ElapsedMilliseconds;
+        return order;
+    }
+
+    internal static int[] ApplyVirtualChartSubsetFilters(
+        IReadOnlyList<ChartListSourceRow> sourceRows,
+        IReadOnlyList<int> orderedIndexes,
+        GridKeywordSearchQuery keywordQuery,
+        RegularChartModeFilter modeFilter,
+        out int keywordFilteredCount,
+        out int modeFilteredCount,
+        out long keywordStageMs,
+        out long modeStageMs)
+    {
+        int[] indexes = [.. (orderedIndexes ?? []).Where(index => sourceRows != null && index >= 0 && index < sourceRows.Count)];
+        var stageStopwatch = Stopwatch.StartNew();
+        if (keywordQuery != null && keywordQuery.HasTokens)
+        {
+            indexes = indexes.AsParallel().AsOrdered()
+                .Where(index => keywordQuery.MatchesChartListSourceRow(sourceRows[index]))
+                .ToArray();
+        }
+        keywordFilteredCount = indexes.Length;
+        keywordStageMs = stageStopwatch.ElapsedMilliseconds;
+        stageStopwatch.Restart();
+        if (modeFilter != RegularChartModeFilter.All)
+        {
+            HashSet<int?> modeValues = RegularChartListFilterService.CreateModeFilterValueSet(modeFilter);
+            indexes = [.. indexes.Where(index => modeValues.Contains(sourceRows[index]?.Mode))];
+        }
+        modeFilteredCount = indexes.Length;
+        modeStageMs = stageStopwatch.ElapsedMilliseconds;
+        return indexes;
+    }
+
+    internal static long ComputeVirtualChartSubsetSourceRowsSignature(
+        IReadOnlyList<ChartListSourceRow> sourceRows)
+    {
+        unchecked
+        {
+            long hash = 17L;
+            hash = (hash * 397L) ^ (sourceRows?.Count ?? 0);
+            if (sourceRows == null)
+            {
+                return hash;
+            }
+            foreach (ChartListSourceRow row in sourceRows)
+            {
+                hash = (hash * 397L) ^ (row?.Kind == ChartFileKind.Bms ? 1 : 2);
+                hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Path ?? string.Empty);
+                hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Hash ?? string.Empty);
+                hash = (hash * 397L) ^ StringComparer.OrdinalIgnoreCase.GetHashCode(row?.Sha256 ?? string.Empty);
+                hash = (hash * 397L) ^ (row?.PackageEntry?.ProjectionVersion ?? 0);
+            }
+            return hash;
+        }
     }
 
     private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
@@ -2092,6 +2342,83 @@ internal sealed class RegularVirtualNormalLibraryApplyRequest
     internal MainViewUpdateMode Mode { get; set; }
     internal Stopwatch Stopwatch { get; set; }
     internal string Reason { get; set; }
+}
+
+internal sealed class RegularVirtualChartSubsetApplyRequest
+{
+    internal BMSLibrary Library { get; set; }
+    internal IEnumerable<ChartFile> SourceCharts { get; set; }
+    internal IEnumerable<PackageChartEntry> SourceEntries { get; set; }
+    internal ChartListSourceProjectionMode SourceProjectionMode { get; set; }
+    internal bool ApplyResourceHealthProjection { get; set; }
+    internal MainViewUpdateMode TreeMode { get; set; }
+    internal string SubsetName { get; set; }
+    internal string KeywordFilter { get; set; }
+    internal RegularChartModeFilter ModeFilter { get; set; }
+    internal string SortColumnName { get; set; }
+    internal ListSortDirection SortDirection { get; set; }
+    internal RegularChartListExternalVersions ExternalVersions { get; set; }
+    internal MainChartListColumnSelection ColumnSelection { get; set; }
+    internal bool PreserveSummary { get; set; }
+    internal MainViewUpdateMode Mode { get; set; }
+    internal Stopwatch Stopwatch { get; set; }
+}
+
+internal readonly struct RegularVirtualChartSubsetApplyResult
+{
+    internal RegularVirtualChartSubsetApplyResult(
+        RegularChartListTerminalResult terminal,
+        ChartListVirtualView rowsView,
+        ChartListOrder order,
+        VirtualChartSubsetSortCacheKey sortCacheKey,
+        int sourceRowCount,
+        int keywordCount,
+        int modeCount,
+        int distinctFolderCount,
+        long sourceRowsSignature,
+        long sourceRowsMs,
+        long keywordMs,
+        long modeMs,
+        long sortMs,
+        bool sortCacheHit,
+        long orderCacheLookupMs,
+        long orderBuildMs)
+    {
+        Terminal = terminal;
+        RowsView = rowsView;
+        Order = order;
+        SortCacheKey = sortCacheKey;
+        SourceRowCount = sourceRowCount;
+        KeywordCount = keywordCount;
+        ModeCount = modeCount;
+        DistinctFolderCount = distinctFolderCount;
+        SourceRowsSignature = sourceRowsSignature;
+        SourceRowsMs = sourceRowsMs;
+        KeywordMs = keywordMs;
+        ModeMs = modeMs;
+        SortMs = sortMs;
+        SortCacheHit = sortCacheHit;
+        OrderCacheLookupMs = orderCacheLookupMs;
+        OrderBuildMs = orderBuildMs;
+    }
+
+    internal bool WasCommitted => Terminal.WasCommitted;
+    internal RegularChartListTerminalResult Terminal { get; }
+    internal ChartListVirtualView RowsView { get; }
+    internal ChartListOrder Order { get; }
+    internal VirtualChartSubsetSortCacheKey SortCacheKey { get; }
+    internal int SourceRowCount { get; }
+    internal int KeywordCount { get; }
+    internal int ModeCount { get; }
+    internal int DistinctFolderCount { get; }
+    internal long SourceRowsSignature { get; }
+    internal long SourceRowsMs { get; }
+    internal long KeywordMs { get; }
+    internal long ModeMs { get; }
+    internal long SortMs { get; }
+    internal bool SortCacheHit { get; }
+    internal long OrderCacheLookupMs { get; }
+    internal long OrderBuildMs { get; }
 }
 
 internal readonly struct RegularVirtualNormalLibraryApplyResult
