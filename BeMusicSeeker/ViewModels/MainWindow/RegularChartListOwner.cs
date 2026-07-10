@@ -1325,7 +1325,7 @@ internal sealed class RegularChartListOwner : IDisposable
 
     internal RegularChartListEntryResult ApplyRegularView(RegularChartListEntryRequest request)
     {
-        if (request == null || request.Sources == null || request.Stopwatch == null)
+        if (request == null || request.Stopwatch == null)
         {
             throw new ArgumentException("A complete regular chart-list entry request is required.", nameof(request));
         }
@@ -1333,7 +1333,8 @@ internal sealed class RegularChartListOwner : IDisposable
         {
             throw new ArgumentException("A library is required when bmson rows are included.", nameof(request));
         }
-        request.Sort = CaptureSort();
+        ChartListSortSpecification sort = CaptureSort();
+        RegularChartListExternalVersions externalVersions = CaptureExternalVersions(request.Library, default);
 
         MainViewUpdateMode resolvedMode = ChartListRefreshCoordinator.ResolveMainColumnSettingMode(request.Mode, request.CurrentTreeMode);
         MainViewUpdateMode resolvedTreeMode = ChartListRefreshCoordinator.ResolveMainColumnSettingMode(request.CurrentTreeMode, request.CurrentTreeMode);
@@ -1344,7 +1345,7 @@ internal sealed class RegularChartListOwner : IDisposable
 
         SynchronizeBmsonRowsForRefresh(request);
         bool sortWasReset = !TryResolveVirtualSort(
-            request.Sort,
+            sort,
             out string virtualSortColumn,
             out ListSortDirection virtualSortDirection);
         if (sortWasReset)
@@ -1365,19 +1366,19 @@ internal sealed class RegularChartListOwner : IDisposable
                     ModeFilter = request.ModeFilter,
                     SortColumnName = virtualSortColumn,
                     SortDirection = virtualSortDirection,
-                    ExternalVersions = request.ExternalVersions,
+                    ExternalVersions = externalVersions,
                     ColumnSelection = columnSelection,
                     PreserveSummary = request.PreserveSummary,
                     Mode = request.Mode,
                     Stopwatch = request.Stopwatch,
                     Reason = request.Mode.ToString()
                 });
-            LogDefaultVirtualEntry(request, result, sortWasReset);
+            LogDefaultVirtualEntry(request, sort, result, sortWasReset);
             return new RegularChartListEntryResult(result.WasCommitted, RegularChartListEntryRoute.DefaultVirtual, sortWasReset);
         }
 
         if (IsSubsetVirtualRequest(request.Mode, request.CurrentTreeMode)
-            && TryResolveSubsetSource(request, out RegularChartListSubsetSource subset))
+            && TryResolveSubsetSource(request, request.Library, out RegularChartListSubsetSource subset))
         {
             RegularVirtualChartSubsetApplyResult result = TryApplyVirtualChartSubset(
                 new RegularVirtualChartSubsetApplyRequest
@@ -1393,13 +1394,13 @@ internal sealed class RegularChartListOwner : IDisposable
                     ModeFilter = request.ModeFilter,
                     SortColumnName = virtualSortColumn,
                     SortDirection = virtualSortDirection,
-                    ExternalVersions = request.ExternalVersions,
+                    ExternalVersions = externalVersions,
                     ColumnSelection = columnSelection,
                     PreserveSummary = request.PreserveSummary,
                     Mode = request.Mode,
                     Stopwatch = request.Stopwatch
                 });
-            LogSubsetVirtualEntry(request, subset.Name, result, sortWasReset);
+            LogSubsetVirtualEntry(request, sort, subset.Name, result, sortWasReset);
             return new RegularChartListEntryResult(result.WasCommitted, RegularChartListEntryRoute.SubsetVirtual, sortWasReset);
         }
 
@@ -1437,7 +1438,7 @@ internal sealed class RegularChartListOwner : IDisposable
             virtualSubsetRequiredFailure,
             request.KeywordFilter,
             request.ModeFilter,
-            request.Sort);
+            sort);
         if (!refreshRequest.VirtualSubsetRequiredFailure
             && (refreshRequest.Mode == MainViewUpdateMode.FolderFilterSelected
                 || refreshRequest.Mode == MainViewUpdateMode.FullScanAllChartsFilterSelected))
@@ -1452,7 +1453,7 @@ internal sealed class RegularChartListOwner : IDisposable
                 RefreshRequest = refreshRequest,
                 HasFolderRowsOverride = hasFolderRowsOverride,
                 FolderRowsOverride = folderRowsOverride,
-                ExternalVersions = request.ExternalVersions,
+                ExternalVersions = externalVersions,
                 ColumnSelection = effectiveMode == request.Mode ? columnSelection : treeColumnSelection,
                 PreserveSummary = request.PreserveSummary,
                 Mode = effectiveMode,
@@ -1563,6 +1564,7 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private static bool TryResolveSubsetSource(
         RegularChartListEntryRequest request,
+        BMSLibrary library,
         out RegularChartListSubsetSource source)
     {
         object parameter = request.CurrentTreeMode == MainViewUpdateMode.DuplicateFilterSelected
@@ -1571,37 +1573,36 @@ internal sealed class RegularChartListOwner : IDisposable
                 || request.CurrentTreeMode == MainViewUpdateMode.PendingInstallFolderSelected
                     ? request.TreeParameter ?? request.Parameter
                     : request.Parameter;
-        RegularChartListSourceCatalog sources = request.Sources;
         switch (request.CurrentTreeMode)
         {
             case MainViewUpdateMode.FileMissingFilterSelected:
-                source = RegularChartListSubsetSource.ForCharts(sources.ResourceFixCharts, "file_missing", applyResourceHealthProjection: true);
+                source = RegularChartListSubsetSource.ForCharts(library?.ChartFilesNeedResourceFix, "file_missing", applyResourceHealthProjection: true);
                 return true;
             case MainViewUpdateMode.FileMissingIgnoredFilterSelected:
-                source = RegularChartListSubsetSource.ForCharts(sources.IgnoredResourceFixCharts, "file_missing_ignored", applyResourceHealthProjection: true);
+                source = RegularChartListSubsetSource.ForCharts(library?.ChartFilesNeedResourceFixIgnored, "file_missing_ignored", applyResourceHealthProjection: true);
                 return true;
             case MainViewUpdateMode.DuplicateFilterSelected:
-                return TryResolveDuplicateSource(sources.DuplicateGroups, parameter, out source);
+                return TryResolveDuplicateSource(library?.DuplicateChartGroups, parameter, out source);
             case MainViewUpdateMode.GarbledFilterSelected:
-                source = RegularChartListSubsetSource.ForCharts(sources.GarbledCharts, "garbled", ChartListSourceProjectionMode.OwnerBacked);
+                source = RegularChartListSubsetSource.ForCharts(library?.ChartFilesGarbled, "garbled", ChartListSourceProjectionMode.OwnerBacked);
                 return true;
             case MainViewUpdateMode.GarbleFixedFilterSelected:
-                source = RegularChartListSubsetSource.ForCharts(sources.GarbleFixedCharts, "garble_fixed", ChartListSourceProjectionMode.OwnerBacked);
+                source = RegularChartListSubsetSource.ForCharts(library?.ChartFilesGarbledFixed, "garble_fixed", ChartListSourceProjectionMode.OwnerBacked);
                 return true;
             case MainViewUpdateMode.UnregisteredFilterSelected:
-                source = RegularChartListSubsetSource.ForCharts(sources.UnregisteredCharts, "unregistered", ChartListSourceProjectionMode.OwnerBacked);
+                source = RegularChartListSubsetSource.ForCharts(library?.ChartFilesUnregistered, "unregistered", ChartListSourceProjectionMode.OwnerBacked);
                 return true;
             case MainViewUpdateMode.ZeroNoteFilterSelected:
-                source = RegularChartListSubsetSource.ForCharts(sources.ZeroNoteCharts, "zero_note", ChartListSourceProjectionMode.OwnerBacked);
+                source = RegularChartListSubsetSource.ForCharts(library?.ChartFilesZeroNote, "zero_note", ChartListSourceProjectionMode.OwnerBacked);
                 return true;
             case MainViewUpdateMode.ChartInfoParseErrorFilterSelected:
-                source = RegularChartListSubsetSource.ForCharts(sources.ChartInfoParseFailedCharts, "chart_info_parse_error");
+                source = RegularChartListSubsetSource.ForCharts(library?.ChartInfoParseFailedChartFiles, "chart_info_parse_error");
                 return true;
             case MainViewUpdateMode.NewlyInstalledFolderSelected:
-                source = ResolvePackageSource(sources.InstalledPackages, parameter, "newly_installed_all", "newly_installed_package", applyResourceHealthProjection: true);
+                source = ResolvePackageSource(library?.ChartPackagesInstalled, parameter, "newly_installed_all", "newly_installed_package", applyResourceHealthProjection: true);
                 return true;
             case MainViewUpdateMode.PendingInstallFolderSelected:
-                source = ResolvePackageSource(sources.PendingPackages, parameter, "pending_install_all", "pending_install_package", applyResourceHealthProjection: false);
+                source = ResolvePackageSource(library?.ChartPackagesPending, parameter, "pending_install_all", "pending_install_package", applyResourceHealthProjection: false);
                 return true;
             default:
                 source = null;
@@ -1700,6 +1701,7 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private void LogDefaultVirtualEntry(
         RegularChartListEntryRequest request,
+        ChartListSortSpecification sort,
         RegularVirtualNormalLibraryApplyResult result,
         bool sortWasReset)
     {
@@ -1709,7 +1711,7 @@ internal sealed class RegularChartListOwner : IDisposable
                 + " mode=" + request.Mode
                 + " requestedMode=" + request.RequestedMode
                 + " treeMode=" + request.CurrentTreeMode
-                + " requestedSortColumn=" + (request.Sort.RequestedColumnName ?? "(default_title)")
+                + " requestedSortColumn=" + (sort.RequestedColumnName ?? "(default_title)")
                 + " appliedSortColumn=" + nameof(LibraryChartRow.Title)
                 + " appliedSortDirection=" + ListSortDirection.Ascending);
         }
@@ -1759,6 +1761,7 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private void LogSubsetVirtualEntry(
         RegularChartListEntryRequest request,
+        ChartListSortSpecification sort,
         string subsetName,
         RegularVirtualChartSubsetApplyResult result,
         bool sortWasReset)
@@ -1769,7 +1772,7 @@ internal sealed class RegularChartListOwner : IDisposable
                 + " mode=" + request.Mode
                 + " requestedMode=" + request.RequestedMode
                 + " treeMode=" + request.CurrentTreeMode
-                + " requestedSortColumn=" + (request.Sort.RequestedColumnName ?? "(default_title)")
+                + " requestedSortColumn=" + (sort.RequestedColumnName ?? "(default_title)")
                 + " appliedSortColumn=" + nameof(LibraryChartRow.Title)
                 + " appliedSortDirection=" + ListSortDirection.Ascending);
         }
@@ -3227,38 +3230,9 @@ internal sealed class RegularChartListEntryRequest
 
     internal RegularChartModeFilter ModeFilter { get; set; }
 
-    internal ChartListSortSpecification Sort { get; set; }
-
-    internal RegularChartListSourceCatalog Sources { get; set; }
-
-    internal RegularChartListExternalVersions ExternalVersions { get; set; }
-
     internal bool PreserveSummary { get; set; }
 
     internal Stopwatch Stopwatch { get; set; }
-}
-
-internal sealed class RegularChartListSourceCatalog
-{
-    internal IEnumerable<ChartFile> ResourceFixCharts { get; set; }
-
-    internal IEnumerable<ChartFile> IgnoredResourceFixCharts { get; set; }
-
-    internal IEnumerable<DuplicateGroup> DuplicateGroups { get; set; }
-
-    internal IEnumerable<ChartFile> GarbledCharts { get; set; }
-
-    internal IEnumerable<ChartFile> GarbleFixedCharts { get; set; }
-
-    internal IEnumerable<ChartFile> UnregisteredCharts { get; set; }
-
-    internal IEnumerable<ChartFile> ZeroNoteCharts { get; set; }
-
-    internal IEnumerable<ChartFile> ChartInfoParseFailedCharts { get; set; }
-
-    internal IEnumerable<ChartPackage> InstalledPackages { get; set; }
-
-    internal IEnumerable<ChartPackage> PendingPackages { get; set; }
 }
 
 internal sealed class RegularChartListSubsetSource

@@ -375,9 +375,7 @@ public sealed class RegularChartListOwnerTests
         owner.TryPublishVirtualSourceRows(
             lookup,
             [CreateSourceRow("Folder B", "Bravo"), CreateSourceRow("Folder A", "Alpha")]);
-        RegularChartListEntryRequest request = CreateEntryRequest(
-            MainViewUpdateMode.FolderFilterSelected,
-            new RegularChartListSourceCatalog());
+        RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
         owner.SetSort(ChartListSortSpecification.Create("UnsupportedColumn", ListSortDirection.Descending, hasValue: true));
 
         RegularChartListEntryResult result = owner.ApplyRegularView(request);
@@ -390,29 +388,28 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
-    public void RegularEntry_SelectsSubsetSourceFromCatalog()
+    public void RegularEntry_SelectsDuplicateSubsetFromLibraryOwner()
     {
         var table = new MainChartListViewModel();
         RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel());
-        var catalog = new RegularChartListSourceCatalog
-        {
-            ResourceFixCharts =
-            [
-                CreateSourceRow("Folder B", "Bravo").Chart,
-                CreateSourceRow("Folder A", "Alpha").Chart
-            ]
-        };
-        RegularChartListEntryRequest request = CreateEntryRequest(
-            MainViewUpdateMode.FileMissingFilterSelected,
-            catalog);
+        ChartFile bravo = CreateSourceRow("Folder B", "Bravo").Chart;
+        ChartFile alpha = CreateSourceRow("Folder A", "Alpha").Chart;
+        var library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
+        typeof(BMSLibrary)
+            .GetField("lockChartInfoIndex", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(library, new object());
+        typeof(BMSLibrary)
+            .GetField("_DuplicateChartGroups", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!
+            .SetValue(library, new List<DuplicateGroup> { new([bravo, alpha], [bravo.Folder, alpha.Folder]) });
+        RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.DuplicateFilterSelected);
+        request.Library = library;
 
         RegularChartListEntryResult result = owner.ApplyRegularView(request);
 
         Assert.IsTrue(result.WasCommitted);
         Assert.AreEqual(RegularChartListEntryRoute.SubsetVirtual, result.Route);
         Assert.IsFalse(result.SortWasReset);
-        Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]).Title);
-        Assert.AreEqual("Bravo", ((LibraryChartRow)table.Rows[1]).Title);
+        Assert.AreEqual(2, table.Rows.Count);
     }
 
     [TestMethod]
@@ -1144,9 +1141,7 @@ public sealed class RegularChartListOwnerTests
             action => action());
     }
 
-    private static RegularChartListEntryRequest CreateEntryRequest(
-        MainViewUpdateMode mode,
-        RegularChartListSourceCatalog sources)
+    private static RegularChartListEntryRequest CreateEntryRequest(MainViewUpdateMode mode)
     {
         return new RegularChartListEntryRequest
         {
@@ -1156,9 +1151,6 @@ public sealed class RegularChartListOwnerTests
             IncludeBmsonRows = false,
             KeywordFilter = string.Empty,
             ModeFilter = RegularChartModeFilter.All,
-            Sort = ChartListSortSpecification.Create(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, hasValue: true),
-            Sources = sources,
-            ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
             Stopwatch = Stopwatch.StartNew()
         };
     }

@@ -4091,30 +4091,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private IEnumerable<ChartFile> ChartFilesNeedResourceFix
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.ChartFilesNeedResourceFix;
-            }
-            return null;
-        }
-    }
-
-    private IEnumerable<ChartFile> ChartFilesNeedResourceFixIgnored
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.ChartFilesNeedResourceFixIgnored;
-            }
-            return null;
-        }
-    }
-
     public List<DuplicateGroup> DuplicateChartGroups
     {
         get
@@ -4122,66 +4098,6 @@ public partial class MainWindowViewModel : ViewModel
             if (files != null)
             {
                 return files.DuplicateChartGroups;
-            }
-            return null;
-        }
-    }
-
-    private IEnumerable<ChartFile> ChartFilesGarbled
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.ChartFilesGarbled;
-            }
-            return null;
-        }
-    }
-
-    private IEnumerable<ChartFile> ChartFilesGarbledFixed
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.ChartFilesGarbledFixed;
-            }
-            return null;
-        }
-    }
-
-    private IEnumerable<ChartFile> ChartFilesUnregistered
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.ChartFilesUnregistered;
-            }
-            return null;
-        }
-    }
-
-    private IEnumerable<ChartFile> ChartFilesZeroNote
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.ChartFilesZeroNote;
-            }
-            return null;
-        }
-    }
-
-    private IEnumerable<ChartFile> ChartInfoParseFailedChartFiles
-    {
-        get
-        {
-            if (files != null)
-            {
-                return files.ChartInfoParseFailedChartFiles;
             }
             return null;
         }
@@ -4760,14 +4676,6 @@ public partial class MainWindowViewModel : ViewModel
             + " installDestinationGeneration=" + regularChartListOwner.InstallDestinationGeneration
             + " maintenanceGeneration=" + regularChartListOwner.MaintenanceGeneration
             + " referenceTablesGeneration=" + regularChartListOwner.ReferenceTablesGeneration);
-    }
-
-    private RegularChartListExternalVersions CaptureRegularChartListExternalVersions()
-    {
-        return new RegularChartListExternalVersions(
-            files?.ScoreSnapshotVersion ?? 0,
-            files?.ChartInfoIndexVersion ?? 0,
-            files?.MaintenanceHydrationCompletedVersion ?? 0);
     }
 
     private void SchedulePostStartupBestEffortWarmups(string reason)
@@ -10543,8 +10451,6 @@ public partial class MainWindowViewModel : ViewModel
                 IncludeBmsonRows = route.IncludeBmsonRows,
                 KeywordFilter = KeywordFilter,
                 ModeFilter = (RegularChartModeFilter)(int)ModeFilter,
-                Sources = CaptureRegularChartListSourceCatalog(),
-                ExternalVersions = CaptureRegularChartListExternalVersions(),
                 PreserveSummary = IsPlaylistSummaryMode,
                 Stopwatch = viewBuildStopwatch
             });
@@ -10552,23 +10458,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             SortParameters = null;
         }
-    }
-
-    private RegularChartListSourceCatalog CaptureRegularChartListSourceCatalog()
-    {
-        return new RegularChartListSourceCatalog
-        {
-            ResourceFixCharts = ChartFilesNeedResourceFix,
-            IgnoredResourceFixCharts = ChartFilesNeedResourceFixIgnored,
-            DuplicateGroups = DuplicateChartGroups,
-            GarbledCharts = ChartFilesGarbled,
-            GarbleFixedCharts = ChartFilesGarbledFixed,
-            UnregisteredCharts = ChartFilesUnregistered,
-            ZeroNoteCharts = ChartFilesZeroNote,
-            ChartInfoParseFailedCharts = ChartInfoParseFailedChartFiles,
-            InstalledPackages = ChartPackagesInstalled,
-            PendingPackages = ChartPackagesPending
-        };
     }
 
     private void ApplyPlayHistoryView(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
