@@ -122,6 +122,7 @@ public sealed class PlaylistViewPipelineTests
         string buildStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildState.cs");
         string queueCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildQueueCoordinator.cs");
         string terminalOwnerSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailTerminalOwner.cs");
+        string mainChartListSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
         string sourceBuildResultSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSourceBuildResult.cs");
         string sourceRowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "PlaylistDetailSourceRow.cs");
         string playlistViewStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailViewState");
@@ -185,12 +186,14 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(terminalOwnerSource, "internal sealed class PlaylistDetailTerminalOwner");
         StringAssert.Contains(terminalOwnerSource, "lock (buildState.SyncRoot)");
         StringAssert.Contains(terminalOwnerSource, "lock (viewState.SyncRoot)");
-        StringAssert.Contains(terminalOwnerSource, "mainChartList.CommitPreparedRowsWithoutDisposal(prepared)");
-        StringAssert.Contains(terminalOwnerSource, "mainChartList.DisposeCommittedRows(mainRowsCommit)");
-        StringAssert.Contains(terminalOwnerSource, "mainChartList.PublishRowsCommit(mainRowsCommit)");
+        StringAssert.Contains(terminalOwnerSource, "mainChartList.ApplyCoordinatedRows(");
+        Assert.AreEqual(-1, terminalOwnerSource.IndexOf("mainChartList.CommitPreparedRowsWithoutDisposal", StringComparison.Ordinal));
+        StringAssert.Contains(mainChartListSource, "private MainChartListRowsCommit CommitPreparedRowsWithoutDisposal(");
+        StringAssert.Contains(mainChartListSource, "private void DisposeCommittedRows(");
+        StringAssert.Contains(mainChartListSource, "private MainChartListRowsApplyResult PublishRowsCommit(");
         StringAssert.Contains(terminalOwnerSource, "playlistWorkspace.CommitColumnPresentationWithoutNotification(");
         StringAssert.Contains(terminalOwnerSource, "playlistWorkspace.PublishColumnPresentation(result.ColumnPresentationCommit)");
-        StringAssert.Contains(terminalOwnerSource, "new AggregateException(terminalExceptions)");
+        StringAssert.Contains(mainChartListSource, "throw new MainChartListCoordinatedPublishException(");
         Assert.IsFalse(rootSource.Contains("PlaylistDetailTerminalTransition"));
         StringAssert.Contains(rootSource, "request.RequestVersion != playlistDetailBuildState.RequestVersion");
         StringAssert.Contains(rootSource, "ReferenceEquals(playlistViewState.Source.Rows, sourceRows)");

@@ -186,7 +186,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "DiagnosticText = diagnosticSummaryText");
         StringAssert.Contains(terminalOwnerCode, "state.SummaryCards = summaryCards");
         StringAssert.Contains(terminalOwnerCode, "state.DiagnosticText = diagnosticText");
-        StringAssert.Contains(terminalOwnerCode, "mainChartList.CommitPreparedRowsWithoutDisposal(prepared)");
+        StringAssert.Contains(terminalOwnerCode, "mainChartList.ApplyCoordinatedRows(");
+        Assert.IsFalse(terminalOwnerCode.Contains("CommitPreparedRowsWithoutDisposal"));
     }
 
     [TestMethod]

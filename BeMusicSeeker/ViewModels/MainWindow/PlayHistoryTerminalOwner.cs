@@ -40,119 +40,104 @@ internal sealed class PlayHistoryTerminalOwner
             throw new ArgumentException("A complete play-history terminal request is required.", nameof(request));
         }
 
-        MainChartListPreparedRowsApply prepared = mainChartList.PrepareRowsApply(request.MainRowsRequest);
-        MainChartListRowsCommit mainRowsCommit = null;
         var result = new PlayHistoryTerminalCommitResult();
-        bool stale = false;
-        Exception commitException = null;
         try
         {
-            lock (state.SyncRoot)
-            {
-                if (!state.IsFresh(request.ViewState))
+            MainChartListCoordinatedRowsApplyResult coordinated = mainChartList.ApplyCoordinatedRows(
+                request.MainRowsRequest,
+                commitRows =>
                 {
-                    stale = true;
-                }
-                else
-                {
-                    mainRowsCommit = mainChartList.CommitPreparedRowsWithoutDisposal(prepared);
-                    result.PlaylistSourceClear = playlistDetailTerminalOwner.CommitSourceClearWithoutCallbacks();
-                    result.BindingMode = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
-                    result.ColumnPresentation = playlistWorkspace.CommitColumnPresentationWithoutNotification(
-                        request.ColumnSelection.PlaylistColumnSettingsVisibility,
-                        request.ColumnSelection.PlaylistSummaryColumnsSettings);
-                    if (request.ColumnSelection.AppliedMode.HasValue)
+                    lock (state.SyncRoot)
                     {
-                        regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                        if (!state.IsFresh(request.ViewState))
+                        {
+                            return false;
+                        }
+                        commitRows();
+                        result.PlaylistSourceClear = playlistDetailTerminalOwner.CommitSourceClearWithoutCallbacks();
+                        result.BindingMode = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
+                        result.ColumnPresentation = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+                            request.ColumnSelection.PlaylistColumnSettingsVisibility,
+                            request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                        if (request.ColumnSelection.AppliedMode.HasValue)
+                        {
+                            regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                        }
+                        regularChartListOwner.ResetDerivedCaches();
+
+                        if (request.ArchivePeriodTree != null
+                            && !ReferenceEquals(state.ArchivePeriodTree, request.ArchivePeriodTree)
+                            && !PlayHistoryPresentationState.AreSameArchiveTree(state.ArchivePeriodTree, request.ArchivePeriodTree))
+                        {
+                            state.ArchivePeriodTree = request.ArchivePeriodTree;
+                            result.ArchivePeriodTreeChanged = true;
+                        }
+
+                        IReadOnlyList<PlayHistorySummaryCard> summaryCards = request.SummaryCards ?? [];
+                        if (!ReferenceEquals(state.SummaryCards, summaryCards)
+                            && !PlayHistoryPresentationState.AreSameSummaryCards(state.SummaryCards, summaryCards))
+                        {
+                            state.SummaryCards = summaryCards;
+                            result.SummaryCardsChanged = true;
+                        }
+
+                        string diagnosticText = request.DiagnosticText ?? string.Empty;
+                        if (state.DiagnosticText != diagnosticText)
+                        {
+                            state.DiagnosticText = diagnosticText;
+                            result.DiagnosticTextChanged = true;
+                        }
+
+                        state.CurrentView = request.ViewState;
+                        result.Applied = true;
+                        return true;
                     }
-                    regularChartListOwner.ResetDerivedCaches();
-
-                    if (request.ArchivePeriodTree != null
-                        && !ReferenceEquals(state.ArchivePeriodTree, request.ArchivePeriodTree)
-                        && !PlayHistoryPresentationState.AreSameArchiveTree(state.ArchivePeriodTree, request.ArchivePeriodTree))
-                    {
-                        state.ArchivePeriodTree = request.ArchivePeriodTree;
-                        result.ArchivePeriodTreeChanged = true;
-                    }
-
-                    IReadOnlyList<PlayHistorySummaryCard> summaryCards = request.SummaryCards ?? [];
-                    if (!ReferenceEquals(state.SummaryCards, summaryCards)
-                        && !PlayHistoryPresentationState.AreSameSummaryCards(state.SummaryCards, summaryCards))
-                    {
-                        state.SummaryCards = summaryCards;
-                        result.SummaryCardsChanged = true;
-                    }
-
-                    string diagnosticText = request.DiagnosticText ?? string.Empty;
-                    if (state.DiagnosticText != diagnosticText)
-                    {
-                        state.DiagnosticText = diagnosticText;
-                        result.DiagnosticTextChanged = true;
-                    }
-
-                    state.CurrentView = request.ViewState;
-                    result.Applied = true;
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            if (mainRowsCommit == null)
-            {
-                mainChartList.CancelPreparedRowsApply(prepared);
-                throw;
-            }
-            commitException = ex;
-        }
-
-        if (stale)
-        {
-            mainChartList.CancelPreparedRowsApply(prepared);
-            return result;
-        }
-
-        List<Exception> publishExceptions = [];
-        if (commitException != null)
-        {
-            publishExceptions.Add(commitException);
-        }
-        TryPublish(() => mainChartList.DisposeCommittedRows(mainRowsCommit), publishExceptions);
-        TryPublish(() => result.MainRowsApply = mainChartList.PublishRowsCommit(mainRowsCommit), publishExceptions);
-        if (result.ColumnPresentation != null)
-        {
-            TryPublish(() => playlistWorkspace.PublishColumnPresentation(result.ColumnPresentation), publishExceptions);
-        }
-        if (result.BindingMode != null)
-        {
-            TryPublish(() => playlistWorkspace.PublishBindingMode(result.BindingMode), publishExceptions);
-        }
-        if (result.ArchivePeriodTreeChanged)
-        {
-            TryPublish(() => publishPropertyChanged("PlayHistoryArchivePeriodTree"), publishExceptions);
-        }
-        if (result.SummaryCardsChanged)
-        {
-            TryPublish(() => publishPropertyChanged("PlayHistorySummaryCards"), publishExceptions);
-        }
-        if (result.DiagnosticTextChanged)
-        {
-            TryPublish(() => publishPropertyChanged("PlayHistorySummaryDiagnosticText"), publishExceptions);
-        }
-        if (result.PlaylistSourceClear != null)
-        {
-            TryPublish(
+                },
                 () =>
                 {
-                    playlistDetailTerminalOwner.PublishSourceClear(result.PlaylistSourceClear);
-                    logPlaylistSourceClear(result.PlaylistSourceClear);
-                },
-                publishExceptions);
+                    List<Exception> featurePublishExceptions = [];
+                    if (result.ColumnPresentation != null)
+                    {
+                        TryPublish(() => playlistWorkspace.PublishColumnPresentation(result.ColumnPresentation), featurePublishExceptions);
+                    }
+                    if (result.BindingMode != null)
+                    {
+                        TryPublish(() => playlistWorkspace.PublishBindingMode(result.BindingMode), featurePublishExceptions);
+                    }
+                    if (result.ArchivePeriodTreeChanged)
+                    {
+                        TryPublish(() => publishPropertyChanged("PlayHistoryArchivePeriodTree"), featurePublishExceptions);
+                    }
+                    if (result.SummaryCardsChanged)
+                    {
+                        TryPublish(() => publishPropertyChanged("PlayHistorySummaryCards"), featurePublishExceptions);
+                    }
+                    if (result.DiagnosticTextChanged)
+                    {
+                        TryPublish(() => publishPropertyChanged("PlayHistorySummaryDiagnosticText"), featurePublishExceptions);
+                    }
+                    if (result.PlaylistSourceClear != null)
+                    {
+                        TryPublish(
+                            () =>
+                            {
+                                playlistDetailTerminalOwner.PublishSourceClear(result.PlaylistSourceClear);
+                                logPlaylistSourceClear(result.PlaylistSourceClear);
+                            },
+                            featurePublishExceptions);
+                    }
+                    if (featurePublishExceptions.Count > 0)
+                    {
+                        throw new AggregateException(featurePublishExceptions);
+                    }
+                });
+            result.MainRowsApply = coordinated.RowsApply;
+            return result;
         }
-        if (publishExceptions.Count > 0)
+        catch (MainChartListCoordinatedPublishException ex)
         {
-            throw new PlayHistoryTerminalPublishException(new AggregateException(publishExceptions), ownershipTransferred: true);
+            throw new PlayHistoryTerminalPublishException(ex, ownershipTransferred: true);
         }
-        return result;
     }
 
     private static void TryPublish(Action publish, ICollection<Exception> exceptions)

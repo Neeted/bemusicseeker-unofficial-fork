@@ -39,104 +39,82 @@ internal sealed class PlaylistDetailTerminalOwner
             throw new ArgumentException("Source rows are required when replacing the playlist source.", nameof(request));
         }
 
-        MainChartListPreparedRowsApply prepared = mainChartList.PrepareRowsApply(request.MainRowsRequest);
-        MainChartListRowsCommit mainRowsCommit = null;
         var result = new PlaylistDetailTerminalCommitResult();
-        bool stale = false;
-        Exception commitException = null;
         try
         {
-            lock (buildState.SyncRoot)
-            {
-                if (request.BuildRequest.RequestVersion != buildState.RequestVersion)
+            MainChartListCoordinatedRowsApplyResult coordinated = mainChartList.ApplyCoordinatedRows(
+                request.MainRowsRequest,
+                commitRows =>
                 {
-                    stale = true;
-                }
-                else
-                {
-                    lock (viewState.SyncRoot)
+                    lock (buildState.SyncRoot)
                     {
-                        mainRowsCommit = mainChartList.CommitPreparedRowsWithoutDisposal(prepared);
-
-                        if (request.ReplaceSource)
+                        if (request.BuildRequest.RequestVersion != buildState.RequestVersion)
                         {
-                            result.PreviousSourceRows = viewState.Source.Rows;
-                            result.PreviousSourceGenerationId = viewState.Source.GenerationId;
-                            if (result.PreviousSourceRows != null)
+                            return false;
+                        }
+                        lock (viewState.SyncRoot)
+                        {
+                            commitRows();
+
+                            if (request.ReplaceSource)
                             {
-                                viewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(result.PreviousSourceRows);
-                                viewState.Source.PreviousGenerationId = result.PreviousSourceGenerationId;
+                                result.PreviousSourceRows = viewState.Source.Rows;
+                                result.PreviousSourceGenerationId = viewState.Source.GenerationId;
+                                if (result.PreviousSourceRows != null)
+                                {
+                                    viewState.Source.PreviousRowsWeakReference = new WeakReference<List<PlaylistDetailSourceRow>>(result.PreviousSourceRows);
+                                    viewState.Source.PreviousGenerationId = result.PreviousSourceGenerationId;
+                                }
+                                viewState.Source.Rows = request.SourceRows;
+                                viewState.Source.CurrentTable = request.CurrentTable;
+                                viewState.Source.CurrentFolderName = request.CurrentFolderName;
+                                viewState.Source.CurrentFilterType = request.CurrentFilterType;
+                                viewState.Source.LastBuiltLibraryIndexVersion = request.BuildRequest.Identity.LibraryIndexVersion;
+                                viewState.Source.LastBuiltPlaylistRevision = request.BuildRequest.Identity.PlaylistRevision;
+                                viewState.Source.LastBuiltScoreSnapshotVersion = request.BuildRequest.Identity.ScoreSnapshotVersion;
+                                viewState.Source.LastBuiltChartInfoIndexVersion = request.BuildRequest.Identity.ChartInfoIndexVersion;
+                                viewState.Source.CurrentIdentity = request.BuildRequest.Identity.SourceIdentity;
+                                viewState.Source.GenerationId++;
                             }
-                            viewState.Source.Rows = request.SourceRows;
-                            viewState.Source.CurrentTable = request.CurrentTable;
-                            viewState.Source.CurrentFolderName = request.CurrentFolderName;
-                            viewState.Source.CurrentFilterType = request.CurrentFilterType;
-                            viewState.Source.LastBuiltLibraryIndexVersion = request.BuildRequest.Identity.LibraryIndexVersion;
-                            viewState.Source.LastBuiltPlaylistRevision = request.BuildRequest.Identity.PlaylistRevision;
-                            viewState.Source.LastBuiltScoreSnapshotVersion = request.BuildRequest.Identity.ScoreSnapshotVersion;
-                            viewState.Source.LastBuiltChartInfoIndexVersion = request.BuildRequest.Identity.ChartInfoIndexVersion;
-                            viewState.Source.CurrentIdentity = request.BuildRequest.Identity.SourceIdentity;
-                            viewState.Source.GenerationId++;
-                        }
 
-                        result.PreviousViewRows = viewState.View.Rows;
-                        result.PreviousViewGenerationId = viewState.View.GenerationId;
-                        if (result.PreviousViewRows != null)
-                        {
-                            viewState.View.PreviousRowsWeakReference = new WeakReference<IList>(result.PreviousViewRows);
-                            viewState.View.PreviousGenerationId = result.PreviousViewGenerationId;
-                        }
-                        viewState.View.Rows = request.ViewRows;
-                        viewState.View.GenerationId++;
-                        viewState.View.LastAppliedCount = request.ViewRows.Count;
-                        viewState.View.CurrentIdentity = request.BuildRequest.Identity;
+                            result.PreviousViewRows = viewState.View.Rows;
+                            result.PreviousViewGenerationId = viewState.View.GenerationId;
+                            if (result.PreviousViewRows != null)
+                            {
+                                viewState.View.PreviousRowsWeakReference = new WeakReference<IList>(result.PreviousViewRows);
+                                viewState.View.PreviousGenerationId = result.PreviousViewGenerationId;
+                            }
+                            viewState.View.Rows = request.ViewRows;
+                            viewState.View.GenerationId++;
+                            viewState.View.LastAppliedCount = request.ViewRows.Count;
+                            viewState.View.CurrentIdentity = request.BuildRequest.Identity;
 
-                        result.ColumnPresentationCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
-                            request.ColumnSelection.PlaylistColumnSettingsVisibility,
-                            request.ColumnSelection.PlaylistSummaryColumnsSettings);
-                        result.SourceGenerationId = viewState.Source.GenerationId;
-                        result.ViewGenerationId = viewState.View.GenerationId;
-                        result.SourceRowsAlive = viewState.Source.Rows?.Count ?? 0;
-                        result.Applied = true;
-                        commitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                            result.ColumnPresentationCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+                                request.ColumnSelection.PlaylistColumnSettingsVisibility,
+                                request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                            result.SourceGenerationId = viewState.Source.GenerationId;
+                            result.ViewGenerationId = viewState.View.GenerationId;
+                            result.SourceRowsAlive = viewState.Source.Rows?.Count ?? 0;
+                            result.Applied = true;
+                            commitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                            return true;
+                        }
                     }
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            if (mainRowsCommit == null)
-            {
-                mainChartList.CancelPreparedRowsApply(prepared);
-                throw;
-            }
-            commitException = ex;
-        }
-
-        if (stale)
-        {
-            mainChartList.CancelPreparedRowsApply(prepared);
+                },
+                () =>
+                {
+                    if (result.ColumnPresentationCommit != null)
+                    {
+                        playlistWorkspace.PublishColumnPresentation(result.ColumnPresentationCommit);
+                    }
+                });
+            result.MainRowsApply = coordinated.RowsApply;
             return result;
         }
-
-        List<Exception> terminalExceptions = [];
-        if (commitException != null)
+        catch (MainChartListCoordinatedPublishException ex)
         {
-            terminalExceptions.Add(commitException);
+            throw new PlaylistDetailTerminalPublishException(ex, ownershipTransferred: true);
         }
-        TryTerminalAction(() => mainChartList.DisposeCommittedRows(mainRowsCommit), terminalExceptions);
-        TryTerminalAction(() => result.MainRowsApply = mainChartList.PublishRowsCommit(mainRowsCommit), terminalExceptions);
-        if (result.ColumnPresentationCommit != null)
-        {
-            TryTerminalAction(() => playlistWorkspace.PublishColumnPresentation(result.ColumnPresentationCommit), terminalExceptions);
-        }
-        if (terminalExceptions.Count > 0)
-        {
-            throw new PlaylistDetailTerminalPublishException(
-                new AggregateException(terminalExceptions),
-                ownershipTransferred: true);
-        }
-        return result;
     }
 
     internal PlaylistSourceClearCommitResult CommitSourceClearWithoutCallbacks()
@@ -204,17 +182,6 @@ internal sealed class PlaylistDetailTerminalOwner
         }
     }
 
-    private static void TryTerminalAction(Action action, ICollection<Exception> exceptions)
-    {
-        try
-        {
-            action();
-        }
-        catch (Exception ex)
-        {
-            exceptions.Add(ex);
-        }
-    }
 }
 
 internal sealed class PlaylistSourceClearCommitResult

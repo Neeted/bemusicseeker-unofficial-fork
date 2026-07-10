@@ -2625,68 +2625,60 @@ internal sealed class RegularChartListOwner : IDisposable
             }
         }
 
-        MainChartListPreparedRowsApply prepared = mainChartList.PrepareRowsApply(input.RowsRequest);
-        MainChartListRowsCommit rowsCommit = null;
         PlaylistColumnPresentationCommit columnCommit = null;
-        bool committed = false;
         try
         {
-            lock (syncRoot)
-            {
-                if (!IsCurrentUnsafe(lease))
+            MainChartListCoordinatedRowsApplyResult coordinated = mainChartList.ApplyCoordinatedRows(
+                input.RowsRequest,
+                commitRows =>
                 {
-                    return RegularChartListTerminalResult.Stale();
-                }
-
-                rowsCommit = mainChartList.CommitPreparedRowsWithoutDisposal(prepared);
-                columnCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
-                    input.ColumnSelection.PlaylistColumnSettingsVisibility,
-                    input.ColumnSelection.PlaylistSummaryColumnsSettings);
-                if (build != null)
-                {
-                    folderRows = build.Stage.FolderRows;
-                    keywordRows = build.Stage.KeywordRows;
-                    modeRows = build.Stage.ModeRows;
-                    folderSortSourceSnapshot = build.Sort.FolderSortSourceSnapshot;
-                    folderSortResultSnapshot = build.Sort.FolderSortResultSnapshot;
-                    folderSortColumnName = build.Sort.FolderSortColumnName;
-                    folderSortDirection = build.Sort.FolderSortDirection;
-                    if (build.PendingCacheKey.HasValue && build.PendingCacheRows != null)
+                    lock (syncRoot)
                     {
-                        sortCache[build.PendingCacheKey.Value] = build.PendingCacheRows;
-                    }
-                }
-                if (input.ColumnSelection.AppliedMode.HasValue)
-                {
-                    lastAppliedColumnMode = input.ColumnSelection.AppliedMode.Value;
-                }
-                lastCompletion = new RegularChartListCompletion(
-                    lease.RequestId,
-                    Stopwatch.GetTimestamp(),
-                    Thread.CurrentThread.ManagedThreadId,
-                    input.Mode,
-                    input.Stopwatch.ElapsedMilliseconds);
-                committed = true;
-            }
-        }
-        finally
-        {
-            if (!committed)
-            {
-                mainChartList.CancelPreparedRowsApply(prepared);
-            }
-        }
+                        if (!IsCurrentUnsafe(lease))
+                        {
+                            return false;
+                        }
 
-        List<Exception> publishExceptions = [];
-        MainChartListRowsApplyResult rowsApply = default;
-        TryPublish(() => mainChartList.DisposeCommittedRows(rowsCommit), publishExceptions);
-        TryPublish(() => rowsApply = mainChartList.PublishRowsCommit(rowsCommit), publishExceptions);
-        TryPublish(() => playlistWorkspace.PublishColumnPresentation(columnCommit), publishExceptions);
-        if (publishExceptions.Count > 0)
-        {
-            throw new RegularChartListTerminalPublishException(new AggregateException(publishExceptions));
+                        commitRows();
+                        columnCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+                            input.ColumnSelection.PlaylistColumnSettingsVisibility,
+                            input.ColumnSelection.PlaylistSummaryColumnsSettings);
+                        if (build != null)
+                        {
+                            folderRows = build.Stage.FolderRows;
+                            keywordRows = build.Stage.KeywordRows;
+                            modeRows = build.Stage.ModeRows;
+                            folderSortSourceSnapshot = build.Sort.FolderSortSourceSnapshot;
+                            folderSortResultSnapshot = build.Sort.FolderSortResultSnapshot;
+                            folderSortColumnName = build.Sort.FolderSortColumnName;
+                            folderSortDirection = build.Sort.FolderSortDirection;
+                            if (build.PendingCacheKey.HasValue && build.PendingCacheRows != null)
+                            {
+                                sortCache[build.PendingCacheKey.Value] = build.PendingCacheRows;
+                            }
+                        }
+                        if (input.ColumnSelection.AppliedMode.HasValue)
+                        {
+                            lastAppliedColumnMode = input.ColumnSelection.AppliedMode.Value;
+                        }
+                        lastCompletion = new RegularChartListCompletion(
+                            lease.RequestId,
+                            Stopwatch.GetTimestamp(),
+                            Thread.CurrentThread.ManagedThreadId,
+                            input.Mode,
+                            input.Stopwatch.ElapsedMilliseconds);
+                        return true;
+                    }
+                },
+                () => playlistWorkspace.PublishColumnPresentation(columnCommit));
+            return coordinated.Applied
+                ? RegularChartListTerminalResult.Committed(coordinated.RowsApply)
+                : RegularChartListTerminalResult.Stale();
         }
-        return RegularChartListTerminalResult.Committed(rowsApply);
+        catch (MainChartListCoordinatedPublishException ex)
+        {
+            throw new RegularChartListTerminalPublishException(ex);
+        }
     }
 
     private void RunVirtualSummary(

@@ -715,17 +715,20 @@ public sealed class ChartListVirtualViewTests
         mainChartList.RowsReplacing += (_, _) => preparingCount++;
         mainChartList.RowsReplacementCanceled += (_, _) => canceledCount++;
 
-        MainChartListPreparedRowsApply prepared = mainChartList.PrepareRowsApply(new MainChartListRowsApplyRequest
-        {
-            Rows = nextRows,
-            ColumnsSettings = settings,
-            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
-            Summary = MainChartListSummaryUpdate.Preserve(),
-            TerminalStageStartMs = 0,
-            Stopwatch = Stopwatch.StartNew()
-        });
-        mainChartList.CancelPreparedRowsApply(prepared);
+        MainChartListCoordinatedRowsApplyResult result = mainChartList.ApplyCoordinatedRows(
+            new MainChartListRowsApplyRequest
+            {
+                Rows = nextRows,
+                ColumnsSettings = settings,
+                SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+                Summary = MainChartListSummaryUpdate.Preserve(),
+                TerminalStageStartMs = 0,
+                Stopwatch = Stopwatch.StartNew()
+            },
+            _ => false,
+            () => Assert.Fail("A stale coordinated apply must not publish feature state."));
 
+        Assert.IsFalse(result.Applied);
         Assert.AreEqual(1, preparingCount);
         Assert.AreEqual(1, canceledCount);
         Assert.AreSame(oldRows, mainChartList.Rows);
@@ -743,23 +746,27 @@ public sealed class ChartListVirtualViewTests
         };
         var propertyNames = new List<string>();
         mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
-        MainChartListPreparedRowsApply prepared = mainChartList.PrepareRowsApply(new MainChartListRowsApplyRequest
-        {
-            Rows = nextRows,
-            ColumnsSettings = settings,
-            SelectionPolicy = MainChartListSelectionPolicy.Reset,
-            Summary = MainChartListSummaryUpdate.Explicit("committed"),
-            TerminalStageStartMs = 0,
-            Stopwatch = Stopwatch.StartNew()
-        });
+        MainChartListCoordinatedRowsApplyResult result = mainChartList.ApplyCoordinatedRows(
+            new MainChartListRowsApplyRequest
+            {
+                Rows = nextRows,
+                ColumnsSettings = settings,
+                SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                Summary = MainChartListSummaryUpdate.Explicit("committed"),
+                TerminalStageStartMs = 0,
+                Stopwatch = Stopwatch.StartNew()
+            },
+            commitRows =>
+            {
+                commitRows();
+                Assert.AreSame(nextRows, mainChartList.Rows);
+                Assert.AreEqual("committed", mainChartList.SummaryText);
+                Assert.AreEqual(0, propertyNames.Count);
+                return true;
+            },
+            () => { });
 
-        MainChartListRowsCommit commit = mainChartList.CommitPreparedRows(prepared);
-
-        Assert.AreSame(nextRows, mainChartList.Rows);
-        Assert.AreEqual("committed", mainChartList.SummaryText);
-        Assert.AreEqual(0, propertyNames.Count);
-
-        mainChartList.PublishRowsCommit(commit);
+        Assert.IsTrue(result.Applied);
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.Rows));
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SummaryText));
     }

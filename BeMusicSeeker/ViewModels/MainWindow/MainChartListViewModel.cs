@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.Serialization;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Views;
@@ -302,7 +303,84 @@ public sealed class MainChartListViewModel : ViewModel
         return PublishRowsCommit(commit);
     }
 
-    internal MainChartListPreparedRowsApply PrepareRowsApply(MainChartListRowsApplyRequest request)
+    internal MainChartListCoordinatedRowsApplyResult ApplyCoordinatedRows(
+        MainChartListRowsApplyRequest request,
+        Func<Action, bool> tryCommitFeature,
+        Action publishFeature)
+    {
+        if (tryCommitFeature == null)
+        {
+            throw new ArgumentNullException(nameof(tryCommitFeature));
+        }
+        if (publishFeature == null)
+        {
+            throw new ArgumentNullException(nameof(publishFeature));
+        }
+
+        MainChartListPreparedRowsApply prepared = PrepareRowsApply(request);
+        MainChartListRowsCommit rowsCommit = null;
+        Exception commitException = null;
+        bool applied;
+        try
+        {
+            applied = tryCommitFeature(() => rowsCommit = CommitPreparedRowsWithoutDisposal(prepared));
+        }
+        catch (Exception ex)
+        {
+            if (rowsCommit == null)
+            {
+                CancelPreparedRowsApply(prepared);
+                throw;
+            }
+            applied = true;
+            commitException = ex;
+        }
+
+        if (!applied)
+        {
+            if (rowsCommit == null)
+            {
+                CancelPreparedRowsApply(prepared);
+                return default;
+            }
+            applied = true;
+            commitException = new InvalidOperationException("A coordinated feature reported stale state after transferring row ownership.");
+        }
+        if (rowsCommit == null)
+        {
+            CancelPreparedRowsApply(prepared);
+            throw new InvalidOperationException("A coordinated chart-list feature commit did not transfer row ownership.");
+        }
+
+        List<Exception> publishExceptions = [];
+        if (commitException != null)
+        {
+            publishExceptions.Add(commitException);
+        }
+        MainChartListRowsApplyResult rowsApply = default;
+        TryCoordinatedAction(() => DisposeCommittedRows(rowsCommit), publishExceptions);
+        TryCoordinatedAction(() => rowsApply = PublishRowsCommit(rowsCommit), publishExceptions);
+        TryCoordinatedAction(publishFeature, publishExceptions);
+        if (publishExceptions.Count > 0)
+        {
+            throw new MainChartListCoordinatedPublishException(new AggregateException(publishExceptions));
+        }
+        return new MainChartListCoordinatedRowsApplyResult(applied: true, rowsApply);
+    }
+
+    private static void TryCoordinatedAction(Action action, ICollection<Exception> exceptions)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            exceptions.Add(ex);
+        }
+    }
+
+    private MainChartListPreparedRowsApply PrepareRowsApply(MainChartListRowsApplyRequest request)
     {
         if (request == null)
         {
@@ -367,12 +445,12 @@ public sealed class MainChartListViewModel : ViewModel
             prepareSwapMs);
     }
 
-    internal MainChartListRowsCommit CommitPreparedRows(MainChartListPreparedRowsApply prepared)
+    private MainChartListRowsCommit CommitPreparedRows(MainChartListPreparedRowsApply prepared)
     {
         return CommitPreparedRowsCore(prepared, disposePreviousRows: true);
     }
 
-    internal MainChartListRowsCommit CommitPreparedRowsWithoutDisposal(MainChartListPreparedRowsApply prepared)
+    private MainChartListRowsCommit CommitPreparedRowsWithoutDisposal(MainChartListPreparedRowsApply prepared)
     {
         return CommitPreparedRowsCore(prepared, disposePreviousRows: false);
     }
@@ -422,7 +500,7 @@ public sealed class MainChartListViewModel : ViewModel
             commitGeneration);
     }
 
-    internal void DisposeCommittedRows(MainChartListRowsCommit commit)
+    private void DisposeCommittedRows(MainChartListRowsCommit commit)
     {
         if (commit == null)
         {
@@ -471,7 +549,7 @@ public sealed class MainChartListViewModel : ViewModel
         }
     }
 
-    internal MainChartListRowsApplyResult PublishRowsCommit(MainChartListRowsCommit commit)
+    private MainChartListRowsApplyResult PublishRowsCommit(MainChartListRowsCommit commit)
     {
         if (commit == null)
         {
@@ -541,7 +619,7 @@ public sealed class MainChartListViewModel : ViewModel
         return commit.Generation == Interlocked.Read(ref rowsCommitGeneration);
     }
 
-    internal void CancelPreparedRowsApply(MainChartListPreparedRowsApply prepared)
+    private void CancelPreparedRowsApply(MainChartListPreparedRowsApply prepared)
     {
         if (prepared?.RowsReplacementPrepared == true && !prepared.Committed)
         {
@@ -890,4 +968,44 @@ internal readonly struct MainChartListRowsApplyResult
     internal long ColumnStageMs { get; }
 
     internal bool ColumnSettingReuse { get; }
+}
+
+internal readonly struct MainChartListCoordinatedRowsApplyResult
+{
+    internal MainChartListCoordinatedRowsApplyResult(bool applied, MainChartListRowsApplyResult rowsApply)
+    {
+        Applied = applied;
+        RowsApply = rowsApply;
+    }
+
+    internal bool Applied { get; }
+    internal MainChartListRowsApplyResult RowsApply { get; }
+}
+
+[Serializable]
+internal sealed class MainChartListCoordinatedPublishException : Exception
+{
+    internal MainChartListCoordinatedPublishException()
+    {
+    }
+
+    internal MainChartListCoordinatedPublishException(string message)
+        : base(message)
+    {
+    }
+
+    internal MainChartListCoordinatedPublishException(Exception innerException)
+        : base("The coordinated main chart-list state was committed but publishing failed.", innerException)
+    {
+    }
+
+    internal MainChartListCoordinatedPublishException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
+    private MainChartListCoordinatedPublishException(SerializationInfo info, StreamingContext context)
+        : base(info, context)
+    {
+    }
 }
