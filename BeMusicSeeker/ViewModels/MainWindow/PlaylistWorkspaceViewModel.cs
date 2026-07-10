@@ -10,9 +10,9 @@ using Livet;
 namespace BeMusicSeeker.ViewModels;
 
 /// <summary>
-/// Owns playlist detail and summary presentation state while shell workflows remain on MainWindowViewModel.
+/// Owns playlist detail state and the complete playlist-summary build and presentation workflow.
 /// </summary>
-public sealed class PlaylistWorkspaceViewModel : ViewModel
+public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 {
     private MainWindowViewModel.cSortParameters playlistSummarySortParameters;
 
@@ -49,6 +49,8 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
     private MainWindowViewModel.PlaylistSummaryOwnedFilterType playlistSummaryOwnedFilter = MainWindowViewModel.PlaylistSummaryOwnedFilterType.All;
 
     private long lastPlaylistSummaryBuildCompletedTimestamp;
+
+    private long lastPlaylistSummaryBuildElapsedMs;
 
     private readonly object playlistSummaryTransitionLock = new();
 
@@ -383,6 +385,11 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
     }
 
     internal long LastPlaylistSummaryBuildCompletedTimestamp => Interlocked.Read(ref lastPlaylistSummaryBuildCompletedTimestamp);
+
+    /// <summary>
+    /// Gets the last completed summary presentation duration for reload diagnostics.
+    /// </summary>
+    internal long LastPlaylistSummaryBuildElapsedMs => Interlocked.Read(ref lastPlaylistSummaryBuildElapsedMs);
 
     internal long BeginPlaylistSummaryPresentationGeneration()
     {
@@ -720,8 +727,8 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         {
             TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), publishExceptions);
         }
-        TryPublish(
-            () => PlaylistSummaryViewApplied?.Invoke(this, new PlaylistSummaryViewAppliedEventArgs(request.DataRebuildGeneration ?? 0L)),
+        PublishPlaylistSummaryViewApplied(
+            new PlaylistSummaryViewAppliedEventArgs(request.DataRebuildGeneration ?? 0L),
             publishExceptions);
         if (publishExceptions.Count > 0)
         {
@@ -739,6 +746,19 @@ public sealed class PlaylistWorkspaceViewModel : ViewModel
         catch (Exception ex)
         {
             exceptions.Add(ex);
+        }
+    }
+
+    private void PublishPlaylistSummaryViewApplied(
+        PlaylistSummaryViewAppliedEventArgs eventArgs,
+        List<Exception> exceptions)
+    {
+        Delegate[] subscribers = PlaylistSummaryViewApplied?.GetInvocationList() ?? [];
+        foreach (Delegate subscriber in subscribers)
+        {
+            EventHandler<PlaylistSummaryViewAppliedEventArgs> handler =
+                (EventHandler<PlaylistSummaryViewAppliedEventArgs>)subscriber;
+            TryPublish(() => handler(this, eventArgs), exceptions);
         }
     }
 

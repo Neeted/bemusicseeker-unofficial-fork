@@ -79,4 +79,4 @@ Non-goals:
 
 ## Next action
 
-UI-01 の playlist summary deferred refresh / build orchestration を owner transition にまとめ、root の feature-specific build と suppression flags を削除する。その後、main table sort / display refresh の XAML/root relay を child owner へ直接接続する。docs-only checkpoint は作らない。
+UI-01 の main table sort / display refresh を child owner の state / request / event へ直接接続し、XAML・code-behind・root の relay を削除する。その後、regular chart / playlist detail / play history の request・cache・terminal apply ownershipを統合監査する。docs-only checkpoint は作らない。

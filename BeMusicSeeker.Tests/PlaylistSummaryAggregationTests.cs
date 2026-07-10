@@ -44,7 +44,7 @@ public sealed class PlaylistSummaryAggregationTests
             CreateEntry("cccccccccccccccccccccccccccccccc", null, isRemoved: true)
         ];
 
-        PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
+        PlaylistSummaryCountResult result = PlaylistWorkspaceViewModel.CalculatePlaylistSummaryCounts(
             entries,
             CreateHashSet("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             CreateHashSet("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
@@ -63,7 +63,7 @@ public sealed class PlaylistSummaryAggregationTests
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         ];
 
-        PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
+        PlaylistSummaryCountResult result = PlaylistWorkspaceViewModel.CalculatePlaylistSummaryCounts(
             entries,
             CreateHashSet("cccccccccccccccccccccccccccccccc"),
             CreateHashSet("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
@@ -80,7 +80,7 @@ public sealed class PlaylistSummaryAggregationTests
             CreateEntry(null, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         ];
 
-        PlaylistSummaryCountResult result = MainWindowViewModel.CalculatePlaylistSummaryCounts(
+        PlaylistSummaryCountResult result = PlaylistWorkspaceViewModel.CalculatePlaylistSummaryCounts(
             entries,
             CreateHashSet(),
             CreateHashSet("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
@@ -378,7 +378,7 @@ public sealed class PlaylistSummaryAggregationTests
             }
         ];
 
-        MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
+        PlaylistSummaryPresentationResult result = PlaylistWorkspaceViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
             "a",
             MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedIncomplete,
@@ -420,7 +420,7 @@ public sealed class PlaylistSummaryAggregationTests
             }
         ];
 
-        MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
+        PlaylistSummaryPresentationResult result = PlaylistWorkspaceViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
             "name:alpha foldername:folderalpha prefix:A symbol:A header:header-alpha data:data-alpha",
             MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
@@ -448,7 +448,7 @@ public sealed class PlaylistSummaryAggregationTests
             }
         ];
 
-        MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
+        PlaylistSummaryPresentationResult result = PlaylistWorkspaceViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
             "md5:aaaaaaaa",
             MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,
@@ -487,7 +487,7 @@ public sealed class PlaylistSummaryAggregationTests
             }
         ];
 
-        MainWindowViewModel.PlaylistSummaryPresentationResult result = MainWindowViewModel.BuildPlaylistSummaryPresentationRows(
+        PlaylistSummaryPresentationResult result = PlaylistWorkspaceViewModel.BuildPlaylistSummaryPresentationRows(
             rows,
             "name:\"alpha pack\" symbol:A|C -id:20 name:re:^alpha",
             MainWindowViewModel.PlaylistSummaryOwnedFilterType.All,

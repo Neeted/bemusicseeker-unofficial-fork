@@ -847,8 +847,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private int lastMainViewBuildMode;
 
-    private long lastPlaylistSummaryBuildElapsedMs;
-
     private long lastPlaylistDetailBuildCompletedTimestamp;
 
     private long lastPlaylistDetailBuildElapsedMs;
@@ -2795,7 +2793,11 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (refresh == PlaylistSummaryDeferredRefreshKind.Presentation)
         {
-            ApplyPlaylistSummaryPresentation();
+            PlaylistWorkspace.RefreshPlaylistSummaryPresentation(
+                files,
+                tables,
+                GetPlaylistSyncStatusSnapshot(),
+                installPerformanceLoggingEnabled ? installPerformanceLogger : null);
         }
         return 0L;
     }
@@ -4177,7 +4179,7 @@ public partial class MainWindowViewModel : ViewModel
                     }
                     RefreshPlaylistSummaryIfVisible("deferred_external_sync", invalidateTableCountCache: true);
                     bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, num);
-                    LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + Interlocked.Read(ref lastPlaylistSummaryBuildElapsedMs) + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
+                    LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
                     LogDeferredExternalSync("deferred_external_sync done reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " updatedCount=" + num);
                     if (IsStartupProgressOperationTokenCurrent(operationToken))
                     {
@@ -9858,6 +9860,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
         PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;
+        PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         regularBmsLibraryRowCache = new NormalLibraryRowCache();
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -9881,6 +9884,11 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         RaisePropertyChanged(propertyName);
+    }
+
+    private void PlaylistWorkspacePlaylistSummaryViewApplied(object sender, PlaylistSummaryViewAppliedEventArgs e)
+    {
+        TrySchedulePlaylistReloadCleanup();
     }
 
     private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -19047,415 +19055,12 @@ public partial class MainWindowViewModel : ViewModel
 
     public long RebuildPlaylistSummaryView(bool runAsync = true)
     {
-        if (!PlaylistWorkspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest))
-        {
-            return 0L;
-        }
-        long dataRebuildGeneration = buildRequest.Generation;
-        void execute()
-        {
-            var stopwatch = Stopwatch.StartNew();
-            List<PlaylistSummaryRow> rows;
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
-            int tableCount;
-            int entryScanCount;
-            int unloadedTableCount;
-            int summaryCacheHitCount;
-            int summaryCacheMissCount;
-            try
-            {
-                rows = BuildPlaylistSummaryRows(buildRequest.TableCountCacheGeneration, buildRequest.CancellationToken, out playlistSummaryOwnedHashSnapshot, out tableCount, out entryScanCount, out unloadedTableCount, out summaryCacheHitCount, out summaryCacheMissCount);
-            }
-            catch (OperationCanceledException)
-            {
-                LogMainViewBuild("playlist_summary_build_cancelled dataGeneration=" + dataRebuildGeneration + " currentDataGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration + " buildMs=" + stopwatch.ElapsedMilliseconds);
-                return;
-            }
-            long buildMs = stopwatch.ElapsedMilliseconds;
-            if (!PlaylistWorkspace.IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
-            {
-                LogMainViewBuild("playlist_summary_build_stale rawCount=" + rows.Count + " dataGeneration=" + dataRebuildGeneration + " currentDataGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration + " buildMs=" + buildMs);
-                return;
-            }
-            if (unloadedTableCount == 0)
-            {
-                PlaylistWorkspace.TrySetPlaylistSummaryRowsCache(rows, dataRebuildGeneration);
-            }
-            string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
-            string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
-            LogMainViewBuild("playlist_summary_build tableCount=" + tableCount + " unloadedTableCount=" + unloadedTableCount + " entryScanCount=" + entryScanCount + " rawCount=" + rows.Count + " buildMs=" + buildMs + " ownedMd5Count=" + (playlistSummaryOwnedHashSnapshot?.Md5Count ?? 0) + " ownedSha256Count=" + (playlistSummaryOwnedHashSnapshot?.Sha256Count ?? 0) + " ownedSnapshotVersion=" + (playlistSummaryOwnedHashSnapshot?.Version ?? 0) + " ownedHashBuildMs=" + (playlistSummaryOwnedHashSnapshot?.BuildElapsedMs ?? 0L) + " summaryCacheHit=false tableCacheHit=" + summaryCacheHitCount + " tableCacheMiss=" + summaryCacheMissCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
-            LogMainViewBuild("playlist_summary_cache tableCount=" + tableCount + " entryScanCount=" + entryScanCount + " cacheHit=" + summaryCacheHitCount + " cacheMiss=" + summaryCacheMissCount + " elapsedMs=" + buildMs);
-            long presentationGeneration = PlaylistWorkspace.BeginPlaylistSummaryPresentationGeneration();
-            ApplyPlaylistSummaryPresentation(rows, stopwatch, buildMs, presentationGeneration, dataRebuildGeneration: dataRebuildGeneration);
-        }
-        void action()
-        {
-            try
-            {
-                execute();
-            }
-            finally
-            {
-                PlaylistWorkspace.CompletePlaylistSummaryDataBuild(buildRequest);
-            }
-        }
-        if (!runAsync)
-        {
-            action();
-        }
-        else
-        {
-            Task.Run(action).Logging("RebuildPlaylistSummaryView");
-        }
-        return dataRebuildGeneration;
-    }
-
-    private List<PlaylistSummaryRow> BuildPlaylistSummaryRows(long expectedTableCountCacheGeneration, CancellationToken cancellationToken, out BMSLibrary.PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot, out int tableCount, out int entryScanCount, out int unloadedTableCount, out int summaryCacheHitCount, out int summaryCacheMissCount)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        List<PlaylistSummaryRow> rows = [];
-        entryScanCount = 0;
-        summaryCacheHitCount = 0;
-        summaryCacheMissCount = 0;
-        Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatusSnapshot = GetPlaylistSyncStatusSnapshot();
-        cancellationToken.ThrowIfCancellationRequested();
-        playlistSummaryOwnedHashSnapshot = files?.GetPlaylistSummaryOwnedHashSnapshot(cancellationToken);
-        int ownedSnapshotVersion = playlistSummaryOwnedHashSnapshot?.Version ?? 0;
-        List<BMSTable> tablesSnapshot = [];
-        unloadedTableCount = 0;
-        if (tables != null)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            tables.AcquireReaderLockBMSTables();
-            try
-            {
-                tablesSnapshot = [.. BMSTables.Where(t => t != null).OrderBy(t => t.name ?? string.Empty)];
-            }
-            finally
-            {
-                tables.FreeReaderLockBMSTables();
-            }
-        }
-        tableCount = tablesSnapshot.Count;
-        foreach (BMSTable table in tablesSnapshot)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            bool entriesLoaded = table.ArePlaylistEntriesLoaded;
-            var countResult = new PlaylistSummaryCountResult();
-            string countCacheKey = entriesLoaded ? GetPlaylistSummaryTableCountCacheKey(table, ownedSnapshotVersion) : null;
-            if (entriesLoaded && PlaylistWorkspace.TryGetPlaylistSummaryTableCount(countCacheKey, out countResult))
-            {
-                summaryCacheHitCount++;
-            }
-            else if (entriesLoaded)
-            {
-                countResult = CalculatePlaylistSummaryCounts(table.GetEntriesExceptDummy(), playlistSummaryOwnedHashSnapshot, cancellationToken);
-                PlaylistWorkspace.TrySetPlaylistSummaryTableCount(countCacheKey, countResult, expectedTableCountCacheGeneration);
-                summaryCacheMissCount++;
-            }
-            if (!entriesLoaded)
-            {
-                unloadedTableCount++;
-            }
-            entryScanCount += countResult.ScannedEntries;
-            int totalCharts = countResult.TotalCharts;
-            int ownedCharts = countResult.OwnedCharts;
-            PlaylistSyncRuntimeStatus playlistSyncRuntimeStatus = GetPlaylistSyncRuntimeStatus(table, playlistSyncStatusSnapshot);
-            string statusDetail = playlistSyncRuntimeStatus.Detail;
-            if (!entriesLoaded)
-            {
-                statusDetail = string.IsNullOrWhiteSpace(statusDetail)
-                    ? BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_loading
-                    : string.Format(CultureInfo.CurrentCulture, BeMusicSeeker.Properties.Resources.Statusbar_progress_detail_separator_format, statusDetail, BeMusicSeeker.Properties.Resources.Statusbar_progress_phase_playlist_loading);
-            }
-            rows.Add(new PlaylistSummaryRow
-            {
-                PlaylistId = table.playlist_id,
-                OutputBaseName = table.custom_folder_output_base_name ?? string.Empty,
-                OutputBaseDisplayName = CustomFolderOutputBaseRegistry.GetDisplayName(table.custom_folder_output_base_name),
-                Name = table.name ?? string.Empty,
-                FolderName = table.Output_dir ?? string.Empty,
-                FolderNameUndefined = IsPlaylistSummaryFolderNameUndefined(table),
-                CompatPrefix = table.compat_prefix ?? string.Empty,
-                Symbol = table.symbol ?? string.Empty,
-                LastUpdate = table.last_update,
-                TotalCharts = totalCharts,
-                OwnedCharts = ownedCharts,
-                MissingCharts = totalCharts - ownedCharts,
-                OwnedRatio = ((totalCharts == 0) ? 0.0 : ((double)ownedCharts * 100.0 / (double)totalCharts)),
-                LinkUri = table.Page_url ?? table.GetAbsoluteHeaderUrl(),
-                HeaderUri = table.GetAbsoluteHeaderUrl(),
-                DataUri = table.GetAbsoluteDataUrl(),
-                IsExternalSync = table.is_external_sync,
-                Status = playlistSyncRuntimeStatus.StatusText,
-                StatusDetail = statusDetail,
-                StatusSortOrder = playlistSyncRuntimeStatus.StatusSortOrder,
-                HasFailureStatus = playlistSyncRuntimeStatus.HasFailureStatus,
-                IsRootFolder = table.is_root_folder,
-                BmtSort = table.bmt_sort ?? int.MaxValue,
-                IsBmtOutput = table.is_bmt_output != false,
-                TableRef = table
-            });
-        }
-        return rows;
-    }
-
-    private static bool IsPlaylistSummaryFolderNameUndefined(BMSTable table)
-    {
-        if (table == null)
-        {
-            return true;
-        }
-
-        string explicitOutputDirectoryName = BMSTable.NormalizeOutputDirectoryName(table.output_dir);
-        string defaultOutputDirectoryName = BMSTable.CreateDefaultOutputDirectoryName(table.name);
-        return string.IsNullOrWhiteSpace(explicitOutputDirectoryName)
-            || string.Equals(explicitOutputDirectoryName, defaultOutputDirectoryName, StringComparison.Ordinal);
-    }
-
-    private static string GetPlaylistSummaryTableCountCacheKey(BMSTable table, int ownedSnapshotVersion)
-    {
-        if (table == null)
-        {
-            return null;
-        }
-        string tableKey = table.playlist_id.HasValue
-            ? ("id:" + table.playlist_id.Value.ToString(CultureInfo.InvariantCulture))
-            : ("name:" + (table.name ?? string.Empty) + "|symbol:" + (table.symbol ?? string.Empty));
-        return tableKey
-            + "|entryRevision:" + table.PlaylistEntriesRevision.ToString(CultureInfo.InvariantCulture)
-            + "|owned:" + ownedSnapshotVersion.ToString(CultureInfo.InvariantCulture)
-            + "|state:" + table.PlaylistEntriesLoadState;
-    }
-
-    private void ApplyPlaylistSummaryPresentation()
-    {
-        List<PlaylistSummaryRow> cachedRows = PlaylistWorkspace.GetPlaylistSummaryRowsCacheSnapshot(out long cacheGeneration, out long dataRebuildGeneration);
-        if (cachedRows == null)
-        {
-            RebuildPlaylistSummaryView();
-            return;
-        }
-        long presentationGeneration = PlaylistWorkspace.BeginPlaylistSummaryPresentationGeneration();
-        ApplyPlaylistSummaryPresentation(cachedRows, Stopwatch.StartNew(), 0L, presentationGeneration, dataRebuildGeneration: dataRebuildGeneration, cacheGeneration: cacheGeneration);
-    }
-
-    private void ApplyPlaylistSummaryPresentation(List<PlaylistSummaryRow> rawRows, Stopwatch stopwatch, long buildMs, long presentationGeneration, long? dataRebuildGeneration = null, long? cacheGeneration = null)
-    {
-        List<PlaylistSummaryRow> safeRawRows = rawRows ?? [];
-        PlaylistSummaryPresentationResult presentationResult = BuildPlaylistSummaryPresentationRows(safeRawRows, PlaylistSummaryKeywordFilter, PlaylistSummaryOwnedFilter, PlaylistSummarySortParameters, false);
-        if (!CanApplyPlaylistSummaryPresentation(presentationGeneration, dataRebuildGeneration, cacheGeneration))
-        {
-            LogMainViewBuild("playlist_summary_present_stale inputCount=" + safeRawRows.Count + " generation=" + presentationGeneration + " currentGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryPresentationGeneration + " dataGeneration=" + (dataRebuildGeneration?.ToString(CultureInfo.InvariantCulture) ?? "-") + " currentDataGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration + " cacheGeneration=" + (cacheGeneration?.ToString(CultureInfo.InvariantCulture) ?? "-") + " currentCacheGeneration=" + PlaylistWorkspace.CurrentPlaylistSummaryRowsCacheGeneration);
-            return;
-        }
-        Action reflect = delegate
-        {
-            if (!IsPlaylistSummaryMode || !CanApplyPlaylistSummaryPresentation(presentationGeneration, dataRebuildGeneration, cacheGeneration))
-            {
-                return;
-            }
-            bool applied;
-            try
-            {
-                applied = PlaylistWorkspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
-                {
-                    Rows = new ObservableCollection<PlaylistSummaryRow>(presentationResult.Rows),
-                    SummaryText = string.Format(BeMusicSeeker.Properties.Resources.Playlist_summary_format, presentationResult.Rows.Sum(r => r.TotalCharts), presentationResult.Rows.Count),
-                    PresentationGeneration = presentationGeneration,
-                    DataRebuildGeneration = dataRebuildGeneration,
-                    CacheGeneration = cacheGeneration
-                });
-            }
-            catch (PlaylistSummaryPublishException)
-            {
-                TrySchedulePlaylistReloadCleanup();
-                throw;
-            }
-            if (applied)
-            {
-                TrySchedulePlaylistReloadCleanup();
-            }
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-        }
-        Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);
-        if (buildMs > 0)
-        {
-            LogMainViewBuild("playlist_summary_present inputCount=" + safeRawRows.Count + " filteredCount=" + presentationResult.FilteredCount + " viewCount=" + presentationResult.Rows.Count + " filterMs=" + presentationResult.FilterElapsedMs + " sortMs=" + presentationResult.SortElapsedMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + presentationResult.SortColumn + " sortDirection=" + presentationResult.SortDirection + " sortProfile=" + presentationResult.SortProfile + " sortEngine=" + (presentationResult.UseLegacySort ? "legacy" : "fast") + " buildMs=" + buildMs + " summaryCacheHit=false");
-        }
-        else
-        {
-            LogMainViewBuild("playlist_summary_present inputCount=" + safeRawRows.Count + " filteredCount=" + presentationResult.FilteredCount + " viewCount=" + presentationResult.Rows.Count + " filterMs=" + presentationResult.FilterElapsedMs + " sortMs=" + presentationResult.SortElapsedMs + " totalMs=" + stopwatch.ElapsedMilliseconds + " sortColumn=" + presentationResult.SortColumn + " sortDirection=" + presentationResult.SortDirection + " sortProfile=" + presentationResult.SortProfile + " sortEngine=" + (presentationResult.UseLegacySort ? "legacy" : "fast") + " summaryCacheHit=true");
-        }
-    }
-
-    private bool CanApplyPlaylistSummaryPresentation(long presentationGeneration, long? dataRebuildGeneration, long? cacheGeneration)
-    {
-        if (presentationGeneration != PlaylistWorkspace.CurrentPlaylistSummaryPresentationGeneration)
-        {
-            return false;
-        }
-        if (dataRebuildGeneration.HasValue)
-        {
-            return PlaylistWorkspace.IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration.Value);
-        }
-        if (cacheGeneration.HasValue && cacheGeneration.Value != PlaylistWorkspace.CurrentPlaylistSummaryRowsCacheGeneration)
-        {
-            return false;
-        }
-        return true;
-    }
-
-    internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(IEnumerable<PlaylistSummaryRow> rows, string keywordFilter, PlaylistSummaryOwnedFilterType ownedFilter, cSortParameters sortParameters, bool useLegacySort)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        List<PlaylistSummaryRow> filteredRows = [.. ApplyPlaylistSummaryFilters(rows, keywordFilter, ownedFilter)];
-        long filterElapsedMs = stopwatch.ElapsedMilliseconds;
-        List<PlaylistSummaryRow> sortedRows = PlaylistSummarySortEngine.Sort(filteredRows, sortParameters, useLegacySort, out string sortProfile);
-        long sortElapsedMs = stopwatch.ElapsedMilliseconds - filterElapsedMs;
-        return new PlaylistSummaryPresentationResult
-        {
-            Rows = sortedRows,
-            FilteredCount = filteredRows.Count,
-            FilterElapsedMs = filterElapsedMs,
-            SortElapsedMs = sortElapsedMs,
-            SortProfile = sortProfile,
-            SortColumn = sortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name),
-            SortDirection = sortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString(),
-            UseLegacySort = useLegacySort
-        };
-    }
-
-    internal static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(IEnumerable<BMSTableEntry> entries, HashSet<string> ownedMd5Hashes, HashSet<string> ownedSha256Hashes)
-    {
-        HashSet<string> safeOwnedMd5Hashes = ownedMd5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> safeOwnedSha256Hashes = ownedSha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return CalculatePlaylistSummaryCounts(
-            entries,
-            md5 => !string.IsNullOrWhiteSpace(md5) && safeOwnedMd5Hashes.Contains(md5),
-            sha256 => !string.IsNullOrWhiteSpace(sha256) && safeOwnedSha256Hashes.Contains(sha256));
-    }
-
-    internal static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(IEnumerable<BMSTableEntry> entries, BMSLibrary.PlaylistSummaryOwnedHashSnapshot ownedHashSnapshot)
-    {
-        Func<string, bool> containsMd5 = ownedHashSnapshot == null ? null : ownedHashSnapshot.ContainsMd5;
-        Func<string, bool> containsSha256 = ownedHashSnapshot == null ? null : ownedHashSnapshot.ContainsSha256;
-        return CalculatePlaylistSummaryCounts(
-            entries,
-            containsMd5,
-            containsSha256,
-            CancellationToken.None);
-    }
-
-    private static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(
-        IEnumerable<BMSTableEntry> entries,
-        BMSLibrary.PlaylistSummaryOwnedHashSnapshot ownedHashSnapshot,
-        CancellationToken cancellationToken)
-    {
-        Func<string, bool> containsMd5 = ownedHashSnapshot == null ? null : ownedHashSnapshot.ContainsMd5;
-        Func<string, bool> containsSha256 = ownedHashSnapshot == null ? null : ownedHashSnapshot.ContainsSha256;
-        return CalculatePlaylistSummaryCounts(entries, containsMd5, containsSha256, cancellationToken);
-    }
-
-    private static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(
-        IEnumerable<BMSTableEntry> entries,
-        Func<string, bool> containsMd5,
-        Func<string, bool> containsSha256,
-        CancellationToken cancellationToken = default)
-    {
-        PlaylistSummaryCountResult result = default;
-        containsMd5 ??= _ => false;
-        containsSha256 ??= _ => false;
-        foreach (BMSTableEntry entry in entries ?? [])
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            result.ScannedEntries++;
-            if (entry == null || entry.is_removed)
-            {
-                continue;
-            }
-            bool hasMd5 = !string.IsNullOrWhiteSpace(entry.md5);
-            bool hasSha256 = !string.IsNullOrWhiteSpace(entry.sha256);
-            if (!hasMd5 && !hasSha256)
-            {
-                continue;
-            }
-            result.TotalCharts++;
-            if (hasMd5)
-            {
-                if (containsMd5(entry.md5))
-                {
-                    result.OwnedCharts++;
-                }
-            }
-            else if (containsSha256(entry.sha256))
-            {
-                result.OwnedCharts++;
-            }
-        }
-        return result;
-    }
-
-    internal struct PlaylistSummaryPresentationResult
-    {
-        internal List<PlaylistSummaryRow> Rows;
-
-        internal int FilteredCount;
-
-        internal long FilterElapsedMs;
-
-        internal long SortElapsedMs;
-
-        internal string SortProfile;
-
-        internal string SortColumn;
-
-        internal string SortDirection;
-
-        internal bool UseLegacySort;
-    }
-
-    private IEnumerable<PlaylistSummaryRow> ApplyPlaylistSummaryFilters(IEnumerable<PlaylistSummaryRow> rows)
-    {
-        return ApplyPlaylistSummaryFilters(rows, PlaylistSummaryKeywordFilter, PlaylistSummaryOwnedFilter);
-    }
-
-    internal static IEnumerable<PlaylistSummaryRow> ApplyPlaylistSummaryFilters(IEnumerable<PlaylistSummaryRow> rows, string keywordFilter, PlaylistSummaryOwnedFilterType ownedFilter)
-    {
-        IEnumerable<PlaylistSummaryRow> source = rows ?? [];
-        string text = (keywordFilter ?? string.Empty).Trim();
-        if (!string.IsNullOrWhiteSpace(text))
-        {
-            var query = GridKeywordSearchQuery.Parse(text);
-            source = source.Where(row => query.MatchesPlaylistSummary(row));
-        }
-        return source.Where(row => IsPlaylistSummaryRowMatchedOwnedFilter(row, ownedFilter));
-    }
-
-    private bool IsPlaylistSummaryRowMatchedOwnedFilter(PlaylistSummaryRow row)
-    {
-        return IsPlaylistSummaryRowMatchedOwnedFilter(row, PlaylistSummaryOwnedFilter);
-    }
-
-    internal static bool IsPlaylistSummaryRowMatchedOwnedFilter(PlaylistSummaryRow row, PlaylistSummaryOwnedFilterType ownedFilter)
-    {
-        if (row == null)
-        {
-            return false;
-        }
-        return ownedFilter switch
-        {
-            PlaylistSummaryOwnedFilterType.OwnedComplete => row.TotalCharts > 0 && row.OwnedCharts == row.TotalCharts,
-            PlaylistSummaryOwnedFilterType.OwnedIncomplete => row.TotalCharts == 0 || row.OwnedCharts < row.TotalCharts,
-            _ => true,
-        };
+        return PlaylistWorkspace.RebuildPlaylistSummaryView(
+            files,
+            tables,
+            GetPlaylistSyncStatusSnapshot(),
+            installPerformanceLoggingEnabled ? installPerformanceLogger : null,
+            runAsync);
     }
 
     internal static bool IsPlaylistSummaryCustomFolderOutputEffectiveEnabled(BMSTable table, LR2SongDBExtended.playlist.CustomFolderType type)
@@ -20605,7 +20210,7 @@ public partial class MainWindowViewModel : ViewModel
             RefreshPlaylistSummaryIfVisible("manual_playlist_resync", invalidateTableCountCache: true);
             RefreshPlaylistDetailAfterReloadIfVisible();
             bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, list.Count);
-            LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count + " processedCount=" + (results?.Count ?? 0) + " summaryRebuildMs=" + Interlocked.Read(ref lastPlaylistSummaryBuildElapsedMs) + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + playlistReloadStopwatch.ElapsedMilliseconds);
+            LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count + " processedCount=" + (results?.Count ?? 0) + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + playlistReloadStopwatch.ElapsedMilliseconds);
         }
         finally
         {
@@ -21990,24 +21595,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             return new Dictionary<string, PlaylistSyncRuntimeStatus>(playlistSyncStatuses, StringComparer.OrdinalIgnoreCase);
         }
-    }
-
-    private PlaylistSyncRuntimeStatus GetPlaylistSyncRuntimeStatus(BMSTable table, IDictionary<string, PlaylistSyncRuntimeStatus> snapshot)
-    {
-        if (table == null || snapshot == null)
-        {
-            return PlaylistSyncStatusMapper.CreateNone();
-        }
-        string playlistSyncStatusKey = GetPlaylistSyncStatusKey(table);
-        if (string.IsNullOrWhiteSpace(playlistSyncStatusKey))
-        {
-            return PlaylistSyncStatusMapper.CreateNone();
-        }
-        if (snapshot.TryGetValue(playlistSyncStatusKey, out PlaylistSyncRuntimeStatus value) && value != null)
-        {
-            return value;
-        }
-        return PlaylistSyncStatusMapper.CreateNone();
     }
 
     private string GetPlaylistSyncStatusKey(BMSTable table)

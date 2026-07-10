@@ -55,7 +55,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             Assert.AreEqual(-1, rootSource.IndexOf(rootField, StringComparison.Ordinal), rootField);
         }
 
-        StringAssert.Contains(workspaceSource, "public sealed class PlaylistWorkspaceViewModel : ViewModel");
+        StringAssert.Contains(workspaceSource, "public sealed partial class PlaylistWorkspaceViewModel : ViewModel");
         StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
         StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
         StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");
@@ -72,8 +72,18 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryDataRefreshDecision", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSummaryViewApplied += MainWindowViewModel_PlaylistSummaryViewApplied;");
-        StringAssert.Contains(rootSource, "BuildPlaylistSummaryRows(buildRequest.TableCountCacheGeneration, buildRequest.CancellationToken");
-        StringAssert.Contains(rootSource, "cancellationToken.ThrowIfCancellationRequested();");
+        Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryRows", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryPresentationRows", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("CanApplyPlaylistSummaryPresentation", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("private void ApplyPlaylistSummaryPresentation", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("lastPlaylistSummaryBuildElapsedMs", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "private long lastPlaylistSummaryBuildElapsedMs;");
+        string buildOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBuild.cs");
+        StringAssert.Contains(buildOwnerSource, "internal long RebuildPlaylistSummaryView(");
+        StringAssert.Contains(buildOwnerSource, "private PlaylistSummaryRowsBuildResult BuildPlaylistSummaryRows(");
+        StringAssert.Contains(buildOwnerSource, "internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;");
     }
 
     [TestMethod]
@@ -240,6 +250,26 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreSame(rows, workspace.PlaylistSummaryView);
         Assert.AreEqual("committed", workspace.PlaylistSummaryText);
         Assert.IsTrue(appliedEventRaised);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummaryAppliedInvokesLaterSubscriberAfterEarlierFailure()
+    {
+        var workspace = new PlaylistWorkspaceViewModel { IsPlaylistSummaryMode = true };
+        long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+        long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
+        bool laterSubscriberCalled = false;
+        workspace.PlaylistSummaryViewApplied += (_, _) => throw new InvalidOperationException("cleanup failed");
+        workspace.PlaylistSummaryViewApplied += (_, _) => laterSubscriberCalled = true;
+
+        Assert.ThrowsException<PlaylistSummaryPublishException>(() => workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+        {
+            Rows = new ObservableCollection<PlaylistSummaryRow> { new() },
+            PresentationGeneration = presentationGeneration,
+            DataRebuildGeneration = dataGeneration
+        }));
+
+        Assert.IsTrue(laterSubscriberCalled);
     }
 
     [TestMethod]
