@@ -435,7 +435,40 @@ public sealed class MainChartListViewModel : ViewModel
 
         IList previousRows = commit.PreviousRowsPendingDisposal;
         commit.PreviousRowsPendingDisposal = null;
-        DisposeRows(previousRows);
+        var disposeExceptions = new List<Exception>();
+        if (previousRows is IChartListViewMetadata metadata)
+        {
+            try
+            {
+                metadata.DisposeRealizedRows();
+            }
+            catch (Exception ex)
+            {
+                disposeExceptions.Add(ex);
+            }
+        }
+        else
+        {
+            foreach (object row in previousRows)
+            {
+                if (row is not IDisposable disposable)
+                {
+                    continue;
+                }
+                try
+                {
+                    disposable.Dispose();
+                }
+                catch (Exception ex)
+                {
+                    disposeExceptions.Add(ex);
+                }
+            }
+        }
+        if (disposeExceptions.Count > 0)
+        {
+            throw new AggregateException("One or more previous main chart rows failed to dispose.", disposeExceptions);
+        }
     }
 
     internal MainChartListRowsApplyResult PublishRowsCommit(MainChartListRowsCommit commit)

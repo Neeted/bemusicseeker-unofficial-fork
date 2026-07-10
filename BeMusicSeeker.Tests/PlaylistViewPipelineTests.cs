@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -117,16 +118,17 @@ public sealed class PlaylistViewPipelineTests
     {
         string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string playlistStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistState.cs");
+        string playlistDetailViewStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailViewState.cs");
         string buildStateSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildState.cs");
         string queueCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildQueueCoordinator.cs");
         string workflowCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailBuildWorkflowCoordinator.cs");
         string workflowHostSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistDetailBuildWorkflowHost.cs");
-        string terminalTransitionSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistDetailTerminalTransition.cs");
+        string terminalOwnerSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailTerminalOwner.cs");
         string sourceBuildResultSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSourceBuildResult.cs");
         string sourceRowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "PlaylistDetailSourceRow.cs");
-        string playlistViewStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewState");
-        string playlistSourceSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistSourceSnapshotState");
-        string playlistViewSnapshotStateSource = ExtractTypeBlock(playlistStateSource, "private sealed class PlaylistViewSnapshotState");
+        string playlistViewStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailViewState");
+        string playlistSourceSnapshotStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailSourceSnapshotState");
+        string playlistViewSnapshotStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailViewSnapshotState");
 
         foreach (string rootFieldDeclaration in new[]
         {
@@ -149,11 +151,11 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(buildStateSource, "internal PlaylistBuildRequest PendingRequest;");
         StringAssert.Contains(buildStateSource, "internal bool ShutdownCancellationRequested;");
         StringAssert.Contains(playlistSourceSnapshotStateSource, "internal List<PlaylistDetailSourceRow> Rows = [];");
-        StringAssert.Contains(playlistSourceSnapshotStateSource, "internal PlaylistSourceIdentity? CurrentIdentity;");
+        StringAssert.Contains(playlistSourceSnapshotStateSource, "internal MainWindowViewModel.PlaylistSourceIdentity? CurrentIdentity;");
         StringAssert.Contains(playlistViewSnapshotStateSource, "internal IList Rows = new List<object>();");
-        StringAssert.Contains(playlistViewSnapshotStateSource, "internal PlaylistRequestIdentity? CurrentIdentity;");
-        StringAssert.Contains(playlistViewStateSource, "internal readonly PlaylistSourceSnapshotState Source = new();");
-        StringAssert.Contains(playlistViewStateSource, "internal readonly PlaylistViewSnapshotState View = new();");
+        StringAssert.Contains(playlistViewSnapshotStateSource, "internal MainWindowViewModel.PlaylistRequestIdentity? CurrentIdentity;");
+        StringAssert.Contains(playlistViewStateSource, "internal readonly PlaylistDetailSourceSnapshotState Source = new();");
+        StringAssert.Contains(playlistViewStateSource, "internal readonly PlaylistDetailViewSnapshotState View = new();");
         Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal List<PlaylistDetailSourceRow> SourceRows", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal IList CurrentViewRows", StringComparison.Ordinal));
         StringAssert.Contains(rootSource, "private readonly PlaylistDetailBuildState playlistDetailBuildState = new();");
@@ -180,13 +182,16 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromCurrentSource(");
         StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)");
         StringAssert.Contains(rootSource, "internal PlaylistDetailTerminalApplyResult TryCommitPlaylistDetailTerminal(");
-        StringAssert.Contains(terminalTransitionSource, "private static class PlaylistDetailTerminalTransition");
-        StringAssert.Contains(terminalTransitionSource, "lock (buildState.SyncRoot)");
-        StringAssert.Contains(terminalTransitionSource, "lock (viewState.SyncRoot)");
-        StringAssert.Contains(terminalTransitionSource, "mainChartList.CommitPreparedRowsWithoutDisposal(prepared)");
-        StringAssert.Contains(terminalTransitionSource, "mainChartList.PublishRowsCommit(mainRowsCommit)");
-        StringAssert.Contains(terminalTransitionSource, "CommitColumnPresentationWithoutNotification(");
-        StringAssert.Contains(terminalTransitionSource, "PublishColumnPresentation(result.ColumnPresentationCommit)");
+        StringAssert.Contains(terminalOwnerSource, "internal sealed class PlaylistDetailTerminalOwner");
+        StringAssert.Contains(terminalOwnerSource, "lock (buildState.SyncRoot)");
+        StringAssert.Contains(terminalOwnerSource, "lock (viewState.SyncRoot)");
+        StringAssert.Contains(terminalOwnerSource, "mainChartList.CommitPreparedRowsWithoutDisposal(prepared)");
+        StringAssert.Contains(terminalOwnerSource, "mainChartList.DisposeCommittedRows(mainRowsCommit)");
+        StringAssert.Contains(terminalOwnerSource, "mainChartList.PublishRowsCommit(mainRowsCommit)");
+        StringAssert.Contains(terminalOwnerSource, "playlistWorkspace.CommitColumnPresentationWithoutNotification(");
+        StringAssert.Contains(terminalOwnerSource, "playlistWorkspace.PublishColumnPresentation(result.ColumnPresentationCommit)");
+        StringAssert.Contains(terminalOwnerSource, "new AggregateException(terminalExceptions)");
+        Assert.IsFalse(rootSource.Contains("PlaylistDetailTerminalTransition"));
         StringAssert.Contains(rootSource, "request.RequestVersion != playlistDetailBuildState.RequestVersion");
         StringAssert.Contains(rootSource, "ReferenceEquals(playlistViewState.Source.Rows, sourceRows)");
         StringAssert.Contains(sourceRowSource, "internal PlaylistDetailSourceRow WithEntryChartInfo(");
@@ -283,6 +288,82 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(oldSummaryColumns, viewModel.PlaylistSummaryColumnsSettings);
         Assert.AreEqual(1, preparingCount);
         Assert.AreEqual(1, canceledCount);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailTerminal_PostCommitFailureStillDisposesAndPublishesAllOwners()
+    {
+        var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
+        var viewState = new PlaylistDetailViewState();
+        var table = new MainChartListViewModel();
+        var workspace = new PlaylistWorkspaceViewModel();
+        var oldRow = new TrackingDisposableRow();
+        var oldRows = new List<object> { oldRow };
+        var candidateRows = new List<object> { new object() };
+        table.Rows = oldRows;
+        viewState.View.Rows = oldRows;
+        int tableNotifications = 0;
+        int workspaceNotifications = 0;
+        table.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainChartListViewModel.Rows))
+            {
+                tableNotifications++;
+                throw new InvalidOperationException("table publish failed");
+            }
+        };
+        workspace.PropertyChanged += (_, _) => workspaceNotifications++;
+        var owner = new PlaylistDetailTerminalOwner(
+            buildState,
+            viewState,
+            table,
+            workspace,
+            _ => throw new InvalidOperationException("external column mode failed"));
+
+        PlaylistDetailTerminalPublishException exception = Assert.ThrowsException<PlaylistDetailTerminalPublishException>(
+            () => owner.TryApply(CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1)));
+
+        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.AreSame(candidateRows, table.Rows);
+        Assert.AreEqual(1, oldRow.DisposeCount);
+        Assert.IsTrue(tableNotifications > 0);
+        Assert.IsTrue(workspaceNotifications > 0);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailTerminal_DisposeFailureDoesNotSuppressRemainingPublishers()
+    {
+        var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
+        var viewState = new PlaylistDetailViewState();
+        var table = new MainChartListViewModel();
+        var workspace = new PlaylistWorkspaceViewModel();
+        var oldRow = new TrackingDisposableRow(throwOnDispose: true);
+        var laterRow = new TrackingDisposableRow();
+        var oldRows = new List<object> { oldRow, laterRow };
+        var candidateRows = new List<object> { new object() };
+        table.Rows = oldRows;
+        viewState.View.Rows = oldRows;
+        int tableNotifications = 0;
+        int workspaceNotifications = 0;
+        table.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainChartListViewModel.Rows))
+            {
+                tableNotifications++;
+            }
+        };
+        workspace.PropertyChanged += (_, _) => workspaceNotifications++;
+        var owner = new PlaylistDetailTerminalOwner(buildState, viewState, table, workspace, _ => { });
+
+        PlaylistDetailTerminalPublishException exception = Assert.ThrowsException<PlaylistDetailTerminalPublishException>(
+            () => owner.TryApply(CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1)));
+
+        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.AreSame(candidateRows, table.Rows);
+        Assert.AreEqual(1, oldRow.DisposeCount);
+        Assert.AreEqual(1, laterRow.DisposeCount);
+        Assert.IsTrue(tableNotifications > 0);
+        Assert.IsTrue(workspaceNotifications > 0);
     }
 
     [TestMethod]
@@ -4253,6 +4334,42 @@ public sealed class PlaylistViewPipelineTests
             hasResolvedSelection: true);
     }
 
+    private static PlaylistDetailTerminalRequest CreatePlaylistTerminalRequest(IList rows, int requestVersion)
+    {
+        MainWindowViewModel.PlaylistRequestIdentity identity = CreatePlaylistIdentity("terminal");
+        var stopwatch = Stopwatch.StartNew();
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
+        var columnSelection = new MainChartListColumnSelection(
+            settings,
+            reused: false,
+            elapsedMs: 0L,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            System.Windows.Visibility.Collapsed,
+            new PlaylistSummaryColumnSettings());
+        return new PlaylistDetailTerminalRequest
+        {
+            BuildRequest = new PlaylistBuildRequest
+            {
+                RequestVersion = requestVersion,
+                Mode = MainViewUpdateMode.PlaylistFilterSelected,
+                RequestedMode = MainViewUpdateMode.PlaylistFilterSelected,
+                Identity = identity
+            },
+            ReplaceSource = false,
+            CurrentFilterType = identity.FilterType,
+            ViewRows = rows,
+            ColumnSelection = columnSelection,
+            MainRowsRequest = new MainChartListRowsApplyRequest
+            {
+                Rows = rows,
+                ColumnsSettings = settings,
+                SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                Summary = MainChartListSummaryUpdate.NormalRows(rows),
+                Stopwatch = stopwatch
+            }
+        };
+    }
+
     private static PlaylistDetailBuildStateSnapshot CreatePlaylistDetailBuildStateSnapshot(
         MainWindowViewModel.PlaylistRequestIdentity identity,
         bool hasSourceRows = true,
@@ -4336,6 +4453,27 @@ public sealed class PlaylistViewPipelineTests
         public void SetArtist(string value)
         {
             artist = value;
+        }
+    }
+
+    private sealed class TrackingDisposableRow : IDisposable
+    {
+        private readonly bool throwOnDispose;
+
+        internal TrackingDisposableRow(bool throwOnDispose = false)
+        {
+            this.throwOnDispose = throwOnDispose;
+        }
+
+        internal int DisposeCount { get; private set; }
+
+        public void Dispose()
+        {
+            DisposeCount++;
+            if (throwOnDispose)
+            {
+                throw new InvalidOperationException("dispose failed");
+            }
         }
     }
 

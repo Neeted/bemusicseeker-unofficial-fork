@@ -181,8 +181,14 @@ internal sealed class PlaylistDetailTerminalPublishException : Exception
     }
 
     internal PlaylistDetailTerminalPublishException(Exception innerException)
-        : base("Playlist detail terminal state was committed but publishing notifications failed.", innerException)
+        : this(innerException, ownershipTransferred: true)
     {
+    }
+
+    internal PlaylistDetailTerminalPublishException(Exception innerException, bool ownershipTransferred)
+        : base("Playlist detail terminal state was committed but disposal or publishing failed.", innerException)
+    {
+        OwnershipTransferred = ownershipTransferred;
     }
 
     internal PlaylistDetailTerminalPublishException(string message, Exception innerException)
@@ -193,6 +199,15 @@ internal sealed class PlaylistDetailTerminalPublishException : Exception
     private PlaylistDetailTerminalPublishException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
+        OwnershipTransferred = info.GetBoolean(nameof(OwnershipTransferred));
+    }
+
+    internal bool OwnershipTransferred { get; }
+
+    public override void GetObjectData(SerializationInfo info, StreamingContext context)
+    {
+        base.GetObjectData(info, context);
+        info.AddValue(nameof(OwnershipTransferred), OwnershipTransferred);
     }
 }
 

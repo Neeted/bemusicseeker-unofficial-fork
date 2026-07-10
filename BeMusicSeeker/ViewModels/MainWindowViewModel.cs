@@ -543,8 +543,12 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly object lockDeferredPlaylistRef = new();
 
-    private readonly PlaylistViewState playlistViewState = new();
+    private readonly PlaylistDetailViewState playlistViewState = new();
+
+    private PlaylistOpenInteractionState currentPlaylistOpenInteraction;
     private readonly PlaylistDetailBuildState playlistDetailBuildState = new();
+
+    private readonly PlaylistDetailTerminalOwner playlistDetailTerminalOwner;
 
     private readonly object playlistLibraryIndexSync = new();
 
@@ -2019,7 +2023,7 @@ public partial class MainWindowViewModel : ViewModel
         };
         lock (playlistViewState.SyncRoot)
         {
-            playlistViewState.CurrentOpenInteraction = interaction;
+            currentPlaylistOpenInteraction = interaction;
         }
         LogPlaylistOpen("playlist_open_request requestVersion=" + request.RequestVersion + " requestedMode=" + request.RequestedMode + " mode=" + request.Mode + " table=" + FormatPlaylistTableNameForLog(request.Identity.Table) + " folder=" + FormatPlaylistFolderNameForLog(request.Identity.FolderName) + " filterType=" + request.Identity.FilterType);
         LogPlaylistOpen("playlist_open_ready_state requestVersion=" + request.RequestVersion + " startupReadyDataReached=" + readiness.StartupReadyDataReached.ToString().ToLowerInvariant() + " startupReadyUiReached=" + readiness.StartupReadyUiReached.ToString().ToLowerInvariant() + " startupReadyOperableReached=" + readiness.StartupReadyOperableReached.ToString().ToLowerInvariant() + " playlistRefDeferredRunning=" + readiness.PlaylistRefDeferredRunning.ToString().ToLowerInvariant() + " playlistRefDeferredLastCompletedVersion=" + readiness.PlaylistRefDeferredLastCompletedVersion + " maintenanceHydrationRunning=" + readiness.MaintenanceHydrationRunning.ToString().ToLowerInvariant() + " maintenanceHydrationLastCompletedVersion=" + readiness.MaintenanceHydrationLastCompletedVersion + " playlistLibraryIndexState=" + readiness.PlaylistLibraryIndexState + " playlistLibraryIndexBuildMs=" + readiness.PlaylistLibraryIndexBuildMs + " scoreSnapshotReady=" + readiness.ScoreSnapshotReady.ToString().ToLowerInvariant() + " scoreSnapshotVersion=" + readiness.ScoreSnapshotVersion + " scoreHydrationRunning=" + readiness.ScoreHydrationRunning.ToString().ToLowerInvariant() + " scoreHydrationCompletedVersion=" + readiness.ScoreHydrationCompletedVersion + " rankingRefreshRunning=" + readiness.RankingRefreshRunning.ToString().ToLowerInvariant() + " rankingRefreshCompletedVersion=" + readiness.RankingRefreshCompletedVersion);
@@ -2036,9 +2040,9 @@ public partial class MainWindowViewModel : ViewModel
         }
         lock (playlistViewState.SyncRoot)
         {
-            if (playlistViewState.CurrentOpenInteraction != null && playlistViewState.CurrentOpenInteraction.RequestVersion == request.RequestVersion && !playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc.HasValue)
+            if (currentPlaylistOpenInteraction != null && currentPlaylistOpenInteraction.RequestVersion == request.RequestVersion && !currentPlaylistOpenInteraction.BuildStartedAtUtc.HasValue)
             {
-                playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc = DateTime.UtcNow;
+                currentPlaylistOpenInteraction.BuildStartedAtUtc = DateTime.UtcNow;
             }
         }
     }
@@ -2055,17 +2059,17 @@ public partial class MainWindowViewModel : ViewModel
         DateTime completedAtUtc = DateTime.UtcNow;
         lock (playlistViewState.SyncRoot)
         {
-            if (playlistViewState.CurrentOpenInteraction != null && playlistViewState.CurrentOpenInteraction.RequestVersion == request.RequestVersion)
+            if (currentPlaylistOpenInteraction != null && currentPlaylistOpenInteraction.RequestVersion == request.RequestVersion)
             {
-                if (!playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc.HasValue)
+                if (!currentPlaylistOpenInteraction.BuildStartedAtUtc.HasValue)
                 {
-                    playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc = completedAtUtc;
+                    currentPlaylistOpenInteraction.BuildStartedAtUtc = completedAtUtc;
                 }
-                playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc = completedAtUtc;
-                playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId = playlistViewState.Source.GenerationId;
-                playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId = playlistViewState.View.GenerationId;
-                playlistViewState.CurrentOpenInteraction.ViewCount = viewCount;
-                playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged = false;
+                currentPlaylistOpenInteraction.BuildCompletedAtUtc = completedAtUtc;
+                currentPlaylistOpenInteraction.ExpectedSourceGenerationId = playlistViewState.Source.GenerationId;
+                currentPlaylistOpenInteraction.ExpectedViewGenerationId = playlistViewState.View.GenerationId;
+                currentPlaylistOpenInteraction.ViewCount = viewCount;
+                currentPlaylistOpenInteraction.VisibleCompletedLogged = false;
             }
         }
     }
@@ -2085,16 +2089,16 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistOpenInteractionState interaction = null;
         lock (playlistViewState.SyncRoot)
         {
-            if (playlistViewState.CurrentOpenInteraction == null || playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged || !playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc.HasValue)
+            if (currentPlaylistOpenInteraction == null || currentPlaylistOpenInteraction.VisibleCompletedLogged || !currentPlaylistOpenInteraction.BuildCompletedAtUtc.HasValue)
             {
                 return;
             }
-            if (playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
+            if (currentPlaylistOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || currentPlaylistOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
             {
                 return;
             }
-            playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged = true;
-            interaction = playlistViewState.CurrentOpenInteraction;
+            currentPlaylistOpenInteraction.VisibleCompletedLogged = true;
+            interaction = currentPlaylistOpenInteraction;
         }
         long requestToBuildStartMs = interaction.BuildStartedAtUtc.HasValue ? (long)(interaction.BuildStartedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds : -1L;
         long requestToBuildCompleteMs = (long)(interaction.BuildCompletedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds;
@@ -2117,15 +2121,15 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistOpenInteractionState interaction = null;
         lock (playlistViewState.SyncRoot)
         {
-            if (playlistViewState.CurrentOpenInteraction == null || !playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc.HasValue)
+            if (currentPlaylistOpenInteraction == null || !currentPlaylistOpenInteraction.BuildCompletedAtUtc.HasValue)
             {
                 return false;
             }
-            if (playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
+            if (currentPlaylistOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || currentPlaylistOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
             {
                 return false;
             }
-            interaction = playlistViewState.CurrentOpenInteraction;
+            interaction = currentPlaylistOpenInteraction;
         }
         long requestToBuildStartMs = interaction.BuildStartedAtUtc.HasValue ? (long)(interaction.BuildStartedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds : -1L;
         long requestToBuildCompleteMs = (long)(interaction.BuildCompletedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds;
@@ -4974,7 +4978,7 @@ public partial class MainWindowViewModel : ViewModel
                 playlistViewState.Source.CurrentFilterType = PlaylistFilterType.PlaylistFilter;
                 playlistViewState.View.CurrentIdentity = null;
                 playlistViewState.Source.CurrentIdentity = null;
-                playlistViewState.CurrentOpenInteraction = null;
+                currentPlaylistOpenInteraction = null;
                 playlistViewState.Source.LastBuiltLibraryIndexVersion = 0L;
                 playlistViewState.Source.LastBuiltPlaylistRevision = 0L;
                 playlistViewState.Source.LastBuiltScoreSnapshotVersion = 0;
@@ -7161,6 +7165,12 @@ public partial class MainWindowViewModel : ViewModel
             LogMainViewBuild,
             DispatchMainChartListAction,
             LogMainViewBuildWarning);
+        playlistDetailTerminalOwner = new PlaylistDetailTerminalOwner(
+            playlistDetailBuildState,
+            playlistViewState,
+            MainChartList,
+            PlaylistWorkspace,
+            regularChartListOwner.CommitExternalColumnMode);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         preferredPlayHistoryDisplayTargetIdentity = NormalizePlayHistoryDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
@@ -10006,8 +10016,7 @@ public partial class MainWindowViewModel : ViewModel
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         MainChartListColumnSelection columnSelection = loadColumnSetting(columnSettingMode);
         long callbackStageMs = 0L;
-        PlaylistDetailTerminalCommitResult commitResult = PlaylistDetailTerminalTransition.TryCommit(
-            this,
+        PlaylistDetailTerminalCommitResult commitResult = playlistDetailTerminalOwner.TryApply(
             new PlaylistDetailTerminalRequest
             {
                 BuildRequest = request,
