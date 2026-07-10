@@ -18,6 +18,8 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public sealed class MainChartListViewModel : ViewModel
 {
+    internal MainChartRowProjectionOwner RowProjection { get; } = new();
+
     private IList rows = new List<object>();
 
     private int selectedIndex;

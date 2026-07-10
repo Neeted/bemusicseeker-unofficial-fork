@@ -223,7 +223,7 @@ public sealed class ChartListVirtualViewTests
             ChartListSourceProjectionMode.OwnerBacked,
             chartTransientStateProvider: (chart, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot));
 
-        LibraryChartRow row = MainWindowViewModel.CreateVirtualChartSubsetRowForTest(sourceRow);
+        LibraryChartRow row = new MainChartRowProjectionOwner().CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
 
         Assert.AreSame(bmson, row.Chart.GetBmsonStorageOwner());
         Assert.AreEqual("C:\\Installed\\Bmson", row.Chart.InstallDestination);
@@ -250,7 +250,7 @@ public sealed class ChartListVirtualViewTests
             ChartListSourceProjectionMode.OwnerBacked,
             chartTransientStateProvider: (chart, includeWarningSnapshot) => ChartFileTransientState.FromChartFile(statefulChart, includeWarningSnapshot));
 
-        LibraryChartRow row = MainWindowViewModel.CreateVirtualChartSubsetRowForTest(sourceRow);
+        LibraryChartRow row = new MainChartRowProjectionOwner().CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
 
         Assert.AreSame(file, row.Chart.GetBmsStorageOwner());
         Assert.AreEqual("C:\\Installed\\Bms", row.Chart.InstallDestination);
@@ -280,7 +280,7 @@ public sealed class ChartListVirtualViewTests
             scoreSnapshotVersionProvider: () => 1,
             scoreSnapshotProjectionProvider: row => string.Equals(row.Path, file.path, StringComparison.OrdinalIgnoreCase) ? score : null);
 
-        LibraryChartRow row = MainWindowViewModel.CreateVirtualChartSubsetRowForTest(sourceRow);
+        LibraryChartRow row = new MainChartRowProjectionOwner().CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
 
         Assert.AreSame(file, row.Chart.GetBmsStorageOwner());
         Assert.AreEqual(ClearType.HARD, row.clear);
@@ -353,16 +353,15 @@ public sealed class ChartListVirtualViewTests
             ChartFile playableChart = ChartFileProjection.FromBmsFile(file);
             PackageChartEntry transientEntry = PackageChartEntry.FromChart(playableChart);
             transientEntry.SetInstallDestinationPathOnly(destinationDirectoryPath);
-            typeof(MainWindowViewModel)
-                .GetMethod("UpdateSharedChartTransientStates", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(viewModel, [new[] { transientEntry.Chart }, true]);
+            viewModel.MainChartList.RowProjection.UpdateTransientStates(
+                [transientEntry.Chart],
+                forceInstallDestinationProjection: true);
             var sourceRow = ChartListSourceRow.FromChartFile(playableChart);
-            var viewRow = (LibraryChartRow)typeof(MainWindowViewModel)
-                .GetMethod("CreateVirtualChartSubsetRow", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(viewModel, [sourceRow, false])!;
-            typeof(MainWindowViewModel)
-                .GetMethod("ApplyLibraryChartRowProviders", BindingFlags.Instance | BindingFlags.NonPublic, null, [typeof(LibraryChartRow)], null)!
-                .Invoke(viewModel, [viewRow]);
+            LibraryChartRow viewRow = viewModel.MainChartList.RowProjection.CreateSubsetRow(
+                library,
+                sourceRow,
+                includeResourceHealth: false);
+            viewModel.MainChartList.RowProjection.ConfigureLibraryRow(library, viewRow);
             viewModel.MainChartList.Rows = new List<object>
             {
                 viewRow
@@ -1323,7 +1322,7 @@ public sealed class ChartListVirtualViewTests
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
 
-        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+        LibraryChartRow row = new MainChartRowProjectionOwner().CreatePackageRow(null, entry);
 
         Assert.IsNotNull(row);
         Assert.AreEqual(bmson.path, row.path);
@@ -1337,7 +1336,7 @@ public sealed class ChartListVirtualViewTests
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
 
-        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+        LibraryChartRow row = new MainChartRowProjectionOwner().CreatePackageRow(null, entry);
 
         Assert.IsNotNull(row);
         Assert.IsNull(row.Chart.GetBmsStorageOwner());
@@ -1352,7 +1351,7 @@ public sealed class ChartListVirtualViewTests
     {
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
-        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+        LibraryChartRow row = new MainChartRowProjectionOwner().CreatePackageRow(null, entry);
         var result = new InstallEstimationResult
         {
             Confidence = InstallEstimationConfidence.Low,
@@ -1389,7 +1388,7 @@ public sealed class ChartListVirtualViewTests
     {
         LR2SongDBExtended.bmson_song bmson = CreateBmsonSong();
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmson));
-        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+        LibraryChartRow row = new MainChartRowProjectionOwner().CreatePackageRow(null, entry);
         var propertyNames = new List<string>();
         row.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
@@ -1481,7 +1480,7 @@ public sealed class ChartListVirtualViewTests
             maintenanceInfo,
             [ChartWarning.Create(ChartWarningKind.ResourceWavMissing, "WAV missing")]);
         ChartListSourceRow sourceRow = ChartListSourceRow.BuildPackageRows([entry]).Single();
-        LibraryChartRow row = MainWindowViewModel.CreateVirtualChartSubsetRowForTest(sourceRow);
+        LibraryChartRow row = new MainChartRowProjectionOwner().CreateSubsetRow(null, sourceRow, includeResourceHealth: false);
 
         Assert.AreEqual(entry.Chart.InstallDestination, sourceRow.InstallDestination);
         Assert.AreEqual(entry.Chart.WAVHealth, sourceRow.WAVHealth);
@@ -1717,7 +1716,7 @@ public sealed class ChartListVirtualViewTests
             hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
             sha256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(adapter));
-        LibraryChartRow row = MainWindowViewModel.CreateLibraryChartRowFromPackageEntryForTest(entry);
+        LibraryChartRow row = new MainChartRowProjectionOwner().CreatePackageRow(null, entry);
 
         Assert.IsTrue(GridRowResolver.TryGetChartOperationTarget(row, ChartOperationSourceScope.PendingPackage, out ChartOperationTarget target));
         Assert.AreSame(entry, target.PackageEntry);

@@ -753,13 +753,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly object normalLibraryRefreshNotificationLock = new();
 
-    private int chartInfoProjectionVersionCache;
-
-    private int scoreSnapshotProjectionVersionCache;
-
     private int normalLibraryRefreshHandledNotificationVersion;
-
-    private readonly Dictionary<string, ChartFileTransientState> chartTransientStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
     private const long ColumnSettingSlowLogThresholdMs = 100L;
 
@@ -3419,7 +3413,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void RefreshChartInfoDependentViews()
     {
-        UpdateChartInfoProjectionVersionCache();
+        MainChartList.RowProjection.CaptureVersions(files);
         BmsonLibraryRowCacheSyncResult bmsonSyncResult = SyncBmsonLibraryRowCache();
         MainViewDataDependency libraryDependency = bmsonSyncResult.SourceChanged
             ? MainViewDataDependency.SourceMembership
@@ -4729,16 +4723,16 @@ public partial class MainWindowViewModel : ViewModel
 
         if (notificationBatch.ResetsPriorNotifications)
         {
-            ClearSharedChartTransientStates();
+            MainChartList.RowProjection.ClearTransientStates();
         }
         if (hasInstallDestinationChangedCharts)
         {
-            UpdateSharedChartTransientStates(installDestinationChangedCharts, forceInstallDestinationProjection: true);
-            PruneSharedChartTransientStateCacheToCurrentOwnedCharts();
+            MainChartList.RowProjection.UpdateTransientStates(installDestinationChangedCharts, forceInstallDestinationProjection: true);
+            MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files);
         }
         else if (installDestinationStateChanged)
         {
-            PruneSharedChartTransientStateCacheToCurrentOwnedCharts();
+            MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files);
         }
         return notificationBatch;
     }
@@ -5057,177 +5051,6 @@ public partial class MainWindowViewModel : ViewModel
         return regularBmsLibraryRowCache.RemoveBmsFiles(removedFiles);
     }
 
-    private LibraryChartRow CreateLibraryChartRowWithResourceHealthProjection(ChartFile chart)
-    {
-        var row = LibraryChartRow.FromChartFile(chart);
-        ApplyLibraryChartRowProviders(row);
-        return row;
-    }
-
-    private void ApplyLibraryChartRowProviders(LibraryChartRow row)
-    {
-        row?.SetChartTransientStateProvider(TryGetSharedChartTransientState);
-        row?.SetChartInfoProjectionProvider(ResolveChartInfoForProjection);
-        ApplyResourceHealthProjectionProvider(row);
-        ApplyPlaylistReferenceDisplayProvider(row);
-    }
-
-    private void ApplyLibraryChartRowProviders(IEnumerable<LibraryChartRow> rows)
-    {
-        foreach (LibraryChartRow row in rows ?? [])
-        {
-            ApplyLibraryChartRowProviders(row);
-        }
-    }
-
-    private ChartFileTransientState TryGetSharedChartTransientState(ChartFile chart, bool includeWarningSnapshot)
-    {
-        string key = GetSharedChartStateKey(chart);
-        if (string.IsNullOrWhiteSpace(key)
-            || !chartTransientStatesByKey.TryGetValue(key, out ChartFileTransientState state)
-            || state == null)
-        {
-            return ChartFileTransientState.Empty;
-        }
-        return includeWarningSnapshot ? state : state.WithoutWarnings();
-    }
-
-    private void PruneSharedChartTransientStateCache(IEnumerable<ChartFile> currentCharts)
-    {
-        var currentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile chart in currentCharts ?? [])
-        {
-            AddSharedChartStateKey(currentKeys, GetSharedChartStateKey(chart));
-        }
-        PruneSharedChartTransientStateCache(currentKeys);
-    }
-
-    private void PruneSharedChartTransientStateCache(ISet<string> currentKeys)
-    {
-        foreach (string key in chartTransientStatesByKey.Keys.ToList())
-        {
-            if (currentKeys?.Contains(key) != true)
-            {
-                chartTransientStatesByKey.Remove(key);
-            }
-        }
-    }
-
-    private static string GetSharedChartStateKey(ChartFile chart)
-    {
-        return ChartFileRuntimeStateKey.Create(chart);
-    }
-
-    private void PruneSharedChartTransientStateCacheToCurrentOwnedCharts()
-    {
-        if (chartTransientStatesByKey.Count == 0)
-        {
-            return;
-        }
-        HashSet<string> currentKeys = files?.CreateOwnedChartRuntimeStatePrimaryKeySnapshot()
-            ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        PruneSharedChartTransientStateCache(currentKeys);
-    }
-
-    private void ClearSharedChartTransientStates()
-    {
-        chartTransientStatesByKey.Clear();
-    }
-
-    private static void AddSharedChartStateKey(ISet<string> keys, string key)
-    {
-        if (!string.IsNullOrWhiteSpace(key))
-        {
-            keys?.Add(key);
-        }
-    }
-
-    private void UpdateSharedChartTransientStates(IEnumerable<ChartFile> charts, bool forceInstallDestinationProjection = false)
-    {
-        foreach (ChartFile chart in charts ?? [])
-        {
-            string key = GetSharedChartStateKey(chart);
-            if (string.IsNullOrWhiteSpace(key))
-            {
-                continue;
-            }
-            ChartFileTransientState state = ChartFileTransientState.FromInstallDestinationState(
-                chart,
-                includeWarningSnapshot: true,
-                forceInstallDestinationProjection: forceInstallDestinationProjection,
-                forceWarningProjection: forceInstallDestinationProjection);
-            if (state.HasState)
-            {
-                chartTransientStatesByKey[key] = state;
-            }
-            else
-            {
-                chartTransientStatesByKey.Remove(key);
-            }
-        }
-    }
-
-    private void ApplyResourceHealthProjectionProvider(LibraryChartRow row)
-    {
-        row?.SetResourceHealthProjectionProvider(GetResourceHealthProjectionForRow);
-    }
-
-    private void ApplyPlaylistReferenceDisplayProvider(LibraryChartRow row)
-    {
-        row?.SetPlaylistReferenceDisplayProvider(GetPlaylistReferenceDisplayForRow);
-    }
-
-    private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForRow(LibraryChartRow row)
-    {
-        return GetPlaylistReferenceDisplayForChart(row?.Chart);
-    }
-
-    private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForSourceRow(ChartListSourceRow row)
-    {
-        return row == null
-            ? PlaylistReferenceDisplay.Empty
-            : files?.GetPlaylistReferenceDisplay(row.Hash, row.Sha256) ?? PlaylistReferenceDisplay.Empty;
-    }
-
-    private PlaylistReferenceDisplay GetPlaylistReferenceDisplayForChart(ChartFile chart)
-    {
-        return files?.GetPlaylistReferenceDisplay(chart) ?? PlaylistReferenceDisplay.Empty;
-    }
-
-    private LR2SongDBExtended.chart_info ResolveChartInfoForProjection(ChartFile chart)
-    {
-        if (chart == null)
-        {
-            return null;
-        }
-        return files?.ResolveChartInfo(chart.Sha256, chart.Md5);
-    }
-
-    private LR2SongDBExtended.chart_info ResolveChartInfoForSourceRow(ChartListSourceRow row)
-    {
-        return row == null ? null : files?.ResolveChartInfo(row.Sha256, row.Hash);
-    }
-
-    private int GetChartInfoProjectionVersion()
-    {
-        return Volatile.Read(ref chartInfoProjectionVersionCache);
-    }
-
-    private int GetScoreSnapshotProjectionVersion()
-    {
-        return Volatile.Read(ref scoreSnapshotProjectionVersionCache);
-    }
-
-    private void UpdateChartInfoProjectionVersionCache()
-    {
-        Volatile.Write(ref chartInfoProjectionVersionCache, files?.ChartInfoIndexVersion ?? 0);
-    }
-
-    private void UpdateScoreSnapshotProjectionVersionCache()
-    {
-        Volatile.Write(ref scoreSnapshotProjectionVersionCache, files?.ScoreSnapshotVersion ?? 0);
-    }
-
     private LibraryChartRow CreateVirtualNormalLibraryRow(ChartListSourceRow sourceRow)
     {
         if (sourceRow == null)
@@ -5236,7 +5059,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         ChartFile chart = sourceRow.Chart;
         var row = regularBmsLibraryRowCache.GetOrCreate(chart, null) ?? LibraryChartRow.FromChartFile(chart);
-        ApplyLibraryChartRowProviders(row);
+        MainChartList.RowProjection.ConfigureLibraryRow(files, row);
         return row;
     }
 
@@ -5257,8 +5080,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return true;
         }
-        UpdateChartInfoProjectionVersionCache();
-        UpdateScoreSnapshotProjectionVersionCache();
+        MainChartList.RowProjection.CaptureVersions(files);
 
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         List<ChartListSourceRow> sourceRows = GetOrCreateVirtualNormalLibrarySourceRows(
@@ -5278,8 +5100,8 @@ public partial class MainWindowViewModel : ViewModel
             effectiveTreeFilter?.Identity,
             KeywordFilter,
             ModeFilter,
-            GetScoreSnapshotProjectionVersion(),
-            GetChartInfoProjectionVersion());
+            MainChartList.RowProjection.ScoreSnapshotVersion,
+            MainChartList.RowProjection.ChartInfoVersion);
         stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         ChartListOrder fullOrder = GetOrCreateVirtualNormalLibraryOrder(
             sourceRows,
@@ -5444,8 +5266,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return true;
         }
-        UpdateChartInfoProjectionVersionCache();
-        UpdateScoreSnapshotProjectionVersionCache();
+        MainChartList.RowProjection.CaptureVersions(files);
 
         NormalLibrarySortCacheGenerationSnapshot subsetGeneration = regularChartListOwner.CaptureSortGeneration(
             normalizedSortColumn,
@@ -5456,26 +5277,8 @@ public partial class MainWindowViewModel : ViewModel
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         bool applyResourceHealthProjection = ShouldApplyResourceHealthProjectionForVirtualSubset(treeMode);
         List<ChartListSourceRow> sourceRows = subsetEntries != null
-            ? ChartListSourceRow.BuildPackageRows(
-                subsetEntries,
-                applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
-                GetPlaylistReferenceDisplayForSourceRow,
-                TryGetSharedChartTransientState,
-                ResolveChartInfoForProjection,
-                ResolveChartInfoForSourceRow,
-                GetChartInfoProjectionVersion,
-                GetScoreSnapshotProjectionVersion)
-            : ChartListSourceRow.BuildStandardLibraryRows(
-                subsetCharts,
-                subsetProjectionMode,
-                applyResourceHealthProjection ? GetResourceHealthProjectionForSourceRow : null,
-                GetPlaylistReferenceDisplayForSourceRow,
-                TryGetSharedChartTransientState,
-                ResolveChartInfoForProjection,
-                ResolveChartInfoForSourceRow,
-                GetChartInfoProjectionVersion,
-                GetScoreSnapshotProjectionVersion,
-                ResolveScoreSnapshotForSourceRow);
+            ? MainChartList.RowProjection.BuildPackageSourceRows(files, subsetEntries, applyResourceHealthProjection)
+            : MainChartList.RowProjection.BuildStandardSourceRows(files, subsetCharts, subsetProjectionMode, applyResourceHealthProjection);
         if (lease.Token.IsCancellationRequested)
         {
             return true;
@@ -5528,7 +5331,7 @@ public partial class MainWindowViewModel : ViewModel
         var nextRowsView = new ChartListVirtualView(
             sourceRows,
             order,
-            row => CreateVirtualChartSubsetRow(row, applyResourceHealthProjection),
+            row => MainChartList.RowProjection.CreateSubsetRow(files, row, applyResourceHealthProjection),
             distinctFolderCount);
         MainChartListColumnSelection columnSelection = ResolveMainColumnSettingForViewUpdate(mode);
         RegularChartListTerminalResult terminal = regularChartListOwner.TryCommitVirtual(
@@ -5635,32 +5438,6 @@ public partial class MainWindowViewModel : ViewModel
         return NormalizeDuplicateViewParameter(treeViewFilterParameterSelected ?? parameter);
     }
 
-    private LibraryChartRow CreateVirtualChartSubsetRow(ChartListSourceRow sourceRow, bool applyResourceHealthProjection)
-    {
-        if (sourceRow == null)
-        {
-            return null;
-        }
-        LibraryChartRow row;
-        if (sourceRow.PackageEntry != null)
-        {
-            row = LibraryChartRow.FromPackageChartEntry(sourceRow.PackageEntry);
-        }
-        else
-        {
-            ChartFile chart = sourceRow.Chart;
-            row = LibraryChartRow.FromChartFile(chart, sourceRow.HideResourceHealthDigestWhenInstallDestinationSet);
-        }
-
-        if (applyResourceHealthProjection)
-        {
-            ApplyResourceHealthProjectionProvider(row);
-        }
-        row?.SetChartInfoProjectionProvider(ResolveChartInfoForProjection);
-        ApplyPlaylistReferenceDisplayProvider(row);
-        return row;
-    }
-
     private List<ChartListSourceRow> GetOrCreateVirtualNormalLibrarySourceRows(
         bool includeBmsonRows,
         out bool cacheHit,
@@ -5677,90 +5454,15 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         OwnedChartStorageOwnerView sourceOwnerView = files?.CreateNormalLibrarySourceStorageOwnerView();
-        int expectedRowCount = sourceOwnerView == null
-            ? 0
-            : sourceOwnerView.BmsFiles.Count + (includeBmsonRows ? sourceOwnerView.BmsonSongs.Count : 0);
-        List<ChartListSourceRow> sourceRows = BuildVirtualNormalLibrarySourceRows(sourceOwnerView, includeBmsonRows, expectedRowCount);
+        List<ChartListSourceRow> sourceRows = MainChartList.RowProjection.BuildNormalSourceRows(
+            files,
+            sourceOwnerView,
+            includeBmsonRows);
         regularChartListOwner.TryPublishVirtualSourceRows(lookup, sourceRows);
         cacheHit = false;
         sourceGeneration = lookup.SourceGeneration;
         sortKeyGeneration = lookup.SortKeyGeneration;
         return sourceRows;
-    }
-
-    private List<ChartListSourceRow> BuildVirtualNormalLibrarySourceRows(OwnedChartStorageOwnerView sourceOwnerView, bool includeBmsonRows, int expectedRowCount)
-    {
-        var sourceRows = expectedRowCount > 0
-            ? new List<ChartListSourceRow>(expectedRowCount)
-            : [];
-        AppendVirtualNormalLibrarySourceRows(sourceOwnerView?.BmsFiles, sourceRows);
-        if (includeBmsonRows)
-        {
-            AppendVirtualNormalLibrarySourceRows(sourceOwnerView?.BmsonSongs, sourceRows);
-        }
-        return sourceRows;
-    }
-
-    private void AppendVirtualNormalLibrarySourceRows(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, ICollection<ChartListSourceRow> sourceRows)
-    {
-        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = GetResourceHealthProjectionForSourceRow;
-        Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = GetPlaylistReferenceDisplayForSourceRow;
-        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = TryGetSharedChartTransientState;
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = ResolveChartInfoForProjection;
-        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = ResolveChartInfoForSourceRow;
-        Func<int> chartInfoProjectionVersionProvider = GetChartInfoProjectionVersion;
-        Func<int> scoreSnapshotVersionProvider = GetScoreSnapshotProjectionVersion;
-        Func<ChartListSourceRow, ChartScoreSnapshot> scoreSnapshotProjectionProvider = ResolveScoreSnapshotForSourceRow;
-        foreach (BeMusicSeeker.Models.BMSFile file in bmsFiles ?? [])
-        {
-            if (file == null)
-            {
-                continue;
-            }
-            ChartListSourceRow row = ChartListSourceRow.FromBmsStorageOwner(
-                file,
-                resourceHealthProjectionProvider,
-                playlistReferenceDisplayProvider,
-                chartTransientStateProvider,
-                chartInfoProjectionProvider,
-                chartInfoRowProjectionProvider,
-                chartInfoProjectionVersionProvider,
-                scoreSnapshotVersionProvider,
-                scoreSnapshotProjectionProvider);
-            if (row != null)
-            {
-                sourceRows.Add(row);
-            }
-        }
-    }
-
-    private void AppendVirtualNormalLibrarySourceRows(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs, ICollection<ChartListSourceRow> sourceRows)
-    {
-        Func<ChartListSourceRow, ResourceHealthWarningProjection> resourceHealthProjectionProvider = GetResourceHealthProjectionForSourceRow;
-        Func<ChartListSourceRow, PlaylistReferenceDisplay> playlistReferenceDisplayProvider = GetPlaylistReferenceDisplayForSourceRow;
-        Func<ChartFile, bool, ChartFileTransientState> chartTransientStateProvider = TryGetSharedChartTransientState;
-        Func<ChartFile, LR2SongDBExtended.chart_info> chartInfoProjectionProvider = ResolveChartInfoForProjection;
-        Func<ChartListSourceRow, LR2SongDBExtended.chart_info> chartInfoRowProjectionProvider = ResolveChartInfoForSourceRow;
-        Func<int> chartInfoProjectionVersionProvider = GetChartInfoProjectionVersion;
-        Func<int> scoreSnapshotVersionProvider = GetScoreSnapshotProjectionVersion;
-        Func<ChartListSourceRow, ChartScoreSnapshot> scoreSnapshotProjectionProvider = ResolveScoreSnapshotForSourceRow;
-        foreach (LR2SongDBExtended.bmson_song song in (bmsonSongs ?? []).Where(song => song != null && !string.IsNullOrWhiteSpace(song.path)))
-        {
-            ChartListSourceRow row = ChartListSourceRow.FromBmsonStorageOwner(
-                song,
-                resourceHealthProjectionProvider,
-                playlistReferenceDisplayProvider,
-                chartTransientStateProvider,
-                chartInfoProjectionProvider,
-                chartInfoRowProjectionProvider,
-                chartInfoProjectionVersionProvider,
-                scoreSnapshotVersionProvider,
-                scoreSnapshotProjectionProvider);
-            if (row != null)
-            {
-                sourceRows.Add(row);
-            }
-        }
     }
 
     private ChartListOrder GetOrCreateVirtualNormalLibraryOrder(
@@ -6572,16 +6274,6 @@ public partial class MainWindowViewModel : ViewModel
         return ShouldApplyResourceHealthProjectionForVirtualSubset((MainViewUpdateMode)mode);
     }
 
-    internal static LibraryChartRow CreateLibraryChartRowFromPackageEntryForTest(PackageChartEntry entry)
-    {
-        return LibraryChartRow.FromPackageChartEntry(entry);
-    }
-
-    internal static LibraryChartRow CreateVirtualChartSubsetRowForTest(ChartListSourceRow sourceRow)
-    {
-        return new MainWindowViewModel().CreateVirtualChartSubsetRow(sourceRow, applyResourceHealthProjection: false);
-    }
-
     private static bool IsVirtualNormalLibraryModeSupported(MainViewUpdateMode mode)
     {
         return MainViewRefreshDecisionService.IsVirtualNormalLibraryModeSupported(mode);
@@ -6998,34 +6690,6 @@ public partial class MainWindowViewModel : ViewModel
     private static HashSet<int?> CreateModeFilterValueSet(ModeFilterType modeFilter)
     {
         return RegularChartListFilterService.CreateModeFilterValueSet(modeFilter);
-    }
-
-    private ResourceHealthWarningProjection GetResourceHealthProjectionForRow(LibraryChartRow row)
-    {
-        ChartFile chart = row?.Chart;
-        if (files == null || chart == null)
-        {
-            return ResourceHealthWarningProjection.Empty;
-        }
-        return files.TryGetCurrentResourceHealthWarningProjection(chart);
-    }
-
-    private ResourceHealthWarningProjection GetResourceHealthProjectionForSourceRow(ChartListSourceRow row)
-    {
-        if (files == null || row == null)
-        {
-            return ResourceHealthWarningProjection.Empty;
-        }
-        return files.TryGetCurrentResourceHealthWarningProjection(row.Kind, row.Path, row.Hash);
-    }
-
-    private ChartScoreSnapshot ResolveScoreSnapshotForSourceRow(ChartListSourceRow row)
-    {
-        if (files == null || row == null)
-        {
-            return ChartScoreSnapshot.MissingChart;
-        }
-        return files.ResolveChartScoreSnapshot(row.Kind, row.Path, row.Hash, row.Sha256);
     }
 
     /// <summary>
@@ -10653,7 +10317,7 @@ public partial class MainWindowViewModel : ViewModel
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreSnapshotVersion, delegate
         {
-            UpdateScoreSnapshotProjectionVersionCache();
+            MainChartList.RowProjection.CaptureVersions(files);
             if (!IsPlaylistDetailViewActive)
             {
                 return;
@@ -11899,14 +11563,12 @@ public partial class MainWindowViewModel : ViewModel
         foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo, BeMusicSeeker.Models.BMSScore scoreSnapshotForRow) in scoredEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            playlistRows.Add(new PlaylistDetailSourceRow(
+            playlistRows.Add(MainChartList.RowProjection.CreatePlaylistDetailSourceRow(
+                files,
                 entry,
                 resolvedChart,
                 scoreSnapshotForRow,
                 entryChartInfo,
-                GetPlaylistReferenceDisplayForChart,
-                TryGetSharedChartTransientState,
-                ResolveChartInfoForProjection,
                 resolvedChartRef));
         }
         sourceMaterializeMs = stopwatch.ElapsedMilliseconds - entryResolveMs - scoreProbeMs;
@@ -14555,14 +14217,14 @@ public partial class MainWindowViewModel : ViewModel
         List<LibraryChartRow> rows = [.. (charts ?? [])
             .Select(chart => LibraryChartRow.FromChartFile(chart))
             .Where(row => row != null)];
-        ApplyLibraryChartRowProviders(rows);
+        MainChartList.RowProjection.ConfigureLibraryRows(files, rows);
         return rows;
     }
 
     private List<LibraryChartRow> ToLibraryChartRows(IEnumerable<ChartFile> charts, Func<ChartFile, LibraryChartRow> rowFactory)
     {
         List<LibraryChartRow> rows = MaterializeLibraryChartRows(charts, rowFactory);
-        ApplyLibraryChartRowProviders(rows);
+        MainChartList.RowProjection.ConfigureLibraryRows(files, rows);
         return rows;
     }
 
@@ -14583,21 +14245,21 @@ public partial class MainWindowViewModel : ViewModel
         List<LibraryChartRow> rows = [.. (entries ?? [])
             .Select(rowFactory ?? LibraryChartRow.FromPackageChartEntry)
             .Where(row => row != null)];
-        ApplyLibraryChartRowProviders(rows);
+        MainChartList.RowProjection.ConfigureLibraryRows(files, rows);
         return rows;
     }
 
     private LibraryChartRow CreateBmsLibraryChartRowFromChart(ChartFile chart)
     {
         LibraryChartRow row = LibraryChartRow.FromChartFile(chart);
-        ApplyLibraryChartRowProviders(row);
+        MainChartList.RowProjection.ConfigureLibraryRow(files, row);
         return row;
     }
 
     private LibraryChartRow CreateLibraryChartRowFromPackageEntry(PackageChartEntry entry)
     {
         LibraryChartRow row = LibraryChartRow.FromPackageChartEntry(entry);
-        ApplyLibraryChartRowProviders(row);
+        MainChartList.RowProjection.ConfigureLibraryRow(files, row);
         return row;
     }
 
@@ -14632,8 +14294,10 @@ public partial class MainWindowViewModel : ViewModel
     {
         ownerView ??= files?.CreateNormalLibrarySourceStorageOwnerView();
         IReadOnlyList<LR2SongDBExtended.bmson_song> snapshot = ownerView?.BmsonSongs ?? [];
-        PruneSharedChartTransientStateCacheToCurrentOwnedCharts();
-        return regularBmsLibraryRowCache.SyncBmsonRows(snapshot, ApplyLibraryChartRowProviders);
+        MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files);
+        return regularBmsLibraryRowCache.SyncBmsonRows(
+            snapshot,
+            row => MainChartList.RowProjection.ConfigureLibraryRow(files, row));
     }
 
     private BmsonLibraryRowCacheSyncResult RemoveBmsonLibraryRowCache(IEnumerable<LR2SongDBExtended.bmson_song> removedSongs)
@@ -15570,7 +15234,7 @@ public partial class MainWindowViewModel : ViewModel
             if (looseEntries.Count > 0)
             {
                 files.SearchEstimatedInstallationDirectoryForLooseCharts(looseEntries);
-                UpdateSharedChartTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+                MainChartList.RowProjection.UpdateTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
@@ -15590,7 +15254,7 @@ public partial class MainWindowViewModel : ViewModel
             if (looseEntries.Count > 0)
             {
                 files.SearchMergeDestinationForPendingCharts(looseEntries);
-                UpdateSharedChartTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+                MainChartList.RowProjection.UpdateTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
@@ -19660,7 +19324,7 @@ public partial class MainWindowViewModel : ViewModel
         RunChartPackageMutation(delegate
         {
             files.SearchCorrectInstallationDirectoryCharts(entries);
-            UpdateSharedChartTransientStates(entries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
+            MainChartList.RowProjection.UpdateTransientStates(entries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
             InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
     }
@@ -19702,7 +19366,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 ClearChartPackageInstallDestinations(list[num]);
             }
-            UpdateSharedChartTransientStates(changedEntries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
+            MainChartList.RowProjection.UpdateTransientStates(changedEntries.Select(entry => entry.Chart), forceInstallDestinationProjection: true);
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree, requiresLibrary: false);
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
     }
@@ -19754,7 +19418,7 @@ public partial class MainWindowViewModel : ViewModel
             if (looseEntries.Count > 0)
             {
                 files.RemoveInstallDestination(looseEntries);
-                UpdateSharedChartTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+                MainChartList.RowProjection.UpdateTransientStates(looseEntries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
@@ -19800,7 +19464,7 @@ public partial class MainWindowViewModel : ViewModel
                     ClearChartPackageInstallDestinations(chartPackages[num]);
                 }
                 files.RemoveInstallDestination(entries);
-                UpdateSharedChartTransientStates(entries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
+                MainChartList.RowProjection.UpdateTransientStates(entries.Select(entry => entry?.Chart), forceInstallDestinationProjection: true);
             }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
             InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         }
@@ -19860,7 +19524,7 @@ public partial class MainWindowViewModel : ViewModel
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         if (changed)
         {
-            UpdateSharedChartTransientStates([changedEntry.Chart], forceInstallDestinationProjection: true);
+            MainChartList.RowProjection.UpdateTransientStates([changedEntry.Chart], forceInstallDestinationProjection: true);
             InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         }
         return changed;

@@ -1906,6 +1906,12 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string bmsLibraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
+        string projectionOwnerCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainChartRowProjectionOwner.cs"));
         string notificationHandler = ExtractBetween(
             viewModelCode,
             "private NormalLibraryRefreshNotificationBatch ApplyNormalLibraryRefreshNotification",
@@ -1915,28 +1921,57 @@ public sealed class MainWindowContextMenuResourceTests
             "private BmsonLibraryRowCacheSyncResult SyncBmsonLibraryRowCache",
             "internal static bool HasBmsonLibrarySortKeyChangedForTest");
         string pruneHelper = ExtractBetween(
-            viewModelCode,
-            "private void PruneSharedChartTransientStateCacheToCurrentOwnedCharts",
-            "private void ClearSharedChartTransientStates");
+            projectionOwnerCode,
+            "internal void PruneTransientStatesToOwnedCharts",
+            "internal void ClearTransientStates");
         string modelKeyHelper = ExtractBetween(
             bmsLibraryCode,
             "internal HashSet<string> CreateOwnedChartRuntimeStatePrimaryKeySnapshot",
             "private void EnsureOwnedChartCollectionBuiltUnsafe");
 
-        StringAssert.Contains(notificationHandler, "PruneSharedChartTransientStateCacheToCurrentOwnedCharts()");
+        StringAssert.Contains(notificationHandler, "MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files)");
         Assert.IsFalse(notificationHandler.Contains("files?.BMSFiles"));
         Assert.IsFalse(notificationHandler.Contains("files?.BmsonSongs"));
         StringAssert.Contains(bmsonSync, "files?.CreateNormalLibrarySourceStorageOwnerView()");
         Assert.IsFalse(bmsonSync.Contains("files?.BmsonSongs"));
         Assert.IsFalse(bmsonSync.Contains("OrderBy(song => song.path"));
-        StringAssert.Contains(bmsonSync, "PruneSharedChartTransientStateCacheToCurrentOwnedCharts()");
+        StringAssert.Contains(bmsonSync, "MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files)");
         Assert.IsFalse(bmsonSync.Contains("PruneSharedChartTransientStateCacheToCurrentStorageRows"));
-        StringAssert.Contains(pruneHelper, "files?.CreateOwnedChartRuntimeStatePrimaryKeySnapshot()");
+        StringAssert.Contains(pruneHelper, "library?.CreateOwnedChartRuntimeStatePrimaryKeySnapshot()");
         Assert.IsFalse(pruneHelper.Contains("foreach (BeMusicSeeker.Models.BMSFile"));
         Assert.IsFalse(pruneHelper.Contains("foreach (LR2SongDBExtended.bmson_song"));
         StringAssert.Contains(modelKeyHelper, "rwlockBMSFiles.GetReaderGuard()");
         StringAssert.Contains(modelKeyHelper, "ownedChartCollection.CreateChartRuntimeStatePrimaryKeySnapshot()");
         Assert.IsFalse(modelKeyHelper.Contains("CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe()"));
+    }
+
+    [TestMethod]
+    public void MainTableRowProjectionStateIsOwnedOutsideRootWorkflow()
+    {
+        string root = FindRepositoryRoot();
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string projectionOwnerCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainChartRowProjectionOwner.cs"));
+
+        Assert.IsFalse(viewModelCode.Contains("chartTransientStatesByKey"));
+        Assert.IsFalse(viewModelCode.Contains("chartInfoProjectionVersionCache"));
+        Assert.IsFalse(viewModelCode.Contains("scoreSnapshotProjectionVersionCache"));
+        Assert.IsFalse(viewModelCode.Contains("private void ApplyLibraryChartRowProviders"));
+        Assert.IsFalse(viewModelCode.Contains("private ChartFileTransientState TryGetSharedChartTransientState"));
+        Assert.IsFalse(viewModelCode.Contains("private LR2SongDBExtended.chart_info ResolveChartInfoForProjection"));
+        StringAssert.Contains(viewModelCode, "MainChartList.RowProjection.BuildNormalSourceRows(");
+        StringAssert.Contains(viewModelCode, "MainChartList.RowProjection.BuildPackageSourceRows(");
+        StringAssert.Contains(viewModelCode, "MainChartList.RowProjection.BuildStandardSourceRows(");
+        StringAssert.Contains(viewModelCode, "MainChartList.RowProjection.CreatePlaylistDetailSourceRow(");
+        StringAssert.Contains(projectionOwnerCode, "private readonly Dictionary<string, ChartFileTransientState> transientStatesByKey");
+        Assert.IsFalse(projectionOwnerCode.Contains("MainWindowViewModel"));
+        Assert.IsFalse(projectionOwnerCode.Contains("Application.Current"));
+        Assert.IsFalse(projectionOwnerCode.Contains("DispatcherHelper"));
+        Assert.IsFalse(projectionOwnerCode.Contains("ForTest"));
     }
 
     [TestMethod]
