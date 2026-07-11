@@ -17,9 +17,43 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 {
     private readonly Action<Action> dispatchPresentation;
 
+    private readonly MainChartListViewModel detailMainChartList;
+
+    private readonly Action<string> detailRetentionLog;
+
+    internal PlaylistDetailBuildState DetailBuildState { get; }
+
+    internal PlaylistDetailViewState DetailViewState { get; }
+
+    private RegularChartListOwner detailColumnOwner;
+
     public PlaylistWorkspaceViewModel(Action<Action> dispatchPresentation)
+        : this(
+            dispatchPresentation,
+            new MainChartListViewModel(dispatchPresentation),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { })
+    {
+    }
+
+    internal PlaylistWorkspaceViewModel(
+        Action<Action> dispatchPresentation,
+        MainChartListViewModel mainChartList,
+        PlaylistDetailBuildState buildState,
+        PlaylistDetailViewState viewState,
+        Action<string> detailRetentionLog)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
+        detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
+        DetailBuildState = buildState ?? throw new ArgumentNullException(nameof(buildState));
+        DetailViewState = viewState ?? throw new ArgumentNullException(nameof(viewState));
+        this.detailRetentionLog = detailRetentionLog ?? throw new ArgumentNullException(nameof(detailRetentionLog));
+    }
+
+    internal void ConfigureDetailTerminal(RegularChartListOwner columnOwner)
+    {
+        detailColumnOwner = columnOwner ?? throw new ArgumentNullException(nameof(columnOwner));
     }
 
     private ChartListSortParameters playlistSummarySortParameters;

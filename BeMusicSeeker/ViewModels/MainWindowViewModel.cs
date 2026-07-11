@@ -6442,8 +6442,13 @@ public partial class MainWindowViewModel : ViewModel
             () => bmsPlayer,
             () => DispatcherHelper.UIDispatcher);
         MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction);
-        PlaylistWorkspace = new PlaylistWorkspaceViewModel(DispatchMainChartListAction);
-        PlaylistWorkspace.ConfigureDetailEditing(playlistViewState, () => tables);
+        PlaylistWorkspace = new PlaylistWorkspaceViewModel(
+            DispatchMainChartListAction,
+            MainChartList,
+            playlistDetailBuildState,
+            playlistViewState,
+            LogPlaylistRetention);
+        PlaylistWorkspace.ConfigureDetailEditing(() => tables);
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
         PlayHistory = new PlayHistoryWorkflowOwner();
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => QueuePlayHistoryKeywordFilterRefresh();
@@ -6463,9 +6468,8 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace,
             LogMainViewBuild,
             DispatchMainChartListAction,
-            LogMainViewBuildWarning,
-            playlistDetailBuildState,
-            playlistViewState);
+            LogMainViewBuildWarning);
+        PlaylistWorkspace.ConfigureDetailTerminal(regularChartListOwner);
         MainChartList.SortRequested += MainChartListSortRequested;
         MainChartList.CellEditBeginningRequested += MainChartListCellEditBeginningRequested;
         MainChartList.CellEditStarted += MainChartListCellEditStarted;
@@ -9442,11 +9446,7 @@ public partial class MainWindowViewModel : ViewModel
                     TerminalStageStartMs = stageStartMs,
                     Stopwatch = viewBuildStopwatch
                 }
-            },
-            MainChartList,
-            playlistDetailBuildState,
-            playlistViewState,
-            regularChartListOwner);
+            });
         if (!commitResult.Applied)
         {
             return new PlaylistDetailTerminalApplyResult(applied: false, mainViewApply: null, previousSourceCount: 0);

@@ -33,9 +33,6 @@ public sealed class RegularChartListOwnerTests
     public void ApplyRegularView_ClearsPlaylistSourceStateBeforeRegularPublish()
     {
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
-        workspace.IsPlaylistDetailViewActive = true;
-        workspace.UseAsyncChartRowsViewBinding = false;
         var buildState = new PlaylistDetailBuildState
         {
             RequestVersion = 1,
@@ -49,14 +46,15 @@ public sealed class RegularChartListOwnerTests
         viewState.Source.Rows = sourceRows;
         viewState.View.Rows = viewRows;
         var logs = new List<string>();
+        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, logs.Add);
+        workspace.IsPlaylistDetailViewActive = true;
+        workspace.UseAsyncChartRowsViewBinding = false;
         var owner = new RegularChartListOwner(
             table,
             workspace,
             logs.Add,
             action => action(),
-            logs.Add,
-            buildState,
-            viewState);
+            logs.Add);
         int? sourceClearVersionAtRowsNotification = null;
         bool? detailActiveAtRowsNotification = null;
         bool? asyncBindingAtRowsNotification = null;

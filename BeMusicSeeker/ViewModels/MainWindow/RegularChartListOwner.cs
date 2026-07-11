@@ -42,8 +42,6 @@ internal sealed class RegularChartListOwner : IDisposable
     private readonly Action<string> log;
     private readonly Action<string> logWarning;
     private readonly Action<Action> dispatchToUi;
-    private readonly PlaylistDetailBuildState playlistDetailBuildState;
-    private readonly PlaylistDetailViewState playlistDetailViewState;
     private readonly Dictionary<NormalLibrarySortCacheKey, List<LibraryChartRow>> sortCache = [];
     private readonly Dictionary<NormalLibrarySortCacheKey, ChartListOrder> virtualOrderCache = [];
     private readonly Dictionary<VirtualChartSubsetSortCacheKey, ChartListOrder> virtualSubsetOrderCache = [];
@@ -94,21 +92,13 @@ internal sealed class RegularChartListOwner : IDisposable
         PlaylistWorkspaceViewModel playlistWorkspace,
         Action<string> log,
         Action<Action> dispatchToUi,
-        Action<string> logWarning = null,
-        PlaylistDetailBuildState playlistDetailBuildState = null,
-        PlaylistDetailViewState playlistDetailViewState = null)
+        Action<string> logWarning = null)
     {
         this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         this.playlistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logWarning = logWarning ?? log;
-        if ((playlistDetailBuildState == null) != (playlistDetailViewState == null))
-        {
-            throw new ArgumentException("Playlist detail clear state requires both build and view state.");
-        }
-        this.playlistDetailBuildState = playlistDetailBuildState;
-        this.playlistDetailViewState = playlistDetailViewState;
     }
 
     internal RegularChartListCompletion LastCompletion
@@ -1633,70 +1623,7 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private void ClearPlaylistSourceRowsForRegularView()
     {
-        if (playlistDetailBuildState == null || playlistDetailViewState == null)
-        {
-            return;
-        }
-
-        PlaylistSourceClearCommitResult commit = playlistDetailBuildState.CommitSourceClear(playlistDetailViewState);
-        playlistDetailBuildState.PublishSourceClear(commit);
-        LogPlaylistSourceClear(commit);
-    }
-
-    private void LogPlaylistSourceClear(PlaylistSourceClearCommitResult commit)
-    {
-        if (commit == null)
-        {
-            throw new ArgumentNullException(nameof(commit));
-        }
-        LogPlaylistWeakReferenceStatus("before_source_clear");
-        log("playlist_source_replace action=clear generationId=" + commit.PreviousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(commit.SourceRows) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(commit.ViewRows));
-    }
-
-    private void LogPlaylistWeakReferenceStatus(string reason)
-    {
-        WeakReference<List<PlaylistDetailSourceRow>> previousSourceWeakReference;
-        WeakReference<IList> previousViewWeakReference;
-        long previousSourceGenerationId;
-        long previousViewGenerationId;
-        lock (playlistDetailViewState.SyncRoot)
-        {
-            previousSourceWeakReference = playlistDetailViewState.Source.PreviousRowsWeakReference;
-            previousViewWeakReference = playlistDetailViewState.View.PreviousRowsWeakReference;
-            previousSourceGenerationId = playlistDetailViewState.Source.PreviousGenerationId;
-            previousViewGenerationId = playlistDetailViewState.View.PreviousGenerationId;
-        }
-        List<PlaylistDetailSourceRow> previousSourceRows = null;
-        IList previousViewRows = null;
-        bool previousSourceAlive = previousSourceWeakReference != null && previousSourceWeakReference.TryGetTarget(out previousSourceRows);
-        bool previousViewAlive = previousViewWeakReference != null && previousViewWeakReference.TryGetTarget(out previousViewRows);
-        log("playlist_weak_reference_check reason=" + reason + " sourceGenerationId=" + previousSourceGenerationId + " sourceAlive=" + previousSourceAlive + " playlistSourceRowCount=" + (previousSourceAlive ? CountPlaylistSourceRows(previousSourceRows) : 0) + " viewGenerationId=" + previousViewGenerationId + " viewAlive=" + previousViewAlive + " playlistViewRowCount=" + (previousViewAlive ? CountPlaylistDetailRows(previousViewRows) : 0));
-    }
-
-    private static int CountPlaylistDetailRows(IEnumerable rows)
-    {
-        if (rows == null)
-        {
-            return 0;
-        }
-        if (rows is IChartListViewMetadata metadata)
-        {
-            return metadata.RowCount;
-        }
-        int count = 0;
-        foreach (object row in rows)
-        {
-            if (row is PlaylistDetailRow)
-            {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    private static int CountPlaylistSourceRows(IEnumerable<PlaylistDetailSourceRow> rows)
-    {
-        return rows?.Count() ?? 0;
+        playlistWorkspace.ClearDetailSourceForRegularView();
     }
 
     private void SynchronizeBmsonRowsForRefresh(RegularChartListEntryRequest request)

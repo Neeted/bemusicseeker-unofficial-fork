@@ -6,12 +6,48 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    internal void ClearDetailSourceForRegularView()
+    {
+        PlaylistSourceClearCommitResult commit = DetailBuildState.CommitSourceClear(DetailViewState);
+        DetailBuildState.PublishSourceClear(commit);
+        LogDetailWeakReferenceStatus("before_source_clear");
+        detailRetentionLog("playlist_source_replace action=clear generationId="
+            + commit.PreviousGenerationId
+            + " sourceCount=0 disposedCount="
+            + (commit.SourceRows?.Count ?? 0)
+            + " playlistSourceRowCount=0 playlistViewRowCount="
+            + CountDetailRows(commit.ViewRows));
+    }
+
+    private void LogDetailWeakReferenceStatus(string reason)
+    {
+        WeakReference<List<PlaylistDetailSourceRow>> sourceReference;
+        WeakReference<System.Collections.IList> viewReference;
+        long sourceGeneration;
+        long viewGeneration;
+        lock (DetailViewState.SyncRoot)
+        {
+            sourceReference = DetailViewState.Source.PreviousRowsWeakReference;
+            viewReference = DetailViewState.View.PreviousRowsWeakReference;
+            sourceGeneration = DetailViewState.Source.PreviousGenerationId;
+            viewGeneration = DetailViewState.View.PreviousGenerationId;
+        }
+        List<PlaylistDetailSourceRow> sourceRows = null;
+        System.Collections.IList viewRows = null;
+        bool sourceAlive = sourceReference != null && sourceReference.TryGetTarget(out sourceRows);
+        bool viewAlive = viewReference != null && viewReference.TryGetTarget(out viewRows);
+        detailRetentionLog("playlist_weak_reference_check reason="
+            + reason
+            + " sourceGenerationId=" + sourceGeneration
+            + " sourceAlive=" + sourceAlive
+            + " playlistSourceRowCount=" + (sourceAlive ? sourceRows.Count : 0)
+            + " viewGenerationId=" + viewGeneration
+            + " viewAlive=" + viewAlive
+            + " playlistViewRowCount=" + (viewAlive ? CountDetailRows(viewRows) : 0));
+    }
+
     internal PlaylistDetailTerminalCommitResult ApplyDetailTerminal(
-        PlaylistDetailTerminalRequest request,
-        MainChartListViewModel mainChartList,
-        PlaylistDetailBuildState buildState,
-        PlaylistDetailViewState viewState,
-        RegularChartListOwner regularChartListOwner)
+        PlaylistDetailTerminalRequest request)
     {
         if (request?.BuildRequest == null || request.ViewRows == null || request.MainRowsRequest == null)
         {
@@ -21,19 +57,17 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             throw new ArgumentException("Source rows are required when replacing the playlist source.", nameof(request));
         }
-        if (mainChartList == null) throw new ArgumentNullException(nameof(mainChartList));
-        if (buildState == null) throw new ArgumentNullException(nameof(buildState));
-        if (viewState == null) throw new ArgumentNullException(nameof(viewState));
-        if (regularChartListOwner == null) throw new ArgumentNullException(nameof(regularChartListOwner));
+        RegularChartListOwner columnOwner = detailColumnOwner
+            ?? throw new InvalidOperationException("Playlist detail terminal ownership is not configured.");
 
         var result = new PlaylistDetailTerminalCommitResult();
-        MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(request.MainRowsRequest);
+        MainChartListRowsTransition transition = detailMainChartList.PrepareRowsTransition(request.MainRowsRequest);
         Exception commitException = null;
         ExceptionDispatchInfo preTransferException = null;
         bool cancelTransition = false;
-        lock (buildState.SyncRoot)
+        lock (DetailBuildState.SyncRoot)
         {
-            if (request.BuildRequest.RequestVersion != buildState.RequestVersion)
+            if (request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion)
             {
                 cancelTransition = true;
             }
@@ -41,7 +75,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 try
                 {
-                    viewState.CommitTerminal(
+                    DetailViewState.CommitTerminal(
                         request,
                         result,
                         transition.CommitOwnership,
@@ -51,7 +85,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                                 request.ColumnSelection.PlaylistColumnSettingsVisibility,
                                 request.ColumnSelection.PlaylistSummaryColumnsSettings);
                             result.AppliedColumnMode = request.ColumnSelection.AppliedMode;
-                            regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                            columnOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
                         });
                 }
                 catch (Exception ex)
@@ -105,5 +139,22 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             exceptions.Add(ex);
         }
+    }
+
+    private static int CountDetailRows(System.Collections.IEnumerable rows)
+    {
+        if (rows is IChartListViewMetadata metadata)
+        {
+            return metadata.RowCount;
+        }
+        int count = 0;
+        if (rows != null)
+        {
+            foreach (object row in rows)
+            {
+                if (row is PlaylistDetailRow) count++;
+            }
+        }
+        return count;
     }
 }

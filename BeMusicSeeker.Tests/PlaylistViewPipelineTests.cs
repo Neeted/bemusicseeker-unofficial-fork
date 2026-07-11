@@ -188,10 +188,10 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromCurrentSource(");
         StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)");
         StringAssert.Contains(rootSource, "internal PlaylistDetailTerminalApplyResult TryCommitPlaylistDetailTerminal(");
-        StringAssert.Contains(playlistTerminalApplySource, "lock (buildState.SyncRoot)");
-        StringAssert.Contains(playlistTerminalApplySource, "viewState.CommitTerminal(");
+        StringAssert.Contains(playlistTerminalApplySource, "lock (DetailBuildState.SyncRoot)");
+        StringAssert.Contains(playlistTerminalApplySource, "DetailViewState.CommitTerminal(");
         StringAssert.Contains(playlistViewStateSource, "lock (SyncRoot)");
-        StringAssert.Contains(playlistTerminalApplySource, "mainChartList.PrepareRowsTransition(");
+        StringAssert.Contains(playlistTerminalApplySource, "detailMainChartList.PrepareRowsTransition(");
         StringAssert.Contains(playlistTerminalApplySource, "transition.CommitOwnership");
         StringAssert.Contains(playlistTerminalApplySource, "transition.Complete()");
         Assert.AreEqual(-1, mainChartListSource.IndexOf("ApplyCoordinatedRows(", StringComparison.Ordinal));
@@ -203,7 +203,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(playlistTerminalApplySource, "CommitColumnPresentationWithoutNotification(");
         StringAssert.Contains(playlistTerminalApplySource, "PublishColumnPresentation(result.ColumnPresentationCommit)");
         StringAssert.Contains(playlistTerminalApplySource, "result.AppliedColumnMode = request.ColumnSelection.AppliedMode;");
-        StringAssert.Contains(playlistTerminalApplySource, "regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);");
+        StringAssert.Contains(playlistTerminalApplySource, "columnOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);");
         Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("commitExternalColumnMode", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("MainChartListCoordinatedPublishException", StringComparison.Ordinal));
         Assert.IsFalse(rootSource.Contains("PlaylistDetailTerminalTransition"));
@@ -283,8 +283,9 @@ public sealed class PlaylistViewPipelineTests
             Rows = new List<object>(),
             ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
         };
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { });
         RegularChartListOwner owner = CreateRegularOwner(table, workspace);
+        workspace.ConfigureDetailTerminal(owner);
         table.RowsReplacementCanceled += (_, _) =>
         {
             Task lockProbe = Task.Run(() =>
@@ -297,11 +298,7 @@ public sealed class PlaylistViewPipelineTests
         };
 
         PlaylistDetailTerminalCommitResult result = workspace.ApplyDetailTerminal(
-            CreatePlaylistTerminalRequest(new List<object> { new object() }, requestVersion: 1),
-            table,
-            buildState,
-            viewState,
-            owner);
+            CreatePlaylistTerminalRequest(new List<object> { new object() }, requestVersion: 1));
 
         Assert.IsFalse(result.Applied);
     }
@@ -312,8 +309,9 @@ public sealed class PlaylistViewPipelineTests
         var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { });
         RegularChartListOwner owner = CreateRegularOwner(table, workspace);
+        workspace.ConfigureDetailTerminal(owner);
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -334,11 +332,7 @@ public sealed class PlaylistViewPipelineTests
         workspace.PropertyChanged += (_, _) => workspaceNotifications++;
         PlaylistDetailTerminalPublishException exception = Assert.ThrowsException<PlaylistDetailTerminalPublishException>(
             () => workspace.ApplyDetailTerminal(
-                CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1),
-                table,
-                buildState,
-                viewState,
-                owner));
+                CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1)));
 
         Assert.IsTrue(exception.OwnershipTransferred);
         Assert.IsNotNull(exception.TerminalCommitResult);
@@ -357,8 +351,9 @@ public sealed class PlaylistViewPipelineTests
         var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { });
         RegularChartListOwner owner = CreateRegularOwner(table, workspace);
+        workspace.ConfigureDetailTerminal(owner);
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };
@@ -377,11 +372,7 @@ public sealed class PlaylistViewPipelineTests
         workspace.PropertyChanged += (_, _) => workspaceNotifications++;
         PlaylistDetailTerminalPublishException exception = Assert.ThrowsException<PlaylistDetailTerminalPublishException>(
             () => workspace.ApplyDetailTerminal(
-                CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1),
-                table,
-                buildState,
-                viewState,
-                owner));
+                CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1)));
 
         Assert.IsTrue(exception.OwnershipTransferred);
         Assert.IsNotNull(exception.TerminalCommitResult);
@@ -2418,8 +2409,13 @@ public sealed class PlaylistViewPipelineTests
         state.Source.Rows = [sourceRow];
         state.Source.LastBuiltScoreSnapshotVersion = 3;
         state.Source.PendingScoreSnapshotRefreshVersion = 5;
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
-        workspace.ConfigureDetailEditing(state, () => throw new AssertFailedException("cancel must not persist"));
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(),
+            new PlaylistDetailBuildState(),
+            state,
+            _ => { });
+        workspace.ConfigureDetailEditing(() => throw new AssertFailedException("cancel must not persist"));
         PlaylistDetailEditRefreshRequestedEventArgs? refresh = null;
         workspace.PlaylistDetailEditRefreshRequested += (_, request) => refresh = request;
         var context = new MainChartListCellEditContext(
@@ -2451,8 +2447,13 @@ public sealed class PlaylistViewPipelineTests
         };
         PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
         var state = new PlaylistDetailViewState();
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
-        workspace.ConfigureDetailEditing(state, () => throw new AssertFailedException("invalid URI must not persist"));
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(),
+            new PlaylistDetailBuildState(),
+            state,
+            _ => { });
+        workspace.ConfigureDetailEditing(() => throw new AssertFailedException("invalid URI must not persist"));
         var context = new MainChartListCellEditContext(
             row,
             nameof(PlaylistDetailRow.Url),

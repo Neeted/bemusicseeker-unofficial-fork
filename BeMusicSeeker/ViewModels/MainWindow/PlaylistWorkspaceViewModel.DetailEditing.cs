@@ -8,15 +8,12 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private PlaylistDetailViewState detailEditViewState;
-
     private Func<BMSPlaylist> getPlaylistStore;
 
     internal event EventHandler<PlaylistDetailEditRefreshRequestedEventArgs> PlaylistDetailEditRefreshRequested;
 
-    internal void ConfigureDetailEditing(PlaylistDetailViewState viewState, Func<BMSPlaylist> playlistStore)
+    internal void ConfigureDetailEditing(Func<BMSPlaylist> playlistStore)
     {
-        detailEditViewState = viewState ?? throw new ArgumentNullException(nameof(viewState));
         getPlaylistStore = playlistStore ?? throw new ArgumentNullException(nameof(playlistStore));
     }
 
@@ -29,19 +26,19 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal void BeginDetailEdit(MainChartListCellEditContext context)
     {
-        if (!CanBeginDetailEdit(context) || detailEditViewState == null)
+        if (!CanBeginDetailEdit(context))
         {
             return;
         }
-        lock (detailEditViewState.SyncRoot)
+        lock (DetailViewState.SyncRoot)
         {
-            detailEditViewState.Source.IsPlaylistCellEditing = true;
+            DetailViewState.Source.IsPlaylistCellEditing = true;
         }
     }
 
     internal void CompleteDetailEdit(MainChartListCellEditEndedEventArgs request)
     {
-        if (request?.Context.Row is not PlaylistDetailRow playlistRow || detailEditViewState == null)
+        if (request?.Context.Row is not PlaylistDetailRow playlistRow)
         {
             return;
         }
@@ -65,9 +62,9 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void SynchronizeSourceRow(PlaylistDetailRow playlistRow)
     {
-        lock (detailEditViewState.SyncRoot)
+        lock (DetailViewState.SyncRoot)
         {
-            PlaylistDetailSourceRow sourceRow = (detailEditViewState.Source.Rows ?? [])
+            PlaylistDetailSourceRow sourceRow = (DetailViewState.Source.Rows ?? [])
                 .FirstOrDefault(row => row != null && ReferenceEquals(row.Entry, playlistRow.Entry));
             sourceRow?.SynchronizeEditableSnapshot(playlistRow);
         }
@@ -89,14 +86,14 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         int pendingScoreSnapshotVersion;
         int lastBuiltScoreSnapshotVersion;
-        lock (detailEditViewState.SyncRoot)
+        lock (DetailViewState.SyncRoot)
         {
-            detailEditViewState.Source.IsPlaylistCellEditing = false;
-            pendingScoreSnapshotVersion = detailEditViewState.Source.PendingScoreSnapshotRefreshVersion;
-            lastBuiltScoreSnapshotVersion = detailEditViewState.Source.LastBuiltScoreSnapshotVersion;
+            DetailViewState.Source.IsPlaylistCellEditing = false;
+            pendingScoreSnapshotVersion = DetailViewState.Source.PendingScoreSnapshotRefreshVersion;
+            lastBuiltScoreSnapshotVersion = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
             if (pendingScoreSnapshotVersion > lastBuiltScoreSnapshotVersion)
             {
-                detailEditViewState.Source.PendingScoreSnapshotRefreshVersion = 0;
+                DetailViewState.Source.PendingScoreSnapshotRefreshVersion = 0;
             }
         }
         if (pendingScoreSnapshotVersion > lastBuiltScoreSnapshotVersion)
