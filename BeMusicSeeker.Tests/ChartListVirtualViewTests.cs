@@ -4051,6 +4051,7 @@ public sealed class ChartListVirtualViewTests
             this.playlistViewState = playlistViewState;
             this.publishPropertyChanged = publishPropertyChanged;
             this.logPlaylistSourceClear = logPlaylistSourceClear;
+            workflowOwner.ConfigureTerminalShellPublish(logPlaylistSourceClear);
         }
 
         internal PlayHistoryTerminalCommitResult TryApply(PlayHistoryTerminalRequest request)
@@ -4068,72 +4069,16 @@ public sealed class ChartListVirtualViewTests
             }
             catch (PlayHistoryTerminalPublishException ex)
             {
-                PublishShellStateAfterTablePublishFailure(ex);
+                workflowOwner.PublishTerminalShellStateAfterTablePublishFailure(ex, playlistBuildState);
                 throw;
             }
-            PublishShellState(result);
+            workflowOwner.PublishTerminalShellState(result, playlistBuildState);
             return result;
-        }
-
-        private void PublishShellState(PlayHistoryTerminalCommitResult result)
-        {
-            if (!HasShellStateToPublish(result))
-            {
-                return;
-            }
-
-            List<Exception> publishExceptions = [];
-            if (result.PlaylistSourceClear != null)
-            {
-                TryPublish(() => playlistBuildState.PublishSourceClear(result.PlaylistSourceClear), publishExceptions);
-                TryPublish(() => logPlaylistSourceClear(result.PlaylistSourceClear), publishExceptions);
-            }
-            if (publishExceptions.Count > 0)
-            {
-                throw new PlayHistoryTerminalPublishException(new AggregateException(publishExceptions), ownershipTransferred: true);
-            }
         }
 
         internal void PublishTableFailureForTest(PlayHistoryTerminalPublishException exception)
         {
-            PublishShellStateAfterTablePublishFailure(exception);
-        }
-
-        private void PublishShellStateAfterTablePublishFailure(PlayHistoryTerminalPublishException exception)
-        {
-            if (exception == null || !HasShellStateToPublish(exception.TerminalCommitResult))
-            {
-                return;
-            }
-
-            try
-            {
-                PublishShellState(exception.TerminalCommitResult);
-            }
-            catch (PlayHistoryTerminalPublishException shellException)
-            {
-                throw new PlayHistoryTerminalPublishException(
-                    new AggregateException(exception, shellException),
-                    ownershipTransferred: true,
-                    exception.TerminalCommitResult);
-            }
-        }
-
-        private static bool HasShellStateToPublish(PlayHistoryTerminalCommitResult result)
-        {
-            return result?.PlaylistSourceClear != null;
-        }
-
-        private static void TryPublish(Action action, ICollection<Exception> exceptions)
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception ex)
-            {
-                exceptions.Add(ex);
-            }
+            workflowOwner.PublishTerminalShellStateAfterTablePublishFailure(exception, playlistBuildState);
         }
     }
 

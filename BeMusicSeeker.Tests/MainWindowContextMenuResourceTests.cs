@@ -170,6 +170,7 @@ public sealed class MainWindowContextMenuResourceTests
         string mainChartListCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
         string playHistoryWorkflowCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
         string displayTargetOwnerCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
+        string terminalShellOwnerCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.TerminalShell.cs");
         string presentationStateCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
         string presentationOnlyMethod = ExtractBetween(rootViewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
         string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
@@ -210,6 +211,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
         Assert.IsFalse(presentationOnlyMethod.Contains("PlayHistorySortEngine.TrySort("));
         Assert.IsFalse(rootViewModelCode.Contains("new PlayHistoryTerminalRequest"));
+        Assert.IsFalse(rootViewModelCode.Contains("PublishPlayHistoryTerminalShellState"));
+        StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.PublishTerminalShellState(");
+        StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.PublishTerminalShellStateAfterTablePublishFailure(");
+        StringAssert.Contains(terminalShellOwnerCode, "ownershipTransferred: true");
+        StringAssert.Contains(terminalShellOwnerCode, "new AggregateException(tablePublishException, shellPublishException)");
         Assert.IsFalse(rootViewModelCode.Contains("CreatePlayHistoryViewDiagnostics"));
         Assert.IsFalse(rootViewModelCode.Contains("CountDistinctPlayHistoryFolderLabels"));
         StringAssert.Contains(rootViewModelCode, "SnapshotPlayHistoryDisplayTargetTables");

@@ -6259,6 +6259,7 @@ public partial class MainWindowViewModel : ViewModel
             () => IsShutdownRequested,
             SnapshotPlayHistoryDisplayTargetTables,
             SchedulePlayHistoryDisplayTargetCatalogRefresh);
+        PlayHistory.ConfigureTerminalShellPublish(LogPlaylistSourceClear);
         PlayHistory.DisplayTargetRefreshRequested += (_, _) => QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => QueuePlayHistoryKeywordFilterRefresh();
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(PlaylistWorkspace);
@@ -10218,7 +10219,9 @@ public partial class MainWindowViewModel : ViewModel
         }
         catch (PlayHistoryTerminalPublishException ex)
         {
-            PublishPlayHistoryTerminalShellStateAfterTablePublishFailure(ex);
+            playHistoryWorkflowOwner.PublishTerminalShellStateAfterTablePublishFailure(
+                ex,
+                playlistDetailBuildState);
             throw;
         }
         sortMs += applyResult.AdditionalSortMs;
@@ -10242,7 +10245,7 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         PlayHistoryTerminalCommitResult terminalCommit = applyResult.TerminalCommit;
-        PublishPlayHistoryTerminalShellState(terminalCommit);
+        playHistoryWorkflowOwner.PublishTerminalShellState(terminalCommit, playlistDetailBuildState);
         long prepareSwapMs = terminalCommit.MainRowsApply.PrepareSwapMs;
         long columnSettingMs = terminalCommit.MainRowsApply.ColumnSettingMs;
         long setViewMs = terminalCommit.MainRowsApply.SetViewMs;
@@ -10277,65 +10280,6 @@ public partial class MainWindowViewModel : ViewModel
             + " setViewMs=" + setViewMs
             + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
         LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " playHistoryPeriod=" + periodRequest.Kind + " playHistorySortOnly=" + fromSortOnly.ToString().ToLowerInvariant() + " readMs=" + readMs + " periodIndexMs=" + periodIndexMs + " projectionIndexMs=" + projectionIndexMs + " projectionIndexCacheHit=" + projectionIndexCacheHit.ToString().ToLowerInvariant() + " projectionIndexStaleRetries=" + projectionIndexStaleRetries + " projectionMs=" + projectionMs + " keywordMs=" + keywordMs + " keywordCount=" + keywordCount + " sortMs=" + sortMs + " sortProfile=" + sortProfile + " schemaStatus=" + state.SchemaStatus + " diagnosticsCount=" + diagnosticsCount + " columnSettingMs=" + columnSettingMs + " prepareSwapMs=" + prepareSwapMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + terminalCommit.MainRowsApply.ColumnSettingReuse + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " sourceCount=" + state.SourceCount + " projectedCount=" + state.ProjectedRows.Count + " viewCount=" + applyResult.ViewCount);
-    }
-
-    private void PublishPlayHistoryTerminalShellState(PlayHistoryTerminalCommitResult terminalCommit)
-    {
-        if (terminalCommit == null)
-        {
-            throw new ArgumentNullException(nameof(terminalCommit));
-        }
-
-        List<Exception> publishExceptions = [];
-        if (terminalCommit.PlaylistSourceClear != null)
-        {
-            TryPlayHistoryTerminalShellPublish(() => playlistDetailBuildState.PublishSourceClear(terminalCommit.PlaylistSourceClear), publishExceptions);
-            TryPlayHistoryTerminalShellPublish(() => LogPlaylistSourceClear(terminalCommit.PlaylistSourceClear), publishExceptions);
-        }
-        if (publishExceptions.Count > 0)
-        {
-            throw new PlayHistoryTerminalPublishException(
-                new AggregateException(publishExceptions),
-                ownershipTransferred: true,
-                terminalCommit);
-        }
-    }
-
-    private void PublishPlayHistoryTerminalShellStateAfterTablePublishFailure(PlayHistoryTerminalPublishException tablePublishException)
-    {
-        if (!HasPlayHistoryTerminalShellStateToPublish(tablePublishException?.TerminalCommitResult))
-        {
-            return;
-        }
-
-        try
-        {
-            PublishPlayHistoryTerminalShellState(tablePublishException.TerminalCommitResult);
-        }
-        catch (PlayHistoryTerminalPublishException shellPublishException)
-        {
-            throw new PlayHistoryTerminalPublishException(
-                new AggregateException(tablePublishException, shellPublishException),
-                ownershipTransferred: true,
-                tablePublishException.TerminalCommitResult);
-        }
-    }
-
-    private static bool HasPlayHistoryTerminalShellStateToPublish(PlayHistoryTerminalCommitResult terminalCommit)
-    {
-        return terminalCommit?.PlaylistSourceClear != null;
-    }
-
-    private static void TryPlayHistoryTerminalShellPublish(Action action, ICollection<Exception> exceptions)
-    {
-        try
-        {
-            action();
-        }
-        catch (Exception ex)
-        {
-            exceptions.Add(ex);
-        }
     }
 
     private void GetTreeViewFilterSelection(out MainViewUpdateMode mode, out object parameter)
