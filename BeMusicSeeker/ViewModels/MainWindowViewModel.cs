@@ -1987,6 +1987,7 @@ public partial class MainWindowViewModel : ViewModel
         int scoreSnapshotVersion = GetPlaylistScoreSnapshotVersion();
         int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
+        ChartListSortParameters sortParameters = regularChartListOwner.CaptureSortParameters();
         return new PlaylistBuildRequest
         {
             RequestVersion = requestVersion,
@@ -1994,7 +1995,8 @@ public partial class MainWindowViewModel : ViewModel
             RequestedMode = requestedMode,
             Parameter = parameter,
             Filters = filters,
-            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, filters.KeywordFilter, filters.ModeFilter, SortParameters, libraryIndexVersion, viewSnapshot.PlaylistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
+            SortParameters = CloneSortParameters(sortParameters),
+            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, filters.KeywordFilter, filters.ModeFilter, sortParameters, libraryIndexVersion, viewSnapshot.PlaylistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
             UseCoalescingWindow = ShouldUsePlaylistBuildCoalescingWindow(mode, requestedMode)
         };
     }
@@ -3032,12 +3034,13 @@ public partial class MainWindowViewModel : ViewModel
     private void RefreshLibraryMainViewForDataDependency(MainViewDataDependency dependency, string reason)
     {
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
+        ChartListSortParameters sortParameters = regularChartListOwner.CaptureSortParameters();
         MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
             treeViewFilterTypeSelected,
             regularChartListOwner.HasTreeFilter,
             filters.KeywordFilter,
             filters.ModeFilter,
-            SortParameters?.ColumnsName,
+            sortParameters?.ColumnsName,
             IsPlaylistDetailViewActive,
             dependency,
             reason);
@@ -3047,7 +3050,7 @@ public partial class MainWindowViewModel : ViewModel
             + " action=" + decision.Action
             + " detail=" + decision.Detail
             + " mode=" + treeViewFilterTypeSelected
-            + " sortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
+            + " sortColumn=" + (sortParameters?.ColumnsName ?? "(default_title)")
             + " keywordEmpty=" + string.IsNullOrWhiteSpace(filters.KeywordFilter).ToString().ToLowerInvariant()
             + " modeFilter=" + filters.ModeFilter
             + " folderFilterApplied=" + regularChartListOwner.HasTreeFilter.ToString().ToLowerInvariant()
@@ -9366,7 +9369,7 @@ public partial class MainWindowViewModel : ViewModel
                 Mode = mode,
                 KeywordFilter = filters.KeywordFilter,
                 ModeFilter = filters.ModeFilter,
-                SortParameters = SortParameters,
+                SortParameters = CloneSortParameters(request.SortParameters),
                 ColumnSettingMode = ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
                 CurrentTreeMode = treeViewFilterTypeSelected,
                 Stopwatch = viewBuildStopwatch,
@@ -9460,7 +9463,7 @@ public partial class MainWindowViewModel : ViewModel
                         Mode = mode,
                         KeywordFilter = filters.KeywordFilter,
                         ModeFilter = filters.ModeFilter,
-                        SortParameters = SortParameters,
+                        SortParameters = CloneSortParameters(request.SortParameters),
                         ColumnSettingMode = ResolvePlaylistColumnSettingMode(filterType),
                         CurrentTreeMode = treeViewFilterTypeSelected,
                         Stopwatch = viewBuildStopwatch,

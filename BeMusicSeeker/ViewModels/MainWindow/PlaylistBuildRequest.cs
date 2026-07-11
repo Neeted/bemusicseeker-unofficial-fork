@@ -15,6 +15,8 @@ internal sealed class PlaylistBuildRequest
 
     internal ChartListFilterSnapshot Filters;
 
+    internal ChartListSortParameters SortParameters;
+
     internal PlaylistRequestIdentity Identity;
 
     internal bool UseCoalescingWindow;

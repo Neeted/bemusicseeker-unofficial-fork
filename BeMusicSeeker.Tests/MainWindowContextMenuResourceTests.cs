@@ -39,6 +39,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModel, "public string KeywordFilter");
         Assert.IsFalse(viewModel.Contains("private ModeFilterType _ModeFilter"));
         Assert.IsFalse(viewModel.Contains("private string _KeywordFilter"));
+        StringAssert.Contains(viewModel, "SortParameters = CloneSortParameters(request.SortParameters)");
         Assert.IsFalse(regularOwner.Contains("RegularChartModeFilter"));
         Assert.IsFalse(regularOwner.Contains("SetFilters("));
         StringAssert.Contains(regularOwner, "ChartListFilterSnapshot Filters");
