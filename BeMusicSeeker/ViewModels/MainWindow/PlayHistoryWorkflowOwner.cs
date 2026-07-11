@@ -15,12 +15,54 @@ internal sealed class PlayHistoryWorkflowOwner
     private int keywordActiveCount;
     private long displayTargetQueuedRevision = -1L;
     private int displayTargetActiveCount;
+    private ChartListSortParameters sortParameters;
+
+    internal PlayHistoryWorkflowOwner()
+    {
+        PresentationState.CurrentSortSnapshot = new SortSnapshot(null, null, revision: 0L);
+    }
 
     internal PlayHistoryPresentationState PresentationState { get; } = new();
 
     internal PlayHistoryReadCache ReadCache { get; } = new();
 
     internal PlayHistoryViewRequest ActiveRequest { get; private set; }
+
+    internal bool UpdateSortParameters(ChartListSortParameters value)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            if (AreSameSortParameters(sortParameters, value))
+            {
+                return false;
+            }
+            sortParameters = CloneSortParameters(value);
+            PresentationState.SortRevision++;
+            PresentationState.CurrentSortSnapshot = new SortSnapshot(
+                sortParameters?.ColumnsName,
+                sortParameters?.Direction,
+                PresentationState.SortRevision);
+            return true;
+        }
+    }
+
+    internal ChartListSortParameters CaptureSortParameters(out SortSnapshot snapshot)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            ChartListSortParameters captured = CloneSortParameters(sortParameters);
+            snapshot = new SortSnapshot(captured?.ColumnsName, captured?.Direction, PresentationState.SortRevision);
+            return captured;
+        }
+    }
+
+    internal bool IsCurrentSortSnapshot(SortSnapshot snapshot)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            return SortSnapshot.Equals(snapshot, PresentationState.CurrentSortSnapshot);
+        }
+    }
 
     internal PlayHistoryViewRequest BeginRequest(
         PlayHistoryPeriodRequest periodRequest,
@@ -479,6 +521,27 @@ internal sealed class PlayHistoryWorkflowOwner
             Message = message ?? string.Empty,
             SourcePath = sourcePath ?? string.Empty
         };
+    }
+
+    private static ChartListSortParameters CloneSortParameters(ChartListSortParameters value)
+    {
+        return value == null
+            ? null
+            : new ChartListSortParameters
+            {
+                ColumnsName = value.ColumnsName,
+                Direction = value.Direction
+            };
+    }
+
+    private static bool AreSameSortParameters(ChartListSortParameters left, ChartListSortParameters right)
+    {
+        if (left == null || right == null)
+        {
+            return left == right;
+        }
+        return string.Equals(left?.ColumnsName, right?.ColumnsName, StringComparison.Ordinal)
+            && left?.Direction == right?.Direction;
     }
 
     private static bool MatchesKeywordAndSummaryFilters(

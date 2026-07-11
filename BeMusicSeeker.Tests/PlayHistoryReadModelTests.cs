@@ -966,6 +966,36 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void PlayHistoryWorkflowOwner_OwnsSortParametersAndFreshnessSnapshot()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        Assert.IsNull(owner.CaptureSortParameters(out SortSnapshot initialSnapshot));
+        Assert.IsTrue(owner.IsCurrentSortSnapshot(initialSnapshot));
+        Assert.IsTrue(owner.UpdateSortParameters(new ChartListSortParameters()));
+        Assert.IsNotNull(owner.CaptureSortParameters(out _));
+        Assert.IsTrue(owner.UpdateSortParameters(null));
+        var requested = new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlayHistoryRow.PlayedAt),
+            Direction = ListSortDirection.Descending
+        };
+
+        Assert.IsTrue(owner.UpdateSortParameters(requested));
+        ChartListSortParameters captured = owner.CaptureSortParameters(out SortSnapshot snapshot);
+        requested.ColumnsName = nameof(PlayHistoryRow.Title);
+
+        Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), captured.ColumnsName);
+        Assert.IsTrue(owner.IsCurrentSortSnapshot(snapshot));
+        Assert.IsFalse(owner.UpdateSortParameters(captured));
+        Assert.IsTrue(owner.UpdateSortParameters(new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlayHistoryRow.Title),
+            Direction = ListSortDirection.Ascending
+        }));
+        Assert.IsFalse(owner.IsCurrentSortSnapshot(snapshot));
+    }
+
+    [TestMethod]
     public void PlayHistoryDisplayTargetIndex_UsesPlaylistEntryMd5BeforeSha256()
     {
         PlayHistoryRow row = CreateProjectedRow(HashA, ShaA, initialFolderLabels: "SAT");

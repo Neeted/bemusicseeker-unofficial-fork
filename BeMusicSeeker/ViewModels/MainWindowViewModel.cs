@@ -640,12 +640,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
 
-    private long playHistorySortRevision
-    {
-        get => playHistoryPresentationState.SortRevision;
-        set => playHistoryPresentationState.SortRevision = value;
-    }
-
     private ref PlayHistoryViewState playHistoryViewState => ref playHistoryPresentationState.CurrentView;
 
     private ref IReadOnlyList<PlayHistoryPeriodTreeItem> _PlayHistoryArchivePeriodTree => ref playHistoryPresentationState.ArchivePeriodTree;
@@ -655,8 +649,6 @@ public partial class MainWindowViewModel : ViewModel
     private ref string _PlayHistorySummaryDiagnosticText => ref playHistoryPresentationState.DiagnosticText;
 
     private cSortParameters _SortParameters;
-
-    private cSortParameters _PlayHistorySortParameters;
 
     private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
 
@@ -4880,24 +4872,18 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _PlayHistorySortParameters;
+            ChartListSortParameters value = playHistoryWorkflowOwner.CaptureSortParameters(out _);
+            return value == null
+                ? null
+                : new cSortParameters
+                {
+                    ColumnsName = value.ColumnsName,
+                    Direction = value.Direction
+                };
         }
         private set
         {
-            bool changed = false;
-            lock (playHistoryViewRequestLock)
-            {
-                if (!AreSameSortParameters(_PlayHistorySortParameters, value))
-                {
-                    _PlayHistorySortParameters = value;
-                    playHistorySortRevision++;
-                    playHistoryPresentationState.CurrentSortSnapshot = new SortSnapshot(
-                        _PlayHistorySortParameters?.ColumnsName,
-                        _PlayHistorySortParameters?.Direction,
-                        playHistorySortRevision);
-                    changed = true;
-                }
-            }
+            bool changed = playHistoryWorkflowOwner.UpdateSortParameters(value);
             if (changed)
             {
                 RaisePropertyChanged("PlayHistorySortParameters");
@@ -10717,7 +10703,7 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         var sortStopwatch = Stopwatch.StartNew();
-        ChartListSortParameters sortParameters = CaptureSortParameters(out SortSnapshot sortSnapshot);
+        ChartListSortParameters sortParameters = playHistoryWorkflowOwner.CaptureSortParameters(out SortSnapshot sortSnapshot);
         bool sortSucceeded = PlayHistorySortEngine.TrySort(projectionResult.Rows, sortParameters, out List<PlayHistoryRow> sortedRows, out string sortProfile);
         if (!sortSucceeded)
         {
@@ -10985,7 +10971,7 @@ public partial class MainWindowViewModel : ViewModel
             LogPlayHistoryKeywordFilter(state.PeriodRequest, state.RequestId, keywordFilter, state.SourceCount, targetRows.Count, filteredRows.Count, keywordMs);
         }
         var sortStopwatch = Stopwatch.StartNew();
-        ChartListSortParameters sortParameters = CaptureSortParameters(out SortSnapshot sortSnapshot);
+        ChartListSortParameters sortParameters = playHistoryWorkflowOwner.CaptureSortParameters(out SortSnapshot sortSnapshot);
         bool sortSucceeded = PlayHistorySortEngine.TrySort(filteredRows, sortParameters, out List<PlayHistoryRow> sortedRows, out string sortProfile);
         if (!sortSucceeded)
         {
@@ -11110,10 +11096,10 @@ public partial class MainWindowViewModel : ViewModel
                 LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
                 return;
             }
-            if (!IsCurrentSortSnapshot(state.SortSnapshot))
+            if (!playHistoryWorkflowOwner.IsCurrentSortSnapshot(state.SortSnapshot))
             {
                 var resortStopwatch = Stopwatch.StartNew();
-                ChartListSortParameters currentSortParameters = CaptureSortParameters(out SortSnapshot currentSortSnapshot);
+                ChartListSortParameters currentSortParameters = playHistoryWorkflowOwner.CaptureSortParameters(out SortSnapshot currentSortSnapshot);
                 sortSucceeded = PlayHistorySortEngine.TrySort(state.ProjectedRows, currentSortParameters, out sortedRows, out sortProfile);
                 if (!sortSucceeded)
                 {
@@ -11665,38 +11651,6 @@ public partial class MainWindowViewModel : ViewModel
             .. (diagnostics ?? [])
         ];
         return result;
-    }
-
-    private SortSnapshot CaptureSortSnapshot()
-    {
-        CaptureSortParameters(out SortSnapshot snapshot);
-        return snapshot;
-    }
-
-    private ChartListSortParameters CaptureSortParameters(out SortSnapshot snapshot)
-    {
-        lock (playHistoryViewRequestLock)
-        {
-            ChartListSortParameters sortParameters = _PlayHistorySortParameters == null
-                ? null
-                : new cSortParameters
-                {
-                    ColumnsName = _PlayHistorySortParameters.ColumnsName,
-                    Direction = _PlayHistorySortParameters.Direction
-                };
-            snapshot = new SortSnapshot(sortParameters?.ColumnsName, sortParameters?.Direction, playHistorySortRevision);
-            return sortParameters;
-        }
-    }
-
-    private ChartListSortParameters CaptureSortParameters()
-    {
-        return CaptureSortParameters(out _);
-    }
-
-    private bool IsCurrentSortSnapshot(SortSnapshot snapshot)
-    {
-        return SortSnapshot.Equals(snapshot, CaptureSortSnapshot());
     }
 
     private void LogStalePlayHistoryViewRequest(
