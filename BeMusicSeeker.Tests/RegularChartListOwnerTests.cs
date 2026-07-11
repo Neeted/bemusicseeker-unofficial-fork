@@ -89,6 +89,52 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void ApplyMainLibraryView_DelegatesMainLibraryRouteToRegularPipeline()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        var route = new ChartListRefreshRoute(
+            ChartListRefreshRouteKind.ContinueMainLibrary,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            MainViewUpdateMode.FolderFilterSelected,
+            isPlaylistTreeActive: false,
+            includeBmsonRows: false);
+
+        RegularChartListEntryResult result = owner.ApplyMainLibraryView(
+            route,
+            library: null,
+            parameter: null,
+            treeParameter: null,
+            preserveSummary: false,
+            Stopwatch.StartNew());
+
+        Assert.IsTrue(result.WasCommitted);
+        Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, table.LastAppliedColumnMode);
+    }
+
+    [TestMethod]
+    public void ApplyMainLibraryView_RejectsNonMainLibraryRoute()
+    {
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        var route = new ChartListRefreshRoute(
+            ChartListRefreshRouteKind.ApplyPlayHistoryView,
+            MainViewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.PlayHistorySelected,
+            isPlaylistTreeActive: false,
+            includeBmsonRows: false);
+
+        Assert.ThrowsException<ArgumentException>(() => owner.ApplyMainLibraryView(
+            route,
+            library: null,
+            parameter: null,
+            treeParameter: null,
+            preserveSummary: false,
+            Stopwatch.StartNew()));
+    }
+
+    [TestMethod]
     public void MaterializedApply_OwnsBuildAndTerminalPipeline()
     {
         var table = new MainChartListViewModel();

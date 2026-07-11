@@ -9612,7 +9612,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        regularChartListOwner.InvalidatePendingRequest();
+        regularChartListOwner.PrepareForMainViewRefresh();
         var viewBuildStopwatch = Stopwatch.StartNew();
         MainViewUpdateMode requestedMode = mode;
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
@@ -9687,19 +9687,13 @@ public partial class MainWindowViewModel : ViewModel
             RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter);
             return;
         }
-        RegularChartListEntryResult regularResult = regularChartListOwner.ApplyRegularView(
-            new RegularChartListEntryRequest
-            {
-                Library = files,
-                Mode = route.Mode,
-                RequestedMode = route.RequestedMode,
-                Parameter = parameter,
-                CurrentTreeMode = treeViewFilterTypeSelected,
-                TreeParameter = treeViewFilterParameterSelected,
-                IncludeBmsonRows = route.IncludeBmsonRows,
-                PreserveSummary = PlaylistWorkspace.IsPlaylistSummaryMode,
-                Stopwatch = viewBuildStopwatch
-            });
+        RegularChartListEntryResult regularResult = regularChartListOwner.ApplyMainLibraryView(
+            route,
+            files,
+            parameter,
+            treeViewFilterParameterSelected,
+            PlaylistWorkspace.IsPlaylistSummaryMode,
+            viewBuildStopwatch);
         if (regularResult.WasCommitted && regularResult.SortWasReset)
         {
             SortParameters = null;

@@ -70,8 +70,9 @@ public sealed class RegularChartListRefreshTypesTests
         string root = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
         StringAssert.Contains(refreshChartRowsView, "ChartListRefreshCoordinator.ResolveRoute");
+        StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.PrepareForMainViewRefresh();");
         StringAssert.Contains(refreshChartRowsView, "RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter)");
-        StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyRegularView(");
+        StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyMainLibraryView(");
         StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
         Assert.IsTrue(
             refreshChartRowsView.IndexOf("UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)", StringComparison.Ordinal)

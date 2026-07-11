@@ -1432,6 +1432,54 @@ internal sealed class RegularChartListOwner : IDisposable
             : default;
     }
 
+    /// <summary>
+    /// Cancels regular work before the shell mutates main-view selection or route state.
+    /// </summary>
+    internal void PrepareForMainViewRefresh()
+    {
+        InvalidatePendingRequest();
+    }
+
+    /// <summary>
+    /// Applies a main-library refresh route and owns the regular request construction for that route.
+    /// </summary>
+    /// <param name="route">The route classified for the main-library workflow.</param>
+    /// <param name="library">The current BMS library.</param>
+    /// <param name="parameter">The parameter supplied by the refresh trigger.</param>
+    /// <param name="treeParameter">The current tree selection parameter.</param>
+    /// <param name="preserveSummary">Whether the current table summary should be preserved.</param>
+    /// <param name="stopwatch">The stopwatch covering the refresh workflow.</param>
+    /// <returns>The regular chart-list entry result.</returns>
+    internal RegularChartListEntryResult ApplyMainLibraryView(
+        ChartListRefreshRoute route,
+        BMSLibrary library,
+        object parameter,
+        object treeParameter,
+        bool preserveSummary,
+        Stopwatch stopwatch)
+    {
+        if (route.Kind != ChartListRefreshRouteKind.ContinueMainLibrary)
+        {
+            throw new ArgumentException(
+                "The regular chart-list owner requires a main-library route.",
+                nameof(route));
+        }
+
+        return ApplyRegularView(
+            new RegularChartListEntryRequest
+            {
+                Library = library,
+                Mode = route.Mode,
+                RequestedMode = route.RequestedMode,
+                Parameter = parameter,
+                CurrentTreeMode = route.CurrentTreeMode,
+                TreeParameter = treeParameter,
+                IncludeBmsonRows = route.IncludeBmsonRows,
+                PreserveSummary = preserveSummary,
+                Stopwatch = stopwatch
+            });
+    }
+
     internal RegularChartListEntryResult ApplyRegularView(RegularChartListEntryRequest request)
     {
         if (request == null || request.Stopwatch == null)
