@@ -59,11 +59,9 @@ internal sealed class RegularChartListOwner : IDisposable
     private string folderSortColumnName;
     private ListSortDirection? folderSortDirection;
     private RegularNormalLibraryTreeFilter treeFilter;
-    private MainViewUpdateMode? lastAppliedColumnMode;
     private ChartListSortSpecification currentSort;
     private string currentKeywordFilter;
     private RegularChartModeFilter currentModeFilter = RegularChartModeFilter.All;
-    private RegularChartListCompletion lastCompletion;
     private List<ChartListSourceRow> virtualSourceRows;
     private BMSLibrary virtualSourceRowsLibrary;
     private bool virtualSourceRowsLibraryReserved;
@@ -99,40 +97,6 @@ internal sealed class RegularChartListOwner : IDisposable
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logWarning = logWarning ?? log;
-    }
-
-    internal RegularChartListCompletion LastCompletion
-    {
-        get
-        {
-            lock (syncRoot)
-            {
-                return lastCompletion;
-            }
-        }
-    }
-
-    internal void CommitExternalColumnMode(MainViewUpdateMode? mode)
-    {
-        if (!mode.HasValue)
-        {
-            return;
-        }
-        lock (syncRoot)
-        {
-            lastAppliedColumnMode = mode.Value;
-        }
-    }
-
-    internal MainViewUpdateMode? LastAppliedColumnMode
-    {
-        get
-        {
-            lock (syncRoot)
-            {
-                return lastAppliedColumnMode;
-            }
-        }
     }
 
     internal void SetSort(ChartListSortSpecification sort)
@@ -329,13 +293,7 @@ internal sealed class RegularChartListOwner : IDisposable
         PlaylistColumnPresentationCommit commit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
             selection.PlaylistColumnSettingsVisibility,
             selection.PlaylistSummaryColumnsSettings);
-        if (selection.AppliedMode.HasValue)
-        {
-            lock (syncRoot)
-            {
-                lastAppliedColumnMode = selection.AppliedMode.Value;
-            }
-        }
+        mainChartList.CommitAppliedColumnMode(selection.AppliedMode);
         playlistWorkspace.PublishColumnPresentation(commit);
     }
 
@@ -345,13 +303,10 @@ internal sealed class RegularChartListOwner : IDisposable
         bool playlistSummarySettingsReady,
         bool isInit)
     {
-        lock (syncRoot)
-        {
-            return !isInit
-                && lastAppliedColumnMode == resolvedMode
-                && targetSettingsReady
-                && playlistSummarySettingsReady;
-        }
+        return !isInit
+            && mainChartList.LastAppliedColumnMode == resolvedMode
+            && targetSettingsReady
+            && playlistSummarySettingsReady;
     }
 
     private static Visibility ResolvePlaylistColumnSettingsVisibility(MainViewUpdateMode mode)
@@ -2759,87 +2714,86 @@ internal sealed class RegularChartListOwner : IDisposable
             }
         }
 
-        MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(presentation.CreateRowsRequest());
         PlaylistColumnPresentationCommit columnCommit = null;
         PlaylistBindingModeCommit bindingModeCommit = null;
-        Exception commitException = null;
-        ExceptionDispatchInfo preTransferException = null;
-        bool cancelTransition = false;
-        lock (syncRoot)
+        bool CommitRegularPresentation(Action commitRows)
         {
-            if (!IsCurrentUnsafe(lease))
+            lock (syncRoot)
             {
-                cancelTransition = true;
-            }
-            else
-            {
-                try
+                if (!IsCurrentUnsafe(lease))
                 {
-                    transition.CommitOwnership();
-                    columnCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
-                        presentation.ColumnSelection.PlaylistColumnSettingsVisibility,
-                        presentation.ColumnSelection.PlaylistSummaryColumnsSettings);
-                    bindingModeCommit = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
-                    if (presentation.Build != null)
-                    {
-                        folderRows = presentation.Build.Stage.FolderRows;
-                        keywordRows = presentation.Build.Stage.KeywordRows;
-                        modeRows = presentation.Build.Stage.ModeRows;
-                        folderSortSourceSnapshot = presentation.Build.Sort.FolderSortSourceSnapshot;
-                        folderSortResultSnapshot = presentation.Build.Sort.FolderSortResultSnapshot;
-                        folderSortColumnName = presentation.Build.Sort.FolderSortColumnName;
-                        folderSortDirection = presentation.Build.Sort.FolderSortDirection;
-                        if (presentation.Build.PendingCacheKey.HasValue && presentation.Build.PendingCacheRows != null)
-                        {
-                            sortCache[presentation.Build.PendingCacheKey.Value] = presentation.Build.PendingCacheRows;
-                        }
-                    }
-                    if (presentation.ColumnSelection.AppliedMode.HasValue)
-                    {
-                        lastAppliedColumnMode = presentation.ColumnSelection.AppliedMode.Value;
-                    }
-                    lastCompletion = new RegularChartListCompletion(
-                        lease.RequestId,
-                        Stopwatch.GetTimestamp(),
-                        Thread.CurrentThread.ManagedThreadId,
-                        presentation.Mode,
-                        presentation.Stopwatch.ElapsedMilliseconds);
+                    return false;
                 }
-                catch (Exception ex)
+                commitRows();
+                columnCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+                    presentation.ColumnSelection.PlaylistColumnSettingsVisibility,
+                    presentation.ColumnSelection.PlaylistSummaryColumnsSettings);
+                bindingModeCommit = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
+                if (presentation.Build != null)
                 {
-                    if (!transition.OwnershipTransferred)
+                    folderRows = presentation.Build.Stage.FolderRows;
+                    keywordRows = presentation.Build.Stage.KeywordRows;
+                    modeRows = presentation.Build.Stage.ModeRows;
+                    folderSortSourceSnapshot = presentation.Build.Sort.FolderSortSourceSnapshot;
+                    folderSortResultSnapshot = presentation.Build.Sort.FolderSortResultSnapshot;
+                    folderSortColumnName = presentation.Build.Sort.FolderSortColumnName;
+                    folderSortDirection = presentation.Build.Sort.FolderSortDirection;
+                    if (presentation.Build.PendingCacheKey.HasValue && presentation.Build.PendingCacheRows != null)
                     {
-                        cancelTransition = true;
-                        preTransferException = ExceptionDispatchInfo.Capture(ex);
-                    }
-                    else
-                    {
-                        commitException = ex;
+                        sortCache[presentation.Build.PendingCacheKey.Value] = presentation.Build.PendingCacheRows;
                     }
                 }
+                mainChartList.CommitAppliedColumnMode(presentation.ColumnSelection.AppliedMode);
+                mainChartList.CommitCompletion(new MainChartListCompletion(
+                    lease.RequestId,
+                    Stopwatch.GetTimestamp(),
+                    Thread.CurrentThread.ManagedThreadId,
+                    presentation.Mode,
+                    presentation.Stopwatch.ElapsedMilliseconds));
+                return true;
             }
-        }
-        if (cancelTransition)
-        {
-            transition.Cancel();
-            preTransferException?.Throw();
-            return RegularChartListTerminalResult.Stale();
         }
 
-        var publishExceptions = new List<Exception>();
-        if (commitException != null)
+        void PublishRelatedPresentation()
         {
-            publishExceptions.Add(commitException);
+            var publishExceptions = new List<Exception>();
+            try
+            {
+                playlistWorkspace.PublishColumnPresentation(columnCommit);
+            }
+            catch (Exception ex)
+            {
+                publishExceptions.Add(ex);
+            }
+            try
+            {
+                playlistWorkspace.PublishBindingMode(bindingModeCommit);
+            }
+            catch (Exception ex)
+            {
+                publishExceptions.Add(ex);
+            }
+            if (publishExceptions.Count > 0)
+            {
+                throw new AggregateException(publishExceptions);
+            }
         }
-        MainChartListRowsApplyResult rowsApply = default;
-        TryPublish(() => rowsApply = transition.Complete(), publishExceptions);
-        TryPublish(() => playlistWorkspace.PublishColumnPresentation(columnCommit), publishExceptions);
-        TryPublish(() => playlistWorkspace.PublishBindingMode(bindingModeCommit), publishExceptions);
-        if (publishExceptions.Count > 0)
+
+        MainChartListPresentationApplyResult applied;
+        try
         {
-            throw new RegularChartListTerminalPublishException(new AggregateException(publishExceptions));
+            applied = mainChartList.ApplyPresentation(
+                presentation.CreateRowsRequest(),
+                CommitRegularPresentation,
+                PublishRelatedPresentation);
         }
-        return RegularChartListTerminalResult.Committed(rowsApply);
+        catch (MainChartListPresentationPublishException ex)
+        {
+            throw new RegularChartListTerminalPublishException(ex.InnerException ?? ex);
+        }
+        return applied.WasApplied
+            ? RegularChartListTerminalResult.Committed(applied.RowsApply)
+            : RegularChartListTerminalResult.Stale();
     }
 
     private void RunVirtualSummary(
@@ -3323,17 +3277,6 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
-    private static void TryPublish(Action action, ICollection<Exception> exceptions)
-    {
-        try
-        {
-            action();
-        }
-        catch (Exception ex)
-        {
-            exceptions.Add(ex);
-        }
-    }
 }
 
 internal sealed class RegularChartListRequestLease
@@ -3854,23 +3797,6 @@ internal readonly struct NormalLibrarySortCacheGenerationSnapshot
     internal long InstallDestination { get; }
     internal long ReferenceTables { get; }
     internal NormalLibrarySortCacheKey Create(string columnName, ListSortDirection direction, int rowCount) => new(Source, SortKey, Score, ChartInfo, Maintenance, Warning, InstallDestination, ReferenceTables, columnName, direction, rowCount);
-}
-
-internal readonly struct RegularChartListCompletion
-{
-    internal RegularChartListCompletion(long requestId, long endTimestamp, int threadId, MainViewUpdateMode mode, long elapsedMs)
-    {
-        RequestId = requestId;
-        EndTimestamp = endTimestamp;
-        ThreadId = threadId;
-        Mode = mode;
-        ElapsedMs = elapsedMs;
-    }
-    internal long RequestId { get; }
-    internal long EndTimestamp { get; }
-    internal int ThreadId { get; }
-    internal MainViewUpdateMode Mode { get; }
-    internal long ElapsedMs { get; }
 }
 
 internal readonly struct RegularChartListTerminalResult

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Threading;
 using BeMusicSeeker.Models;
@@ -35,6 +36,12 @@ public sealed class MainChartListViewModel : ViewModel
 
     private long rowsCommitGeneration;
 
+    private readonly object presentationMetadataSyncRoot = new();
+
+    private MainChartListCompletion lastCompletion;
+
+    private MainViewUpdateMode? lastAppliedColumnMode;
+
     private MainChartListCellEditContext pendingCellEditContext;
 
     private MainChartListCellEditContext activeCellEditContext;
@@ -48,6 +55,48 @@ public sealed class MainChartListViewModel : ViewModel
     {
         this.dispatchPresentationAction = dispatchPresentationAction
             ?? throw new ArgumentNullException(nameof(dispatchPresentationAction));
+    }
+
+    internal MainChartListCompletion LastCompletion
+    {
+        get
+        {
+            lock (presentationMetadataSyncRoot)
+            {
+                return lastCompletion;
+            }
+        }
+    }
+
+    internal MainViewUpdateMode? LastAppliedColumnMode
+    {
+        get
+        {
+            lock (presentationMetadataSyncRoot)
+            {
+                return lastAppliedColumnMode;
+            }
+        }
+    }
+
+    internal void CommitAppliedColumnMode(MainViewUpdateMode? mode)
+    {
+        if (!mode.HasValue)
+        {
+            return;
+        }
+        lock (presentationMetadataSyncRoot)
+        {
+            lastAppliedColumnMode = mode.Value;
+        }
+    }
+
+    internal void CommitCompletion(MainChartListCompletion completion)
+    {
+        lock (presentationMetadataSyncRoot)
+        {
+            lastCompletion = completion;
+        }
     }
 
     /// <summary>
@@ -345,6 +394,94 @@ public sealed class MainChartListViewModel : ViewModel
     internal MainChartListRowsTransition PrepareRowsTransition(MainChartListRowsApplyRequest request)
     {
         return new MainChartListRowsTransition(this, PrepareRowsApply(request));
+    }
+
+    internal MainChartListPresentationApplyResult ApplyPresentation(
+        MainChartListRowsApplyRequest request,
+        Func<Action, bool> tryCommitPresentation,
+        Action publishRelated)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (tryCommitPresentation == null)
+        {
+            throw new ArgumentNullException(nameof(tryCommitPresentation));
+        }
+        if (publishRelated == null)
+        {
+            throw new ArgumentNullException(nameof(publishRelated));
+        }
+
+        MainChartListRowsTransition transition = PrepareRowsTransition(request);
+        ExceptionDispatchInfo preTransferException = null;
+        Exception commitException = null;
+        bool applied = false;
+        try
+        {
+            applied = tryCommitPresentation(transition.CommitOwnership);
+        }
+        catch (Exception ex)
+        {
+            if (!transition.OwnershipTransferred)
+            {
+                preTransferException = ExceptionDispatchInfo.Capture(ex);
+            }
+            else
+            {
+                commitException = ex;
+                applied = true;
+            }
+        }
+
+        if (!applied)
+        {
+            if (transition.OwnershipTransferred)
+            {
+                commitException = new InvalidOperationException("The main chart-list presentation callback returned false after ownership transfer.");
+                applied = true;
+            }
+            else
+            {
+                transition.Cancel();
+                preTransferException?.Throw();
+                return MainChartListPresentationApplyResult.Stale();
+            }
+        }
+        else if (!transition.OwnershipTransferred)
+        {
+            transition.Cancel();
+            throw new InvalidOperationException("The main chart-list presentation callback returned true without transferring ownership.");
+        }
+
+        var publishExceptions = new List<Exception>();
+        if (commitException != null)
+        {
+            publishExceptions.Add(commitException);
+        }
+        MainChartListRowsApplyResult rowsApply = default;
+        try
+        {
+            rowsApply = transition.Complete();
+        }
+        catch (Exception ex)
+        {
+            publishExceptions.Add(ex);
+        }
+        try
+        {
+            publishRelated();
+        }
+        catch (Exception ex)
+        {
+            publishExceptions.Add(ex);
+        }
+        if (publishExceptions.Count > 0)
+        {
+            throw new MainChartListPresentationPublishException(new AggregateException(publishExceptions));
+        }
+        return MainChartListPresentationApplyResult.Applied(rowsApply);
     }
 
     private MainChartListPreparedRowsApply PrepareRowsApply(MainChartListRowsApplyRequest request)
@@ -1077,4 +1214,70 @@ internal readonly struct MainChartListRowsApplyResult
     internal long ColumnStageMs { get; }
 
     internal bool ColumnSettingReuse { get; }
+}
+
+internal readonly struct MainChartListCompletion
+{
+    internal MainChartListCompletion(long requestId, long endTimestamp, int threadId, MainViewUpdateMode mode, long elapsedMs)
+    {
+        RequestId = requestId;
+        EndTimestamp = endTimestamp;
+        ThreadId = threadId;
+        Mode = mode;
+        ElapsedMs = elapsedMs;
+    }
+
+    internal long RequestId { get; }
+
+    internal long EndTimestamp { get; }
+
+    internal int ThreadId { get; }
+
+    internal MainViewUpdateMode Mode { get; }
+
+    internal long ElapsedMs { get; }
+}
+
+internal readonly struct MainChartListPresentationApplyResult
+{
+    private MainChartListPresentationApplyResult(bool wasApplied, MainChartListRowsApplyResult rowsApply)
+    {
+        WasApplied = wasApplied;
+        RowsApply = rowsApply;
+    }
+
+    internal bool WasApplied { get; }
+
+    internal MainChartListRowsApplyResult RowsApply { get; }
+
+    internal static MainChartListPresentationApplyResult Stale() => new(false, default);
+
+    internal static MainChartListPresentationApplyResult Applied(MainChartListRowsApplyResult rowsApply) => new(true, rowsApply);
+}
+
+internal sealed class MainChartListPresentationPublishException : Exception
+{
+    internal MainChartListPresentationPublishException()
+    {
+    }
+
+    internal MainChartListPresentationPublishException(string message)
+        : base(message)
+    {
+    }
+
+    internal MainChartListPresentationPublishException(Exception innerException)
+        : base("Main chart-list presentation was committed but publishing failed.", innerException)
+    {
+    }
+
+    internal MainChartListPresentationPublishException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
+    private MainChartListPresentationPublishException(SerializationInfo info, StreamingContext context)
+        : base(info, context)
+    {
+    }
 }

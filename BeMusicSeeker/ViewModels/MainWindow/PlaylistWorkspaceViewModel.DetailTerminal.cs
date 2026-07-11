@@ -272,7 +272,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                                 request.ColumnSelection.PlaylistColumnSettingsVisibility,
                                 request.ColumnSelection.PlaylistSummaryColumnsSettings);
                             result.AppliedColumnMode = request.ColumnSelection.AppliedMode;
-                            columnOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                            detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
                         });
                 }
                 catch (Exception ex)

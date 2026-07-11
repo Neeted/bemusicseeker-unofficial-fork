@@ -204,8 +204,8 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(playlistTerminalApplySource, "CommitColumnPresentationWithoutNotification(");
         StringAssert.Contains(playlistTerminalApplySource, "PublishColumnPresentation(result.ColumnPresentationCommit)");
         StringAssert.Contains(playlistTerminalApplySource, "result.AppliedColumnMode = request.ColumnSelection.AppliedMode;");
-        StringAssert.Contains(playlistTerminalApplySource, "columnOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);");
-        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("commitExternalColumnMode", StringComparison.Ordinal));
+        StringAssert.Contains(playlistTerminalApplySource, "detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);");
+        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("CommitExternalColumnMode", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("MainChartListCoordinatedPublishException", StringComparison.Ordinal));
         Assert.IsFalse(rootSource.Contains("PlaylistDetailTerminalTransition"));
         StringAssert.Contains(rootSource, "request.RequestVersion != playlistDetailBuildState.RequestVersion");
@@ -383,7 +383,7 @@ public sealed class PlaylistViewPipelineTests
             if (e.PropertyName == nameof(MainChartListViewModel.Rows))
             {
                 tableNotifications++;
-                columnModeAtRowsNotification = owner.LastAppliedColumnMode;
+                columnModeAtRowsNotification = table.LastAppliedColumnMode;
                 throw new InvalidOperationException("table publish failed");
             }
         };
@@ -396,7 +396,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsNotNull(exception.TerminalCommitResult);
         Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, exception.TerminalCommitResult.AppliedColumnMode);
         Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, columnModeAtRowsNotification);
-        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, owner.LastAppliedColumnMode);
+        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, table.LastAppliedColumnMode);
         Assert.AreSame(candidateRows, table.Rows);
         Assert.AreEqual(1, oldRow.DisposeCount);
         Assert.IsTrue(tableNotifications > 0);
@@ -435,7 +435,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(exception.OwnershipTransferred);
         Assert.IsNotNull(exception.TerminalCommitResult);
         Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, exception.TerminalCommitResult.AppliedColumnMode);
-        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, owner.LastAppliedColumnMode);
+        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, table.LastAppliedColumnMode);
         Assert.AreSame(candidateRows, table.Rows);
         Assert.AreEqual(1, oldRow.DisposeCount);
         Assert.AreEqual(1, laterRow.DisposeCount);

@@ -233,8 +233,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("RaisePropertyChanged(\"PlayHistorySummaryDiagnosticText\")"));
         StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.BuildReadView(");
         StringAssert.Contains(mainChartListCode, "PrepareRowsTransition(");
+        StringAssert.Contains(mainChartListCode, "ApplyPresentation(");
         Assert.IsFalse(mainChartListCode.Contains("ApplyCoordinatedRows("));
-        Assert.IsFalse(mainChartListCode.Contains("Func<Action, bool>"));
     }
 
     [TestMethod]

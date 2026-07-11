@@ -79,7 +79,7 @@ public sealed class RegularChartListOwnerTests
         Assert.AreEqual(0, viewState.View.Rows.Count);
         Assert.IsNull(buildState.PendingRequest);
         Assert.IsNull(buildState.CurrentBuildRequest);
-        Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, owner.LastAppliedColumnMode);
+        Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, table.LastAppliedColumnMode);
         Assert.AreEqual(2, sourceClearVersionAtRowsNotification);
         Assert.AreEqual(false, detailActiveAtRowsNotification);
         Assert.AreEqual(true, asyncBindingAtRowsNotification);
@@ -672,7 +672,7 @@ public sealed class RegularChartListOwnerTests
         Assert.IsTrue(nestedTerminal.WasCommitted);
         Assert.IsFalse(firstTerminal.WasCommitted);
         Assert.AreSame(nestedBuild.Sort.RowsView, table.Rows);
-        Assert.AreEqual(nestedRequestId, owner.LastCompletion.RequestId);
+        Assert.AreEqual(nestedRequestId, table.LastCompletion.RequestId);
         Assert.IsTrue(nestedRequestId > firstLease.RequestId);
     }
 
@@ -792,7 +792,7 @@ public sealed class RegularChartListOwnerTests
         Assert.IsFalse(stale.WasCommitted);
         Assert.AreEqual(0, stalePrepareCount);
         Assert.AreSame(currentRows, table.Rows);
-        Assert.AreEqual(currentLease.RequestId, owner.LastCompletion.RequestId);
+        Assert.AreEqual(currentLease.RequestId, table.LastCompletion.RequestId);
     }
 
     [TestMethod]
@@ -946,8 +946,8 @@ public sealed class RegularChartListOwnerTests
         {
             if (e.PropertyName == nameof(MainChartListViewModel.Rows))
             {
-                completionAtNotification = owner.LastCompletion.RequestId;
-                columnModeAtNotification = owner.LastAppliedColumnMode;
+                completionAtNotification = table.LastCompletion.RequestId;
+                columnModeAtNotification = table.LastAppliedColumnMode;
             }
         };
 
@@ -988,7 +988,7 @@ public sealed class RegularChartListOwnerTests
         Assert.IsTrue(owner.TryCommit(outerLease, CreateTerminalInput(outerBuild)).WasCommitted);
 
         Assert.AreSame(nestedBuild.Sort.RowsView, table.Rows);
-        Assert.AreEqual(nestedRequestId, owner.LastCompletion.RequestId);
+        Assert.AreEqual(nestedRequestId, table.LastCompletion.RequestId);
         Assert.AreEqual(0, summaryNotifications);
     }
 

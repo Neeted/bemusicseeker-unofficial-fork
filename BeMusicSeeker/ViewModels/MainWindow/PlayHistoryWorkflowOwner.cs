@@ -595,7 +595,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
                         request.ColumnSelection.PlaylistSummaryColumnsSettings);
                     if (request.ColumnSelection.AppliedMode.HasValue)
                     {
-                        regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                        mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
                     }
                     regularChartListOwner.ResetDerivedCaches();
                     PruneSummaryFilters(request.ViewState.Provider);

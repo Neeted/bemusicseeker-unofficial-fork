@@ -4681,7 +4681,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            RegularChartListCompletion regular = regularChartListOwner.LastCompletion;
+            MainChartListCompletion regular = MainChartList.LastCompletion;
             return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
                 ? regular.RequestId
                 : Interlocked.Read(ref lastMainViewBuildRequestId);
@@ -4691,7 +4691,7 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// 最新の main_view_build 完了時刻 (Stopwatch タイムスタンプ) を返します。
     /// </summary>
-    public long LastMainViewBuildEndTimestamp => Math.Max(Interlocked.Read(ref lastMainViewBuildEndTimestamp), regularChartListOwner.LastCompletion.EndTimestamp);
+    public long LastMainViewBuildEndTimestamp => Math.Max(Interlocked.Read(ref lastMainViewBuildEndTimestamp), MainChartList.LastCompletion.EndTimestamp);
 
     /// <summary>
     /// 最新の main_view_build を実行したスレッドIDを返します。
@@ -4700,7 +4700,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            RegularChartListCompletion regular = regularChartListOwner.LastCompletion;
+            MainChartListCompletion regular = MainChartList.LastCompletion;
             return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
                 ? regular.ThreadId
                 : Volatile.Read(ref lastMainViewBuildThreadId);
@@ -4714,7 +4714,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            RegularChartListCompletion regular = regularChartListOwner.LastCompletion;
+            MainChartListCompletion regular = MainChartList.LastCompletion;
             return regular.EndTimestamp >= Interlocked.Read(ref lastMainViewBuildEndTimestamp)
                 ? (int)regular.Mode
                 : Volatile.Read(ref lastMainViewBuildMode);
