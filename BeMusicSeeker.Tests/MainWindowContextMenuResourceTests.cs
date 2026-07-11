@@ -250,6 +250,7 @@ public sealed class MainWindowContextMenuResourceTests
         string playlistTablesCollectionHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylistBMSTablesCollection.RegisterHandler", "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion");
         string playlistEntriesHydrationHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion", "listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTables");
         string state = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
+        string workflowOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
 
         StringAssert.Contains(applyPlayHistoryView, "requestedMode == MainViewUpdateMode.KeywordFilterUpdated");
         StringAssert.Contains(applyPlayHistoryView, "TryApplyPlayHistoryPresentationOnly");
@@ -272,9 +273,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false)");
         StringAssert.Contains(refreshTargets, "ApplyPlayHistoryDisplayTargetSelection(");
         StringAssert.Contains(applyDisplayTargetSelection, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);");
-        StringAssert.Contains(applyDisplayTargetSelection, "playHistoryPresentationState.CurrentDisplayTargetIdentity = nextIdentity;");
+        StringAssert.Contains(applyDisplayTargetSelection, "playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(nextIdentity);");
         StringAssert.Contains(queueDisplayTarget, "new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision, targetRevision)");
-        StringAssert.Contains(queueDisplayTarget, "Interlocked.CompareExchange(ref playHistoryDisplayTargetQueuedRevision");
+        StringAssert.Contains(queueDisplayTarget, "playHistoryWorkflowOwner.CompleteDisplayTargetRefresh(request.DisplayTargetRevision)");
         StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshRequestedRevision");
         StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshCompletedRevision");
         StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshScheduled");
@@ -288,11 +289,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(playlistTablesCollectionHandler.Contains("RefreshPlayHistoryDisplayTargets();"));
         StringAssert.Contains(playlistEntriesHydrationHandler, "if (SelectedPlayHistoryDisplayTarget.UsesProjection)");
         StringAssert.Contains(playlistEntriesHydrationHandler, "QueuePlayHistoryDisplayTargetRefresh();");
-        StringAssert.Contains(viewModelCode, "playHistoryKeywordFilterRevision");
-        StringAssert.Contains(viewModelCode, "playHistoryKeywordFilterQueuedRevision");
-        StringAssert.Contains(viewModelCode, "playHistoryDisplayTargetRevision");
-        StringAssert.Contains(viewModelCode, "playHistoryDisplayTargetQueuedRevision");
-        StringAssert.Contains(viewModelCode, "Interlocked.CompareExchange(ref playHistoryKeywordFilterQueuedRevision");
+        Assert.IsFalse(viewModelCode.Contains("playHistoryKeywordFilterQueuedRevision"));
+        Assert.IsFalse(viewModelCode.Contains("playHistoryDisplayTargetQueuedRevision"));
+        StringAssert.Contains(workflowOwner, "internal long KeywordRevision");
+        StringAssert.Contains(workflowOwner, "internal long DisplayTargetRevision");
+        StringAssert.Contains(workflowOwner, "Interlocked.CompareExchange(ref keywordQueuedRevision");
+        StringAssert.Contains(workflowOwner, "Interlocked.CompareExchange(ref displayTargetQueuedRevision");
         StringAssert.Contains(state, "AllProjectedRows");
         StringAssert.Contains(state, "FilterSourceRows");
         StringAssert.Contains(state, "KeywordFilterIdentity");

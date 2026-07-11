@@ -648,19 +648,11 @@ public partial class MainWindowViewModel : ViewModel
 
     private ref PlayHistoryViewState playHistoryViewState => ref playHistoryPresentationState.CurrentView;
 
-    private ref long playHistoryKeywordFilterRevision => ref playHistoryPresentationState.KeywordRevision;
-
-    private long playHistoryDisplayTargetRevision;
-
     private ref IReadOnlyList<PlayHistoryPeriodTreeItem> _PlayHistoryArchivePeriodTree => ref playHistoryPresentationState.ArchivePeriodTree;
 
     private ref IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards => ref playHistoryPresentationState.SummaryCards;
 
     private ref string _PlayHistorySummaryDiagnosticText => ref playHistoryPresentationState.DiagnosticText;
-
-    private long playHistoryKeywordFilterQueuedRevision;
-
-    private int playHistoryKeywordFilterActiveCount;
 
     private cSortParameters _SortParameters;
 
@@ -801,10 +793,6 @@ public partial class MainWindowViewModel : ViewModel
     private bool _IsKeywordSearchSuggestionPopupOpen;
 
     private string _KeywordSearchSuggestionHeaderText = string.Empty;
-
-    private long playHistoryDisplayTargetQueuedRevision;
-
-    private int playHistoryDisplayTargetActiveCount;
 
     private long playHistoryDisplayTargetsRefreshRequestedRevision;
 
@@ -5913,8 +5901,7 @@ public partial class MainWindowViewModel : ViewModel
                     regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
                     if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
                     {
-                        Interlocked.Increment(ref playHistoryKeywordFilterRevision);
-                        playHistoryPresentationState.CurrentKeywordIdentity = NormalizePlaylistKeywordFilter(_KeywordFilter);
+                        playHistoryWorkflowOwner.UpdateKeywordIdentity(NormalizePlaylistKeywordFilter(_KeywordFilter), advanceRevision: true);
                     }
                 }
                 RaisePropertyChanged("KeywordFilter");
@@ -6201,9 +6188,7 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     _SelectedPlayHistoryDisplayTarget = next;
                 }
-                Interlocked.Increment(ref playHistoryDisplayTargetRevision);
-                playHistoryPresentationState.DisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
-                playHistoryPresentationState.CurrentDisplayTargetIdentity = nextIdentity;
+                playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(nextIdentity);
             }
         }
 
@@ -7309,8 +7294,7 @@ public partial class MainWindowViewModel : ViewModel
     private void CancelPlayHistoryRequestsForShutdown()
     {
         playHistoryWorkflowOwner.Deactivate();
-        Interlocked.Exchange(ref playHistoryKeywordFilterQueuedRevision, 0L);
-        Interlocked.Exchange(ref playHistoryDisplayTargetQueuedRevision, 0L);
+        playHistoryWorkflowOwner.ClearQueuedRefreshes();
         Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshRequestedRevision, Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision));
         Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshSelectionQueued, 0);
     }
@@ -7423,10 +7407,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool IsPlayHistoryRefreshIdle()
     {
-        return Interlocked.Read(ref playHistoryKeywordFilterQueuedRevision) == 0L
-            && Volatile.Read(ref playHistoryKeywordFilterActiveCount) == 0
-            && Interlocked.Read(ref playHistoryDisplayTargetQueuedRevision) == 0L
-            && Volatile.Read(ref playHistoryDisplayTargetActiveCount) == 0
+        return playHistoryWorkflowOwner.AreRefreshQueuesIdle
             && Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision) <= Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision)
             && Interlocked.Read(ref playHistoryDisplayTargetsRefreshScheduled) == 0L
             && Volatile.Read(ref playHistoryDisplayTargetsRefreshActiveCount) == 0;
@@ -7613,10 +7594,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private string DescribePlayHistoryRefreshWaitState()
     {
-        return "keywordQueuedRevision=" + Interlocked.Read(ref playHistoryKeywordFilterQueuedRevision)
-            + " keywordActiveCount=" + Volatile.Read(ref playHistoryKeywordFilterActiveCount)
-            + " displayTargetQueuedRevision=" + Interlocked.Read(ref playHistoryDisplayTargetQueuedRevision)
-            + " displayTargetActiveCount=" + Volatile.Read(ref playHistoryDisplayTargetActiveCount)
+        return playHistoryWorkflowOwner.DescribeRefreshQueues()
             + " displayTargetsRequestedRevision=" + Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision)
             + " displayTargetsCompletedRevision=" + Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision)
             + " displayTargetsScheduled=" + Interlocked.Read(ref playHistoryDisplayTargetsRefreshScheduled)
@@ -10443,7 +10421,7 @@ public partial class MainWindowViewModel : ViewModel
                 periodRequest,
                 NormalizePlaylistKeywordFilter(KeywordFilter),
                 SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty,
-                Interlocked.Read(ref playHistoryDisplayTargetRevision),
+                playHistoryWorkflowOwner.DisplayTargetRevision,
                 activeRequest =>
                 {
                     treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
@@ -10451,14 +10429,14 @@ public partial class MainWindowViewModel : ViewModel
                 });
         if (requestedMode == MainViewUpdateMode.KeywordFilterUpdated
             && viewRequest.KeywordFilterRevision > 0
-            && viewRequest.KeywordFilterRevision != Interlocked.Read(ref playHistoryKeywordFilterRevision))
+            && viewRequest.KeywordFilterRevision != playHistoryWorkflowOwner.KeywordRevision)
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
             return;
         }
         if (requestedMode == MainViewUpdateMode.KeywordFilterUpdated
             && viewRequest.DisplayTargetRevision > 0
-            && viewRequest.DisplayTargetRevision != Interlocked.Read(ref playHistoryDisplayTargetRevision))
+            && viewRequest.DisplayTargetRevision != playHistoryWorkflowOwner.DisplayTargetRevision)
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
             return;
@@ -10677,7 +10655,7 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistoryDisplayTargetItem displayTarget = SelectedPlayHistoryDisplayTarget;
         long displayTargetRevision = viewRequest.DisplayTargetRevision > 0
             ? viewRequest.DisplayTargetRevision
-            : Interlocked.Read(ref playHistoryDisplayTargetRevision);
+            : playHistoryWorkflowOwner.DisplayTargetRevision;
         PrunePlayHistorySummaryCardFilters(activePlayHistoryProvider);
         IReadOnlyList<PlayHistoryRow> targetRows;
         try
@@ -10694,7 +10672,7 @@ public partial class MainWindowViewModel : ViewModel
         string keywordFilter = KeywordFilter;
         long keywordRevision = viewRequest.KeywordFilterRevision > 0
             ? viewRequest.KeywordFilterRevision
-            : Interlocked.Read(ref playHistoryKeywordFilterRevision);
+            : playHistoryWorkflowOwner.KeywordRevision;
         try
         {
             filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, SnapshotSelectedPlayHistorySummaryFilterTexts(), requestId, keywordRevision, cancellationToken, out keywordMs);
@@ -10880,7 +10858,7 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     throw new OperationCanceledException(cancellationToken);
                 }
-                if (Interlocked.Read(ref playHistoryKeywordFilterRevision) != keywordRevision)
+                if (playHistoryWorkflowOwner.KeywordRevision != keywordRevision)
                 {
                     throw new OperationCanceledException(cancellationToken);
                 }
@@ -10939,7 +10917,7 @@ public partial class MainWindowViewModel : ViewModel
             table => tables?.EnsurePlaylistEntriesLoaded(table, "PlayHistoryDisplayTarget"),
             cancellationToken,
             () => IsCurrentPlayHistoryViewRequest(requestId)
-                && displayTargetRevision == Interlocked.Read(ref playHistoryDisplayTargetRevision));
+                && displayTargetRevision == playHistoryWorkflowOwner.DisplayTargetRevision);
         var filteredRows = new List<PlayHistoryRow>(safeRows.Count);
         for (int indexInRows = 0; indexInRows < safeRows.Count; indexInRows++)
         {
@@ -10961,7 +10939,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (!IsCurrentPlayHistoryViewRequest(requestId)
-            || displayTargetRevision != Interlocked.Read(ref playHistoryDisplayTargetRevision))
+            || displayTargetRevision != playHistoryWorkflowOwner.DisplayTargetRevision)
         {
             throw new OperationCanceledException(cancellationToken);
         }
@@ -11039,11 +11017,11 @@ public partial class MainWindowViewModel : ViewModel
         string keywordFilter = KeywordFilter;
         long keywordRevision = viewRequest.KeywordFilterRevision > 0
             ? viewRequest.KeywordFilterRevision
-            : Interlocked.Read(ref playHistoryKeywordFilterRevision);
+            : playHistoryWorkflowOwner.KeywordRevision;
         PlayHistoryDisplayTargetItem displayTarget = SelectedPlayHistoryDisplayTarget;
         long displayTargetRevision = viewRequest.DisplayTargetRevision > 0
             ? viewRequest.DisplayTargetRevision
-            : Interlocked.Read(ref playHistoryDisplayTargetRevision);
+            : playHistoryWorkflowOwner.DisplayTargetRevision;
         PrunePlayHistorySummaryCardFilters(state.Provider);
         IReadOnlyList<PlayHistoryRow> targetRows = state.FilterSourceRows;
         IReadOnlyList<PlayHistoryRow> filteredRows = state.ProjectedRows;
@@ -11246,9 +11224,9 @@ public partial class MainWindowViewModel : ViewModel
                     state.SummaryOverride);
             }
             string currentKeywordFilter = KeywordFilter;
-            long currentKeywordRevision = Interlocked.Read(ref playHistoryKeywordFilterRevision);
+            long currentKeywordRevision = playHistoryWorkflowOwner.KeywordRevision;
             PlayHistoryDisplayTargetItem currentDisplayTarget = SelectedPlayHistoryDisplayTarget;
-            long currentDisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
+            long currentDisplayTargetRevision = playHistoryWorkflowOwner.DisplayTargetRevision;
             if (currentDisplayTargetRevision != state.DisplayTargetRevision
                 || !string.Equals(currentDisplayTarget?.Identity ?? string.Empty, state.DisplayTargetIdentity, StringComparison.Ordinal))
             {
@@ -11615,7 +11593,7 @@ public partial class MainWindowViewModel : ViewModel
             request ?? PlayHistoryPeriodRequest.All(),
             NormalizePlaylistKeywordFilter(KeywordFilter),
             SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty,
-            Interlocked.Read(ref playHistoryDisplayTargetRevision),
+            playHistoryWorkflowOwner.DisplayTargetRevision,
             requestToActivate =>
             {
                 treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
@@ -11650,22 +11628,20 @@ public partial class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            long keywordRevision = advanceRevision
-                ? Interlocked.Increment(ref playHistoryKeywordFilterRevision)
-                : Interlocked.Read(ref playHistoryKeywordFilterRevision);
-            playHistoryPresentationState.CurrentKeywordIdentity = NormalizePlaylistKeywordFilter(KeywordFilter);
-            if (Interlocked.Read(ref playHistoryKeywordFilterQueuedRevision) == keywordRevision)
+            long keywordRevision = playHistoryWorkflowOwner.UpdateKeywordIdentity(
+                NormalizePlaylistKeywordFilter(KeywordFilter),
+                advanceRevision);
+            if (!playHistoryWorkflowOwner.TryQueueKeywordRevision(keywordRevision))
             {
                 return;
             }
-            Interlocked.Exchange(ref playHistoryKeywordFilterQueuedRevision, keywordRevision);
             request = new PlayHistoryViewRequest(
                 request.PeriodRequest,
                 request.RequestId,
                 keywordRevision,
-                Interlocked.Read(ref playHistoryDisplayTargetRevision));
+                playHistoryWorkflowOwner.DisplayTargetRevision);
         }
-        Interlocked.Increment(ref playHistoryKeywordFilterActiveCount);
+        playHistoryWorkflowOwner.BeginKeywordRefresh();
         Task.Run(() =>
         {
             try
@@ -11674,8 +11650,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             finally
             {
-                Interlocked.CompareExchange(ref playHistoryKeywordFilterQueuedRevision, 0L, request.KeywordFilterRevision);
-                Interlocked.Decrement(ref playHistoryKeywordFilterActiveCount);
+                playHistoryWorkflowOwner.CompleteKeywordRefresh(request.KeywordFilterRevision);
             }
         })
             .Logging("playHistoryKeywordFilterUpdated");
@@ -11694,9 +11669,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 if (advanceRevision)
                 {
-                    Interlocked.Increment(ref playHistoryDisplayTargetRevision);
-                    playHistoryPresentationState.DisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
-                    playHistoryPresentationState.CurrentDisplayTargetIdentity = SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty;
+                    playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty);
                 }
                 return;
             }
@@ -11705,26 +11678,22 @@ public partial class MainWindowViewModel : ViewModel
             {
                 if (advanceRevision)
                 {
-                    Interlocked.Increment(ref playHistoryDisplayTargetRevision);
-                    playHistoryPresentationState.DisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
-                    playHistoryPresentationState.CurrentDisplayTargetIdentity = SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty;
+                    playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty);
                 }
                 return;
             }
             long targetRevision = advanceRevision
-                ? Interlocked.Increment(ref playHistoryDisplayTargetRevision)
-                : Interlocked.Read(ref playHistoryDisplayTargetRevision);
-            playHistoryPresentationState.CurrentDisplayTargetIdentity = SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty;
-            playHistoryPresentationState.DisplayTargetRevision = targetRevision;
-            if (Interlocked.Read(ref playHistoryDisplayTargetQueuedRevision) == targetRevision)
+                ? playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty)
+                : playHistoryWorkflowOwner.DisplayTargetRevision;
+            playHistoryWorkflowOwner.SetDisplayTargetIdentity(SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty);
+            if (!playHistoryWorkflowOwner.TryQueueDisplayTargetRevision(targetRevision))
             {
                 return;
             }
-            Interlocked.Exchange(ref playHistoryDisplayTargetQueuedRevision, targetRevision);
-            long keywordRevision = Interlocked.Read(ref playHistoryKeywordFilterRevision);
+            long keywordRevision = playHistoryWorkflowOwner.KeywordRevision;
             request = new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision, targetRevision);
         }
-        Interlocked.Increment(ref playHistoryDisplayTargetActiveCount);
+        playHistoryWorkflowOwner.BeginDisplayTargetRefresh();
         Task.Run(() =>
         {
             try
@@ -11733,8 +11702,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             finally
             {
-                Interlocked.CompareExchange(ref playHistoryDisplayTargetQueuedRevision, 0L, request.DisplayTargetRevision);
-                Interlocked.Decrement(ref playHistoryDisplayTargetActiveCount);
+                playHistoryWorkflowOwner.CompleteDisplayTargetRefresh(request.DisplayTargetRevision);
             }
         })
             .Logging("playHistoryDisplayTargetUpdated");

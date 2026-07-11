@@ -2618,4 +2618,45 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(nextToken.IsCancellationRequested);
         Assert.IsNull(owner.SnapshotActiveRequest());
     }
+
+    [TestMethod]
+    public void WorkflowOwner_OwnsRefreshRevisionCoalescingAndActivity()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        long keywordRevision = owner.UpdateKeywordIdentity("keyword", advanceRevision: true);
+        long displayRevision = owner.AdvanceDisplayTargetRevision("target");
+
+        Assert.IsTrue(owner.TryQueueKeywordRevision(keywordRevision));
+        Assert.IsFalse(owner.TryQueueKeywordRevision(keywordRevision));
+        Assert.IsTrue(owner.TryQueueDisplayTargetRevision(displayRevision));
+        Assert.IsFalse(owner.TryQueueDisplayTargetRevision(displayRevision));
+        owner.BeginKeywordRefresh();
+        owner.BeginDisplayTargetRefresh();
+        Assert.IsFalse(owner.AreRefreshQueuesIdle);
+
+        owner.ClearQueuedRefreshes();
+        Assert.IsFalse(owner.AreRefreshQueuesIdle, "Active workers keep the owner non-idle after queued revisions are cleared.");
+        owner.CompleteKeywordRefresh(keywordRevision);
+        owner.CompleteDisplayTargetRefresh(displayRevision);
+
+        Assert.IsTrue(owner.AreRefreshQueuesIdle);
+        Assert.AreEqual(keywordRevision, owner.KeywordRevision);
+        Assert.AreEqual(displayRevision, owner.DisplayTargetRevision);
+        Assert.AreEqual("target", owner.PresentationState.CurrentDisplayTargetIdentity);
+
+        int keywordReservations = 0;
+        long concurrentRevision = owner.UpdateKeywordIdentity("concurrent", advanceRevision: true);
+        System.Threading.Tasks.Parallel.For(0, 32, _ =>
+        {
+            if (owner.TryQueueKeywordRevision(concurrentRevision))
+            {
+                Interlocked.Increment(ref keywordReservations);
+            }
+        });
+        Assert.AreEqual(1, keywordReservations);
+        owner.BeginKeywordRefresh();
+        owner.CompleteKeywordRefresh(concurrentRevision);
+        Assert.ThrowsException<InvalidOperationException>(() => owner.CompleteKeywordRefresh(concurrentRevision));
+        Assert.IsTrue(owner.AreRefreshQueuesIdle);
+    }
 }

@@ -448,7 +448,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
                 && item.TargetSet.Name == "Saved");
             viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
-            long revisionBeforeChange = GetViewModelField<long>(viewModel, "playHistoryDisplayTargetRevision");
+            PlayHistoryWorkflowOwner owner = GetViewModelField<PlayHistoryWorkflowOwner>(viewModel, "playHistoryWorkflowOwner");
+            long revisionBeforeChange = owner.DisplayTargetRevision;
             Settings.Default.PlayHistoryDisplayTargetSetsJson = PlayHistoryDisplayTargetSetStore.Serialize(
             [
                 CreateTargetSet("Saved", playlistId: 202)
@@ -459,7 +460,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.AreEqual(target.Identity, viewModel.SelectedPlayHistoryDisplayTarget.Identity);
             Assert.AreEqual(202, viewModel.SelectedPlayHistoryDisplayTarget.TargetSet.Targets.Single().PlaylistId);
             Assert.IsTrue(
-                GetViewModelField<long>(viewModel, "playHistoryDisplayTargetRevision") > revisionBeforeChange,
+                owner.DisplayTargetRevision > revisionBeforeChange,
                 "The active play-history filter must be re-applied when the selected target set keeps the same identity but changes content.");
         }
         finally

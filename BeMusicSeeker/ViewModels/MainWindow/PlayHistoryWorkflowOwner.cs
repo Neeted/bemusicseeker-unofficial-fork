@@ -6,6 +6,11 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class PlayHistoryWorkflowOwner
 {
+    private long keywordQueuedRevision;
+    private int keywordActiveCount;
+    private long displayTargetQueuedRevision;
+    private int displayTargetActiveCount;
+
     internal PlayHistoryPresentationState PresentationState { get; } = new();
 
     internal PlayHistoryReadCache ReadCache { get; } = new();
@@ -88,6 +93,123 @@ internal sealed class PlayHistoryWorkflowOwner
             lock (PresentationState.SyncRoot)
             {
                 return PresentationState.RequestGeneration;
+            }
+        }
+    }
+
+    internal long KeywordRevision => Interlocked.Read(ref PresentationState.KeywordRevision);
+
+    internal long DisplayTargetRevision => Interlocked.Read(ref PresentationState.DisplayTargetRevision);
+
+    internal long UpdateKeywordIdentity(string identity, bool advanceRevision)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            PresentationState.CurrentKeywordIdentity = identity ?? string.Empty;
+            return advanceRevision
+                ? Interlocked.Increment(ref PresentationState.KeywordRevision)
+                : Interlocked.Read(ref PresentationState.KeywordRevision);
+        }
+    }
+
+    internal long AdvanceDisplayTargetRevision(string identity)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            long revision = Interlocked.Increment(ref PresentationState.DisplayTargetRevision);
+            PresentationState.CurrentDisplayTargetIdentity = identity ?? string.Empty;
+            return revision;
+        }
+    }
+
+    internal void SetDisplayTargetIdentity(string identity)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            PresentationState.CurrentDisplayTargetIdentity = identity ?? string.Empty;
+        }
+    }
+
+    internal bool TryQueueKeywordRevision(long revision)
+    {
+        return TryReserveRevision(ref keywordQueuedRevision, revision);
+    }
+
+    internal bool TryQueueDisplayTargetRevision(long revision)
+    {
+        return TryReserveRevision(ref displayTargetQueuedRevision, revision);
+    }
+
+    internal void BeginKeywordRefresh()
+    {
+        Interlocked.Increment(ref keywordActiveCount);
+    }
+
+    internal void CompleteKeywordRefresh(long revision)
+    {
+        DecrementActiveCount(ref keywordActiveCount, "keyword");
+        Interlocked.CompareExchange(ref keywordQueuedRevision, 0L, revision);
+    }
+
+    internal void BeginDisplayTargetRefresh()
+    {
+        Interlocked.Increment(ref displayTargetActiveCount);
+    }
+
+    internal void CompleteDisplayTargetRefresh(long revision)
+    {
+        DecrementActiveCount(ref displayTargetActiveCount, "display-target");
+        Interlocked.CompareExchange(ref displayTargetQueuedRevision, 0L, revision);
+    }
+
+    internal void ClearQueuedRefreshes()
+    {
+        Interlocked.Exchange(ref keywordQueuedRevision, 0L);
+        Interlocked.Exchange(ref displayTargetQueuedRevision, 0L);
+    }
+
+    internal bool AreRefreshQueuesIdle =>
+        Interlocked.Read(ref keywordQueuedRevision) == 0L
+        && Volatile.Read(ref keywordActiveCount) == 0
+        && Interlocked.Read(ref displayTargetQueuedRevision) == 0L
+        && Volatile.Read(ref displayTargetActiveCount) == 0;
+
+    internal string DescribeRefreshQueues()
+    {
+        return "keywordQueuedRevision=" + Interlocked.Read(ref keywordQueuedRevision)
+            + " keywordActiveCount=" + Volatile.Read(ref keywordActiveCount)
+            + " displayTargetQueuedRevision=" + Interlocked.Read(ref displayTargetQueuedRevision)
+            + " displayTargetActiveCount=" + Volatile.Read(ref displayTargetActiveCount);
+    }
+
+    private static bool TryReserveRevision(ref long queuedRevision, long revision)
+    {
+        while (true)
+        {
+            long current = Interlocked.Read(ref queuedRevision);
+            if (current >= revision)
+            {
+                return false;
+            }
+            if (Interlocked.CompareExchange(ref queuedRevision, revision, current) == current)
+            {
+                return true;
+            }
+        }
+    }
+
+    private static void DecrementActiveCount(ref int activeCount, string queueName)
+    {
+        while (true)
+        {
+            int current = Volatile.Read(ref activeCount);
+            if (current <= 0)
+            {
+                throw new InvalidOperationException("The " + queueName + " refresh queue was completed without an active worker.");
+            }
+            if (Interlocked.CompareExchange(ref activeCount, current - 1, current) == current)
+            {
+                return;
             }
         }
     }
