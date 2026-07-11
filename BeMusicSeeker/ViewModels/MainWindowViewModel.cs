@@ -1410,19 +1410,9 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="filterType">playlist filter 種別。</param>
     /// <returns>列設定に使う MainViewUpdateMode。</returns>
-    private static MainViewUpdateMode ResolvePlaylistColumnSettingMode(PlaylistDetailFilter filterType)
+    internal static MainViewUpdateMode ResolvePlaylistColumnSettingMode(PlaylistDetailFilter filterType)
     {
         return (filterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected) ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected : MainViewUpdateMode.PlaylistFilterSelected;
-    }
-
-    /// <summary>
-    /// playlist 列設定モード解決をテストします。
-    /// </summary>
-    /// <param name="filterType">playlist filter 種別。</param>
-    /// <returns>解決された列設定モード。</returns>
-    internal static int ResolvePlaylistColumnSettingModeForTest(int filterType)
-    {
-        return (int)ResolvePlaylistColumnSettingMode((PlaylistDetailFilter)filterType);
     }
 
     /// <summary>

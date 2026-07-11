@@ -4125,11 +4125,11 @@ public sealed class PlaylistViewPipelineTests
     public void ResolvePlaylistColumnSettingMode_ReturnsPlaylistViewModesForBothPlaylistFilters()
     {
         Assert.AreEqual(
-            1,
-            MainWindowViewModel.ResolvePlaylistColumnSettingModeForTest((int)PlaylistDetailFilter.PlaylistFilter));
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainWindowViewModel.ResolvePlaylistColumnSettingMode(PlaylistDetailFilter.PlaylistFilter));
         Assert.AreEqual(
-            2,
-            MainWindowViewModel.ResolvePlaylistColumnSettingModeForTest((int)PlaylistDetailFilter.PlaylistNotOwnedFilterSelected));
+            MainViewUpdateMode.PlaylistNotOwnedFilterSelected,
+            MainWindowViewModel.ResolvePlaylistColumnSettingMode(PlaylistDetailFilter.PlaylistNotOwnedFilterSelected));
     }
 
     private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null, string? sha256 = null)
