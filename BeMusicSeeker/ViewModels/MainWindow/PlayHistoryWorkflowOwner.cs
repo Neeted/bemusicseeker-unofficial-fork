@@ -584,10 +584,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
                 () =>
                 {
                     result.PlaylistSourceClear = playlistDetailBuildState.CommitSourceClear(playlistDetailViewState);
-                    result.BindingMode = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
-                    result.ColumnPresentation = playlistWorkspace.CommitColumnPresentationWithoutNotification(
-                        request.ColumnSelection.PlaylistColumnSettingsVisibility,
-                        request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                    result.MainTablePresentation = playlistWorkspace.CommitMainTablePresentationWithoutNotification(
+                        request.ColumnSelection,
+                        playlistDetailActive: false,
+                        commitBindingModeFirst: true);
                     mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
                     PruneSummaryFilters(request.ViewState.Provider);
                 });
@@ -1207,13 +1207,9 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         PlaylistWorkspaceViewModel playlistWorkspace)
     {
         List<Exception> publishExceptions = [];
-        if (result.ColumnPresentation != null)
+        if (result.MainTablePresentation != null)
         {
-            TryPublish(() => playlistWorkspace.PublishColumnPresentation(result.ColumnPresentation), publishExceptions);
-        }
-        if (result.BindingMode != null)
-        {
-            TryPublish(() => playlistWorkspace.PublishBindingMode(result.BindingMode), publishExceptions);
+            TryPublish(() => playlistWorkspace.PublishMainTablePresentation(result.MainTablePresentation), publishExceptions);
         }
         if (publishExceptions.Count > 0)
         {

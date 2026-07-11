@@ -25,6 +25,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
         string mainChartListSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
+        string regularOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
+        string playHistoryOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
 
         foreach (string rootField in new[]
         {
@@ -68,6 +72,16 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)");
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(");
         StringAssert.Contains(workspaceSource, "internal long LastPlaylistSummaryBuildCompletedTimestamp");
+        StringAssert.Contains(workspaceSource, "CommitMainTablePresentationWithoutNotification(");
+        StringAssert.Contains(workspaceSource, "PublishMainTablePresentation(");
+        Assert.AreEqual(-1, regularOwnerSource.IndexOf("CommitColumnPresentationWithoutNotification(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, regularOwnerSource.IndexOf("CommitBindingModeWithoutNotification(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, regularOwnerSource.IndexOf("PublishColumnPresentation(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, regularOwnerSource.IndexOf("PublishBindingMode(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("CommitColumnPresentationWithoutNotification(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("CommitBindingModeWithoutNotification(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishColumnPresentation(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishBindingMode(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace = new PlaylistWorkspaceViewModel(");
         StringAssert.Contains(logicalSource, "playlistDetailBuildState,");
@@ -140,6 +154,40 @@ public sealed class PlaylistWorkspaceViewModelTests
         CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
         CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
         CollectionAssert.DoesNotContain(rootPropertyNames, nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding));
+    }
+
+    [TestMethod]
+    public void MainTablePresentationCommit_CombinesWorkspaceStateBeforePublishingNotifications()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var summaryColumns = new PlaylistSummaryColumnSettings();
+        var selection = new MainChartListColumnSelection(
+            columns,
+            reused: false,
+            elapsedMs: 0L,
+            MainViewUpdateMode.FolderFilterSelected,
+            Visibility.Visible,
+            summaryColumns);
+        var propertyNames = new List<string>();
+        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+
+        PlaylistMainTablePresentationCommit commit = workspace.CommitMainTablePresentationWithoutNotification(
+            selection,
+            playlistDetailActive: true);
+
+        Assert.AreEqual(Visibility.Visible, workspace.ColumnSettingsVisibilityForPlaylist);
+        Assert.AreSame(summaryColumns, workspace.PlaylistSummaryColumnsSettings);
+        Assert.IsTrue(workspace.IsPlaylistDetailViewActive);
+        Assert.IsFalse(workspace.UseAsyncChartRowsViewBinding);
+        Assert.AreEqual(0, propertyNames.Count);
+
+        workspace.PublishMainTablePresentation(commit);
+
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist));
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings));
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.IsPlaylistDetailViewActive));
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding));
     }
 
     [TestMethod]

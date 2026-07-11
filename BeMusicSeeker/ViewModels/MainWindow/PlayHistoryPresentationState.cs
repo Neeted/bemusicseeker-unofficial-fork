@@ -389,8 +389,7 @@ internal sealed class PlayHistoryTerminalCommitResult
     internal bool Applied { get; set; }
     internal MainChartListRowsApplyResult MainRowsApply { get; set; }
     internal PlaylistSourceClearCommitResult PlaylistSourceClear { get; set; }
-    internal PlaylistColumnPresentationCommit ColumnPresentation { get; set; }
-    internal PlaylistBindingModeCommit BindingMode { get; set; }
+    internal PlaylistMainTablePresentationCommit MainTablePresentation { get; set; }
     internal bool ArchivePeriodTreeChanged { get; set; }
     internal bool SummaryCardsChanged { get; set; }
     internal bool DiagnosticTextChanged { get; set; }

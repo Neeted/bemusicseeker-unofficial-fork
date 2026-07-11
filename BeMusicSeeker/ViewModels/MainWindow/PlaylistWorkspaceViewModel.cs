@@ -214,6 +214,40 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             generation);
     }
 
+    /// <summary>
+    /// Commits the playlist-owned state that accompanies a main chart-table terminal apply.
+    /// The state is intentionally committed without notifications; the table transaction
+    /// publishes all related notifications after row ownership has transferred.
+    /// <param name="selection">The column and summary presentation selected for the table.</param>
+    /// <param name="playlistDetailActive">Whether the playlist detail binding remains active.</param>
+    /// <param name="commitBindingModeFirst">Preserves a caller's legacy binding-before-column commit order.</param>
+    /// </summary>
+    internal PlaylistMainTablePresentationCommit CommitMainTablePresentationWithoutNotification(
+        MainChartListColumnSelection selection,
+        bool playlistDetailActive,
+        bool commitBindingModeFirst = false)
+    {
+        // Play-history historically commits binding mode before column presentation;
+        // regular chart transitions retain their existing column-first order.
+        PlaylistColumnPresentationCommit columnPresentation;
+        PlaylistBindingModeCommit bindingMode;
+        if (commitBindingModeFirst)
+        {
+            bindingMode = CommitBindingModeWithoutNotification(playlistDetailActive);
+            columnPresentation = CommitColumnPresentationWithoutNotification(
+                selection.PlaylistColumnSettingsVisibility,
+                selection.PlaylistSummaryColumnsSettings);
+        }
+        else
+        {
+            columnPresentation = CommitColumnPresentationWithoutNotification(
+                selection.PlaylistColumnSettingsVisibility,
+                selection.PlaylistSummaryColumnsSettings);
+            bindingMode = CommitBindingModeWithoutNotification(playlistDetailActive);
+        }
+        return new PlaylistMainTablePresentationCommit(columnPresentation, bindingMode);
+    }
+
     internal void CommitMainTableColumnSetting(
         MainChartListViewModel mainChartList,
         MainChartListColumnSelection selection)
@@ -275,6 +309,40 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         if (commit.AsyncBindingChanged)
         {
             RaisePropertyChanged(nameof(UseAsyncChartRowsViewBinding));
+        }
+    }
+
+    /// <summary>
+    /// Publishes the playlist-owned notifications for a completed main chart-table terminal apply.
+    /// Each notification group is attempted independently so one subscriber cannot suppress the other.
+    /// </summary>
+    internal void PublishMainTablePresentation(PlaylistMainTablePresentationCommit commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
+
+        List<Exception> publishExceptions = [];
+        try
+        {
+            PublishColumnPresentation(commit.ColumnPresentation);
+        }
+        catch (Exception ex)
+        {
+            publishExceptions.Add(ex);
+        }
+        try
+        {
+            PublishBindingMode(commit.BindingMode);
+        }
+        catch (Exception ex)
+        {
+            publishExceptions.Add(ex);
+        }
+        if (publishExceptions.Count > 0)
+        {
+            throw new AggregateException(publishExceptions);
         }
     }
 
@@ -1056,4 +1124,19 @@ internal sealed class PlaylistBindingModeCommit
     internal bool DetailActiveChanged { get; }
 
     internal bool AsyncBindingChanged { get; }
+}
+
+internal sealed class PlaylistMainTablePresentationCommit
+{
+    internal PlaylistMainTablePresentationCommit(
+        PlaylistColumnPresentationCommit columnPresentation,
+        PlaylistBindingModeCommit bindingMode)
+    {
+        ColumnPresentation = columnPresentation ?? throw new ArgumentNullException(nameof(columnPresentation));
+        BindingMode = bindingMode ?? throw new ArgumentNullException(nameof(bindingMode));
+    }
+
+    internal PlaylistColumnPresentationCommit ColumnPresentation { get; }
+
+    internal PlaylistBindingModeCommit BindingMode { get; }
 }

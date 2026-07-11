@@ -2600,8 +2600,7 @@ internal sealed class RegularChartListOwner : IDisposable
             }
         }
 
-        PlaylistColumnPresentationCommit columnCommit = null;
-        PlaylistBindingModeCommit bindingModeCommit = null;
+        PlaylistMainTablePresentationCommit mainTablePresentationCommit = null;
         bool CommitRegularPresentation(Action commitRows)
         {
             lock (syncRoot)
@@ -2611,10 +2610,9 @@ internal sealed class RegularChartListOwner : IDisposable
                     return false;
                 }
                 commitRows();
-                columnCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
-                    presentation.ColumnSelection.PlaylistColumnSettingsVisibility,
-                    presentation.ColumnSelection.PlaylistSummaryColumnsSettings);
-                bindingModeCommit = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
+                mainTablePresentationCommit = playlistWorkspace.CommitMainTablePresentationWithoutNotification(
+                    presentation.ColumnSelection,
+                    playlistDetailActive: false);
                 if (presentation.Build != null)
                 {
                     folderRows = presentation.Build.Stage.FolderRows;
@@ -2640,30 +2638,7 @@ internal sealed class RegularChartListOwner : IDisposable
             }
         }
 
-        void PublishRelatedPresentation()
-        {
-            var publishExceptions = new List<Exception>();
-            try
-            {
-                playlistWorkspace.PublishColumnPresentation(columnCommit);
-            }
-            catch (Exception ex)
-            {
-                publishExceptions.Add(ex);
-            }
-            try
-            {
-                playlistWorkspace.PublishBindingMode(bindingModeCommit);
-            }
-            catch (Exception ex)
-            {
-                publishExceptions.Add(ex);
-            }
-            if (publishExceptions.Count > 0)
-            {
-                throw new AggregateException(publishExceptions);
-            }
-        }
+        void PublishRelatedPresentation() => playlistWorkspace.PublishMainTablePresentation(mainTablePresentationCommit);
 
         MainChartListPresentationApplyResult applied;
         try
