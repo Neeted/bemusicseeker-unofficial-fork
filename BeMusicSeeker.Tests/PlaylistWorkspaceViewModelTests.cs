@@ -96,7 +96,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(mainChartListSource, "internal event EventHandler DisplayRefreshRequested;");
         StringAssert.Contains(mainChartListSource, "internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummarySort(");
-        StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.DisplayRefreshRequested += MainChartList_DisplayRefreshRequested;");
+        Assert.IsFalse(mainWindowSource.Contains("MainChartList.DisplayRefreshRequested"));
+        string customTableSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "CustomTableView.cs");
+        StringAssert.Contains(customTableSource, "subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;");
         StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.CaptureSortRequest(e.SortMemberPath, e.Direction);");
         StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.RequestSort(request);");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");

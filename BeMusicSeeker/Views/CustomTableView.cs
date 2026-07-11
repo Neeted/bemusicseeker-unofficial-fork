@@ -12,6 +12,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Media3D;
+using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
@@ -196,6 +197,7 @@ public sealed class CustomTableView : Grid
     private bool completingSuggestionSelection;
     private bool preparationRenderLogged;
     private bool suppressColumnRedrawUntilItemsSourceChanged;
+    private MainChartListViewModel subscribedMainChartList;
 
     public CustomTableView()
     {
@@ -302,6 +304,7 @@ public sealed class CustomTableView : Grid
         editSuggestionListBox.PreviewKeyDown += EditSuggestionListBoxPreviewKeyDown;
         Loaded += CustomTableViewLoaded;
         Unloaded += CustomTableViewUnloaded;
+        DataContextChanged += CustomTableViewDataContextChanged;
         MouseLeave += delegate
         {
             CloseCellToolTip();
@@ -336,12 +339,79 @@ public sealed class CustomTableView : Grid
     private void CustomTableViewLoaded(object sender, RoutedEventArgs e)
     {
         AppThemeService.ThemeChanged += AppThemeServiceThemeChanged;
+        SubscribeMainChartList(DataContext as MainChartListViewModel);
         RefreshTheme("loaded");
     }
 
     private void CustomTableViewUnloaded(object sender, RoutedEventArgs e)
     {
         AppThemeService.ThemeChanged -= AppThemeServiceThemeChanged;
+        SubscribeMainChartList(null);
+    }
+
+    private void CustomTableViewDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsLoaded)
+        {
+            SubscribeMainChartList(e.NewValue as MainChartListViewModel);
+        }
+    }
+
+    private void SubscribeMainChartList(MainChartListViewModel mainChartList)
+    {
+        if (ReferenceEquals(subscribedMainChartList, mainChartList))
+        {
+            return;
+        }
+        if (subscribedMainChartList != null)
+        {
+            subscribedMainChartList.RowsReplacing -= MainChartListRowsReplacing;
+            subscribedMainChartList.RowsReplacementCanceled -= MainChartListRowsReplacementCanceled;
+            subscribedMainChartList.RowsReplacementPublishFailed -= MainChartListRowsReplacementCanceled;
+            subscribedMainChartList.DisplayRefreshRequested -= MainChartListDisplayRefreshRequested;
+        }
+        subscribedMainChartList = mainChartList;
+        if (subscribedMainChartList != null)
+        {
+            subscribedMainChartList.RowsReplacing += MainChartListRowsReplacing;
+            subscribedMainChartList.RowsReplacementCanceled += MainChartListRowsReplacementCanceled;
+            subscribedMainChartList.RowsReplacementPublishFailed += MainChartListRowsReplacementCanceled;
+            subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;
+        }
+    }
+
+    private void MainChartListRowsReplacing(object sender, EventArgs e)
+    {
+        InvokePresentationAction(PrepareForItemsSourceSwap);
+    }
+
+    private void MainChartListRowsReplacementCanceled(object sender, EventArgs e)
+    {
+        InvokePresentationAction(CancelPendingItemsSourceSwapPreparation);
+    }
+
+    private void MainChartListDisplayRefreshRequested(object sender, EventArgs e)
+    {
+        InvokePresentationAction(RefreshDisplay);
+    }
+
+    private void InvokePresentationAction(Action action)
+    {
+        if (Dispatcher.CheckAccess())
+        {
+            action();
+            return;
+        }
+        if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
+        {
+            try
+            {
+                Dispatcher.Invoke(DispatcherPriority.Normal, action);
+            }
+            catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+            {
+            }
+        }
     }
 
     private void AppThemeServiceThemeChanged(object sender, EventArgs e)

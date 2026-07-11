@@ -512,10 +512,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
         viewModel.PlaybackStarting += MainWindowViewModel_PlaybackStarting;
         viewModel.PlaybackStarted += MainWindowViewModel_PlaybackStarted;
-        viewModel.MainChartList.RowsReplacing += MainChartList_RowsReplacing;
-        viewModel.MainChartList.RowsReplacementCanceled += MainChartList_RowsReplacementCanceled;
-        viewModel.MainChartList.RowsReplacementPublishFailed += MainChartList_RowsReplacementCanceled;
-        viewModel.MainChartList.DisplayRefreshRequested += MainChartList_DisplayRefreshRequested;
     }
 
     private void UnsubscribeViewModelUiInteractions()
@@ -529,10 +525,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
         subscribedViewModel.PlaybackStarting -= MainWindowViewModel_PlaybackStarting;
         subscribedViewModel.PlaybackStarted -= MainWindowViewModel_PlaybackStarted;
-        subscribedViewModel.MainChartList.RowsReplacing -= MainChartList_RowsReplacing;
-        subscribedViewModel.MainChartList.RowsReplacementCanceled -= MainChartList_RowsReplacementCanceled;
-        subscribedViewModel.MainChartList.RowsReplacementPublishFailed -= MainChartList_RowsReplacementCanceled;
-        subscribedViewModel.MainChartList.DisplayRefreshRequested -= MainChartList_DisplayRefreshRequested;
         subscribedViewModel = null;
     }
 
@@ -564,54 +556,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void MainWindowViewModel_PlaybackStarted(object sender, EventArgs e)
     {
         tryShowBMSPlayerPanel();
-    }
-
-    private void MainChartList_RowsReplacing(object sender, EventArgs e)
-    {
-        if (Dispatcher.CheckAccess())
-        {
-            PrepareMainTableSwap();
-            return;
-        }
-        if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
-        {
-            try
-            {
-                Dispatcher.Invoke(DispatcherPriority.Normal, (Action)PrepareMainTableSwap);
-            }
-            catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
-            {
-            }
-        }
-    }
-
-    private void MainChartList_RowsReplacementCanceled(object sender, EventArgs e)
-    {
-        void CancelPreparation()
-        {
-            customTableView?.CancelPendingItemsSourceSwapPreparation();
-        }
-
-        if (Dispatcher.CheckAccess())
-        {
-            CancelPreparation();
-            return;
-        }
-        if (!Dispatcher.HasShutdownStarted && !Dispatcher.HasShutdownFinished)
-        {
-            try
-            {
-                Dispatcher.Invoke(DispatcherPriority.Normal, (Action)CancelPreparation);
-            }
-            catch (InvalidOperationException) when (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
-            {
-            }
-        }
-    }
-
-    private void MainChartList_DisplayRefreshRequested(object sender, EventArgs e)
-    {
-        RefreshMainTableDisplay();
     }
 
     private void ApplySavedTreeViewWidth()
@@ -1969,26 +1913,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     public void scrollIntoView()
     {
         customTableView?.ScrollSelectedRowIntoView();
-    }
-
-    public void PrepareMainTableSwap()
-    {
-        var stopwatch = Stopwatch.StartNew();
-        customTableView?.PrepareForItemsSourceSwap();
-        stopwatch.Stop();
-        if (installPerformanceLoggingEnabled)
-        {
-            installPerformanceLogger.Info("main_table_prepare_swap totalMs=" + stopwatch.ElapsedMilliseconds + " hasCustomTable=" + (customTableView != null));
-        }
-    }
-
-    /// <summary>
-    /// 現在の行集合を維持したまま、可視セルの値だけを再描画します。
-    /// sort/filter に影響しない hydration 反映で全件 ItemsSource swap を避けるために使います。
-    /// </summary>
-    public void RefreshMainTableDisplay()
-    {
-        RefreshCustomTableViewDisplay();
     }
 
     /// <summary>

@@ -77,6 +77,52 @@ public sealed class CustomTablePhase6CacheTests
     }
 
     [TestMethod]
+    public void CustomTableView_MainChartListLifecycleFollowsLoadedDataContext()
+    {
+        RunOnSta(delegate
+        {
+            var first = new MainChartListViewModel();
+            var second = new MainChartListViewModel();
+            var view = new CustomTableView { DataContext = first };
+            var window = new Window
+            {
+                Width = 320d,
+                Height = 240d,
+                Content = view,
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None
+            };
+
+            try
+            {
+                window.Show();
+                Assert.IsTrue(view.IsLoaded);
+                first.PrepareRowsReplacement();
+                Assert.IsTrue(view.IsItemsSourceSwapPending);
+                first.CancelRowsReplacement();
+                Assert.IsFalse(view.IsItemsSourceSwapPending);
+
+                view.DataContext = second;
+                first.PrepareRowsReplacement();
+                Assert.IsFalse(view.IsItemsSourceSwapPending, "Changing DataContext must detach the previous chart-list owner.");
+                second.PrepareRowsReplacement();
+                Assert.IsTrue(view.IsItemsSourceSwapPending);
+                second.FailRowsReplacementPublish();
+                Assert.IsFalse(view.IsItemsSourceSwapPending);
+            }
+            finally
+            {
+                window.Content = null;
+                view.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+                window.Close();
+            }
+
+            second.PrepareRowsReplacement();
+            Assert.IsFalse(view.IsItemsSourceSwapPending, "Unloaded controls must not retain the chart-list owner subscription.");
+        });
+    }
+
+    [TestMethod]
     public void CellValueCache_ReusesValuesUntilRowInvalidated()
     {
         int textCalls = 0;
