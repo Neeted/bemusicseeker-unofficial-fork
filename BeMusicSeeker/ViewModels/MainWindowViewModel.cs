@@ -10230,9 +10230,9 @@ public partial class MainWindowViewModel : ViewModel
             ApplyPlayHistoryView(route.Mode, route.RequestedMode, parameter, viewBuildStopwatch);
             return;
         }
-        UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive);
         if (route.Kind == ChartListRefreshRouteKind.RegisterPlaylistSourceBuild)
         {
+            UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive);
             RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter);
             return;
         }

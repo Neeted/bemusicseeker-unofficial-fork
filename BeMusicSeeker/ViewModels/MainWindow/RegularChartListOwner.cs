@@ -2705,6 +2705,7 @@ internal sealed class RegularChartListOwner : IDisposable
         }
 
         PlaylistColumnPresentationCommit columnCommit = null;
+        PlaylistBindingModeCommit bindingModeCommit = null;
         try
         {
             MainChartListCoordinatedRowsApplyResult coordinated = mainChartList.ApplyCoordinatedRows(
@@ -2722,6 +2723,7 @@ internal sealed class RegularChartListOwner : IDisposable
                         columnCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
                             input.ColumnSelection.PlaylistColumnSettingsVisibility,
                             input.ColumnSelection.PlaylistSummaryColumnsSettings);
+                        bindingModeCommit = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
                         if (build != null)
                         {
                             folderRows = build.Stage.FolderRows;
@@ -2749,7 +2751,16 @@ internal sealed class RegularChartListOwner : IDisposable
                         return true;
                     }
                 },
-                () => playlistWorkspace.PublishColumnPresentation(columnCommit));
+                () =>
+                {
+                    List<Exception> publishExceptions = [];
+                    TryPublish(() => playlistWorkspace.PublishColumnPresentation(columnCommit), publishExceptions);
+                    TryPublish(() => playlistWorkspace.PublishBindingMode(bindingModeCommit), publishExceptions);
+                    if (publishExceptions.Count > 0)
+                    {
+                        throw new AggregateException(publishExceptions);
+                    }
+                });
             return coordinated.Applied
                 ? RegularChartListTerminalResult.Committed(coordinated.RowsApply)
                 : RegularChartListTerminalResult.Stale();

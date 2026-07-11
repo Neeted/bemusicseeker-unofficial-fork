@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using BeMusicSeeker.ViewModels;
@@ -69,9 +70,12 @@ public sealed class RegularChartListRefreshTypesTests
         string root = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
         StringAssert.Contains(refreshChartRowsView, "ChartListRefreshCoordinator.ResolveRoute");
-        StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
         StringAssert.Contains(refreshChartRowsView, "RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter)");
         StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyRegularView(");
+        StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
+        Assert.IsTrue(
+            refreshChartRowsView.IndexOf("UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)", StringComparison.Ordinal)
+            < refreshChartRowsView.IndexOf("RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter)", StringComparison.Ordinal));
         Assert.IsFalse(root.Contains("ApplyMainLibraryChartListView"));
         Assert.IsFalse(root.Contains("TryApplyVirtualDefaultNormalLibraryView"));
         Assert.IsFalse(root.Contains("TryApplyVirtualChartSubsetLibraryView"));

@@ -34,6 +34,8 @@ public sealed class RegularChartListOwnerTests
     {
         var table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action());
+        workspace.IsPlaylistDetailViewActive = true;
+        workspace.UseAsyncChartRowsViewBinding = false;
         var buildState = new PlaylistDetailBuildState
         {
             RequestVersion = 1,
@@ -56,11 +58,18 @@ public sealed class RegularChartListOwnerTests
             buildState,
             viewState);
         int? sourceClearVersionAtRowsNotification = null;
+        bool? detailActiveAtRowsNotification = null;
+        bool? asyncBindingAtRowsNotification = null;
         table.PropertyChanged += (_, e) =>
         {
-            if (e.PropertyName == nameof(MainChartListViewModel.Rows) && viewState.Source.Rows.Count == 0)
+            if (e.PropertyName == nameof(MainChartListViewModel.Rows))
             {
-                sourceClearVersionAtRowsNotification = buildState.RequestVersion;
+                if (viewState.Source.Rows.Count == 0)
+                {
+                    sourceClearVersionAtRowsNotification = buildState.RequestVersion;
+                }
+                detailActiveAtRowsNotification = workspace.IsPlaylistDetailViewActive;
+                asyncBindingAtRowsNotification = workspace.UseAsyncChartRowsViewBinding;
             }
         };
 
@@ -74,6 +83,10 @@ public sealed class RegularChartListOwnerTests
         Assert.IsNull(buildState.CurrentBuildRequest);
         Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, owner.LastAppliedColumnMode);
         Assert.AreEqual(2, sourceClearVersionAtRowsNotification);
+        Assert.AreEqual(false, detailActiveAtRowsNotification);
+        Assert.AreEqual(true, asyncBindingAtRowsNotification);
+        Assert.IsFalse(workspace.IsPlaylistDetailViewActive);
+        Assert.IsTrue(workspace.UseAsyncChartRowsViewBinding);
         Assert.IsTrue(logs.Any(log => log.Contains("playlist_source_replace action=clear")));
     }
 
