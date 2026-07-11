@@ -50,16 +50,16 @@ public sealed class MainColumnSettingModeTests
     [TestMethod]
     public void IsPlayHistoryMainViewMode_TreatsIncrementalUpdatesAsPlayHistoryWhenSelected()
     {
-        Assert.IsTrue(MainWindowViewModel.IsPlayHistoryMainViewModeForTest(
+        Assert.IsTrue(ChartListRefreshCoordinator.IsPlayHistoryMainViewMode(
             MainViewUpdateMode.PlayHistorySelected,
             MainViewUpdateMode.FolderFilterSelected));
-        Assert.IsTrue(MainWindowViewModel.IsPlayHistoryMainViewModeForTest(
+        Assert.IsTrue(ChartListRefreshCoordinator.IsPlayHistoryMainViewMode(
             MainViewUpdateMode.SortUpdated,
             MainViewUpdateMode.PlayHistorySelected));
-        Assert.IsFalse(MainWindowViewModel.IsPlayHistoryMainViewModeForTest(
+        Assert.IsFalse(ChartListRefreshCoordinator.IsPlayHistoryMainViewMode(
             MainViewUpdateMode.FolderFilterSelected,
             MainViewUpdateMode.PlayHistorySelected));
-        Assert.IsFalse(MainWindowViewModel.IsPlayHistoryMainViewModeForTest(
+        Assert.IsFalse(ChartListRefreshCoordinator.IsPlayHistoryMainViewMode(
             MainViewUpdateMode.SortUpdated,
             MainViewUpdateMode.FolderFilterSelected));
     }

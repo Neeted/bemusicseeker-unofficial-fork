@@ -4383,16 +4383,6 @@ public partial class MainWindowViewModel : ViewModel
         };
     }
 
-    private static bool IsPlayHistoryMainViewMode(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
-    {
-        return ChartListRefreshCoordinator.IsPlayHistoryMainViewMode(mode, currentTreeMode);
-    }
-
-    internal static bool IsPlayHistoryMainViewModeForTest(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
-    {
-        return IsPlayHistoryMainViewMode(mode, currentTreeMode);
-    }
-
     internal static ChartOperationSourceScope ResolveMainViewChartOperationSourceScope(MainViewOperationSection section)
     {
         return section switch
