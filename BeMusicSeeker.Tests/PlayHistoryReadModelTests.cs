@@ -1090,7 +1090,7 @@ public sealed class PlayHistoryReadModelTests
             TimeZoneInfo.Utc);
         PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("all", []);
 
-        string text = MainWindowViewModel.FormatPlayHistoryGridSummaryTextForTest(
+        string text = PlayHistoryPresentationState.FormatGridSummaryText(
             request,
             summary,
             [
@@ -1125,7 +1125,7 @@ public sealed class PlayHistoryReadModelTests
             CreateProjectionIndex());
         PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("today", projected.Rows);
 
-        IReadOnlyList<PlayHistorySummaryCard> cards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary);
+        IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2);
 
         Assert.AreEqual(Resources.Play_history_summary_judge_count, cards[0].Label);
         Assert.AreEqual("160", cards[0].Value);
@@ -1156,6 +1156,32 @@ public sealed class PlayHistoryReadModelTests
         Assert.IsTrue(cards[11].Compact);
         Assert.IsFalse(cards[0].IsFilterable);
         Assert.IsTrue(cards[3].IsFilterable);
+    }
+
+    [TestMethod]
+    public void PresentationOwnerMapsSelectedSummaryFiltersAndDiagnosticPriority()
+    {
+        var selectedKeys = new HashSet<string>(StringComparer.Ordinal) { "score", "fc" };
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("all", []);
+
+        IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(
+            summary,
+            PlayHistoryProvider.Lr2,
+            selectedKeys);
+        IReadOnlyList<string> filterTexts = PlayHistoryPresentationState.GetSummaryFilterTexts(selectedKeys);
+        string diagnostic = PlayHistoryPresentationState.FormatDiagnosticSummary(
+        [
+            null,
+            new PlayHistoryDiagnostic { Severity = PlayHistoryDiagnosticSeverity.Warning, Code = "warning" },
+            new PlayHistoryDiagnostic { Severity = PlayHistoryDiagnosticSeverity.Error, Code = "error", Message = "detail" }
+        ]);
+
+        Assert.IsTrue(cards.Single(card => card.FilterKey == "score").IsSelected);
+        Assert.IsTrue(cards.Single(card => card.FilterKey == "fc").IsSelected);
+        Assert.IsFalse(cards.Single(card => card.FilterKey == "bp").IsSelected);
+        CollectionAssert.AreEqual(new[] { "type:score", "type:clear newclear:FC|PF" }, filterTexts.ToArray());
+        StringAssert.StartsWith(diagnostic, "Error error: detail");
+        Assert.AreEqual(string.Empty, PlayHistoryPresentationState.FormatDiagnosticSummary([null]));
     }
 
     [TestMethod]
@@ -1196,8 +1222,8 @@ public sealed class PlayHistoryReadModelTests
             "today",
             PlayHistoryRow.ProjectBeatorajaRows(readResult, CreateProjectionIndex()).Rows);
 
-        IReadOnlyList<PlayHistorySummaryCard> beatorajaCards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary, PlayHistoryProvider.Beatoraja);
-        IReadOnlyList<PlayHistorySummaryCard> lr2Cards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary, PlayHistoryProvider.Lr2);
+        IReadOnlyList<PlayHistorySummaryCard> beatorajaCards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Beatoraja);
+        IReadOnlyList<PlayHistorySummaryCard> lr2Cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2);
 
         Assert.IsTrue(beatorajaCards.Any(card => card.Label == "EXH" && card.Value == "1"));
         Assert.AreEqual("type:clear newclear:EXH", beatorajaCards.Single(card => card.Label == "EXH").FilterText);
@@ -1212,7 +1238,7 @@ public sealed class PlayHistoryReadModelTests
             [],
             new PlayHistoryPeriodSummaryOverride(null, null, null));
 
-        IReadOnlyList<PlayHistorySummaryCard> cards = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary, PlayHistoryProvider.Beatoraja);
+        IReadOnlyList<PlayHistorySummaryCard> cards = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Beatoraja);
 
         Assert.IsFalse(summary.PlayCountAvailable);
         Assert.IsFalse(summary.JudgeCountAvailable);
@@ -1322,7 +1348,7 @@ public sealed class PlayHistoryReadModelTests
 
         PlayHistoryRow row = projected.Rows.Single();
         PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows("assist-update", projected.Rows);
-        PlayHistorySummaryCard assistCard = MainWindowViewModel.CreatePlayHistorySummaryCardsForTest(summary).Single(card => card.Label == "ASSIST");
+        PlayHistorySummaryCard assistCard = PlayHistoryPresentationState.CreateSummaryCards(summary, PlayHistoryProvider.Lr2).Single(card => card.Label == "ASSIST");
 
         Assert.AreEqual(ClearType.NO_PLAY, row.OldBestClear);
         Assert.AreEqual(ClearType.INVALID, row.NewBestClear);

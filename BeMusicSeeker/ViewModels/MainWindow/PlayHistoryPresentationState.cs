@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -170,6 +171,180 @@ internal sealed class PlayHistoryPresentationState
             && left.PlayedAtFromInclusive == right.PlayedAtFromInclusive
             && left.PlayedAtToExclusive == right.PlayedAtToExclusive
             && left.FinalizationFilter == right.FinalizationFilter;
+    }
+
+    internal static string FormatGridSummaryText(
+        PlayHistoryPeriodRequest request,
+        PlayHistoryPeriodSummary summary,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
+    {
+        return FormatGridSummaryText(request, summary, diagnostics, FormatDiagnosticSummary(diagnostics));
+    }
+
+    internal static string FormatGridSummaryText(
+        PlayHistoryPeriodRequest request,
+        PlayHistoryPeriodSummary summary,
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+        string diagnosticSummary)
+    {
+        summary ??= PlayHistoryPeriodSummary.FromRows(request?.Label ?? string.Empty, []);
+        int diagnosticsCount = diagnostics?.Count ?? 0;
+        string baseText = string.Format(
+            BeMusicSeeker.Properties.Resources.Play_history_summary_format,
+            request?.Label ?? string.Empty,
+            summary.RowCount,
+            summary.ScoreUpdateCount,
+            summary.ClearUpdateCount,
+            summary.NewFullComboCount,
+            FormatDuration(summary),
+            diagnosticsCount);
+        return string.IsNullOrWhiteSpace(diagnosticSummary)
+            ? baseText
+            : baseText + " / " + diagnosticSummary;
+    }
+
+    internal static IReadOnlyList<PlayHistorySummaryCard> CreateSummaryCards(
+        PlayHistoryPeriodSummary summary,
+        PlayHistoryProvider provider,
+        HashSet<string> selectedFilterKeys = null)
+    {
+        summary ??= PlayHistoryPeriodSummary.FromRows(string.Empty, []);
+        selectedFilterKeys ??= [];
+        List<PlayHistorySummaryCard> cards =
+        [
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_judge_count, FormatCount(summary.JudgeCount, summary.JudgeCountAvailable), selectedFilterKeys),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_play_count, FormatCount(summary.FinalizedCount, summary.PlayCountAvailable), selectedFilterKeys),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_playtime, FormatDuration(summary), selectedFilterKeys),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "score"),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "bp"),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "combo"),
+            CreateSummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_clear_update, summary.ClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "clear"),
+            CreateSummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "assist"),
+            CreateSummaryCard("EASY", summary.EasyClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "easy"),
+            CreateSummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "normal"),
+            CreateSummaryCard("HARD", summary.HardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "hard")
+        ];
+        if (provider == PlayHistoryProvider.Beatoraja)
+        {
+            cards.Add(CreateSummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "exhard"));
+        }
+        cards.Add(CreateSummaryCard("FC", summary.FullComboClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "fc"));
+        return cards;
+    }
+
+    internal static IReadOnlyList<string> GetSummaryFilterTexts(HashSet<string> selectedKeys)
+    {
+        if (selectedKeys == null || selectedKeys.Count == 0)
+        {
+            return [];
+        }
+        return [.. CreateSummaryFilterDefinitions()
+            .Where(definition => selectedKeys.Contains(definition.Key))
+            .Select(definition => definition.FilterText)];
+    }
+
+    internal static string FormatDiagnosticSummary(IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
+    {
+        PlayHistoryDiagnostic diagnostic = (diagnostics ?? [])
+            .OrderByDescending(item => item?.Severity == PlayHistoryDiagnosticSeverity.Error ? 2 : (item?.Severity == PlayHistoryDiagnosticSeverity.Warning ? 1 : 0))
+            .FirstOrDefault();
+        if (diagnostic == null)
+        {
+            return string.Empty;
+        }
+        string detail = (diagnostic.Severity.ToString() + " " + diagnostic.Code).Trim();
+        if (!string.IsNullOrWhiteSpace(diagnostic.Message))
+        {
+            detail += ": " + diagnostic.Message.Trim();
+        }
+        if (!string.IsNullOrWhiteSpace(diagnostic.SourcePath))
+        {
+            detail += " (" + diagnostic.SourcePath.Trim() + ")";
+        }
+        return detail;
+    }
+
+    private static PlayHistorySummaryCard CreateSummaryCard(
+        string label,
+        string value,
+        HashSet<string> selectedFilterKeys,
+        bool compact = false,
+        string filterKey = null)
+    {
+        PlayHistorySummaryFilterDefinition definition = string.IsNullOrWhiteSpace(filterKey)
+            ? default
+            : GetSummaryFilterDefinition(filterKey);
+        return new PlayHistorySummaryCard(
+            label,
+            value,
+            compact,
+            definition.Key,
+            definition.FilterText,
+            !string.IsNullOrWhiteSpace(definition.Key) && (selectedFilterKeys?.Contains(definition.Key) == true));
+    }
+
+    private static PlayHistorySummaryFilterDefinition GetSummaryFilterDefinition(string key)
+    {
+        return CreateSummaryFilterDefinitions()
+            .FirstOrDefault(definition => string.Equals(definition.Key, key, StringComparison.Ordinal));
+    }
+
+    private static IReadOnlyList<PlayHistorySummaryFilterDefinition> CreateSummaryFilterDefinitions()
+    {
+        return
+        [
+            new PlayHistorySummaryFilterDefinition("score", "type:score"),
+            new PlayHistorySummaryFilterDefinition("bp", "type:bp"),
+            new PlayHistorySummaryFilterDefinition("combo", "type:combo"),
+            new PlayHistorySummaryFilterDefinition("clear", "type:clear"),
+            new PlayHistorySummaryFilterDefinition("assist", "type:clear newclear:AE|LAE"),
+            new PlayHistorySummaryFilterDefinition("easy", "type:clear newclear:EC"),
+            new PlayHistorySummaryFilterDefinition("normal", "type:clear newclear:NC"),
+            new PlayHistorySummaryFilterDefinition("hard", "type:clear newclear:HC"),
+            new PlayHistorySummaryFilterDefinition("exhard", "type:clear newclear:EXH"),
+            new PlayHistorySummaryFilterDefinition("fc", "type:clear newclear:FC|PF")
+        ];
+    }
+
+    private static string FormatDuration(PlayHistoryPeriodSummary summary)
+    {
+        return summary?.PlaytimeAvailable == false
+            ? "-"
+            : FormatDuration(summary?.PlaytimeSeconds ?? 0);
+    }
+
+    private static string FormatDuration(long seconds)
+    {
+        if (seconds <= 0)
+        {
+            return "0:00";
+        }
+        long hours = seconds / 3600;
+        long minutes = (seconds / 60) % 60;
+        long remainderSeconds = seconds % 60;
+        return hours >= 1L
+            ? hours.ToString(CultureInfo.InvariantCulture) + ":" + minutes.ToString("00", CultureInfo.InvariantCulture) + ":" + remainderSeconds.ToString("00", CultureInfo.InvariantCulture)
+            : minutes.ToString(CultureInfo.InvariantCulture) + ":" + remainderSeconds.ToString("00", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatCount(long count, bool available)
+    {
+        return available
+            ? count.ToString("N0", CultureInfo.CurrentCulture)
+            : "-";
+    }
+
+    private readonly struct PlayHistorySummaryFilterDefinition
+    {
+        internal PlayHistorySummaryFilterDefinition(string key, string filterText)
+        {
+            Key = key ?? string.Empty;
+            FilterText = filterText ?? string.Empty;
+        }
+
+        internal string Key { get; }
+
+        internal string FilterText { get; }
     }
 }
 

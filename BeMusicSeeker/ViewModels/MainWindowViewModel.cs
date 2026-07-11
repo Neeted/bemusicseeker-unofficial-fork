@@ -5333,9 +5333,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return [];
         }
-        return [.. CreatePlayHistorySummaryFilterDefinitions()
-            .Where(definition => selectedKeys.Contains(definition.Key))
-            .Select(definition => definition.FilterText)];
+        return PlayHistoryPresentationState.GetSummaryFilterTexts(selectedKeys);
     }
 
     private IReadOnlyList<PlayHistorySummaryCard> ApplyPlayHistorySummaryFilterSelection(IReadOnlyList<PlayHistorySummaryCard> cards)
@@ -11317,9 +11315,9 @@ public partial class MainWindowViewModel : ViewModel
                 : new PlayHistoryVirtualView(sortedRows, CountDistinctPlayHistoryFolderLabels(sortedRows));
             columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
             columnSelection = regularChartListOwner.ResolveColumnSettingForViewUpdate(mode, treeViewFilterTypeSelected);
-            diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics);
-            gridSummaryText = FormatPlayHistoryGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
-            summaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
+            diagnosticSummaryText = PlayHistoryPresentationState.FormatDiagnosticSummary(diagnostics);
+            gridSummaryText = PlayHistoryPresentationState.FormatGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
+            summaryCards = PlayHistoryPresentationState.CreateSummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
             columnSettingReuse = columnSelection.Reused;
         }
 
@@ -12094,174 +12092,6 @@ public partial class MainWindowViewModel : ViewModel
             .Where(label => !string.IsNullOrWhiteSpace(label))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
-    }
-
-    private static string FormatPlayHistoryGridSummaryText(PlayHistoryPeriodRequest request, PlayHistoryPeriodSummary summary, IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
-    {
-        return FormatPlayHistoryGridSummaryText(request, summary, diagnostics, FormatPlayHistoryDiagnosticSummary(diagnostics));
-    }
-
-    private static string FormatPlayHistoryGridSummaryText(PlayHistoryPeriodRequest request, PlayHistoryPeriodSummary summary, IReadOnlyList<PlayHistoryDiagnostic> diagnostics, string diagnosticSummary)
-    {
-        summary ??= PlayHistoryPeriodSummary.FromRows(request?.Label ?? string.Empty, []);
-        int diagnosticsCount = diagnostics?.Count ?? 0;
-        string baseText = string.Format(
-            BeMusicSeeker.Properties.Resources.Play_history_summary_format,
-            request?.Label ?? string.Empty,
-            summary.RowCount,
-            summary.ScoreUpdateCount,
-            summary.ClearUpdateCount,
-            summary.NewFullComboCount,
-            FormatPlayHistoryDuration(summary),
-            diagnosticsCount);
-        return string.IsNullOrWhiteSpace(diagnosticSummary)
-            ? baseText
-            : baseText + " / " + diagnosticSummary;
-    }
-
-    internal static string FormatPlayHistoryGridSummaryTextForTest(PlayHistoryPeriodRequest request, PlayHistoryPeriodSummary summary, IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
-    {
-        return FormatPlayHistoryGridSummaryText(request, summary, diagnostics);
-    }
-
-    private static IReadOnlyList<PlayHistorySummaryFilterDefinition> CreatePlayHistorySummaryFilterDefinitions()
-    {
-        return
-        [
-            new PlayHistorySummaryFilterDefinition("score", "type:score"),
-            new PlayHistorySummaryFilterDefinition("bp", "type:bp"),
-            new PlayHistorySummaryFilterDefinition("combo", "type:combo"),
-            new PlayHistorySummaryFilterDefinition("clear", "type:clear"),
-            new PlayHistorySummaryFilterDefinition("assist", "type:clear newclear:AE|LAE"),
-            new PlayHistorySummaryFilterDefinition("easy", "type:clear newclear:EC"),
-            new PlayHistorySummaryFilterDefinition("normal", "type:clear newclear:NC"),
-            new PlayHistorySummaryFilterDefinition("hard", "type:clear newclear:HC"),
-            new PlayHistorySummaryFilterDefinition("exhard", "type:clear newclear:EXH"),
-            new PlayHistorySummaryFilterDefinition("fc", "type:clear newclear:FC|PF")
-        ];
-    }
-
-    private static PlayHistorySummaryFilterDefinition GetPlayHistorySummaryFilterDefinition(string key)
-    {
-        return CreatePlayHistorySummaryFilterDefinitions()
-            .FirstOrDefault(definition => string.Equals(definition.Key, key, StringComparison.Ordinal));
-    }
-
-    private static PlayHistorySummaryCard CreatePlayHistorySummaryCard(
-        string label,
-        string value,
-        HashSet<string> selectedFilterKeys,
-        bool compact = false,
-        string filterKey = null)
-    {
-        PlayHistorySummaryFilterDefinition definition = string.IsNullOrWhiteSpace(filterKey)
-            ? default
-            : GetPlayHistorySummaryFilterDefinition(filterKey);
-        return new PlayHistorySummaryCard(
-            label,
-            value,
-            compact,
-            definition.Key,
-            definition.FilterText,
-            !string.IsNullOrWhiteSpace(definition.Key) && (selectedFilterKeys?.Contains(definition.Key) == true));
-    }
-
-    private static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCards(PlayHistoryPeriodSummary summary, PlayHistoryProvider provider, HashSet<string> selectedFilterKeys = null)
-    {
-        summary ??= PlayHistoryPeriodSummary.FromRows(string.Empty, []);
-        selectedFilterKeys ??= [];
-        List<PlayHistorySummaryCard> cards =
-        [
-            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_judge_count, FormatPlayHistoryCount(summary.JudgeCount, summary.JudgeCountAvailable), selectedFilterKeys),
-            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_play_count, FormatPlayHistoryCount(summary.FinalizedCount, summary.PlayCountAvailable), selectedFilterKeys),
-            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_playtime, FormatPlayHistoryDuration(summary), selectedFilterKeys),
-            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_score_update, summary.ScoreUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "score"),
-            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_bp_update, summary.BpUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "bp"),
-            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_combo_update, summary.ComboUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "combo"),
-            CreatePlayHistorySummaryCard(BeMusicSeeker.Properties.Resources.Play_history_summary_clear_update, summary.ClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, filterKey: "clear"),
-            CreatePlayHistorySummaryCard("ASSIST", summary.AssistClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "assist"),
-            CreatePlayHistorySummaryCard("EASY", summary.EasyClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "easy"),
-            CreatePlayHistorySummaryCard("NORMAL", summary.NormalClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "normal"),
-            CreatePlayHistorySummaryCard("HARD", summary.HardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "hard")
-        ];
-        if (provider == PlayHistoryProvider.Beatoraja)
-        {
-            cards.Add(CreatePlayHistorySummaryCard("EXH", summary.ExHardClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "exhard"));
-        }
-        cards.Add(CreatePlayHistorySummaryCard("FC", summary.FullComboClearUpdateCount.ToString("N0", CultureInfo.CurrentCulture), selectedFilterKeys, compact: true, filterKey: "fc"));
-        return cards;
-    }
-
-    internal static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCardsForTest(PlayHistoryPeriodSummary summary)
-    {
-        return CreatePlayHistorySummaryCards(summary, PlayHistoryProvider.Lr2);
-    }
-
-    internal static IReadOnlyList<PlayHistorySummaryCard> CreatePlayHistorySummaryCardsForTest(PlayHistoryPeriodSummary summary, PlayHistoryProvider provider)
-    {
-        return CreatePlayHistorySummaryCards(summary, provider);
-    }
-
-    private readonly struct PlayHistorySummaryFilterDefinition
-    {
-        internal PlayHistorySummaryFilterDefinition(string key, string filterText)
-        {
-            Key = key ?? string.Empty;
-            FilterText = filterText ?? string.Empty;
-        }
-
-        internal string Key { get; }
-
-        internal string FilterText { get; }
-    }
-
-    private static string FormatPlayHistoryDuration(long seconds)
-    {
-        if (seconds <= 0)
-        {
-            return "0:00";
-        }
-        long hours = seconds / 3600;
-        long minutes = (seconds / 60) % 60;
-        long remainderSeconds = seconds % 60;
-        return hours >= 1L
-            ? hours.ToString(CultureInfo.InvariantCulture) + ":" + minutes.ToString("00", CultureInfo.InvariantCulture) + ":" + remainderSeconds.ToString("00", CultureInfo.InvariantCulture)
-            : minutes.ToString(CultureInfo.InvariantCulture) + ":" + remainderSeconds.ToString("00", CultureInfo.InvariantCulture);
-    }
-
-    private static string FormatPlayHistoryDuration(PlayHistoryPeriodSummary summary)
-    {
-        return summary?.PlaytimeAvailable == false
-            ? "-"
-            : FormatPlayHistoryDuration(summary?.PlaytimeSeconds ?? 0);
-    }
-
-    private static string FormatPlayHistoryCount(long count, bool available)
-    {
-        return available
-            ? count.ToString("N0", CultureInfo.CurrentCulture)
-            : "-";
-    }
-
-    private static string FormatPlayHistoryDiagnosticSummary(IReadOnlyList<PlayHistoryDiagnostic> diagnostics)
-    {
-        PlayHistoryDiagnostic diagnostic = (diagnostics ?? [])
-            .OrderByDescending(item => item?.Severity == PlayHistoryDiagnosticSeverity.Error ? 2 : (item?.Severity == PlayHistoryDiagnosticSeverity.Warning ? 1 : 0))
-            .FirstOrDefault();
-        if (diagnostic == null)
-        {
-            return string.Empty;
-        }
-        string detail = (diagnostic.Severity.ToString() + " " + diagnostic.Code).Trim();
-        if (!string.IsNullOrWhiteSpace(diagnostic.Message))
-        {
-            detail += ": " + diagnostic.Message.Trim();
-        }
-        if (!string.IsNullOrWhiteSpace(diagnostic.SourcePath))
-        {
-            detail += " (" + diagnostic.SourcePath.Trim() + ")";
-        }
-        return detail;
     }
 
     private static void LogPlayHistoryDiagnostics(PlayHistoryPeriodRequest request, string sortProfile, IReadOnlyList<PlayHistoryDiagnostic> diagnostics)

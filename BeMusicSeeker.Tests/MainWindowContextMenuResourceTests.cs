@@ -182,8 +182,6 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding Compact}\" Value=\"True\">");
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding IsSelected}\" Value=\"True\">");
         StringAssert.Contains(summaryRow, "App.WarningTextBrush");
-        StringAssert.Contains(viewModelCode, "summaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys())");
-        StringAssert.Contains(viewModelCode, "diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics)");
         StringAssert.Contains(viewModelCode, "DiagnosticText = diagnosticSummaryText");
         StringAssert.Contains(presentationStateCode, "SummaryCards = summaryCards");
         StringAssert.Contains(presentationStateCode, "DiagnosticText = diagnosticText");
