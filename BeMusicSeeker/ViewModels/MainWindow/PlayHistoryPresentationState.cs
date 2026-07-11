@@ -37,6 +37,39 @@ internal sealed class PlayHistoryPresentationState
             && string.Equals(state.DisplayTargetIdentity, CurrentDisplayTargetIdentity, StringComparison.Ordinal);
     }
 
+    internal bool SetArchivePeriodTree(IReadOnlyList<PlayHistoryPeriodTreeItem> value)
+    {
+        IReadOnlyList<PlayHistoryPeriodTreeItem> next = value ?? [];
+        if (ReferenceEquals(ArchivePeriodTree, next) || AreSameArchiveTree(ArchivePeriodTree, next))
+        {
+            return false;
+        }
+        ArchivePeriodTree = next;
+        return true;
+    }
+
+    internal bool SetSummaryCards(IReadOnlyList<PlayHistorySummaryCard> value)
+    {
+        IReadOnlyList<PlayHistorySummaryCard> next = value ?? [];
+        if (ReferenceEquals(SummaryCards, next) || AreSameSummaryCards(SummaryCards, next))
+        {
+            return false;
+        }
+        SummaryCards = next;
+        return true;
+    }
+
+    internal bool SetDiagnosticText(string value)
+    {
+        string next = value ?? string.Empty;
+        if (DiagnosticText == next)
+        {
+            return false;
+        }
+        DiagnosticText = next;
+        return true;
+    }
+
     internal bool TryCommitTerminal(
         PlayHistoryTerminalRequest request,
         PlayHistoryTerminalCommitResult result,
@@ -70,25 +103,18 @@ internal sealed class PlayHistoryPresentationState
             commitRelatedOwners();
 
             if (request.ArchivePeriodTree != null
-                && !ReferenceEquals(ArchivePeriodTree, request.ArchivePeriodTree)
-                && !AreSameArchiveTree(ArchivePeriodTree, request.ArchivePeriodTree))
+                && SetArchivePeriodTree(request.ArchivePeriodTree))
             {
-                ArchivePeriodTree = request.ArchivePeriodTree;
                 result.ArchivePeriodTreeChanged = true;
             }
 
-            IReadOnlyList<PlayHistorySummaryCard> summaryCards = request.SummaryCards ?? [];
-            if (!ReferenceEquals(SummaryCards, summaryCards)
-                && !AreSameSummaryCards(SummaryCards, summaryCards))
+            if (SetSummaryCards(request.SummaryCards))
             {
-                SummaryCards = summaryCards;
                 result.SummaryCardsChanged = true;
             }
 
-            string diagnosticText = request.DiagnosticText ?? string.Empty;
-            if (DiagnosticText != diagnosticText)
+            if (SetDiagnosticText(request.DiagnosticText))
             {
-                DiagnosticText = diagnosticText;
                 result.DiagnosticTextChanged = true;
             }
 

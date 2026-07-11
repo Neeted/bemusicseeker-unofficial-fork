@@ -640,12 +640,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
 
-    private ref IReadOnlyList<PlayHistoryPeriodTreeItem> _PlayHistoryArchivePeriodTree => ref playHistoryPresentationState.ArchivePeriodTree;
-
-    private ref IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards => ref playHistoryPresentationState.SummaryCards;
-
-    private ref string _PlayHistorySummaryDiagnosticText => ref playHistoryPresentationState.DiagnosticText;
-
     private cSortParameters _SortParameters;
 
     private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
@@ -4118,67 +4112,15 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _PlayHistoryArchivePeriodTree;
+            return playHistoryPresentationState.ArchivePeriodTree;
         }
         private set
         {
-            IReadOnlyList<PlayHistoryPeriodTreeItem> next = value ?? [];
-            if (!ReferenceEquals(_PlayHistoryArchivePeriodTree, next) && !AreSamePlayHistoryArchivePeriodTree(_PlayHistoryArchivePeriodTree, next))
+            if (playHistoryPresentationState.SetArchivePeriodTree(value))
             {
-                _PlayHistoryArchivePeriodTree = next;
                 RaisePropertyChanged("PlayHistoryArchivePeriodTree");
             }
         }
-    }
-
-    private static bool AreSamePlayHistoryArchivePeriodTree(IReadOnlyList<PlayHistoryPeriodTreeItem> left, IReadOnlyList<PlayHistoryPeriodTreeItem> right)
-    {
-        left ??= [];
-        right ??= [];
-        if (left.Count != right.Count)
-        {
-            return false;
-        }
-        for (int index = 0; index < left.Count; index++)
-        {
-            if (!AreSamePlayHistoryArchivePeriodTreeItem(left[index], right[index]))
-            {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static bool AreSamePlayHistoryArchivePeriodTreeItem(PlayHistoryPeriodTreeItem left, PlayHistoryPeriodTreeItem right)
-    {
-        if (ReferenceEquals(left, right))
-        {
-            return true;
-        }
-        if (left == null || right == null)
-        {
-            return false;
-        }
-        return string.Equals(left.Label, right.Label, StringComparison.Ordinal)
-            && AreSamePlayHistoryPeriodRequest(left.Request, right.Request)
-            && AreSamePlayHistoryArchivePeriodTree(left.Children, right.Children);
-    }
-
-    private static bool AreSamePlayHistoryPeriodRequest(PlayHistoryPeriodRequest left, PlayHistoryPeriodRequest right)
-    {
-        if (ReferenceEquals(left, right))
-        {
-            return true;
-        }
-        if (left == null || right == null)
-        {
-            return false;
-        }
-        return left.Kind == right.Kind
-            && string.Equals(left.Label, right.Label, StringComparison.Ordinal)
-            && left.PlayedAtFromInclusive == right.PlayedAtFromInclusive
-            && left.PlayedAtToExclusive == right.PlayedAtToExclusive
-            && left.FinalizationFilter == right.FinalizationFilter;
     }
 
     private void IncrementNormalLibrarySourceGeneration(string reason)
@@ -5204,14 +5146,12 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _PlayHistorySummaryCards;
+            return playHistoryPresentationState.SummaryCards;
         }
         private set
         {
-            IReadOnlyList<PlayHistorySummaryCard> next = value ?? [];
-            if (!ReferenceEquals(_PlayHistorySummaryCards, next) && !AreSamePlayHistorySummaryCards(_PlayHistorySummaryCards, next))
+            if (playHistoryPresentationState.SetSummaryCards(value))
             {
-                _PlayHistorySummaryCards = next;
                 RaisePropertyChanged("PlayHistorySummaryCards");
             }
         }
@@ -5224,39 +5164,6 @@ public partial class MainWindowViewModel : ViewModel
             _TogglePlayHistorySummaryCardFilterCommand ??= new ListenerCommand<PlayHistorySummaryCard>(TogglePlayHistorySummaryCardFilter);
             return _TogglePlayHistorySummaryCardFilterCommand;
         }
-    }
-
-    private static bool AreSamePlayHistorySummaryCards(IReadOnlyList<PlayHistorySummaryCard> left, IReadOnlyList<PlayHistorySummaryCard> right)
-    {
-        left ??= [];
-        right ??= [];
-        if (left.Count != right.Count)
-        {
-            return false;
-        }
-        for (int index = 0; index < left.Count; index++)
-        {
-            PlayHistorySummaryCard leftCard = left[index];
-            PlayHistorySummaryCard rightCard = right[index];
-            if (leftCard == null || rightCard == null)
-            {
-                if (leftCard != rightCard)
-                {
-                    return false;
-                }
-                continue;
-            }
-            if (!string.Equals(leftCard.Label, rightCard.Label, StringComparison.Ordinal)
-                || !string.Equals(leftCard.Value, rightCard.Value, StringComparison.Ordinal)
-                || leftCard.Compact != rightCard.Compact
-                || !string.Equals(leftCard.FilterKey, rightCard.FilterKey, StringComparison.Ordinal)
-                || !string.Equals(leftCard.FilterText, rightCard.FilterText, StringComparison.Ordinal)
-                || leftCard.IsSelected != rightCard.IsSelected)
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     public void TogglePlayHistorySummaryCardFilter(PlayHistorySummaryCard card)
@@ -5337,13 +5244,12 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _PlayHistorySummaryDiagnosticText;
+            return playHistoryPresentationState.DiagnosticText;
         }
         private set
         {
-            if (_PlayHistorySummaryDiagnosticText != value)
+            if (playHistoryPresentationState.SetDiagnosticText(value))
             {
-                _PlayHistorySummaryDiagnosticText = value ?? string.Empty;
                 RaisePropertyChanged("PlayHistorySummaryDiagnosticText");
             }
         }
