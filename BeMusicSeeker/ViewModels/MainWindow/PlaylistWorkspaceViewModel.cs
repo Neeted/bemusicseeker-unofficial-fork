@@ -101,6 +101,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     internal event EventHandler PlaylistSummarySortRequested;
 
     /// <summary>
+    /// Raised after a playlist-summary filter input changes and the shell must refresh the visible summary.
+    /// </summary>
+    internal event EventHandler PlaylistSummaryFilterChanged;
+
+    /// <summary>
     /// Gets or sets the current playlist summary sort parameters.
     /// </summary>
     public ChartListSortParameters PlaylistSummarySortParameters
@@ -356,13 +361,14 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     public string PlaylistSummaryKeywordFilter
     {
         get => playlistSummaryKeywordFilter;
-        internal set
+        set
         {
             string next = value ?? string.Empty;
             if (playlistSummaryKeywordFilter != next)
             {
                 playlistSummaryKeywordFilter = next;
                 RaisePropertyChanged(nameof(PlaylistSummaryKeywordFilter));
+                PlaylistSummaryFilterChanged?.Invoke(this, EventArgs.Empty);
             }
         }
     }
@@ -383,7 +389,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     public bool IsPlaylistSummaryKeywordSearchHelpOpen
     {
         get => isPlaylistSummaryKeywordSearchHelpOpen;
-        internal set
+        set
         {
             if (isPlaylistSummaryKeywordSearchHelpOpen != value)
             {
@@ -404,7 +410,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     public bool IsPlaylistSummaryKeywordSearchSuggestionPopupOpen
     {
         get => isPlaylistSummaryKeywordSearchSuggestionPopupOpen;
-        internal set
+        set
         {
             if (isPlaylistSummaryKeywordSearchSuggestionPopupOpen != value)
             {
@@ -425,12 +431,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     public PlaylistOwnedFilter PlaylistSummaryOwnedFilter
     {
         get => playlistSummaryOwnedFilter;
-        internal set
+        set
         {
             if (playlistSummaryOwnedFilter != value)
             {
                 playlistSummaryOwnedFilter = value;
                 RaisePropertyChanged(nameof(PlaylistSummaryOwnedFilter));
+                PlaylistSummaryFilterChanged?.Invoke(this, EventArgs.Empty);
             }
         }
     }

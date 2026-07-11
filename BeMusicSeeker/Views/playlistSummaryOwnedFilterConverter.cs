@@ -10,16 +10,27 @@ internal class playlistSummaryOwnedFilterConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (value is not MainWindowViewModel.PlaylistSummaryOwnedFilterType playlistSummaryOwnedFilterType)
-        {
-            return false;
-        }
         if (parameter == null)
         {
             return false;
         }
-        var playlistSummaryOwnedFilterType2 = (MainWindowViewModel.PlaylistSummaryOwnedFilterType)Enum.Parse(typeof(MainWindowViewModel.PlaylistSummaryOwnedFilterType), parameter.ToString());
-        return playlistSummaryOwnedFilterType == playlistSummaryOwnedFilterType2;
+
+        PlaylistOwnedFilter currentFilter;
+        if (value is PlaylistOwnedFilter ownerFilter)
+        {
+            currentFilter = ownerFilter;
+        }
+        else if (value is MainWindowViewModel.PlaylistSummaryOwnedFilterType legacyFilter)
+        {
+            currentFilter = (PlaylistOwnedFilter)(int)legacyFilter;
+        }
+        else
+        {
+            return false;
+        }
+
+        var requestedFilter = (PlaylistOwnedFilter)Enum.Parse(typeof(PlaylistOwnedFilter), parameter.ToString());
+        return currentFilter == requestedFilter;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
@@ -28,6 +39,13 @@ internal class playlistSummaryOwnedFilterConverter : IValueConverter
         {
             return Binding.DoNothing;
         }
-        return (MainWindowViewModel.PlaylistSummaryOwnedFilterType)Enum.Parse(typeof(MainWindowViewModel.PlaylistSummaryOwnedFilterType), parameter.ToString());
+
+        var requestedFilter = (PlaylistOwnedFilter)Enum.Parse(typeof(PlaylistOwnedFilter), parameter.ToString());
+        if (targetType == typeof(MainWindowViewModel.PlaylistSummaryOwnedFilterType))
+        {
+            return (MainWindowViewModel.PlaylistSummaryOwnedFilterType)(int)requestedFilter;
+        }
+
+        return requestedFilter;
     }
 }

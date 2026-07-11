@@ -43,4 +43,24 @@ public sealed class FilterConverterTests
         Assert.AreEqual(true, selected);
         Assert.AreEqual(MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedIncomplete, updated);
     }
+
+    [TestMethod]
+    public void PlaylistOwnedFilterConverter_RoundTripsWorkspaceBindingValue()
+    {
+        var converter = new playlistSummaryOwnedFilterConverter();
+
+        object selected = converter.Convert(
+            PlaylistOwnedFilter.OwnedComplete,
+            typeof(bool),
+            "OwnedComplete",
+            CultureInfo.InvariantCulture);
+        object updated = converter.ConvertBack(
+            true,
+            typeof(PlaylistOwnedFilter),
+            "OwnedIncomplete",
+            CultureInfo.InvariantCulture);
+
+        Assert.AreEqual(true, selected);
+        Assert.AreEqual(PlaylistOwnedFilter.OwnedIncomplete, updated);
+    }
 }

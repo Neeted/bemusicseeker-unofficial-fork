@@ -33,6 +33,17 @@ public sealed class KeywordSearchPresentationTests
     }
 
     [TestMethod]
+    public void PlaylistSummaryKeywordFilterChangedThroughWorkspaceUpdatesWarningPresentation()
+    {
+        var viewModel = new MainWindowViewModel();
+
+        viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter = "memo:alpha";
+
+        StringAssert.Contains(viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText, "memo");
+        Assert.IsTrue(viewModel.PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning);
+    }
+
+    [TestMethod]
     public void BuildKeywordSearchHelpText_ContainsContextFields()
     {
         string chartListHelp = MainWindowViewModel.BuildKeywordSearchHelpText(GridKeywordSearchContext.ChartList);

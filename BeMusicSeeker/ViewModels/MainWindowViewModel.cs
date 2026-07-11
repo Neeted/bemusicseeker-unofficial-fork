@@ -5869,11 +5869,6 @@ public partial class MainWindowViewModel : ViewModel
             if (PlaylistWorkspace.PlaylistSummaryKeywordFilter != text)
             {
                 PlaylistWorkspace.PlaylistSummaryKeywordFilter = text;
-                UpdatePlaylistSummaryKeywordSearchPresentation();
-                if (IsPlaylistSummaryMode)
-                {
-                    RefreshPlaylistSummaryPresentationIfVisible();
-                }
             }
         }
     }
@@ -6369,10 +6364,6 @@ public partial class MainWindowViewModel : ViewModel
             if (PlaylistWorkspace.PlaylistSummaryOwnedFilter != (PlaylistOwnedFilter)(int)value)
             {
                 PlaylistWorkspace.PlaylistSummaryOwnedFilter = (PlaylistOwnedFilter)(int)value;
-                if (IsPlaylistSummaryMode)
-                {
-                    RefreshPlaylistSummaryPresentationIfVisible();
-                }
             }
         }
     }
@@ -6863,9 +6854,9 @@ public partial class MainWindowViewModel : ViewModel
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
-        PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
+        PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;
         MainChartList.SortRequested += MainChartListSortRequested;
         regularChartListOwner = new RegularChartListOwner(
             MainChartList,
@@ -6928,25 +6919,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void PlaylistWorkspacePropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        string propertyName = e?.PropertyName;
-        if (string.IsNullOrWhiteSpace(propertyName))
-        {
-            return;
-        }
-        if (propertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryView)
-            || propertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryText)
-            || propertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings)
-            || propertyName == nameof(PlaylistWorkspaceViewModel.ColumnSettingsVisibilityForPlaylist)
-            || propertyName == nameof(PlaylistWorkspaceViewModel.UseAsyncChartRowsViewBinding))
-        {
-            return;
-        }
-
-        RaisePropertyChanged(propertyName);
-    }
-
     private void PlaylistWorkspacePlaylistSummaryViewApplied(object sender, PlaylistSummaryViewAppliedEventArgs e)
     {
         TrySchedulePlaylistReloadCleanup();
@@ -6955,6 +6927,15 @@ public partial class MainWindowViewModel : ViewModel
     private void PlaylistWorkspacePlaylistSummarySortRequested(object sender, EventArgs e)
     {
         RefreshPlaylistSummaryPresentationIfVisible();
+    }
+
+    private void PlaylistWorkspacePlaylistSummaryFilterChanged(object sender, EventArgs e)
+    {
+        UpdatePlaylistSummaryKeywordSearchPresentation();
+        if (IsPlaylistSummaryMode)
+        {
+            RefreshPlaylistSummaryPresentationIfVisible();
+        }
     }
 
     private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs e)

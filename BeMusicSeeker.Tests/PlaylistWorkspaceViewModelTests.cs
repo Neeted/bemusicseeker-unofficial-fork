@@ -70,7 +70,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal long LastPlaylistSummaryBuildCompletedTimestamp");
         StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace = new PlaylistWorkspaceViewModel(DispatchMainChartListAction);");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("private void PlaylistWorkspacePropertyChanged(", StringComparison.Ordinal));
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;");
+        StringAssert.Contains(logicalSource, "private void PlaylistWorkspacePlaylistSummaryFilterChanged(");
         Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryDataRefreshDecision", StringComparison.Ordinal));
@@ -117,9 +120,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings = columns;
         viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist = Visibility.Visible;
         viewModel.PlaylistWorkspace.UseAsyncChartRowsViewBinding = false;
-        viewModel.GridHeaderText = "Playlist summary";
-        viewModel.PlaylistSummaryKeywordFilter = "title:test";
-        viewModel.PlaylistSummaryOwnedFilter = MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedComplete;
+        viewModel.PlaylistWorkspace.GridHeaderText = "Playlist summary";
+        viewModel.PlaylistWorkspace.PlaylistSummaryKeywordFilter = "title:test";
+        viewModel.PlaylistWorkspace.PlaylistSummaryOwnedFilter = PlaylistOwnedFilter.OwnedComplete;
 
         Assert.AreSame(columns, viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings);
         Assert.AreEqual(Visibility.Visible, viewModel.PlaylistWorkspace.ColumnSettingsVisibilityForPlaylist);
@@ -154,18 +157,18 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void PlaylistWorkspaceKeywordWarning_RelaysLegacyRootProperties()
+    public void PlaylistWorkspaceKeywordWarning_IsOwnedByPlaylistWorkspace()
     {
         var viewModel = new MainWindowViewModel();
         var propertyNames = new List<string>();
-        viewModel.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
         viewModel.PlaylistWorkspace.SetPlaylistSummaryKeywordSearchWarningText("warning");
 
-        Assert.AreEqual("warning", viewModel.PlaylistSummaryKeywordSearchWarningText);
-        Assert.IsTrue(viewModel.HasPlaylistSummaryKeywordSearchWarning);
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.PlaylistSummaryKeywordSearchWarningText));
-        CollectionAssert.Contains(propertyNames, nameof(MainWindowViewModel.HasPlaylistSummaryKeywordSearchWarning));
+        Assert.AreEqual("warning", viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText);
+        Assert.IsTrue(viewModel.PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning);
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryKeywordSearchWarningText));
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.HasPlaylistSummaryKeywordSearchWarning));
     }
 
     [TestMethod]

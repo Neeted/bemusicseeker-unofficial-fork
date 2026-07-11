@@ -95,7 +95,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainTable, "ColumnsSettings=\"{Binding ColumnsSettings, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "SortColumnName=\"{Binding SortParameters.ColumnsName, Mode=OneWay}\"");
         StringAssert.Contains(mainTable, "SortDirection=\"{Binding SortParameters.Direction, Mode=OneWay}\"");
-        StringAssert.Contains(mainTable, "Visibility=\"{Binding DataContext.IsPlaylistSummaryMode, ElementName=window, Converter={qc:QuickConverter '!$P ? Visibility.Visible : Visibility.Collapsed'}}\"");
+        StringAssert.Contains(mainTable, "Visibility=\"{Binding DataContext.PlaylistWorkspace.IsPlaylistSummaryMode, ElementName=window, Converter={qc:QuickConverter '!$P ? Visibility.Visible : Visibility.Collapsed'}}\"");
         StringAssert.Contains(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings.Title.Visibility, Source={StaticResource vm}");
         Assert.AreEqual(69, CountOccurrences(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings."));
         Assert.IsFalse(xaml.Contains("ColumnsSettingsChartRowsView"));
@@ -172,7 +172,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
         StringAssert.Contains(summaryRow, "P0={Binding IsPlayHistoryViewActive}");
-        StringAssert.Contains(summaryRow, "P1={Binding IsPlaylistSummaryMode}");
+        StringAssert.Contains(summaryRow, "P1={Binding PlaylistWorkspace.IsPlaylistSummaryMode}");
         StringAssert.Contains(summaryRow, "ItemsSource=\"{Binding PlayHistorySummaryCards}\"");
         StringAssert.Contains(summaryRow, "Text=\"{Binding PlayHistorySummaryDiagnosticText}\"");
         StringAssert.Contains(summaryRow, "Text=\"{Binding Label}\"");
@@ -312,7 +312,7 @@ public sealed class MainWindowContextMenuResourceTests
         string editDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.xaml"));
         string editDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string toolbar = ExtractBetween(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\"", "<Border DockPanel.Dock=\"Right\" CornerRadius=\"6\" BorderThickness=\"1\" BorderBrush=\"{DynamicResource App.StrongBorderBrush}\" Width=\"Auto\" Margin=\"0,0,2,0\" VerticalAlignment=\"Center\" FlowDirection=\"LeftToRight\" Visibility=\"{Binding IsPlaylistSummaryMode");
+        string toolbar = ExtractBetween(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\"", "<Border DockPanel.Dock=\"Right\" CornerRadius=\"6\" BorderThickness=\"1\" BorderBrush=\"{DynamicResource App.StrongBorderBrush}\" Width=\"Auto\" Margin=\"0,0,2,0\" VerticalAlignment=\"Center\" FlowDirection=\"LeftToRight\" Visibility=\"{Binding PlaylistWorkspace.IsPlaylistSummaryMode");
         string saveAndClose = ExtractBetween(settingDialogCode, "private async void SaveAndClose", "internal static bool ShouldResetSettingsOnCancel");
         string saveSettings = ExtractBetween(viewModelCode, "public async Task SaveSettings()", "public async Task SaveSettingsForInitialInitialize()");
         string saveSettingsCore = ExtractBetween(viewModelCode, "private async Task SaveSettingsCore", "public void SaveOperationModeForRestart");
