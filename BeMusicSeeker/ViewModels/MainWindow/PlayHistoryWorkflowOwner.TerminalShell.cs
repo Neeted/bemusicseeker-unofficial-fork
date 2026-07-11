@@ -31,7 +31,10 @@ public sealed partial class PlayHistoryWorkflowOwner
         }
         if (logPlaylistSourceClear == null)
         {
-            throw new InvalidOperationException("Play-history terminal shell publishing must be configured before a source clear is published.");
+            throw new PlayHistoryTerminalPublishException(
+                new InvalidOperationException("Play-history terminal shell publishing must be configured before a source clear is published."),
+                ownershipTransferred: true,
+                terminalCommit);
         }
 
         List<Exception> publishExceptions = [];

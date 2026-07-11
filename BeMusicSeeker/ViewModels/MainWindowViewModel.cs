@@ -10196,34 +10196,23 @@ public partial class MainWindowViewModel : ViewModel
         {
             columnFilterMode = treeViewFilterTypeSelected;
         }
-        PlayHistorySortedRowsApplyResult applyResult;
-        try
-        {
-            applyResult = playHistoryWorkflowOwner.ApplySortedRows(
-                new PlayHistorySortedRowsApplyRequest(
-                    mode,
-                    columnFilterMode,
-                    state,
-                    sortedRows,
-                    sortSucceeded,
-                    sortProfile,
-                    KeywordFilter,
-                    PlayHistory.SelectedDisplayTarget,
-                    archivePeriodTree),
-                viewBuildStopwatch,
-                MainChartList,
-                PlaylistWorkspace,
-                regularChartListOwner,
-                playlistDetailBuildState,
-                playlistViewState);
-        }
-        catch (PlayHistoryTerminalPublishException ex)
-        {
-            playHistoryWorkflowOwner.PublishTerminalShellStateAfterTablePublishFailure(
-                ex,
-                playlistDetailBuildState);
-            throw;
-        }
+        PlayHistorySortedRowsApplyResult applyResult = playHistoryWorkflowOwner.ApplySortedRows(
+            new PlayHistorySortedRowsApplyRequest(
+                mode,
+                columnFilterMode,
+                state,
+                sortedRows,
+                sortSucceeded,
+                sortProfile,
+                KeywordFilter,
+                PlayHistory.SelectedDisplayTarget,
+                archivePeriodTree),
+            viewBuildStopwatch,
+            MainChartList,
+            PlaylistWorkspace,
+            regularChartListOwner,
+            playlistDetailBuildState,
+            playlistViewState);
         sortMs += applyResult.AdditionalSortMs;
         sortSucceeded = applyResult.SortSucceeded;
         sortProfile = applyResult.SortProfile;
@@ -10245,7 +10234,6 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         PlayHistoryTerminalCommitResult terminalCommit = applyResult.TerminalCommit;
-        playHistoryWorkflowOwner.PublishTerminalShellState(terminalCommit, playlistDetailBuildState);
         long prepareSwapMs = terminalCommit.MainRowsApply.PrepareSwapMs;
         long columnSettingMs = terminalCommit.MainRowsApply.ColumnSettingMs;
         long setViewMs = terminalCommit.MainRowsApply.SetViewMs;

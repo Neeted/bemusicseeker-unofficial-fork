@@ -619,16 +619,19 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         catch (MainChartListPresentationPublishException ex)
         {
             result.MainRowsApply = ex.RowsApply;
-            throw new PlayHistoryTerminalPublishException(
+            var tablePublishException = new PlayHistoryTerminalPublishException(
                 ex.InnerException ?? ex,
                 ownershipTransferred: true,
                 result);
+            PublishTerminalShellStateAfterTablePublishFailure(tablePublishException, playlistDetailBuildState);
+            throw tablePublishException;
         }
         if (!applied.WasApplied)
         {
             return result;
         }
         result.MainRowsApply = applied.RowsApply;
+        PublishTerminalShellState(result, playlistDetailBuildState);
         return result;
     }
 

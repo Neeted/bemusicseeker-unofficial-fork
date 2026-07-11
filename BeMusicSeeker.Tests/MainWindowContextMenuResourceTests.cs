@@ -212,9 +212,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
         Assert.IsFalse(presentationOnlyMethod.Contains("PlayHistorySortEngine.TrySort("));
         Assert.IsFalse(rootViewModelCode.Contains("new PlayHistoryTerminalRequest"));
-        Assert.IsFalse(rootViewModelCode.Contains("PublishPlayHistoryTerminalShellState"));
-        StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.PublishTerminalShellState(");
-        StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.PublishTerminalShellStateAfterTablePublishFailure(");
+        Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.PublishTerminalShellState("));
+        Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.PublishTerminalShellStateAfterTablePublishFailure("));
+        StringAssert.Contains(playHistoryWorkflowCode, "PublishTerminalShellState(");
+        StringAssert.Contains(playHistoryWorkflowCode, "PublishTerminalShellStateAfterTablePublishFailure(");
         StringAssert.Contains(terminalShellOwnerCode, "ownershipTransferred: true");
         StringAssert.Contains(terminalShellOwnerCode, "new AggregateException(tablePublishException, shellPublishException)");
         Assert.IsFalse(rootViewModelCode.Contains("CreatePlayHistoryViewDiagnostics"));

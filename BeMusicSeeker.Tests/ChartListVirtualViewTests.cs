@@ -920,6 +920,7 @@ public sealed class ChartListVirtualViewTests
     public void PlayHistoryWorkflowOwner_ApplySortedRowsBuildsPresentationAndCommitsTerminalState()
     {
         var workflowOwner = new PlayHistoryWorkflowOwner();
+        workflowOwner.ConfigureTerminalShellPublish(_ => { });
         PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
@@ -969,6 +970,7 @@ public sealed class ChartListVirtualViewTests
     public void PlayHistoryWorkflowOwner_ApplySortedRowsResortsWhenSortSnapshotBecomesStale()
     {
         var workflowOwner = new PlayHistoryWorkflowOwner();
+        workflowOwner.ConfigureTerminalShellPublish(_ => { });
         PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
@@ -1542,15 +1544,7 @@ public sealed class ChartListVirtualViewTests
         var buildState = new PlaylistDetailBuildState();
         var viewState = new PlaylistDetailViewState();
         bool retentionLogged = false;
-        var owner = new PlayHistoryTerminalHarness(
-            workflowOwner,
-            table,
-            workspace,
-            regularOwner,
-            buildState,
-            viewState,
-            _ => { },
-            _ => retentionLogged = true);
+        workflowOwner.ConfigureTerminalShellPublish(_ => retentionLogged = true);
         var sourceClear = new PlaylistSourceClearCommitResult(
             [],
             new List<object>(),
@@ -1566,7 +1560,7 @@ public sealed class ChartListVirtualViewTests
             ownershipTransferred: true,
             result);
 
-        owner.PublishTableFailureForTest(exception);
+        workflowOwner.PublishTerminalShellStateAfterTablePublishFailure(exception, buildState);
 
         Assert.IsTrue(exception.OwnershipTransferred);
         Assert.IsFalse(exception.TerminalCommitResult.Applied);
@@ -4056,29 +4050,13 @@ public sealed class ChartListVirtualViewTests
 
         internal PlayHistoryTerminalCommitResult TryApply(PlayHistoryTerminalRequest request)
         {
-            PlayHistoryTerminalCommitResult result;
-            try
-            {
-                result = workflowOwner.ApplyTerminal(
-                    request,
-                    table,
-                    workspace,
-                    regularOwner,
-                    playlistBuildState,
-                    playlistViewState);
-            }
-            catch (PlayHistoryTerminalPublishException ex)
-            {
-                workflowOwner.PublishTerminalShellStateAfterTablePublishFailure(ex, playlistBuildState);
-                throw;
-            }
-            workflowOwner.PublishTerminalShellState(result, playlistBuildState);
-            return result;
-        }
-
-        internal void PublishTableFailureForTest(PlayHistoryTerminalPublishException exception)
-        {
-            workflowOwner.PublishTerminalShellStateAfterTablePublishFailure(exception, playlistBuildState);
+            return workflowOwner.ApplyTerminal(
+                request,
+                table,
+                workspace,
+                regularOwner,
+                playlistBuildState,
+                playlistViewState);
         }
     }
 
