@@ -1209,7 +1209,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 long dataRebuildGeneration = 0L;
                 await Task.Run(delegate
                 {
-                    dataRebuildGeneration = viewModel.DropPlaylistSummaryRowsToBmtSort(visibleRows, draggedRows, visibleInsertIndex);
+                    dataRebuildGeneration = viewModel.PlaylistSummaryBmtSort.DropRows(visibleRows, draggedRows, visibleInsertIndex);
                 }).Logging("customTablePlaylistSummary_Drop");
                 if (dataRebuildGeneration <= 0L)
                 {
@@ -3861,7 +3861,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.ApplyCurrentPlaylistSummaryOrderToBmtSort(visibleRows);
+            viewModel.PlaylistSummaryBmtSort.ApplyCurrentVisibleOrder(visibleRows);
         }).Logging("playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick");
     }
 
@@ -3875,7 +3875,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.MovePlaylistSummaryRowsToBmtSortTop(selectedPlaylistSummaryRows);
+            viewModel.PlaylistSummaryBmtSort.MoveRowsToTop(selectedPlaylistSummaryRows);
         }).Logging("playlistSummaryContextMenuMoveToBmtSortTopClick");
     }
 
@@ -3889,7 +3889,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.MovePlaylistSummaryRowsToBmtSortBottom(selectedPlaylistSummaryRows);
+            viewModel.PlaylistSummaryBmtSort.MoveRowsToBottom(selectedPlaylistSummaryRows);
         }).Logging("playlistSummaryContextMenuMoveToBmtSortBottomClick");
     }
 

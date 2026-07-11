@@ -120,6 +120,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
 
+    internal PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSort { get; }
+
     internal MainWindowRuntimeContext RuntimeContext { get; }
 
 
@@ -6571,6 +6573,10 @@ public partial class MainWindowViewModel : ViewModel
             () => DispatcherHelper.UIDispatcher);
         MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction);
         PlaylistWorkspace = new PlaylistWorkspaceViewModel(DispatchMainChartListAction);
+        PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
+            () => tables,
+            () => BMSTables,
+            (reason, invalidateTableCountCache, rebuildAsync) => RefreshPlaylistSummaryIfVisible(reason, invalidateTableCountCache, rebuildAsync));
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
@@ -9408,7 +9414,7 @@ public partial class MainWindowViewModel : ViewModel
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         MainChartListColumnSelection columnSelection = regularChartListOwner.LoadColumnSetting(columnSettingMode, treeViewFilterTypeSelected);
         long callbackStageMs = 0L;
-        PlaylistDetailTerminalCommitResult commitResult = MainChartList.ApplyPlaylistDetailTerminal(
+        PlaylistDetailTerminalCommitResult commitResult = PlaylistDetailTerminalCoordinator.Apply(
             new PlaylistDetailTerminalRequest
             {
                 BuildRequest = request,
@@ -9433,6 +9439,7 @@ public partial class MainWindowViewModel : ViewModel
                     Stopwatch = viewBuildStopwatch
                 }
             },
+            MainChartList,
             playlistDetailBuildState,
             playlistViewState,
             PlaylistWorkspace,
@@ -15720,73 +15727,6 @@ public partial class MainWindowViewModel : ViewModel
         RefreshPlaylistSummaryIfVisible("playlist_summary_output_base_changed", invalidateTableCountCache: false);
     }
 
-    public void ApplyCurrentPlaylistSummaryOrderToBmtSort(IEnumerable<PlaylistSummaryRow> visibleRows)
-    {
-        List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByReplacingVisibleSlots(GetBmtSortFullOrderSnapshot(), visibleRows);
-        PersistPlaylistSummaryBmtSortOrder(orderedTables, "playlist_summary_apply_current_order_to_bmt_sort");
-    }
-
-    public void MovePlaylistSummaryRowsToBmtSortTop(IEnumerable<PlaylistSummaryRow> rows)
-    {
-        List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByMovingRows(GetBmtSortFullOrderSnapshot(), rows, insertAtTop: true);
-        PersistPlaylistSummaryBmtSortOrder(orderedTables, "playlist_summary_move_to_bmt_sort_top");
-    }
-
-    public void MovePlaylistSummaryRowsToBmtSortBottom(IEnumerable<PlaylistSummaryRow> rows)
-    {
-        List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByMovingRows(GetBmtSortFullOrderSnapshot(), rows, insertAtTop: false);
-        PersistPlaylistSummaryBmtSortOrder(orderedTables, "playlist_summary_move_to_bmt_sort_bottom");
-    }
-
-    public long DropPlaylistSummaryRowsToBmtSort(IEnumerable<PlaylistSummaryRow> visibleRows, IEnumerable<PlaylistSummaryRow> draggedRows, int visibleInsertIndex)
-    {
-        List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByVisibleDrop(GetBmtSortFullOrderSnapshot(), visibleRows, draggedRows, visibleInsertIndex);
-        return PersistPlaylistSummaryBmtSortOrder(orderedTables, "playlist_summary_bmt_sort_drag_drop");
-    }
-
-    private List<BMSTable> GetBmtSortFullOrderSnapshot()
-    {
-        if (tables == null)
-        {
-            return [];
-        }
-        tables.AcquireReaderLockBMSTables();
-        try
-        {
-            return PlaylistSummaryBmtSortOrderPlanner.GetFullOrder(BMSTables);
-        }
-        finally
-        {
-            tables.FreeReaderLockBMSTables();
-        }
-    }
-
-    private long PersistPlaylistSummaryBmtSortOrder(IReadOnlyList<BMSTable> orderedTables, string reason)
-    {
-        if (orderedTables == null || orderedTables.Count == 0 || tables == null)
-        {
-            return 0L;
-        }
-        List<BMSTable> changedTables = [];
-        for (int i = 0; i < orderedTables.Count; i++)
-        {
-            BMSTable table = orderedTables[i];
-            int newSort = i + 1;
-            if (table != null && table.bmt_sort != newSort)
-            {
-                table.bmt_sort = newSort;
-                changedTables.Add(table);
-            }
-        }
-        if (changedTables.Count == 0)
-        {
-            return 0L;
-        }
-        tables.CommitBMSTableHeadersToDB(changedTables);
-        tables.QueueBeatorajaBmtUrlSync(reason);
-        return RefreshPlaylistSummaryIfVisible(reason, invalidateTableCountCache: false, rebuildAsync: false);
-    }
-
     public void ResyncPlaylists(IEnumerable<PlaylistSummaryRow> rows)
     {
         ResyncPlaylistsAsync(rows).GetAwaiter().GetResult();
@@ -16540,7 +16480,7 @@ public partial class MainWindowViewModel : ViewModel
             }
 
             UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort);
-            ApplyBeatorajaTableUrlImportBmtSortOrder(orderedImportedTables);
+            PlaylistSummaryBmtSort.ApplyImportedTablesToFront(orderedImportedTables);
             postProgressCompletedCount++;
             UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);
             UpdateBeatorajaTableUrlImportProgress(progressTotalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);
@@ -16581,59 +16521,6 @@ public partial class MainWindowViewModel : ViewModel
             return PlaylistSyncAttemptResult.CreateFailure(null, importedTable, item.Target?.Uri, item.ExternalImportException);
         }
         return PlaylistSyncAttemptResult.CreateSuccess(importedTable, importedTable, item?.Target?.Uri, updated: false);
-    }
-
-    private void ApplyBeatorajaTableUrlImportBmtSortOrder(IReadOnlyList<BMSTable> importedTables)
-    {
-        List<BMSTable> frontTables = [.. (importedTables ?? [])
-            .Where(table => table != null)
-            .Distinct()];
-        if (frontTables.Count == 0)
-        {
-            return;
-        }
-        var frontSet = new HashSet<BMSTable>(frontTables);
-        List<BMSTable> tailTables = [.. GetBmtSortFullOrderSnapshot().Where(table => table != null && !frontSet.Contains(table))];
-        var changedTables = new List<BMSTable>();
-        var usedSortValues = new HashSet<int>();
-        for (int i = 0; i < frontTables.Count; i++)
-        {
-            BMSTable table = frontTables[i];
-            int desiredSort = i + 1;
-            if (table.bmt_sort != desiredSort)
-            {
-                table.bmt_sort = desiredSort;
-                changedTables.Add(table);
-            }
-            usedSortValues.Add(desiredSort);
-        }
-        int nextTailSort = frontTables.Count + 1;
-        foreach (BMSTable table in tailTables)
-        {
-            int? currentSort = table.bmt_sort;
-            if (currentSort.HasValue
-                && currentSort.Value > frontTables.Count
-                && usedSortValues.Add(currentSort.Value))
-            {
-                nextTailSort = Math.Max(nextTailSort, currentSort.Value + 1);
-                continue;
-            }
-            while (usedSortValues.Contains(nextTailSort))
-            {
-                nextTailSort++;
-            }
-            table.bmt_sort = nextTailSort;
-            changedTables.Add(table);
-            usedSortValues.Add(nextTailSort);
-            nextTailSort++;
-        }
-        if (changedTables.Count == 0)
-        {
-            return;
-        }
-        tables.CommitBMSTableHeadersToDB(changedTables);
-        tables.QueueBeatorajaBmtUrlSync("beatoraja_table_url_import");
-        RefreshPlaylistSummaryIfVisible("beatoraja_table_url_import", invalidateTableCountCache: false, rebuildAsync: false);
     }
 
     private void UpdateBeatorajaTableUrlImportProgress(int completedCount, int totalCount, Uri currentUri, string currentTableName, string phaseText = null)
