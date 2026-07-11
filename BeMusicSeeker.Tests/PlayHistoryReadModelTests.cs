@@ -996,6 +996,101 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void PlayHistoryWorkflowOwner_OwnsCurrentViewFreshnessAndRefreshCandidate()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest request = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: owner.DisplayTargetRevision,
+            activateRequest: null);
+        owner.UpdateSortParameters(new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlayHistoryRow.PlayedAt),
+            Direction = ListSortDirection.Descending
+        });
+        owner.CaptureSortParameters(out SortSnapshot sortSnapshot);
+        PlayHistoryViewState state = CreatePlayHistoryViewState(
+            request,
+            sortSnapshot,
+            keywordFilter: string.Empty,
+            keywordRevision: owner.KeywordRevision,
+            displayTarget: PlayHistoryDisplayTargetItem.All,
+            displayTargetRevision: owner.DisplayTargetRevision);
+        owner.PresentationState.CurrentView = state;
+
+        Assert.IsTrue(owner.TrySnapshotCurrentView(request, out PlayHistoryViewState currentView));
+        Assert.AreSame(state, currentView);
+        Assert.AreEqual(
+            PlayHistoryPresentationFreshnessStatus.Fresh,
+            owner.EvaluateTerminalPresentationFreshness(state, string.Empty, PlayHistoryDisplayTargetItem.All).Status);
+
+        owner.UpdateSortParameters(new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlayHistoryRow.Title),
+            Direction = ListSortDirection.Ascending
+        });
+        Assert.AreEqual(
+            PlayHistoryPresentationFreshnessStatus.SortStale,
+            owner.EvaluateTerminalPresentationFreshness(state, string.Empty, PlayHistoryDisplayTargetItem.All).Status);
+
+        owner.CaptureSortParameters(out SortSnapshot latestSortSnapshot);
+        state = CreatePlayHistoryViewState(
+            request,
+            latestSortSnapshot,
+            keywordFilter: string.Empty,
+            keywordRevision: owner.KeywordRevision,
+            displayTarget: PlayHistoryDisplayTargetItem.All,
+            displayTargetRevision: owner.DisplayTargetRevision);
+        owner.PresentationState.CurrentView = state;
+
+        PlayHistoryDisplayTargetItem latestTarget = PlayHistoryDisplayTargetItem.FromPlaylist(CreateTargetTable(HashA, "Latest"));
+        long latestDisplayRevision = owner.AdvanceDisplayTargetRevision(latestTarget.Identity);
+        PlayHistoryPresentationFreshnessResult displayStale = owner.EvaluateTerminalPresentationFreshness(
+            state,
+            string.Empty,
+            latestTarget);
+        Assert.AreEqual(PlayHistoryPresentationFreshnessStatus.DisplayTargetStale, displayStale.Status);
+        Assert.IsTrue(displayStale.QueueRefresh);
+        Assert.AreSame(state, owner.PresentationState.CurrentView);
+
+        PlayHistoryViewState latestDisplayState = CreatePlayHistoryViewState(
+            request,
+            latestSortSnapshot,
+            keywordFilter: string.Empty,
+            keywordRevision: owner.KeywordRevision,
+            displayTarget: latestTarget,
+            displayTargetRevision: latestDisplayRevision);
+        owner.PresentationState.CurrentView = latestDisplayState;
+        displayStale = owner.EvaluateTerminalPresentationFreshness(state, string.Empty, latestTarget);
+        Assert.AreEqual(PlayHistoryPresentationFreshnessStatus.DisplayTargetStale, displayStale.Status);
+        Assert.IsFalse(displayStale.QueueRefresh);
+        Assert.AreSame(latestDisplayState, owner.PresentationState.CurrentView);
+
+        long latestKeywordRevision = owner.UpdateKeywordIdentity("latest", advanceRevision: true);
+        PlayHistoryPresentationFreshnessResult keywordStale = owner.EvaluateTerminalPresentationFreshness(
+            latestDisplayState,
+            "latest",
+            latestTarget);
+        Assert.AreEqual(PlayHistoryPresentationFreshnessStatus.KeywordStale, keywordStale.Status);
+        Assert.IsTrue(keywordStale.QueueRefresh);
+
+        PlayHistoryViewState latestKeywordState = CreatePlayHistoryViewState(
+            request,
+            latestSortSnapshot,
+            keywordFilter: "latest",
+            keywordRevision: latestKeywordRevision,
+            displayTarget: latestTarget,
+            displayTargetRevision: latestDisplayRevision);
+        owner.PresentationState.CurrentView = latestKeywordState;
+        keywordStale = owner.EvaluateTerminalPresentationFreshness(latestDisplayState, "latest", latestTarget);
+        Assert.AreEqual(PlayHistoryPresentationFreshnessStatus.KeywordStale, keywordStale.Status);
+        Assert.IsFalse(keywordStale.QueueRefresh);
+        Assert.AreSame(latestKeywordState, owner.PresentationState.CurrentView);
+    }
+
+    [TestMethod]
     public void PlayHistoryDisplayTargetIndex_UsesPlaylistEntryMd5BeforeSha256()
     {
         PlayHistoryRow row = CreateProjectedRow(HashA, ShaA, initialFolderLabels: "SAT");
@@ -2570,6 +2665,32 @@ public sealed class PlayHistoryReadModelTests
                     new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [hash] = sha256 }));
         PlayHistoryRow row = projected.Rows.Single();
         return string.IsNullOrEmpty(initialFolderLabels) ? row : row.WithPlaylistDisplay(initialFolderLabels);
+    }
+
+    private static PlayHistoryViewState CreatePlayHistoryViewState(
+        PlayHistoryViewRequest request,
+        SortSnapshot sortSnapshot,
+        string keywordFilter,
+        long keywordRevision,
+        PlayHistoryDisplayTargetItem displayTarget,
+        long displayTargetRevision)
+    {
+        IReadOnlyList<PlayHistoryRow> rows = [CreateProjectedRow(HashA)];
+        return new PlayHistoryViewState(
+            request.RequestId,
+            request.PeriodRequest,
+            rows,
+            rows,
+            rows,
+            [],
+            PlayHistoryProvider.Lr2,
+            Lr2PlayHistorySchemaStatus.Installed,
+            rows.Count,
+            sortSnapshot,
+            keywordFilter,
+            keywordRevision,
+            displayTarget,
+            displayTargetRevision);
     }
 
     private static BMSTable CreateTargetTable(string md5, string folder, string sha256 = "")

@@ -64,6 +64,69 @@ internal sealed class PlayHistoryWorkflowOwner
         }
     }
 
+    internal bool TrySnapshotCurrentView(PlayHistoryViewRequest request, out PlayHistoryViewState state)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            state = PresentationState.CurrentView;
+            return state != null
+                && IsCurrentRequestUnsafe(state.RequestId)
+                && PlayHistoryWorkflowOwner.IsSamePeriod(state.PeriodRequest, request?.PeriodRequest);
+        }
+    }
+
+    internal PlayHistoryPresentationFreshnessResult EvaluateTerminalPresentationFreshness(
+        PlayHistoryViewState state,
+        string currentKeywordFilter,
+        PlayHistoryDisplayTargetItem currentDisplayTarget)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            if (state == null || !IsCurrentRequestUnsafe(state.RequestId))
+            {
+                return PlayHistoryPresentationFreshnessResult.StaleRequest();
+            }
+            if (!SortSnapshot.Equals(state.SortSnapshot, PresentationState.CurrentSortSnapshot))
+            {
+                return PlayHistoryPresentationFreshnessResult.SortStale();
+            }
+
+            string currentKeywordIdentity = PlaylistRequestFactory.NormalizeKeywordFilter(currentKeywordFilter);
+            long currentKeywordRevision = Interlocked.Read(ref PresentationState.KeywordRevision);
+            PlayHistoryDisplayTargetItem safeDisplayTarget = currentDisplayTarget ?? PlayHistoryDisplayTargetItem.All;
+            string currentDisplayTargetIdentity = safeDisplayTarget.Identity;
+            long currentDisplayTargetRevision = Interlocked.Read(ref PresentationState.DisplayTargetRevision);
+
+            if (currentDisplayTargetRevision != state.DisplayTargetRevision
+                || !string.Equals(currentDisplayTargetIdentity, state.DisplayTargetIdentity, StringComparison.Ordinal))
+            {
+                bool shouldQueueRefresh = !IsLatestDisplayTargetStateAvailable(
+                    state.RequestId,
+                    currentDisplayTargetRevision,
+                    currentDisplayTargetIdentity);
+                if (shouldQueueRefresh)
+                {
+                    SaveCurrentViewIfDisplayTargetRefreshCandidate(state);
+                }
+                return PlayHistoryPresentationFreshnessResult.DisplayTargetStale(shouldQueueRefresh);
+            }
+            if (currentKeywordRevision != state.KeywordFilterRevision
+                || !string.Equals(currentKeywordIdentity, state.KeywordFilterIdentity, StringComparison.Ordinal))
+            {
+                bool shouldQueueRefresh = !IsLatestKeywordStateAvailable(
+                    state.RequestId,
+                    currentKeywordRevision,
+                    currentKeywordIdentity);
+                if (shouldQueueRefresh)
+                {
+                    SaveCurrentViewIfKeywordRefreshCandidate(state);
+                }
+                return PlayHistoryPresentationFreshnessResult.KeywordStale(shouldQueueRefresh);
+            }
+            return PlayHistoryPresentationFreshnessResult.Fresh();
+        }
+    }
+
     internal PlayHistoryViewRequest BeginRequest(
         PlayHistoryPeriodRequest periodRequest,
         string keywordIdentity,
@@ -542,6 +605,52 @@ internal sealed class PlayHistoryWorkflowOwner
         }
         return string.Equals(left?.ColumnsName, right?.ColumnsName, StringComparison.Ordinal)
             && left?.Direction == right?.Direction;
+    }
+
+    private bool IsLatestDisplayTargetStateAvailable(
+        long requestId,
+        long displayTargetRevision,
+        string displayTargetIdentity)
+    {
+        PlayHistoryViewState state = PresentationState.CurrentView;
+        return state != null
+            && state.RequestId == requestId
+            && state.DisplayTargetRevision == displayTargetRevision
+            && string.Equals(displayTargetIdentity ?? string.Empty, state.DisplayTargetIdentity, StringComparison.Ordinal);
+    }
+
+    private bool IsLatestKeywordStateAvailable(
+        long requestId,
+        long keywordRevision,
+        string keywordIdentity)
+    {
+        PlayHistoryViewState state = PresentationState.CurrentView;
+        return state != null
+            && state.RequestId == requestId
+            && state.KeywordFilterRevision == keywordRevision
+            && string.Equals(keywordIdentity ?? string.Empty, state.KeywordFilterIdentity, StringComparison.Ordinal);
+    }
+
+    private void SaveCurrentViewIfDisplayTargetRefreshCandidate(PlayHistoryViewState state)
+    {
+        PlayHistoryViewState cachedState = PresentationState.CurrentView;
+        if (cachedState == null
+            || cachedState.RequestId != state.RequestId
+            || cachedState.DisplayTargetRevision <= state.DisplayTargetRevision)
+        {
+            PresentationState.CurrentView = state;
+        }
+    }
+
+    private void SaveCurrentViewIfKeywordRefreshCandidate(PlayHistoryViewState state)
+    {
+        PlayHistoryViewState cachedState = PresentationState.CurrentView;
+        if (cachedState == null
+            || cachedState.RequestId != state.RequestId
+            || cachedState.KeywordFilterRevision <= state.KeywordFilterRevision)
+        {
+            PresentationState.CurrentView = state;
+        }
     }
 
     private static bool MatchesKeywordAndSummaryFilters(

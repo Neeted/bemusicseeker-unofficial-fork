@@ -640,8 +640,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
 
-    private ref PlayHistoryViewState playHistoryViewState => ref playHistoryPresentationState.CurrentView;
-
     private ref IReadOnlyList<PlayHistoryPeriodTreeItem> _PlayHistoryArchivePeriodTree => ref playHistoryPresentationState.ArchivePeriodTree;
 
     private ref IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards => ref playHistoryPresentationState.SummaryCards;
@@ -10885,10 +10883,7 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistoryViewRequest viewRequest,
         Stopwatch viewBuildStopwatch)
     {
-        PlayHistoryViewState state = Volatile.Read(ref playHistoryViewState);
-        if (state == null
-            || !playHistoryWorkflowOwner.IsCurrentRequest(state.RequestId)
-            || !PlayHistoryWorkflowOwner.IsSamePeriod(state.PeriodRequest, viewRequest.PeriodRequest))
+        if (!playHistoryWorkflowOwner.TrySnapshotCurrentView(viewRequest, out PlayHistoryViewState state))
         {
             LogPlayHistoryEvent(
                 "play_history_view_presentation_skipped",
@@ -11089,14 +11084,17 @@ public partial class MainWindowViewModel : ViewModel
         string gridSummaryText = string.Empty;
         IReadOnlyList<PlayHistorySummaryCard> summaryCards = [];
         long columnSettingStartMs = 0L;
-        lock (playHistoryViewRequestLock)
+        while (true)
         {
-            if (!playHistoryWorkflowOwner.IsCurrentRequest(state.RequestId))
+            PlayHistoryPresentationFreshnessResult freshness = playHistoryWorkflowOwner.EvaluateTerminalPresentationFreshness(
+                state,
+                KeywordFilter,
+                SelectedPlayHistoryDisplayTarget);
+            if (freshness.Status == PlayHistoryPresentationFreshnessStatus.Fresh)
             {
-                LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
-                return;
+                break;
             }
-            if (!playHistoryWorkflowOwner.IsCurrentSortSnapshot(state.SortSnapshot))
+            if (freshness.Status == PlayHistoryPresentationFreshnessStatus.SortStale)
             {
                 var resortStopwatch = Stopwatch.StartNew();
                 ChartListSortParameters currentSortParameters = playHistoryWorkflowOwner.CaptureSortParameters(out SortSnapshot currentSortSnapshot);
@@ -11122,69 +11120,49 @@ public partial class MainWindowViewModel : ViewModel
                     state.DisplayTarget,
                     state.DisplayTargetRevision,
                     state.SummaryOverride);
+                continue;
             }
-            string currentKeywordFilter = KeywordFilter;
-            long currentKeywordRevision = playHistoryWorkflowOwner.KeywordRevision;
-            PlayHistoryDisplayTargetItem currentDisplayTarget = SelectedPlayHistoryDisplayTarget;
-            long currentDisplayTargetRevision = playHistoryWorkflowOwner.DisplayTargetRevision;
-            if (currentDisplayTargetRevision != state.DisplayTargetRevision
-                || !string.Equals(currentDisplayTarget?.Identity ?? string.Empty, state.DisplayTargetIdentity, StringComparison.Ordinal))
+            if (freshness.Status == PlayHistoryPresentationFreshnessStatus.DisplayTargetStale)
             {
-                PlayHistoryViewState cachedState = Volatile.Read(ref playHistoryViewState);
-                bool latestDisplayTargetStateAvailable = cachedState != null
-                    && cachedState.RequestId == state.RequestId
-                    && cachedState.DisplayTargetRevision == currentDisplayTargetRevision
-                    && string.Equals(currentDisplayTarget?.Identity ?? string.Empty, cachedState.DisplayTargetIdentity, StringComparison.Ordinal);
-                if (!latestDisplayTargetStateAvailable)
+                if (freshness.QueueRefresh)
                 {
-                    if (cachedState == null
-                        || cachedState.RequestId != state.RequestId
-                        || cachedState.DisplayTargetRevision <= state.DisplayTargetRevision)
-                    {
-                        Volatile.Write(ref playHistoryViewState, state);
-                    }
                     QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
                 }
                 LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
                 return;
             }
-            if (currentKeywordRevision != state.KeywordFilterRevision
-                || !string.Equals(NormalizePlaylistKeywordFilter(currentKeywordFilter), state.KeywordFilterIdentity, StringComparison.Ordinal))
+            if (freshness.Status == PlayHistoryPresentationFreshnessStatus.KeywordStale)
             {
-                PlayHistoryViewState cachedState = Volatile.Read(ref playHistoryViewState);
-                bool latestKeywordStateAvailable = cachedState != null
-                    && cachedState.RequestId == state.RequestId
-                    && cachedState.KeywordFilterRevision == currentKeywordRevision
-                    && string.Equals(NormalizePlaylistKeywordFilter(currentKeywordFilter), cachedState.KeywordFilterIdentity, StringComparison.Ordinal);
-                if (!latestKeywordStateAvailable)
+                if (freshness.QueueRefresh)
                 {
-                    if (cachedState == null
-                        || cachedState.RequestId != state.RequestId
-                        || cachedState.KeywordFilterRevision <= state.KeywordFilterRevision)
-                    {
-                        Volatile.Write(ref playHistoryViewState, state);
-                    }
                     QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false);
                 }
                 LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
                 return;
             }
-            diagnostics = CreatePlayHistoryViewDiagnostics(state.Diagnostics, sortSucceeded, sortProfile);
-            diagnosticsCount = diagnostics.Count;
-            PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
-                periodRequest.Label,
-                sortedRows,
-                state.SummaryOverride);
-            nextRowsView = sortedRows.Count == 0 && MainChartList.Rows is PlayHistoryVirtualView currentPlayHistoryView && currentPlayHistoryView.Count == 0
-                ? MainChartList.Rows
-                : new PlayHistoryVirtualView(sortedRows, CountDistinctPlayHistoryFolderLabels(sortedRows));
-            columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-            columnSelection = regularChartListOwner.ResolveColumnSettingForViewUpdate(mode, treeViewFilterTypeSelected);
-            diagnosticSummaryText = PlayHistoryPresentationState.FormatDiagnosticSummary(diagnostics);
-            gridSummaryText = PlayHistoryPresentationState.FormatGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
-            summaryCards = PlayHistoryPresentationState.CreateSummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
-            columnSettingReuse = columnSelection.Reused;
+            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
+            return;
         }
+        diagnostics = CreatePlayHistoryViewDiagnostics(state.Diagnostics, sortSucceeded, sortProfile);
+        diagnosticsCount = diagnostics.Count;
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+            periodRequest.Label,
+            sortedRows,
+            state.SummaryOverride);
+        nextRowsView = sortedRows.Count == 0 && MainChartList.Rows is PlayHistoryVirtualView currentPlayHistoryView && currentPlayHistoryView.Count == 0
+            ? MainChartList.Rows
+            : new PlayHistoryVirtualView(sortedRows, CountDistinctPlayHistoryFolderLabels(sortedRows));
+        columnSettingStartMs = viewBuildStopwatch.ElapsedMilliseconds;
+        MainViewUpdateMode columnFilterMode;
+        lock (playHistoryViewRequestLock)
+        {
+            columnFilterMode = treeViewFilterTypeSelected;
+        }
+        columnSelection = regularChartListOwner.ResolveColumnSettingForViewUpdate(mode, columnFilterMode);
+        diagnosticSummaryText = PlayHistoryPresentationState.FormatDiagnosticSummary(diagnostics);
+        gridSummaryText = PlayHistoryPresentationState.FormatGridSummaryText(periodRequest, summary, diagnostics, diagnosticSummaryText);
+        summaryCards = PlayHistoryPresentationState.CreateSummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys());
+        columnSettingReuse = columnSelection.Reused;
 
         bool ownsCandidateRows = !ReferenceEquals(MainChartList.Rows, nextRowsView);
         PlayHistoryTerminalCommitResult terminalCommit;

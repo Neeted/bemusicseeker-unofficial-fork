@@ -370,6 +370,53 @@ internal sealed class PlayHistoryTerminalCommitResult
     internal bool DiagnosticTextChanged { get; set; }
 }
 
+internal sealed class PlayHistoryPresentationFreshnessResult
+{
+    private PlayHistoryPresentationFreshnessResult(PlayHistoryPresentationFreshnessStatus status, bool queueRefresh)
+    {
+        Status = status;
+        QueueRefresh = queueRefresh;
+    }
+
+    internal PlayHistoryPresentationFreshnessStatus Status { get; }
+
+    internal bool QueueRefresh { get; }
+
+    internal static PlayHistoryPresentationFreshnessResult Fresh()
+    {
+        return new PlayHistoryPresentationFreshnessResult(PlayHistoryPresentationFreshnessStatus.Fresh, queueRefresh: false);
+    }
+
+    internal static PlayHistoryPresentationFreshnessResult StaleRequest()
+    {
+        return new PlayHistoryPresentationFreshnessResult(PlayHistoryPresentationFreshnessStatus.StaleRequest, queueRefresh: false);
+    }
+
+    internal static PlayHistoryPresentationFreshnessResult SortStale()
+    {
+        return new PlayHistoryPresentationFreshnessResult(PlayHistoryPresentationFreshnessStatus.SortStale, queueRefresh: false);
+    }
+
+    internal static PlayHistoryPresentationFreshnessResult DisplayTargetStale(bool queueRefresh)
+    {
+        return new PlayHistoryPresentationFreshnessResult(PlayHistoryPresentationFreshnessStatus.DisplayTargetStale, queueRefresh);
+    }
+
+    internal static PlayHistoryPresentationFreshnessResult KeywordStale(bool queueRefresh)
+    {
+        return new PlayHistoryPresentationFreshnessResult(PlayHistoryPresentationFreshnessStatus.KeywordStale, queueRefresh);
+    }
+}
+
+internal enum PlayHistoryPresentationFreshnessStatus
+{
+    Fresh,
+    StaleRequest,
+    SortStale,
+    DisplayTargetStale,
+    KeywordStale
+}
+
 [Serializable]
 internal sealed class PlayHistoryTerminalPublishException : Exception
 {
