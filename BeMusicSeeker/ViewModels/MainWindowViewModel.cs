@@ -5429,7 +5429,9 @@ public partial class MainWindowViewModel : ViewModel
                 UpdateKeywordSearchPresentation();
                 if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
                 {
-                    QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false);
+                    playHistoryWorkflowOwner.QueueKeywordFilterRefresh(
+                        NormalizePlaylistKeywordFilter(KeywordFilter),
+                        advanceRevision: false);
                 }
                 else
                 {
@@ -6217,9 +6219,35 @@ public partial class MainWindowViewModel : ViewModel
             () => IsShutdownRequested,
             SnapshotPlayHistoryDisplayTargetTables,
             SchedulePlayHistoryDisplayTargetCatalogRefresh);
+        PlayHistory.ConfigureViewRefreshScheduler(
+            () => IsShutdownRequested,
+            request => RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request));
+        PlayHistory.ConfigureViewExecution(new PlayHistoryViewExecutionDependencies(
+            () => files,
+            () => tables,
+            ResolvePlayHistoryReadSourceContext,
+            InvokeMainChartListPresentationAction,
+            (request, progress) => ReportPlayHistoryReadWorkflowProgress(
+                request.PeriodRequest,
+                request.RequestId,
+                progress),
+            () =>
+            {
+                lock (playHistoryViewRequestLock)
+                {
+                    return treeViewFilterTypeSelected;
+                }
+            },
+            MainChartList,
+            PlaylistWorkspace,
+            playlistDetailBuildState,
+            playlistViewState));
         PlayHistory.ConfigureTerminalShellPublish(LogPlaylistSourceClear);
-        PlayHistory.DisplayTargetRefreshRequested += (_, _) => QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
-        PlayHistory.SummaryFilterRefreshRequested += (_, _) => QueuePlayHistoryKeywordFilterRefresh();
+        PlayHistory.DisplayTargetRefreshRequested += (_, _) => PlayHistory.QueueDisplayTargetRefresh(
+            PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
+            advanceRevision: false);
+        PlayHistory.SummaryFilterRefreshRequested += (_, _) => PlayHistory.QueueKeywordFilterRefresh(
+            NormalizePlaylistKeywordFilter(KeywordFilter));
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(PlaylistWorkspace);
         PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
             () => tables,
@@ -6399,31 +6427,39 @@ public partial class MainWindowViewModel : ViewModel
 
     private void DispatchMainChartListPresentationAction(Action action)
     {
+        InvokeMainChartListPresentationAction(action);
+    }
+
+    private bool InvokeMainChartListPresentationAction(Action action)
+    {
         if (action == null)
         {
             throw new ArgumentNullException(nameof(action));
         }
 
-        Dispatcher dispatcher = DispatcherHelper.UIDispatcher;
+        Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
         if (dispatcher == null || dispatcher.CheckAccess())
         {
             action();
-            return;
+            return true;
         }
         if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
-            return;
+            return false;
         }
 
         try
         {
             dispatcher.Invoke(DispatcherPriority.Normal, action);
+            return true;
         }
         catch (InvalidOperationException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
+            return false;
         }
         catch (OperationCanceledException) when (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
         {
+            return false;
         }
     }
 
@@ -7971,7 +8007,8 @@ public partial class MainWindowViewModel : ViewModel
             ScheduleDeferredPlaylistReferenceApply("PlaylistEntriesHydration");
             if (PlayHistory.SelectedDisplayTarget.UsesProjection)
             {
-                QueuePlayHistoryDisplayTargetRefresh();
+                playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
+                    PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty);
             }
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_entries_hydration_completed"))
             {
@@ -9679,114 +9716,172 @@ public partial class MainWindowViewModel : ViewModel
                     treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
                     treeViewFilterParameterSelected = activeRequest;
                 });
-        if (requestedMode == MainViewUpdateMode.KeywordFilterUpdated
-            && viewRequest.KeywordFilterRevision > 0
-            && viewRequest.KeywordFilterRevision != playHistoryWorkflowOwner.KeywordRevision)
-        {
-            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
-            return;
-        }
-        if (requestedMode == MainViewUpdateMode.KeywordFilterUpdated
-            && viewRequest.DisplayTargetRevision > 0
-            && viewRequest.DisplayTargetRevision != playHistoryWorkflowOwner.DisplayTargetRevision)
-        {
-            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
-            return;
-        }
-        if (!playHistoryWorkflowOwner.IsCurrentRequest(requestId))
-        {
-            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
-            return;
-        }
-
-        if ((requestedMode == MainViewUpdateMode.SortUpdated || requestedMode == MainViewUpdateMode.KeywordFilterUpdated)
-            && TryApplyPlayHistoryPresentationOnly(mode, requestedMode, parameter, viewRequest, viewBuildStopwatch))
-        {
-            return;
-        }
-
-        ApplyPlayHistoryReadWorkflow(mode, requestedMode, parameter, viewBuildStopwatch, viewRequest, requestId);
-    }
-
-    private void ApplyPlayHistoryReadWorkflow(
-        MainViewUpdateMode mode,
-        MainViewUpdateMode requestedMode,
-        object parameter,
-        Stopwatch viewBuildStopwatch,
-        PlayHistoryViewRequest viewRequest,
-        long requestId)
-    {
-        PlayHistoryPeriodRequest periodRequest = viewRequest.PeriodRequest;
-        bool useBeatorajaProvider = ShouldUseBeatorajaPlayHistoryProvider();
-        PlayHistoryReadSourceContext source = useBeatorajaProvider
-            ? PlayHistoryReadSourceContext.Beatoraja(
-                ResolveMainViewBeatorajaPlayHistoryScoreDbPath(),
-                ResolveBeatorajaPlayHistoryScoreContext())
-            : PlayHistoryReadSourceContext.Lr2(
-                ResolveMainViewLr2PlayHistoryScoreDbPath(),
-                Settings.Default.OperationModeLR2DB);
-        var activeViewRequest = new PlayHistoryViewRequest(
-            periodRequest,
-            requestId,
-            viewRequest.KeywordFilterRevision,
-            viewRequest.DisplayTargetRevision);
-        PlayHistoryReadWorkflowResult result = playHistoryWorkflowOwner.BuildReadView(
-            new PlayHistoryReadWorkflowRequest(
-                activeViewRequest,
-                source,
-                KeywordFilter,
-                PlayHistory.SelectedDisplayTarget,
-                playHistoryWorkflowOwner.SnapshotSummaryFilterTexts(source.Provider),
-                progress => ReportPlayHistoryReadWorkflowProgress(periodRequest, requestId, progress)),
-            files,
-            tables);
-        if (!result.Built)
-        {
-            LogStalePlayHistoryViewRequest(
+        PlayHistoryViewExecutionResult execution = playHistoryWorkflowOwner.ExecuteView(
+            new PlayHistoryViewExecutionRequest(
                 mode,
                 requestedMode,
                 parameter,
-                periodRequest,
-                requestId,
-                result.ElapsedThroughCancellationMs);
+                viewBuildStopwatch,
+                new PlayHistoryViewRequest(
+                    periodRequest,
+                    requestId,
+                    viewRequest.KeywordFilterRevision,
+                    viewRequest.DisplayTargetRevision),
+                KeywordFilter,
+                PlayHistory.SelectedDisplayTarget));
+        LogPlayHistoryViewExecution(execution);
+    }
+
+    private void LogPlayHistoryViewExecution(PlayHistoryViewExecutionResult execution)
+    {
+        if (execution == null)
+        {
             return;
         }
 
-        PlayHistoryReadPresentationBuildResult presentation = result.Presentation;
-        LogPlayHistoryDisplayTargetFilter(
-            periodRequest,
-            requestId,
-            PlayHistory.SelectedDisplayTarget,
-            presentation.DisplayTargetSourceCount,
-            presentation.DisplayTargetResultCount);
-        LogPlayHistoryKeywordFilter(
-            periodRequest,
-            requestId,
-            KeywordFilter,
-            result.Read.RowCount,
-            presentation.DisplayTargetResultCount,
-            presentation.KeywordCount,
-            presentation.KeywordMs);
-        ApplyPlayHistorySortedRows(
-            mode,
-            requestedMode,
-            parameter,
-            viewBuildStopwatch,
-            presentation.State,
-            [.. presentation.SortedRows],
-            presentation.SortSucceeded,
-            presentation.SortProfile,
-            result.Read.ElapsedMs,
-            result.Projection.IndexMs,
-            result.Projection.IndexCacheHit,
-            result.Projection.IndexStaleRetries,
-            result.Projection.ProjectionMs,
-            result.PeriodIndex.ElapsedMs,
-            presentation.KeywordMs,
-            presentation.KeywordCount,
-            presentation.ArchivePeriodTree,
-            presentation.SortMs,
-            fromSortOnly: false);
+        PlayHistoryViewExecutionRequest request = execution.Request;
+        PlayHistoryViewRequest viewRequest = request.ViewRequest;
+        PlayHistoryPeriodRequest periodRequest = viewRequest.PeriodRequest;
+        if (execution.Status == PlayHistoryViewExecutionStatus.NoCurrentMatchingState)
+        {
+            LogPlayHistoryEvent(
+                "play_history_view_presentation_skipped",
+                "period=" + periodRequest.Kind
+                + " requestId=" + viewRequest.RequestId
+                + " reason=no_current_matching_state"
+                + " totalMs=" + request.Stopwatch.ElapsedMilliseconds);
+            LogMainViewBuild(
+                "main_view_build mode=" + request.Mode
+                + " requestedMode=" + request.RequestedMode
+                + " parameterType=" + (request.Parameter?.GetType().Name ?? "(null)")
+                + " playHistorySortOnly=true skipped=true reason=no_current_matching_state"
+                + " playHistoryPeriod=" + periodRequest.Kind
+                + " totalMs=" + request.Stopwatch.ElapsedMilliseconds);
+            return;
+        }
+
+        PlayHistoryReadWorkflowResult readResult = execution.ReadResult;
+        PlayHistoryReadPresentationBuildResult readPresentation = readResult?.Presentation;
+        PlayHistoryPresentationOnlyBuildResult presentationOnly = execution.PresentationOnlyResult;
+        if (readPresentation != null)
+        {
+            LogPlayHistoryDisplayTargetFilter(
+                periodRequest,
+                viewRequest.RequestId,
+                PlayHistory.SelectedDisplayTarget,
+                readPresentation.DisplayTargetSourceCount,
+                readPresentation.DisplayTargetResultCount);
+            LogPlayHistoryKeywordFilter(
+                periodRequest,
+                viewRequest.RequestId,
+                KeywordFilter,
+                readResult.Read.RowCount,
+                readPresentation.DisplayTargetResultCount,
+                readPresentation.KeywordCount,
+                readPresentation.KeywordMs);
+        }
+        else if (presentationOnly != null)
+        {
+            if (presentationOnly.DisplayTargetApplied)
+            {
+                LogPlayHistoryDisplayTargetFilter(
+                    periodRequest,
+                    viewRequest.RequestId,
+                    PlayHistory.SelectedDisplayTarget,
+                    presentationOnly.DisplayTargetSourceCount,
+                    presentationOnly.DisplayTargetResultCount);
+            }
+            if (presentationOnly.KeywordFilterApplied)
+            {
+                LogPlayHistoryKeywordFilter(
+                    periodRequest,
+                    viewRequest.RequestId,
+                    KeywordFilter,
+                    presentationOnly.KeywordSourceCount,
+                    presentationOnly.KeywordProjectedCount,
+                    presentationOnly.KeywordCount,
+                    presentationOnly.KeywordMs);
+            }
+        }
+
+        if (execution.Status != PlayHistoryViewExecutionStatus.Applied)
+        {
+            long elapsedMs = execution.Status == PlayHistoryViewExecutionStatus.ReadCanceled
+                ? readResult?.ElapsedThroughCancellationMs ?? request.Stopwatch.ElapsedMilliseconds
+                : request.Stopwatch.ElapsedMilliseconds;
+            LogStalePlayHistoryViewRequest(
+                request.Mode,
+                request.RequestedMode,
+                request.Parameter,
+                periodRequest,
+                viewRequest.RequestId,
+                elapsedMs);
+            return;
+        }
+
+        PlayHistoryViewState state = readPresentation?.State ?? presentationOnly?.State;
+        PlayHistorySortedRowsApplyResult applyResult = execution.ApplyResult;
+        PlayHistoryTerminalCommitResult terminalCommit = applyResult.TerminalCommit;
+        long prepareSwapMs = terminalCommit.MainRowsApply.PrepareSwapMs;
+        long columnSettingMs = terminalCommit.MainRowsApply.ColumnSettingMs;
+        long setViewMs = terminalCommit.MainRowsApply.SetViewMs;
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics = applyResult.Diagnostics;
+        int diagnosticsCount = diagnostics.Count;
+        if (diagnosticsCount > 0)
+        {
+            LogPlayHistoryDiagnostics(periodRequest, applyResult.SortProfile, diagnostics);
+        }
+        long sortMs = execution.SortMs + applyResult.AdditionalSortMs;
+        LogPlayHistoryEvent(
+            "play_history_view_apply",
+            "period=" + periodRequest.Kind
+            + " requestId=" + viewRequest.RequestId
+            + " sortOnly=" + execution.FromSortOnly.ToString().ToLowerInvariant()
+            + " sortSucceeded=" + applyResult.SortSucceeded.ToString().ToLowerInvariant()
+            + " sortProfile=" + (applyResult.SortProfile ?? string.Empty)
+            + " schemaStatus=" + state.SchemaStatus
+            + " diagnosticsCount=" + diagnosticsCount
+            + " sourceCount=" + state.SourceCount
+            + " projectedCount=" + state.ProjectedRows.Count
+            + " viewCount=" + applyResult.ViewCount
+            + " readMs=" + execution.ReadMs
+            + " periodIndexMs=" + execution.PeriodIndexMs
+            + " projectionIndexMs=" + execution.ProjectionIndexMs
+            + " projectionIndexCacheHit=" + execution.ProjectionIndexCacheHit.ToString().ToLowerInvariant()
+            + " projectionIndexStaleRetries=" + execution.ProjectionIndexStaleRetries
+            + " projectionMs=" + execution.ProjectionMs
+            + " keywordMs=" + execution.KeywordMs
+            + " keywordCount=" + execution.KeywordCount
+            + " sortMs=" + sortMs
+            + " columnSettingMs=" + columnSettingMs
+            + " setViewMs=" + setViewMs
+            + " totalMs=" + request.Stopwatch.ElapsedMilliseconds);
+        LogMainViewBuild(
+            "main_view_build mode=" + request.Mode
+            + " requestedMode=" + request.RequestedMode
+            + " parameterType=" + (request.Parameter?.GetType().Name ?? "(null)")
+            + " playHistoryPeriod=" + periodRequest.Kind
+            + " playHistorySortOnly=" + execution.FromSortOnly.ToString().ToLowerInvariant()
+            + " readMs=" + execution.ReadMs
+            + " periodIndexMs=" + execution.PeriodIndexMs
+            + " projectionIndexMs=" + execution.ProjectionIndexMs
+            + " projectionIndexCacheHit=" + execution.ProjectionIndexCacheHit.ToString().ToLowerInvariant()
+            + " projectionIndexStaleRetries=" + execution.ProjectionIndexStaleRetries
+            + " projectionMs=" + execution.ProjectionMs
+            + " keywordMs=" + execution.KeywordMs
+            + " keywordCount=" + execution.KeywordCount
+            + " sortMs=" + sortMs
+            + " sortProfile=" + applyResult.SortProfile
+            + " schemaStatus=" + state.SchemaStatus
+            + " diagnosticsCount=" + diagnosticsCount
+            + " columnSettingMs=" + columnSettingMs
+            + " prepareSwapMs=" + prepareSwapMs
+            + " setViewMs=" + setViewMs
+            + " columnSettingReuse=" + terminalCommit.MainRowsApply.ColumnSettingReuse
+            + " totalMs=" + request.Stopwatch.ElapsedMilliseconds
+            + " sourceCount=" + state.SourceCount
+            + " projectedCount=" + state.ProjectedRows.Count
+            + " viewCount=" + applyResult.ViewCount);
     }
 
     private void ReportPlayHistoryReadWorkflowProgress(
@@ -9992,237 +10087,7 @@ public partial class MainWindowViewModel : ViewModel
             + " elapsedMs=" + keywordMs);
     }
 
-    private bool TryApplyPlayHistoryPresentationOnly(
-        MainViewUpdateMode mode,
-        MainViewUpdateMode requestedMode,
-        object parameter,
-        PlayHistoryViewRequest viewRequest,
-        Stopwatch viewBuildStopwatch)
-    {
-        if (!playHistoryWorkflowOwner.TrySnapshotCurrentView(viewRequest, out PlayHistoryViewState state))
-        {
-            LogPlayHistoryEvent(
-                "play_history_view_presentation_skipped",
-                "period=" + viewRequest.PeriodRequest.Kind
-                + " requestId=" + viewRequest.RequestId
-                + " reason=no_current_matching_state"
-                + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
-            LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " playHistorySortOnly=true skipped=true reason=no_current_matching_state playHistoryPeriod=" + viewRequest.PeriodRequest.Kind + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
-            return true;
-        }
 
-        string keywordFilter = KeywordFilter;
-        long keywordRevision = viewRequest.KeywordFilterRevision > 0
-            ? viewRequest.KeywordFilterRevision
-            : playHistoryWorkflowOwner.KeywordRevision;
-        PlayHistoryDisplayTargetItem displayTarget = PlayHistory.SelectedDisplayTarget;
-        long displayTargetRevision = viewRequest.DisplayTargetRevision > 0
-            ? viewRequest.DisplayTargetRevision
-            : playHistoryWorkflowOwner.DisplayTargetRevision;
-        PlayHistoryPresentationOnlyBuildResult buildResult = playHistoryWorkflowOwner.BuildPresentationOnly(
-            new PlayHistoryPresentationOnlyBuildRequest(
-                requestedMode,
-                state,
-                keywordFilter,
-                keywordRevision,
-                displayTarget,
-                displayTargetRevision,
-                playHistoryWorkflowOwner.SnapshotSummaryFilterTexts(state.Provider)),
-            tables);
-        if (buildResult.DisplayTargetApplied)
-        {
-            LogPlayHistoryDisplayTargetFilter(
-                state.PeriodRequest,
-                state.RequestId,
-                displayTarget,
-                buildResult.DisplayTargetSourceCount,
-                buildResult.DisplayTargetResultCount);
-        }
-        if (buildResult.KeywordFilterApplied)
-        {
-            LogPlayHistoryKeywordFilter(
-                state.PeriodRequest,
-                state.RequestId,
-                keywordFilter,
-                buildResult.KeywordSourceCount,
-                buildResult.KeywordProjectedCount,
-                buildResult.KeywordCount,
-                buildResult.KeywordMs);
-        }
-        if (buildResult.Status != PlayHistoryPresentationOnlyBuildStatus.Built)
-        {
-            if (buildResult.QueueRefresh)
-            {
-                if (buildResult.Status == PlayHistoryPresentationOnlyBuildStatus.DisplayTargetStale)
-                {
-                    QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
-                }
-                else if (buildResult.Status == PlayHistoryPresentationOnlyBuildStatus.KeywordStale)
-                {
-                    QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false);
-                }
-            }
-            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
-            return true;
-        }
-        ApplyPlayHistorySortedRows(
-            mode,
-            requestedMode,
-            parameter,
-            viewBuildStopwatch,
-            buildResult.State,
-            [.. buildResult.SortedRows],
-            buildResult.SortSucceeded,
-            buildResult.SortProfile,
-            readMs: 0,
-            projectionIndexMs: 0,
-            projectionIndexCacheHit: false,
-            projectionIndexStaleRetries: 0,
-            projectionMs: 0,
-            periodIndexMs: 0,
-            keywordMs: buildResult.KeywordMs,
-            keywordCount: buildResult.KeywordCount,
-            archivePeriodTree: null,
-            buildResult.SortMs,
-            fromSortOnly: true);
-        return true;
-    }
-
-    private void ApplyPlayHistorySortedRows(
-        MainViewUpdateMode mode,
-        MainViewUpdateMode requestedMode,
-        object parameter,
-        Stopwatch viewBuildStopwatch,
-        PlayHistoryViewState state,
-        List<PlayHistoryRow> sortedRows,
-        bool sortSucceeded,
-        string sortProfile,
-        long readMs,
-        long projectionIndexMs,
-        bool projectionIndexCacheHit,
-        int projectionIndexStaleRetries,
-        long projectionMs,
-        long periodIndexMs,
-        long keywordMs,
-        int keywordCount,
-        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree,
-        long sortMs,
-        bool fromSortOnly)
-    {
-        Dispatcher dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher != null && !dispatcher.CheckAccess())
-        {
-            if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-            {
-                LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state?.PeriodRequest, state?.RequestId ?? 0L, viewBuildStopwatch.ElapsedMilliseconds);
-                return;
-            }
-            dispatcher.Invoke(
-                DispatcherPriority.Normal,
-                (Action)(() => ApplyPlayHistorySortedRows(
-                    mode,
-                    requestedMode,
-                    parameter,
-                    viewBuildStopwatch,
-                    state,
-                    sortedRows,
-                    sortSucceeded,
-                    sortProfile,
-                    readMs,
-                    projectionIndexMs,
-                    projectionIndexCacheHit,
-                    projectionIndexStaleRetries,
-                    projectionMs,
-                    periodIndexMs,
-                    keywordMs,
-                    keywordCount,
-                    archivePeriodTree,
-                    sortMs,
-                    fromSortOnly)));
-            return;
-        }
-        if (state == null || !playHistoryWorkflowOwner.IsCurrentRequest(state.RequestId))
-        {
-            return;
-        }
-
-        MainViewUpdateMode columnFilterMode;
-        lock (playHistoryViewRequestLock)
-        {
-            columnFilterMode = treeViewFilterTypeSelected;
-        }
-        PlayHistorySortedRowsApplyResult applyResult = playHistoryWorkflowOwner.ApplySortedRows(
-            new PlayHistorySortedRowsApplyRequest(
-                mode,
-                columnFilterMode,
-                state,
-                sortedRows,
-                sortSucceeded,
-                sortProfile,
-                KeywordFilter,
-                PlayHistory.SelectedDisplayTarget,
-                archivePeriodTree),
-            viewBuildStopwatch,
-            MainChartList,
-            PlaylistWorkspace,
-            playlistDetailBuildState,
-            playlistViewState);
-        sortMs += applyResult.AdditionalSortMs;
-        sortSucceeded = applyResult.SortSucceeded;
-        sortProfile = applyResult.SortProfile;
-        PlayHistoryPeriodRequest periodRequest = state.PeriodRequest;
-        if (applyResult.Status != PlayHistorySortedRowsApplyStatus.Applied)
-        {
-            if (applyResult.QueueRefresh)
-            {
-                if (applyResult.Status == PlayHistorySortedRowsApplyStatus.DisplayTargetStale)
-                {
-                    QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
-                }
-                else if (applyResult.Status == PlayHistorySortedRowsApplyStatus.KeywordStale)
-                {
-                    QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false);
-                }
-            }
-            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
-            return;
-        }
-        PlayHistoryTerminalCommitResult terminalCommit = applyResult.TerminalCommit;
-        long prepareSwapMs = terminalCommit.MainRowsApply.PrepareSwapMs;
-        long columnSettingMs = terminalCommit.MainRowsApply.ColumnSettingMs;
-        long setViewMs = terminalCommit.MainRowsApply.SetViewMs;
-        IReadOnlyList<PlayHistoryDiagnostic> diagnostics = applyResult.Diagnostics;
-        int diagnosticsCount = diagnostics.Count;
-        if (diagnosticsCount > 0)
-        {
-            LogPlayHistoryDiagnostics(periodRequest, sortProfile, diagnostics);
-        }
-        LogPlayHistoryEvent(
-            "play_history_view_apply",
-            "period=" + periodRequest.Kind
-            + " requestId=" + state.RequestId
-            + " sortOnly=" + fromSortOnly.ToString().ToLowerInvariant()
-            + " sortSucceeded=" + sortSucceeded.ToString().ToLowerInvariant()
-            + " sortProfile=" + (sortProfile ?? string.Empty)
-            + " schemaStatus=" + state.SchemaStatus
-            + " diagnosticsCount=" + diagnosticsCount
-            + " sourceCount=" + state.SourceCount
-            + " projectedCount=" + state.ProjectedRows.Count
-            + " viewCount=" + sortedRows.Count
-            + " readMs=" + readMs
-            + " periodIndexMs=" + periodIndexMs
-            + " projectionIndexMs=" + projectionIndexMs
-            + " projectionIndexCacheHit=" + projectionIndexCacheHit.ToString().ToLowerInvariant()
-            + " projectionIndexStaleRetries=" + projectionIndexStaleRetries
-            + " projectionMs=" + projectionMs
-            + " keywordMs=" + keywordMs
-            + " keywordCount=" + keywordCount
-            + " sortMs=" + sortMs
-            + " columnSettingMs=" + columnSettingMs
-            + " setViewMs=" + setViewMs
-            + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
-        LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " playHistoryPeriod=" + periodRequest.Kind + " playHistorySortOnly=" + fromSortOnly.ToString().ToLowerInvariant() + " readMs=" + readMs + " periodIndexMs=" + periodIndexMs + " projectionIndexMs=" + projectionIndexMs + " projectionIndexCacheHit=" + projectionIndexCacheHit.ToString().ToLowerInvariant() + " projectionIndexStaleRetries=" + projectionIndexStaleRetries + " projectionMs=" + projectionMs + " keywordMs=" + keywordMs + " keywordCount=" + keywordCount + " sortMs=" + sortMs + " sortProfile=" + sortProfile + " schemaStatus=" + state.SchemaStatus + " diagnosticsCount=" + diagnosticsCount + " columnSettingMs=" + columnSettingMs + " prepareSwapMs=" + prepareSwapMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + terminalCommit.MainRowsApply.ColumnSettingReuse + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " sourceCount=" + state.SourceCount + " projectedCount=" + state.ProjectedRows.Count + " viewCount=" + applyResult.ViewCount);
-    }
 
     private void GetTreeViewFilterSelection(out MainViewUpdateMode mode, out object parameter)
     {
@@ -10291,6 +10156,18 @@ public partial class MainWindowViewModel : ViewModel
         return new BeatorajaPlayHistoryScoreContext(scoreSnapshot.Version, scoreSnapshot.ScoresBySha256);
     }
 
+    private PlayHistoryReadSourceContext ResolvePlayHistoryReadSourceContext()
+    {
+        bool useBeatorajaProvider = ShouldUseBeatorajaPlayHistoryProvider();
+        return useBeatorajaProvider
+            ? PlayHistoryReadSourceContext.Beatoraja(
+                ResolveMainViewBeatorajaPlayHistoryScoreDbPath(),
+                ResolveBeatorajaPlayHistoryScoreContext())
+            : PlayHistoryReadSourceContext.Lr2(
+                ResolveMainViewLr2PlayHistoryScoreDbPath(),
+                Settings.Default.OperationModeLR2DB);
+    }
+
     internal long BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest request)
     {
         SetPlaylistSummaryMode(enabled: false);
@@ -10315,78 +10192,6 @@ public partial class MainWindowViewModel : ViewModel
             SyncMainChartListSortPresentation();
         }
         return activeRequest.RequestId;
-    }
-
-    private void QueuePlayHistoryKeywordFilterRefresh(bool advanceRevision = true)
-    {
-        if (IsShutdownRequested)
-        {
-            return;
-        }
-        if (!playHistoryWorkflowOwner.TryBeginKeywordRefresh(
-            NormalizePlaylistKeywordFilter(KeywordFilter),
-            advanceRevision,
-            out PlayHistoryViewRequest request))
-        {
-            return;
-        }
-        Task refreshTask;
-        try
-        {
-            refreshTask = Task.Run(() =>
-            {
-                try
-                {
-                    RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request);
-                }
-                finally
-                {
-                    playHistoryWorkflowOwner.CompleteKeywordRefresh(request.KeywordFilterRevision);
-                }
-            });
-        }
-        catch
-        {
-            playHistoryWorkflowOwner.CompleteKeywordRefresh(request.KeywordFilterRevision);
-            throw;
-        }
-        refreshTask.Logging("playHistoryKeywordFilterUpdated");
-    }
-
-    private void QueuePlayHistoryDisplayTargetRefresh(bool advanceRevision = true)
-    {
-        if (IsShutdownRequested)
-        {
-            return;
-        }
-        if (!playHistoryWorkflowOwner.TryBeginDisplayTargetRefresh(
-            PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
-            advanceRevision,
-            out PlayHistoryViewRequest request))
-        {
-            return;
-        }
-        Task refreshTask;
-        try
-        {
-            refreshTask = Task.Run(() =>
-            {
-                try
-                {
-                    RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request);
-                }
-                finally
-                {
-                    playHistoryWorkflowOwner.CompleteDisplayTargetRefresh(request.DisplayTargetRevision);
-                }
-            });
-        }
-        catch
-        {
-            playHistoryWorkflowOwner.CompleteDisplayTargetRefresh(request.DisplayTargetRevision);
-            throw;
-        }
-        refreshTask.Logging("playHistoryDisplayTargetUpdated");
     }
 
     private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic(

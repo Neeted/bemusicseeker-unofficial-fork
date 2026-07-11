@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -3191,6 +3192,191 @@ public sealed class PlayHistoryReadModelTests
         owner.CompleteKeywordRefresh(concurrentRequest!.KeywordFilterRevision);
         Assert.ThrowsException<InvalidOperationException>(() => owner.CompleteKeywordRefresh(concurrentRequest.KeywordFilterRevision));
         Assert.IsTrue(owner.AreRefreshQueuesIdle);
+    }
+
+    [TestMethod]
+    public void WorkflowOwner_QueuesViewRefreshAndCompletesRevisionAfterRefreshCallback()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0, activateRequest: null);
+        using var refreshed = new ManualResetEventSlim();
+        var requests = new List<PlayHistoryViewRequest>();
+        owner.ConfigureViewRefreshScheduler(
+            () => false,
+            request =>
+            {
+                lock (requests)
+                {
+                    requests.Add(request);
+                }
+                refreshed.Set();
+            });
+
+        owner.QueueKeywordFilterRefresh(string.Empty, advanceRevision: false);
+
+        Assert.IsTrue(refreshed.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(SpinWait.SpinUntil(() => owner.AreRefreshQueuesIdle, TimeSpan.FromSeconds(5)));
+        lock (requests)
+        {
+            Assert.AreEqual(1, requests.Count);
+            Assert.AreEqual(0L, requests[0].KeywordFilterRevision);
+        }
+    }
+
+    [TestMethod]
+    public void WorkflowOwner_ExecuteViewRejectsStaleRequestBeforeCallingCompositionDependencies()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest active = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        bool dependencyCalled = false;
+        owner.ConfigureViewExecution(CreateViewExecutionDependencies(
+            () =>
+            {
+                dependencyCalled = true;
+                throw new AssertFailedException("A stale request must not resolve its source.");
+            }));
+
+        PlayHistoryViewExecutionResult result = owner.ExecuteView(
+            new PlayHistoryViewExecutionRequest(
+                MainViewUpdateMode.PlayHistorySelected,
+                MainViewUpdateMode.PlayHistorySelected,
+                parameter: null,
+                Stopwatch.StartNew(),
+                new PlayHistoryViewRequest(PlayHistoryPeriodRequest.All(), active.RequestId + 1),
+                keywordFilter: string.Empty,
+                PlayHistoryDisplayTargetItem.All));
+
+        Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, result.Status);
+        Assert.IsFalse(dependencyCalled);
+    }
+
+    [TestMethod]
+    public void WorkflowOwner_ExecuteViewRequeuesLatestDisplayTargetAfterPresentationStale()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest active = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        PlayHistoryViewState state = new(
+            active.RequestId,
+            active.PeriodRequest,
+            [],
+            [],
+            [],
+            [],
+            PlayHistoryProvider.Lr2,
+            default,
+            sourceCount: 0,
+            new SortSnapshot(null, null, revision: 0),
+            string.Empty,
+            owner.KeywordRevision,
+            PlayHistoryDisplayTargetItem.All,
+            owner.DisplayTargetRevision);
+        owner.PresentationState.CurrentView = state;
+
+        PlayHistoryDisplayTargetItem latestTarget = PlayHistoryDisplayTargetItem.FromTargetSet(
+            new PlayHistoryDisplayTargetSet { Name = "latest-target" });
+        owner.AdvanceDisplayTargetRevision(latestTarget.Identity);
+        using var refreshed = new ManualResetEventSlim();
+        PlayHistoryViewRequest? refreshRequest = null;
+        owner.ConfigureViewRefreshScheduler(
+            () => false,
+            request =>
+            {
+                refreshRequest = request;
+                refreshed.Set();
+            });
+        owner.ConfigureViewExecution(CreateViewExecutionDependencies());
+
+        PlayHistoryViewExecutionResult result = owner.ExecuteView(
+            new PlayHistoryViewExecutionRequest(
+                MainViewUpdateMode.PlayHistorySelected,
+                MainViewUpdateMode.SortUpdated,
+                parameter: null,
+                Stopwatch.StartNew(),
+                active,
+                keywordFilter: string.Empty,
+                PlayHistoryDisplayTargetItem.All));
+
+        Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, result.Status);
+        Assert.IsTrue(refreshed.Wait(TimeSpan.FromSeconds(5)));
+        Assert.IsTrue(SpinWait.SpinUntil(() => owner.AreRefreshQueuesIdle, TimeSpan.FromSeconds(5)));
+        Assert.IsNotNull(refreshRequest);
+        Assert.AreEqual(owner.DisplayTargetRevision, refreshRequest.DisplayTargetRevision);
+        Assert.AreEqual(latestTarget.Identity, owner.CurrentDisplayTargetIdentity);
+    }
+
+    [TestMethod]
+    public void WorkflowOwner_ExecuteViewReturnsStaleWhenSynchronousPresentationDispatchIsUnavailable()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest active = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        owner.PresentationState.CurrentView = new PlayHistoryViewState(
+            active.RequestId,
+            active.PeriodRequest,
+            [],
+            [],
+            [],
+            [],
+            PlayHistoryProvider.Lr2,
+            default,
+            sourceCount: 0,
+            new SortSnapshot(null, null, revision: 0),
+            string.Empty,
+            owner.KeywordRevision,
+            PlayHistoryDisplayTargetItem.All,
+            owner.DisplayTargetRevision);
+        owner.ConfigureViewExecution(CreateViewExecutionDependencies(invokePresentation: false));
+
+        PlayHistoryViewExecutionResult result = owner.ExecuteView(
+            new PlayHistoryViewExecutionRequest(
+                MainViewUpdateMode.PlayHistorySelected,
+                MainViewUpdateMode.SortUpdated,
+                parameter: null,
+                Stopwatch.StartNew(),
+                active,
+                keywordFilter: string.Empty,
+                PlayHistoryDisplayTargetItem.All));
+
+        Assert.AreEqual(PlayHistoryViewExecutionStatus.Stale, result.Status);
+    }
+
+    private static PlayHistoryViewExecutionDependencies CreateViewExecutionDependencies(
+        Func<PlayHistoryReadSourceContext>? sourceResolver = null,
+        bool invokePresentation = true)
+    {
+        return new PlayHistoryViewExecutionDependencies(
+            () => null,
+            () => null,
+            sourceResolver ?? (() => PlayHistoryReadSourceContext.Lr2(string.Empty, isLr2LinkedProfile: false)),
+            action =>
+            {
+                if (!invokePresentation)
+                {
+                    return false;
+                }
+                action();
+                return true;
+            },
+            (_, _) => { },
+            () => MainViewUpdateMode.PlayHistorySelected,
+            new MainChartListViewModel(),
+            new PlaylistWorkspaceViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState());
     }
 
     [TestMethod]

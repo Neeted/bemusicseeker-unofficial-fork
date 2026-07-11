@@ -21,6 +21,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
     private int displayTargetActiveCount;
     private ChartListSortParameters sortParameters;
     private ListenerCommand<PlayHistorySummaryCard> toggleSummaryFilterCommand;
+    private Func<bool> isViewRefreshShutdownRequested;
+    private Action<PlayHistoryViewRequest> refreshView;
     internal PlayHistoryWorkflowOwner()
     {
         PresentationState.CurrentSortSnapshot = new SortSnapshot(null, null, revision: 0L);
@@ -33,6 +35,86 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortChanged;
 
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortRefreshRequested;
+
+    internal void ConfigureViewRefreshScheduler(
+        Func<bool> isShutdownRequested,
+        Action<PlayHistoryViewRequest> refresh)
+    {
+        isViewRefreshShutdownRequested = isShutdownRequested
+            ?? throw new ArgumentNullException(nameof(isShutdownRequested));
+        refreshView = refresh
+            ?? throw new ArgumentNullException(nameof(refresh));
+    }
+
+    internal void QueueKeywordFilterRefresh(string identity, bool advanceRevision = true)
+    {
+        EnsureViewRefreshSchedulerConfigured();
+        if (isViewRefreshShutdownRequested())
+        {
+            return;
+        }
+        if (!TryBeginKeywordRefresh(identity, advanceRevision, out PlayHistoryViewRequest request))
+        {
+            return;
+        }
+        QueueViewRefresh(
+            request,
+            () => CompleteKeywordRefresh(request.KeywordFilterRevision),
+            "playHistoryKeywordFilterUpdated");
+    }
+
+    internal void QueueDisplayTargetRefresh(string identity, bool advanceRevision = true)
+    {
+        EnsureViewRefreshSchedulerConfigured();
+        if (isViewRefreshShutdownRequested())
+        {
+            return;
+        }
+        if (!TryBeginDisplayTargetRefresh(identity, advanceRevision, out PlayHistoryViewRequest request))
+        {
+            return;
+        }
+        QueueViewRefresh(
+            request,
+            () => CompleteDisplayTargetRefresh(request.DisplayTargetRevision),
+            "playHistoryDisplayTargetUpdated");
+    }
+
+    private void QueueViewRefresh(
+        PlayHistoryViewRequest request,
+        Action complete,
+        string operationName)
+    {
+        Task refreshTask;
+        try
+        {
+            refreshTask = Task.Run(() =>
+            {
+                try
+                {
+                    refreshView(request);
+                }
+                finally
+                {
+                    complete();
+                }
+            });
+        }
+        catch
+        {
+            complete();
+            throw;
+        }
+        refreshTask.Logging(operationName);
+    }
+
+    private void EnsureViewRefreshSchedulerConfigured()
+    {
+        if (isViewRefreshShutdownRequested == null || refreshView == null)
+        {
+            throw new InvalidOperationException("Play-history view refresh must be configured before it is queued.");
+        }
+    }
 
     private MainChartListSortRequestedEventArgs pendingSortRefresh;
 
@@ -1469,6 +1551,28 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
     internal long KeywordRevision => Interlocked.Read(ref PresentationState.KeywordRevision);
 
     internal long DisplayTargetRevision => Interlocked.Read(ref PresentationState.DisplayTargetRevision);
+
+    internal string CurrentKeywordIdentity
+    {
+        get
+        {
+            lock (PresentationState.SyncRoot)
+            {
+                return PresentationState.CurrentKeywordIdentity;
+            }
+        }
+    }
+
+    internal string CurrentDisplayTargetIdentity
+    {
+        get
+        {
+            lock (PresentationState.SyncRoot)
+            {
+                return PresentationState.CurrentDisplayTargetIdentity;
+            }
+        }
+    }
 
     internal long UpdateKeywordIdentity(string identity, bool advanceRevision)
     {
