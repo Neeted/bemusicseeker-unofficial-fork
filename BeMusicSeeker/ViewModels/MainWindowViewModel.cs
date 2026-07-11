@@ -6447,6 +6447,7 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             playlistDetailBuildState,
             playlistViewState,
+            LogPlaylistViewApply,
             LogPlaylistRetention);
         PlaylistWorkspace.ConfigureDetailEditing(() => tables);
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
@@ -9359,125 +9360,6 @@ public partial class MainWindowViewModel : ViewModel
             out viewMaterializeMs);
     }
 
-    internal static PlaylistDetailVirtualView ApplyPlaylistVirtualViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ChartModeFilter modeFilter, ChartListSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs)
-    {
-        return PlaylistDetailPresentationService.ApplyVirtualViewFromSource(
-            sourceRows,
-            keywordFilter,
-            modeFilter,
-            sortParameters,
-            out sortProfile,
-            out keywordCount,
-            out modeCount,
-            out keywordStageMs,
-            out modeStageMs,
-            out sortStageMs,
-            out viewMaterializeMs);
-    }
-
-    /// <summary>
-    /// 現在保持している playlist source snapshot から view を再計算します。
-    /// </summary>
-    private PlaylistViewApplyResult ApplyPlaylistViewFromCurrentSource(MainViewUpdateMode mode)
-    {
-        List<PlaylistDetailSourceRow> sourceRows;
-        int currentViewRowsAlive;
-        long sourceGenerationId;
-        lock (playlistViewState.SyncRoot)
-        {
-            sourceRows = playlistViewState.Source.Rows;
-            sourceGenerationId = playlistViewState.Source.GenerationId;
-            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.View.Rows);
-        }
-        sourceRows ??= [];
-        int sourceCount = sourceRows.Count;
-        LogPlaylistViewApply("started mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + currentViewRowsAlive);
-        IList finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, (ChartModeFilter)(int)ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
-        var result = new PlaylistViewApplyResult(finalRows, sourceCount, sortProfile, keywordCount, modeCount, keywordStageMs, modeStageMs, sortStageMs, viewMaterializeMs);
-        LogPlaylistViewApply("completed mode=" + mode + " sourceGenerationId=" + sourceGenerationId + " sourceCount=" + result.SourceCount + " keywordCount=" + result.KeywordCount + " modeCount=" + result.ModeCount + " viewCount=" + result.ViewCount + " sortProfile=" + result.SortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(result.FinalRows));
-        return result;
-    }
-
-    private PlaylistViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)
-    {
-        LogPlaylistViewApply("started mode=" + mode + " sourceCount=" + sourceCount + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(playlistViewState.View.Rows));
-        finalRows = ApplyPlaylistVirtualViewFromSource(sourceRows, KeywordFilter, (ChartModeFilter)(int)ModeFilter, SortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs);
-        var result = new PlaylistViewApplyResult(finalRows, sourceCount, sortProfile, keywordCount, modeCount, keywordStageMs, modeStageMs, sortStageMs, viewMaterializeMs);
-        LogPlaylistViewApply("completed mode=" + mode + " sourceCount=" + sourceCount + " keywordCount=" + result.KeywordCount + " modeCount=" + result.ModeCount + " viewCount=" + result.ViewCount + " sortProfile=" + result.SortProfile + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(result.FinalRows));
-        return result;
-    }
-
-    internal PlaylistDetailTerminalApplyResult TryCommitPlaylistDetailTerminal(
-        PlaylistBuildRequest request,
-        bool replaceSource,
-        List<PlaylistDetailSourceRow> sourceRows,
-        BMSTable currentTable,
-        string currentFolderName,
-        PlaylistDetailFilter currentFilterType,
-        IList finalRows,
-        int viewCount,
-        MainViewUpdateMode columnSettingMode,
-        Stopwatch viewBuildStopwatch)
-    {
-        long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        MainChartListColumnSelection columnSelection = regularChartListOwner.LoadColumnSetting(columnSettingMode, treeViewFilterTypeSelected);
-        long callbackStageMs = 0L;
-        PlaylistDetailTerminalCommitResult commitResult = PlaylistWorkspace.ApplyDetailTerminal(
-            new PlaylistDetailTerminalRequest
-            {
-                BuildRequest = request,
-                ReplaceSource = replaceSource,
-                SourceRows = sourceRows,
-                CurrentTable = currentTable,
-                CurrentFolderName = currentFolderName,
-                CurrentFilterType = currentFilterType,
-                ViewRows = finalRows,
-                ColumnSelection = columnSelection,
-                MainRowsRequest = new MainChartListRowsApplyRequest
-                {
-                    Rows = finalRows,
-                    ColumnsSettings = columnSelection.ColumnsSettings,
-                    SelectionPolicy = MainChartListSelectionPolicy.Reset,
-                    Summary = PlaylistWorkspace.IsPlaylistSummaryMode
-                        ? MainChartListSummaryUpdate.Preserve()
-                        : MainChartListSummaryUpdate.NormalRows(finalRows),
-                    ColumnSettingReuse = columnSelection.Reused,
-                    ColumnPreparationMs = columnSelection.ElapsedMs,
-                    TerminalStageStartMs = stageStartMs,
-                    Stopwatch = viewBuildStopwatch
-                }
-            });
-        if (!commitResult.Applied)
-        {
-            return new PlaylistDetailTerminalApplyResult(applied: false, mainViewApply: null, previousSourceCount: 0);
-        }
-
-        try
-        {
-            TryMarkPlaylistOpenBuildCompleted(request, viewCount);
-            if (replaceSource)
-            {
-                LogPlaylistWeakReferenceStatus("before_source_replace");
-                LogPlaylistRetention("playlist_source_replace action=replace generationId=" + commitResult.SourceGenerationId + " previousGenerationId=" + commitResult.PreviousSourceGenerationId + " sourceCount=" + (sourceRows?.Count ?? 0) + " disposedCount=" + CountPlaylistSourceRows(commitResult.PreviousSourceRows) + " playlistSourceRowCount=" + CountPlaylistSourceRows(sourceRows) + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows));
-            }
-            LogPlaylistWeakReferenceStatus("before_view_replace");
-            LogPlaylistRetention(((finalRows.Count == 0) ? "playlist_view_clear " : "playlist_view_replace ") + "generationId=" + commitResult.ViewGenerationId + " previousGenerationId=" + commitResult.PreviousViewGenerationId + " sourceCount=" + commitResult.SourceRowsAlive + " viewCount=" + finalRows.Count + " playlistSourceRowCount=" + commitResult.SourceRowsAlive + " playlistViewRowCount=" + CountPlaylistDetailRows(finalRows) + " previousViewRowsReferenced=" + CountPlaylistDetailRows(commitResult.PreviousViewRows) + " disposedCount=" + CountPlaylistDetailRows(commitResult.PreviousViewRows) + " selectedIndex=" + MainChartList.SelectedIndex);
-            var mainViewApply = new PlaylistMainViewApplyResult(commitResult.MainRowsApply.ColumnSettingMs, callbackStageMs);
-            return new PlaylistDetailTerminalApplyResult(
-                applied: true,
-                mainViewApply: mainViewApply,
-                previousSourceCount: CountPlaylistSourceRows(commitResult.PreviousSourceRows));
-        }
-        catch (PlaylistDetailTerminalPublishException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new PlaylistDetailTerminalPublishException(ex, ownershipTransferred: true, commitResult);
-        }
-    }
-
     private bool TryPatchPlaylistSourceChartInfoIndex(PlaylistBuildRequest request, CancellationToken cancellationToken, out int sourceCount, out int dependencyCount, out int patchedCount, out long elapsedMs)
     {
         sourceCount = 0;
@@ -9662,43 +9544,25 @@ public partial class MainWindowViewModel : ViewModel
         object parameter = request.Parameter;
         var viewBuildStopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
-        PlaylistViewApplyResult viewApplyResult = ApplyPlaylistViewFromCurrentSource(mode);
-        IList finalRows = viewApplyResult.FinalRows;
-        if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(request.RequestVersion))
-        {
-            DisposePlaylistViewRows(finalRows);
-            return true;
-        }
-
-        PlaylistDetailTerminalApplyResult terminalApplyResult;
-        try
-        {
-            terminalApplyResult = TryCommitPlaylistDetailTerminal(
-                request,
-                replaceSource: false,
-                sourceRows: null,
-                currentTable: null,
-                currentFolderName: null,
-                request.Identity.FilterType,
-                finalRows,
-                viewApplyResult.ViewCount,
-                ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
-                viewBuildStopwatch);
-        }
-        catch (PlaylistDetailTerminalPublishException)
-        {
-            throw;
-        }
-        catch
-        {
-            DisposePlaylistViewRows(finalRows);
-            throw;
-        }
+        PlaylistDetailTerminalApplyResult terminalApplyResult = PlaylistWorkspace.ApplyDetailFromCurrentSource(
+            new PlaylistDetailPresentationRequest
+            {
+                BuildRequest = request,
+                Mode = mode,
+                KeywordFilter = KeywordFilter,
+                ModeFilter = (ChartModeFilter)(int)ModeFilter,
+                SortParameters = SortParameters,
+                ColumnSettingMode = ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
+                CurrentTreeMode = treeViewFilterTypeSelected,
+                Stopwatch = viewBuildStopwatch,
+                CancellationToken = cancellationToken
+            });
         if (!terminalApplyResult.Applied)
         {
-            DisposePlaylistViewRows(finalRows);
             return true;
         }
+        PlaylistViewApplyResult viewApplyResult = terminalApplyResult.ViewApply;
+        TryMarkPlaylistOpenBuildCompleted(request, viewApplyResult.ViewCount);
 
         FinalizeViewOnlyPlaylistDetailBuild(
             viewBuildStopwatch,
@@ -9724,7 +9588,6 @@ public partial class MainWindowViewModel : ViewModel
         var viewBuildStopwatch = Stopwatch.StartNew();
         int sourceCount = 0;
         List<PlaylistDetailSourceRow> sourceRows = null;
-        IList finalRows = null;
         bool gateEntered = false;
         string cancellationStage = "before_start";
         try
@@ -9770,43 +9633,36 @@ public partial class MainWindowViewModel : ViewModel
                 return true;
             }
 
-            cancellationStage = "view_apply";
-            PlaylistViewApplyResult viewApplyResult = ApplyPlaylistViewFromRebuiltSource(mode, sourceRows, sourceCount, ref finalRows);
-            var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, viewApplyResult);
-            int viewCount = executionResult.ViewCount;
-            if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
-            {
-                LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_apply mode=" + mode
-                    + " sourceCount=" + sourceCount
-                    + " viewCount=" + viewCount
-                    + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion
-                    + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion
-                    + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
-                return true;
-            }
-
             cancellationStage = "ui_apply";
             PlaylistDetailTerminalApplyResult terminalApplyResult;
             try
             {
-                terminalApplyResult = TryCommitPlaylistDetailTerminal(
-                    request,
-                    replaceSource: true,
-                    sourceRows,
-                    bmsTable,
-                    folderName,
-                    filterType,
-                    finalRows,
-                    viewCount,
-                    ResolvePlaylistColumnSettingMode(filterType),
-                    viewBuildStopwatch);
+                terminalApplyResult = PlaylistWorkspace.ApplyDetailFromRebuiltSource(
+                    new PlaylistDetailRebuiltPresentationRequest
+                    {
+                        BuildRequest = request,
+                        Mode = mode,
+                        KeywordFilter = KeywordFilter,
+                        ModeFilter = (ChartModeFilter)(int)ModeFilter,
+                        SortParameters = SortParameters,
+                        ColumnSettingMode = ResolvePlaylistColumnSettingMode(filterType),
+                        CurrentTreeMode = treeViewFilterTypeSelected,
+                        Stopwatch = viewBuildStopwatch,
+                        CancellationToken = cancellationToken,
+                        SourceRows = sourceRows,
+                        CurrentTable = bmsTable,
+                        CurrentFolderName = folderName,
+                        CurrentFilterType = filterType
+                    });
             }
             catch (PlaylistDetailTerminalPublishException)
             {
                 sourceRows = null;
-                finalRows = null;
                 throw;
             }
+            PlaylistViewApplyResult viewApplyResult = terminalApplyResult.ViewApply;
+            var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, viewApplyResult);
+            int viewCount = executionResult.ViewCount;
             if (!terminalApplyResult.Applied)
             {
                 LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=stale_terminal_commit mode=" + mode
@@ -9815,7 +9671,7 @@ public partial class MainWindowViewModel : ViewModel
             }
 
             sourceRows = null;
-            finalRows = null;
+            TryMarkPlaylistOpenBuildCompleted(request, viewCount);
             FinalizeRebuiltPlaylistDetailBuild(
                 viewBuildStopwatch,
                 mode,
@@ -9858,10 +9714,6 @@ public partial class MainWindowViewModel : ViewModel
                 if (sourceRows != null)
                 {
                     LogPlaylistSourceBuild("discarded version=" + requestVersion + " mode=" + mode + " discardedRows=" + sourceCount);
-                }
-                if (finalRows != null)
-                {
-                    DisposePlaylistViewRows(finalRows);
                 }
             }
             finally

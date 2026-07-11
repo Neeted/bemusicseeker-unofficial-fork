@@ -21,6 +21,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Action<string> detailRetentionLog;
 
+    private readonly Action<string> detailViewLog;
+
     internal PlaylistDetailBuildState DetailBuildState { get; }
 
     internal PlaylistDetailViewState DetailViewState { get; }
@@ -33,6 +35,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             new MainChartListViewModel(dispatchPresentation),
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState(),
+            _ => { },
             _ => { })
     {
     }
@@ -42,12 +45,14 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         MainChartListViewModel mainChartList,
         PlaylistDetailBuildState buildState,
         PlaylistDetailViewState viewState,
+        Action<string> detailViewLog,
         Action<string> detailRetentionLog)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         DetailBuildState = buildState ?? throw new ArgumentNullException(nameof(buildState));
         DetailViewState = viewState ?? throw new ArgumentNullException(nameof(viewState));
+        this.detailViewLog = detailViewLog ?? throw new ArgumentNullException(nameof(detailViewLog));
         this.detailRetentionLog = detailRetentionLog ?? throw new ArgumentNullException(nameof(detailRetentionLog));
     }
 

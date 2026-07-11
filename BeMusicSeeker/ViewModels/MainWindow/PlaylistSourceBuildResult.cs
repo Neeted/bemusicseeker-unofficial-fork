@@ -154,14 +154,21 @@ internal sealed class PlaylistMainViewApplyResult
 
 internal sealed class PlaylistDetailTerminalApplyResult
 {
-    internal PlaylistDetailTerminalApplyResult(bool applied, PlaylistMainViewApplyResult mainViewApply, int previousSourceCount)
+    internal PlaylistDetailTerminalApplyResult(
+        bool applied,
+        PlaylistViewApplyResult viewApply,
+        PlaylistMainViewApplyResult mainViewApply,
+        int previousSourceCount)
     {
         Applied = applied;
+        ViewApply = viewApply;
         MainViewApply = mainViewApply;
         PreviousSourceCount = previousSourceCount;
     }
 
     internal bool Applied { get; }
+
+    internal PlaylistViewApplyResult ViewApply { get; }
 
     internal PlaylistMainViewApplyResult MainViewApply { get; }
 

@@ -176,7 +176,7 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(-1, rootSource.IndexOf("CommitPlaylistSourceClearWithoutCallbacks", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PublishPlaylistSourceClear", StringComparison.Ordinal));
         StringAssert.Contains(rootSource, "PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot)");
-        StringAssert.Contains(rootSource, "TryCommitPlaylistDetailTerminal(");
+        Assert.AreEqual(-1, rootSource.IndexOf("TryCommitPlaylistDetailTerminal(", StringComparison.Ordinal));
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildStageResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistViewApplyResult");
@@ -185,9 +185,10 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistRebuildExecutionResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistScoreProbeMetrics");
         StringAssert.Contains(rootSource, "private PlaylistSourceBuildStageResult BuildPlaylistSourceForRequest(");
-        StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromCurrentSource(");
-        StringAssert.Contains(rootSource, "private PlaylistViewApplyResult ApplyPlaylistViewFromRebuiltSource(MainViewUpdateMode mode, List<PlaylistDetailSourceRow> sourceRows, int sourceCount, ref IList finalRows)");
-        StringAssert.Contains(rootSource, "internal PlaylistDetailTerminalApplyResult TryCommitPlaylistDetailTerminal(");
+        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistViewFromCurrentSource(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistViewFromRebuiltSource(", StringComparison.Ordinal));
+        StringAssert.Contains(playlistTerminalCoordinatorSource, "internal PlaylistDetailTerminalApplyResult ApplyDetailFromCurrentSource(");
+        StringAssert.Contains(playlistTerminalCoordinatorSource, "internal PlaylistDetailTerminalApplyResult ApplyDetailFromRebuiltSource(");
         StringAssert.Contains(playlistTerminalApplySource, "lock (DetailBuildState.SyncRoot)");
         StringAssert.Contains(playlistTerminalApplySource, "DetailViewState.CommitTerminal(");
         StringAssert.Contains(playlistViewStateSource, "lock (SyncRoot)");
@@ -215,10 +216,9 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(rootSource, "playlistDetailBuildState.BuildGate.Wait(cancellationToken);");
         StringAssert.Contains(rootSource, "playlistDetailBuildState.BuildGate.Release();");
         StringAssert.Contains(rootSource, "PlaylistSourceBuildStageResult sourceBuildStageResult = BuildPlaylistSourceForRequest(");
-        StringAssert.Contains(rootSource, "PlaylistViewApplyResult viewApplyResult = ApplyPlaylistViewFromRebuiltSource(");
-        StringAssert.Contains(rootSource, "terminalApplyResult = TryCommitPlaylistDetailTerminal(");
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.ApplyDetailFromRebuiltSource(");
         StringAssert.Contains(rootSource, "private bool ApplyPlaylistViewWithoutSourceRebuild(");
-        StringAssert.Contains(rootSource, "PlaylistViewApplyResult viewApplyResult = ApplyPlaylistViewFromCurrentSource(mode);");
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.ApplyDetailFromCurrentSource(");
         StringAssert.Contains(rootSource, "private void FinalizeRebuiltPlaylistDetailBuild(");
         StringAssert.Contains(rootSource, "private void FinalizeViewOnlyPlaylistDetailBuild(");
         StringAssert.Contains(rootSource, "private void FinalizePlaylistDetailBuild(");
@@ -253,17 +253,8 @@ public sealed class PlaylistViewPipelineTests
         viewModel.MainChartList.RowsReplacing += (_, _) => preparingCount++;
         viewModel.MainChartList.RowsReplacementCanceled += (_, _) => canceledCount++;
 
-        PlaylistDetailTerminalApplyResult result = viewModel.TryCommitPlaylistDetailTerminal(
-            request,
-            replaceSource: false,
-            sourceRows: null,
-            currentTable: null,
-            currentFolderName: null,
-            identity.FilterType,
-            candidateRows,
-            candidateRows.Count,
-            MainViewUpdateMode.PlaylistFilterSelected,
-            Stopwatch.StartNew());
+        PlaylistDetailTerminalCommitResult result = viewModel.PlaylistWorkspace.ApplyDetailTerminal(
+            CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1));
 
         Assert.IsFalse(result.Applied);
         Assert.AreSame(oldRows, viewModel.MainChartList.Rows);
@@ -271,6 +262,45 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreSame(oldSummaryColumns, viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings);
         Assert.AreEqual(1, preparingCount);
         Assert.AreEqual(1, canceledCount);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspace_CurrentSourceEntryBuildsAndCommitsMainTableRows()
+    {
+        var viewModel = new MainWindowViewModel();
+        PlaylistDetailSourceRow sourceRow = CreateSourceRow(
+            "12121212121212121212121212121212",
+            "Current source",
+            7);
+        viewModel.PlaylistWorkspace.DetailViewState.Source.Rows = [sourceRow];
+        viewModel.PlaylistWorkspace.DetailViewState.Source.GenerationId = 4;
+        viewModel.PlaylistWorkspace.DetailBuildState.RequestVersion = 1;
+        var buildRequest = new PlaylistBuildRequest
+        {
+            RequestVersion = 1,
+            Mode = MainViewUpdateMode.PlaylistFilterSelected,
+            RequestedMode = MainViewUpdateMode.PlaylistFilterSelected,
+            Identity = CreatePlaylistIdentity("workspace-current")
+        };
+
+        PlaylistDetailTerminalApplyResult result = viewModel.PlaylistWorkspace.ApplyDetailFromCurrentSource(
+            new PlaylistDetailPresentationRequest
+            {
+                BuildRequest = buildRequest,
+                Mode = MainViewUpdateMode.PlaylistFilterSelected,
+                KeywordFilter = string.Empty,
+                ModeFilter = ChartModeFilter.All,
+                SortParameters = null,
+                ColumnSettingMode = MainViewUpdateMode.PlaylistFilterSelected,
+                CurrentTreeMode = MainViewUpdateMode.PlaylistFilterSelected,
+                Stopwatch = Stopwatch.StartNew()
+            });
+
+        Assert.IsTrue(result.Applied);
+        Assert.AreEqual(1, result.ViewApply.ViewCount);
+        Assert.AreSame(result.ViewApply.FinalRows, viewModel.MainChartList.Rows);
+        Assert.AreEqual(4L, viewModel.PlaylistWorkspace.DetailViewState.Source.GenerationId);
+        Assert.AreEqual(1L, viewModel.PlaylistWorkspace.DetailViewState.View.GenerationId);
     }
 
     [TestMethod]
@@ -283,7 +313,7 @@ public sealed class PlaylistViewPipelineTests
             Rows = new List<object>(),
             ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
         };
-        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { });
+        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { }, _ => { });
         RegularChartListOwner owner = CreateRegularOwner(table, workspace);
         workspace.ConfigureDetailTerminal(owner);
         table.RowsReplacementCanceled += (_, _) =>
@@ -304,12 +334,40 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailTerminal_CanceledRequestCannotCommitAtTerminalBoundary()
+    {
+        var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
+        var viewState = new PlaylistDetailViewState();
+        var table = new MainChartListViewModel { Rows = new List<object>() };
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            table,
+            buildState,
+            viewState,
+            _ => { },
+            _ => { });
+        RegularChartListOwner owner = CreateRegularOwner(table, workspace);
+        workspace.ConfigureDetailTerminal(owner);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        PlaylistDetailTerminalRequest request = CreatePlaylistTerminalRequest(
+            new List<object> { new object() },
+            requestVersion: 1);
+        request.CancellationToken = cancellation.Token;
+
+        PlaylistDetailTerminalCommitResult result = workspace.ApplyDetailTerminal(request);
+
+        Assert.IsFalse(result.Applied);
+        Assert.AreEqual(0, table.Rows.Count);
+    }
+
+    [TestMethod]
     public void PlaylistDetailTerminal_PostCommitFailureStillDisposesAndPublishesAllOwners()
     {
         var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { });
+        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { }, _ => { });
         RegularChartListOwner owner = CreateRegularOwner(table, workspace);
         workspace.ConfigureDetailTerminal(owner);
         var oldRow = new TrackingDisposableRow();
@@ -351,7 +409,7 @@ public sealed class PlaylistViewPipelineTests
         var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { });
+        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { }, _ => { });
         RegularChartListOwner owner = CreateRegularOwner(table, workspace);
         workspace.ConfigureDetailTerminal(owner);
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
@@ -461,7 +519,7 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        PlaylistDetailVirtualView view = MainWindowViewModel.ApplyPlaylistVirtualViewFromSource(
+        PlaylistDetailVirtualView view = PlaylistDetailPresentationService.ApplyVirtualViewFromSource(
             sourceRows,
             keywordFilter: null,
             modeFilter: ChartModeFilter.All,
@@ -2414,6 +2472,7 @@ public sealed class PlaylistViewPipelineTests
             new MainChartListViewModel(),
             new PlaylistDetailBuildState(),
             state,
+            _ => { },
             _ => { });
         workspace.ConfigureDetailEditing(() => throw new AssertFailedException("cancel must not persist"));
         PlaylistDetailEditRefreshRequestedEventArgs? refresh = null;
@@ -2452,6 +2511,7 @@ public sealed class PlaylistViewPipelineTests
             new MainChartListViewModel(),
             new PlaylistDetailBuildState(),
             state,
+            _ => { },
             _ => { });
         workspace.ConfigureDetailEditing(() => throw new AssertFailedException("invalid URI must not persist"));
         var context = new MainChartListCellEditContext(

@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Threading;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -121,6 +122,7 @@ internal sealed class PlaylistDetailTerminalRequest
     internal IList ViewRows { get; set; }
     internal MainChartListColumnSelection ColumnSelection { get; set; }
     internal MainChartListRowsApplyRequest MainRowsRequest { get; set; }
+    internal CancellationToken CancellationToken { get; set; }
 }
 
 internal sealed class PlaylistDetailTerminalCommitResult
