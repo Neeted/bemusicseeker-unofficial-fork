@@ -2724,7 +2724,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private bool IsKeywordSearchSuggestionPopupOpen(bool isPlaylistSummary)
     {
         return base.DataContext is MainWindowViewModel viewModel
-            && (isPlaylistSummary ? viewModel.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen : viewModel.IsKeywordSearchSuggestionPopupOpen);
+            && (isPlaylistSummary ? viewModel.PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen : viewModel.IsKeywordSearchSuggestionPopupOpen);
     }
 
     private void CloseKeywordSearchSuggestions(bool isPlaylistSummary)

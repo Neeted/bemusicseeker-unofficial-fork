@@ -1231,7 +1231,7 @@ public partial class MainWindowViewModel : ViewModel
             OperationKind = operationKind,
             TableCount = tableCount,
             WaitForStartupOperable = operationKind == PlaylistReloadOperationKind.StartupFullReload,
-            WaitForSummaryRefresh = IsPlaylistSummaryMode,
+            WaitForSummaryRefresh = PlaylistWorkspace.IsPlaylistSummaryMode,
             WaitForDetailRefresh = IsPlaylistDetailRefreshWaitRequired(),
             GcAllowed = true,
             RequestedAtTimestamp = Stopwatch.GetTimestamp()
@@ -2456,7 +2456,7 @@ public partial class MainWindowViewModel : ViewModel
     private long DrainPlaylistSummaryRefresh(bool dataRefreshRequired, bool rebuildAsync)
     {
         PlaylistSummaryDeferredRefreshKind refresh = PlaylistWorkspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired);
-        if (!IsPlaylistSummaryMode)
+        if (!PlaylistWorkspace.IsPlaylistSummaryMode)
         {
             return 0L;
         }
@@ -4901,22 +4901,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public bool IsPlaylistSummaryMode
-    {
-        get
-        {
-            return PlaylistWorkspace.IsPlaylistSummaryMode;
-        }
-        set
-        {
-            if (PlaylistWorkspace.IsPlaylistSummaryMode != value)
-            {
-                PlaylistWorkspace.IsPlaylistSummaryMode = value;
-                UpdateKeywordSearchPresentation();
-            }
-        }
-    }
-
     /// <summary>
     /// 現在のメイン一覧がプレイリスト詳細表示モードかどうかを示します。
     /// </summary>
@@ -5017,18 +5001,6 @@ public partial class MainWindowViewModel : ViewModel
         bool stale = currentSourceGenerationId != expectedSourceGenerationId || currentViewGenerationId != expectedViewGenerationId;
         LogPlaylistRetention("playlist_ui_retention_checkpoint checkpoint=" + checkpoint + " expectedSourceGenerationId=" + expectedSourceGenerationId + " expectedViewGenerationId=" + expectedViewGenerationId + " currentSourceGenerationId=" + currentSourceGenerationId + " currentViewGenerationId=" + currentViewGenerationId + " stale=" + stale + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + currentViewRowsAlive + " lastAppliedViewCount=" + lastAppliedViewCount);
         LogPlaylistWeakReferenceStatus("ui_" + checkpoint);
-    }
-
-    public string GridHeaderText
-    {
-        get
-        {
-            return PlaylistWorkspace.GridHeaderText;
-        }
-        set
-        {
-            PlaylistWorkspace.GridHeaderText = value;
-        }
     }
 
     public IReadOnlyList<PlayHistorySummaryCard> PlayHistorySummaryCards
@@ -5719,26 +5691,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public string PlaylistSummaryKeywordFilter
-    {
-        get
-        {
-            return PlaylistWorkspace.PlaylistSummaryKeywordFilter;
-        }
-        set
-        {
-            string text = value ?? string.Empty;
-            if (PlaylistWorkspace.PlaylistSummaryKeywordFilter != text)
-            {
-                PlaylistWorkspace.PlaylistSummaryKeywordFilter = text;
-            }
-        }
-    }
-
-    public string PlaylistSummaryKeywordSearchWarningText => PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText;
-
-    public bool HasPlaylistSummaryKeywordSearchWarning => PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning;
-
     public string PlaylistSummaryKeywordSearchHelpText => BuildKeywordSearchHelpText(GridKeywordSearchContext.PlaylistSummary);
 
     public ObservableCollection<PlayHistoryDisplayTargetItem> PlayHistoryDisplayTargets => _PlayHistoryDisplayTargets;
@@ -5784,27 +5736,10 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public bool IsPlaylistSummaryKeywordSearchHelpOpen
-    {
-        get
-        {
-            return PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen;
-        }
-        set
-        {
-            PlaylistWorkspace.IsPlaylistSummaryKeywordSearchHelpOpen = value;
-        }
-    }
-
     /// <summary>
     /// 通常検索欄に表示する field 補完・履歴候補です。
     /// </summary>
     public ObservableCollection<KeywordSearchSuggestionItem> KeywordSearchSuggestions => _KeywordSearchSuggestions;
-
-    /// <summary>
-    /// プレイリスト一覧検索欄に表示する field 補完・履歴候補です。
-    /// </summary>
-    public ObservableCollection<KeywordSearchSuggestionItem> PlaylistSummaryKeywordSearchSuggestions => PlaylistWorkspace.PlaylistSummaryKeywordSearchSuggestions;
 
     /// <summary>
     /// 通常検索欄の候補 popup が開いているかどうかを取得または設定します。
@@ -5826,29 +5761,9 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// プレイリスト一覧検索欄の候補 popup が開いているかどうかを取得または設定します。
-    /// </summary>
-    public bool IsPlaylistSummaryKeywordSearchSuggestionPopupOpen
-    {
-        get
-        {
-            return PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen;
-        }
-        set
-        {
-            PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = value;
-        }
-    }
-
-    /// <summary>
     /// 通常検索欄の候補 popup 見出しです。
     /// </summary>
     public string KeywordSearchSuggestionHeaderText => _KeywordSearchSuggestionHeaderText;
-
-    /// <summary>
-    /// プレイリスト一覧検索欄の候補 popup 見出しです。
-    /// </summary>
-    public string PlaylistSummaryKeywordSearchSuggestionHeaderText => PlaylistWorkspace.PlaylistSummaryKeywordSearchSuggestionHeaderText;
 
     internal GridKeywordSearchContext CurrentKeywordSearchContext => GetCurrentKeywordSearchContext();
 
@@ -5901,7 +5816,7 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal void ClosePlaylistSummaryKeywordSearchSuggestions()
     {
-        IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = false;
+        PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = false;
     }
 
     /// <summary>
@@ -6131,7 +6046,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void UpdatePlaylistSummaryKeywordSearchPresentation()
     {
-        string warningText = BuildKeywordSearchWarningText(PlaylistSummaryKeywordFilter, GridKeywordSearchContext.PlaylistSummary);
+        string warningText = BuildKeywordSearchWarningText(PlaylistWorkspace.PlaylistSummaryKeywordFilter, GridKeywordSearchContext.PlaylistSummary);
         PlaylistWorkspace.SetPlaylistSummaryKeywordSearchWarningText(warningText);
         RaisePropertyChanged("PlaylistSummaryKeywordSearchHelpText");
     }
@@ -6199,7 +6114,7 @@ public partial class MainWindowViewModel : ViewModel
         if (isPlaylistSummary)
         {
             PlaylistWorkspace.SetPlaylistSummaryKeywordSearchSuggestionHeaderText(headerText);
-            IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = targetSuggestions.Count > 0;
+            PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = targetSuggestions.Count > 0;
         }
         else
         {
@@ -6781,7 +6696,7 @@ public partial class MainWindowViewModel : ViewModel
     private void PlaylistWorkspacePlaylistSummaryFilterChanged(object sender, EventArgs e)
     {
         UpdatePlaylistSummaryKeywordSearchPresentation();
-        if (IsPlaylistSummaryMode)
+        if (PlaylistWorkspace.IsPlaylistSummaryMode)
         {
             RefreshPlaylistSummaryPresentationIfVisible();
         }
@@ -9551,7 +9466,7 @@ public partial class MainWindowViewModel : ViewModel
                     Rows = finalRows,
                     ColumnsSettings = columnSelection.ColumnsSettings,
                     SelectionPolicy = MainChartListSelectionPolicy.Reset,
-                    Summary = IsPlaylistSummaryMode
+                    Summary = PlaylistWorkspace.IsPlaylistSummaryMode
                         ? MainChartListSummaryUpdate.Preserve()
                         : MainChartListSummaryUpdate.NormalRows(finalRows),
                     ColumnSettingReuse = columnSelection.Reused,
@@ -10148,7 +10063,7 @@ public partial class MainWindowViewModel : ViewModel
                 CurrentTreeMode = treeViewFilterTypeSelected,
                 TreeParameter = treeViewFilterParameterSelected,
                 IncludeBmsonRows = route.IncludeBmsonRows,
-                PreserveSummary = IsPlaylistSummaryMode,
+                PreserveSummary = PlaylistWorkspace.IsPlaylistSummaryMode,
                 Stopwatch = viewBuildStopwatch
             });
         if (regularResult.WasCommitted && regularResult.SortWasReset)
@@ -14855,14 +14770,18 @@ public partial class MainWindowViewModel : ViewModel
 
     private void SetPlaylistSummaryMode(bool enabled)
     {
-        IsPlaylistSummaryMode = enabled;
+        if (PlaylistWorkspace.IsPlaylistSummaryMode != enabled)
+        {
+            PlaylistWorkspace.IsPlaylistSummaryMode = enabled;
+            UpdateKeywordSearchPresentation();
+        }
         if (enabled)
         {
-            GridHeaderText = BeMusicSeeker.Properties.Resources.Playlist_summary_header;
+            PlaylistWorkspace.GridHeaderText = BeMusicSeeker.Properties.Resources.Playlist_summary_header;
         }
         else
         {
-            GridHeaderText = string.Empty;
+            PlaylistWorkspace.GridHeaderText = string.Empty;
             PlaylistWorkspace.PlaylistSummaryText = string.Empty;
         }
     }
