@@ -6443,6 +6443,8 @@ public partial class MainWindowViewModel : ViewModel
             () => DispatcherHelper.UIDispatcher);
         MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction);
         PlaylistWorkspace = new PlaylistWorkspaceViewModel(DispatchMainChartListAction);
+        PlaylistWorkspace.ConfigureDetailEditing(playlistViewState, () => tables);
+        PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
         PlayHistory = new PlayHistoryWorkflowOwner();
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => QueuePlayHistoryKeywordFilterRefresh();
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(PlaylistWorkspace);
@@ -6465,8 +6467,13 @@ public partial class MainWindowViewModel : ViewModel
             playlistDetailBuildState,
             playlistViewState);
         MainChartList.SortRequested += MainChartListSortRequested;
+        MainChartList.CellEditBeginningRequested += MainChartListCellEditBeginningRequested;
+        MainChartList.CellEditStarted += MainChartListCellEditStarted;
+        MainChartList.CellEditEndedRequested += MainChartListCellEditEndedRequested;
         regularChartListOwner.SortChanged += RegularChartListOwnerSortChanged;
         regularChartListOwner.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
+        regularChartListOwner.FolderEditRequested += RegularChartListOwnerFolderEditRequested;
+        regularChartListOwner.InstallDestinationEditRequested += RegularChartListOwnerInstallDestinationEditRequested;
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
@@ -6487,6 +6494,87 @@ public partial class MainWindowViewModel : ViewModel
         else
         {
             regularChartListOwner.QueueSort(request);
+        }
+    }
+
+    private void MainChartListCellEditBeginningRequested(object sender, MainChartListCellEditBeginningEventArgs request)
+    {
+        MainChartListCellEditContext context = request.Context;
+        if (string.IsNullOrWhiteSpace(context.PropertyName))
+        {
+            return;
+        }
+        if (context.Row is PlaylistDetailRow)
+        {
+            request.Accepted = PlaylistWorkspace.CanBeginDetailEdit(context);
+            return;
+        }
+        request.Accepted = regularChartListOwner.CanBeginCellEdit(context);
+    }
+
+    private void MainChartListCellEditStarted(object sender, MainChartListCellEditContext context)
+    {
+        if (context.Row is PlaylistDetailRow)
+        {
+            PlaylistWorkspace.BeginDetailEdit(context);
+        }
+    }
+
+    private void MainChartListCellEditEndedRequested(object sender, MainChartListCellEditEndedEventArgs request)
+    {
+        MainChartListCellEditContext context = request.Context;
+        if (context.Row is PlaylistDetailRow)
+        {
+            PlaylistWorkspace.CompleteDetailEdit(request);
+            return;
+        }
+        regularChartListOwner.CompleteCellEdit(request);
+    }
+
+    private void RegularChartListOwnerFolderEditRequested(
+        object sender,
+        RegularChartFolderEditRequestedEventArgs request)
+    {
+        Task.Run(() =>
+        {
+            try
+            {
+                RenameChartFolder(request.Request, request.FolderName);
+            }
+            finally
+            {
+                MainChartList.RequestDisplayRefresh();
+            }
+        }).Logging("regularChartListFolderEditRequested");
+    }
+
+    private void RegularChartListOwnerInstallDestinationEditRequested(
+        object sender,
+        RegularChartInstallDestinationEditRequestedEventArgs request)
+    {
+        Task.Run(() =>
+        {
+            SetPendingInstallDestination(request.Request, request.DestinationDirectory);
+            MainChartList.RequestDisplayRefresh();
+        }).Logging("regularChartListInstallDestinationEditRequested");
+    }
+
+    private void PlaylistWorkspacePlaylistDetailEditRefreshRequested(
+        object sender,
+        PlaylistDetailEditRefreshRequestedEventArgs request)
+    {
+        if (!IsPlaylistDetailViewActive)
+        {
+            return;
+        }
+        LogPlaylistWorker("playlist_score_snapshot_refresh_requested scoreSnapshotVersion="
+            + request.PendingVersion
+            + " lastBuiltScoreSnapshotVersion="
+            + request.LastBuiltVersion
+            + " deferredByEdit=true");
+        if (!TrySuppress(UiRefreshChannel.LibraryMainView))
+        {
+            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         }
     }
 
@@ -11467,96 +11555,6 @@ public partial class MainWindowViewModel : ViewModel
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
-    }
-
-    /// <summary>
-    /// playlist 詳細表示 row の編集結果を playlist DB へ永続化します。
-    /// </summary>
-    /// <param name="playlistRow">保存対象 row。</param>
-    internal void CommitPlaylistRow(PlaylistDetailRow playlistRow)
-    {
-        if (playlistRow == null)
-        {
-            throw new ArgumentNullException(nameof(playlistRow));
-        }
-        ChartFile chart = playlistRow.Chart;
-        if (chart != null && playlistRow.Entry?.parent?.is_external_sync != true)
-        {
-            playlistRow.Entry.ApplyPlaylistHashesFromChart(chart);
-        }
-        tables.CommitBMSTableEntry(playlistRow.Entry);
-    }
-
-    /// <summary>
-    /// 編集済み playlist row の内容を source snapshot へ反映します。
-    /// 再 sort/filter 時の正本更新を DB commit より先行させます。
-    /// </summary>
-    /// <param name="playlistRow">同期対象 row。</param>
-    internal void SyncPlaylistSourceRowFromEditedViewRow(PlaylistDetailRow playlistRow)
-    {
-        if (playlistRow == null)
-        {
-            throw new ArgumentNullException(nameof(playlistRow));
-        }
-        bool updated = false;
-        lock (playlistViewState.SyncRoot)
-        {
-            foreach (PlaylistDetailSourceRow sourceRow in playlistViewState.Source.Rows ?? Enumerable.Empty<PlaylistDetailSourceRow>())
-            {
-                if (sourceRow != null && ReferenceEquals(sourceRow.Entry, playlistRow.Entry))
-                {
-                    sourceRow.SynchronizeEditableSnapshot(playlistRow);
-                    updated = true;
-                    break;
-                }
-            }
-        }
-        if (updated)
-        {
-            LogPlaylistWorker("playlist_source_snapshot synchronized entryMd5=" + (playlistRow.Entry?.md5 ?? "(null)"));
-        }
-    }
-
-    /// <summary>
-    /// playlist 行セル編集の開始を通知します。
-    /// score snapshot 更新による再描画を安全に遅延させるために利用します。
-    /// </summary>
-    internal void NotifyPlaylistCellEditStarted()
-    {
-        lock (playlistViewState.SyncRoot)
-        {
-            playlistViewState.Source.IsPlaylistCellEditing = true;
-        }
-    }
-
-    /// <summary>
-    /// playlist 行セル編集の終了を通知します。
-    /// 編集中に保留した score snapshot refresh があれば、編集終了後に 1 回だけ再構築します。
-    /// </summary>
-    internal void NotifyPlaylistCellEditCompleted()
-    {
-        int pendingScoreSnapshotVersion = 0;
-        int lastBuiltScoreSnapshotVersion = 0;
-        lock (playlistViewState.SyncRoot)
-        {
-            playlistViewState.Source.IsPlaylistCellEditing = false;
-            pendingScoreSnapshotVersion = playlistViewState.Source.PendingScoreSnapshotRefreshVersion;
-            lastBuiltScoreSnapshotVersion = playlistViewState.Source.LastBuiltScoreSnapshotVersion;
-            if (pendingScoreSnapshotVersion > lastBuiltScoreSnapshotVersion)
-            {
-                playlistViewState.Source.PendingScoreSnapshotRefreshVersion = 0;
-            }
-        }
-        if (!IsPlaylistDetailViewActive || pendingScoreSnapshotVersion <= lastBuiltScoreSnapshotVersion)
-        {
-            return;
-        }
-        LogPlaylistWorker("playlist_score_snapshot_refresh_requested scoreSnapshotVersion=" + pendingScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + lastBuiltScoreSnapshotVersion + " deferredByEdit=true");
-        if (TrySuppress(UiRefreshChannel.LibraryMainView))
-        {
-            return;
-        }
-        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
     }
 
     /// <summary>

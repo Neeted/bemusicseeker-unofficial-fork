@@ -1908,7 +1908,13 @@ public sealed class MainWindowContextMenuResourceTests
         string cellEditEnded = ExtractBetween(
             mainWindowCode,
             "private void customTableView_CellEditEnded",
-            "private static bool IsCustomTablePlaylistEditableProperty");
+            "private static MainChartListCellEditContext CreateMainChartListCellEditContext");
+        string regularOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
+        string rootCellEditRoute = ExtractBetween(
+            viewModelCode,
+            "private void RegularChartListOwnerFolderEditRequested",
+            "private void RegularChartListOwnerInstallDestinationEditRequested");
 
         StringAssert.Contains(autoRenameClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
         StringAssert.Contains(autoRenameClick, "ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request)");
@@ -1932,8 +1938,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameAllModel.Contains("CreateOwnedSubtreeChartSnapshot"));
         Assert.IsFalse(autoRenameAllModel.Contains("BMSFiles ??"));
         Assert.IsFalse(autoRenameAllModel.Contains("files?.BmsonSongs"));
-        StringAssert.Contains(cellEditEnded, "RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request)");
-        StringAssert.Contains(cellEditEnded, "viewModel.RenameChartFolder(request, newFolder)");
+        StringAssert.Contains(cellEditEnded, "viewModel.MainChartList.RequestCellEditEnded(");
+        StringAssert.Contains(regularOwnerCode, "RenameChartFolderRequest.TryCreate(folderTarget, out RenameChartFolderRequest renameRequest)");
+        StringAssert.Contains(rootCellEditRoute, "RenameChartFolder(request.Request, request.FolderName)");
         Assert.IsFalse(cellEditEnded.Contains("CreateRenameChartFolderTargetSnapshot"));
         Assert.IsFalse(cellEditEnded.Contains("targetSnapshot"));
         Assert.IsFalse(cellEditEnded.Contains("viewModel.RenameChartFolder(target, newFolder)"));
@@ -2366,20 +2373,42 @@ public sealed class MainWindowContextMenuResourceTests
         string editBeginning = ExtractBetween(
             mainWindowCode,
             "private void customTableView_CellEditBeginning",
-            "private async void customTableView_CellActionRequested");
+            "private void customTableView_CellEditStarted");
         string editEnded = ExtractBetween(
             mainWindowCode,
             "private void customTableView_CellEditEnded",
-            "private static bool IsCustomTablePlaylistEditableProperty");
+            "private static MainChartListCellEditContext CreateMainChartListCellEditContext");
+        string regularOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
-        StringAssert.Contains(editBeginning, "GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)");
-        StringAssert.Contains(editBeginning, "target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)");
+        StringAssert.Contains(editBeginning, "viewModel.MainChartList.TryBeginCellEdit(");
         Assert.IsFalse(editBeginning.Contains("GetCompatibilityBmsFile"));
-        StringAssert.Contains(editEnded, "GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)");
-        StringAssert.Contains(editEnded, "PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest request)");
-        StringAssert.Contains(editEnded, "viewModel.SetPendingInstallDestination(request, destinationDirectory)");
+        StringAssert.Contains(editEnded, "viewModel.MainChartList.RequestCellEditEnded(");
+        StringAssert.Contains(regularOwnerCode, "target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)");
+        StringAssert.Contains(regularOwnerCode, "PendingInstallDestinationEditRequest.TryCreate(installTarget, out PendingInstallDestinationEditRequest installRequest)");
+        StringAssert.Contains(viewModelCode, "SetPendingInstallDestination(request.Request, request.DestinationDirectory)");
         Assert.IsFalse(editEnded.Contains("PendingInstallDestinationEditTargetSnapshot"));
         Assert.IsFalse(editEnded.Contains("GetCompatibilityBmsFile"));
+    }
+
+    [TestMethod]
+    public void MainTableCellEditStarted_IsRaisedOnlyAfterEditorIsInstalled()
+    {
+        string customTableSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "Views", "CustomTableView.cs");
+        string beginEdit = ExtractBetween(
+            customTableSource,
+            "private bool BeginCellEdit(CustomTableHitTestResult hit, string replacementText)",
+            "private TextBox CreateCellEditor");
+
+        int beginningIndex = beginEdit.IndexOf("CellEditBeginning?.Invoke", StringComparison.Ordinal);
+        int visibleRectIndex = beginEdit.IndexOf("TryCreateVisibleCellInteriorRect", StringComparison.Ordinal);
+        int activeEditorIndex = beginEdit.IndexOf("activeEditor = textBox", StringComparison.Ordinal);
+        int startedIndex = beginEdit.IndexOf("CellEditStarted?.Invoke", StringComparison.Ordinal);
+
+        Assert.IsTrue(beginningIndex >= 0 && beginningIndex < visibleRectIndex);
+        Assert.IsTrue(activeEditorIndex >= 0 && activeEditorIndex < startedIndex);
     }
 
     [TestMethod]

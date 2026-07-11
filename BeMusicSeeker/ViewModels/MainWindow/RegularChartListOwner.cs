@@ -30,6 +30,10 @@ internal sealed class RegularChartListOwner : IDisposable
 
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortRefreshRequested;
 
+    internal event EventHandler<RegularChartFolderEditRequestedEventArgs> FolderEditRequested;
+
+    internal event EventHandler<RegularChartInstallDestinationEditRequestedEventArgs> InstallDestinationEditRequested;
+
     private const long ColumnSettingSlowLogThresholdMs = 100L;
     private const int StartupVirtualOrderPrewarmMaxPriority = 3;
     private readonly object syncRoot = new();
@@ -531,6 +535,54 @@ internal sealed class RegularChartListOwner : IDisposable
                 Task.Run(ProcessSortRefreshQueue).Logging("regularChartListSortRequested");
             }
         }
+    }
+
+    internal bool CanBeginCellEdit(MainChartListCellEditContext context)
+    {
+        if (context == null || string.IsNullOrWhiteSpace(context.PropertyName))
+        {
+            return false;
+        }
+        if (string.Equals(context.PropertyName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
+        {
+            return GridRowResolver.TryGetFolderEditChartOperationTarget(context.Row, context.SourceScope, out _);
+        }
+        return string.Equals(context.PropertyName, "instl_dst", StringComparison.Ordinal)
+            && IsInstallDestinationEditSection(context.OperationSection)
+            && GridRowResolver.TryGetChartOperationTarget(context.Row, context.SourceScope, out ChartOperationTarget target)
+            && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination);
+    }
+
+    internal void CompleteCellEdit(MainChartListCellEditEndedEventArgs request)
+    {
+        if (request == null || !request.Commit)
+        {
+            return;
+        }
+        MainChartListCellEditContext context = request.Context;
+        if (string.Equals(context.PropertyName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal)
+            && GridRowResolver.TryGetFolderEditChartOperationTarget(context.Row, context.SourceScope, out ChartOperationTarget folderTarget)
+            && RenameChartFolderRequest.TryCreate(folderTarget, out RenameChartFolderRequest renameRequest))
+        {
+            FolderEditRequested?.Invoke(this, new RegularChartFolderEditRequestedEventArgs(renameRequest, request.Text));
+            return;
+        }
+        if (string.Equals(context.PropertyName, "instl_dst", StringComparison.Ordinal)
+            && IsInstallDestinationEditSection(context.OperationSection)
+            && GridRowResolver.TryGetChartOperationTarget(context.Row, context.SourceScope, out ChartOperationTarget installTarget)
+            && installTarget.HasCapability(ChartOperationCapabilities.UpdateInstallDestination)
+            && PendingInstallDestinationEditRequest.TryCreate(installTarget, out PendingInstallDestinationEditRequest installRequest))
+        {
+            InstallDestinationEditRequested?.Invoke(
+                this,
+                new RegularChartInstallDestinationEditRequestedEventArgs(installRequest, request.Text));
+        }
+    }
+
+    private static bool IsInstallDestinationEditSection(MainViewOperationSection section)
+    {
+        return section == MainViewOperationSection.InstallPending
+            || section == MainViewOperationSection.FullScanCheck;
     }
 
     private void ProcessSortRefreshQueue()

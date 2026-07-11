@@ -540,6 +540,61 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void MainChartList_CellEditSessionKeepsBeginningScopeUntilEnded()
+    {
+        var mainChartList = new MainChartListViewModel();
+        object row = new();
+        MainChartListCellEditContext? started = null;
+        MainChartListCellEditEndedEventArgs? ended = null;
+        mainChartList.CellEditBeginningRequested += (_, request) => request.Accepted = true;
+        mainChartList.CellEditStarted += (_, context) => started = context;
+        mainChartList.CellEditEndedRequested += (_, request) => ended = request;
+        var context = new MainChartListCellEditContext(
+            row,
+            nameof(LibraryChartRow.Folder),
+            ChartOperationSourceScope.Library,
+            MainViewOperationSection.Library);
+
+        Assert.IsTrue(mainChartList.TryBeginCellEdit(context));
+        mainChartList.NotifyCellEditStarted(row, nameof(LibraryChartRow.Folder));
+        mainChartList.RequestCellEditEnded(row, nameof(LibraryChartRow.Folder), "renamed", commit: true);
+
+        Assert.AreSame(context, started);
+        Assert.IsNotNull(ended);
+        Assert.AreSame(context, ended!.Context);
+        Assert.AreEqual(ChartOperationSourceScope.Library, ended.Context.SourceScope);
+        Assert.AreEqual(MainViewOperationSection.Library, ended.Context.OperationSection);
+        Assert.AreEqual("renamed", ended.Text);
+        Assert.IsTrue(ended.Commit);
+    }
+
+    [TestMethod]
+    public void MainChartList_CellEditBeginningWithoutStartedDoesNotOpenOwnerSession()
+    {
+        var mainChartList = new MainChartListViewModel();
+        object abandonedRow = new();
+        object activeRow = new();
+        MainChartListCellEditContext? started = null;
+        mainChartList.CellEditBeginningRequested += (_, request) => request.Accepted = true;
+        mainChartList.CellEditStarted += (_, context) => started = context;
+
+        Assert.IsTrue(mainChartList.TryBeginCellEdit(new MainChartListCellEditContext(
+            abandonedRow,
+            nameof(LibraryChartRow.Folder),
+            ChartOperationSourceScope.Library,
+            MainViewOperationSection.Library)));
+        Assert.IsTrue(mainChartList.TryBeginCellEdit(new MainChartListCellEditContext(
+            activeRow,
+            nameof(LibraryChartRow.Folder),
+            ChartOperationSourceScope.Library,
+            MainViewOperationSection.Library)));
+        mainChartList.NotifyCellEditStarted(activeRow, nameof(LibraryChartRow.Folder));
+
+        Assert.IsNotNull(started);
+        Assert.AreSame(activeRow, started!.Row);
+    }
+
+    [TestMethod]
     public void MainChartList_DisplayRefreshRaisesDirectOwnerEvent()
     {
         var mainChartList = new MainChartListViewModel();

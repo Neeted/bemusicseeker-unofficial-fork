@@ -1558,42 +1558,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Cancel = true;
             return;
         }
-        if (base.DataContext is not MainWindowViewModel viewModel || string.IsNullOrWhiteSpace(e.EditPropertyName))
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             e.Cancel = true;
             return;
         }
-        if (e.Row is PlaylistDetailRow)
+        e.Cancel = !viewModel.MainChartList.TryBeginCellEdit(CreateMainChartListCellEditContext(viewModel, e.Row, e.EditPropertyName));
+    }
+
+    private void customTableView_CellEditStarted(object sender, CustomTableCellEditStartedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
-            if (!IsCustomTablePlaylistEditableProperty(e.EditPropertyName) || !GridRowResolver.CanEditPlaylistCell(e.Row, e.EditPropertyName))
-            {
-                e.Cancel = true;
-                return;
-            }
-            viewModel.NotifyPlaylistCellEditStarted();
-            return;
+            viewModel.MainChartList.NotifyCellEditStarted(e.Row, e.EditPropertyName);
         }
-        if (string.Equals(e.EditPropertyName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
-        {
-            if (!GridRowResolver.TryGetFolderEditChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out _))
-            {
-                e.Cancel = true;
-                return;
-            }
-            return;
-        }
-        if (string.Equals(e.EditPropertyName, "instl_dst", StringComparison.Ordinal))
-        {
-            if (!CanEditInstallDestinationInCurrentSection()
-                || !GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
-                || !target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
-            {
-                e.Cancel = true;
-                return;
-            }
-            return;
-        }
-        e.Cancel = true;
     }
 
     private async void customTableView_CellActionRequested(object sender, CustomTableCellActionRequestedEventArgs e)
@@ -1683,131 +1661,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        try
-        {
-            if (string.IsNullOrWhiteSpace(e.EditPropertyName))
-            {
-                return;
-            }
-            if (e.Row is PlaylistDetailRow playlistRow)
-            {
-                if (!e.Commit || !IsCustomTablePlaylistEditableProperty(e.EditPropertyName) || !GridRowResolver.CanEditPlaylistCell(e.Row, e.EditPropertyName))
-                {
-                    return;
-                }
-                switch (e.EditPropertyName)
-                {
-                    case nameof(PlaylistDetailRow.Level):
-                        playlistRow.Level = e.Text;
-                        break;
-                    case nameof(PlaylistDetailRow.Url):
-                        if (!Uri.TryCreate(e.Text, UriKind.Absolute, out Uri url))
-                        {
-                            return;
-                        }
-                        playlistRow.Url = url;
-                        break;
-                    case nameof(PlaylistDetailRow.Url_diff):
-                        if (!Uri.TryCreate(e.Text, UriKind.Absolute, out Uri urlDiff))
-                        {
-                            return;
-                        }
-                        playlistRow.Url_diff = urlDiff;
-                        break;
-                    case nameof(PlaylistDetailRow.comment):
-                        playlistRow.comment = e.Text;
-                        break;
-                    case nameof(PlaylistDetailRow.memo):
-                        playlistRow.memo = e.Text;
-                        break;
-                    default:
-                        return;
-                }
-                viewModel.SyncPlaylistSourceRowFromEditedViewRow(playlistRow);
-                Task.Run(delegate
-                {
-                    viewModel.CommitPlaylistRow(playlistRow);
-                }).Logging("customTableView_CellEditEnded");
-                return;
-            }
-            if (string.Equals(e.EditPropertyName, nameof(LibraryChartRow.Folder), StringComparison.Ordinal))
-            {
-                if (!GridRowResolver.TryGetFolderEditChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target))
-                {
-                    return;
-                }
-                if (!e.Commit)
-                {
-                    return;
-                }
-                if (!RenameChartFolderRequest.TryCreate(target, out RenameChartFolderRequest request))
-                {
-                    return;
-                }
-                string newFolder = e.Text;
-                Task.Run(delegate
-                {
-                    try
-                    {
-                        viewModel.RenameChartFolder(request, newFolder);
-                    }
-                    finally
-                    {
-                        RefreshCustomTableViewDisplayAsync();
-                    }
-                }).Logging("customTableView_CellEditEnded");
-                return;
-            }
-            if (string.Equals(e.EditPropertyName, "instl_dst", StringComparison.Ordinal))
-            {
-                if (!GridRowResolver.TryGetChartOperationTarget(e.Row, GetCurrentChartOperationSourceScope(), out ChartOperationTarget target)
-                    || !target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
-                {
-                    return;
-                }
-                if (!e.Commit)
-                {
-                    return;
-                }
-                if (!CanEditInstallDestinationInCurrentSection())
-                {
-                    return;
-                }
-                if (!PendingInstallDestinationEditRequest.TryCreate(target, out PendingInstallDestinationEditRequest request))
-                {
-                    return;
-                }
-                string destinationDirectory = e.Text;
-                Task.Run(delegate
-                {
-                    viewModel.SetPendingInstallDestination(request, destinationDirectory);
-                    base.Dispatcher.BeginInvoke((Action)delegate
-                    {
-                        if (_isClosingOrClosed)
-                        {
-                            return;
-                        }
-                        RefreshCustomTableViewDisplay();
-                    }, DispatcherPriority.Background);
-                }).Logging("customTableView_CellEditEnded");
-            }
-        }
-        finally
-        {
-            if (e.Row is PlaylistDetailRow)
-            {
-                viewModel.NotifyPlaylistCellEditCompleted();
-            }
-        }
+        viewModel.MainChartList.RequestCellEditEnded(e.Row, e.EditPropertyName, e.Text, e.Commit);
     }
 
-    private static bool IsCustomTablePlaylistEditableProperty(string propertyName)
+    private static MainChartListCellEditContext CreateMainChartListCellEditContext(
+        MainWindowViewModel viewModel,
+        object row,
+        string propertyName)
     {
-        return string.Equals(propertyName, nameof(PlaylistDetailRow.Level), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(PlaylistDetailRow.Url), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(PlaylistDetailRow.Url_diff), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(PlaylistDetailRow.comment), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(PlaylistDetailRow.memo), StringComparison.Ordinal);
+        return new MainChartListCellEditContext(
+            row,
+            propertyName,
+            viewModel.CurrentMainViewChartOperationSourceScope,
+            viewModel.CurrentMainViewOperationSection);
     }
 
     private static bool IsPlaylistSummaryEditableProperty(string propertyName)
@@ -2770,12 +2636,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         return false;
     }
-    private bool CanEditInstallDestinationInCurrentSection()
-    {
-        MainViewOperationSection section = GetCurrentMainViewOperationSection();
-        return IsPendingMainViewSection(section) || IsFullScanMainViewSection(section);
-    }
-
     private static T FindTemplateElement<T>(FrameworkElement source, string elementName) where T : class
     {
         FrameworkElement current = source;

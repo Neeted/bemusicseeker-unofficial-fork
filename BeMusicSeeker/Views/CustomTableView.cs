@@ -500,6 +500,8 @@ public sealed class CustomTableView : Grid
 
     public event EventHandler<CustomTableCellEditBeginningEventArgs> CellEditBeginning;
 
+    public event EventHandler<CustomTableCellEditStartedEventArgs> CellEditStarted;
+
     public event EventHandler<CustomTableCellActionRequestedEventArgs> CellActionRequested;
 
     public event EventHandler<CustomTableCellEditEndedEventArgs> CellEditEnded;
@@ -1932,6 +1934,7 @@ public sealed class CustomTableView : Grid
         activeEditHit = hit;
         activeEditor = textBox;
         editorLayer.Children.Add(textBox);
+        CellEditStarted?.Invoke(this, new CustomTableCellEditStartedEventArgs(hit, hit.Column.EditPropertyName));
         UpdateEditSuggestions();
         textBox.Focus();
         if (replacementText == null)

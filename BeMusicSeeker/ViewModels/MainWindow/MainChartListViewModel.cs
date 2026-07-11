@@ -35,6 +35,10 @@ public sealed class MainChartListViewModel : ViewModel
 
     private long rowsCommitGeneration;
 
+    private MainChartListCellEditContext pendingCellEditContext;
+
+    private MainChartListCellEditContext activeCellEditContext;
+
     internal MainChartListViewModel()
         : this(action => action())
     {
@@ -59,6 +63,12 @@ public sealed class MainChartListViewModel : ViewModel
     /// Raised when the table asks the shell workflow to rebuild rows using a new sort.
     /// </summary>
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;
+
+    internal event EventHandler<MainChartListCellEditBeginningEventArgs> CellEditBeginningRequested;
+
+    internal event EventHandler<MainChartListCellEditContext> CellEditStarted;
+
+    internal event EventHandler<MainChartListCellEditEndedEventArgs> CellEditEndedRequested;
 
     /// <summary>
     /// Raised on the UI thread when provider-backed visible cells need repainting without replacing rows.
@@ -193,6 +203,49 @@ public sealed class MainChartListViewModel : ViewModel
             return;
         }
         SortRequested?.Invoke(this, new MainChartListSortRequestedEventArgs(columnName, direction, sortTarget));
+    }
+
+    internal bool TryBeginCellEdit(MainChartListCellEditContext context)
+    {
+        if (context == null)
+        {
+            return false;
+        }
+        var request = new MainChartListCellEditBeginningEventArgs(context);
+        CellEditBeginningRequested?.Invoke(this, request);
+        pendingCellEditContext = request.Accepted ? context : null;
+        return request.Accepted;
+    }
+
+    internal void NotifyCellEditStarted(object row, string propertyName)
+    {
+        if (IsSameCellEdit(pendingCellEditContext, row, propertyName))
+        {
+            activeCellEditContext = pendingCellEditContext;
+            pendingCellEditContext = null;
+            CellEditStarted?.Invoke(this, activeCellEditContext);
+        }
+    }
+
+    internal void RequestCellEditEnded(object row, string propertyName, string text, bool commit)
+    {
+        if (IsSameCellEdit(activeCellEditContext, row, propertyName))
+        {
+            MainChartListCellEditContext context = activeCellEditContext;
+            activeCellEditContext = null;
+            var request = new MainChartListCellEditEndedEventArgs(context, text, commit);
+            CellEditEndedRequested?.Invoke(this, request);
+        }
+    }
+
+    private static bool IsSameCellEdit(
+        MainChartListCellEditContext context,
+        object row,
+        string propertyName)
+    {
+        return context != null
+            && ReferenceEquals(context.Row, row)
+            && string.Equals(context.PropertyName, propertyName, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -649,6 +702,57 @@ public sealed class MainChartListViewModel : ViewModel
             }
         }
     }
+}
+
+internal sealed class MainChartListCellEditContext : EventArgs
+{
+    internal MainChartListCellEditContext(
+        object row,
+        string propertyName,
+        ChartOperationSourceScope sourceScope,
+        MainViewOperationSection operationSection)
+    {
+        Row = row;
+        PropertyName = propertyName ?? string.Empty;
+        SourceScope = sourceScope;
+        OperationSection = operationSection;
+    }
+
+    internal object Row { get; }
+
+    internal string PropertyName { get; }
+
+    internal ChartOperationSourceScope SourceScope { get; }
+
+    internal MainViewOperationSection OperationSection { get; }
+}
+
+internal sealed class MainChartListCellEditBeginningEventArgs : EventArgs
+{
+    internal MainChartListCellEditBeginningEventArgs(MainChartListCellEditContext context)
+    {
+        Context = context ?? throw new ArgumentNullException(nameof(context));
+    }
+
+    internal MainChartListCellEditContext Context { get; }
+
+    internal bool Accepted { get; set; }
+}
+
+internal sealed class MainChartListCellEditEndedEventArgs : EventArgs
+{
+    internal MainChartListCellEditEndedEventArgs(MainChartListCellEditContext context, string text, bool commit)
+    {
+        Context = context ?? throw new ArgumentNullException(nameof(context));
+        Text = text ?? string.Empty;
+        Commit = commit;
+    }
+
+    internal MainChartListCellEditContext Context { get; }
+
+    internal string Text { get; }
+
+    internal bool Commit { get; }
 }
 
 /// <summary>

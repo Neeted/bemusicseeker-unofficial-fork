@@ -2375,7 +2375,19 @@ public sealed class PlaylistViewPipelineTests
             var viewModel = new MainWindowViewModel();
             typeof(MainWindowViewModel).GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, new BMSPlaylist(songDbPath));
 
-            viewModel.CommitPlaylistRow(row);
+            var context = new MainChartListCellEditContext(
+                row,
+                nameof(PlaylistDetailRow.memo),
+                ChartOperationSourceScope.PlaylistOwned,
+                MainViewOperationSection.Playlist);
+            viewModel.PlaylistWorkspace.CompleteDetailEdit(
+                new MainChartListCellEditEndedEventArgs(context, "updated memo", commit: true));
+
+            Assert.IsTrue(SpinWait.SpinUntil(() =>
+            {
+                using var pollDb = new LR2SongDBExtended(songDbPath);
+                return pollDb.Table<BMSTableEntry>().Any(dbRow => dbRow.playlist_id == table.playlist_id);
+            }, TimeSpan.FromSeconds(5)));
 
             using var verifyDb = new LR2SongDBExtended(songDbPath);
             BMSTableEntry stored = verifyDb.Table<BMSTableEntry>().Single(dbRow => dbRow.playlist_id == table.playlist_id);
@@ -2390,6 +2402,68 @@ public sealed class PlaylistViewPipelineTests
                 Directory.Delete(tempDirectory, recursive: true);
             }
         }
+    }
+
+    [TestMethod]
+    public void PlaylistDetailEditing_UsesStartedLifecycleAndReleasesDeferredRefreshOnCancel()
+    {
+        var entry = new TestablePlaylistEntry
+        {
+            parent = new BMSTable { is_external_sync = false },
+            memo = "before"
+        };
+        var sourceRow = new PlaylistDetailSourceRow(entry, resolvedChart: null);
+        PlaylistDetailRow row = sourceRow.CreateViewRow();
+        var state = new PlaylistDetailViewState();
+        state.Source.Rows = [sourceRow];
+        state.Source.LastBuiltScoreSnapshotVersion = 3;
+        state.Source.PendingScoreSnapshotRefreshVersion = 5;
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        workspace.ConfigureDetailEditing(state, () => throw new AssertFailedException("cancel must not persist"));
+        PlaylistDetailEditRefreshRequestedEventArgs? refresh = null;
+        workspace.PlaylistDetailEditRefreshRequested += (_, request) => refresh = request;
+        var context = new MainChartListCellEditContext(
+            row,
+            nameof(PlaylistDetailRow.memo),
+            ChartOperationSourceScope.PlaylistOwned,
+            MainViewOperationSection.Playlist);
+
+        Assert.IsTrue(workspace.CanBeginDetailEdit(context));
+        workspace.BeginDetailEdit(context);
+        Assert.IsTrue(state.Source.IsPlaylistCellEditing);
+
+        workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "after", commit: false));
+
+        Assert.IsFalse(state.Source.IsPlaylistCellEditing);
+        Assert.AreEqual("before", row.memo);
+        Assert.IsNotNull(refresh);
+        Assert.AreEqual(5, refresh!.PendingVersion);
+        Assert.AreEqual(3, refresh.LastBuiltVersion);
+        Assert.AreEqual(0, state.Source.PendingScoreSnapshotRefreshVersion);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailEditing_InvalidUriDoesNotMutateOrPersist()
+    {
+        var entry = new TestablePlaylistEntry
+        {
+            parent = new BMSTable { is_external_sync = false }
+        };
+        PlaylistDetailRow row = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
+        var state = new PlaylistDetailViewState();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        workspace.ConfigureDetailEditing(state, () => throw new AssertFailedException("invalid URI must not persist"));
+        var context = new MainChartListCellEditContext(
+            row,
+            nameof(PlaylistDetailRow.Url),
+            ChartOperationSourceScope.PlaylistOwned,
+            MainViewOperationSection.Playlist);
+
+        workspace.BeginDetailEdit(context);
+        workspace.CompleteDetailEdit(new MainChartListCellEditEndedEventArgs(context, "not a URI", commit: true));
+
+        Assert.IsFalse(state.Source.IsPlaylistCellEditing);
+        Assert.IsNull(row.Url);
     }
 
     [TestMethod]
