@@ -338,13 +338,6 @@ internal sealed class RegularChartListOwner : IDisposable
         CommitColumnSetting(selection);
     }
 
-    internal void ResetPlaylistSummaryColumnSetting()
-    {
-        Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
-        Settings.Default.PlaylistSummaryColumnsSettings.EnsureCompatibility();
-        playlistWorkspace.PlaylistSummaryColumnsSettings = Settings.Default.PlaylistSummaryColumnsSettings;
-    }
-
     internal void CommitColumnSetting(MainChartListColumnSelection selection)
     {
         PlaylistColumnPresentationCommit commit = playlistWorkspace.CommitColumnPresentationWithoutNotification(

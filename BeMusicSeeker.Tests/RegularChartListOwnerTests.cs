@@ -1229,6 +1229,39 @@ public sealed class RegularChartListOwnerTests
         }
     }
 
+    [TestMethod]
+    [DoNotParallelize]
+    public void PlaylistSummaryColumnSettingsCoordinator_ResetCreatesDefaultSettingsAndPublishesWorkspace()
+    {
+        PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
+        try
+        {
+            var workspace = new PlaylistWorkspaceViewModel(action => action());
+            var oldSettings = new PlaylistSummaryColumnSettings();
+            Settings.Default.PlaylistSummaryColumnsSettings = oldSettings;
+            workspace.PlaylistSummaryColumnsSettings = oldSettings;
+            int notificationCount = 0;
+            workspace.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
+                {
+                    notificationCount++;
+                }
+            };
+
+            var coordinator = new PlaylistSummaryColumnSettingsCoordinator(workspace);
+            coordinator.ResetToDefault();
+
+            Assert.AreNotSame(oldSettings, Settings.Default.PlaylistSummaryColumnsSettings);
+            Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
+            Assert.IsTrue(notificationCount > 0);
+        }
+        finally
+        {
+            Settings.Default.PlaylistSummaryColumnsSettings = previousSummary;
+        }
+    }
+
     private static RegularChartListOwner CreateOwner(
         MainChartListViewModel table,
         PlaylistWorkspaceViewModel workspace)

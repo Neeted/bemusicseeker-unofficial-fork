@@ -122,6 +122,8 @@ public partial class MainWindowViewModel : ViewModel
 
     internal MainChartListSortCoordinator MainChartListSort { get; }
 
+    internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
+
     internal PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSort { get; }
 
     internal MainWindowRuntimeContext RuntimeContext { get; }
@@ -6575,6 +6577,7 @@ public partial class MainWindowViewModel : ViewModel
             () => DispatcherHelper.UIDispatcher);
         MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction);
         PlaylistWorkspace = new PlaylistWorkspaceViewModel(DispatchMainChartListAction);
+        PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(PlaylistWorkspace);
         PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
             () => tables,
             () => BMSTables,
@@ -11463,14 +11466,6 @@ public partial class MainWindowViewModel : ViewModel
     public void LoadColumnSetting()
     {
         regularChartListOwner.LoadAndCommitColumnSetting(treeViewFilterTypeSelected);
-    }
-
-    /// <summary>
-    /// Playlist Summary 専用の列設定を既定値へ戻します。
-    /// </summary>
-    public void ResetPlaylistSummaryColumnSetting()
-    {
-        regularChartListOwner.ResetPlaylistSummaryColumnSetting();
     }
 
     public void ExecFolderFilter(FolderFilterType type, string filterKey = null)
