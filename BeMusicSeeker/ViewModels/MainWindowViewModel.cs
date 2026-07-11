@@ -6201,7 +6201,7 @@ public partial class MainWindowViewModel : ViewModel
             () => lr2config,
             () => bmsPlayer,
             () => DispatcherHelper.UIDispatcher);
-        MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction);
+        MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction, LogMainViewBuild);
         PlaylistWorkspace = new PlaylistWorkspaceViewModel(
             DispatchMainChartListAction,
             MainChartList,
@@ -6237,7 +6237,6 @@ public partial class MainWindowViewModel : ViewModel
             LogMainViewBuild,
             DispatchMainChartListAction,
             LogMainViewBuildWarning);
-        PlaylistWorkspace.ConfigureDetailTerminal(regularChartListOwner);
         MainChartList.SortRequested += MainChartListSortRequested;
         MainChartList.CellEditBeginningRequested += MainChartListCellEditBeginningRequested;
         MainChartList.CellEditStarted += MainChartListCellEditStarted;
@@ -10523,7 +10522,11 @@ public partial class MainWindowViewModel : ViewModel
 
     public void LoadColumnSetting()
     {
-        regularChartListOwner.LoadAndCommitColumnSetting(treeViewFilterTypeSelected);
+        MainChartListColumnSelection selection = MainChartList.LoadColumnSetting(
+            MainViewUpdateMode.TreeViewFilterNotChanged,
+            treeViewFilterTypeSelected,
+            isInit: true);
+        PlaylistWorkspace.CommitMainTableColumnSetting(MainChartList, selection);
     }
 
     public void ExecFolderFilter(FolderFilterType type, string filterKey = null)

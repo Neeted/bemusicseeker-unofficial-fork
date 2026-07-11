@@ -1307,7 +1307,7 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
-    public void ColumnSettingOwner_LoadCommitAndReuseOwnsMainAndWorkspacePresentation()
+    public void MainChartListColumnPresentation_LoadCommitAndReuseOwnsMainAndWorkspacePresentation()
     {
         CustomTableColumnSettings previousStandard = Settings.Default.StandardCustomTableColumnSettings;
         PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
@@ -1315,16 +1315,14 @@ public sealed class RegularChartListOwnerTests
         {
             var table = new MainChartListViewModel();
             var workspace = new PlaylistWorkspaceViewModel(action => action());
-            RegularChartListOwner owner = CreateOwner(table, workspace);
             Settings.Default.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
             Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
 
-            MainChartListColumnSelection first = owner.ResolveColumnSettingForViewUpdate(
+            MainChartListColumnSelection first = table.ResolveColumnSettingForViewUpdate(
                 MainViewUpdateMode.FolderFilterSelected,
                 MainViewUpdateMode.FolderFilterSelected);
-            owner.CommitColumnSetting(first);
-            table.ColumnsSettings = first.ColumnsSettings;
-            MainChartListColumnSelection second = owner.ResolveColumnSettingForViewUpdate(
+            workspace.CommitMainTableColumnSetting(table, first);
+            MainChartListColumnSelection second = table.ResolveColumnSettingForViewUpdate(
                 MainViewUpdateMode.SortUpdated,
                 MainViewUpdateMode.FolderFilterSelected);
 
@@ -1335,7 +1333,11 @@ public sealed class RegularChartListOwnerTests
             Assert.AreEqual(Visibility.Collapsed, workspace.ColumnSettingsVisibilityForPlaylist);
 
             CustomTableColumnSettings beforeInit = Settings.Default.StandardCustomTableColumnSettings;
-            owner.LoadAndCommitColumnSetting(MainViewUpdateMode.FolderFilterSelected);
+            MainChartListColumnSelection init = table.LoadColumnSetting(
+                MainViewUpdateMode.TreeViewFilterNotChanged,
+                MainViewUpdateMode.FolderFilterSelected,
+                isInit: true);
+            workspace.CommitMainTableColumnSetting(table, init);
 
             Assert.AreNotSame(beforeInit, Settings.Default.StandardCustomTableColumnSettings);
             Assert.AreSame(Settings.Default.StandardCustomTableColumnSettings, table.ColumnsSettings);

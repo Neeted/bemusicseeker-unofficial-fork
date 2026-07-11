@@ -27,8 +27,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     internal PlaylistDetailViewState DetailViewState { get; }
 
-    private RegularChartListOwner detailColumnOwner;
-
     public PlaylistWorkspaceViewModel(Action<Action> dispatchPresentation)
         : this(
             dispatchPresentation,
@@ -54,11 +52,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         DetailViewState = viewState ?? throw new ArgumentNullException(nameof(viewState));
         this.detailViewLog = detailViewLog ?? throw new ArgumentNullException(nameof(detailViewLog));
         this.detailRetentionLog = detailRetentionLog ?? throw new ArgumentNullException(nameof(detailRetentionLog));
-    }
-
-    internal void ConfigureDetailTerminal(RegularChartListOwner columnOwner)
-    {
-        detailColumnOwner = columnOwner ?? throw new ArgumentNullException(nameof(columnOwner));
     }
 
     private ChartListSortParameters playlistSummarySortParameters;
@@ -219,6 +212,23 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             visibilityChanged,
             summaryColumnsChanged,
             generation);
+    }
+
+    internal void CommitMainTableColumnSetting(
+        MainChartListViewModel mainChartList,
+        MainChartListColumnSelection selection)
+    {
+        if (mainChartList == null)
+        {
+            throw new ArgumentNullException(nameof(mainChartList));
+        }
+
+        mainChartList.ColumnsSettings = selection.ColumnsSettings;
+        PlaylistColumnPresentationCommit commit = CommitColumnPresentationWithoutNotification(
+            selection.PlaylistColumnSettingsVisibility,
+            selection.PlaylistSummaryColumnsSettings);
+        mainChartList.CommitAppliedColumnMode(selection.AppliedMode);
+        PublishColumnPresentation(commit);
     }
 
     internal void PublishColumnPresentation(PlaylistColumnPresentationCommit commit)

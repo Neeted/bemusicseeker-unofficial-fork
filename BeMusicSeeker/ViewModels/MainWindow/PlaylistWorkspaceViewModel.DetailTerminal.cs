@@ -102,9 +102,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistDetailFilter currentFilterType)
     {
         long stageStartMs = request.Stopwatch.ElapsedMilliseconds;
-        RegularChartListOwner columnOwner = detailColumnOwner
-            ?? throw new InvalidOperationException("Playlist detail terminal ownership is not configured.");
-        MainChartListColumnSelection columnSelection = columnOwner.LoadColumnSetting(
+        MainChartListColumnSelection columnSelection = detailMainChartList.LoadColumnSetting(
             request.ColumnSettingMode,
             request.CurrentTreeMode);
         PlaylistDetailTerminalCommitResult commit;
@@ -242,11 +240,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             throw new ArgumentException("Source rows are required when replacing the playlist source.", nameof(request));
         }
-        if (detailColumnOwner == null)
-        {
-            throw new InvalidOperationException("Playlist detail terminal ownership is not configured.");
-        }
-
         var result = new PlaylistDetailTerminalCommitResult();
         bool CommitDetailPresentation(Action commitRows)
         {

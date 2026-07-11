@@ -315,8 +315,6 @@ public sealed class PlaylistViewPipelineTests
             ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
         };
         var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { }, _ => { });
-        RegularChartListOwner owner = CreateRegularOwner(table, workspace);
-        workspace.ConfigureDetailTerminal(owner);
         table.RowsReplacementCanceled += (_, _) =>
         {
             Task lockProbe = Task.Run(() =>
@@ -347,8 +345,6 @@ public sealed class PlaylistViewPipelineTests
             viewState,
             _ => { },
             _ => { });
-        RegularChartListOwner owner = CreateRegularOwner(table, workspace);
-        workspace.ConfigureDetailTerminal(owner);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         PlaylistDetailTerminalRequest request = CreatePlaylistTerminalRequest(
@@ -369,8 +365,6 @@ public sealed class PlaylistViewPipelineTests
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { }, _ => { });
-        RegularChartListOwner owner = CreateRegularOwner(table, workspace);
-        workspace.ConfigureDetailTerminal(owner);
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -411,8 +405,6 @@ public sealed class PlaylistViewPipelineTests
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { }, _ => { });
-        RegularChartListOwner owner = CreateRegularOwner(table, workspace);
-        workspace.ConfigureDetailTerminal(owner);
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };
@@ -4596,15 +4588,6 @@ public sealed class PlaylistViewPipelineTests
                 Stopwatch = stopwatch
             }
         };
-    }
-
-    private static RegularChartListOwner CreateRegularOwner(MainChartListViewModel table, PlaylistWorkspaceViewModel workspace)
-    {
-        return new RegularChartListOwner(
-            table,
-            workspace,
-            _ => { },
-            action => action());
     }
 
     private static PlaylistDetailBuildStateSnapshot CreatePlaylistDetailBuildStateSnapshot(

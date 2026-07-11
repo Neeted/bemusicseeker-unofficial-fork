@@ -73,7 +73,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "playlistDetailBuildState,");
         StringAssert.Contains(logicalSource, "playlistViewState,");
         StringAssert.Contains(logicalSource, "LogPlaylistRetention);");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ConfigureDetailTerminal(regularChartListOwner);");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("private void PlaylistWorkspacePropertyChanged(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;");

@@ -728,7 +728,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         bool ownsCandidateRows = !ReferenceEquals(mainChartList.Rows, nextRowsView);
         try
         {
-            MainChartListColumnSelection columnSelection = regularChartListOwner.ResolveColumnSettingForViewUpdate(
+            MainChartListColumnSelection columnSelection = mainChartList.ResolveColumnSettingForViewUpdate(
                 request.Mode,
                 request.ColumnFilterMode);
             string diagnosticSummaryText = PlayHistoryPresentationState.FormatDiagnosticSummary(diagnostics);
