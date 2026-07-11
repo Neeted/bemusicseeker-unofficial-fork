@@ -6238,6 +6238,11 @@ public partial class MainWindowViewModel : ViewModel
                     return treeViewFilterTypeSelected;
                 }
             },
+            request =>
+            {
+                treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
+                treeViewFilterParameterSelected = request;
+            },
             MainChartList,
             PlaylistWorkspace,
             playlistDetailBuildState,
@@ -9646,7 +9651,14 @@ public partial class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);
+            LogPlayHistoryViewExecution(playHistoryWorkflowOwner.ExecuteViewFromShell(
+                mode,
+                requestedMode,
+                parameter,
+                () => treeViewFilterParameterSelected as PlayHistoryPeriodRequest,
+                viewBuildStopwatch,
+                KeywordFilter,
+                PlayHistory.SelectedDisplayTarget));
             return;
         }
         else if (mode < MainViewUpdateMode.KeywordFilterUpdated)
@@ -9672,7 +9684,14 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (route.Kind == ChartListRefreshRouteKind.ApplyPlayHistoryView)
         {
-            ApplyPlayHistoryView(route.Mode, route.RequestedMode, parameter, viewBuildStopwatch);
+            LogPlayHistoryViewExecution(playHistoryWorkflowOwner.ExecuteViewFromShell(
+                route.Mode,
+                route.RequestedMode,
+                parameter,
+                () => treeViewFilterParameterSelected as PlayHistoryPeriodRequest,
+                viewBuildStopwatch,
+                KeywordFilter,
+                PlayHistory.SelectedDisplayTarget));
             return;
         }
         if (route.Kind == ChartListRefreshRouteKind.RegisterPlaylistSourceBuild)
@@ -9696,40 +9715,6 @@ public partial class MainWindowViewModel : ViewModel
                 SyncMainChartListSortPresentation();
             }
         }
-    }
-
-    private void ApplyPlayHistoryView(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
-    {
-        PlayHistoryViewRequest viewRequest = playHistoryWorkflowOwner.ResolveViewRequest(
-            parameter,
-            () => treeViewFilterParameterSelected as PlayHistoryPeriodRequest);
-        PlayHistoryPeriodRequest periodRequest = viewRequest.PeriodRequest;
-        long requestId = viewRequest.RequestId > 0
-            ? viewRequest.RequestId
-            : playHistoryWorkflowOwner.RegisterRequest(
-                periodRequest,
-                NormalizePlaylistKeywordFilter(KeywordFilter),
-                PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
-                playHistoryWorkflowOwner.DisplayTargetRevision,
-                activeRequest =>
-                {
-                    treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
-                    treeViewFilterParameterSelected = activeRequest;
-                });
-        PlayHistoryViewExecutionResult execution = playHistoryWorkflowOwner.ExecuteView(
-            new PlayHistoryViewExecutionRequest(
-                mode,
-                requestedMode,
-                parameter,
-                viewBuildStopwatch,
-                new PlayHistoryViewRequest(
-                    periodRequest,
-                    requestId,
-                    viewRequest.KeywordFilterRevision,
-                    viewRequest.DisplayTargetRevision),
-                KeywordFilter,
-                PlayHistory.SelectedDisplayTarget));
-        LogPlayHistoryViewExecution(execution);
     }
 
     private void LogPlayHistoryViewExecution(PlayHistoryViewExecutionResult execution)

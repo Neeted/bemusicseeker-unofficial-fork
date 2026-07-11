@@ -9,6 +9,43 @@ public sealed partial class PlayHistoryWorkflowOwner
 {
     private PlayHistoryViewExecutionDependencies viewExecutionDependencies;
 
+    internal PlayHistoryViewExecutionResult ExecuteViewFromShell(
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
+        object parameter,
+        Func<PlayHistoryPeriodRequest> fallbackPeriodRequestFactory,
+        Stopwatch stopwatch,
+        string keywordFilter,
+        PlayHistoryDisplayTargetItem displayTarget)
+    {
+        PlayHistoryViewExecutionDependencies dependencies = viewExecutionDependencies
+            ?? throw new InvalidOperationException("Play-history view execution must be configured before it is used.");
+        PlayHistoryViewRequest viewRequest = ResolveViewRequest(
+            parameter,
+            fallbackPeriodRequestFactory);
+        long requestId = viewRequest.RequestId > 0
+            ? viewRequest.RequestId
+            : RegisterRequest(
+                viewRequest.PeriodRequest,
+                PlaylistRequestFactory.NormalizeKeywordFilter(keywordFilter),
+                displayTarget?.Identity ?? string.Empty,
+                DisplayTargetRevision,
+                dependencies.ActivateRequest);
+        return ExecuteView(
+            new PlayHistoryViewExecutionRequest(
+                mode,
+                requestedMode,
+                parameter,
+                stopwatch,
+                new PlayHistoryViewRequest(
+                    viewRequest.PeriodRequest,
+                    requestId,
+                    viewRequest.KeywordFilterRevision,
+                    viewRequest.DisplayTargetRevision),
+                keywordFilter,
+                displayTarget));
+    }
+
     internal void ConfigureViewExecution(PlayHistoryViewExecutionDependencies dependencies)
     {
         viewExecutionDependencies = dependencies
@@ -280,6 +317,7 @@ internal sealed class PlayHistoryViewExecutionDependencies
         Func<Action, bool> invokePresentationSynchronously,
         Action<PlayHistoryViewRequest, PlayHistoryReadWorkflowProgress> reportProgress,
         Func<MainViewUpdateMode> resolveColumnFilterMode,
+        Action<PlayHistoryViewRequest> activateRequest,
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
         PlaylistDetailBuildState playlistDetailBuildState,
@@ -291,6 +329,7 @@ internal sealed class PlayHistoryViewExecutionDependencies
         InvokePresentationSynchronously = invokePresentationSynchronously ?? throw new ArgumentNullException(nameof(invokePresentationSynchronously));
         ReportProgress = reportProgress ?? throw new ArgumentNullException(nameof(reportProgress));
         ResolveColumnFilterMode = resolveColumnFilterMode ?? throw new ArgumentNullException(nameof(resolveColumnFilterMode));
+        ActivateRequest = activateRequest ?? throw new ArgumentNullException(nameof(activateRequest));
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
         PlaylistDetailBuildState = playlistDetailBuildState ?? throw new ArgumentNullException(nameof(playlistDetailBuildState));
@@ -303,6 +342,7 @@ internal sealed class PlayHistoryViewExecutionDependencies
     internal Func<Action, bool> InvokePresentationSynchronously { get; }
     internal Action<PlayHistoryViewRequest, PlayHistoryReadWorkflowProgress> ReportProgress { get; }
     internal Func<MainViewUpdateMode> ResolveColumnFilterMode { get; }
+    internal Action<PlayHistoryViewRequest> ActivateRequest { get; }
     internal MainChartListViewModel MainChartList { get; }
     internal PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
     internal PlaylistDetailBuildState PlaylistDetailBuildState { get; }

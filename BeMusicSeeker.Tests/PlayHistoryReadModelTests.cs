@@ -3256,6 +3256,55 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void WorkflowOwner_ExecuteViewFromShellRegistersAndActivatesFallbackPeriod()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest? activated = null;
+        int activationCount = 0;
+        owner.ConfigureViewExecution(CreateViewExecutionDependencies(
+            activateRequest: request =>
+            {
+                activated = request;
+                activationCount++;
+            }));
+        PlayHistoryPeriodRequest fallbackPeriod = PlayHistoryPeriodRequest.Create(
+            PlayHistoryPeriodKind.Today,
+            new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero),
+            TimeZoneInfo.Utc);
+
+        PlayHistoryViewExecutionResult result = owner.ExecuteViewFromShell(
+            MainViewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.SortUpdated,
+            parameter: null,
+            () => fallbackPeriod,
+            Stopwatch.StartNew(),
+            keywordFilter: "  title  ",
+            PlayHistoryDisplayTargetItem.All);
+
+        Assert.AreEqual(PlayHistoryViewExecutionStatus.NoCurrentMatchingState, result.Status);
+        Assert.IsNotNull(activated);
+        Assert.AreEqual(1, activationCount);
+        Assert.AreEqual(fallbackPeriod.Kind, activated.PeriodRequest.Kind);
+        Assert.AreEqual(owner.CurrentRequestId, activated.RequestId);
+        Assert.AreEqual(
+            PlaylistRequestFactory.NormalizeKeywordFilter("  title  "),
+            owner.CurrentKeywordIdentity);
+
+        PlayHistoryViewExecutionResult existingRequestResult = owner.ExecuteViewFromShell(
+            MainViewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.SortUpdated,
+            activated,
+            () => fallbackPeriod,
+            Stopwatch.StartNew(),
+            keywordFilter: "ignored",
+            PlayHistoryDisplayTargetItem.All);
+
+        Assert.AreEqual(PlayHistoryViewExecutionStatus.NoCurrentMatchingState, existingRequestResult.Status);
+        Assert.AreEqual(activated.RequestId, owner.CurrentRequestId);
+        Assert.AreEqual(1, activationCount);
+    }
+
+    [TestMethod]
     public void WorkflowOwner_ExecuteViewRequeuesLatestDisplayTargetAfterPresentationStale()
     {
         var owner = new PlayHistoryWorkflowOwner();
@@ -3356,7 +3405,8 @@ public sealed class PlayHistoryReadModelTests
 
     private static PlayHistoryViewExecutionDependencies CreateViewExecutionDependencies(
         Func<PlayHistoryReadSourceContext>? sourceResolver = null,
-        bool invokePresentation = true)
+        bool invokePresentation = true,
+        Action<PlayHistoryViewRequest>? activateRequest = null)
     {
         return new PlayHistoryViewExecutionDependencies(
             () => null,
@@ -3373,6 +3423,7 @@ public sealed class PlayHistoryReadModelTests
             },
             (_, _) => { },
             () => MainViewUpdateMode.PlayHistorySelected,
+            activateRequest ?? (_ => { }),
             new MainChartListViewModel(),
             new PlaylistWorkspaceViewModel(action => action()),
             new PlaylistDetailBuildState(),

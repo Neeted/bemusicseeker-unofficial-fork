@@ -236,7 +236,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("RaisePropertyChanged(\"PlayHistoryArchivePeriodTree\")"));
         Assert.IsFalse(rootViewModelCode.Contains("RaisePropertyChanged(\"PlayHistorySummaryCards\")"));
         Assert.IsFalse(rootViewModelCode.Contains("RaisePropertyChanged(\"PlayHistorySummaryDiagnosticText\")"));
-        StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.ExecuteView(");
+        StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.ExecuteViewFromShell(");
         StringAssert.Contains(viewExecutionCode, "BuildReadView(");
         StringAssert.Contains(mainChartListCode, "PrepareRowsTransition(");
         StringAssert.Contains(mainChartListCode, "ApplyPresentation(");
@@ -267,14 +267,16 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlayHistoryView_SelectsBeatorajaProviderAndProjectsSha256Rows()
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string applyPlayHistoryView = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ApplyPlayHistoryView(");
         string reportPlayHistoryReadWorkflowProgress = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ReportPlayHistoryReadWorkflowProgress(");
         string viewExecutionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.ViewExecution.cs");
         string workflowOwnerCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs"));
         string providerSelection = ExtractBetween(viewModelCode, "private bool ShouldUseBeatorajaPlayHistoryProvider", "private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath");
         string rowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "PlayHistoryRow.cs"));
 
-        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.ExecuteView(");
+        StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.ExecuteViewFromShell(");
+        StringAssert.Contains(viewExecutionCode, "ResolveViewRequest(");
+        StringAssert.Contains(viewExecutionCode, "RegisterRequest(");
+        Assert.IsFalse(viewModelCode.Contains("private void ApplyPlayHistoryView("));
         StringAssert.Contains(viewModelCode, "ResolvePlayHistoryReadSourceContext");
         StringAssert.Contains(viewExecutionCode, "BuildReadView(");
         StringAssert.Contains(viewExecutionCode, "SnapshotSummaryFilterTexts(source.Provider)");
@@ -305,7 +307,6 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlayHistoryView_KeywordFilterUpdatedReusesProjectedState()
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string applyPlayHistoryView = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ApplyPlayHistoryView(");
         string viewExecutionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.ViewExecution.cs");
         string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
         string displayTargetRefreshOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargetRefresh.cs");
@@ -317,13 +318,14 @@ public sealed class MainWindowContextMenuResourceTests
         string workflowOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
         string displayTargetOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
 
-        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.ExecuteView(");
+        StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.ExecuteViewFromShell(");
+        Assert.IsFalse(viewModelCode.Contains("private void ApplyPlayHistoryView("));
         StringAssert.Contains(viewExecutionCode, "request.RequestedMode == MainViewUpdateMode.SortUpdated");
-        Assert.IsFalse(applyPlayHistoryView.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
-        Assert.IsFalse(applyPlayHistoryView.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
-        Assert.IsFalse(applyPlayHistoryView.Contains("PlayHistorySortEngine.TrySort("));
+        Assert.IsFalse(viewExecutionCode.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
+        Assert.IsFalse(viewExecutionCode.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
+        Assert.IsFalse(viewExecutionCode.Contains("PlayHistorySortEngine.TrySort("));
         StringAssert.Contains(viewModelCode, "mode == MainViewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest");
-        StringAssert.Contains(viewModelCode, "ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);");
+        StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.ExecuteViewFromShell(");
         StringAssert.Contains(viewExecutionCode, "BuildPresentationOnly(");
         Assert.IsFalse(viewExecutionCode.Contains("ApplyDisplayTarget("));
         StringAssert.Contains(viewModelCode, "if (PlayHistory.SelectedDisplayTarget.UsesProjection)");
