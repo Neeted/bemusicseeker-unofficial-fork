@@ -3031,7 +3031,7 @@ public sealed class PlaylistViewPipelineTests
         ];
         PlaylistSummaryRow[] draggedRows = [visibleRows[2]];
 
-        List<BMSTable> result = MainWindowViewModel.BuildBmtSortOrderByVisibleDrop(fullOrder, visibleRows, draggedRows, visibleInsertIndex: 1);
+        List<BMSTable> result = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByVisibleDrop(fullOrder, visibleRows, draggedRows, visibleInsertIndex: 1);
 
         CollectionAssert.AreEqual(new[] { 1, 5, 2, 3, 4 }, result.Select(table => table.playlist_id.GetValueOrDefault()).ToArray());
     }
@@ -3047,7 +3047,7 @@ public sealed class PlaylistViewPipelineTests
             CreatePlaylistSummaryRow(fullOrder[3])
         ];
 
-        List<BMSTable> result = MainWindowViewModel.BuildBmtSortOrderByReplacingVisibleSlots(fullOrder, visibleRows);
+        List<BMSTable> result = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByReplacingVisibleSlots(fullOrder, visibleRows);
 
         CollectionAssert.AreEqual(new[] { 5, 2, 3, 1, 4 }, result.Select(table => table.playlist_id.GetValueOrDefault()).ToArray());
     }
@@ -3062,7 +3062,7 @@ public sealed class PlaylistViewPipelineTests
             CreatePlaylistSummaryRow(fullOrder[3])
         ];
 
-        List<BMSTable> result = MainWindowViewModel.BuildBmtSortOrderByMovingRows(fullOrder, selectedRows, insertAtTop: false);
+        List<BMSTable> result = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByMovingRows(fullOrder, selectedRows, insertAtTop: false);
 
         CollectionAssert.AreEqual(new[] { 1, 3, 5, 2, 4 }, result.Select(table => table.playlist_id.GetValueOrDefault()).ToArray());
     }

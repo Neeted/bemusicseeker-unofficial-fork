@@ -15540,9 +15540,7 @@ public partial class MainWindowViewModel : ViewModel
 
     public bool IsPlaylistSummarySortedByBmtSortAscending()
     {
-        return PlaylistWorkspace.PlaylistSummarySortParameters != null
-            && PlaylistWorkspace.PlaylistSummarySortParameters.ColumnsName == nameof(PlaylistSummaryRow.BmtSort)
-            && PlaylistWorkspace.PlaylistSummarySortParameters.Direction == ListSortDirection.Ascending;
+        return PlaylistSummaryBmtSortOrderPlanner.IsSortedByBmtSortAscending(PlaylistWorkspace.PlaylistSummarySortParameters);
     }
 
     /// <summary>
@@ -15729,98 +15727,26 @@ public partial class MainWindowViewModel : ViewModel
 
     public void ApplyCurrentPlaylistSummaryOrderToBmtSort(IEnumerable<PlaylistSummaryRow> visibleRows)
     {
-        List<BMSTable> orderedTables = BuildBmtSortOrderByReplacingVisibleSlots(GetBmtSortFullOrderSnapshot(), visibleRows);
+        List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByReplacingVisibleSlots(GetBmtSortFullOrderSnapshot(), visibleRows);
         PersistPlaylistSummaryBmtSortOrder(orderedTables, "playlist_summary_apply_current_order_to_bmt_sort");
     }
 
     public void MovePlaylistSummaryRowsToBmtSortTop(IEnumerable<PlaylistSummaryRow> rows)
     {
-        List<BMSTable> orderedTables = BuildBmtSortOrderByMovingRows(GetBmtSortFullOrderSnapshot(), rows, insertAtTop: true);
+        List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByMovingRows(GetBmtSortFullOrderSnapshot(), rows, insertAtTop: true);
         PersistPlaylistSummaryBmtSortOrder(orderedTables, "playlist_summary_move_to_bmt_sort_top");
     }
 
     public void MovePlaylistSummaryRowsToBmtSortBottom(IEnumerable<PlaylistSummaryRow> rows)
     {
-        List<BMSTable> orderedTables = BuildBmtSortOrderByMovingRows(GetBmtSortFullOrderSnapshot(), rows, insertAtTop: false);
+        List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByMovingRows(GetBmtSortFullOrderSnapshot(), rows, insertAtTop: false);
         PersistPlaylistSummaryBmtSortOrder(orderedTables, "playlist_summary_move_to_bmt_sort_bottom");
     }
 
     public long DropPlaylistSummaryRowsToBmtSort(IEnumerable<PlaylistSummaryRow> visibleRows, IEnumerable<PlaylistSummaryRow> draggedRows, int visibleInsertIndex)
     {
-        List<BMSTable> orderedTables = BuildBmtSortOrderByVisibleDrop(GetBmtSortFullOrderSnapshot(), visibleRows, draggedRows, visibleInsertIndex);
+        List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByVisibleDrop(GetBmtSortFullOrderSnapshot(), visibleRows, draggedRows, visibleInsertIndex);
         return PersistPlaylistSummaryBmtSortOrder(orderedTables, "playlist_summary_bmt_sort_drag_drop");
-    }
-
-    internal static List<BMSTable> BuildBmtSortOrderByReplacingVisibleSlots(IEnumerable<BMSTable> fullOrder, IEnumerable<PlaylistSummaryRow> visibleRows)
-    {
-        List<BMSTable> fullOrderList = GetBmtSortFullOrder(fullOrder);
-        List<BMSTable> visibleOrder = GetDistinctTablesFromRows(visibleRows);
-        if (fullOrderList.Count == 0 || visibleOrder.Count == 0)
-        {
-            return fullOrderList;
-        }
-        var visibleSet = new HashSet<BMSTable>(visibleOrder);
-        int visibleIndex = 0;
-        return [.. fullOrderList.Select(table => visibleSet.Contains(table) && visibleIndex < visibleOrder.Count ? visibleOrder[visibleIndex++] : table)];
-    }
-
-    internal static List<BMSTable> BuildBmtSortOrderByMovingRows(IEnumerable<BMSTable> fullOrder, IEnumerable<PlaylistSummaryRow> rows, bool insertAtTop)
-    {
-        List<BMSTable> fullOrderList = GetBmtSortFullOrder(fullOrder);
-        List<BMSTable> movingTables = GetDistinctTablesFromRows(rows);
-        if (fullOrderList.Count == 0 || movingTables.Count == 0)
-        {
-            return fullOrderList;
-        }
-        var movingSet = new HashSet<BMSTable>(movingTables);
-        List<BMSTable> remaining = [.. fullOrderList.Where(table => !movingSet.Contains(table))];
-        if (insertAtTop)
-        {
-            remaining.InsertRange(0, movingTables);
-        }
-        else
-        {
-            remaining.AddRange(movingTables);
-        }
-        return remaining;
-    }
-
-    internal static List<BMSTable> BuildBmtSortOrderByVisibleDrop(IEnumerable<BMSTable> fullOrder, IEnumerable<PlaylistSummaryRow> visibleRows, IEnumerable<PlaylistSummaryRow> draggedRows, int visibleInsertIndex)
-    {
-        List<BMSTable> visibleOrder = GetDistinctTablesFromRows(visibleRows);
-        List<BMSTable> fullOrderList = GetBmtSortFullOrder(fullOrder);
-        List<BMSTable> movingTables = GetDistinctTablesFromRows(draggedRows);
-        if (fullOrderList.Count == 0 || visibleOrder.Count == 0 || movingTables.Count == 0)
-        {
-            return fullOrderList;
-        }
-        var movingSet = new HashSet<BMSTable>(movingTables);
-        List<BMSTable> remaining = [.. fullOrderList.Where(table => !movingSet.Contains(table))];
-        List<BMSTable> visibleRemaining = [.. visibleOrder.Where(table => !movingSet.Contains(table))];
-        int safeInsertIndex = Math.Max(0, Math.Min(visibleInsertIndex, visibleOrder.Count));
-        BMSTable previousAnchor = null;
-        for (int i = safeInsertIndex - 1; i >= 0; i--)
-        {
-            if (!movingSet.Contains(visibleOrder[i]))
-            {
-                previousAnchor = visibleOrder[i];
-                break;
-            }
-        }
-        int insertIndex;
-        if (previousAnchor != null)
-        {
-            int anchorIndex = remaining.IndexOf(previousAnchor);
-            insertIndex = anchorIndex < 0 ? remaining.Count : anchorIndex + 1;
-        }
-        else
-        {
-            BMSTable nextAnchor = visibleRemaining.FirstOrDefault();
-            int anchorIndex = nextAnchor == null ? -1 : remaining.IndexOf(nextAnchor);
-            insertIndex = anchorIndex < 0 ? 0 : anchorIndex;
-        }
-        remaining.InsertRange(insertIndex, movingTables);
-        return remaining;
     }
 
     private List<BMSTable> GetBmtSortFullOrderSnapshot()
@@ -15832,7 +15758,7 @@ public partial class MainWindowViewModel : ViewModel
         tables.AcquireReaderLockBMSTables();
         try
         {
-            return GetBmtSortFullOrder(BMSTables);
+            return PlaylistSummaryBmtSortOrderPlanner.GetFullOrder(BMSTables);
         }
         finally
         {
@@ -15864,29 +15790,6 @@ public partial class MainWindowViewModel : ViewModel
         tables.CommitBMSTableHeadersToDB(changedTables);
         tables.QueueBeatorajaBmtUrlSync(reason);
         return RefreshPlaylistSummaryIfVisible(reason, invalidateTableCountCache: false, rebuildAsync: false);
-    }
-
-    private static List<BMSTable> GetBmtSortFullOrder(IEnumerable<BMSTable> tables)
-    {
-        return [.. (tables ?? [])
-            .Where(table => table != null)
-            .Distinct()
-            .OrderBy(table => GetBmtSortOrTail(table.bmt_sort))
-            .ThenBy(table => table.name ?? string.Empty, StringComparer.CurrentCultureIgnoreCase)
-            .ThenBy(table => table.playlist_id ?? int.MaxValue)];
-    }
-
-    private static int GetBmtSortOrTail(int? sort)
-    {
-        return sort.HasValue && sort.Value > 0 ? sort.Value : int.MaxValue;
-    }
-
-    private static List<BMSTable> GetDistinctTablesFromRows(IEnumerable<PlaylistSummaryRow> rows)
-    {
-        return [.. (rows ?? [])
-            .Where(row => row?.TableRef != null)
-            .Select(row => row.TableRef)
-            .Distinct()];
     }
 
     public void ResyncPlaylists(IEnumerable<PlaylistSummaryRow> rows)
