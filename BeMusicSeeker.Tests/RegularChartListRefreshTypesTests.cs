@@ -26,7 +26,7 @@ public sealed class RegularChartListRefreshTypesTests
             includeBmsonRows: true,
             virtualSubsetRequiredFailure: false,
             keywordFilter: null,
-            RegularChartModeFilter.SevenKeys,
+            ChartModeFilter._7KEYS,
             sort);
 
         Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, request.Mode);
@@ -36,7 +36,7 @@ public sealed class RegularChartListRefreshTypesTests
         Assert.IsTrue(request.IncludeBmsonRows);
         Assert.IsFalse(request.VirtualSubsetRequiredFailure);
         Assert.AreEqual(string.Empty, request.KeywordFilter);
-        Assert.AreEqual(RegularChartModeFilter.SevenKeys, request.ModeFilter);
+        Assert.AreEqual(ChartModeFilter._7KEYS, request.ModeFilter);
         Assert.IsTrue(request.HasSortParameters);
         Assert.AreEqual(nameof(LibraryChartRow.rateDouble), request.SortColumnName);
         Assert.AreEqual(nameof(LibraryChartRow.rank), request.RequestedSortColumnName);

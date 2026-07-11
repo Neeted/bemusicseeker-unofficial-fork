@@ -120,6 +120,11 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
 
+    /// <summary>
+    /// Gets the chart-list filter input state owned by the chart-list feature.
+    /// </summary>
+    public ChartListFilterViewModel ChartFilters { get; }
+
     public PlayHistoryWorkflowOwner PlayHistory { get; }
 
     internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
@@ -149,7 +154,8 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// Compatibility name for the former nested chart mode filter.
+    /// Compatibility name for callers compiled against the former nested chart mode filter.
+    /// The main-window binding uses <see cref="ChartFilters"/> instead.
     /// </summary>
     [Flags]
     public enum ModeFilterType
@@ -726,10 +732,6 @@ public partial class MainWindowViewModel : ViewModel
     private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
 
     private bool _IsPlaylistTreeExpanded = true;
-
-    private ModeFilterType _ModeFilter = ModeFilterType.All;
-
-    private string _KeywordFilter;
 
     private string _KeywordSearchWarningText = string.Empty;
 
@@ -1984,13 +1986,15 @@ public partial class MainWindowViewModel : ViewModel
         long libraryIndexVersion = GetPlaylistLibraryIndexVersion();
         int scoreSnapshotVersion = GetPlaylistScoreSnapshotVersion();
         int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
+        ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         return new PlaylistBuildRequest
         {
             RequestVersion = requestVersion,
             Mode = mode,
             RequestedMode = requestedMode,
             Parameter = parameter,
-            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, KeywordFilter, (ChartModeFilter)(int)ModeFilter, SortParameters, libraryIndexVersion, viewSnapshot.PlaylistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
+            Filters = filters,
+            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, filters.KeywordFilter, filters.ModeFilter, SortParameters, libraryIndexVersion, viewSnapshot.PlaylistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
             UseCoalescingWindow = ShouldUsePlaylistBuildCoalescingWindow(mode, requestedMode)
         };
     }
@@ -3027,11 +3031,12 @@ public partial class MainWindowViewModel : ViewModel
 
     private void RefreshLibraryMainViewForDataDependency(MainViewDataDependency dependency, string reason)
     {
+        ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         MainViewRefreshDecision decision = MainViewRefreshDecisionService.Build(
             treeViewFilterTypeSelected,
             regularChartListOwner.HasTreeFilter,
-            KeywordFilter,
-            (ChartModeFilter)(int)ModeFilter,
+            filters.KeywordFilter,
+            filters.ModeFilter,
             SortParameters?.ColumnsName,
             IsPlaylistDetailViewActive,
             dependency,
@@ -3043,8 +3048,8 @@ public partial class MainWindowViewModel : ViewModel
             + " detail=" + decision.Detail
             + " mode=" + treeViewFilterTypeSelected
             + " sortColumn=" + (SortParameters?.ColumnsName ?? "(default_title)")
-            + " keywordEmpty=" + string.IsNullOrWhiteSpace(KeywordFilter).ToString().ToLowerInvariant()
-            + " modeFilter=" + ModeFilter
+            + " keywordEmpty=" + string.IsNullOrWhiteSpace(filters.KeywordFilter).ToString().ToLowerInvariant()
+            + " modeFilter=" + filters.ModeFilter
             + " folderFilterApplied=" + regularChartListOwner.HasTreeFilter.ToString().ToLowerInvariant()
             + " isPlaylistDetailView=" + IsPlaylistDetailViewActive.ToString().ToLowerInvariant());
         if (!decision.ShouldRefresh)
@@ -5382,62 +5387,66 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// Compatibility forwarder for callers that still address the former root filter property.
+    /// </summary>
     public ModeFilterType ModeFilter
     {
-        get
-        {
-            return _ModeFilter;
-        }
+        get => (ModeFilterType)(int)ChartFilters.ModeFilter;
         set
         {
-            if (_ModeFilter != value)
+            ChartFilters.ModeFilter = (ChartModeFilter)(int)value;
+            if (value == ModeFilterType.None)
             {
-                if (value != ModeFilterType.None)
-                {
-                    _ModeFilter = value;
-                    regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
-                }
                 RaisePropertyChanged("ModeFilter");
-                if (value != ModeFilterType.None)
-                {
-                    RefreshChartRowsView(MainViewUpdateMode.ModeFilterUpdated);
-                }
             }
         }
     }
 
+    /// <summary>
+    /// Compatibility forwarder for callers that still address the former root keyword property.
+    /// </summary>
     public string KeywordFilter
     {
-        get
+        get => ChartFilters.KeywordFilter;
+        set => ChartFilters.KeywordFilter = value;
+    }
+
+    private void ChartFiltersModeFilterChanged(object sender, EventArgs e)
+    {
+        ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
+        if (filters.ModeFilter == ChartModeFilter.None)
         {
-            return _KeywordFilter;
+            return;
         }
-        set
+
+        RaisePropertyChanged("ModeFilter");
+        RefreshChartRowsView(MainViewUpdateMode.ModeFilterUpdated);
+    }
+
+    private void ChartFiltersKeywordFilterChanged(object sender, EventArgs e)
+    {
+        ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
+        lock (playHistoryViewRequestLock)
         {
-            if (!(_KeywordFilter == value))
+            if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
             {
-                lock (playHistoryViewRequestLock)
-                {
-                    _KeywordFilter = value;
-                    regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
-                    if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
-                    {
-                        playHistoryWorkflowOwner.UpdateKeywordIdentity(NormalizePlaylistKeywordFilter(_KeywordFilter), advanceRevision: true);
-                    }
-                }
-                RaisePropertyChanged("KeywordFilter");
-                UpdateKeywordSearchPresentation();
-                if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
-                {
-                    playHistoryWorkflowOwner.QueueKeywordFilterRefresh(
-                        NormalizePlaylistKeywordFilter(KeywordFilter),
-                        advanceRevision: false);
-                }
-                else
-                {
-                    RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated);
-                }
+                playHistoryWorkflowOwner.UpdateKeywordIdentity(
+                    NormalizePlaylistKeywordFilter(filters.KeywordFilter),
+                    advanceRevision: true);
             }
+        }
+        RaisePropertyChanged("KeywordFilter");
+        UpdateKeywordSearchPresentation();
+        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
+        {
+            playHistoryWorkflowOwner.QueueKeywordFilterRefresh(
+                NormalizePlaylistKeywordFilter(filters.KeywordFilter),
+                advanceRevision: false);
+        }
+        else
+        {
+            RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated);
         }
     }
 
@@ -5627,7 +5636,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void UpdateKeywordSearchPresentation()
     {
-        string warningText = BuildKeywordSearchWarningText(KeywordFilter, GetCurrentKeywordSearchContext());
+        string warningText = BuildKeywordSearchWarningText(ChartFilters.KeywordFilter, GetCurrentKeywordSearchContext());
         if (!string.Equals(_KeywordSearchWarningText, warningText, StringComparison.Ordinal))
         {
             _KeywordSearchWarningText = warningText;
@@ -6197,6 +6206,9 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public MainWindowViewModel()
     {
+        ChartFilters = new ChartListFilterViewModel();
+        ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
+        ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
         RuntimeContext = new MainWindowRuntimeContext(
             () => files,
             () => tables,
@@ -6252,7 +6264,7 @@ public partial class MainWindowViewModel : ViewModel
             PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
             advanceRevision: false);
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => PlayHistory.QueueKeywordFilterRefresh(
-            NormalizePlaylistKeywordFilter(KeywordFilter));
+            NormalizePlaylistKeywordFilter(ChartFilters.KeywordFilter));
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(PlaylistWorkspace);
         PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
             () => tables,
@@ -6280,7 +6292,6 @@ public partial class MainWindowViewModel : ViewModel
         regularChartListOwner.InstallDestinationEditRequested += RegularChartListOwnerInstallDestinationEditRequested;
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
-        regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         PlayHistory.RestoreDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
@@ -9345,6 +9356,7 @@ public partial class MainWindowViewModel : ViewModel
         MainViewUpdateMode mode = request.Mode;
         MainViewUpdateMode requestedMode = request.RequestedMode;
         object parameter = request.Parameter;
+        ChartListFilterSnapshot filters = request.Filters ?? ChartListFilterSnapshot.Default;
         var viewBuildStopwatch = Stopwatch.StartNew();
         cancellationToken.ThrowIfCancellationRequested();
         PlaylistDetailTerminalApplyResult terminalApplyResult = PlaylistWorkspace.ApplyDetailFromCurrentSource(
@@ -9352,8 +9364,8 @@ public partial class MainWindowViewModel : ViewModel
             {
                 BuildRequest = request,
                 Mode = mode,
-                KeywordFilter = KeywordFilter,
-                ModeFilter = (ChartModeFilter)(int)ModeFilter,
+                KeywordFilter = filters.KeywordFilter,
+                ModeFilter = filters.ModeFilter,
                 SortParameters = SortParameters,
                 ColumnSettingMode = ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
                 CurrentTreeMode = treeViewFilterTypeSelected,
@@ -9388,6 +9400,7 @@ public partial class MainWindowViewModel : ViewModel
         MainViewUpdateMode mode = request.Mode;
         MainViewUpdateMode requestedMode = request.RequestedMode;
         object parameter = request.Parameter;
+        ChartListFilterSnapshot filters = request.Filters ?? ChartListFilterSnapshot.Default;
         var viewBuildStopwatch = Stopwatch.StartNew();
         int sourceCount = 0;
         List<PlaylistDetailSourceRow> sourceRows = null;
@@ -9445,8 +9458,8 @@ public partial class MainWindowViewModel : ViewModel
                     {
                         BuildRequest = request,
                         Mode = mode,
-                        KeywordFilter = KeywordFilter,
-                        ModeFilter = (ChartModeFilter)(int)ModeFilter,
+                        KeywordFilter = filters.KeywordFilter,
+                        ModeFilter = filters.ModeFilter,
                         SortParameters = SortParameters,
                         ColumnSettingMode = ResolvePlaylistColumnSettingMode(filterType),
                         CurrentTreeMode = treeViewFilterTypeSelected,
@@ -9613,6 +9626,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         regularChartListOwner.PrepareForMainViewRefresh();
         var viewBuildStopwatch = Stopwatch.StartNew();
+        ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         MainViewUpdateMode requestedMode = mode;
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
         if (mode == MainViewUpdateMode.TreeViewFilterNotChanged)
@@ -9657,7 +9671,7 @@ public partial class MainWindowViewModel : ViewModel
                 parameter,
                 () => treeViewFilterParameterSelected as PlayHistoryPeriodRequest,
                 viewBuildStopwatch,
-                KeywordFilter,
+                filters.KeywordFilter,
                 PlayHistory.SelectedDisplayTarget));
             return;
         }
@@ -9690,7 +9704,7 @@ public partial class MainWindowViewModel : ViewModel
                 parameter,
                 () => treeViewFilterParameterSelected as PlayHistoryPeriodRequest,
                 viewBuildStopwatch,
-                KeywordFilter,
+                filters.KeywordFilter,
                 PlayHistory.SelectedDisplayTarget));
             return;
         }
@@ -9706,7 +9720,8 @@ public partial class MainWindowViewModel : ViewModel
             parameter,
             treeViewFilterParameterSelected,
             PlaylistWorkspace.IsPlaylistSummaryMode,
-            viewBuildStopwatch);
+            viewBuildStopwatch,
+            filters);
         if (regularResult.WasCommitted && regularResult.SortWasReset)
         {
             RaisePropertyChanged(nameof(SortParameters));
@@ -9759,7 +9774,7 @@ public partial class MainWindowViewModel : ViewModel
             LogPlayHistoryKeywordFilter(
                 periodRequest,
                 viewRequest.RequestId,
-                KeywordFilter,
+                request.KeywordFilter,
                 readResult.Read.RowCount,
                 readPresentation.DisplayTargetResultCount,
                 readPresentation.KeywordCount,
@@ -9781,7 +9796,7 @@ public partial class MainWindowViewModel : ViewModel
                 LogPlayHistoryKeywordFilter(
                     periodRequest,
                     viewRequest.RequestId,
-                    KeywordFilter,
+                    request.KeywordFilter,
                     presentationOnly.KeywordSourceCount,
                     presentationOnly.KeywordProjectedCount,
                     presentationOnly.KeywordCount,
@@ -10157,10 +10172,11 @@ public partial class MainWindowViewModel : ViewModel
     {
         SetPlaylistSummaryMode(enabled: false);
         EnsurePlayHistoryDisplayTargetSelection();
+        ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
         PlayHistoryViewRequest activeRequest = playHistoryWorkflowOwner.BeginRequest(
             request ?? PlayHistoryPeriodRequest.All(),
-            NormalizePlaylistKeywordFilter(KeywordFilter),
+            NormalizePlaylistKeywordFilter(filters.KeywordFilter),
             PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
             playHistoryWorkflowOwner.DisplayTargetRevision,
             requestToActivate =>

@@ -57,8 +57,6 @@ internal sealed class RegularChartListOwner : IDisposable
     private ListSortDirection? folderSortDirection;
     private RegularNormalLibraryTreeFilter treeFilter;
     private ChartListSortSpecification currentSort;
-    private string currentKeywordFilter;
-    private RegularChartModeFilter currentModeFilter = RegularChartModeFilter.All;
     private List<ChartListSourceRow> virtualSourceRows;
     private BMSLibrary virtualSourceRowsLibrary;
     private bool virtualSourceRowsLibraryReserved;
@@ -144,24 +142,6 @@ internal sealed class RegularChartListOwner : IDisposable
                 ListSortDirection.Ascending,
                 hasValue: false);
             return true;
-        }
-    }
-
-    internal void SetFilters(string keywordFilter, RegularChartModeFilter modeFilter)
-    {
-        lock (syncRoot)
-        {
-            currentKeywordFilter = keywordFilter;
-            currentModeFilter = modeFilter;
-        }
-    }
-
-    private void CaptureFilters(out string keywordFilter, out RegularChartModeFilter modeFilter)
-    {
-        lock (syncRoot)
-        {
-            keywordFilter = currentKeywordFilter;
-            modeFilter = currentModeFilter;
         }
     }
 
@@ -1169,7 +1149,7 @@ internal sealed class RegularChartListOwner : IDisposable
         long keywordMs = stopwatch.ElapsedMilliseconds - stageStartMs;
         lease.Token.ThrowIfCancellationRequested();
         stageStartMs = stopwatch.ElapsedMilliseconds;
-        IReadOnlyList<LibraryChartRow> nextModeRows = request.ModeFilter != RegularChartModeFilter.All
+        IReadOnlyList<LibraryChartRow> nextModeRows = request.ModeFilter != ChartModeFilter.All
             ? RegularChartListStageState.Materialize(RegularChartListFilterService.ApplyModeFilter(nextKeywordRows, request.ModeFilter))
             : nextKeywordRows;
         long modeMs = stopwatch.ElapsedMilliseconds - stageStartMs;
@@ -1286,7 +1266,8 @@ internal sealed class RegularChartListOwner : IDisposable
         object parameter,
         object treeParameter,
         bool preserveSummary,
-        Stopwatch stopwatch)
+        Stopwatch stopwatch,
+        ChartListFilterSnapshot filters = null)
     {
         if (route.Kind != ChartListRefreshRouteKind.ContinueMainLibrary)
         {
@@ -1306,7 +1287,8 @@ internal sealed class RegularChartListOwner : IDisposable
                 TreeParameter = treeParameter,
                 IncludeBmsonRows = route.IncludeBmsonRows,
                 PreserveSummary = preserveSummary,
-                Stopwatch = stopwatch
+                Stopwatch = stopwatch,
+                Filters = filters ?? ChartListFilterSnapshot.Default
             });
     }
 
@@ -1321,7 +1303,9 @@ internal sealed class RegularChartListOwner : IDisposable
             throw new ArgumentException("A library is required when bmson rows are included.", nameof(request));
         }
         ChartListSortSpecification sort = CaptureSort();
-        CaptureFilters(out string keywordFilter, out RegularChartModeFilter modeFilter);
+        ChartListFilterSnapshot filters = request.Filters ?? ChartListFilterSnapshot.Default;
+        string keywordFilter = filters.KeywordFilter;
+        ChartModeFilter modeFilter = filters.ModeFilter;
         RegularChartListExternalVersions externalVersions = CaptureExternalVersions(request.Library, default);
         ClearPlaylistSourceRowsForRegularView();
 
@@ -2282,7 +2266,7 @@ internal sealed class RegularChartListOwner : IDisposable
         IReadOnlyList<ChartListSourceRow> sourceRows,
         IReadOnlyList<int> orderedIndexes,
         GridKeywordSearchQuery keywordQuery,
-        RegularChartModeFilter modeFilter,
+        ChartModeFilter modeFilter,
         out int keywordFilteredCount,
         out int modeFilteredCount,
         out long keywordStageMs,
@@ -2299,7 +2283,7 @@ internal sealed class RegularChartListOwner : IDisposable
         keywordFilteredCount = indexes.Length;
         keywordStageMs = stageStopwatch.ElapsedMilliseconds;
         stageStopwatch.Restart();
-        if (modeFilter != RegularChartModeFilter.All)
+        if (modeFilter != ChartModeFilter.All)
         {
             HashSet<int?> modeValues = RegularChartListFilterService.CreateModeFilterValueSet(modeFilter);
             indexes = [.. indexes.Where(index => modeValues.Contains(sourceRows[index]?.Mode))];
@@ -2436,13 +2420,13 @@ internal sealed class RegularChartListOwner : IDisposable
     internal static string CreateVirtualNormalLibraryFilterIdentity(
         string folderFilterIdentity,
         string keywordFilter,
-        RegularChartModeFilter modeFilter,
+        ChartModeFilter modeFilter,
         int scoreSnapshotVersion,
         int chartInfoIndexVersion)
     {
         if (string.IsNullOrEmpty(folderFilterIdentity)
             && string.IsNullOrWhiteSpace(keywordFilter)
-            && modeFilter == RegularChartModeFilter.All)
+            && modeFilter == ChartModeFilter.All)
         {
             return "normal_default";
         }
@@ -2465,7 +2449,7 @@ internal sealed class RegularChartListOwner : IDisposable
         IReadOnlyList<int> orderedIndexes,
         RegularNormalLibraryTreeFilter treeFilter,
         GridKeywordSearchQuery keywordQuery,
-        RegularChartModeFilter modeFilter,
+        ChartModeFilter modeFilter,
         out int folderFilteredCount,
         out int keywordFilteredCount,
         out int modeFilteredCount,
@@ -2493,7 +2477,7 @@ internal sealed class RegularChartListOwner : IDisposable
         keywordStageMs = stageStopwatch.ElapsedMilliseconds;
 
         stageStopwatch.Restart();
-        if (modeFilter != RegularChartModeFilter.All)
+        if (modeFilter != ChartModeFilter.All)
         {
             HashSet<int?> modeValues = RegularChartListFilterService.CreateModeFilterValueSet(modeFilter);
             indexes = [.. indexes.Where(index => modeValues.Contains(sourceRows[index]?.Mode))];
@@ -2810,7 +2794,7 @@ internal sealed class RegularChartListOwner : IDisposable
         bool fullNormalResult = input.CurrentTreeMode == MainViewUpdateMode.FolderFilterSelected
             && !input.HasVirtualNormalLibraryTreeFilter
             && string.IsNullOrWhiteSpace(request.KeywordFilter)
-            && request.ModeFilter == RegularChartModeFilter.All
+            && request.ModeFilter == ChartModeFilter.All
             && !input.IsPlaylistDetailView
             && rows.Count == stage.FolderCount && rows.Count == stage.KeywordCount && rows.Count == stage.ModeCount;
 
@@ -3194,6 +3178,8 @@ internal sealed class RegularChartListEntryRequest
 {
     internal BMSLibrary Library { get; set; }
 
+    internal ChartListFilterSnapshot Filters { get; set; }
+
     internal MainViewUpdateMode Mode { get; set; }
 
     internal MainViewUpdateMode RequestedMode { get; set; }
@@ -3482,7 +3468,7 @@ internal sealed class RegularVirtualNormalLibraryApplyRequest
     internal bool IncludeBmsonRows { get; set; }
     internal RegularNormalLibraryTreeFilter TreeFilter { get; set; }
     internal string KeywordFilter { get; set; }
-    internal RegularChartModeFilter ModeFilter { get; set; }
+    internal ChartModeFilter ModeFilter { get; set; }
     internal string SortColumnName { get; set; }
     internal ListSortDirection SortDirection { get; set; }
     internal RegularChartListExternalVersions ExternalVersions { get; set; }
@@ -3503,7 +3489,7 @@ internal sealed class RegularVirtualChartSubsetApplyRequest
     internal MainViewUpdateMode TreeMode { get; set; }
     internal string SubsetName { get; set; }
     internal string KeywordFilter { get; set; }
-    internal RegularChartModeFilter ModeFilter { get; set; }
+    internal ChartModeFilter ModeFilter { get; set; }
     internal string SortColumnName { get; set; }
     internal ListSortDirection SortDirection { get; set; }
     internal RegularChartListExternalVersions ExternalVersions { get; set; }

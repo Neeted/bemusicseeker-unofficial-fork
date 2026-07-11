@@ -7,13 +7,13 @@ namespace BeMusicSeeker.Views;
 
 internal class modeFilterConverter : IValueConverter
 {
-    private MainWindowViewModel.ModeFilterType flags;
+    private ChartModeFilter flags;
 
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        var modeFilterType = (MainWindowViewModel.ModeFilterType)value;
+        var modeFilterType = (ChartModeFilter)value;
         string value2 = parameter as string;
-        var modeFilterType2 = (MainWindowViewModel.ModeFilterType)Enum.Parse(typeof(MainWindowViewModel.ModeFilterType), value2);
+        var modeFilterType2 = (ChartModeFilter)Enum.Parse(typeof(ChartModeFilter), value2);
         flags = modeFilterType;
         return (modeFilterType & modeFilterType2) == modeFilterType2;
     }
@@ -22,7 +22,7 @@ internal class modeFilterConverter : IValueConverter
     {
         bool num = (bool)value;
         string value2 = parameter as string;
-        var modeFilterType = (MainWindowViewModel.ModeFilterType)Enum.Parse(typeof(MainWindowViewModel.ModeFilterType), value2);
+        var modeFilterType = (ChartModeFilter)Enum.Parse(typeof(ChartModeFilter), value2);
         if (num)
         {
             flags |= modeFilterType;

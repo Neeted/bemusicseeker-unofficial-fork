@@ -24,6 +24,27 @@ namespace BeMusicSeeker.Tests;
 public sealed class MainWindowContextMenuResourceTests
 {
     [TestMethod]
+    public void ChartFilterInput_BindsToChildOwnerAndUsesRequestSnapshots()
+    {
+        string repositoryRoot = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string viewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string regularOwner = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs"));
+
+        StringAssert.Contains(xaml, "{Binding ChartFilters.ModeFilter");
+        Assert.AreEqual(5, CountOccurrences(xaml, "{Binding ChartFilters.ModeFilter, Source={StaticResource vm}"));
+        StringAssert.Contains(xaml, "{Binding ChartFilters.KeywordFilter");
+        StringAssert.Contains(viewModel, "public ChartListFilterViewModel ChartFilters");
+        StringAssert.Contains(viewModel, "public ModeFilterType ModeFilter");
+        StringAssert.Contains(viewModel, "public string KeywordFilter");
+        Assert.IsFalse(viewModel.Contains("private ModeFilterType _ModeFilter"));
+        Assert.IsFalse(viewModel.Contains("private string _KeywordFilter"));
+        Assert.IsFalse(regularOwner.Contains("RegularChartModeFilter"));
+        Assert.IsFalse(regularOwner.Contains("SetFilters("));
+        StringAssert.Contains(regularOwner, "ChartListFilterSnapshot Filters");
+    }
+
+    [TestMethod]
     public void DeleteContextMenuItems_UseSpecificDeleteResourceKeys()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));

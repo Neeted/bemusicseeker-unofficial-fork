@@ -1750,15 +1750,15 @@
                     </FrameworkElement.Resources>
                     <v:DropDownMenuButton.DropDownContextMenu>
                       <ContextMenu>
-                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 5KEYS" IsChecked="{Binding ModeFilter, ConverterParameter=_5KEYS, Converter={StaticResource modeFilterConverter}}" />
-                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 7KEYS" IsChecked="{Binding ModeFilter, ConverterParameter=_7KEYS, Converter={StaticResource modeFilterConverter}}" />
-                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 9KEYS" IsChecked="{Binding ModeFilter, ConverterParameter=_9KEYS, Converter={StaticResource modeFilterConverter}}" />
-                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="10KEYS" IsChecked="{Binding ModeFilter, ConverterParameter=_10KEYS, Converter={StaticResource modeFilterConverter}}" />
-                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="14KEYS" IsChecked="{Binding ModeFilter, ConverterParameter=_14KEYS, Converter={StaticResource modeFilterConverter}}" />
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 5KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_5KEYS, Converter={StaticResource modeFilterConverter}}" />
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 7KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_7KEYS, Converter={StaticResource modeFilterConverter}}" />
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header=" 9KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_9KEYS, Converter={StaticResource modeFilterConverter}}" />
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="10KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_10KEYS, Converter={StaticResource modeFilterConverter}}" />
+                        <MenuItem StaysOpenOnClick="True" IsCheckable="True" Header="14KEYS" IsChecked="{Binding ChartFilters.ModeFilter, Source={StaticResource vm}, ConverterParameter=_14KEYS, Converter={StaticResource modeFilterConverter}}" />
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
-                  <TextBox Name="KeywordSearchBox" Width="390" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Text="{Binding KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
+                  <TextBox Name="KeywordSearchBox" Width="390" BorderThickness="0" HorizontalAlignment="Left" Margin="0,0,0,0" VerticalAlignment="Center" Background="Transparent" Foreground="{DynamicResource App.TextBrush}" VerticalContentAlignment="Center" Text="{Binding ChartFilters.KeywordFilter, Delay=500, UpdateSourceTrigger=PropertyChanged}" TextChanged="keywordSearchBoxTextChanged" GotKeyboardFocus="keywordSearchBoxGotKeyboardFocus" LostKeyboardFocus="keywordSearchBoxLostKeyboardFocus" PreviewKeyDown="keywordSearchBoxPreviewKeyDown" />
                   <Popup Placement="Bottom" PlacementTarget="{Binding ElementName=KeywordSearchBox}" StaysOpen="False" AllowsTransparency="True" IsOpen="{Binding IsKeywordSearchSuggestionPopupOpen, Mode=TwoWay}">
                     <Border BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="1" CornerRadius="4" Background="{DynamicResource App.PopupBackgroundBrush}" Padding="4" MinWidth="{Binding ActualWidth, ElementName=KeywordSearchBox}">
                       <StackPanel>

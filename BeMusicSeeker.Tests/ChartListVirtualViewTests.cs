@@ -1773,7 +1773,7 @@ public sealed class ChartListVirtualViewTests
             existingOrderIndexes,
             folderFilter,
             keywordQuery,
-            RegularChartModeFilter.FiveKeys | RegularChartModeFilter.SevenKeys,
+            ChartModeFilter._5KEYS | ChartModeFilter._7KEYS,
             out int folderCount,
             out int keywordCount,
             out int modeCount,
@@ -1812,8 +1812,8 @@ public sealed class ChartListVirtualViewTests
             RegularChartFolderFilterKind.Directory,
             @"D:\BMS\1 EVENT\").Identity;
 
-        string identity = RegularChartListOwner.CreateVirtualNormalLibraryFilterIdentity(folderIdentity, string.Empty, RegularChartModeFilter.All, 1, 1);
-        string sameIdentity = RegularChartListOwner.CreateVirtualNormalLibraryFilterIdentity(sameFolderIdentity, string.Empty, RegularChartModeFilter.All, 9, 9);
+        string identity = RegularChartListOwner.CreateVirtualNormalLibraryFilterIdentity(folderIdentity, string.Empty, ChartModeFilter.All, 1, 1);
+        string sameIdentity = RegularChartListOwner.CreateVirtualNormalLibraryFilterIdentity(sameFolderIdentity, string.Empty, ChartModeFilter.All, 9, 9);
 
         Assert.AreEqual(folderIdentity, sameFolderIdentity);
         Assert.AreEqual(identity, sameIdentity);
@@ -1838,7 +1838,7 @@ public sealed class ChartListVirtualViewTests
             sourceRows,
             fullOrder.Indexes,
             keywordQuery,
-            RegularChartModeFilter.FiveKeys | RegularChartModeFilter.SevenKeys,
+            ChartModeFilter._5KEYS | ChartModeFilter._7KEYS,
             out int keywordCount,
             out int modeCount,
             out _,

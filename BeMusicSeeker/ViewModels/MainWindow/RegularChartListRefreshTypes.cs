@@ -7,18 +7,6 @@ using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
-[Flags]
-internal enum RegularChartModeFilter
-{
-    None = 0,
-    FiveKeys = 1,
-    SevenKeys = 2,
-    NineKeys = 4,
-    TenKeys = 8,
-    FourteenKeys = 0x10,
-    All = 0x1F
-}
-
 internal enum RegularChartFolderFilterKind
 {
     Directory,
@@ -118,7 +106,7 @@ internal readonly struct RegularChartListRefreshRequest
         bool includeBmsonRows,
         bool virtualSubsetRequiredFailure,
         string keywordFilter,
-        RegularChartModeFilter modeFilter,
+        ChartModeFilter modeFilter,
         ChartListSortSpecification sort)
     {
         Mode = mode;
@@ -182,7 +170,7 @@ internal readonly struct RegularChartListRefreshRequest
     /// <summary>
     /// Gets the mode filter captured for the request.
     /// </summary>
-    internal RegularChartModeFilter ModeFilter { get; }
+    internal ChartModeFilter ModeFilter { get; }
 
     /// <summary>
     /// Gets a value indicating whether explicit sort parameters were supplied.

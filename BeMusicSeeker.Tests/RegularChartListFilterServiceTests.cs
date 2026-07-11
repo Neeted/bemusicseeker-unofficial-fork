@@ -37,7 +37,7 @@ public sealed class RegularChartListFilterServiceTests
         List<LibraryChartRow> rows = [unknown, fiveKeys, sevenKeys];
 
         List<LibraryChartRow> filtered = RegularChartListFilterService
-            .ApplyModeFilter(rows, RegularChartModeFilter.SevenKeys)
+            .ApplyModeFilter(rows, ChartModeFilter._7KEYS)
             .ToList();
 
         CollectionAssert.AreEqual(new[] { unknown, sevenKeys }, filtered);
@@ -47,7 +47,7 @@ public sealed class RegularChartListFilterServiceTests
     public void CreateModeFilterValueSet_PreservesLegacyUnknownMode()
     {
         HashSet<int?> values = RegularChartListFilterService.CreateModeFilterValueSet(
-            RegularChartModeFilter.FiveKeys | RegularChartModeFilter.FourteenKeys);
+            ChartModeFilter._5KEYS | ChartModeFilter._14KEYS);
 
         CollectionAssert.AreEquivalent(new int?[] { null, 5, 14 }, values.ToArray());
     }
@@ -56,7 +56,7 @@ public sealed class RegularChartListFilterServiceTests
     public void ApplyFilters_RejectNullSourceRows()
     {
         Assert.ThrowsException<ArgumentNullException>(() => RegularChartListFilterService.ApplyKeywordFilter(null, "alpha").ToList());
-        Assert.ThrowsException<ArgumentNullException>(() => RegularChartListFilterService.ApplyModeFilter(null, RegularChartModeFilter.SevenKeys).ToList());
+        Assert.ThrowsException<ArgumentNullException>(() => RegularChartListFilterService.ApplyModeFilter(null, ChartModeFilter._7KEYS).ToList());
     }
 
     private static LibraryChartRow CreateRow(string path, string title, int? mode)

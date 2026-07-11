@@ -13,6 +13,8 @@ internal sealed class PlaylistBuildRequest
 
     internal object Parameter;
 
+    internal ChartListFilterSnapshot Filters;
+
     internal PlaylistRequestIdentity Identity;
 
     internal bool UseCoalescingWindow;

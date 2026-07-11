@@ -9,19 +9,19 @@ namespace BeMusicSeeker.Tests;
 public sealed class FilterConverterTests
 {
     [TestMethod]
-    public void ModeFilterConverter_RoundTripsLegacyBindingValue()
+    public void ModeFilterConverter_RoundTripsChartFilterBindingValue()
     {
         var converter = new modeFilterConverter();
 
         object selected = converter.Convert(
-            MainWindowViewModel.ModeFilterType._7KEYS,
+            ChartModeFilter._7KEYS,
             typeof(bool),
             "_7KEYS",
             CultureInfo.InvariantCulture);
-        object updated = converter.ConvertBack(false, typeof(MainWindowViewModel.ModeFilterType), "_7KEYS", CultureInfo.InvariantCulture);
+        object updated = converter.ConvertBack(false, typeof(ChartModeFilter), "_7KEYS", CultureInfo.InvariantCulture);
 
         Assert.AreEqual(true, selected);
-        Assert.AreEqual(MainWindowViewModel.ModeFilterType.None, updated);
+        Assert.AreEqual(ChartModeFilter.None, updated);
     }
 
     [TestMethod]

@@ -153,7 +153,7 @@ public sealed class RegularChartListOwnerTests
             includeBmsonRows: false,
             virtualSubsetRequiredFailure: false,
             keywordFilter: string.Empty,
-            RegularChartModeFilter.All,
+            ChartModeFilter.All,
             ChartListSortSpecification.Create(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, hasValue: true));
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
 
@@ -393,7 +393,7 @@ public sealed class RegularChartListOwnerTests
             IncludeBmsonRows = false,
             TreeFilter = RegularNormalLibraryTreeFilter.Create(RegularChartFolderFilterKind.Directory, @"C:\Charts\Folder A"),
             KeywordFilter = string.Empty,
-            ModeFilter = RegularChartModeFilter.All,
+            ModeFilter = ChartModeFilter.All,
             SortColumnName = nameof(LibraryChartRow.Title),
             SortDirection = ListSortDirection.Descending,
             ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
@@ -442,7 +442,7 @@ public sealed class RegularChartListOwnerTests
             TreeMode = MainViewUpdateMode.FileMissingFilterSelected,
             SubsetName = "file_missing",
             KeywordFilter = string.Empty,
-            ModeFilter = RegularChartModeFilter.All,
+            ModeFilter = ChartModeFilter.All,
             SortColumnName = nameof(LibraryChartRow.Title),
             SortDirection = ListSortDirection.Descending,
             ExternalVersions = new RegularChartListExternalVersions(0, 0, 0),
@@ -516,10 +516,8 @@ public sealed class RegularChartListOwnerTests
         owner.TryPublishVirtualSourceRows(
             lookup,
             [CreateSourceRow("Folder B", "Bravo"), CreateSourceRow("Folder A", "Alpha")]);
-        owner.SetFilters("Alpha", RegularChartModeFilter.All);
-
         RegularChartListEntryResult result = owner.ApplyRegularView(
-            CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected));
+            CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, "Alpha", ChartModeFilter.All));
 
         Assert.IsTrue(result.WasCommitted);
         Assert.AreEqual(1, table.Rows.Count);
@@ -548,10 +546,8 @@ public sealed class RegularChartListOwnerTests
         owner.TryPublishVirtualSourceRows(
             lookup,
             [CreateSourceRow("Folder A", "Seven", mode: 7), CreateSourceRow("Folder B", "Nine", mode: 9)]);
-        owner.SetFilters(string.Empty, RegularChartModeFilter.SevenKeys);
-
         RegularChartListEntryResult result = owner.ApplyRegularView(
-            CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected));
+            CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected, string.Empty, ChartModeFilter._7KEYS));
 
         Assert.IsTrue(result.WasCommitted);
         Assert.AreEqual(1, table.Rows.Count);
@@ -1406,10 +1402,14 @@ public sealed class RegularChartListOwnerTests
             action => action());
     }
 
-    private static RegularChartListEntryRequest CreateEntryRequest(MainViewUpdateMode mode)
+    private static RegularChartListEntryRequest CreateEntryRequest(
+        MainViewUpdateMode mode,
+        string keywordFilter = "",
+        ChartModeFilter modeFilter = ChartModeFilter.All)
     {
         return new RegularChartListEntryRequest
         {
+            Filters = new ChartListFilterSnapshot(keywordFilter, modeFilter),
             Mode = mode,
             RequestedMode = mode,
             CurrentTreeMode = mode,
@@ -1473,7 +1473,7 @@ public sealed class RegularChartListOwnerTests
             includeBmsonRows: true,
             virtualSubsetRequiredFailure: false,
             keywordFilter: string.Empty,
-            RegularChartModeFilter.All,
+            ChartModeFilter.All,
             default);
         return owner.Build(lease, request, new RegularChartListBuildInput
         {
@@ -1497,7 +1497,7 @@ public sealed class RegularChartListOwnerTests
             includeBmsonRows: false,
             virtualSubsetRequiredFailure: false,
             keywordFilter: string.Empty,
-            RegularChartModeFilter.All,
+            ChartModeFilter.All,
             ChartListSortSpecification.Create(nameof(LibraryChartRow.Title), ListSortDirection.Ascending, hasValue: true));
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         return new RegularMaterializedChartListApplyRequest
