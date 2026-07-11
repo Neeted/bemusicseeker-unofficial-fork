@@ -15538,11 +15538,6 @@ public partial class MainWindowViewModel : ViewModel
         RefreshPlaylistSummaryIfVisible("playlist_properties_bulk_changed", invalidateTableCountCache: true);
     }
 
-    public bool IsPlaylistSummarySortedByBmtSortAscending()
-    {
-        return PlaylistSummaryBmtSortOrderPlanner.IsSortedByBmtSortAscending(PlaylistWorkspace.PlaylistSummarySortParameters);
-    }
-
     /// <summary>
     /// Playlist Summary のセル編集を、プロパティダイアログの OK と同じ保存経路で適用します。
     /// </summary>

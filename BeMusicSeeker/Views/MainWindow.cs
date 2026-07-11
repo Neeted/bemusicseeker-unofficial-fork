@@ -1319,7 +1319,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (e?.Data == null
             || !CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows)
             || base.DataContext is not MainWindowViewModel viewModel
-            || !viewModel.IsPlaylistSummarySortedByBmtSortAscending()
+            || !viewModel.PlaylistWorkspace.IsPlaylistSummarySortedByBmtSortAscending
             || !CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows))
         {
             return false;

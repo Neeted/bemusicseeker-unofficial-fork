@@ -356,6 +356,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     }
 
     /// <summary>
+    /// Gets whether playlist summary rows are sorted by ascending BMT sort.
+    /// </summary>
+    public bool IsPlaylistSummarySortedByBmtSortAscending => PlaylistSummaryBmtSortOrderPlanner.IsSortedByBmtSortAscending(PlaylistSummarySortParameters);
+
+    /// <summary>
     /// Gets or sets the playlist summary keyword filter text.
     /// </summary>
     public string PlaylistSummaryKeywordFilter
