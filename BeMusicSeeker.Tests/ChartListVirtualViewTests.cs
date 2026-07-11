@@ -810,7 +810,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void PlayHistoryTerminal_PreparationRunsOutsideFreshnessLockAndCancelsStaleCommit()
     {
-        PlayHistoryTerminalOwner owner = CreatePlayHistoryTerminalOwner(out PlayHistoryPresentationState state, out MainChartListViewModel table);
+        PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(out PlayHistoryPresentationState state, out MainChartListViewModel table);
         var oldRows = new List<object>();
         var candidateRows = new List<object> { new object() };
         table.Rows = oldRows;
@@ -840,7 +840,7 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void PlayHistoryTerminal_PublishesExplicitSummaryWithCommittedMainState()
     {
-        PlayHistoryTerminalOwner owner = CreatePlayHistoryTerminalOwner(out PlayHistoryPresentationState state, out MainChartListViewModel table);
+        PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(out PlayHistoryPresentationState state, out MainChartListViewModel table);
         var candidateRows = new List<object> { new object(), new object() };
         table.Rows = new List<object>();
         table.SelectedIndex = 3;
@@ -872,7 +872,7 @@ public sealed class ChartListVirtualViewTests
     {
         var oldRow = new CountingDisposable();
         var candidateRows = new List<object> { new object() };
-        PlayHistoryTerminalOwner owner = CreatePlayHistoryTerminalOwner(
+        PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(
             out PlayHistoryPresentationState state,
             out MainChartListViewModel table,
             _ => throw new InvalidOperationException("feature notification failed"));
@@ -897,6 +897,35 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(1, oldRow.DisposeCount);
         Assert.IsTrue(tableNotifications > 0);
         Assert.AreSame(request.SummaryCards, state.SummaryCards);
+    }
+
+    [TestMethod]
+    public void PlayHistoryTerminal_SourceClearCancellationFailureDoesNotSuppressRetentionLog()
+    {
+        var state = new PlayHistoryPresentationState { RequestGeneration = 1 };
+        var table = new MainChartListViewModel { Rows = new List<object>() };
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
+        var buildCancellation = new System.Threading.CancellationTokenSource();
+        buildCancellation.Token.Register(() => throw new InvalidOperationException("cancel callback failed"));
+        var buildState = new PlaylistDetailBuildState { CurrentBuildCancellation = buildCancellation };
+        var viewState = new PlaylistDetailViewState();
+        bool retentionLogged = false;
+        var owner = new PlayHistoryTerminalHarness(
+            state,
+            table,
+            workspace,
+            regularOwner,
+            buildState,
+            viewState,
+            _ => { },
+            _ => retentionLogged = true);
+
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
+            () => owner.TryApply(CreatePlayHistoryTerminalRequest(new List<object> { new object() }, "committed", requestId: 1)));
+
+        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.IsTrue(retentionLogged);
     }
 
     [TestMethod]
@@ -3306,14 +3335,14 @@ public sealed class ChartListVirtualViewTests
         }
     }
 
-    private static PlayHistoryTerminalOwner CreatePlayHistoryTerminalOwner(
+    private static PlayHistoryTerminalHarness CreatePlayHistoryTerminalHarness(
         out PlayHistoryPresentationState state,
         out MainChartListViewModel table)
     {
-        return CreatePlayHistoryTerminalOwner(out state, out table, _ => { });
+        return CreatePlayHistoryTerminalHarness(out state, out table, _ => { });
     }
 
-    private static PlayHistoryTerminalOwner CreatePlayHistoryTerminalOwner(
+    private static PlayHistoryTerminalHarness CreatePlayHistoryTerminalHarness(
         out PlayHistoryPresentationState state,
         out MainChartListViewModel table,
         Action<string> publishPropertyChanged)
@@ -3322,7 +3351,7 @@ public sealed class ChartListVirtualViewTests
         table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
-        return new PlayHistoryTerminalOwner(
+        return new PlayHistoryTerminalHarness(
             state,
             table,
             workspace,
@@ -3331,6 +3360,51 @@ public sealed class ChartListVirtualViewTests
             new PlaylistDetailViewState(),
             publishPropertyChanged,
             _ => { });
+    }
+
+    private sealed class PlayHistoryTerminalHarness
+    {
+        private readonly PlayHistoryPresentationState state;
+        private readonly MainChartListViewModel table;
+        private readonly PlaylistWorkspaceViewModel workspace;
+        private readonly RegularChartListOwner regularOwner;
+        private readonly PlaylistDetailBuildState playlistBuildState;
+        private readonly PlaylistDetailViewState playlistViewState;
+        private readonly Action<string> publishPropertyChanged;
+        private readonly Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear;
+
+        internal PlayHistoryTerminalHarness(
+            PlayHistoryPresentationState state,
+            MainChartListViewModel table,
+            PlaylistWorkspaceViewModel workspace,
+            RegularChartListOwner regularOwner,
+            PlaylistDetailBuildState playlistBuildState,
+            PlaylistDetailViewState playlistViewState,
+            Action<string> publishPropertyChanged,
+            Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear)
+        {
+            this.state = state;
+            this.table = table;
+            this.workspace = workspace;
+            this.regularOwner = regularOwner;
+            this.playlistBuildState = playlistBuildState;
+            this.playlistViewState = playlistViewState;
+            this.publishPropertyChanged = publishPropertyChanged;
+            this.logPlaylistSourceClear = logPlaylistSourceClear;
+        }
+
+        internal PlayHistoryTerminalCommitResult TryApply(PlayHistoryTerminalRequest request)
+        {
+            return table.ApplyPlayHistoryTerminal(
+                request,
+                state,
+                workspace,
+                regularOwner,
+                playlistBuildState,
+                playlistViewState,
+                publishPropertyChanged,
+                logPlaylistSourceClear);
+        }
     }
 
     private static PlayHistoryTerminalRequest CreatePlayHistoryTerminalRequest(System.Collections.IList rows, string summaryText, long requestId)
@@ -3361,7 +3435,6 @@ public sealed class ChartListVirtualViewTests
         return new PlayHistoryTerminalRequest
         {
             ViewState = viewState,
-            Rows = rows,
             ColumnSelection = columnSelection,
             SummaryCards = [],
             DiagnosticText = string.Empty,

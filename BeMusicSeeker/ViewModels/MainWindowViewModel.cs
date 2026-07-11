@@ -635,7 +635,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly PlayHistoryPresentationState playHistoryPresentationState = new();
 
-    private readonly PlayHistoryTerminalOwner playHistoryTerminalOwner;
 
     private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
 
@@ -6987,15 +6986,6 @@ public partial class MainWindowViewModel : ViewModel
             DispatchMainChartListAction,
             LogMainViewBuildWarning);
         regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
-        playHistoryTerminalOwner = new PlayHistoryTerminalOwner(
-            playHistoryPresentationState,
-            MainChartList,
-            PlaylistWorkspace,
-            regularChartListOwner,
-            playlistDetailBuildState,
-            playlistViewState,
-            RaisePropertyChanged,
-            LogPlaylistSourceClear);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
         preferredPlayHistoryDisplayTargetIdentity = NormalizePlayHistoryDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
@@ -11337,11 +11327,10 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistoryTerminalCommitResult terminalCommit;
         try
         {
-            terminalCommit = playHistoryTerminalOwner.TryApply(
+            terminalCommit = MainChartList.ApplyPlayHistoryTerminal(
                 new PlayHistoryTerminalRequest
                 {
                     ViewState = state,
-                    Rows = nextRowsView,
                     ColumnSelection = columnSelection,
                     ArchivePeriodTree = archivePeriodTree,
                     SummaryCards = summaryCards,
@@ -11357,7 +11346,14 @@ public partial class MainWindowViewModel : ViewModel
                         TerminalStageStartMs = columnSettingStartMs,
                         Stopwatch = viewBuildStopwatch
                     }
-                });
+                },
+                playHistoryPresentationState,
+                PlaylistWorkspace,
+                regularChartListOwner,
+                playlistDetailBuildState,
+                playlistViewState,
+                RaisePropertyChanged,
+                LogPlaylistSourceClear);
         }
         catch (PlayHistoryTerminalPublishException)
         {

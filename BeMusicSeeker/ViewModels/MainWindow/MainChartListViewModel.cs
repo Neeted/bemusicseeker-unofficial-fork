@@ -443,6 +443,96 @@ public sealed class MainChartListViewModel : ViewModel
         }
     }
 
+    internal PlayHistoryTerminalCommitResult ApplyPlayHistoryTerminal(
+        PlayHistoryTerminalRequest request,
+        PlayHistoryPresentationState state,
+        PlaylistWorkspaceViewModel playlistWorkspace,
+        RegularChartListOwner regularChartListOwner,
+        PlaylistDetailBuildState playlistDetailBuildState,
+        PlaylistDetailViewState playlistDetailViewState,
+        Action<string> publishPropertyChanged,
+        Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear)
+    {
+        if (request?.ViewState == null || request.MainRowsRequest?.Rows == null)
+        {
+            throw new ArgumentException("A complete play-history terminal request is required.", nameof(request));
+        }
+        if (state == null) throw new ArgumentNullException(nameof(state));
+        if (playlistWorkspace == null) throw new ArgumentNullException(nameof(playlistWorkspace));
+        if (regularChartListOwner == null) throw new ArgumentNullException(nameof(regularChartListOwner));
+        if (playlistDetailBuildState == null) throw new ArgumentNullException(nameof(playlistDetailBuildState));
+        if (playlistDetailViewState == null) throw new ArgumentNullException(nameof(playlistDetailViewState));
+        if (publishPropertyChanged == null) throw new ArgumentNullException(nameof(publishPropertyChanged));
+        if (logPlaylistSourceClear == null) throw new ArgumentNullException(nameof(logPlaylistSourceClear));
+
+        var result = new PlayHistoryTerminalCommitResult();
+        try
+        {
+            MainChartListCoordinatedRowsApplyResult coordinated = ApplyCoordinatedRows(
+                request.MainRowsRequest,
+                commitRows => state.TryCommitTerminal(
+                    request,
+                    result,
+                    commitRows,
+                    () =>
+                    {
+                        result.PlaylistSourceClear = playlistDetailBuildState.CommitSourceClear(playlistDetailViewState);
+                        result.BindingMode = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
+                        result.ColumnPresentation = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+                            request.ColumnSelection.PlaylistColumnSettingsVisibility,
+                            request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                        if (request.ColumnSelection.AppliedMode.HasValue)
+                        {
+                            regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                        }
+                        regularChartListOwner.ResetDerivedCaches();
+                    }),
+                () =>
+                {
+                    List<Exception> featurePublishExceptions = [];
+                    if (result.ColumnPresentation != null)
+                    {
+                        TryCoordinatedAction(() => playlistWorkspace.PublishColumnPresentation(result.ColumnPresentation), featurePublishExceptions);
+                    }
+                    if (result.BindingMode != null)
+                    {
+                        TryCoordinatedAction(() => playlistWorkspace.PublishBindingMode(result.BindingMode), featurePublishExceptions);
+                    }
+                    if (result.ArchivePeriodTreeChanged)
+                    {
+                        TryCoordinatedAction(() => publishPropertyChanged("PlayHistoryArchivePeriodTree"), featurePublishExceptions);
+                    }
+                    if (result.SummaryCardsChanged)
+                    {
+                        TryCoordinatedAction(() => publishPropertyChanged("PlayHistorySummaryCards"), featurePublishExceptions);
+                    }
+                    if (result.DiagnosticTextChanged)
+                    {
+                        TryCoordinatedAction(() => publishPropertyChanged("PlayHistorySummaryDiagnosticText"), featurePublishExceptions);
+                    }
+                    if (result.PlaylistSourceClear != null)
+                    {
+                        TryCoordinatedAction(
+                            () => playlistDetailBuildState.PublishSourceClear(result.PlaylistSourceClear),
+                            featurePublishExceptions);
+                        TryCoordinatedAction(
+                            () => logPlaylistSourceClear(result.PlaylistSourceClear),
+                            featurePublishExceptions);
+                    }
+                    if (featurePublishExceptions.Count > 0)
+                    {
+                        throw new AggregateException(featurePublishExceptions);
+                    }
+                });
+            result.MainRowsApply = coordinated.RowsApply;
+            return result;
+        }
+        catch (MainChartListCoordinatedPublishException ex)
+        {
+            throw new PlayHistoryTerminalPublishException(ex, ownershipTransferred: true);
+        }
+    }
+
     private static void TryCoordinatedAction(Action action, ICollection<Exception> exceptions)
     {
         try

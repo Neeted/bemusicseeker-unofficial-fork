@@ -166,7 +166,8 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string terminalOwnerCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryTerminalOwner.cs");
+        string mainChartListCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
+        string presentationStateCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
         string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
 
         StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
@@ -184,10 +185,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "summaryCards = CreatePlayHistorySummaryCards(summary, state.Provider, SnapshotSelectedPlayHistorySummaryFilterKeys())");
         StringAssert.Contains(viewModelCode, "diagnosticSummaryText = FormatPlayHistoryDiagnosticSummary(diagnostics)");
         StringAssert.Contains(viewModelCode, "DiagnosticText = diagnosticSummaryText");
-        StringAssert.Contains(terminalOwnerCode, "state.SummaryCards = summaryCards");
-        StringAssert.Contains(terminalOwnerCode, "state.DiagnosticText = diagnosticText");
-        StringAssert.Contains(terminalOwnerCode, "mainChartList.ApplyCoordinatedRows(");
-        Assert.IsFalse(terminalOwnerCode.Contains("CommitPreparedRowsWithoutDisposal"));
+        StringAssert.Contains(presentationStateCode, "SummaryCards = summaryCards");
+        StringAssert.Contains(presentationStateCode, "DiagnosticText = diagnosticText");
+        StringAssert.Contains(mainChartListCode, "ApplyPlayHistoryTerminal(");
+        StringAssert.Contains(mainChartListCode, "ApplyCoordinatedRows(");
     }
 
     [TestMethod]

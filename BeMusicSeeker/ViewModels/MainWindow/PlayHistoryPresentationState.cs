@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.Runtime.Serialization;
 using System.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -33,6 +34,67 @@ internal sealed class PlayHistoryPresentationState
             && string.Equals(state.KeywordFilterIdentity, CurrentKeywordIdentity, StringComparison.Ordinal)
             && state.DisplayTargetRevision == DisplayTargetRevision
             && string.Equals(state.DisplayTargetIdentity, CurrentDisplayTargetIdentity, StringComparison.Ordinal);
+    }
+
+    internal bool TryCommitTerminal(
+        PlayHistoryTerminalRequest request,
+        PlayHistoryTerminalCommitResult result,
+        Action commitRows,
+        Action commitRelatedOwners)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (result == null)
+        {
+            throw new ArgumentNullException(nameof(result));
+        }
+        if (commitRows == null)
+        {
+            throw new ArgumentNullException(nameof(commitRows));
+        }
+        if (commitRelatedOwners == null)
+        {
+            throw new ArgumentNullException(nameof(commitRelatedOwners));
+        }
+
+        lock (SyncRoot)
+        {
+            if (!IsFresh(request.ViewState))
+            {
+                return false;
+            }
+            commitRows();
+            commitRelatedOwners();
+
+            if (request.ArchivePeriodTree != null
+                && !ReferenceEquals(ArchivePeriodTree, request.ArchivePeriodTree)
+                && !AreSameArchiveTree(ArchivePeriodTree, request.ArchivePeriodTree))
+            {
+                ArchivePeriodTree = request.ArchivePeriodTree;
+                result.ArchivePeriodTreeChanged = true;
+            }
+
+            IReadOnlyList<PlayHistorySummaryCard> summaryCards = request.SummaryCards ?? [];
+            if (!ReferenceEquals(SummaryCards, summaryCards)
+                && !AreSameSummaryCards(SummaryCards, summaryCards))
+            {
+                SummaryCards = summaryCards;
+                result.SummaryCardsChanged = true;
+            }
+
+            string diagnosticText = request.DiagnosticText ?? string.Empty;
+            if (DiagnosticText != diagnosticText)
+            {
+                DiagnosticText = diagnosticText;
+                result.DiagnosticTextChanged = true;
+            }
+
+            CurrentView = request.ViewState;
+            result.Applied = true;
+            return true;
+        }
     }
 
     internal static bool AreSameArchiveTree(IReadOnlyList<PlayHistoryPeriodTreeItem> left, IReadOnlyList<PlayHistoryPeriodTreeItem> right)
@@ -108,6 +170,71 @@ internal sealed class PlayHistoryPresentationState
             && left.PlayedAtFromInclusive == right.PlayedAtFromInclusive
             && left.PlayedAtToExclusive == right.PlayedAtToExclusive
             && left.FinalizationFilter == right.FinalizationFilter;
+    }
+}
+
+internal sealed class PlayHistoryTerminalRequest
+{
+    internal PlayHistoryViewState ViewState { get; set; }
+    internal MainChartListRowsApplyRequest MainRowsRequest { get; set; }
+    internal MainChartListColumnSelection ColumnSelection { get; set; }
+    internal IReadOnlyList<PlayHistoryPeriodTreeItem> ArchivePeriodTree { get; set; }
+    internal IReadOnlyList<PlayHistorySummaryCard> SummaryCards { get; set; }
+    internal string DiagnosticText { get; set; }
+}
+
+internal sealed class PlayHistoryTerminalCommitResult
+{
+    internal bool Applied { get; set; }
+    internal MainChartListRowsApplyResult MainRowsApply { get; set; }
+    internal PlaylistSourceClearCommitResult PlaylistSourceClear { get; set; }
+    internal PlaylistColumnPresentationCommit ColumnPresentation { get; set; }
+    internal PlaylistBindingModeCommit BindingMode { get; set; }
+    internal bool ArchivePeriodTreeChanged { get; set; }
+    internal bool SummaryCardsChanged { get; set; }
+    internal bool DiagnosticTextChanged { get; set; }
+}
+
+[Serializable]
+internal sealed class PlayHistoryTerminalPublishException : Exception
+{
+    internal PlayHistoryTerminalPublishException()
+    {
+    }
+
+    internal PlayHistoryTerminalPublishException(string message)
+        : base(message)
+    {
+    }
+
+    internal PlayHistoryTerminalPublishException(Exception innerException)
+        : base("Play-history terminal state was committed but publishing notifications failed.", innerException)
+    {
+    }
+
+    internal PlayHistoryTerminalPublishException(string message, Exception innerException)
+        : base(message, innerException)
+    {
+    }
+
+    internal PlayHistoryTerminalPublishException(Exception innerException, bool ownershipTransferred)
+        : base("Play-history terminal state was committed but publishing notifications failed.", innerException)
+    {
+        OwnershipTransferred = ownershipTransferred;
+    }
+
+    private PlayHistoryTerminalPublishException(SerializationInfo info, StreamingContext context)
+        : base(info, context)
+    {
+        OwnershipTransferred = info.GetBoolean(nameof(OwnershipTransferred));
+    }
+
+    internal bool OwnershipTransferred { get; }
+
+    public override void GetObjectData(SerializationInfo info, StreamingContext context)
+    {
+        base.GetObjectData(info, context);
+        info.AddValue(nameof(OwnershipTransferred), OwnershipTransferred);
     }
 }
 
