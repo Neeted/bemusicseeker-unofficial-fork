@@ -10327,7 +10327,7 @@ public partial class MainWindowViewModel : ViewModel
         else if (mode == MainViewUpdateMode.PlayHistorySelected)
         {
             PlayHistoryViewRequest playHistoryRequest = parameter as PlayHistoryViewRequest;
-            if (playHistoryRequest == null || !IsCurrentPlayHistoryViewRequest(playHistoryRequest.RequestId))
+            if (playHistoryRequest == null || !playHistoryWorkflowOwner.IsCurrentRequest(playHistoryRequest.RequestId))
             {
                 LogStalePlayHistoryViewRequest(
                     mode,
@@ -10341,7 +10341,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         else if (mode == MainViewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest)
         {
-            if (!IsCurrentPlayHistoryViewRequest(playHistoryKeywordRequest.RequestId))
+            if (!playHistoryWorkflowOwner.IsCurrentRequest(playHistoryKeywordRequest.RequestId))
             {
                 LogStalePlayHistoryViewRequest(
                     mode,
@@ -10413,7 +10413,9 @@ public partial class MainWindowViewModel : ViewModel
 
     private void ApplyPlayHistoryView(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, Stopwatch viewBuildStopwatch)
     {
-        PlayHistoryViewRequest viewRequest = ResolvePlayHistoryViewRequest(parameter);
+        PlayHistoryViewRequest viewRequest = playHistoryWorkflowOwner.ResolveViewRequest(
+            parameter,
+            () => treeViewFilterParameterSelected as PlayHistoryPeriodRequest);
         PlayHistoryPeriodRequest periodRequest = viewRequest.PeriodRequest;
         long requestId = viewRequest.RequestId > 0
             ? viewRequest.RequestId
@@ -10441,7 +10443,7 @@ public partial class MainWindowViewModel : ViewModel
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
             return;
         }
-        if (!IsCurrentPlayHistoryViewRequest(requestId))
+        if (!playHistoryWorkflowOwner.IsCurrentRequest(requestId))
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, viewBuildStopwatch.ElapsedMilliseconds);
             return;
@@ -10508,7 +10510,7 @@ public partial class MainWindowViewModel : ViewModel
             + " rows=" + rawReadCount
             + " diagnosticsCount=" + (readDiagnostics?.Count ?? 0)
             + " elapsedMs=" + readMs);
-        if (!IsCurrentPlayHistoryViewRequest(requestId))
+        if (!playHistoryWorkflowOwner.IsCurrentRequest(requestId))
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs);
             return;
@@ -10569,7 +10571,7 @@ public partial class MainWindowViewModel : ViewModel
                 + " days=" + (periodIndexPlayedAt?.Count ?? 0)
                 + " diagnosticsCount=" + (periodIndexDiagnostics?.Count ?? 0)
                 + " elapsedMs=" + periodIndexMs);
-            if (!IsCurrentPlayHistoryViewRequest(requestId))
+            if (!playHistoryWorkflowOwner.IsCurrentRequest(requestId))
             {
                 LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs + periodIndexMs);
                 return;
@@ -10596,16 +10598,20 @@ public partial class MainWindowViewModel : ViewModel
             try
             {
                 projectionResult = useBeatorajaProvider
-                    ? CreatePlayHistoryProjectionResult(
+                    ? playHistoryWorkflowOwner.CreateProjectionResult(
+                        files,
                         beatorajaReadResult,
                         cancellationToken,
+                        ex => NLogWrapper.FileLogger?.Warn(ex, "play_history_projection_index_failed"),
                         out projectionIndexMs,
                         out projectionIndexCacheHit,
                         out projectionIndexStaleRetries,
                         out projectionMs)
-                    : CreatePlayHistoryProjectionResult(
+                    : playHistoryWorkflowOwner.CreateProjectionResult(
+                        files,
                         lr2ReadResult,
                         cancellationToken,
+                        ex => NLogWrapper.FileLogger?.Warn(ex, "play_history_projection_index_failed"),
                         out projectionIndexMs,
                         out projectionIndexCacheHit,
                         out projectionIndexStaleRetries,
@@ -10704,7 +10710,7 @@ public partial class MainWindowViewModel : ViewModel
         LogPlayHistoryDisplayTargetFilter(periodRequest, requestId, displayTarget, projectedRows.Count, targetRows.Count);
         LogPlayHistoryKeywordFilter(periodRequest, requestId, keywordFilter, rawReadCount, targetRows.Count, keywordCount, keywordMs);
         IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(periodIndexPlayedAt, TimeZoneInfo.Local);
-        if (!IsCurrentPlayHistoryViewRequest(requestId))
+        if (!playHistoryWorkflowOwner.IsCurrentRequest(requestId))
         {
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, requestId, readMs + periodIndexMs + projectionIndexMs + projectionMs);
             return;
@@ -10895,8 +10901,8 @@ public partial class MainWindowViewModel : ViewModel
     {
         PlayHistoryViewState state = Volatile.Read(ref playHistoryViewState);
         if (state == null
-            || !IsCurrentPlayHistoryViewRequest(state.RequestId)
-            || !IsSamePlayHistoryPeriod(state.PeriodRequest, viewRequest.PeriodRequest))
+            || !playHistoryWorkflowOwner.IsCurrentRequest(state.RequestId)
+            || !PlayHistoryWorkflowOwner.IsSamePeriod(state.PeriodRequest, viewRequest.PeriodRequest))
         {
             LogPlayHistoryEvent(
                 "play_history_view_presentation_skipped",
@@ -11078,7 +11084,7 @@ public partial class MainWindowViewModel : ViewModel
                     fromSortOnly)));
             return;
         }
-        if (state == null || !IsCurrentPlayHistoryViewRequest(state.RequestId))
+        if (state == null || !playHistoryWorkflowOwner.IsCurrentRequest(state.RequestId))
         {
             return;
         }
@@ -11281,123 +11287,6 @@ public partial class MainWindowViewModel : ViewModel
         LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " playHistoryPeriod=" + periodRequest.Kind + " playHistorySortOnly=" + fromSortOnly.ToString().ToLowerInvariant() + " readMs=" + readMs + " periodIndexMs=" + periodIndexMs + " projectionIndexMs=" + projectionIndexMs + " projectionIndexCacheHit=" + projectionIndexCacheHit.ToString().ToLowerInvariant() + " projectionIndexStaleRetries=" + projectionIndexStaleRetries + " projectionMs=" + projectionMs + " keywordMs=" + keywordMs + " keywordCount=" + keywordCount + " sortMs=" + sortMs + " sortProfile=" + sortProfile + " schemaStatus=" + state.SchemaStatus + " diagnosticsCount=" + diagnosticsCount + " columnSettingMs=" + columnSettingMs + " prepareSwapMs=" + prepareSwapMs + " setViewMs=" + setViewMs + " columnSettingReuse=" + columnSettingReuse + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " sourceCount=" + state.SourceCount + " projectedCount=" + state.ProjectedRows.Count + " viewCount=" + sortedRows.Count);
     }
 
-    private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult(
-        Lr2PlayHistoryReadResult readResult,
-        CancellationToken cancellationToken,
-        out long projectionIndexMs,
-        out bool projectionIndexCacheHit,
-        out int projectionIndexStaleRetries,
-        out long projectionMs)
-    {
-        projectionIndexMs = 0L;
-        projectionIndexCacheHit = false;
-        projectionIndexStaleRetries = 0;
-        projectionMs = 0L;
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var projectionIndexStopwatch = Stopwatch.StartNew();
-            PlayHistoryProjectionIndex projectionIndex = files.CreatePlayHistoryProjectionIndex(
-                readResult.Rows,
-                cancellationToken,
-                out projectionIndexCacheHit,
-                out projectionIndexStaleRetries);
-            projectionIndexMs = projectionIndexStopwatch.ElapsedMilliseconds;
-            cancellationToken.ThrowIfCancellationRequested();
-            var projectionStopwatch = Stopwatch.StartNew();
-            PlayHistoryProjectionResult projectionResult = PlayHistoryRow.ProjectLr2Rows(readResult, projectionIndex);
-            projectionMs = projectionStopwatch.ElapsedMilliseconds;
-            return projectionResult;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            projectionMs = 0L;
-            PlayHistoryProjectionResult fallback = PlayHistoryRow.ProjectLr2Rows(readResult, PlayHistoryProjectionIndex.Empty);
-            List<PlayHistoryDiagnostic> diagnostics = [.. fallback.Diagnostics];
-            diagnostics.Add(CreatePlayHistoryDiagnostic(
-                PlayHistoryDiagnosticSeverity.Error,
-                "projection",
-                "play_history_projection_index_failed",
-                ex.Message,
-                readResult?.SourceProfile?.SourcePath));
-            NLogWrapper.FileLogger?.Warn(ex, "play_history_projection_index_failed");
-            return new PlayHistoryProjectionResult(fallback.Rows, diagnostics);
-        }
-    }
-
-    private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult(
-        BeatorajaPlayHistoryReadResult readResult,
-        CancellationToken cancellationToken,
-        out long projectionIndexMs,
-        out bool projectionIndexCacheHit,
-        out int projectionIndexStaleRetries,
-        out long projectionMs)
-    {
-        projectionIndexMs = 0L;
-        projectionIndexCacheHit = false;
-        projectionIndexStaleRetries = 0;
-        projectionMs = 0L;
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var projectionIndexStopwatch = Stopwatch.StartNew();
-            PlayHistoryProjectionIndex projectionIndex = files.CreateBeatorajaPlayHistoryProjectionIndex(
-                readResult.Rows,
-                cancellationToken,
-                out projectionIndexCacheHit,
-                out projectionIndexStaleRetries);
-            projectionIndexMs = projectionIndexStopwatch.ElapsedMilliseconds;
-            cancellationToken.ThrowIfCancellationRequested();
-            var projectionStopwatch = Stopwatch.StartNew();
-            PlayHistoryProjectionResult projectionResult = PlayHistoryRow.ProjectBeatorajaRows(readResult, projectionIndex);
-            projectionMs = projectionStopwatch.ElapsedMilliseconds;
-            return projectionResult;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            projectionMs = 0L;
-            PlayHistoryProjectionResult fallback = PlayHistoryRow.ProjectBeatorajaRows(readResult, PlayHistoryProjectionIndex.Empty);
-            List<PlayHistoryDiagnostic> diagnostics = [.. fallback.Diagnostics];
-            diagnostics.Add(CreatePlayHistoryDiagnostic(
-                PlayHistoryProvider.Beatoraja,
-                PlayHistoryDiagnosticSeverity.Error,
-                "projection",
-                "play_history_projection_index_failed",
-                ex.Message,
-                readResult?.SourceProfile?.SourcePath));
-            NLogWrapper.FileLogger?.Warn(ex, "play_history_projection_index_failed");
-            return new PlayHistoryProjectionResult(fallback.Rows, diagnostics);
-        }
-    }
-
-    private PlayHistoryViewRequest ResolvePlayHistoryViewRequest(object parameter)
-    {
-        if (parameter is PlayHistoryViewRequest request)
-        {
-            return request;
-        }
-        if (parameter is PlayHistoryPeriodRequest periodRequest)
-        {
-            return new PlayHistoryViewRequest(periodRequest, playHistoryWorkflowOwner.SnapshotActiveRequest()?.RequestId ?? 0L);
-        }
-        PlayHistoryViewRequest activeRequest = playHistoryWorkflowOwner.SnapshotActiveRequest();
-        if (activeRequest != null)
-        {
-            return activeRequest;
-        }
-        return new PlayHistoryViewRequest(
-            treeViewFilterParameterSelected as PlayHistoryPeriodRequest ?? PlayHistoryPeriodRequest.All(),
-            requestId: 0L);
-    }
-
     private void GetTreeViewFilterSelection(out MainViewUpdateMode mode, out object parameter)
     {
         lock (playHistoryViewRequestLock)
@@ -11588,23 +11477,6 @@ public partial class MainWindowViewModel : ViewModel
             throw;
         }
         refreshTask.Logging("playHistoryDisplayTargetUpdated");
-    }
-
-    private bool IsCurrentPlayHistoryViewRequest(long requestId)
-    {
-        return playHistoryWorkflowOwner.IsCurrentRequest(requestId);
-    }
-
-    private static bool IsSamePlayHistoryPeriod(PlayHistoryPeriodRequest left, PlayHistoryPeriodRequest right)
-    {
-        if (left == null || right == null)
-        {
-            return left == right;
-        }
-        return left.Kind == right.Kind
-            && left.PlayedAtFromInclusive == right.PlayedAtFromInclusive
-            && left.PlayedAtToExclusive == right.PlayedAtToExclusive
-            && left.FinalizationFilter == right.FinalizationFilter;
     }
 
     private static PlayHistoryPeriodSummaryOverride ResolveBeatorajaPeriodSummaryOverride(PlayHistoryPeriodRequest request, BeatorajaPlayHistoryReadResult readResult)

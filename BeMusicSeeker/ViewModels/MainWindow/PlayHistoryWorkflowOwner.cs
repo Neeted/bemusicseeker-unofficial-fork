@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -88,6 +89,36 @@ internal sealed class PlayHistoryWorkflowOwner
         {
             return ActiveRequest;
         }
+    }
+
+    internal PlayHistoryViewRequest ResolveViewRequest(object parameter, Func<PlayHistoryPeriodRequest> fallbackPeriodRequestFactory)
+    {
+        if (parameter is PlayHistoryViewRequest request)
+        {
+            return request;
+        }
+        if (parameter is PlayHistoryPeriodRequest periodRequest)
+        {
+            return new PlayHistoryViewRequest(periodRequest, SnapshotActiveRequest()?.RequestId ?? 0L);
+        }
+        lock (PresentationState.SyncRoot)
+        {
+            return ActiveRequest ?? new PlayHistoryViewRequest(
+                fallbackPeriodRequestFactory?.Invoke() ?? PlayHistoryPeriodRequest.All(),
+                requestId: 0L);
+        }
+    }
+
+    internal static bool IsSamePeriod(PlayHistoryPeriodRequest left, PlayHistoryPeriodRequest right)
+    {
+        if (left == null || right == null)
+        {
+            return left == right;
+        }
+        return left.Kind == right.Kind
+            && left.PlayedAtFromInclusive == right.PlayedAtFromInclusive
+            && left.PlayedAtToExclusive == right.PlayedAtToExclusive
+            && left.FinalizationFilter == right.FinalizationFilter;
     }
 
     internal long CurrentRequestId
@@ -342,6 +373,112 @@ internal sealed class PlayHistoryWorkflowOwner
         }
         ThrowIfStaleDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
         return filteredRows;
+    }
+
+    internal PlayHistoryProjectionResult CreateProjectionResult(
+        BMSLibrary library,
+        Lr2PlayHistoryReadResult readResult,
+        CancellationToken cancellationToken,
+        Action<Exception> logProjectionFailure,
+        out long projectionIndexMs,
+        out bool projectionIndexCacheHit,
+        out int projectionIndexStaleRetries,
+        out long projectionMs)
+    {
+        projectionIndexMs = 0L;
+        projectionIndexCacheHit = false;
+        projectionIndexStaleRetries = 0;
+        projectionMs = 0L;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var projectionIndexStopwatch = Stopwatch.StartNew();
+            PlayHistoryProjectionIndex projectionIndex = library.CreatePlayHistoryProjectionIndex(
+                readResult.Rows,
+                cancellationToken,
+                out projectionIndexCacheHit,
+                out projectionIndexStaleRetries);
+            projectionIndexMs = projectionIndexStopwatch.ElapsedMilliseconds;
+            cancellationToken.ThrowIfCancellationRequested();
+            var projectionStopwatch = Stopwatch.StartNew();
+            PlayHistoryProjectionResult projectionResult = PlayHistoryRow.ProjectLr2Rows(readResult, projectionIndex);
+            projectionMs = projectionStopwatch.ElapsedMilliseconds;
+            return projectionResult;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            projectionMs = 0L;
+            PlayHistoryProjectionResult fallback = PlayHistoryRow.ProjectLr2Rows(readResult, PlayHistoryProjectionIndex.Empty);
+            List<PlayHistoryDiagnostic> diagnostics = [.. fallback.Diagnostics];
+            diagnostics.Add(CreateProjectionFailureDiagnostic(PlayHistoryProvider.Lr2, ex.Message, readResult?.SourceProfile?.SourcePath));
+            logProjectionFailure?.Invoke(ex);
+            return new PlayHistoryProjectionResult(fallback.Rows, diagnostics);
+        }
+    }
+
+    internal PlayHistoryProjectionResult CreateProjectionResult(
+        BMSLibrary library,
+        BeatorajaPlayHistoryReadResult readResult,
+        CancellationToken cancellationToken,
+        Action<Exception> logProjectionFailure,
+        out long projectionIndexMs,
+        out bool projectionIndexCacheHit,
+        out int projectionIndexStaleRetries,
+        out long projectionMs)
+    {
+        projectionIndexMs = 0L;
+        projectionIndexCacheHit = false;
+        projectionIndexStaleRetries = 0;
+        projectionMs = 0L;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var projectionIndexStopwatch = Stopwatch.StartNew();
+            PlayHistoryProjectionIndex projectionIndex = library.CreateBeatorajaPlayHistoryProjectionIndex(
+                readResult.Rows,
+                cancellationToken,
+                out projectionIndexCacheHit,
+                out projectionIndexStaleRetries);
+            projectionIndexMs = projectionIndexStopwatch.ElapsedMilliseconds;
+            cancellationToken.ThrowIfCancellationRequested();
+            var projectionStopwatch = Stopwatch.StartNew();
+            PlayHistoryProjectionResult projectionResult = PlayHistoryRow.ProjectBeatorajaRows(readResult, projectionIndex);
+            projectionMs = projectionStopwatch.ElapsedMilliseconds;
+            return projectionResult;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            projectionMs = 0L;
+            PlayHistoryProjectionResult fallback = PlayHistoryRow.ProjectBeatorajaRows(readResult, PlayHistoryProjectionIndex.Empty);
+            List<PlayHistoryDiagnostic> diagnostics = [.. fallback.Diagnostics];
+            diagnostics.Add(CreateProjectionFailureDiagnostic(PlayHistoryProvider.Beatoraja, ex.Message, readResult?.SourceProfile?.SourcePath));
+            logProjectionFailure?.Invoke(ex);
+            return new PlayHistoryProjectionResult(fallback.Rows, diagnostics);
+        }
+    }
+
+    private static PlayHistoryDiagnostic CreateProjectionFailureDiagnostic(
+        PlayHistoryProvider provider,
+        string message,
+        string sourcePath)
+    {
+        return new PlayHistoryDiagnostic
+        {
+            Provider = provider,
+            Stage = "projection",
+            Severity = PlayHistoryDiagnosticSeverity.Error,
+            Code = "play_history_projection_index_failed",
+            Message = message ?? string.Empty,
+            SourcePath = sourcePath ?? string.Empty
+        };
     }
 
     private static bool MatchesKeywordAndSummaryFilters(

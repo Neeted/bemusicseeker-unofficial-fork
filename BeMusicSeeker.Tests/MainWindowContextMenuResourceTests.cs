@@ -195,7 +195,7 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string applyPlayHistoryView = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ApplyPlayHistoryView(");
         string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
-        string applyPlayHistorySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult");
+        string applyPlayHistorySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private void GetTreeViewFilterSelection");
         string staleRequestLog = ExtractBetween(viewModelCode, "private void LogStalePlayHistoryViewRequest", "private static int CountDistinctPlayHistoryFolderLabels");
 
         StringAssert.Contains(viewModelCode, "LogPlayHistoryEvent(");
@@ -215,17 +215,17 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string applyPlayHistoryView = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ApplyPlayHistoryView(");
-        string beatorajaProjection = ExtractBetween(viewModelCode, "BeatorajaPlayHistoryReadResult readResult,", "private PlayHistoryViewRequest ResolvePlayHistoryViewRequest");
+        string workflowOwnerCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs"));
         string providerSelection = ExtractBetween(viewModelCode, "private bool ShouldUseBeatorajaPlayHistoryProvider", "private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath");
         string rowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "PlayHistoryRow.cs"));
 
         StringAssert.Contains(applyPlayHistoryView, "ShouldUseBeatorajaPlayHistoryProvider()");
         StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.ReadCache.ReadBeatoraja(");
         StringAssert.Contains(applyPlayHistoryView, "periodRequest.ToBeatorajaReadRequest");
-        StringAssert.Contains(applyPlayHistoryView, "PlayHistoryRow.ProjectBeatorajaRows");
+        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.CreateProjectionResult(");
         StringAssert.Contains(applyPlayHistoryView, "provider=\" + activePlayHistoryProvider");
-        StringAssert.Contains(beatorajaProjection, "files.CreateBeatorajaPlayHistoryProjectionIndex");
-        StringAssert.Contains(beatorajaProjection, "PlayHistoryRow.ProjectBeatorajaRows(readResult, projectionIndex)");
+        StringAssert.Contains(workflowOwnerCode, "library.CreateBeatorajaPlayHistoryProjectionIndex");
+        StringAssert.Contains(workflowOwnerCode, "PlayHistoryRow.ProjectBeatorajaRows(readResult, projectionIndex)");
         StringAssert.Contains(providerSelection, "Settings.Default.UseBeatorajaScoreDb");
         StringAssert.Contains(providerSelection, "GetActiveScoreSourceForDiagnostics() == ActiveScoreSource.Beatoraja");
         Assert.IsFalse(providerSelection.Contains("GetScoreSnapshotForDiagnostics"));
@@ -243,8 +243,8 @@ public sealed class MainWindowContextMenuResourceTests
         string applyDisplayTargetSelection = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryDisplayTargetSelection", "private void EnsurePlayHistoryDisplayTargetSelection");
         string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
         string queueDisplayTargets = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetsRefresh", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
-        string queueDisplayTarget = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetRefresh", "private bool IsCurrentPlayHistoryViewRequest");
-        string applySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private PlayHistoryProjectionResult CreatePlayHistoryProjectionResult");
+        string queueDisplayTarget = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetRefresh", "private static PlayHistoryPeriodSummaryOverride ResolveBeatorajaPeriodSummaryOverride");
+        string applySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private void GetTreeViewFilterSelection");
         string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void ScheduleDeferredPlaylistReferenceApply");
         string playlistTablesHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.BMSTables", "listenerForBMSPlaylistBMSTablesCollection.RegisterHandler");
         string playlistTablesCollectionHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylistBMSTablesCollection.RegisterHandler", "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion");

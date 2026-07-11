@@ -948,6 +948,24 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void ResolveViewRequest_ActiveRequestDoesNotReadFallbackPeriod()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest active = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            string.Empty,
+            displayTargetRevision: 0L,
+            activateRequest: null);
+
+        PlayHistoryViewRequest resolved = owner.ResolveViewRequest(
+            parameter: null,
+            fallbackPeriodRequestFactory: () => throw new AssertFailedException("Active request must be resolved before reading fallback selection."));
+
+        Assert.AreSame(active, resolved);
+    }
+
+    [TestMethod]
     public void PlayHistoryDisplayTargetIndex_UsesPlaylistEntryMd5BeforeSha256()
     {
         PlayHistoryRow row = CreateProjectedRow(HashA, ShaA, initialFolderLabels: "SAT");
