@@ -166,6 +166,7 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string rootViewModelCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string mainChartListCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
         string playHistoryWorkflowCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
         string presentationStateCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
@@ -184,13 +185,18 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding IsSelected}\" Value=\"True\">");
         StringAssert.Contains(summaryRow, "App.WarningTextBrush");
         StringAssert.Contains(viewModelCode, "DiagnosticText = diagnosticSummaryText");
-        StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.ApplyTerminal(");
+        StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.ApplySortedRows(");
+        Assert.IsFalse(viewModelCode.Contains("playHistoryWorkflowOwner.ApplyTerminal("));
         StringAssert.Contains(presentationStateCode, "SetSummaryCards(request.SummaryCards)");
         StringAssert.Contains(presentationStateCode, "SetDiagnosticText(request.DiagnosticText)");
         Assert.IsFalse(mainChartListCode.Contains("ApplyPlayHistoryTerminal("));
         Assert.IsFalse(mainChartListCode.Contains("PlayHistoryTerminalRequest"));
         Assert.IsFalse(mainChartListCode.Contains("PlayHistoryTerminalCommitResult"));
         StringAssert.Contains(playHistoryWorkflowCode, "ApplyTerminal(");
+        StringAssert.Contains(playHistoryWorkflowCode, "ApplySortedRows(");
+        Assert.IsFalse(rootViewModelCode.Contains("new PlayHistoryTerminalRequest"));
+        Assert.IsFalse(rootViewModelCode.Contains("CreatePlayHistoryViewDiagnostics"));
+        Assert.IsFalse(rootViewModelCode.Contains("CountDistinctPlayHistoryFolderLabels"));
         StringAssert.Contains(mainChartListCode, "ApplyCoordinatedRows(");
     }
 
@@ -201,7 +207,7 @@ public sealed class MainWindowContextMenuResourceTests
         string applyPlayHistoryView = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ApplyPlayHistoryView(");
         string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
         string applyPlayHistorySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private void GetTreeViewFilterSelection");
-        string staleRequestLog = ExtractBetween(viewModelCode, "private void LogStalePlayHistoryViewRequest", "private static int CountDistinctPlayHistoryFolderLabels");
+        string staleRequestLog = ExtractBetween(viewModelCode, "private void LogStalePlayHistoryViewRequest", "private static void LogPlayHistoryDiagnostics");
 
         StringAssert.Contains(viewModelCode, "LogPlayHistoryEvent(");
         AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_read_done", "period=", "requestId=", "schemaStatus=", "rows=", "diagnosticsCount=", "elapsedMs=");

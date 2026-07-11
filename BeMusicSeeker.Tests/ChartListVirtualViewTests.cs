@@ -838,6 +838,186 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PlayHistoryWorkflowOwner_ApplySortedRowsBuildsPresentationAndCommitsTerminalState()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        var table = new MainChartListViewModel { Rows = new List<object>() };
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
+        PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
+        var callerRows = new List<PlayHistoryRow>();
+        var applyRequest = new PlayHistorySortedRowsApplyRequest(
+            MainViewUpdateMode.PlayHistorySelected,
+            MainViewUpdateMode.PlayHistorySelected,
+            state,
+            callerRows,
+            sortSucceeded: true,
+            sortProfile: "default",
+            currentKeywordFilter: string.Empty,
+            PlayHistoryDisplayTargetItem.All,
+            selectedSummaryFilterKeys: [],
+            archivePeriodTree: null);
+        callerRows.Add(null!);
+
+        PlayHistorySortedRowsApplyResult result = workflowOwner.ApplySortedRows(
+            applyRequest,
+            Stopwatch.StartNew(),
+            table,
+            workspace,
+            regularOwner,
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState());
+
+        Assert.AreEqual(PlayHistorySortedRowsApplyStatus.Applied, result.Status);
+        Assert.AreEqual(0, result.ViewCount);
+        Assert.IsNotNull(result.TerminalCommit);
+        Assert.IsTrue(result.TerminalCommit.Applied);
+        Assert.AreSame(state, workflowOwner.PresentationState.CurrentView);
+        Assert.IsInstanceOfType<PlayHistoryVirtualView>(table.Rows);
+        Assert.AreEqual(-1, table.SelectedIndex);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(table.SummaryText));
+    }
+
+    [TestMethod]
+    public void PlayHistoryWorkflowOwner_ApplySortedRowsResortsWhenSortSnapshotBecomesStale()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
+        var table = new MainChartListViewModel { Rows = new List<object>() };
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
+        workflowOwner.UpdateSortParameters(new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlayHistoryRow.Title),
+            Direction = ListSortDirection.Descending
+        });
+
+        PlayHistorySortedRowsApplyResult result = workflowOwner.ApplySortedRows(
+            new PlayHistorySortedRowsApplyRequest(
+                MainViewUpdateMode.PlayHistorySelected,
+                MainViewUpdateMode.PlayHistorySelected,
+                state,
+                sortedRows: [],
+                sortSucceeded: true,
+                sortProfile: "stale",
+                currentKeywordFilter: string.Empty,
+                PlayHistoryDisplayTargetItem.All,
+                selectedSummaryFilterKeys: [],
+                archivePeriodTree: null),
+            Stopwatch.StartNew(),
+            table,
+            workspace,
+            regularOwner,
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState());
+
+        Assert.AreEqual(PlayHistorySortedRowsApplyStatus.Applied, result.Status);
+        Assert.AreEqual(1L, workflowOwner.PresentationState.CurrentView.SortSnapshot.Revision);
+        Assert.AreNotEqual("stale", result.SortProfile);
+    }
+
+    [TestMethod]
+    public void PlayHistoryWorkflowOwner_ApplySortedRowsReturnsQueuedDisplayTargetStaleWithoutCommittingRows()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
+        var oldRows = new List<object>();
+        var table = new MainChartListViewModel { Rows = oldRows };
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
+        PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
+
+        PlayHistorySortedRowsApplyResult result = workflowOwner.ApplySortedRows(
+            new PlayHistorySortedRowsApplyRequest(
+                MainViewUpdateMode.PlayHistorySelected,
+                MainViewUpdateMode.PlayHistorySelected,
+                state,
+                sortedRows: [],
+                sortSucceeded: true,
+                sortProfile: "default",
+                currentKeywordFilter: string.Empty,
+                changedTarget,
+                selectedSummaryFilterKeys: [],
+                archivePeriodTree: null),
+            Stopwatch.StartNew(),
+            table,
+            workspace,
+            regularOwner,
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState());
+
+        Assert.AreEqual(PlayHistorySortedRowsApplyStatus.DisplayTargetStale, result.Status);
+        Assert.IsTrue(result.QueueRefresh);
+        Assert.AreSame(oldRows, table.Rows);
+        Assert.IsNull(result.TerminalCommit);
+    }
+
+    [TestMethod]
+    public void PlayHistoryWorkflowOwner_ApplySortedRowsKeepsCommittedRowsAfterPublishFailure()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
+        var table = new MainChartListViewModel { Rows = new List<object>() };
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        workspace.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
+            {
+                throw new InvalidOperationException("workspace publish failed");
+            }
+        };
+        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
+
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(() =>
+            workflowOwner.ApplySortedRows(
+                new PlayHistorySortedRowsApplyRequest(
+                    MainViewUpdateMode.PlayHistorySelected,
+                    MainViewUpdateMode.PlayHistorySelected,
+                    state,
+                    sortedRows: [],
+                    sortSucceeded: true,
+                    sortProfile: "default",
+                    currentKeywordFilter: string.Empty,
+                    PlayHistoryDisplayTargetItem.All,
+                    selectedSummaryFilterKeys: [],
+                    archivePeriodTree: null),
+                Stopwatch.StartNew(),
+                table,
+                workspace,
+                regularOwner,
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState()));
+
+        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.IsInstanceOfType<PlayHistoryVirtualView>(table.Rows);
+        Assert.AreSame(state, workflowOwner.PresentationState.CurrentView);
+    }
+
+    [TestMethod]
     public void PlayHistoryTerminal_PublishesExplicitSummaryWithCommittedMainState()
     {
         PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(out PlayHistoryPresentationState state, out MainChartListViewModel table);
@@ -3626,6 +3806,25 @@ public sealed class ChartListVirtualViewTests
                 Stopwatch = Stopwatch.StartNew()
             }
         };
+    }
+
+    private static PlayHistoryViewState CreateEmptyPlayHistoryViewState(long requestId)
+    {
+        return new PlayHistoryViewState(
+            requestId,
+            PlayHistoryPeriodRequest.All(),
+            allProjectedRows: [],
+            filterSourceRows: [],
+            projectedRows: [],
+            diagnostics: [],
+            PlayHistoryProvider.Lr2,
+            schemaStatus: default,
+            sourceCount: 0,
+            new SortSnapshot(null, null, revision: 0L),
+            keywordFilter: string.Empty,
+            keywordFilterRevision: 0,
+            PlayHistoryDisplayTargetItem.All,
+            displayTargetRevision: 0);
     }
 
     private sealed class ThrowingFolderBmsFile : BMSFile

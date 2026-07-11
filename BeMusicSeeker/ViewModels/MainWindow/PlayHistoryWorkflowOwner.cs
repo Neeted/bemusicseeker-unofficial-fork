@@ -78,6 +78,206 @@ internal sealed class PlayHistoryWorkflowOwner
         }
     }
 
+    internal PlayHistorySortedRowsApplyResult ApplySortedRows(
+        PlayHistorySortedRowsApplyRequest request,
+        Stopwatch stopwatch,
+        MainChartListViewModel mainChartList,
+        PlaylistWorkspaceViewModel playlistWorkspace,
+        RegularChartListOwner regularChartListOwner,
+        PlaylistDetailBuildState playlistDetailBuildState,
+        PlaylistDetailViewState playlistDetailViewState)
+    {
+        if (request?.State == null || request.SortedRows == null)
+        {
+            throw new ArgumentException("A complete play-history presentation request is required.", nameof(request));
+        }
+        if (stopwatch == null) throw new ArgumentNullException(nameof(stopwatch));
+        if (mainChartList == null) throw new ArgumentNullException(nameof(mainChartList));
+
+        PlayHistoryViewState state = request.State;
+        IReadOnlyList<PlayHistoryRow> sortedRows = request.SortedRows;
+        bool sortSucceeded = request.SortSucceeded;
+        string sortProfile = request.SortProfile;
+        long additionalSortMs = 0L;
+        while (true)
+        {
+            PlayHistoryPresentationFreshnessResult freshness = EvaluateTerminalPresentationFreshness(
+                state,
+                request.CurrentKeywordFilter,
+                request.CurrentDisplayTarget);
+            if (freshness.Status == PlayHistoryPresentationFreshnessStatus.Fresh)
+            {
+                break;
+            }
+            if (freshness.Status == PlayHistoryPresentationFreshnessStatus.SortStale)
+            {
+                var resortStopwatch = Stopwatch.StartNew();
+                ChartListSortParameters currentSortParameters = CaptureSortParameters(out SortSnapshot currentSortSnapshot);
+                sortSucceeded = PlayHistorySortEngine.TrySort(
+                    state.ProjectedRows,
+                    currentSortParameters,
+                    out List<PlayHistoryRow> resortedRows,
+                    out sortProfile);
+                if (!sortSucceeded)
+                {
+                    resortedRows = [.. state.ProjectedRows];
+                }
+                sortedRows = resortedRows;
+                additionalSortMs += resortStopwatch.ElapsedMilliseconds;
+                state = new PlayHistoryViewState(
+                    state.RequestId,
+                    state.PeriodRequest,
+                    state.AllProjectedRows,
+                    state.FilterSourceRows,
+                    state.ProjectedRows,
+                    state.Diagnostics,
+                    state.Provider,
+                    state.SchemaStatus,
+                    state.SourceCount,
+                    currentSortSnapshot,
+                    state.KeywordFilter,
+                    state.KeywordFilterRevision,
+                    state.DisplayTarget,
+                    state.DisplayTargetRevision,
+                    state.SummaryOverride);
+                continue;
+            }
+
+            PlayHistorySortedRowsApplyStatus status = freshness.Status switch
+            {
+                PlayHistoryPresentationFreshnessStatus.DisplayTargetStale => PlayHistorySortedRowsApplyStatus.DisplayTargetStale,
+                PlayHistoryPresentationFreshnessStatus.KeywordStale => PlayHistorySortedRowsApplyStatus.KeywordStale,
+                _ => PlayHistorySortedRowsApplyStatus.StaleRequest
+            };
+            return PlayHistorySortedRowsApplyResult.Stale(
+                status,
+                freshness.QueueRefresh,
+                sortSucceeded,
+                sortProfile,
+                additionalSortMs);
+        }
+
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics = CreateViewDiagnostics(state.Diagnostics, sortSucceeded, sortProfile);
+        PlayHistoryPeriodSummary summary = PlayHistoryPeriodSummary.FromRows(
+            state.PeriodRequest.Label,
+            sortedRows,
+            state.SummaryOverride);
+        System.Collections.IList nextRowsView = sortedRows.Count == 0
+            && mainChartList.Rows is PlayHistoryVirtualView currentPlayHistoryView
+            && currentPlayHistoryView.Count == 0
+                ? mainChartList.Rows
+                : new PlayHistoryVirtualView(sortedRows, CountDistinctFolderLabels(sortedRows));
+        long columnSettingStartMs = stopwatch.ElapsedMilliseconds;
+        bool ownsCandidateRows = !ReferenceEquals(mainChartList.Rows, nextRowsView);
+        try
+        {
+            MainChartListColumnSelection columnSelection = regularChartListOwner.ResolveColumnSettingForViewUpdate(
+                request.Mode,
+                request.ColumnFilterMode);
+            string diagnosticSummaryText = PlayHistoryPresentationState.FormatDiagnosticSummary(diagnostics);
+            string gridSummaryText = PlayHistoryPresentationState.FormatGridSummaryText(
+                state.PeriodRequest,
+                summary,
+                diagnostics,
+                diagnosticSummaryText);
+            IReadOnlyList<PlayHistorySummaryCard> summaryCards = PlayHistoryPresentationState.CreateSummaryCards(
+                summary,
+                state.Provider,
+                new HashSet<string>(request.SelectedSummaryFilterKeys, StringComparer.Ordinal));
+            PlayHistoryTerminalCommitResult terminalCommit = ApplyTerminal(
+                new PlayHistoryTerminalRequest
+                {
+                    ViewState = state,
+                    ColumnSelection = columnSelection,
+                    ArchivePeriodTree = request.ArchivePeriodTree,
+                    SummaryCards = summaryCards,
+                    DiagnosticText = diagnosticSummaryText,
+                    MainRowsRequest = new MainChartListRowsApplyRequest
+                    {
+                        Rows = nextRowsView,
+                        ColumnsSettings = columnSelection.ColumnsSettings,
+                        SelectionPolicy = MainChartListSelectionPolicy.Reset,
+                        Summary = MainChartListSummaryUpdate.Explicit(gridSummaryText),
+                        ColumnSettingReuse = columnSelection.Reused,
+                        ColumnPreparationMs = columnSelection.ElapsedMs,
+                        TerminalStageStartMs = columnSettingStartMs,
+                        Stopwatch = stopwatch
+                    }
+                },
+                mainChartList,
+                playlistWorkspace,
+                regularChartListOwner,
+                playlistDetailBuildState,
+                playlistDetailViewState);
+            if (!terminalCommit.Applied)
+            {
+                if (ownsCandidateRows)
+                {
+                    MainChartListViewModel.DisposeRows(nextRowsView);
+                }
+                return PlayHistorySortedRowsApplyResult.Stale(
+                    PlayHistorySortedRowsApplyStatus.StaleRequest,
+                    queueRefresh: false,
+                    sortSucceeded,
+                    sortProfile,
+                    additionalSortMs);
+            }
+
+            return PlayHistorySortedRowsApplyResult.Applied(
+                sortSucceeded,
+                sortProfile,
+                additionalSortMs,
+                sortedRows.Count,
+                diagnostics,
+                terminalCommit);
+        }
+        catch (PlayHistoryTerminalPublishException)
+        {
+            throw;
+        }
+        catch
+        {
+            if (ownsCandidateRows)
+            {
+                MainChartListViewModel.DisposeRows(nextRowsView);
+            }
+            throw;
+        }
+    }
+
+    private static IReadOnlyList<PlayHistoryDiagnostic> CreateViewDiagnostics(
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
+        bool sortSucceeded,
+        string sortProfile)
+    {
+        if (sortSucceeded)
+        {
+            return diagnostics ?? [];
+        }
+        return
+        [
+            new PlayHistoryDiagnostic
+            {
+                Provider = PlayHistoryProvider.Lr2,
+                Stage = "sort",
+                Severity = PlayHistoryDiagnosticSeverity.Warning,
+                Code = "play_history_sort_failed",
+                Message = string.IsNullOrWhiteSpace(sortProfile) ? "Play history sort failed." : sortProfile,
+                SourcePath = string.Empty
+            },
+            .. (diagnostics ?? [])
+        ];
+    }
+
+    private static int CountDistinctFolderLabels(IEnumerable<PlayHistoryRow> rows)
+    {
+        return (rows ?? [])
+            .Select(row => row?.FolderLabels)
+            .Where(label => !string.IsNullOrWhiteSpace(label))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Count();
+    }
+
     private static void PublishRelatedPresentation(
         PlayHistoryTerminalCommitResult result,
         PlaylistWorkspaceViewModel playlistWorkspace)
