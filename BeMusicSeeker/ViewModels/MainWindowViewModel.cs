@@ -743,16 +743,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly List<string> playlistSummaryKeywordSearchHistory = [];
 
-    private readonly ObservableCollection<PlayHistoryDisplayTargetItem> _PlayHistoryDisplayTargets = [];
-
-    private readonly List<PlayHistoryDisplayTargetSet> playHistoryDisplayTargetSets = [];
-
-    private PlayHistoryDisplayTargetItem _SelectedPlayHistoryDisplayTarget;
-
-    private string preferredPlayHistoryDisplayTargetIdentity = PlayHistoryDisplayTargetItem.All.Identity;
-
-    private bool isRefreshingPlayHistoryDisplayTargets;
-
     private bool _IsKeywordSearchSuggestionPopupOpen;
 
     private string _KeywordSearchSuggestionHeaderText = string.Empty;
@@ -5524,49 +5514,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public ObservableCollection<PlayHistoryDisplayTargetItem> PlayHistoryDisplayTargets => _PlayHistoryDisplayTargets;
-
-    public PlayHistoryDisplayTargetItem SelectedPlayHistoryDisplayTarget
-    {
-        get
-        {
-            return _SelectedPlayHistoryDisplayTarget ?? PlayHistoryDisplayTargetItem.All;
-        }
-        set
-        {
-            PlayHistoryDisplayTargetItem next = value ?? PlayHistoryDisplayTargetItem.All;
-            if (!ReferenceEquals(_SelectedPlayHistoryDisplayTarget, next)
-                && !string.Equals(_SelectedPlayHistoryDisplayTarget?.Identity, next.Identity, StringComparison.Ordinal))
-            {
-                ApplyPlayHistoryDisplayTargetSelection(next, persistIdentity: true, queueRefreshWhenSelectionChanges: true);
-            }
-        }
-    }
-
-    public string SelectedPlayHistoryDisplayTargetIdentity
-    {
-        get
-        {
-            return SelectedPlayHistoryDisplayTarget.Identity;
-        }
-        set
-        {
-            if (isRefreshingPlayHistoryDisplayTargets || string.IsNullOrWhiteSpace(value))
-            {
-                return;
-            }
-
-            string identity = NormalizePlayHistoryDisplayTargetIdentity(value);
-            PlayHistoryDisplayTargetItem selected = FindPlayHistoryDisplayTarget(identity);
-            if (selected == null)
-            {
-                return;
-            }
-
-            ApplyPlayHistoryDisplayTargetSelection(selected, persistIdentity: true, queueRefreshWhenSelectionChanges: true);
-        }
-    }
-
     /// <summary>
     /// 通常検索欄に表示する field 補完・履歴候補です。
     /// </summary>
@@ -5670,113 +5617,31 @@ public partial class MainWindowViewModel : ViewModel
         Settings.Default.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(playlistSummaryKeywordSearchHistory);
     }
 
-    private static string NormalizePlayHistoryDisplayTargetIdentity(string identity)
-    {
-        return string.IsNullOrWhiteSpace(identity)
-            ? PlayHistoryDisplayTargetItem.All.Identity
-            : identity.Trim();
-    }
-
-    private PlayHistoryDisplayTargetItem FindPlayHistoryDisplayTarget(string identity)
-    {
-        string normalizedIdentity = NormalizePlayHistoryDisplayTargetIdentity(identity);
-        return _PlayHistoryDisplayTargets.FirstOrDefault(item =>
-            string.Equals(item.Identity, normalizedIdentity, StringComparison.Ordinal));
-    }
-
-    private void ApplyPlayHistoryDisplayTargetSelection(
-        PlayHistoryDisplayTargetItem selected,
-        bool persistIdentity,
-        bool queueRefreshWhenSelectionChanges)
-    {
-        PlayHistoryDisplayTargetItem previousSelected = SelectedPlayHistoryDisplayTarget;
-        PlayHistoryDisplayTargetItem next = selected ?? PlayHistoryDisplayTargetItem.All;
-        string nextIdentity = NormalizePlayHistoryDisplayTargetIdentity(next.Identity);
-        bool identityChanged = !string.Equals(previousSelected.Identity, nextIdentity, StringComparison.Ordinal);
-        bool selectedItemChanged = !ReferenceEquals(_SelectedPlayHistoryDisplayTarget, next);
-        if (persistIdentity)
-        {
-            preferredPlayHistoryDisplayTargetIdentity = nextIdentity;
-            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = nextIdentity;
-        }
-
-        if (identityChanged || selectedItemChanged)
-        {
-            lock (playHistoryViewRequestLock)
-            {
-                if (selectedItemChanged)
-                {
-                    _SelectedPlayHistoryDisplayTarget = next;
-                }
-                playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(nextIdentity);
-            }
-        }
-
-        if (selectedItemChanged)
-        {
-            RaisePropertyChanged("SelectedPlayHistoryDisplayTarget");
-            RaisePropertyChanged("SelectedPlayHistoryDisplayTargetIdentity");
-        }
-        else if (identityChanged)
-        {
-            RaisePropertyChanged("SelectedPlayHistoryDisplayTargetIdentity");
-        }
-
-        if ((identityChanged || selectedItemChanged)
-            && queueRefreshWhenSelectionChanges
-            && (previousSelected.UsesProjection || next.UsesProjection))
-        {
-            QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
-        }
-    }
-
     private void EnsurePlayHistoryDisplayTargetSelection()
     {
         RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges: false);
     }
 
-    private void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true)
+    private List<BMSTable> SnapshotPlayHistoryDisplayTargetTables()
     {
-        PlayHistoryDisplayTargetItem previousSelected = SelectedPlayHistoryDisplayTarget;
-        string selectedIdentity = NormalizePlayHistoryDisplayTargetIdentity(preferredPlayHistoryDisplayTargetIdentity);
-        List<PlayHistoryDisplayTargetItem> nextItems = [PlayHistoryDisplayTargetItem.All];
-        nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));
-        nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly));
+        List<BMSTable> tableSnapshot = [];
         try
         {
             tables?.AcquireReaderLockBMSTables();
-            nextItems.AddRange((BMSTables ?? Enumerable.Empty<BMSTable>())
-                .Where(table => table != null)
-                .OrderBy(table => table.name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(table => table.symbol ?? string.Empty, StringComparer.OrdinalIgnoreCase)
-                .Select(PlayHistoryDisplayTargetItem.FromPlaylist));
+            tableSnapshot.AddRange(BMSTables ?? Enumerable.Empty<BMSTable>());
         }
         finally
         {
             tables?.FreeReaderLockBMSTables();
         }
+        return tableSnapshot;
+    }
 
-        isRefreshingPlayHistoryDisplayTargets = true;
-        try
-        {
-            _PlayHistoryDisplayTargets.Clear();
-            foreach (PlayHistoryDisplayTargetItem item in nextItems)
-            {
-                _PlayHistoryDisplayTargets.Add(item);
-            }
-            PlayHistoryDisplayTargetItem selected = nextItems.FirstOrDefault(item => string.Equals(item.Identity, selectedIdentity, StringComparison.Ordinal))
-                ?? PlayHistoryDisplayTargetItem.All;
-            ApplyPlayHistoryDisplayTargetSelection(
-                selected,
-                persistIdentity: false,
-                queueRefreshWhenSelectionChanges
-                    && (previousSelected.UsesProjection || selected.UsesProjection));
-            RaisePropertyChanged("SelectedPlayHistoryDisplayTargetIdentity");
-        }
-        finally
-        {
-            isRefreshingPlayHistoryDisplayTargets = false;
-        }
+    private void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true)
+    {
+        PlayHistory.ReplaceDisplayTargetCatalog(
+            SnapshotPlayHistoryDisplayTargetTables(),
+            queueRefreshWhenSelectionChanges);
     }
 
     private void QueuePlayHistoryDisplayTargetsRefresh(bool queueRefreshWhenSelectionChanges = true)
@@ -5846,10 +5711,12 @@ public partial class MainWindowViewModel : ViewModel
 
     internal void ReplacePlayHistoryDisplayTargetSetsForTest(IEnumerable<PlayHistoryDisplayTargetSet> targetSets)
     {
-        playHistoryDisplayTargetSets.Clear();
-        playHistoryDisplayTargetSets.AddRange(PlayHistoryDisplayTargetSetStore.Deserialize(PlayHistoryDisplayTargetSetStore.Serialize(targetSets)));
-        Settings.Default.PlayHistoryDisplayTargetSetsJson = PlayHistoryDisplayTargetSetStore.Serialize(playHistoryDisplayTargetSets);
-        RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges: false);
+        string serializedTargetSets = PlayHistoryDisplayTargetSetStore.Serialize(targetSets);
+        Settings.Default.PlayHistoryDisplayTargetSetsJson = serializedTargetSets;
+        PlayHistory.ReplaceDisplayTargetSets(
+            PlayHistoryDisplayTargetSetStore.Deserialize(serializedTargetSets),
+            SnapshotPlayHistoryDisplayTargetTables(),
+            queueRefreshWhenSelectionChanges: false);
     }
 
     private GridKeywordSearchContext GetCurrentKeywordSearchContext()
@@ -6452,6 +6319,8 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.ConfigureDetailEditing(() => tables);
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
         PlayHistory = new PlayHistoryWorkflowOwner();
+        PlayHistory.ConfigureDisplayTargetPersistence(identity => Settings.Default.PlayHistorySelectedDisplayTargetIdentity = identity);
+        PlayHistory.DisplayTargetRefreshRequested += (_, _) => QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => QueuePlayHistoryKeywordFilterRefresh();
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(PlaylistWorkspace);
         PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
@@ -6484,7 +6353,7 @@ public partial class MainWindowViewModel : ViewModel
         regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
-        preferredPlayHistoryDisplayTargetIdentity = NormalizePlayHistoryDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
+        PlayHistory.RestoreDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
@@ -7336,9 +7205,10 @@ public partial class MainWindowViewModel : ViewModel
 
     private void RefreshPlayHistoryDisplayTargetSetsFromSettings(bool queueRefreshWhenSelectionChanges)
     {
-        playHistoryDisplayTargetSets.Clear();
-        playHistoryDisplayTargetSets.AddRange(PlayHistoryDisplayTargetSetStore.Deserialize(Settings.Default.PlayHistoryDisplayTargetSetsJson));
-        RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges);
+        PlayHistory.ReplaceDisplayTargetSetsFromSettings(
+            Settings.Default.PlayHistoryDisplayTargetSetsJson,
+            SnapshotPlayHistoryDisplayTargetTables(),
+            queueRefreshWhenSelectionChanges);
     }
 
     private void RaiseUiInteractionOnUiThread(EventHandler handler, string interactionName)
@@ -8208,7 +8078,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             TryCompleteStartupProgressPlaylistEntriesHydration(tables.PlaylistEntriesHydrationCompletedVersion);
             ScheduleDeferredPlaylistReferenceApply("PlaylistEntriesHydration");
-            if (SelectedPlayHistoryDisplayTarget.UsesProjection)
+            if (PlayHistory.SelectedDisplayTarget.UsesProjection)
             {
                 QueuePlayHistoryDisplayTargetRefresh();
             }
@@ -9913,7 +9783,7 @@ public partial class MainWindowViewModel : ViewModel
             : playHistoryWorkflowOwner.RegisterRequest(
                 periodRequest,
                 NormalizePlaylistKeywordFilter(KeywordFilter),
-                SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty,
+                PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
                 playHistoryWorkflowOwner.DisplayTargetRevision,
                 activeRequest =>
                 {
@@ -9976,7 +9846,7 @@ public partial class MainWindowViewModel : ViewModel
                 activeViewRequest,
                 source,
                 KeywordFilter,
-                SelectedPlayHistoryDisplayTarget,
+                PlayHistory.SelectedDisplayTarget,
                 playHistoryWorkflowOwner.SnapshotSummaryFilterTexts(source.Provider),
                 progress => ReportPlayHistoryReadWorkflowProgress(periodRequest, requestId, progress)),
             files,
@@ -9997,7 +9867,7 @@ public partial class MainWindowViewModel : ViewModel
         LogPlayHistoryDisplayTargetFilter(
             periodRequest,
             requestId,
-            SelectedPlayHistoryDisplayTarget,
+            PlayHistory.SelectedDisplayTarget,
             presentation.DisplayTargetSourceCount,
             presentation.DisplayTargetResultCount);
         LogPlayHistoryKeywordFilter(
@@ -10256,7 +10126,7 @@ public partial class MainWindowViewModel : ViewModel
         long keywordRevision = viewRequest.KeywordFilterRevision > 0
             ? viewRequest.KeywordFilterRevision
             : playHistoryWorkflowOwner.KeywordRevision;
-        PlayHistoryDisplayTargetItem displayTarget = SelectedPlayHistoryDisplayTarget;
+        PlayHistoryDisplayTargetItem displayTarget = PlayHistory.SelectedDisplayTarget;
         long displayTargetRevision = viewRequest.DisplayTargetRevision > 0
             ? viewRequest.DisplayTargetRevision
             : playHistoryWorkflowOwner.DisplayTargetRevision;
@@ -10404,7 +10274,7 @@ public partial class MainWindowViewModel : ViewModel
                     sortSucceeded,
                     sortProfile,
                     KeywordFilter,
-                    SelectedPlayHistoryDisplayTarget,
+                    PlayHistory.SelectedDisplayTarget,
                     archivePeriodTree),
                 viewBuildStopwatch,
                 MainChartList,
@@ -10610,7 +10480,7 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistoryViewRequest activeRequest = playHistoryWorkflowOwner.BeginRequest(
             request ?? PlayHistoryPeriodRequest.All(),
             NormalizePlaylistKeywordFilter(KeywordFilter),
-            SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty,
+            PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
             playHistoryWorkflowOwner.DisplayTargetRevision,
             requestToActivate =>
             {
@@ -10671,7 +10541,7 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         if (!playHistoryWorkflowOwner.TryBeginDisplayTargetRefresh(
-            SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty,
+            PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
             advanceRevision,
             out PlayHistoryViewRequest request))
         {

@@ -169,6 +169,7 @@ public sealed class MainWindowContextMenuResourceTests
         string rootViewModelCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string mainChartListCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
         string playHistoryWorkflowCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
+        string displayTargetOwnerCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
         string presentationStateCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
         string presentationOnlyMethod = ExtractBetween(rootViewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
         string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
@@ -199,7 +200,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playHistoryWorkflowCode, "BuildPresentationOnly(");
         StringAssert.Contains(playHistoryWorkflowCode, "BuildReadPresentation(");
         StringAssert.Contains(playHistoryWorkflowCode, "BuildReadView(");
-        StringAssert.Contains(playHistoryWorkflowCode, "public sealed class PlayHistoryWorkflowOwner : ViewModel");
+        StringAssert.Contains(playHistoryWorkflowCode, "public sealed partial class PlayHistoryWorkflowOwner : ViewModel");
         StringAssert.Contains(playHistoryWorkflowCode, "public IReadOnlyList<PlayHistoryPeriodTreeItem> ArchivePeriodTree");
         StringAssert.Contains(playHistoryWorkflowCode, "public IReadOnlyList<PlayHistorySummaryCard> SummaryCards");
         StringAssert.Contains(playHistoryWorkflowCode, "public string SummaryDiagnosticText");
@@ -211,7 +212,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("new PlayHistoryTerminalRequest"));
         Assert.IsFalse(rootViewModelCode.Contains("CreatePlayHistoryViewDiagnostics"));
         Assert.IsFalse(rootViewModelCode.Contains("CountDistinctPlayHistoryFolderLabels"));
-        Assert.IsFalse(rootViewModelCode.Contains("SnapshotPlayHistoryDisplayTargetTables"));
+        StringAssert.Contains(rootViewModelCode, "SnapshotPlayHistoryDisplayTargetTables");
+        StringAssert.Contains(displayTargetOwnerCode, "ReplaceDisplayTargetCatalog");
         Assert.IsFalse(rootViewModelCode.Contains("MergePlayHistoryDiagnostics"));
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.ReadCache"));
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.CreateProjectionResult"));
@@ -293,7 +295,6 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string applyPlayHistoryView = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ApplyPlayHistoryView(");
         string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
-        string applyDisplayTargetSelection = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryDisplayTargetSelection", "private void EnsurePlayHistoryDisplayTargetSelection");
         string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
         string queueDisplayTargets = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetsRefresh", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
         string queueDisplayTarget = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetRefresh", "private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic");
@@ -304,6 +305,7 @@ public sealed class MainWindowContextMenuResourceTests
         string playlistEntriesHydrationHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion", "listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTables");
         string state = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
         string workflowOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
+        string displayTargetOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
 
         StringAssert.Contains(applyPlayHistoryView, "requestedMode == MainViewUpdateMode.KeywordFilterUpdated");
         StringAssert.Contains(applyPlayHistoryView, "TryApplyPlayHistoryPresentationOnly");
@@ -315,7 +317,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);");
         StringAssert.Contains(presentationOnly, "playHistoryWorkflowOwner.BuildPresentationOnly(");
         Assert.IsFalse(presentationOnly.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
-        StringAssert.Contains(viewModelCode, "if (SelectedPlayHistoryDisplayTarget.UsesProjection)");
+        StringAssert.Contains(viewModelCode, "if (PlayHistory.SelectedDisplayTarget.UsesProjection)");
         Assert.IsFalse(presentationOnly.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
         StringAssert.Contains(workflowOwner, "request.RequestedMode == MainViewUpdateMode.SortUpdated && keywordStale");
         StringAssert.Contains(workflowOwner, "request.RequestedMode == MainViewUpdateMode.SortUpdated && displayTargetStale");
@@ -327,9 +329,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false)");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryDisplayTargetRefresh");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false)");
-        StringAssert.Contains(refreshTargets, "ApplyPlayHistoryDisplayTargetSelection(");
-        StringAssert.Contains(applyDisplayTargetSelection, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);");
-        StringAssert.Contains(applyDisplayTargetSelection, "playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(nextIdentity);");
+        StringAssert.Contains(refreshTargets, "PlayHistory.ReplaceDisplayTargetCatalog(");
+        StringAssert.Contains(displayTargetOwner, "DisplayTargetRefreshRequested");
+        StringAssert.Contains(displayTargetOwner, "AdvanceDisplayTargetRevision(nextIdentity);");
+        StringAssert.Contains(displayTargetOwner, "persistDisplayTargetIdentity(nextIdentity);");
         StringAssert.Contains(queueDisplayTarget, "playHistoryWorkflowOwner.TryBeginDisplayTargetRefresh(");
         StringAssert.Contains(queueDisplayTarget, "playHistoryWorkflowOwner.CompleteDisplayTargetRefresh(request.DisplayTargetRevision)");
         StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshRequestedRevision");
@@ -343,7 +346,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playlistTablesCollectionHandler, "QueuePlayHistoryDisplayTargetsRefresh();");
         Assert.IsFalse(playlistTablesHandler.Contains("RefreshPlayHistoryDisplayTargets();"));
         Assert.IsFalse(playlistTablesCollectionHandler.Contains("RefreshPlayHistoryDisplayTargets();"));
-        StringAssert.Contains(playlistEntriesHydrationHandler, "if (SelectedPlayHistoryDisplayTarget.UsesProjection)");
+        StringAssert.Contains(playlistEntriesHydrationHandler, "if (PlayHistory.SelectedDisplayTarget.UsesProjection)");
         StringAssert.Contains(playlistEntriesHydrationHandler, "QueuePlayHistoryDisplayTargetRefresh();");
         Assert.IsFalse(viewModelCode.Contains("playHistoryKeywordFilterQueuedRevision"));
         Assert.IsFalse(viewModelCode.Contains("playHistoryDisplayTargetQueuedRevision"));
@@ -368,6 +371,7 @@ public sealed class MainWindowContextMenuResourceTests
         string editDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.xaml"));
         string editDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string displayTargetOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
         string toolbar = ExtractBetween(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\"", "<Border DockPanel.Dock=\"Right\" CornerRadius=\"6\" BorderThickness=\"1\" BorderBrush=\"{DynamicResource App.StrongBorderBrush}\" Width=\"Auto\" Margin=\"0,0,2,0\" VerticalAlignment=\"Center\" FlowDirection=\"LeftToRight\" Visibility=\"{Binding PlaylistWorkspace.IsPlaylistSummaryMode");
         string saveAndClose = ExtractBetween(settingDialogCode, "private async void SaveAndClose", "internal static bool ShouldResetSettingsOnCancel");
         string saveSettings = ExtractBetween(viewModelCode, "public async Task SaveSettings()", "public async Task SaveSettingsForInitialInitialize()");
@@ -375,18 +379,18 @@ public sealed class MainWindowContextMenuResourceTests
         string beginPlayHistoryFilterRequest = ExtractBetween(viewModelCode, "internal long BeginPlayHistoryFilterRequest", "private void QueuePlayHistoryKeywordFilterRefresh");
 
         StringAssert.Contains(toolbar, "Visibility=\"{Binding IsPlayHistoryViewActive");
-        StringAssert.Contains(toolbar, "ItemsSource=\"{Binding PlayHistoryDisplayTargets}\"");
-        StringAssert.Contains(toolbar, "SelectedValue=\"{Binding SelectedPlayHistoryDisplayTargetIdentity, Mode=TwoWay}\"");
+        StringAssert.Contains(toolbar, "ItemsSource=\"{Binding PlayHistory.DisplayTargets}\"");
+        StringAssert.Contains(toolbar, "SelectedValue=\"{Binding PlayHistory.SelectedDisplayTargetIdentity, Mode=TwoWay}\"");
         StringAssert.Contains(toolbar, "SelectedValuePath=\"Identity\"");
         StringAssert.Contains(toolbar, "DisplayMemberPath=\"DisplayName\"");
-        StringAssert.Contains(viewModelCode, "public string SelectedPlayHistoryDisplayTargetIdentity");
-        StringAssert.Contains(viewModelCode, "isRefreshingPlayHistoryDisplayTargets");
+        StringAssert.Contains(displayTargetOwner, "public string SelectedDisplayTargetIdentity");
+        StringAssert.Contains(displayTargetOwner, "isRefreshingDisplayTargets");
         StringAssert.Contains(beginPlayHistoryFilterRequest, "EnsurePlayHistoryDisplayTargetSelection();");
-        StringAssert.Contains(viewModelCode, "nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));");
-        StringAssert.Contains(viewModelCode, "nextItems.AddRange(playHistoryDisplayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly));");
-        StringAssert.Contains(viewModelCode, ".Select(PlayHistoryDisplayTargetItem.FromPlaylist));");
+        StringAssert.Contains(displayTargetOwner, "nextItems.AddRange(displayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));");
+        StringAssert.Contains(displayTargetOwner, "nextItems.AddRange(displayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly));");
+        StringAssert.Contains(displayTargetOwner, ".Select(PlayHistoryDisplayTargetItem.FromPlaylist));");
         StringAssert.Contains(viewModelCode, "Settings.Default.PlayHistorySelectedDisplayTargetIdentity");
-        StringAssert.Contains(viewModelCode, "preferredPlayHistoryDisplayTargetIdentity");
+        StringAssert.Contains(displayTargetOwner, "preferredDisplayTargetIdentity");
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Play_history_display_target_folder_only_set_format));
         StringAssert.Contains(settingDialogXaml, "Path=Resources.Play_history_folder_display_preset, Mode=OneWay");
         StringAssert.Contains(settingDialogXaml, "ItemsSource=\"{Binding settingDialog.PlayHistoryFolderDisplayPresets}\"");

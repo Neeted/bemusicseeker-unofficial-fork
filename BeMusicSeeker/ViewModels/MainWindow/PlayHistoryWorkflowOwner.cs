@@ -13,7 +13,7 @@ using Livet.Commands;
 
 namespace BeMusicSeeker.ViewModels;
 
-public sealed class PlayHistoryWorkflowOwner : ViewModel
+public sealed partial class PlayHistoryWorkflowOwner : ViewModel
 {
     private long keywordQueuedRevision = -1L;
     private int keywordActiveCount;

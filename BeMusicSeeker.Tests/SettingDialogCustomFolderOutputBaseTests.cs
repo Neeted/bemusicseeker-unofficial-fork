@@ -213,18 +213,18 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Assert.IsFalse(Settings.Default.PlayHistoryDisplayTargetSetsJson.Contains("FolderLabel"));
             Assert.IsFalse(Settings.Default.PlayHistoryDisplayTargetSetsJson.Contains("999"));
 
-            Assert.AreEqual(7, viewModel.PlayHistoryDisplayTargets.Count);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistoryDisplayTargets[0].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistoryDisplayTargets[1].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistoryDisplayTargets[2].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetMode.FilterAndProject, viewModel.PlayHistoryDisplayTargets[1].Mode);
-            Assert.AreEqual(PlayHistoryDisplayTargetMode.FilterAndProject, viewModel.PlayHistoryDisplayTargets[2].Mode);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistoryDisplayTargets[3].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistoryDisplayTargets[4].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetMode.ProjectOnly, viewModel.PlayHistoryDisplayTargets[3].Mode);
-            Assert.AreEqual(PlayHistoryDisplayTargetMode.ProjectOnly, viewModel.PlayHistoryDisplayTargets[4].Mode);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistoryDisplayTargets[5].Kind);
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistoryDisplayTargets[6].Kind);
+            Assert.AreEqual(7, viewModel.PlayHistory.DisplayTargets.Count);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.DisplayTargets[0].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistory.DisplayTargets[1].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistory.DisplayTargets[2].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetMode.FilterAndProject, viewModel.PlayHistory.DisplayTargets[1].Mode);
+            Assert.AreEqual(PlayHistoryDisplayTargetMode.FilterAndProject, viewModel.PlayHistory.DisplayTargets[2].Mode);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistory.DisplayTargets[3].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.TargetSet, viewModel.PlayHistory.DisplayTargets[4].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetMode.ProjectOnly, viewModel.PlayHistory.DisplayTargets[3].Mode);
+            Assert.AreEqual(PlayHistoryDisplayTargetMode.ProjectOnly, viewModel.PlayHistory.DisplayTargets[4].Mode);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistory.DisplayTargets[5].Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.Playlist, viewModel.PlayHistory.DisplayTargets[6].Kind);
         }
         finally
         {
@@ -292,12 +292,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             [
                 CreateTargetSet("Saved")
             ]);
-            PlayHistoryDisplayTargetItem target = viewModel.PlayHistoryDisplayTargets.Single(item =>
+            PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
                 item.Kind == PlayHistoryDisplayTargetKind.TargetSet
                 && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
                 && item.TargetSet.Name == "Saved");
 
-            viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
+            viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
 
             Assert.AreEqual(target.Identity, Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
         }
@@ -319,14 +319,14 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
             var viewModel = new MainWindowViewModel();
 
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.SelectedPlayHistoryDisplayTarget.Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.SelectedDisplayTarget.Kind);
 
             viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
             [
                 CreateTargetSet("Saved")
             ]);
 
-            Assert.AreEqual("set-folder:SAVED", viewModel.SelectedPlayHistoryDisplayTarget.Identity);
+            Assert.AreEqual("set-folder:SAVED", viewModel.PlayHistory.SelectedDisplayTarget.Identity);
         }
         finally
         {
@@ -350,16 +350,16 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             [
                 CreateTargetSet("Saved")
             ]);
-            PlayHistoryDisplayTargetItem target = viewModel.PlayHistoryDisplayTargets.Single(item =>
+            PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
                 item.Kind == PlayHistoryDisplayTargetKind.TargetSet
                 && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
                 && item.TargetSet.Name == "Saved");
-            viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
+            viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
 
-            viewModel.SelectedPlayHistoryDisplayTargetIdentity = null;
-            viewModel.SelectedPlayHistoryDisplayTargetIdentity = string.Empty;
+            viewModel.PlayHistory.SelectedDisplayTargetIdentity = null;
+            viewModel.PlayHistory.SelectedDisplayTargetIdentity = string.Empty;
 
-            Assert.AreEqual(target.Identity, viewModel.SelectedPlayHistoryDisplayTarget.Identity);
+            Assert.AreEqual(target.Identity, viewModel.PlayHistory.SelectedDisplayTarget.Identity);
             Assert.AreEqual(target.Identity, Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
         }
         finally
@@ -384,15 +384,15 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             [
                 CreateTargetSet("Saved")
             ]);
-            PlayHistoryDisplayTargetItem target = viewModel.PlayHistoryDisplayTargets.Single(item =>
+            PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
                 item.Kind == PlayHistoryDisplayTargetKind.TargetSet
                 && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
                 && item.TargetSet.Name == "Saved");
-            viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
+            viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
 
-            viewModel.SelectedPlayHistoryDisplayTargetIdentity = PlayHistoryDisplayTargetItem.All.Identity;
+            viewModel.PlayHistory.SelectedDisplayTargetIdentity = PlayHistoryDisplayTargetItem.All.Identity;
 
-            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.SelectedPlayHistoryDisplayTarget.Kind);
+            Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.SelectedDisplayTarget.Kind);
             Assert.AreEqual(PlayHistoryDisplayTargetItem.All.Identity, Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
         }
         finally
@@ -416,11 +416,13 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             [
                 CreateTargetSet("Saved")
             ]);
-            SetViewModelField(viewModel, "_SelectedPlayHistoryDisplayTarget", PlayHistoryDisplayTargetItem.All);
+            typeof(PlayHistoryWorkflowOwner)
+                .GetField("selectedDisplayTarget", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(viewModel.PlayHistory, PlayHistoryDisplayTargetItem.All);
 
             viewModel.BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest.All());
 
-            Assert.AreEqual("set-folder:SAVED", viewModel.SelectedPlayHistoryDisplayTarget.Identity);
+            Assert.AreEqual("set-folder:SAVED", viewModel.PlayHistory.SelectedDisplayTarget.Identity);
         }
         finally
         {
@@ -443,11 +445,11 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             [
                 CreateTargetSet("Saved", playlistId: 101)
             ]);
-            PlayHistoryDisplayTargetItem target = viewModel.PlayHistoryDisplayTargets.Single(item =>
+            PlayHistoryDisplayTargetItem target = viewModel.PlayHistory.DisplayTargets.Single(item =>
                 item.Kind == PlayHistoryDisplayTargetKind.TargetSet
                 && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
                 && item.TargetSet.Name == "Saved");
-            viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
+            viewModel.PlayHistory.SelectedDisplayTargetIdentity = target.Identity;
             PlayHistoryWorkflowOwner owner = viewModel.PlayHistory;
             long revisionBeforeChange = owner.DisplayTargetRevision;
             Settings.Default.PlayHistoryDisplayTargetSetsJson = PlayHistoryDisplayTargetSetStore.Serialize(
@@ -457,8 +459,8 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             InvokeRefreshPlayHistoryDisplayTargetSetsFromSettings(viewModel, queueRefreshWhenSelectionChanges: true);
 
-            Assert.AreEqual(target.Identity, viewModel.SelectedPlayHistoryDisplayTarget.Identity);
-            Assert.AreEqual(202, viewModel.SelectedPlayHistoryDisplayTarget.TargetSet.Targets.Single().PlaylistId);
+            Assert.AreEqual(target.Identity, viewModel.PlayHistory.SelectedDisplayTarget.Identity);
+            Assert.AreEqual(202, viewModel.PlayHistory.SelectedDisplayTarget.TargetSet.Targets.Single().PlaylistId);
             Assert.IsTrue(
                 owner.DisplayTargetRevision > revisionBeforeChange,
                 "The active play-history filter must be re-applied when the selected target set keeps the same identity but changes content.");
