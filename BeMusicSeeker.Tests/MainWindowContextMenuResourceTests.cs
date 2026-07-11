@@ -197,6 +197,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playHistoryWorkflowCode, "ApplySortedRows(");
         StringAssert.Contains(playHistoryWorkflowCode, "BuildPresentationOnly(");
         StringAssert.Contains(playHistoryWorkflowCode, "BuildReadPresentation(");
+        StringAssert.Contains(playHistoryWorkflowCode, "BuildReadView(");
         StringAssert.Contains(presentationOnlyMethod, "playHistoryWorkflowOwner.BuildPresentationOnly(");
         Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
         Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
@@ -206,6 +207,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("CountDistinctPlayHistoryFolderLabels"));
         Assert.IsFalse(rootViewModelCode.Contains("SnapshotPlayHistoryDisplayTargetTables"));
         Assert.IsFalse(rootViewModelCode.Contains("MergePlayHistoryDiagnostics"));
+        Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.ReadCache"));
+        Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.CreateProjectionResult"));
+        Assert.IsFalse(rootViewModelCode.Contains("ResolveBeatorajaPeriodSummaryOverride"));
+        StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.BuildReadView(");
         StringAssert.Contains(mainChartListCode, "ApplyCoordinatedRows(");
     }
 
@@ -213,18 +218,18 @@ public sealed class MainWindowContextMenuResourceTests
     public void PlayHistoryView_LogsDedicatedStageEvents()
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string applyPlayHistoryView = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ApplyPlayHistoryView(");
+        string reportPlayHistoryReadWorkflowProgress = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ReportPlayHistoryReadWorkflowProgress(");
         string presentationOnly = ExtractBetween(viewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
         string applyPlayHistorySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private void GetTreeViewFilterSelection");
         string staleRequestLog = ExtractBetween(viewModelCode, "private void LogStalePlayHistoryViewRequest", "private static void LogPlayHistoryDiagnostics");
 
         StringAssert.Contains(viewModelCode, "LogPlayHistoryEvent(");
-        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_read_done", "period=", "requestId=", "schemaStatus=", "rows=", "diagnosticsCount=", "elapsedMs=");
-        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_read_period_index_done", "period=", "requestId=", "schemaStatus=", "days=", "diagnosticsCount=", "elapsedMs=");
-        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_read_period_index_skipped", "period=", "requestId=", "schemaStatus=", "reason=schema_unavailable");
-        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_projection_done", "projectionEventName", "schemaStatus=", "fallback=", "reason=", "projection_index_failed", "schema_unavailable");
-        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_projection_skipped", "projectionEventName", "rawCount=", "projectedCount=", "diagnosticsCount=", "projectionMs=");
-        AssertLogPlayHistoryEventContract(applyPlayHistoryView, "play_history_projection_fallback", "projectionEventName", "fallback=", "reason=", "projection_index_failed");
+        AssertLogPlayHistoryEventContract(reportPlayHistoryReadWorkflowProgress, "play_history_read_done", "period=", "requestId=", "schemaStatus=", "rows=", "diagnosticsCount=", "elapsedMs=");
+        AssertLogPlayHistoryEventContract(reportPlayHistoryReadWorkflowProgress, "play_history_read_period_index_done", "period=", "requestId=", "schemaStatus=", "days=", "diagnosticsCount=", "elapsedMs=");
+        AssertLogPlayHistoryEventContract(reportPlayHistoryReadWorkflowProgress, "play_history_read_period_index_skipped", "period=", "requestId=", "schemaStatus=", "reason=schema_unavailable");
+        AssertLogPlayHistoryEventContract(reportPlayHistoryReadWorkflowProgress, "play_history_projection_done", "projectionEventName", "schemaStatus=", "fallback=", "reason=", "projection_index_failed", "schema_unavailable");
+        AssertLogPlayHistoryEventContract(reportPlayHistoryReadWorkflowProgress, "play_history_projection_skipped", "projectionEventName", "rawCount=", "projectedCount=", "diagnosticsCount=", "projectionMs=");
+        AssertLogPlayHistoryEventContract(reportPlayHistoryReadWorkflowProgress, "play_history_projection_fallback", "projectionEventName", "fallback=", "reason=", "projection_index_failed");
         AssertLogPlayHistoryEventContract(presentationOnly, "play_history_view_presentation_skipped", "period=", "requestId=", "reason=no_current_matching_state", "totalMs=");
         AssertLogPlayHistoryEventContract(applyPlayHistorySortedRows, "play_history_view_apply", "period=", "requestId=", "sortOnly=", "schemaStatus=", "sourceCount=", "projectedCount=", "viewCount=", "totalMs=");
         AssertLogPlayHistoryEventContract(staleRequestLog, "play_history_view_stale_skipped", "mode=", "requestedMode=", "requestId=", "currentRequestId=", "elapsedMs=");
@@ -235,15 +240,28 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string applyPlayHistoryView = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ApplyPlayHistoryView(");
+        string applyPlayHistoryReadWorkflow = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ApplyPlayHistoryReadWorkflow(");
+        string reportPlayHistoryReadWorkflowProgress = SourceTextTestHelper.ExtractMethodBody(viewModelCode, "private void ReportPlayHistoryReadWorkflowProgress(");
         string workflowOwnerCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs"));
         string providerSelection = ExtractBetween(viewModelCode, "private bool ShouldUseBeatorajaPlayHistoryProvider", "private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath");
         string rowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "PlayHistoryRow.cs"));
 
-        StringAssert.Contains(applyPlayHistoryView, "ShouldUseBeatorajaPlayHistoryProvider()");
-        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.ReadCache.ReadBeatoraja(");
-        StringAssert.Contains(applyPlayHistoryView, "periodRequest.ToBeatorajaReadRequest");
-        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.CreateProjectionResult(");
-        StringAssert.Contains(applyPlayHistoryView, "provider=\" + activePlayHistoryProvider");
+        StringAssert.Contains(applyPlayHistoryReadWorkflow, "ShouldUseBeatorajaPlayHistoryProvider()");
+        StringAssert.Contains(applyPlayHistoryReadWorkflow, "playHistoryWorkflowOwner.BuildReadView(");
+        StringAssert.Contains(applyPlayHistoryReadWorkflow, "playHistoryWorkflowOwner.SnapshotSummaryFilterTexts(source.Provider)");
+        Assert.IsFalse(viewModelCode.Contains("selectedPlayHistorySummaryFilterKeys"));
+        Assert.IsFalse(viewModelCode.Contains("PrunePlayHistorySummaryCardFilters"));
+        StringAssert.Contains(reportPlayHistoryReadWorkflowProgress, "provider=\" + progress.Read.Provider");
+        Assert.IsFalse(viewModelCode.Contains("playHistoryWorkflowOwner.ReadCache"));
+        Assert.IsFalse(viewModelCode.Contains("playHistoryWorkflowOwner.CreateProjectionResult"));
+        StringAssert.Contains(workflowOwnerCode, "readCache.ReadBeatoraja(");
+        StringAssert.Contains(workflowOwnerCode, "periodRequest.ToBeatorajaReadRequest");
+        StringAssert.Contains(workflowOwnerCode, "CreateProjectionResult(");
+        StringAssert.Contains(workflowOwnerCode, "private readonly HashSet<string> selectedSummaryFilterKeys");
+        StringAssert.Contains(workflowOwnerCode, "PruneSummaryFilters(request.ViewState.Provider)");
+        Assert.IsTrue(
+            workflowOwnerCode.IndexOf("PlayHistoryReadWorkflowProgress.ProjectionCompleted", StringComparison.Ordinal)
+            < workflowOwnerCode.IndexOf("PlayHistoryReadPresentationBuildResult presentation = BuildReadPresentation", StringComparison.Ordinal));
         StringAssert.Contains(workflowOwnerCode, "library.CreateBeatorajaPlayHistoryProjectionIndex");
         StringAssert.Contains(workflowOwnerCode, "PlayHistoryRow.ProjectBeatorajaRows(readResult, projectionIndex)");
         StringAssert.Contains(providerSelection, "Settings.Default.UseBeatorajaScoreDb");
@@ -263,7 +281,7 @@ public sealed class MainWindowContextMenuResourceTests
         string applyDisplayTargetSelection = ExtractBetween(viewModelCode, "private void ApplyPlayHistoryDisplayTargetSelection", "private void EnsurePlayHistoryDisplayTargetSelection");
         string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
         string queueDisplayTargets = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetsRefresh", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
-        string queueDisplayTarget = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetRefresh", "private static PlayHistoryPeriodSummaryOverride ResolveBeatorajaPeriodSummaryOverride");
+        string queueDisplayTarget = ExtractBetween(viewModelCode, "private void QueuePlayHistoryDisplayTargetRefresh", "private static PlayHistoryDiagnostic CreatePlayHistoryDiagnostic");
         string applySortedRows = ExtractBetween(viewModelCode, "private void ApplyPlayHistorySortedRows", "private void GetTreeViewFilterSelection");
         string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void ScheduleDeferredPlaylistReferenceApply");
         string playlistTablesHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.BMSTables", "listenerForBMSPlaylistBMSTablesCollection.RegisterHandler");
@@ -274,7 +292,7 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(applyPlayHistoryView, "requestedMode == MainViewUpdateMode.KeywordFilterUpdated");
         StringAssert.Contains(applyPlayHistoryView, "TryApplyPlayHistoryPresentationOnly");
-        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.BuildReadPresentation(");
+        StringAssert.Contains(applyPlayHistoryView, "ApplyPlayHistoryReadWorkflow(");
         Assert.IsFalse(applyPlayHistoryView.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
         Assert.IsFalse(applyPlayHistoryView.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
         Assert.IsFalse(applyPlayHistoryView.Contains("PlayHistorySortEngine.TrySort("));

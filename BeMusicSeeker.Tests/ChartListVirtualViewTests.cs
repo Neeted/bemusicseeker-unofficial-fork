@@ -851,6 +851,8 @@ public sealed class ChartListVirtualViewTests
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
+        workflowOwner.ToggleSummaryFilter("exhard");
+        Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
         var callerRows = new List<PlayHistoryRow>();
         var applyRequest = new PlayHistorySortedRowsApplyRequest(
             MainViewUpdateMode.PlayHistorySelected,
@@ -861,7 +863,6 @@ public sealed class ChartListVirtualViewTests
             sortProfile: "default",
             currentKeywordFilter: string.Empty,
             PlayHistoryDisplayTargetItem.All,
-            selectedSummaryFilterKeys: [],
             archivePeriodTree: null);
         callerRows.Add(null!);
 
@@ -882,6 +883,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsInstanceOfType<PlayHistoryVirtualView>(table.Rows);
         Assert.AreEqual(-1, table.SelectedIndex);
         Assert.IsFalse(string.IsNullOrWhiteSpace(table.SummaryText));
+        Assert.IsFalse(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
     }
 
     [TestMethod]
@@ -914,7 +916,6 @@ public sealed class ChartListVirtualViewTests
                 sortProfile: "stale",
                 currentKeywordFilter: string.Empty,
                 PlayHistoryDisplayTargetItem.All,
-                selectedSummaryFilterKeys: [],
                 archivePeriodTree: null),
             Stopwatch.StartNew(),
             table,
@@ -944,6 +945,7 @@ public sealed class ChartListVirtualViewTests
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
+        workflowOwner.ToggleSummaryFilter("exhard");
 
         PlayHistorySortedRowsApplyResult result = workflowOwner.ApplySortedRows(
             new PlayHistorySortedRowsApplyRequest(
@@ -955,7 +957,6 @@ public sealed class ChartListVirtualViewTests
                 sortProfile: "default",
                 currentKeywordFilter: string.Empty,
                 changedTarget,
-                selectedSummaryFilterKeys: [],
                 archivePeriodTree: null),
             Stopwatch.StartNew(),
             table,
@@ -968,6 +969,7 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(result.QueueRefresh);
         Assert.AreSame(oldRows, table.Rows);
         Assert.IsNull(result.TerminalCommit);
+        Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
     }
 
     [TestMethod]
@@ -1003,7 +1005,6 @@ public sealed class ChartListVirtualViewTests
                     sortProfile: "default",
                     currentKeywordFilter: string.Empty,
                     PlayHistoryDisplayTargetItem.All,
-                    selectedSummaryFilterKeys: [],
                     archivePeriodTree: null),
                 Stopwatch.StartNew(),
                 table,

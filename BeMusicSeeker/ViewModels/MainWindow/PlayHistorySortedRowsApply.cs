@@ -15,7 +15,6 @@ internal sealed class PlayHistorySortedRowsApplyRequest
         string sortProfile,
         string currentKeywordFilter,
         PlayHistoryDisplayTargetItem currentDisplayTarget,
-        IEnumerable<string> selectedSummaryFilterKeys,
         IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree)
     {
         Mode = mode;
@@ -28,7 +27,6 @@ internal sealed class PlayHistorySortedRowsApplyRequest
         SortProfile = sortProfile ?? string.Empty;
         CurrentKeywordFilter = currentKeywordFilter ?? string.Empty;
         CurrentDisplayTarget = currentDisplayTarget ?? PlayHistoryDisplayTargetItem.All;
-        SelectedSummaryFilterKeys = [.. new HashSet<string>(selectedSummaryFilterKeys ?? [], StringComparer.Ordinal)];
         ArchivePeriodTree = archivePeriodTree == null ? null : [.. archivePeriodTree];
     }
 
@@ -47,8 +45,6 @@ internal sealed class PlayHistorySortedRowsApplyRequest
     internal string CurrentKeywordFilter { get; }
 
     internal PlayHistoryDisplayTargetItem CurrentDisplayTarget { get; }
-
-    internal IReadOnlyList<string> SelectedSummaryFilterKeys { get; }
 
     internal IReadOnlyList<PlayHistoryPeriodTreeItem> ArchivePeriodTree { get; }
 }

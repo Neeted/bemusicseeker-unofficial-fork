@@ -742,6 +742,144 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void BuildReadView_Lr2OwnsReadPeriodProjectionPresentationAndCacheLifecycle()
+    {
+        WithScoreDb(delegate (string scoreDbPath)
+        {
+            CreateInstalledScoreDb(scoreDbPath);
+            long playedAt = UtcEpoch(2026, 1, 2);
+            using (var db = new SQLiteConnection(scoreDbPath))
+            {
+                InsertHistory(db, historyId: 1, hash: HashA, playedAt: playedAt, finalized: true, newExscore: 200);
+            }
+
+            string songDbPath = Path.Combine(Path.GetDirectoryName(scoreDbPath)!, "song.db");
+            File.WriteAllBytes(songDbPath, []);
+            var library = new BMSLibrary(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
+            var owner = new PlayHistoryWorkflowOwner();
+            var progressStages = new List<PlayHistoryReadWorkflowProgressStage>();
+            PlayHistoryViewRequest firstRequest = owner.BeginRequest(
+                PlayHistoryPeriodRequest.All(),
+                string.Empty,
+                PlayHistoryDisplayTargetItem.All.Identity,
+                owner.DisplayTargetRevision,
+                activateRequest: null);
+
+            PlayHistoryReadWorkflowResult first = owner.BuildReadView(
+                new PlayHistoryReadWorkflowRequest(
+                    firstRequest,
+                    PlayHistoryReadSourceContext.Lr2(scoreDbPath, isLr2LinkedProfile: true),
+                    string.Empty,
+                    PlayHistoryDisplayTargetItem.All,
+                    summaryFilterTexts: null,
+                    reportProgress: progress => progressStages.Add(progress.Stage)),
+                library,
+                playlist);
+
+            Assert.IsTrue(first.Built);
+            Assert.IsTrue(first.Read.Completed);
+            Assert.IsFalse(first.Read.CacheHit);
+            Assert.AreEqual(PlayHistoryProvider.Lr2, first.Read.Provider);
+            Assert.AreEqual(1, first.Read.RowCount);
+            Assert.AreEqual(PlayHistoryPeriodIndexStageStatus.Completed, first.PeriodIndex.Status);
+            Assert.AreEqual(1, first.PeriodIndex.DayCount);
+            Assert.AreEqual(PlayHistoryProjectionStageStatus.Completed, first.Projection.Status);
+            Assert.AreEqual(1, first.Projection.RawCount);
+            Assert.AreEqual(1, first.Projection.ProjectedCount);
+            Assert.AreEqual(1, first.Presentation.SortedRows.Count);
+            Assert.AreEqual(1, first.Presentation.State.SourceCount);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    PlayHistoryReadWorkflowProgressStage.ReadCompleted,
+                    PlayHistoryReadWorkflowProgressStage.PeriodIndexCompleted,
+                    PlayHistoryReadWorkflowProgressStage.ProjectionCompleted
+                },
+                progressStages);
+
+            File.Delete(scoreDbPath);
+            PlayHistoryViewRequest secondRequest = owner.BeginRequest(
+                PlayHistoryPeriodRequest.All(),
+                string.Empty,
+                PlayHistoryDisplayTargetItem.All.Identity,
+                owner.DisplayTargetRevision,
+                activateRequest: null);
+            PlayHistoryReadWorkflowResult second = owner.BuildReadView(
+                new PlayHistoryReadWorkflowRequest(
+                    secondRequest,
+                    PlayHistoryReadSourceContext.Lr2(scoreDbPath, isLr2LinkedProfile: true),
+                    string.Empty,
+                    PlayHistoryDisplayTargetItem.All,
+                    summaryFilterTexts: null),
+                library,
+                playlist);
+
+            Assert.IsTrue(second.Built);
+            Assert.IsTrue(second.Read.CacheHit);
+            Assert.IsTrue(second.PeriodIndex.CacheHit);
+            Assert.AreEqual(1, second.Presentation.SortedRows.Count);
+
+            PlayHistoryViewRequest thirdRequest = owner.BeginRequest(
+                PlayHistoryPeriodRequest.All(),
+                string.Empty,
+                PlayHistoryDisplayTargetItem.All.Identity,
+                owner.DisplayTargetRevision,
+                activateRequest: null);
+            Assert.ThrowsException<OperationCanceledException>(() => owner.BuildReadView(
+                new PlayHistoryReadWorkflowRequest(
+                    thirdRequest,
+                    PlayHistoryReadSourceContext.Lr2(scoreDbPath, isLr2LinkedProfile: true),
+                    string.Empty,
+                    PlayHistoryDisplayTargetItem.All,
+                    summaryFilterTexts: null,
+                    reportProgress: progress =>
+                    {
+                        if (progress.Stage == PlayHistoryReadWorkflowProgressStage.PeriodIndexCompleted)
+                        {
+                            throw new OperationCanceledException("observer failure");
+                        }
+                    }),
+                library,
+                playlist));
+        });
+    }
+
+    [TestMethod]
+    public void BuildReadView_StaleRequestStopsAtReadBoundary()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest staleRequest = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            owner.DisplayTargetRevision,
+            activateRequest: null);
+        owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            owner.DisplayTargetRevision,
+            activateRequest: null);
+
+        PlayHistoryReadWorkflowResult result = owner.BuildReadView(
+            new PlayHistoryReadWorkflowRequest(
+                staleRequest,
+                PlayHistoryReadSourceContext.Lr2("unused-score.db", isLr2LinkedProfile: true),
+                string.Empty,
+                PlayHistoryDisplayTargetItem.All,
+                summaryFilterTexts: null),
+            library: null,
+            playlist: null);
+
+        Assert.IsFalse(result.Built);
+        Assert.AreEqual("read", result.CanceledStage);
+        Assert.IsFalse(result.Read.Completed);
+        Assert.AreEqual(PlayHistoryPeriodIndexStageStatus.NotStarted, result.PeriodIndex.Status);
+        Assert.AreEqual(PlayHistoryProjectionStageStatus.NotStarted, result.Projection.Status);
+    }
+
+    [TestMethod]
     public void ProjectLr2Rows_ResolvesChartAndSeparatesBestDeltaFromActualResult()
     {
         var readResult = new Lr2PlayHistoryReadResult(
@@ -1892,8 +2030,8 @@ public sealed class PlayHistoryReadModelTests
                 ScoreDbPath = scoreDbPath
             });
             PlayHistoryPeriodRequest day2Request = PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc);
-            PlayHistoryPeriodSummaryOverride day2SummaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(day2Request, read);
-            PlayHistoryPeriodSummaryOverride allSummaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodSummaryOverride day2SummaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(day2Request, read);
+            PlayHistoryPeriodSummaryOverride allSummaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
                 PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.All, new DateTimeOffset(2026, 1, 3, 12, 0, 0, TimeSpan.Zero), TimeZoneInfo.Utc),
                 read);
             PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectBeatorajaRows(read, PlayHistoryProjectionIndex.Empty);
@@ -1940,10 +2078,10 @@ public sealed class PlayHistoryReadModelTests
             {
                 ScoreDbPath = scoreDbPath
             });
-            PlayHistoryPeriodSummaryOverride daySummaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodSummaryOverride daySummaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
                 PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
                 read);
-            PlayHistoryPeriodSummaryOverride diagnosticSummaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodSummaryOverride diagnosticSummaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
                 PlayHistoryPeriodRequest.Create(PlayHistoryPeriodKind.Diagnostics, new DateTimeOffset(2026, 1, 3, 12, 0, 0, TimeSpan.Zero), TimeZoneInfo.Utc),
                 new BeatorajaPlayHistoryReadResult(
                     PlayHistorySourceProfile.Beatoraja(scoreDbPath),
@@ -2011,10 +2149,10 @@ public sealed class PlayHistoryReadModelTests
             ],
             playerSnapshotsAvailable: true);
 
-        PlayHistoryPeriodSummaryOverride daySummary = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+        PlayHistoryPeriodSummaryOverride daySummary = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
             PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
             read);
-        PlayHistoryPeriodSummaryOverride allSummary = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+        PlayHistoryPeriodSummaryOverride allSummary = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
             PlayHistoryPeriodRequest.All(),
             read);
 
@@ -2042,7 +2180,7 @@ public sealed class PlayHistoryReadModelTests
             ],
             playerSnapshotsAvailable: true);
 
-        PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+        PlayHistoryPeriodSummaryOverride summaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
             PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
             read);
 
@@ -2069,7 +2207,7 @@ public sealed class PlayHistoryReadModelTests
             ],
             playerSnapshotsAvailable: true);
 
-        PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+        PlayHistoryPeriodSummaryOverride summaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
             PlayHistoryPeriodRequest.All(),
             read);
 
@@ -2096,7 +2234,7 @@ public sealed class PlayHistoryReadModelTests
             ],
             playerSnapshotsAvailable: true);
 
-        PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+        PlayHistoryPeriodSummaryOverride summaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
             PlayHistoryPeriodRequest.All(),
             read);
 
@@ -2134,7 +2272,7 @@ public sealed class PlayHistoryReadModelTests
             {
                 ScoreDbPath = scoreDbPath
             });
-            PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+            PlayHistoryPeriodSummaryOverride summaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
                 PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
                 read);
 
@@ -2508,7 +2646,7 @@ public sealed class PlayHistoryReadModelTests
             ],
             playerSnapshotsAvailable: true);
 
-        PlayHistoryPeriodSummaryOverride summaryOverride = MainWindowViewModel.ResolveBeatorajaPeriodSummaryOverrideForTest(
+        PlayHistoryPeriodSummaryOverride summaryOverride = PlayHistoryWorkflowOwner.ResolveBeatorajaPeriodSummaryOverride(
             PlayHistoryPeriodRequest.CreateDay(2026, 1, 2, TimeZoneInfo.Utc),
             read);
 

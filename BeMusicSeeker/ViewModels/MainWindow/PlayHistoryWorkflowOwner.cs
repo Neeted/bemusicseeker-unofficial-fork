@@ -24,9 +24,371 @@ internal sealed class PlayHistoryWorkflowOwner
 
     internal PlayHistoryPresentationState PresentationState { get; } = new();
 
-    internal PlayHistoryReadCache ReadCache { get; } = new();
+    private readonly PlayHistoryReadCache readCache = new();
+
+    private readonly HashSet<string> selectedSummaryFilterKeys = new(StringComparer.Ordinal);
 
     internal PlayHistoryViewRequest ActiveRequest { get; private set; }
+
+    internal void InvalidateReadCache()
+    {
+        readCache.Invalidate();
+    }
+
+    internal void ToggleSummaryFilter(string filterKey)
+    {
+        if (string.IsNullOrEmpty(filterKey))
+        {
+            return;
+        }
+        lock (PresentationState.SyncRoot)
+        {
+            if (!selectedSummaryFilterKeys.Add(filterKey))
+            {
+                selectedSummaryFilterKeys.Remove(filterKey);
+            }
+        }
+    }
+
+    internal HashSet<string> SnapshotSummaryFilterKeys(PlayHistoryProvider? provider = null)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            var snapshot = new HashSet<string>(selectedSummaryFilterKeys, StringComparer.Ordinal);
+            if (provider.HasValue && provider.Value != PlayHistoryProvider.Beatoraja)
+            {
+                snapshot.Remove("exhard");
+            }
+            return snapshot;
+        }
+    }
+
+    internal IReadOnlyList<string> SnapshotSummaryFilterTexts(PlayHistoryProvider provider)
+    {
+        HashSet<string> selectedKeys = SnapshotSummaryFilterKeys(provider);
+        return selectedKeys.Count == 0
+            ? []
+            : PlayHistoryPresentationState.GetSummaryFilterTexts(selectedKeys);
+    }
+
+    internal void ClearSummaryFilters()
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            selectedSummaryFilterKeys.Clear();
+        }
+    }
+
+    private void PruneSummaryFilters(PlayHistoryProvider provider)
+    {
+        if (provider == PlayHistoryProvider.Beatoraja)
+        {
+            return;
+        }
+        lock (PresentationState.SyncRoot)
+        {
+            selectedSummaryFilterKeys.Remove("exhard");
+        }
+    }
+
+    internal PlayHistoryReadWorkflowResult BuildReadView(
+        PlayHistoryReadWorkflowRequest request,
+        BMSLibrary library,
+        BMSPlaylist playlist)
+    {
+        if (request?.ViewRequest == null)
+        {
+            throw new ArgumentException("A complete play-history read request is required.", nameof(request));
+        }
+
+        long requestId = request.ViewRequest.RequestId;
+        PlayHistoryPeriodRequest periodRequest = request.ViewRequest.PeriodRequest;
+        CancellationToken cancellationToken = GetCancellationToken(requestId);
+        var readStopwatch = Stopwatch.StartNew();
+        var readStage = new PlayHistoryReadStageMetrics(
+            completed: false,
+            request.Source.Provider,
+            schemaStatus: default,
+            cacheHit: false,
+            rowCount: 0,
+            diagnosticCount: 0,
+            elapsedMs: 0L);
+        var periodStage = new PlayHistoryPeriodIndexStageMetrics(
+            PlayHistoryPeriodIndexStageStatus.NotStarted,
+            cacheHit: false,
+            dayCount: 0,
+            diagnosticCount: 0,
+            elapsedMs: 0L);
+        var projectionStage = new PlayHistoryProjectionStageMetrics(
+            PlayHistoryProjectionStageStatus.NotStarted,
+            rawCount: 0,
+            projectedCount: 0,
+            diagnosticCount: 0,
+            indexMs: 0L,
+            indexCacheHit: false,
+            indexStaleRetries: 0,
+            projectionMs: 0L,
+            failure: null);
+        Lr2PlayHistoryReadResult lr2ReadResult = null;
+        BeatorajaPlayHistoryReadResult beatorajaReadResult = null;
+        Lr2PlayHistorySchemaCheckResult lr2SchemaCheckResult = null;
+        Lr2PlayHistorySchemaStatus schemaStatus;
+        int rawReadCount;
+        IReadOnlyList<PlayHistoryDiagnostic> readDiagnostics;
+        bool readCacheHit;
+        try
+        {
+            if (request.Source.Provider == PlayHistoryProvider.Beatoraja)
+            {
+                var readRequest = periodRequest.ToBeatorajaReadRequest(request.Source.ScoreDbPath);
+                readRequest.ScoresBySha256 = request.Source.BeatorajaScoreContext.ScoresBySha256;
+                readRequest.ScoreSnapshotVersion = request.Source.BeatorajaScoreContext.ScoreSnapshotVersion;
+                beatorajaReadResult = readCache.ReadBeatoraja(readRequest, cancellationToken, out readCacheHit);
+                schemaStatus = beatorajaReadResult.SchemaStatus;
+                rawReadCount = beatorajaReadResult.Rows.Count;
+                readDiagnostics = beatorajaReadResult.Diagnostics;
+            }
+            else
+            {
+                lr2ReadResult = readCache.ReadLr2(
+                    periodRequest.ToLr2ReadRequest(request.Source.ScoreDbPath, request.Source.IsLr2LinkedProfile),
+                    cancellationToken,
+                    out readCacheHit);
+                lr2SchemaCheckResult = lr2ReadResult?.SchemaCheckResult;
+                schemaStatus = lr2ReadResult.SchemaStatus;
+                rawReadCount = lr2ReadResult.Rows.Count;
+                readDiagnostics = lr2ReadResult.Diagnostics;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return new PlayHistoryReadWorkflowResult(
+                built: false,
+                canceledStage: "read",
+                readStopwatch.ElapsedMilliseconds,
+                readStage,
+                periodStage,
+                projectionStage,
+                lr2SchemaCheckResult,
+                presentation: null);
+        }
+
+        long readMs = readStopwatch.ElapsedMilliseconds;
+        readStage = new PlayHistoryReadStageMetrics(
+            completed: true,
+            request.Source.Provider,
+            schemaStatus,
+            readCacheHit,
+            rawReadCount,
+            readDiagnostics?.Count ?? 0,
+            readMs);
+        request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.ReadCompleted(readStage, lr2SchemaCheckResult));
+        if (!IsCurrentRequest(requestId))
+        {
+            return new PlayHistoryReadWorkflowResult(
+                built: false,
+                canceledStage: "after_read",
+                readMs,
+                readStage,
+                periodStage,
+                projectionStage,
+                lr2SchemaCheckResult,
+                presentation: null);
+        }
+
+        IReadOnlyList<long> periodIndexPlayedAt = [];
+        IReadOnlyList<PlayHistoryDiagnostic> periodIndexDiagnostics = [];
+        bool canReadPeriodIndex = schemaStatus is Lr2PlayHistorySchemaStatus.Installed or Lr2PlayHistorySchemaStatus.Repairable;
+        if (canReadPeriodIndex)
+        {
+            var periodStopwatch = Stopwatch.StartNew();
+            try
+            {
+                bool periodCacheHit;
+                if (request.Source.Provider == PlayHistoryProvider.Beatoraja)
+                {
+                    BeatorajaPlayHistoryPeriodIndexResult periodResult = readCache.ReadBeatorajaPeriodIndex(
+                        new BeatorajaPlayHistoryPeriodIndexRequest
+                        {
+                            ScoreDbPath = request.Source.ScoreDbPath,
+                            ScoresBySha256 = request.Source.BeatorajaScoreContext.ScoresBySha256,
+                            ScoreSnapshotVersion = request.Source.BeatorajaScoreContext.ScoreSnapshotVersion
+                        },
+                        cancellationToken,
+                        out periodCacheHit);
+                    periodIndexPlayedAt = periodResult.PlayedAtUnixSeconds;
+                    periodIndexDiagnostics = periodResult.Diagnostics;
+                }
+                else
+                {
+                    Lr2PlayHistoryPeriodIndexResult periodResult = readCache.ReadLr2PeriodIndex(
+                        new Lr2PlayHistoryPeriodIndexRequest
+                        {
+                            ScoreDbPath = request.Source.ScoreDbPath,
+                            IsLr2LinkedProfile = request.Source.IsLr2LinkedProfile
+                        },
+                        cancellationToken,
+                        out periodCacheHit);
+                    periodIndexPlayedAt = periodResult.PlayedAtUnixSeconds;
+                    periodIndexDiagnostics = periodResult.Diagnostics;
+                }
+                periodStage = new PlayHistoryPeriodIndexStageMetrics(
+                    PlayHistoryPeriodIndexStageStatus.Completed,
+                    periodCacheHit,
+                    periodIndexPlayedAt?.Count ?? 0,
+                    periodIndexDiagnostics?.Count ?? 0,
+                    periodStopwatch.ElapsedMilliseconds);
+            }
+            catch (OperationCanceledException)
+            {
+                periodStage = new PlayHistoryPeriodIndexStageMetrics(
+                    PlayHistoryPeriodIndexStageStatus.Canceled,
+                    cacheHit: false,
+                    dayCount: 0,
+                    diagnosticCount: 0,
+                    periodStopwatch.ElapsedMilliseconds);
+                return new PlayHistoryReadWorkflowResult(
+                    built: false,
+                    canceledStage: "period_index",
+                    readMs + periodStopwatch.ElapsedMilliseconds,
+                    readStage,
+                    periodStage,
+                    projectionStage,
+                    lr2SchemaCheckResult,
+                    presentation: null);
+            }
+            request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.PeriodIndexCompleted(readStage, periodStage));
+            if (!IsCurrentRequest(requestId))
+            {
+                return new PlayHistoryReadWorkflowResult(
+                    built: false,
+                    canceledStage: "after_period_index",
+                    readMs + periodStage.ElapsedMs,
+                    readStage,
+                    periodStage,
+                    projectionStage,
+                    lr2SchemaCheckResult,
+                    presentation: null);
+            }
+        }
+        else
+        {
+            periodStage = new PlayHistoryPeriodIndexStageMetrics(
+                PlayHistoryPeriodIndexStageStatus.SkippedSchemaUnavailable,
+                cacheHit: false,
+                dayCount: 0,
+                diagnosticCount: 0,
+                elapsedMs: 0L);
+            request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.PeriodIndexCompleted(readStage, periodStage));
+        }
+
+        PlayHistoryProjectionResult projectionResult;
+        long projectionIndexMs = 0L;
+        bool projectionIndexCacheHit = false;
+        int projectionIndexStaleRetries = 0;
+        long projectionMs = 0L;
+        Exception projectionFailure = null;
+        if (rawReadCount > 0)
+        {
+            try
+            {
+                projectionResult = request.Source.Provider == PlayHistoryProvider.Beatoraja
+                    ? CreateProjectionResult(
+                        library,
+                        beatorajaReadResult,
+                        cancellationToken,
+                        ex => projectionFailure = ex,
+                        out projectionIndexMs,
+                        out projectionIndexCacheHit,
+                        out projectionIndexStaleRetries,
+                        out projectionMs)
+                    : CreateProjectionResult(
+                        library,
+                        lr2ReadResult,
+                        cancellationToken,
+                        ex => projectionFailure = ex,
+                        out projectionIndexMs,
+                        out projectionIndexCacheHit,
+                        out projectionIndexStaleRetries,
+                        out projectionMs);
+            }
+            catch (OperationCanceledException)
+            {
+                projectionStage = new PlayHistoryProjectionStageMetrics(
+                    PlayHistoryProjectionStageStatus.Canceled,
+                    rawReadCount,
+                    projectedCount: 0,
+                    diagnosticCount: 0,
+                    projectionIndexMs,
+                    projectionIndexCacheHit,
+                    projectionIndexStaleRetries,
+                    projectionMs,
+                    failure: null);
+                return new PlayHistoryReadWorkflowResult(
+                    built: false,
+                    canceledStage: "projection",
+                    readMs + periodStage.ElapsedMs + projectionIndexMs + projectionMs,
+                    readStage,
+                    periodStage,
+                    projectionStage,
+                    lr2SchemaCheckResult,
+                    presentation: null);
+            }
+        }
+        else
+        {
+            projectionResult = request.Source.Provider == PlayHistoryProvider.Beatoraja
+                ? PlayHistoryRow.ProjectBeatorajaRows(beatorajaReadResult, PlayHistoryProjectionIndex.Empty)
+                : PlayHistoryRow.ProjectLr2Rows(lr2ReadResult, PlayHistoryProjectionIndex.Empty);
+        }
+
+        bool projectionFallback = (projectionResult.Diagnostics ?? [])
+            .Any(diagnostic => string.Equals(diagnostic?.Code, "play_history_projection_index_failed", StringComparison.Ordinal));
+        PlayHistoryProjectionStageStatus projectionStatus = rawReadCount == 0
+            ? PlayHistoryProjectionStageStatus.SkippedNoRows
+            : (projectionFallback ? PlayHistoryProjectionStageStatus.Fallback : PlayHistoryProjectionStageStatus.Completed);
+        projectionStage = new PlayHistoryProjectionStageMetrics(
+            projectionStatus,
+            rawReadCount,
+            projectionResult.Rows.Count,
+            projectionResult.Diagnostics?.Count ?? 0,
+            projectionIndexMs,
+            projectionIndexCacheHit,
+            projectionIndexStaleRetries,
+            projectionMs,
+            projectionFailure);
+        request.ReportProgress?.Invoke(PlayHistoryReadWorkflowProgress.ProjectionCompleted(readStage, periodStage, projectionStage));
+        PlayHistoryPeriodSummaryOverride summaryOverride = request.Source.Provider == PlayHistoryProvider.Beatoraja
+            ? ResolveBeatorajaPeriodSummaryOverride(periodRequest, beatorajaReadResult)
+            : null;
+        PlayHistoryReadPresentationBuildResult presentation = BuildReadPresentation(
+            new PlayHistoryReadPresentationBuildRequest(
+                requestId,
+                periodRequest,
+                projectionResult.Rows,
+                projectionResult.Diagnostics,
+                periodIndexPlayedAt,
+                periodIndexDiagnostics,
+                request.Source.Provider,
+                schemaStatus,
+                rawReadCount,
+                request.KeywordFilter,
+                request.ViewRequest.KeywordFilterRevision > 0 ? request.ViewRequest.KeywordFilterRevision : KeywordRevision,
+                request.DisplayTarget,
+                request.ViewRequest.DisplayTargetRevision > 0 ? request.ViewRequest.DisplayTargetRevision : DisplayTargetRevision,
+                request.SummaryFilterTexts,
+                summaryOverride),
+            playlist);
+        return new PlayHistoryReadWorkflowResult(
+            presentation.Built,
+            presentation.Built ? string.Empty : "presentation",
+            readMs + periodStage.ElapsedMs + projectionIndexMs + projectionMs,
+            readStage,
+            periodStage,
+            projectionStage,
+            lr2SchemaCheckResult,
+            presentation);
+    }
 
     internal PlayHistoryTerminalCommitResult ApplyTerminal(
         PlayHistoryTerminalRequest request,
@@ -67,6 +429,7 @@ internal sealed class PlayHistoryWorkflowOwner
                             regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
                         }
                         regularChartListOwner.ResetDerivedCaches();
+                        PruneSummaryFilters(request.ViewState.Provider);
                     }),
                 () => PublishRelatedPresentation(result, playlistWorkspace));
             result.MainRowsApply = coordinated.RowsApply;
@@ -183,7 +546,7 @@ internal sealed class PlayHistoryWorkflowOwner
             IReadOnlyList<PlayHistorySummaryCard> summaryCards = PlayHistoryPresentationState.CreateSummaryCards(
                 summary,
                 state.Provider,
-                new HashSet<string>(request.SelectedSummaryFilterKeys, StringComparer.Ordinal));
+                SnapshotSummaryFilterKeys(state.Provider));
             PlayHistoryTerminalCommitResult terminalCommit = ApplyTerminal(
                 new PlayHistoryTerminalRequest
                 {
@@ -482,6 +845,127 @@ internal sealed class PlayHistoryWorkflowOwner
             return second;
         }
         return [.. first, .. second];
+    }
+
+    internal static PlayHistoryPeriodSummaryOverride ResolveBeatorajaPeriodSummaryOverride(
+        PlayHistoryPeriodRequest request,
+        BeatorajaPlayHistoryReadResult readResult)
+    {
+        if (request?.Kind == PlayHistoryPeriodKind.Diagnostics || readResult?.PlayerSnapshotsAvailable != true)
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+
+        IReadOnlyList<BeatorajaPlayerAggregateSnapshot> snapshots = readResult.PlayerSnapshots ?? [];
+        if (snapshots.Count == 0)
+        {
+            return new PlayHistoryPeriodSummaryOverride(0, 0, 0);
+        }
+        if (HasInvalidBeatorajaAggregateRange(snapshots, request?.PlayedAtFromInclusive, request?.PlayedAtToExclusive))
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+
+        BeatorajaPlayerAggregateSnapshot endSnapshot = ResolveLatestBeatorajaPlayerAggregateBefore(
+            snapshots,
+            request?.PlayedAtToExclusive);
+        if (HasNegativeBeatorajaAggregateValue(endSnapshot))
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+        if (request?.PlayedAtFromInclusive.HasValue != true)
+        {
+            return new PlayHistoryPeriodSummaryOverride(
+                endSnapshot.PlayCount,
+                endSnapshot.JudgeCount,
+                endSnapshot.PlaytimeSeconds);
+        }
+
+        BeatorajaPlayerAggregateSnapshot startSnapshot = ResolveLatestBeatorajaPlayerAggregateBefore(
+            snapshots,
+            request.PlayedAtFromInclusive);
+        if (HasNegativeBeatorajaAggregateValue(startSnapshot))
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+        long playCount = endSnapshot.PlayCount - startSnapshot.PlayCount;
+        long judgeCount = endSnapshot.JudgeCount - startSnapshot.JudgeCount;
+        long playtimeSeconds = endSnapshot.PlaytimeSeconds - startSnapshot.PlaytimeSeconds;
+        if (playCount < 0 || judgeCount < 0 || playtimeSeconds < 0)
+        {
+            return new PlayHistoryPeriodSummaryOverride(null, null, null);
+        }
+        return new PlayHistoryPeriodSummaryOverride(playCount, judgeCount, playtimeSeconds);
+    }
+
+    private static BeatorajaPlayerAggregateSnapshot ResolveLatestBeatorajaPlayerAggregateBefore(
+        IReadOnlyList<BeatorajaPlayerAggregateSnapshot> snapshots,
+        long? exclusiveBoundary)
+    {
+        BeatorajaPlayerAggregateSnapshot latest = new();
+        long latestDate = long.MinValue;
+        foreach (BeatorajaPlayerAggregateSnapshot snapshot in snapshots ?? [])
+        {
+            if (snapshot == null || snapshot.DateUnixSeconds <= 0)
+            {
+                continue;
+            }
+            if (exclusiveBoundary.HasValue && snapshot.DateUnixSeconds >= exclusiveBoundary.Value)
+            {
+                continue;
+            }
+            if (snapshot.DateUnixSeconds >= latestDate)
+            {
+                latestDate = snapshot.DateUnixSeconds;
+                latest = snapshot;
+            }
+        }
+        return latest;
+    }
+
+    private static bool HasInvalidBeatorajaAggregateRange(
+        IReadOnlyList<BeatorajaPlayerAggregateSnapshot> snapshots,
+        long? fromInclusive,
+        long? toExclusive)
+    {
+        BeatorajaPlayerAggregateSnapshot previous = null;
+        foreach (BeatorajaPlayerAggregateSnapshot snapshot in snapshots ?? [])
+        {
+            if (snapshot == null || snapshot.DateUnixSeconds <= 0)
+            {
+                continue;
+            }
+            if (fromInclusive.HasValue && snapshot.DateUnixSeconds < fromInclusive.Value)
+            {
+                previous = snapshot;
+                continue;
+            }
+            if (toExclusive.HasValue && snapshot.DateUnixSeconds >= toExclusive.Value)
+            {
+                break;
+            }
+            if (HasNegativeBeatorajaAggregateValue(snapshot))
+            {
+                return true;
+            }
+            if (previous != null
+                && (snapshot.PlayCount < previous.PlayCount
+                    || snapshot.JudgeCount < previous.JudgeCount
+                    || snapshot.PlaytimeSeconds < previous.PlaytimeSeconds))
+            {
+                return true;
+            }
+            previous = snapshot;
+        }
+        return false;
+    }
+
+    private static bool HasNegativeBeatorajaAggregateValue(BeatorajaPlayerAggregateSnapshot snapshot)
+    {
+        return snapshot?.HasInvalidRawValue == true
+            || snapshot?.PlayCount < 0
+            || snapshot?.JudgeCount < 0
+            || snapshot?.PlaytimeSeconds < 0;
     }
 
     private static IReadOnlyList<BMSTable> SnapshotDisplayTargetTables(BMSPlaylist playlist)
@@ -1013,7 +1497,7 @@ internal sealed class PlayHistoryWorkflowOwner
         return filteredRows;
     }
 
-    internal PlayHistoryProjectionResult CreateProjectionResult(
+    private PlayHistoryProjectionResult CreateProjectionResult(
         BMSLibrary library,
         Lr2PlayHistoryReadResult readResult,
         CancellationToken cancellationToken,
@@ -1058,7 +1542,7 @@ internal sealed class PlayHistoryWorkflowOwner
         }
     }
 
-    internal PlayHistoryProjectionResult CreateProjectionResult(
+    private PlayHistoryProjectionResult CreateProjectionResult(
         BMSLibrary library,
         BeatorajaPlayHistoryReadResult readResult,
         CancellationToken cancellationToken,
