@@ -409,36 +409,59 @@ internal sealed class PlayHistoryWorkflowOwner
         if (playlistDetailViewState == null) throw new ArgumentNullException(nameof(playlistDetailViewState));
 
         var result = new PlayHistoryTerminalCommitResult();
+        MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(request.MainRowsRequest);
+        Exception commitException = null;
         try
         {
-            MainChartListCoordinatedRowsApplyResult coordinated = mainChartList.ApplyCoordinatedRows(
-                request.MainRowsRequest,
-                commitRows => PresentationState.TryCommitTerminal(
-                    request,
-                    result,
-                    commitRows,
-                    () =>
+            bool applied = PresentationState.TryCommitTerminal(
+                request,
+                result,
+                transition.CommitOwnership,
+                () =>
+                {
+                    result.PlaylistSourceClear = playlistDetailBuildState.CommitSourceClear(playlistDetailViewState);
+                    result.BindingMode = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
+                    result.ColumnPresentation = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+                        request.ColumnSelection.PlaylistColumnSettingsVisibility,
+                        request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                    if (request.ColumnSelection.AppliedMode.HasValue)
                     {
-                        result.PlaylistSourceClear = playlistDetailBuildState.CommitSourceClear(playlistDetailViewState);
-                        result.BindingMode = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
-                        result.ColumnPresentation = playlistWorkspace.CommitColumnPresentationWithoutNotification(
-                            request.ColumnSelection.PlaylistColumnSettingsVisibility,
-                            request.ColumnSelection.PlaylistSummaryColumnsSettings);
-                        if (request.ColumnSelection.AppliedMode.HasValue)
-                        {
-                            regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
-                        }
-                        regularChartListOwner.ResetDerivedCaches();
-                        PruneSummaryFilters(request.ViewState.Provider);
-                    }),
-                () => PublishRelatedPresentation(result, playlistWorkspace));
-            result.MainRowsApply = coordinated.RowsApply;
-            return result;
+                        regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                    }
+                    regularChartListOwner.ResetDerivedCaches();
+                    PruneSummaryFilters(request.ViewState.Provider);
+                });
+            if (!applied)
+            {
+                transition.Cancel();
+                return result;
+            }
         }
-        catch (MainChartListCoordinatedPublishException ex)
+        catch (Exception ex)
         {
-            throw new PlayHistoryTerminalPublishException(ex, ownershipTransferred: true, result);
+            if (!transition.OwnershipTransferred)
+            {
+                transition.Cancel();
+                throw;
+            }
+            commitException = ex;
         }
+
+        var publishExceptions = new List<Exception>();
+        if (commitException != null)
+        {
+            publishExceptions.Add(commitException);
+        }
+        TryPublish(() => result.MainRowsApply = transition.Complete(), publishExceptions);
+        TryPublish(() => PublishRelatedPresentation(result, playlistWorkspace), publishExceptions);
+        if (publishExceptions.Count > 0)
+        {
+            throw new PlayHistoryTerminalPublishException(
+                new AggregateException(publishExceptions),
+                ownershipTransferred: true,
+                result);
+        }
+        return result;
     }
 
     internal PlayHistorySortedRowsApplyResult ApplySortedRows(

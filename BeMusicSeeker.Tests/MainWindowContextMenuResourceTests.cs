@@ -211,7 +211,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.CreateProjectionResult"));
         Assert.IsFalse(rootViewModelCode.Contains("ResolveBeatorajaPeriodSummaryOverride"));
         StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.BuildReadView(");
-        StringAssert.Contains(mainChartListCode, "ApplyCoordinatedRows(");
+        StringAssert.Contains(mainChartListCode, "PrepareRowsTransition(");
+        Assert.IsFalse(mainChartListCode.Contains("ApplyCoordinatedRows("));
+        Assert.IsFalse(mainChartListCode.Contains("Func<Action, bool>"));
     }
 
     [TestMethod]

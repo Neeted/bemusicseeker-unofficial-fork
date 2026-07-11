@@ -688,7 +688,12 @@ public sealed class RegularChartListOwnerTests
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         int canceled = 0;
         table.RowsReplacing += (_, _) => owner.InvalidatePendingRequest();
-        table.RowsReplacementCanceled += (_, _) => canceled++;
+        table.RowsReplacementCanceled += (_, _) =>
+        {
+            canceled++;
+            Task lockProbe = Task.Run(owner.InvalidatePendingRequest);
+            Assert.IsTrue(lockProbe.Wait(TimeSpan.FromSeconds(5)), "RowsReplacementCanceled must run after the regular owner lock is released.");
+        };
 
         RegularChartListTerminalResult terminal = owner.TryCommit(lease, build, CreateTerminalInput(build));
 

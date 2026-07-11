@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -128,10 +129,10 @@ public sealed class PlaylistViewPipelineTests
         string playlistSourceSnapshotStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailSourceSnapshotState");
         string playlistViewSnapshotStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailViewSnapshotState");
         string playlistTerminalCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText(
-            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistDetailTerminalCoordinator.cs");
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailTerminal.cs");
         string playlistTerminalApplySource = SourceTextTestHelper.ExtractMethodBody(
             playlistTerminalCoordinatorSource,
-            "internal static PlaylistDetailTerminalCommitResult Apply(");
+            "internal PlaylistDetailTerminalCommitResult ApplyDetailTerminal(");
 
         foreach (string rootFieldDeclaration in new[]
         {
@@ -190,18 +191,21 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(playlistTerminalApplySource, "lock (buildState.SyncRoot)");
         StringAssert.Contains(playlistTerminalApplySource, "viewState.CommitTerminal(");
         StringAssert.Contains(playlistViewStateSource, "lock (SyncRoot)");
-        StringAssert.Contains(playlistTerminalApplySource, "mainChartList.ApplyCoordinatedRows(");
+        StringAssert.Contains(playlistTerminalApplySource, "mainChartList.PrepareRowsTransition(");
+        StringAssert.Contains(playlistTerminalApplySource, "transition.CommitOwnership");
+        StringAssert.Contains(playlistTerminalApplySource, "transition.Complete()");
+        Assert.AreEqual(-1, mainChartListSource.IndexOf("ApplyCoordinatedRows(", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("ApplyPlaylistDetailTerminal", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("CommitPreparedRowsWithoutDisposal", StringComparison.Ordinal));
-        StringAssert.Contains(mainChartListSource, "private MainChartListRowsCommit CommitPreparedRowsWithoutDisposal(");
-        StringAssert.Contains(mainChartListSource, "private void DisposeCommittedRows(");
-        StringAssert.Contains(mainChartListSource, "private MainChartListRowsApplyResult PublishRowsCommit(");
-        StringAssert.Contains(playlistTerminalApplySource, "playlistWorkspace.CommitColumnPresentationWithoutNotification(");
-        StringAssert.Contains(playlistTerminalApplySource, "playlistWorkspace.PublishColumnPresentation(result.ColumnPresentationCommit)");
+        StringAssert.Contains(mainChartListSource, "internal MainChartListRowsCommit CommitPreparedRowsWithoutDisposal(");
+        StringAssert.Contains(mainChartListSource, "internal void DisposeCommittedRows(");
+        StringAssert.Contains(mainChartListSource, "internal MainChartListRowsApplyResult PublishRowsCommit(");
+        StringAssert.Contains(playlistTerminalApplySource, "CommitColumnPresentationWithoutNotification(");
+        StringAssert.Contains(playlistTerminalApplySource, "PublishColumnPresentation(result.ColumnPresentationCommit)");
         StringAssert.Contains(playlistTerminalApplySource, "result.AppliedColumnMode = request.ColumnSelection.AppliedMode;");
         StringAssert.Contains(playlistTerminalApplySource, "regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);");
         Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("commitExternalColumnMode", StringComparison.Ordinal));
-        StringAssert.Contains(mainChartListSource, "throw new MainChartListCoordinatedPublishException(");
+        Assert.AreEqual(-1, mainChartListSource.IndexOf("MainChartListCoordinatedPublishException", StringComparison.Ordinal));
         Assert.IsFalse(rootSource.Contains("PlaylistDetailTerminalTransition"));
         StringAssert.Contains(rootSource, "request.RequestVersion != playlistDetailBuildState.RequestVersion");
         StringAssert.Contains(rootSource, "ReferenceEquals(playlistViewState.Source.Rows, sourceRows)");
@@ -270,6 +274,39 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailTerminal_StaleCancellationPublishesAfterBuildLockIsReleased()
+    {
+        var buildState = new PlaylistDetailBuildState { RequestVersion = 2 };
+        var viewState = new PlaylistDetailViewState();
+        var table = new MainChartListViewModel
+        {
+            Rows = new List<object>(),
+            ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
+        };
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        RegularChartListOwner owner = CreateRegularOwner(table, workspace);
+        table.RowsReplacementCanceled += (_, _) =>
+        {
+            Task lockProbe = Task.Run(() =>
+            {
+                lock (buildState.SyncRoot)
+                {
+                }
+            });
+            Assert.IsTrue(lockProbe.Wait(TimeSpan.FromSeconds(5)), "RowsReplacementCanceled must run after the playlist build lock is released.");
+        };
+
+        PlaylistDetailTerminalCommitResult result = workspace.ApplyDetailTerminal(
+            CreatePlaylistTerminalRequest(new List<object> { new object() }, requestVersion: 1),
+            table,
+            buildState,
+            viewState,
+            owner);
+
+        Assert.IsFalse(result.Applied);
+    }
+
+    [TestMethod]
     public void PlaylistDetailTerminal_PostCommitFailureStillDisposesAndPublishesAllOwners()
     {
         var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
@@ -296,12 +333,11 @@ public sealed class PlaylistViewPipelineTests
         };
         workspace.PropertyChanged += (_, _) => workspaceNotifications++;
         PlaylistDetailTerminalPublishException exception = Assert.ThrowsException<PlaylistDetailTerminalPublishException>(
-            () => PlaylistDetailTerminalCoordinator.Apply(
+            () => workspace.ApplyDetailTerminal(
                 CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1),
                 table,
                 buildState,
                 viewState,
-                workspace,
                 owner));
 
         Assert.IsTrue(exception.OwnershipTransferred);
@@ -340,12 +376,11 @@ public sealed class PlaylistViewPipelineTests
         };
         workspace.PropertyChanged += (_, _) => workspaceNotifications++;
         PlaylistDetailTerminalPublishException exception = Assert.ThrowsException<PlaylistDetailTerminalPublishException>(
-            () => PlaylistDetailTerminalCoordinator.Apply(
+            () => workspace.ApplyDetailTerminal(
                 CreatePlaylistTerminalRequest(candidateRows, requestVersion: 1),
                 table,
                 buildState,
                 viewState,
-                workspace,
                 owner));
 
         Assert.IsTrue(exception.OwnershipTransferred);

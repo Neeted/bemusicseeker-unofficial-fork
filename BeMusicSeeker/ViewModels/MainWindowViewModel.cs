@@ -9377,7 +9377,7 @@ public partial class MainWindowViewModel : ViewModel
         long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
         MainChartListColumnSelection columnSelection = regularChartListOwner.LoadColumnSetting(columnSettingMode, treeViewFilterTypeSelected);
         long callbackStageMs = 0L;
-        PlaylistDetailTerminalCommitResult commitResult = PlaylistDetailTerminalCoordinator.Apply(
+        PlaylistDetailTerminalCommitResult commitResult = PlaylistWorkspace.ApplyDetailTerminal(
             new PlaylistDetailTerminalRequest
             {
                 BuildRequest = request,
@@ -9405,7 +9405,6 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             playlistDetailBuildState,
             playlistViewState,
-            PlaylistWorkspace,
             regularChartListOwner);
         if (!commitResult.Applied)
         {

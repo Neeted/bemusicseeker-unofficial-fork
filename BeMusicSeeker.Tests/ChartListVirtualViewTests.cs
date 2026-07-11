@@ -715,7 +715,7 @@ public sealed class ChartListVirtualViewTests
         mainChartList.RowsReplacing += (_, _) => preparingCount++;
         mainChartList.RowsReplacementCanceled += (_, _) => canceledCount++;
 
-        MainChartListCoordinatedRowsApplyResult result = mainChartList.ApplyCoordinatedRows(
+        MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(
             new MainChartListRowsApplyRequest
             {
                 Rows = nextRows,
@@ -724,11 +724,9 @@ public sealed class ChartListVirtualViewTests
                 Summary = MainChartListSummaryUpdate.Preserve(),
                 TerminalStageStartMs = 0,
                 Stopwatch = Stopwatch.StartNew()
-            },
-            _ => false,
-            () => Assert.Fail("A stale coordinated apply must not publish feature state."));
+            });
+        transition.Cancel();
 
-        Assert.IsFalse(result.Applied);
         Assert.AreEqual(1, preparingCount);
         Assert.AreEqual(1, canceledCount);
         Assert.AreSame(oldRows, mainChartList.Rows);
@@ -746,7 +744,7 @@ public sealed class ChartListVirtualViewTests
         };
         var propertyNames = new List<string>();
         mainChartList.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
-        MainChartListCoordinatedRowsApplyResult result = mainChartList.ApplyCoordinatedRows(
+        MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(
             new MainChartListRowsApplyRequest
             {
                 Rows = nextRows,
@@ -755,20 +753,48 @@ public sealed class ChartListVirtualViewTests
                 Summary = MainChartListSummaryUpdate.Explicit("committed"),
                 TerminalStageStartMs = 0,
                 Stopwatch = Stopwatch.StartNew()
-            },
-            commitRows =>
-            {
-                commitRows();
-                Assert.AreSame(nextRows, mainChartList.Rows);
-                Assert.AreEqual("committed", mainChartList.SummaryText);
-                Assert.AreEqual(0, propertyNames.Count);
-                return true;
-            },
-            () => { });
+            });
+        transition.CommitOwnership();
+        Assert.AreSame(nextRows, mainChartList.Rows);
+        Assert.AreEqual("committed", mainChartList.SummaryText);
+        Assert.AreEqual(0, propertyNames.Count);
+        transition.Complete();
 
-        Assert.IsTrue(result.Applied);
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.Rows));
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SummaryText));
+    }
+
+    [TestMethod]
+    public void MainChartList_RowsTransitionRejectsInvalidLifecycleOperations()
+    {
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var mainChartList = new MainChartListViewModel
+        {
+            Rows = new List<object>(),
+            ColumnsSettings = settings
+        };
+        MainChartListRowsApplyRequest CreateRequest() => new()
+        {
+            Rows = new List<object>(),
+            ColumnsSettings = settings,
+            SelectionPolicy = MainChartListSelectionPolicy.Reset,
+            Summary = MainChartListSummaryUpdate.Preserve(),
+            TerminalStageStartMs = 0,
+            Stopwatch = Stopwatch.StartNew()
+        };
+
+        MainChartListRowsTransition canceled = mainChartList.PrepareRowsTransition(CreateRequest());
+        canceled.Cancel();
+        Assert.ThrowsException<InvalidOperationException>(canceled.Cancel);
+        Assert.ThrowsException<InvalidOperationException>(canceled.CommitOwnership);
+
+        MainChartListRowsTransition committed = mainChartList.PrepareRowsTransition(CreateRequest());
+        Assert.ThrowsException<InvalidOperationException>(() => committed.Complete());
+        committed.CommitOwnership();
+        Assert.ThrowsException<InvalidOperationException>(committed.CommitOwnership);
+        committed.Complete();
+        Assert.ThrowsException<InvalidOperationException>(() => committed.Complete());
+        Assert.ThrowsException<InvalidOperationException>(committed.Cancel);
     }
 
     [TestMethod]
