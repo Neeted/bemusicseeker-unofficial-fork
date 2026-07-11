@@ -135,4 +135,5 @@ internal sealed class PlaylistDetailTerminalCommitResult
     internal int SourceRowsAlive { get; set; }
     internal MainChartListRowsApplyResult MainRowsApply { get; set; }
     internal PlaylistColumnPresentationCommit ColumnPresentationCommit { get; set; }
+    internal MainViewUpdateMode? AppliedColumnMode { get; set; }
 }

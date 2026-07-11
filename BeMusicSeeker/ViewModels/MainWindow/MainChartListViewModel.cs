@@ -373,7 +373,7 @@ public sealed class MainChartListViewModel : ViewModel
         PlaylistDetailBuildState buildState,
         PlaylistDetailViewState viewState,
         PlaylistWorkspaceViewModel playlistWorkspace,
-        Action<MainViewUpdateMode?> commitExternalColumnMode)
+        RegularChartListOwner regularChartListOwner)
     {
         if (request?.BuildRequest == null || request.ViewRows == null || request.MainRowsRequest == null)
         {
@@ -395,9 +395,9 @@ public sealed class MainChartListViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(playlistWorkspace));
         }
-        if (commitExternalColumnMode == null)
+        if (regularChartListOwner == null)
         {
-            throw new ArgumentNullException(nameof(commitExternalColumnMode));
+            throw new ArgumentNullException(nameof(regularChartListOwner));
         }
 
         var result = new PlaylistDetailTerminalCommitResult();
@@ -422,7 +422,8 @@ public sealed class MainChartListViewModel : ViewModel
                                 result.ColumnPresentationCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
                                     request.ColumnSelection.PlaylistColumnSettingsVisibility,
                                     request.ColumnSelection.PlaylistSummaryColumnsSettings);
-                                commitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                                result.AppliedColumnMode = request.ColumnSelection.AppliedMode;
+                                regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
                             });
                         return true;
                     }
@@ -439,7 +440,7 @@ public sealed class MainChartListViewModel : ViewModel
         }
         catch (MainChartListCoordinatedPublishException ex)
         {
-            throw new PlaylistDetailTerminalPublishException(ex, ownershipTransferred: true);
+            throw new PlaylistDetailTerminalPublishException(ex, ownershipTransferred: true, result);
         }
     }
 

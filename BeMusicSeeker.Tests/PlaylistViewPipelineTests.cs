@@ -195,6 +195,9 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(mainChartListSource, "private MainChartListRowsApplyResult PublishRowsCommit(");
         StringAssert.Contains(playlistTerminalApplySource, "playlistWorkspace.CommitColumnPresentationWithoutNotification(");
         StringAssert.Contains(playlistTerminalApplySource, "playlistWorkspace.PublishColumnPresentation(result.ColumnPresentationCommit)");
+        StringAssert.Contains(playlistTerminalApplySource, "result.AppliedColumnMode = request.ColumnSelection.AppliedMode;");
+        StringAssert.Contains(playlistTerminalApplySource, "regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);");
+        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("commitExternalColumnMode", StringComparison.Ordinal));
         StringAssert.Contains(mainChartListSource, "throw new MainChartListCoordinatedPublishException(");
         Assert.IsFalse(rootSource.Contains("PlaylistDetailTerminalTransition"));
         StringAssert.Contains(rootSource, "request.RequestVersion != playlistDetailBuildState.RequestVersion");
@@ -270,6 +273,7 @@ public sealed class PlaylistViewPipelineTests
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action());
+        RegularChartListOwner owner = CreateRegularOwner(table, workspace);
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -277,11 +281,13 @@ public sealed class PlaylistViewPipelineTests
         viewState.View.Rows = oldRows;
         int tableNotifications = 0;
         int workspaceNotifications = 0;
+        MainViewUpdateMode? columnModeAtRowsNotification = null;
         table.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(MainChartListViewModel.Rows))
             {
                 tableNotifications++;
+                columnModeAtRowsNotification = owner.LastAppliedColumnMode;
                 throw new InvalidOperationException("table publish failed");
             }
         };
@@ -292,9 +298,13 @@ public sealed class PlaylistViewPipelineTests
                 buildState,
                 viewState,
                 workspace,
-                _ => throw new InvalidOperationException("external column mode failed")));
+                owner));
 
         Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.IsNotNull(exception.TerminalCommitResult);
+        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, exception.TerminalCommitResult.AppliedColumnMode);
+        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, columnModeAtRowsNotification);
+        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, owner.LastAppliedColumnMode);
         Assert.AreSame(candidateRows, table.Rows);
         Assert.AreEqual(1, oldRow.DisposeCount);
         Assert.IsTrue(tableNotifications > 0);
@@ -308,6 +318,7 @@ public sealed class PlaylistViewPipelineTests
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action());
+        RegularChartListOwner owner = CreateRegularOwner(table, workspace);
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };
@@ -330,9 +341,12 @@ public sealed class PlaylistViewPipelineTests
                 buildState,
                 viewState,
                 workspace,
-                _ => { }));
+                owner));
 
         Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.IsNotNull(exception.TerminalCommitResult);
+        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, exception.TerminalCommitResult.AppliedColumnMode);
+        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, owner.LastAppliedColumnMode);
         Assert.AreSame(candidateRows, table.Rows);
         Assert.AreEqual(1, oldRow.DisposeCount);
         Assert.AreEqual(1, laterRow.DisposeCount);
@@ -4406,6 +4420,15 @@ public sealed class PlaylistViewPipelineTests
                 Stopwatch = stopwatch
             }
         };
+    }
+
+    private static RegularChartListOwner CreateRegularOwner(MainChartListViewModel table, PlaylistWorkspaceViewModel workspace)
+    {
+        return new RegularChartListOwner(
+            table,
+            workspace,
+            _ => { },
+            action => action());
     }
 
     private static PlaylistDetailBuildStateSnapshot CreatePlaylistDetailBuildStateSnapshot(

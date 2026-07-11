@@ -9666,7 +9666,7 @@ public partial class MainWindowViewModel : ViewModel
             playlistDetailBuildState,
             playlistViewState,
             PlaylistWorkspace,
-            regularChartListOwner.CommitExternalColumnMode);
+            regularChartListOwner);
         if (!commitResult.Applied)
         {
             return new PlaylistDetailTerminalApplyResult(applied: false, mainViewApply: null, previousSourceCount: 0);
@@ -9694,7 +9694,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            throw new PlaylistDetailTerminalPublishException(ex);
+            throw new PlaylistDetailTerminalPublishException(ex, ownershipTransferred: true, commitResult);
         }
     }
 

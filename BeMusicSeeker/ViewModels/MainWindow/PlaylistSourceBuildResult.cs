@@ -191,6 +191,15 @@ internal sealed class PlaylistDetailTerminalPublishException : Exception
         OwnershipTransferred = ownershipTransferred;
     }
 
+    internal PlaylistDetailTerminalPublishException(
+        Exception innerException,
+        bool ownershipTransferred,
+        PlaylistDetailTerminalCommitResult terminalCommitResult)
+        : this(innerException, ownershipTransferred)
+    {
+        TerminalCommitResult = terminalCommitResult;
+    }
+
     internal PlaylistDetailTerminalPublishException(string message, Exception innerException)
         : base(message, innerException)
     {
@@ -203,6 +212,8 @@ internal sealed class PlaylistDetailTerminalPublishException : Exception
     }
 
     internal bool OwnershipTransferred { get; }
+
+    internal PlaylistDetailTerminalCommitResult TerminalCommitResult { get; }
 
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {
