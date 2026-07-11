@@ -113,9 +113,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(xaml.Contains("Text=\"{Binding GridSummaryText}\""));
         Assert.IsFalse(mainTable.Contains("DataContext.MainTableSortParameters"));
         Assert.IsFalse(mainTable.Contains("RowDragKind=\"PlaylistDropCandidateRows\""));
-        Assert.IsFalse(MainWindow.TryResolveTableContextMenuPolicyForTest(playHistoryRow, ChartOperationSourceScope.Library, out bool playHistoryMissingContextMenu));
+        Assert.IsFalse(MainWindow.TryResolveTableContextMenuPolicy(playHistoryRow, ChartOperationSourceScope.Library, out bool playHistoryMissingContextMenu));
         Assert.IsFalse(playHistoryMissingContextMenu);
-        Assert.IsTrue(MainWindow.TryResolveTableContextMenuPolicyForTest(libraryRow, ChartOperationSourceScope.Library, out bool libraryMissingContextMenu));
+        Assert.IsTrue(MainWindow.TryResolveTableContextMenuPolicy(libraryRow, ChartOperationSourceScope.Library, out bool libraryMissingContextMenu));
         Assert.IsFalse(libraryMissingContextMenu);
         Assert.AreEqual(1, CountOccurrences(xaml, "x:Key=\"playHistoryContextMenu\""));
         StringAssert.Contains(playHistoryContextMenu, "Opened=\"playHistoryContextMenuOpened\"");
@@ -142,10 +142,10 @@ public sealed class MainWindowContextMenuResourceTests
             Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.ResourceManager.GetString(resource)), resource);
         }
         Assert.IsFalse(Resources.Play_history_copy_sha256.Contains("Repository"));
-        Assert.IsFalse(MainWindow.TryResolvePlayHistoryContextMenuPolicyForTest(playHistoryRow, out PlayHistoryContextMenuState unresolvedState));
+        Assert.IsFalse(PlayHistoryContextMenuState.TryCreate(playHistoryRow, out PlayHistoryContextMenuState unresolvedState));
         Assert.IsNull(unresolvedState);
         Assert.IsNull(GridRowResolver.GetRepositorySha256(playHistoryRow));
-        Assert.IsTrue(MainWindow.TryResolvePlayHistoryContextMenuPolicyForTest(resolvedPlayHistoryRow, out PlayHistoryContextMenuState resolvedState));
+        Assert.IsTrue(PlayHistoryContextMenuState.TryCreate(resolvedPlayHistoryRow, out PlayHistoryContextMenuState resolvedState));
         Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(resolvedPlayHistoryRow));
         Assert.IsTrue(resolvedState.CanOpenBmsIr);
         Assert.IsTrue(resolvedState.CanOpenRepository);
@@ -360,9 +360,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual(1, CountOccurrences(xaml, "Click=\"tableContextMenuItemRemoveChartInfoParseFailureClick\""));
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Remove_chart_info_parse_failure_record));
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Msg_remove_chart_info_parse_failure_record));
-        Assert.IsTrue(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(true, [new string('a', 32)]));
-        Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(false, [new string('a', 32)]));
-        Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenuForTest(true, [" "]));
+        Assert.IsTrue(MainWindow.ShouldShowChartInfoParseFailureRemovalMenu(true, [new string('a', 32)]));
+        Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenu(false, [new string('a', 32)]));
+        Assert.IsFalse(MainWindow.ShouldShowChartInfoParseFailureRemovalMenu(true, [" "]));
     }
 
     [TestMethod]

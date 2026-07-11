@@ -1517,16 +1517,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         contextMenu.IsOpen = true;
     }
 
-    private static string ResolveMainColumnHeaderContextMenuResourceKey(CustomTableColumnSettings columnSettings)
+    internal static string ResolveMainColumnHeaderContextMenuResourceKey(CustomTableColumnSettings columnSettings)
     {
         return columnSettings?.Kind == CustomTableColumnSettings.ViewKind.PLAY_HISTORY
             ? "playHistoryColumnHeaderContextMenu"
             : "tableColumnHeaderContextMenu";
-    }
-
-    internal static string ResolveMainColumnHeaderContextMenuResourceKeyForTest(CustomTableColumnSettings columnSettings)
-    {
-        return ResolveMainColumnHeaderContextMenuResourceKey(columnSettings);
     }
 
     private void customTablePlaylistSummary_HeaderContextMenuRequested(object sender, CustomTableHeaderRequestedEventArgs e)
@@ -2105,7 +2100,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
-    internal static bool ShouldShowChartInfoParseFailureRemovalMenuForTest(bool isChartInfoParseErrorSection, IEnumerable<string> selectedMd5s)
+    internal static bool ShouldShowChartInfoParseFailureRemovalMenu(bool isChartInfoParseErrorSection, IEnumerable<string> selectedMd5s)
     {
         return isChartInfoParseErrorSection && (selectedMd5s ?? []).Any(md5 => !string.IsNullOrWhiteSpace(md5));
     }
@@ -2121,17 +2116,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             && usePlaylistMissingContextMenu;
     }
 
-    internal static bool TryResolveTableContextMenuPolicyForTest(object row, ChartOperationSourceScope sourceScope, out bool usePlaylistMissingContextMenu)
-    {
-        return TryResolveTableContextMenuPolicy(row, sourceScope, out usePlaylistMissingContextMenu);
-    }
-
-    internal static bool TryResolvePlayHistoryContextMenuPolicyForTest(object row, out PlayHistoryContextMenuState state)
-    {
-        return PlayHistoryContextMenuState.TryCreate(row, out state);
-    }
-
-    private static bool TryResolveTableContextMenuPolicy(object row, ChartOperationSourceScope sourceScope, out bool usePlaylistMissingContextMenu)
+    internal static bool TryResolveTableContextMenuPolicy(object row, ChartOperationSourceScope sourceScope, out bool usePlaylistMissingContextMenu)
     {
         usePlaylistMissingContextMenu = false;
         if (row == null || row is PlayHistoryRow)
@@ -6345,7 +6330,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<string> selectedChartInfoParseFailureMd5s = GetSelectedChartInfoParseFailureMd5s();
         if (menuItemRemoveChartInfoParseFailure != null)
         {
-            bool canRemoveChartInfoParseFailure = ShouldShowChartInfoParseFailureRemovalMenuForTest(IsChartInfoParseErrorMainViewSection(effectiveSection), selectedChartInfoParseFailureMd5s);
+            bool canRemoveChartInfoParseFailure = ShouldShowChartInfoParseFailureRemovalMenu(IsChartInfoParseErrorMainViewSection(effectiveSection), selectedChartInfoParseFailureMd5s);
             menuItemRemoveChartInfoParseFailure.Visibility = canRemoveChartInfoParseFailure ? Visibility.Visible : Visibility.Collapsed;
             menuItemRemoveChartInfoParseFailure.IsEnabled = canRemoveChartInfoParseFailure;
         }

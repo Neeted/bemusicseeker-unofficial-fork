@@ -69,10 +69,10 @@ public sealed class MainColumnSettingModeTests
     {
         Assert.AreEqual(
             "playHistoryColumnHeaderContextMenu",
-            MainWindow.ResolveMainColumnHeaderContextMenuResourceKeyForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY)));
+            MainWindow.ResolveMainColumnHeaderContextMenuResourceKey(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY)));
         Assert.AreEqual(
             "tableColumnHeaderContextMenu",
-            MainWindow.ResolveMainColumnHeaderContextMenuResourceKeyForTest(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)));
+            MainWindow.ResolveMainColumnHeaderContextMenuResourceKey(new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)));
     }
 
     [TestMethod]
