@@ -640,7 +640,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
 
-    private cSortParameters _SortParameters;
+    private ChartListSortParameters _SortParameters;
 
     private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
 
@@ -4783,27 +4783,32 @@ public partial class MainWindowViewModel : ViewModel
     {
         get
         {
-            return _SortParameters;
+            return _SortParameters as cSortParameters ?? ToCompatibilitySortParameters(_SortParameters);
         }
         private set
         {
-            bool changed = false;
-            if (!AreSameSortParameters(_SortParameters, value))
+            SetSortParameters(value);
+        }
+    }
+
+    private void SetSortParameters(ChartListSortParameters value)
+    {
+        bool changed = false;
+        if (!AreSameSortParameters(_SortParameters, value))
+        {
+            _SortParameters = ToCompatibilitySortParameters(value);
+            changed = true;
+        }
+        if (changed)
+        {
+            regularChartListOwner?.SetSort(ChartListSortSpecification.Create(
+                _SortParameters?.ColumnsName,
+                _SortParameters?.Direction ?? ListSortDirection.Ascending,
+                _SortParameters != null));
+            RaisePropertyChanged("SortParameters");
+            if (!IsPlayHistoryViewActive)
             {
-                _SortParameters = value;
-                changed = true;
-            }
-            if (changed)
-            {
-                regularChartListOwner?.SetSort(ChartListSortSpecification.Create(
-                    _SortParameters?.ColumnsName,
-                    _SortParameters?.Direction ?? ListSortDirection.Ascending,
-                    _SortParameters != null));
-                RaisePropertyChanged("SortParameters");
-                if (!IsPlayHistoryViewActive)
-                {
-                    SyncMainChartListSortPresentation();
-                }
+                SyncMainChartListSortPresentation();
             }
         }
     }
@@ -4813,26 +4818,48 @@ public partial class MainWindowViewModel : ViewModel
         get
         {
             ChartListSortParameters value = playHistoryWorkflowOwner.CaptureSortParameters(out _);
-            return value == null
-                ? null
-                : new cSortParameters
-                {
-                    ColumnsName = value.ColumnsName,
-                    Direction = value.Direction
-                };
+            return ToCompatibilitySortParameters(value);
         }
         private set
         {
-            bool changed = playHistoryWorkflowOwner.UpdateSortParameters(value);
-            if (changed)
+            SetPlayHistorySortParameters(value);
+        }
+    }
+
+    private void SetPlayHistorySortParameters(ChartListSortParameters value)
+    {
+        bool changed = playHistoryWorkflowOwner.UpdateSortParameters(value);
+        if (changed)
+        {
+            RaisePropertyChanged("PlayHistorySortParameters");
+            if (IsPlayHistoryViewActive)
             {
-                RaisePropertyChanged("PlayHistorySortParameters");
-                if (IsPlayHistoryViewActive)
-                {
-                    SyncMainChartListSortPresentation();
-                }
+                SyncMainChartListSortPresentation();
             }
         }
+    }
+
+    private static cSortParameters ToCompatibilitySortParameters(ChartListSortParameters value)
+    {
+        ChartListSortParameters clone = CloneSortParameters(value);
+        return clone == null
+            ? null
+            : new cSortParameters
+            {
+                ColumnsName = clone.ColumnsName,
+                Direction = clone.Direction
+            };
+    }
+
+    private static ChartListSortParameters CloneSortParameters(ChartListSortParameters value)
+    {
+        return value == null
+            ? null
+            : new ChartListSortParameters
+            {
+                ColumnsName = value.ColumnsName,
+                Direction = value.Direction
+            };
     }
 
     private static bool AreSameSortParameters(ChartListSortParameters left, ChartListSortParameters right)
@@ -11674,11 +11701,11 @@ public partial class MainWindowViewModel : ViewModel
         {
             if (PlayHistorySortParameters == null || PlayHistorySortParameters.ColumnsName != columnName || PlayHistorySortParameters.Direction != direction)
             {
-                PlayHistorySortParameters = new cSortParameters
+                SetPlayHistorySortParameters(new ChartListSortParameters
                 {
                     ColumnsName = columnName,
                     Direction = direction
-                };
+                });
                 if (IsPlayHistoryViewActive)
                 {
                     RefreshChartRowsView(MainViewUpdateMode.SortUpdated);
@@ -11689,11 +11716,11 @@ public partial class MainWindowViewModel : ViewModel
 
         if (regularChartListOwner.TryChangeSort(columnName, direction))
         {
-            SortParameters = new cSortParameters
+            SetSortParameters(new ChartListSortParameters
             {
                 ColumnsName = columnName,
                 Direction = direction
-            };
+            });
             if (!IsPlayHistoryViewActive)
             {
                 RefreshChartRowsView(MainViewUpdateMode.SortUpdated);
