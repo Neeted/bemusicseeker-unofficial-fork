@@ -747,17 +747,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private string _KeywordSearchSuggestionHeaderText = string.Empty;
 
-    private long playHistoryDisplayTargetsRefreshRequestedRevision;
-
-    private long playHistoryDisplayTargetsRefreshCompletedRevision;
-
-    private long playHistoryDisplayTargetsRefreshScheduled;
-
-    private int playHistoryDisplayTargetsRefreshSelectionQueued;
-
-    private int playHistoryDisplayTargetsRefreshActiveCount;
-
-
     private readonly DispatcherCollection<string> _sortedBmsParentFolderList = new(DispatcherHelper.UIDispatcher);
 
     private bool bmsParentFolderListViewInitialized;
@@ -5644,69 +5633,15 @@ public partial class MainWindowViewModel : ViewModel
             queueRefreshWhenSelectionChanges);
     }
 
-    private void QueuePlayHistoryDisplayTargetsRefresh(bool queueRefreshWhenSelectionChanges = true)
+    private void SchedulePlayHistoryDisplayTargetCatalogRefresh(Action refresh)
     {
-        if (IsShutdownRequested)
+        Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null)
         {
+            Task.Run(refresh).Logging("QueuePlayHistoryDisplayTargetsRefresh");
             return;
         }
-        if (queueRefreshWhenSelectionChanges)
-        {
-            Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshSelectionQueued, 1);
-        }
-        Interlocked.Increment(ref playHistoryDisplayTargetsRefreshRequestedRevision);
-        if (Interlocked.CompareExchange(ref playHistoryDisplayTargetsRefreshScheduled, 1L, 0L) != 0L)
-        {
-            return;
-        }
-
-        void Schedule(Action refresh)
-        {
-            Dispatcher dispatcher = DispatcherHelper.UIDispatcher ?? System.Windows.Application.Current?.Dispatcher;
-            if (dispatcher == null)
-            {
-                Task.Run(refresh).Logging("QueuePlayHistoryDisplayTargetsRefresh");
-                return;
-            }
-            dispatcher.BeginInvoke(refresh, DispatcherPriority.Background);
-        }
-
-        void Refresh()
-        {
-            Interlocked.Increment(ref playHistoryDisplayTargetsRefreshActiveCount);
-            try
-            {
-                while (true)
-                {
-                    if (IsShutdownRequested)
-                    {
-                        long requestedRevision = Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision);
-                        Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshCompletedRevision, requestedRevision);
-                        return;
-                    }
-                    long refreshRevision = Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision);
-                    bool refreshSelectionWhenChanged = Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshSelectionQueued, 0) == 1;
-                    RefreshPlayHistoryDisplayTargets(refreshSelectionWhenChanged);
-                    Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshCompletedRevision, refreshRevision);
-                    if (refreshRevision == Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision))
-                    {
-                        return;
-                    }
-                }
-            }
-            finally
-            {
-                Interlocked.Decrement(ref playHistoryDisplayTargetsRefreshActiveCount);
-                Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshScheduled, 0L);
-                if (Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision) != Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision)
-                    && Interlocked.CompareExchange(ref playHistoryDisplayTargetsRefreshScheduled, 1L, 0L) == 0L)
-                {
-                    Schedule(Refresh);
-                }
-            }
-        }
-
-        Schedule(Refresh);
+        dispatcher.BeginInvoke(refresh, DispatcherPriority.Background);
     }
 
     internal void ReplacePlayHistoryDisplayTargetSetsForTest(IEnumerable<PlayHistoryDisplayTargetSet> targetSets)
@@ -6320,6 +6255,10 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
         PlayHistory = new PlayHistoryWorkflowOwner();
         PlayHistory.ConfigureDisplayTargetPersistence(identity => Settings.Default.PlayHistorySelectedDisplayTargetIdentity = identity);
+        PlayHistory.ConfigureDisplayTargetCatalogRefresh(
+            () => IsShutdownRequested,
+            SnapshotPlayHistoryDisplayTargetTables,
+            SchedulePlayHistoryDisplayTargetCatalogRefresh);
         PlayHistory.DisplayTargetRefreshRequested += (_, _) => QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => QueuePlayHistoryKeywordFilterRefresh();
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(PlaylistWorkspace);
@@ -6799,8 +6738,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         playHistoryWorkflowOwner.Deactivate();
         playHistoryWorkflowOwner.ClearQueuedRefreshes();
-        Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshRequestedRevision, Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision));
-        Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshSelectionQueued, 0);
+        playHistoryWorkflowOwner.CancelDisplayTargetCatalogRefreshesForShutdown();
     }
 
     private void CancelPlaylistLibraryIndexPrewarmForShutdown()
@@ -6912,9 +6850,7 @@ public partial class MainWindowViewModel : ViewModel
     private bool IsPlayHistoryRefreshIdle()
     {
         return playHistoryWorkflowOwner.AreRefreshQueuesIdle
-            && Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision) <= Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision)
-            && Interlocked.Read(ref playHistoryDisplayTargetsRefreshScheduled) == 0L
-            && Volatile.Read(ref playHistoryDisplayTargetsRefreshActiveCount) == 0;
+            && playHistoryWorkflowOwner.IsDisplayTargetCatalogRefreshIdle;
     }
 
     private async Task WaitForDeferredPlaylistWorkersIdleAsync(ShutdownWaitTracker tracker)
@@ -7099,10 +7035,7 @@ public partial class MainWindowViewModel : ViewModel
     private string DescribePlayHistoryRefreshWaitState()
     {
         return playHistoryWorkflowOwner.DescribeRefreshQueues()
-            + " displayTargetsRequestedRevision=" + Interlocked.Read(ref playHistoryDisplayTargetsRefreshRequestedRevision)
-            + " displayTargetsCompletedRevision=" + Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision)
-            + " displayTargetsScheduled=" + Interlocked.Read(ref playHistoryDisplayTargetsRefreshScheduled)
-            + " displayTargetsActiveCount=" + Volatile.Read(ref playHistoryDisplayTargetsRefreshActiveCount);
+            + " " + playHistoryWorkflowOwner.DescribeDisplayTargetCatalogRefresh();
     }
 
     private string DescribeDeferredPlaylistWorkersWaitState()
@@ -8055,7 +7988,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
-            QueuePlayHistoryDisplayTargetsRefresh();
+            PlayHistory.QueueDisplayTargetCatalogRefresh();
             RefreshPlaylistSummaryIfVisible("playlist_tables_changed", invalidateTableCountCache: true);
         });
         listenerForBMSPlaylistBMSTablesCollection.RegisterHandler(delegate
@@ -8071,7 +8004,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
-            QueuePlayHistoryDisplayTargetsRefresh();
+            PlayHistory.QueueDisplayTargetCatalogRefresh();
             RefreshPlaylistSummaryIfVisible("playlist_tables_collection_changed", invalidateTableCountCache: true);
         });
         listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion, delegate

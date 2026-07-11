@@ -3192,4 +3192,35 @@ public sealed class PlayHistoryReadModelTests
         Assert.ThrowsException<InvalidOperationException>(() => owner.CompleteKeywordRefresh(concurrentRequest.KeywordFilterRevision));
         Assert.IsTrue(owner.AreRefreshQueuesIdle);
     }
+
+    [TestMethod]
+    public void WorkflowOwner_OwnsDisplayTargetCatalogRefreshScheduling()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        var scheduled = new Queue<Action>();
+        bool shutdown = false;
+        owner.ConfigureDisplayTargetCatalogRefresh(
+            () => shutdown,
+            () => [],
+            action => scheduled.Enqueue(action));
+
+        owner.QueueDisplayTargetCatalogRefresh();
+        owner.QueueDisplayTargetCatalogRefresh(queueRefreshWhenSelectionChanges: false);
+
+        Assert.AreEqual(1, scheduled.Count);
+        Assert.IsFalse(owner.IsDisplayTargetCatalogRefreshIdle);
+
+        scheduled.Dequeue()();
+
+        Assert.IsTrue(owner.IsDisplayTargetCatalogRefreshIdle);
+        Assert.AreEqual(1, owner.DisplayTargets.Count);
+        Assert.AreEqual(PlayHistoryDisplayTargetItem.All.Identity, owner.SelectedDisplayTarget.Identity);
+
+        owner.QueueDisplayTargetCatalogRefresh();
+        shutdown = true;
+        scheduled.Dequeue()();
+
+        Assert.IsTrue(owner.IsDisplayTargetCatalogRefreshIdle);
+        StringAssert.Contains(owner.DescribeDisplayTargetCatalogRefresh(), "displayTargetsRequestedRevision=");
+    }
 }
