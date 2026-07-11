@@ -157,16 +157,6 @@ public partial class MainWindowViewModel : ViewModel
         All = 0x1F
     }
 
-    /// <summary>
-    /// Compatibility name for the former nested playlist ownership filter.
-    /// </summary>
-    public enum PlaylistSummaryOwnedFilterType
-    {
-        All,
-        OwnedComplete,
-        OwnedIncomplete
-    }
-
     public enum FolderFilterType
     {
         DirectoryFilter,
@@ -6285,21 +6275,6 @@ public partial class MainWindowViewModel : ViewModel
     {
         target.Clear();
         target.AddRange(source ?? []);
-    }
-
-    public PlaylistSummaryOwnedFilterType PlaylistSummaryOwnedFilter
-    {
-        get
-        {
-            return (PlaylistSummaryOwnedFilterType)(int)PlaylistWorkspace.PlaylistSummaryOwnedFilter;
-        }
-        set
-        {
-            if (PlaylistWorkspace.PlaylistSummaryOwnedFilter != (PlaylistOwnedFilter)(int)value)
-            {
-                PlaylistWorkspace.PlaylistSummaryOwnedFilter = (PlaylistOwnedFilter)(int)value;
-            }
-        }
     }
 
     private void SetNormalLibraryTreeFilter(RegularNormalLibraryTreeFilter filter)

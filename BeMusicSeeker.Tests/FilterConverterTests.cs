@@ -25,26 +25,6 @@ public sealed class FilterConverterTests
     }
 
     [TestMethod]
-    public void PlaylistOwnedFilterConverter_RoundTripsLegacyBindingValue()
-    {
-        var converter = new playlistSummaryOwnedFilterConverter();
-
-        object selected = converter.Convert(
-            MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedComplete,
-            typeof(bool),
-            "OwnedComplete",
-            CultureInfo.InvariantCulture);
-        object updated = converter.ConvertBack(
-            true,
-            typeof(MainWindowViewModel.PlaylistSummaryOwnedFilterType),
-            "OwnedIncomplete",
-            CultureInfo.InvariantCulture);
-
-        Assert.AreEqual(true, selected);
-        Assert.AreEqual(MainWindowViewModel.PlaylistSummaryOwnedFilterType.OwnedIncomplete, updated);
-    }
-
-    [TestMethod]
     public void PlaylistOwnedFilterConverter_RoundTripsWorkspaceBindingValue()
     {
         var converter = new playlistSummaryOwnedFilterConverter();

@@ -15,16 +15,7 @@ internal class playlistSummaryOwnedFilterConverter : IValueConverter
             return false;
         }
 
-        PlaylistOwnedFilter currentFilter;
-        if (value is PlaylistOwnedFilter ownerFilter)
-        {
-            currentFilter = ownerFilter;
-        }
-        else if (value is MainWindowViewModel.PlaylistSummaryOwnedFilterType legacyFilter)
-        {
-            currentFilter = (PlaylistOwnedFilter)(int)legacyFilter;
-        }
-        else
+        if (value is not PlaylistOwnedFilter currentFilter)
         {
             return false;
         }
@@ -41,11 +32,6 @@ internal class playlistSummaryOwnedFilterConverter : IValueConverter
         }
 
         var requestedFilter = (PlaylistOwnedFilter)Enum.Parse(typeof(PlaylistOwnedFilter), parameter.ToString());
-        if (targetType == typeof(MainWindowViewModel.PlaylistSummaryOwnedFilterType))
-        {
-            return (MainWindowViewModel.PlaylistSummaryOwnedFilterType)(int)requestedFilter;
-        }
-
         return requestedFilter;
     }
 }
