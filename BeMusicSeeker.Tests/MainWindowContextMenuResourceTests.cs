@@ -170,6 +170,7 @@ public sealed class MainWindowContextMenuResourceTests
         string mainChartListCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
         string playHistoryWorkflowCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
         string presentationStateCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
+        string presentationOnlyMethod = ExtractBetween(rootViewModelCode, "private bool TryApplyPlayHistoryPresentationOnly", "private void ApplyPlayHistorySortedRows");
         string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
 
         StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
@@ -194,6 +195,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainChartListCode.Contains("PlayHistoryTerminalCommitResult"));
         StringAssert.Contains(playHistoryWorkflowCode, "ApplyTerminal(");
         StringAssert.Contains(playHistoryWorkflowCode, "ApplySortedRows(");
+        StringAssert.Contains(playHistoryWorkflowCode, "BuildPresentationOnly(");
+        StringAssert.Contains(presentationOnlyMethod, "playHistoryWorkflowOwner.BuildPresentationOnly(");
+        Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
+        Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
+        Assert.IsFalse(presentationOnlyMethod.Contains("PlayHistorySortEngine.TrySort("));
         Assert.IsFalse(rootViewModelCode.Contains("new PlayHistoryTerminalRequest"));
         Assert.IsFalse(rootViewModelCode.Contains("CreatePlayHistoryViewDiagnostics"));
         Assert.IsFalse(rootViewModelCode.Contains("CountDistinctPlayHistoryFolderLabels"));
@@ -269,15 +275,16 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.ApplyKeywordFilters(");
         StringAssert.Contains(viewModelCode, "mode == MainViewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest");
         StringAssert.Contains(viewModelCode, "ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);");
-        StringAssert.Contains(presentationOnly, "state.AllProjectedRows");
-        StringAssert.Contains(presentationOnly, "playHistoryWorkflowOwner.ApplyDisplayTarget(");
+        StringAssert.Contains(presentationOnly, "playHistoryWorkflowOwner.BuildPresentationOnly(");
+        Assert.IsFalse(presentationOnly.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
         StringAssert.Contains(viewModelCode, "if (SelectedPlayHistoryDisplayTarget.UsesProjection)");
-        StringAssert.Contains(presentationOnly, "state.FilterSourceRows");
-        StringAssert.Contains(presentationOnly, "playHistoryWorkflowOwner.ApplyKeywordFilters(");
-        StringAssert.Contains(presentationOnly, "requestedMode == MainViewUpdateMode.SortUpdated && keywordStateStale");
-        StringAssert.Contains(presentationOnly, "requestedMode == MainViewUpdateMode.SortUpdated && targetStateStale");
-        StringAssert.Contains(presentationOnly, "KeywordFilterIdentity");
-        StringAssert.Contains(presentationOnly, "DisplayTargetIdentity");
+        Assert.IsFalse(presentationOnly.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
+        StringAssert.Contains(workflowOwner, "request.RequestedMode == MainViewUpdateMode.SortUpdated && keywordStale");
+        StringAssert.Contains(workflowOwner, "request.RequestedMode == MainViewUpdateMode.SortUpdated && displayTargetStale");
+        StringAssert.Contains(workflowOwner, "state.AllProjectedRows");
+        StringAssert.Contains(workflowOwner, "state.FilterSourceRows");
+        StringAssert.Contains(workflowOwner, "state.KeywordFilterIdentity");
+        StringAssert.Contains(workflowOwner, "state.DisplayTargetIdentity");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryKeywordFilterRefresh");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false)");
         StringAssert.Contains(viewModelCode, "QueuePlayHistoryDisplayTargetRefresh");

@@ -1018,6 +1018,169 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PlayHistoryWorkflowOwner_BuildPresentationOnlyAppliesLatestKeywordRevision()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        var projectedRows = new List<PlayHistoryRow>();
+        var state = new PlayHistoryViewState(
+            activeRequest.RequestId,
+            PlayHistoryPeriodRequest.All(),
+            projectedRows,
+            projectedRows,
+            projectedRows,
+            diagnostics: [],
+            PlayHistoryProvider.Lr2,
+            schemaStatus: default,
+            sourceCount: 0,
+            new SortSnapshot(null, null, revision: 0L),
+            keywordFilter: string.Empty,
+            keywordFilterRevision: 0,
+            PlayHistoryDisplayTargetItem.All,
+            displayTargetRevision: 0);
+        long keywordRevision = workflowOwner.UpdateKeywordIdentity("title:missing", advanceRevision: true);
+        workflowOwner.UpdateSortParameters(new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlayHistoryRow.Title),
+            Direction = ListSortDirection.Descending
+        });
+        var summaryFilters = new List<string> { "type:score" };
+        var request = new PlayHistoryPresentationOnlyBuildRequest(
+            MainViewUpdateMode.KeywordFilterUpdated,
+            state,
+            keywordFilter: "title:missing",
+            keywordRevision,
+            PlayHistoryDisplayTargetItem.All,
+            displayTargetRevision: 0,
+            summaryFilters);
+        summaryFilters.Clear();
+
+        PlayHistoryPresentationOnlyBuildResult result = workflowOwner.BuildPresentationOnly(request, playlist: null);
+        projectedRows.Add(null!);
+
+        Assert.AreEqual(PlayHistoryPresentationOnlyBuildStatus.Built, result.Status);
+        Assert.IsTrue(result.KeywordFilterApplied);
+        Assert.AreEqual(0, result.KeywordCount);
+        Assert.AreEqual(keywordRevision, result.State.KeywordFilterRevision);
+        Assert.AreEqual("title:missing", result.State.KeywordFilter);
+        Assert.AreEqual(1L, result.State.SortSnapshot.Revision);
+        Assert.AreEqual(0, result.State.ProjectedRows.Count);
+        Assert.AreEqual(0, result.SortedRows.Count);
+        Assert.AreEqual(1, request.SummaryFilterTexts.Count);
+    }
+
+    [TestMethod]
+    public void PlayHistoryWorkflowOwner_BuildPresentationOnlyQueuesKeywordRefreshForSortRequestWithStaleKeyword()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
+        long keywordRevision = workflowOwner.UpdateKeywordIdentity("changed", advanceRevision: true);
+
+        PlayHistoryPresentationOnlyBuildResult result = workflowOwner.BuildPresentationOnly(
+            new PlayHistoryPresentationOnlyBuildRequest(
+                MainViewUpdateMode.SortUpdated,
+                state,
+                keywordFilter: "changed",
+                keywordRevision,
+                PlayHistoryDisplayTargetItem.All,
+                displayTargetRevision: 0,
+                summaryFilterTexts: []),
+            playlist: null);
+
+        Assert.AreEqual(PlayHistoryPresentationOnlyBuildStatus.KeywordStale, result.Status);
+        Assert.IsTrue(result.QueueRefresh);
+        Assert.AreEqual(0, result.SortedRows.Count);
+    }
+
+    [TestMethod]
+    public void PlayHistoryWorkflowOwner_BuildPresentationOnlyPrioritizesDisplayTargetStaleForSortRequest()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
+        long keywordRevision = workflowOwner.UpdateKeywordIdentity("changed", advanceRevision: true);
+        PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
+
+        PlayHistoryPresentationOnlyBuildResult result = workflowOwner.BuildPresentationOnly(
+            new PlayHistoryPresentationOnlyBuildRequest(
+                MainViewUpdateMode.SortUpdated,
+                state,
+                keywordFilter: "changed",
+                keywordRevision,
+                changedTarget,
+                displayTargetRevision: 1,
+                summaryFilterTexts: []),
+            playlist: null);
+
+        Assert.AreEqual(PlayHistoryPresentationOnlyBuildStatus.DisplayTargetStale, result.Status);
+        Assert.IsTrue(result.QueueRefresh);
+    }
+
+    [TestMethod]
+    public void PlayHistoryWorkflowOwner_BuildPresentationOnlyKeepsCompletedDisplayMetricsWhenKeywordStageIsCanceled()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        PlayHistoryDisplayTargetItem previousTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Previous" });
+        var sourceRows = new List<PlayHistoryRow> { null! };
+        var state = new PlayHistoryViewState(
+            activeRequest.RequestId,
+            PlayHistoryPeriodRequest.All(),
+            sourceRows,
+            filterSourceRows: [],
+            projectedRows: [],
+            diagnostics: [],
+            PlayHistoryProvider.Lr2,
+            schemaStatus: default,
+            sourceCount: 1,
+            new SortSnapshot(null, null, revision: 0L),
+            keywordFilter: string.Empty,
+            keywordFilterRevision: 0,
+            previousTarget,
+            displayTargetRevision: 0);
+        workflowOwner.PresentationState.RequestCancellation.Cancel();
+
+        PlayHistoryPresentationOnlyBuildResult result = workflowOwner.BuildPresentationOnly(
+            new PlayHistoryPresentationOnlyBuildRequest(
+                MainViewUpdateMode.KeywordFilterUpdated,
+                state,
+                keywordFilter: "changed",
+                keywordRevision: 0,
+                PlayHistoryDisplayTargetItem.All,
+                displayTargetRevision: 0,
+                summaryFilterTexts: []),
+            playlist: null);
+
+        Assert.AreEqual(PlayHistoryPresentationOnlyBuildStatus.StaleRequest, result.Status);
+        Assert.IsFalse(result.QueueRefresh);
+        Assert.IsTrue(result.DisplayTargetApplied);
+        Assert.AreEqual(1, result.DisplayTargetSourceCount);
+        Assert.AreEqual(1, result.DisplayTargetResultCount);
+        Assert.IsFalse(result.KeywordFilterApplied);
+    }
+
+    [TestMethod]
     public void PlayHistoryTerminal_PublishesExplicitSummaryWithCommittedMainState()
     {
         PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(out PlayHistoryPresentationState state, out MainChartListViewModel table);

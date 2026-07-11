@@ -245,6 +245,146 @@ internal sealed class PlayHistoryWorkflowOwner
         }
     }
 
+    internal PlayHistoryPresentationOnlyBuildResult BuildPresentationOnly(
+        PlayHistoryPresentationOnlyBuildRequest request,
+        BMSPlaylist playlist)
+    {
+        if (request?.State == null)
+        {
+            throw new ArgumentException("A complete play-history presentation build request is required.", nameof(request));
+        }
+
+        PlayHistoryViewState state = request.State;
+        bool displayTargetStale = request.DisplayTargetRevision != state.DisplayTargetRevision
+            || !string.Equals(request.DisplayTarget.Identity, state.DisplayTargetIdentity, StringComparison.Ordinal);
+        bool keywordStale = request.KeywordRevision != state.KeywordFilterRevision
+            || !string.Equals(
+                PlaylistRequestFactory.NormalizeKeywordFilter(request.KeywordFilter),
+                state.KeywordFilterIdentity,
+                StringComparison.Ordinal);
+        if (request.RequestedMode == MainViewUpdateMode.SortUpdated && displayTargetStale)
+        {
+            return PlayHistoryPresentationOnlyBuildResult.Stale(
+                PlayHistoryPresentationOnlyBuildStatus.DisplayTargetStale,
+                queueRefresh: true,
+                state);
+        }
+        if (request.RequestedMode == MainViewUpdateMode.SortUpdated && keywordStale)
+        {
+            return PlayHistoryPresentationOnlyBuildResult.Stale(
+                PlayHistoryPresentationOnlyBuildStatus.KeywordStale,
+                queueRefresh: true,
+                state);
+        }
+
+        IReadOnlyList<PlayHistoryRow> targetRows = state.FilterSourceRows;
+        IReadOnlyList<PlayHistoryRow> filteredRows = state.ProjectedRows;
+        long keywordMs = 0L;
+        if (displayTargetStale)
+        {
+            CancellationToken cancellationToken = GetCancellationToken(state.RequestId);
+            try
+            {
+                targetRows = ApplyDisplayTarget(
+                    state.AllProjectedRows,
+                    request.DisplayTarget,
+                    state.RequestId,
+                    request.DisplayTargetRevision,
+                    cancellationToken,
+                    () => SnapshotDisplayTargetTables(playlist),
+                    table => playlist?.EnsurePlaylistEntriesLoaded(table, "PlayHistoryDisplayTarget"));
+            }
+            catch (OperationCanceledException)
+            {
+                return PlayHistoryPresentationOnlyBuildResult.Stale(
+                    PlayHistoryPresentationOnlyBuildStatus.StaleRequest,
+                    queueRefresh: false,
+                    state);
+            }
+        }
+        if (displayTargetStale || keywordStale)
+        {
+            CancellationToken cancellationToken = GetCancellationToken(state.RequestId);
+            try
+            {
+                filteredRows = ApplyKeywordFilters(
+                    targetRows,
+                    request.KeywordFilter,
+                    request.SummaryFilterTexts,
+                    state.RequestId,
+                    request.KeywordRevision,
+                    cancellationToken,
+                    out keywordMs);
+            }
+            catch (OperationCanceledException)
+            {
+                return PlayHistoryPresentationOnlyBuildResult.Stale(
+                    PlayHistoryPresentationOnlyBuildStatus.StaleRequest,
+                    queueRefresh: false,
+                    state,
+                    displayTargetApplied: displayTargetStale,
+                    displayTargetSourceCount: displayTargetStale ? state.AllProjectedRows.Count : 0,
+                    displayTargetResultCount: displayTargetStale ? targetRows.Count : 0);
+            }
+        }
+
+        var sortStopwatch = Stopwatch.StartNew();
+        ChartListSortParameters sortParameters = CaptureSortParameters(out SortSnapshot sortSnapshot);
+        bool sortSucceeded = PlayHistorySortEngine.TrySort(
+            filteredRows,
+            sortParameters,
+            out List<PlayHistoryRow> sortedRows,
+            out string sortProfile);
+        if (!sortSucceeded)
+        {
+            sortedRows = [.. filteredRows];
+        }
+        long sortMs = sortStopwatch.ElapsedMilliseconds;
+        var sortedState = new PlayHistoryViewState(
+            state.RequestId,
+            state.PeriodRequest,
+            state.AllProjectedRows,
+            targetRows,
+            filteredRows,
+            state.Diagnostics,
+            state.Provider,
+            state.SchemaStatus,
+            state.SourceCount,
+            sortSnapshot,
+            request.KeywordFilter,
+            request.KeywordRevision,
+            request.DisplayTarget,
+            request.DisplayTargetRevision,
+            state.SummaryOverride);
+        return PlayHistoryPresentationOnlyBuildResult.Built(
+            sortedState,
+            sortedRows,
+            sortSucceeded,
+            sortProfile,
+            sortMs,
+            keywordMs,
+            filteredRows.Count,
+            displayTargetStale,
+            state.AllProjectedRows.Count,
+            targetRows.Count,
+            displayTargetStale || keywordStale,
+            state.SourceCount,
+            targetRows.Count);
+    }
+
+    private static IReadOnlyList<BMSTable> SnapshotDisplayTargetTables(BMSPlaylist playlist)
+    {
+        try
+        {
+            playlist?.AcquireReaderLockBMSTables();
+            return [.. (playlist?.BMSTables ?? Enumerable.Empty<BMSTable>()).Where(table => table != null)];
+        }
+        finally
+        {
+            playlist?.FreeReaderLockBMSTables();
+        }
+    }
+
     private static IReadOnlyList<PlayHistoryDiagnostic> CreateViewDiagnostics(
         IReadOnlyList<PlayHistoryDiagnostic> diagnostics,
         bool sortSucceeded,

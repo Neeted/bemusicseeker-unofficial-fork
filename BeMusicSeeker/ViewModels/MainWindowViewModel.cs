@@ -10553,110 +10553,71 @@ public partial class MainWindowViewModel : ViewModel
             ? viewRequest.DisplayTargetRevision
             : playHistoryWorkflowOwner.DisplayTargetRevision;
         PrunePlayHistorySummaryCardFilters(state.Provider);
-        IReadOnlyList<PlayHistoryRow> targetRows = state.FilterSourceRows;
-        IReadOnlyList<PlayHistoryRow> filteredRows = state.ProjectedRows;
-        long keywordMs = 0L;
-        bool targetStateStale = displayTargetRevision != state.DisplayTargetRevision
-            || !string.Equals(displayTarget?.Identity ?? string.Empty, state.DisplayTargetIdentity, StringComparison.Ordinal);
-        bool keywordStateStale = keywordRevision != state.KeywordFilterRevision
-            || !string.Equals(NormalizePlaylistKeywordFilter(keywordFilter), state.KeywordFilterIdentity, StringComparison.Ordinal);
-        if (requestedMode == MainViewUpdateMode.SortUpdated && targetStateStale)
+        PlayHistoryPresentationOnlyBuildResult buildResult = playHistoryWorkflowOwner.BuildPresentationOnly(
+            new PlayHistoryPresentationOnlyBuildRequest(
+                requestedMode,
+                state,
+                keywordFilter,
+                keywordRevision,
+                displayTarget,
+                displayTargetRevision,
+                SnapshotSelectedPlayHistorySummaryFilterTexts()),
+            tables);
+        if (buildResult.DisplayTargetApplied)
         {
-            QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
+            LogPlayHistoryDisplayTargetFilter(
+                state.PeriodRequest,
+                state.RequestId,
+                displayTarget,
+                buildResult.DisplayTargetSourceCount,
+                buildResult.DisplayTargetResultCount);
+        }
+        if (buildResult.KeywordFilterApplied)
+        {
+            LogPlayHistoryKeywordFilter(
+                state.PeriodRequest,
+                state.RequestId,
+                keywordFilter,
+                buildResult.KeywordSourceCount,
+                buildResult.KeywordProjectedCount,
+                buildResult.KeywordCount,
+                buildResult.KeywordMs);
+        }
+        if (buildResult.Status != PlayHistoryPresentationOnlyBuildStatus.Built)
+        {
+            if (buildResult.QueueRefresh)
+            {
+                if (buildResult.Status == PlayHistoryPresentationOnlyBuildStatus.DisplayTargetStale)
+                {
+                    QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);
+                }
+                else if (buildResult.Status == PlayHistoryPresentationOnlyBuildStatus.KeywordStale)
+                {
+                    QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false);
+                }
+            }
             LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
             return true;
         }
-        if (requestedMode == MainViewUpdateMode.SortUpdated && keywordStateStale)
-        {
-            QueuePlayHistoryKeywordFilterRefresh(advanceRevision: false);
-            LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
-            return true;
-        }
-        if (targetStateStale)
-        {
-            CancellationToken cancellationToken = playHistoryWorkflowOwner.GetCancellationToken(state.RequestId);
-            try
-            {
-                targetRows = playHistoryWorkflowOwner.ApplyDisplayTarget(
-                    state.AllProjectedRows,
-                    displayTarget,
-                    state.RequestId,
-                    displayTargetRevision,
-                    cancellationToken,
-                    SnapshotPlayHistoryDisplayTargetTables,
-                    table => tables?.EnsurePlaylistEntriesLoaded(table, "PlayHistoryDisplayTarget"));
-            }
-            catch (OperationCanceledException)
-            {
-                LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
-                return true;
-            }
-            LogPlayHistoryDisplayTargetFilter(state.PeriodRequest, state.RequestId, displayTarget, state.AllProjectedRows.Count, targetRows.Count);
-        }
-        if (targetStateStale || keywordStateStale)
-        {
-            CancellationToken cancellationToken = playHistoryWorkflowOwner.GetCancellationToken(state.RequestId);
-            try
-            {
-                filteredRows = playHistoryWorkflowOwner.ApplyKeywordFilters(
-                    targetRows,
-                    keywordFilter,
-                    SnapshotSelectedPlayHistorySummaryFilterTexts(),
-                    state.RequestId,
-                    keywordRevision,
-                    cancellationToken,
-                    out keywordMs);
-            }
-            catch (OperationCanceledException)
-            {
-                LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, state.PeriodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
-                return true;
-            }
-            LogPlayHistoryKeywordFilter(state.PeriodRequest, state.RequestId, keywordFilter, state.SourceCount, targetRows.Count, filteredRows.Count, keywordMs);
-        }
-        var sortStopwatch = Stopwatch.StartNew();
-        ChartListSortParameters sortParameters = playHistoryWorkflowOwner.CaptureSortParameters(out SortSnapshot sortSnapshot);
-        bool sortSucceeded = PlayHistorySortEngine.TrySort(filteredRows, sortParameters, out List<PlayHistoryRow> sortedRows, out string sortProfile);
-        if (!sortSucceeded)
-        {
-            sortedRows = [.. filteredRows];
-        }
-        long sortMs = sortStopwatch.ElapsedMilliseconds;
-        var sortedState = new PlayHistoryViewState(
-            state.RequestId,
-            state.PeriodRequest,
-            state.AllProjectedRows,
-            targetRows,
-            filteredRows,
-            state.Diagnostics,
-            state.Provider,
-            state.SchemaStatus,
-            state.SourceCount,
-            sortSnapshot,
-            keywordFilter,
-            keywordRevision,
-            displayTarget,
-            displayTargetRevision,
-            state.SummaryOverride);
         ApplyPlayHistorySortedRows(
             mode,
             requestedMode,
             parameter,
             viewBuildStopwatch,
-            sortedState,
-            sortedRows,
-            sortSucceeded,
-            sortProfile,
+            buildResult.State,
+            [.. buildResult.SortedRows],
+            buildResult.SortSucceeded,
+            buildResult.SortProfile,
             readMs: 0,
             projectionIndexMs: 0,
             projectionIndexCacheHit: false,
             projectionIndexStaleRetries: 0,
             projectionMs: 0,
             periodIndexMs: 0,
-            keywordMs: keywordMs,
-            keywordCount: filteredRows.Count,
+            keywordMs: buildResult.KeywordMs,
+            keywordCount: buildResult.KeywordCount,
             archivePeriodTree: null,
-            sortMs,
+            buildResult.SortMs,
             fromSortOnly: true);
         return true;
     }
