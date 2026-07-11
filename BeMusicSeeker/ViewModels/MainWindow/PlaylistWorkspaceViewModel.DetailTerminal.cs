@@ -1,7 +1,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Runtime.ExceptionServices;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -243,89 +242,67 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             throw new ArgumentException("Source rows are required when replacing the playlist source.", nameof(request));
         }
-        RegularChartListOwner columnOwner = detailColumnOwner
-            ?? throw new InvalidOperationException("Playlist detail terminal ownership is not configured.");
+        if (detailColumnOwner == null)
+        {
+            throw new InvalidOperationException("Playlist detail terminal ownership is not configured.");
+        }
 
         var result = new PlaylistDetailTerminalCommitResult();
-        MainChartListRowsTransition transition = detailMainChartList.PrepareRowsTransition(request.MainRowsRequest);
-        Exception commitException = null;
-        ExceptionDispatchInfo preTransferException = null;
-        bool cancelTransition = false;
-        lock (DetailBuildState.SyncRoot)
+        bool CommitDetailPresentation(Action commitRows)
         {
-            if (request.CancellationToken.IsCancellationRequested
-                || request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion)
+            lock (DetailBuildState.SyncRoot)
             {
-                cancelTransition = true;
-            }
-            else
-            {
-                try
+                if (request.CancellationToken.IsCancellationRequested
+                    || request.BuildRequest.RequestVersion != DetailBuildState.RequestVersion)
                 {
-                    DetailViewState.CommitTerminal(
-                        request,
-                        result,
-                        transition.CommitOwnership,
-                        () =>
-                        {
-                            result.ColumnPresentationCommit = CommitColumnPresentationWithoutNotification(
-                                request.ColumnSelection.PlaylistColumnSettingsVisibility,
-                                request.ColumnSelection.PlaylistSummaryColumnsSettings);
-                            result.AppliedColumnMode = request.ColumnSelection.AppliedMode;
-                            detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
-                        });
+                    return false;
                 }
-                catch (Exception ex)
-                {
-                    if (!transition.OwnershipTransferred)
+                DetailViewState.CommitTerminal(
+                    request,
+                    result,
+                    commitRows,
+                    () =>
                     {
-                        cancelTransition = true;
-                        preTransferException = ExceptionDispatchInfo.Capture(ex);
-                    }
-                    else
-                    {
-                        commitException = ex;
-                    }
-                }
+                        result.ColumnPresentationCommit = CommitColumnPresentationWithoutNotification(
+                            request.ColumnSelection.PlaylistColumnSettingsVisibility,
+                            request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                        result.AppliedColumnMode = request.ColumnSelection.AppliedMode;
+                        detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
+                    });
+                return true;
             }
-        }
-        if (cancelTransition)
-        {
-            transition.Cancel();
-            preTransferException?.Throw();
-            return result;
         }
 
-        var publishExceptions = new List<Exception>();
-        if (commitException != null)
+        void PublishDetailPresentation()
         {
-            publishExceptions.Add(commitException);
+            if (result.ColumnPresentationCommit != null)
+            {
+                PublishColumnPresentation(result.ColumnPresentationCommit);
+            }
         }
-        TryTerminalPublish(() => result.MainRowsApply = transition.Complete(), publishExceptions);
-        if (result.ColumnPresentationCommit != null)
+
+        MainChartListPresentationApplyResult applied;
+        try
         {
-            TryTerminalPublish(() => PublishColumnPresentation(result.ColumnPresentationCommit), publishExceptions);
+            applied = detailMainChartList.ApplyPresentation(
+                request.MainRowsRequest,
+                CommitDetailPresentation,
+                PublishDetailPresentation);
         }
-        if (publishExceptions.Count > 0)
+        catch (MainChartListPresentationPublishException ex)
         {
+            result.MainRowsApply = ex.RowsApply;
             throw new PlaylistDetailTerminalPublishException(
-                new AggregateException(publishExceptions),
+                ex.InnerException ?? ex,
                 ownershipTransferred: true,
                 result);
         }
+        if (!applied.WasApplied)
+        {
+            return result;
+        }
+        result.MainRowsApply = applied.RowsApply;
         return result;
-    }
-
-    private static void TryTerminalPublish(Action action, ICollection<Exception> exceptions)
-    {
-        try
-        {
-            action();
-        }
-        catch (Exception ex)
-        {
-            exceptions.Add(ex);
-        }
     }
 
     private static int CountDetailRows(System.Collections.IEnumerable rows)

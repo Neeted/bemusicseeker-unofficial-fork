@@ -192,9 +192,10 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(playlistTerminalApplySource, "lock (DetailBuildState.SyncRoot)");
         StringAssert.Contains(playlistTerminalApplySource, "DetailViewState.CommitTerminal(");
         StringAssert.Contains(playlistViewStateSource, "lock (SyncRoot)");
-        StringAssert.Contains(playlistTerminalApplySource, "detailMainChartList.PrepareRowsTransition(");
-        StringAssert.Contains(playlistTerminalApplySource, "transition.CommitOwnership");
-        StringAssert.Contains(playlistTerminalApplySource, "transition.Complete()");
+        StringAssert.Contains(playlistTerminalApplySource, "detailMainChartList.ApplyPresentation(");
+        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("PrepareRowsTransition(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("transition.CommitOwnership", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("transition.Complete()", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("ApplyCoordinatedRows(", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("ApplyPlaylistDetailTerminal", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("CommitPreparedRowsWithoutDisposal", StringComparison.Ordinal));
