@@ -72,10 +72,10 @@ public sealed class MainWindowContextMenuResourceTests
             StringAssert.Contains(playHistoryTree, "Path=Resources." + resource + ", Mode=OneWay", resource);
             Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.ResourceManager.GetString(resource)), resource);
         }
-        StringAssert.Contains(playHistoryTree, "ItemsSource=\"{Binding PlayHistoryArchivePeriodTree}\"");
+        StringAssert.Contains(playHistoryTree, "ItemsSource=\"{Binding PlayHistory.ArchivePeriodTree}\"");
         StringAssert.Contains(playHistoryTree, "<HierarchicalDataTemplate DataType=\"{x:Type vm:PlayHistoryPeriodTreeItem}\" ItemsSource=\"{Binding Children}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\">");
         StringAssert.Contains(playHistoryTree, "<DataTemplate x:Key=\"templateTreeViewItemHeaderPlayHistoryPeriod\">");
-        StringAssert.Contains(playHistoryTree, "<TreeViewItem Focusable=\"False\" HeaderTemplate=\"{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}\" ItemsSource=\"{Binding PlayHistoryArchivePeriodTree}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\" />");
+        StringAssert.Contains(playHistoryTree, "<TreeViewItem Focusable=\"False\" HeaderTemplate=\"{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}\" Header=\"{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}\" ItemsSource=\"{Binding PlayHistory.ArchivePeriodTree}\" ItemContainerStyle=\"{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}\" />");
     }
 
     [TestMethod]
@@ -176,11 +176,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
         StringAssert.Contains(summaryRow, "P0={Binding IsPlayHistoryViewActive}");
         StringAssert.Contains(summaryRow, "P1={Binding PlaylistWorkspace.IsPlaylistSummaryMode}");
-        StringAssert.Contains(summaryRow, "ItemsSource=\"{Binding PlayHistorySummaryCards}\"");
-        StringAssert.Contains(summaryRow, "Text=\"{Binding PlayHistorySummaryDiagnosticText}\"");
+        StringAssert.Contains(summaryRow, "ItemsSource=\"{Binding PlayHistory.SummaryCards}\"");
+        StringAssert.Contains(summaryRow, "Text=\"{Binding PlayHistory.SummaryDiagnosticText}\"");
+        StringAssert.Contains(summaryRow, "Visibility=\"{Binding PlayHistory.SummaryDiagnosticText");
         StringAssert.Contains(summaryRow, "Text=\"{Binding Label}\"");
         StringAssert.Contains(summaryRow, "Text=\"{Binding Value}\"");
-        StringAssert.Contains(summaryRow, "Command=\"{Binding DataContext.TogglePlayHistorySummaryCardFilterCommand");
+        StringAssert.Contains(summaryRow, "Command=\"{Binding DataContext.PlayHistory.ToggleSummaryFilterCommand");
         StringAssert.Contains(summaryRow, "CommandParameter=\"{Binding}\"");
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding Compact}\" Value=\"True\">");
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding IsSelected}\" Value=\"True\">");
@@ -198,6 +199,11 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playHistoryWorkflowCode, "BuildPresentationOnly(");
         StringAssert.Contains(playHistoryWorkflowCode, "BuildReadPresentation(");
         StringAssert.Contains(playHistoryWorkflowCode, "BuildReadView(");
+        StringAssert.Contains(playHistoryWorkflowCode, "public sealed class PlayHistoryWorkflowOwner : ViewModel");
+        StringAssert.Contains(playHistoryWorkflowCode, "public IReadOnlyList<PlayHistoryPeriodTreeItem> ArchivePeriodTree");
+        StringAssert.Contains(playHistoryWorkflowCode, "public IReadOnlyList<PlayHistorySummaryCard> SummaryCards");
+        StringAssert.Contains(playHistoryWorkflowCode, "public string SummaryDiagnosticText");
+        StringAssert.Contains(playHistoryWorkflowCode, "public ListenerCommand<PlayHistorySummaryCard> ToggleSummaryFilterCommand");
         StringAssert.Contains(presentationOnlyMethod, "playHistoryWorkflowOwner.BuildPresentationOnly(");
         Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
         Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
@@ -210,6 +216,13 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.ReadCache"));
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.CreateProjectionResult"));
         Assert.IsFalse(rootViewModelCode.Contains("ResolveBeatorajaPeriodSummaryOverride"));
+        Assert.IsFalse(rootViewModelCode.Contains("public IReadOnlyList<PlayHistoryPeriodTreeItem> PlayHistoryArchivePeriodTree"));
+        Assert.IsFalse(rootViewModelCode.Contains("public IReadOnlyList<PlayHistorySummaryCard> PlayHistorySummaryCards"));
+        Assert.IsFalse(rootViewModelCode.Contains("public string PlayHistorySummaryDiagnosticText"));
+        Assert.IsFalse(rootViewModelCode.Contains("TogglePlayHistorySummaryCardFilterCommand"));
+        Assert.IsFalse(rootViewModelCode.Contains("RaisePropertyChanged(\"PlayHistoryArchivePeriodTree\")"));
+        Assert.IsFalse(rootViewModelCode.Contains("RaisePropertyChanged(\"PlayHistorySummaryCards\")"));
+        Assert.IsFalse(rootViewModelCode.Contains("RaisePropertyChanged(\"PlayHistorySummaryDiagnosticText\")"));
         StringAssert.Contains(rootViewModelCode, "playHistoryWorkflowOwner.BuildReadView(");
         StringAssert.Contains(mainChartListCode, "PrepareRowsTransition(");
         Assert.IsFalse(mainChartListCode.Contains("ApplyCoordinatedRows("));

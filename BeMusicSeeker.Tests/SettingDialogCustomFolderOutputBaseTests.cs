@@ -448,7 +448,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 && item.Mode == PlayHistoryDisplayTargetMode.ProjectOnly
                 && item.TargetSet.Name == "Saved");
             viewModel.SelectedPlayHistoryDisplayTargetIdentity = target.Identity;
-            PlayHistoryWorkflowOwner owner = GetViewModelField<PlayHistoryWorkflowOwner>(viewModel, "playHistoryWorkflowOwner");
+            PlayHistoryWorkflowOwner owner = viewModel.PlayHistory;
             long revisionBeforeChange = owner.DisplayTargetRevision;
             Settings.Default.PlayHistoryDisplayTargetSetsJson = PlayHistoryDisplayTargetSetStore.Serialize(
             [

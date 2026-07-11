@@ -6,16 +6,19 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using Livet;
+using Livet.Commands;
 
 namespace BeMusicSeeker.ViewModels;
 
-internal sealed class PlayHistoryWorkflowOwner
+public sealed class PlayHistoryWorkflowOwner : ViewModel
 {
     private long keywordQueuedRevision = -1L;
     private int keywordActiveCount;
     private long displayTargetQueuedRevision = -1L;
     private int displayTargetActiveCount;
     private ChartListSortParameters sortParameters;
+    private ListenerCommand<PlayHistorySummaryCard> toggleSummaryFilterCommand;
 
     internal PlayHistoryWorkflowOwner()
     {
@@ -23,6 +26,17 @@ internal sealed class PlayHistoryWorkflowOwner
     }
 
     internal PlayHistoryPresentationState PresentationState { get; } = new();
+
+    internal event EventHandler SummaryFilterRefreshRequested;
+
+    public IReadOnlyList<PlayHistoryPeriodTreeItem> ArchivePeriodTree => PresentationState.ArchivePeriodTree;
+
+    public IReadOnlyList<PlayHistorySummaryCard> SummaryCards => PresentationState.SummaryCards;
+
+    public string SummaryDiagnosticText => PresentationState.DiagnosticText;
+
+    public ListenerCommand<PlayHistorySummaryCard> ToggleSummaryFilterCommand =>
+        toggleSummaryFilterCommand ??= new ListenerCommand<PlayHistorySummaryCard>(ToggleSummaryFilterCard);
 
     private readonly PlayHistoryReadCache readCache = new();
 
@@ -35,19 +49,51 @@ internal sealed class PlayHistoryWorkflowOwner
         readCache.Invalidate();
     }
 
-    internal void ToggleSummaryFilter(string filterKey)
+    private void ToggleSummaryFilterCard(PlayHistorySummaryCard card)
     {
-        if (string.IsNullOrEmpty(filterKey))
+        if (card?.IsFilterable != true)
         {
             return;
         }
+        bool cardsChanged;
         lock (PresentationState.SyncRoot)
         {
-            if (!selectedSummaryFilterKeys.Add(filterKey))
-            {
-                selectedSummaryFilterKeys.Remove(filterKey);
-            }
+            ToggleSummaryFilterUnsafe(card.FilterKey);
+            cardsChanged = PresentationState.SetSummaryCards(
+                ApplySummaryFilterSelection(PresentationState.SummaryCards, selectedSummaryFilterKeys));
         }
+        if (cardsChanged)
+        {
+            RaisePropertyChanged(nameof(SummaryCards));
+        }
+        SummaryFilterRefreshRequested?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ToggleSummaryFilterUnsafe(string filterKey)
+    {
+        if (!selectedSummaryFilterKeys.Add(filterKey))
+        {
+            selectedSummaryFilterKeys.Remove(filterKey);
+        }
+    }
+
+    private static IReadOnlyList<PlayHistorySummaryCard> ApplySummaryFilterSelection(
+        IReadOnlyList<PlayHistorySummaryCard> cards,
+        ISet<string> selectedKeys)
+    {
+        if ((cards?.Count ?? 0) == 0)
+        {
+            return [];
+        }
+        return [.. cards.Select(card => card == null
+            ? null
+            : new PlayHistorySummaryCard(
+                card.Label,
+                card.Value,
+                card.Compact,
+                card.FilterKey,
+                card.FilterText,
+                card.IsFilterable && selectedKeys.Contains(card.FilterKey)))];
     }
 
     internal HashSet<string> SnapshotSummaryFilterKeys(PlayHistoryProvider? provider = null)
@@ -77,6 +123,20 @@ internal sealed class PlayHistoryWorkflowOwner
         {
             selectedSummaryFilterKeys.Clear();
         }
+    }
+
+    internal void ClearSummaryPresentation()
+    {
+        bool cardsChanged;
+        bool diagnosticChanged;
+        lock (PresentationState.SyncRoot)
+        {
+            selectedSummaryFilterKeys.Clear();
+            cardsChanged = PresentationState.SetSummaryCards([]);
+            diagnosticChanged = PresentationState.SetDiagnosticText(string.Empty);
+        }
+        if (cardsChanged) RaisePropertyChanged(nameof(SummaryCards));
+        if (diagnosticChanged) RaisePropertyChanged(nameof(SummaryDiagnosticText));
     }
 
     private void PruneSummaryFilters(PlayHistoryProvider provider)
@@ -454,6 +514,7 @@ internal sealed class PlayHistoryWorkflowOwner
         }
         TryPublish(() => result.MainRowsApply = transition.Complete(), publishExceptions);
         TryPublish(() => PublishRelatedPresentation(result, playlistWorkspace), publishExceptions);
+        TryPublish(() => PublishOwnPresentation(result), publishExceptions);
         if (publishExceptions.Count > 0)
         {
             throw new PlayHistoryTerminalPublishException(
@@ -1049,6 +1110,27 @@ internal sealed class PlayHistoryWorkflowOwner
         if (result.BindingMode != null)
         {
             TryPublish(() => playlistWorkspace.PublishBindingMode(result.BindingMode), publishExceptions);
+        }
+        if (publishExceptions.Count > 0)
+        {
+            throw new AggregateException(publishExceptions);
+        }
+    }
+
+    private void PublishOwnPresentation(PlayHistoryTerminalCommitResult result)
+    {
+        var publishExceptions = new List<Exception>();
+        if (result.ArchivePeriodTreeChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(ArchivePeriodTree)), publishExceptions);
+        }
+        if (result.SummaryCardsChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(SummaryCards)), publishExceptions);
+        }
+        if (result.DiagnosticTextChanged)
+        {
+            TryPublish(() => RaisePropertyChanged(nameof(SummaryDiagnosticText)), publishExceptions);
         }
         if (publishExceptions.Count > 0)
         {

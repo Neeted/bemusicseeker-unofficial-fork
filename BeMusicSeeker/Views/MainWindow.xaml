@@ -1877,8 +1877,8 @@
           </Border>
           <Border Grid.Row="2" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}" BorderBrush="{DynamicResource App.BorderBrush}" BorderThickness="0,0,0,1" Padding="4,3" Visibility="{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed', P0={Binding IsPlayHistoryViewActive}, P1={Binding PlaylistWorkspace.IsPlaylistSummaryMode}}">
             <DockPanel LastChildFill="True">
-              <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="11" Foreground="{DynamicResource App.WarningTextBrush}" Text="{Binding PlayHistorySummaryDiagnosticText}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0,2,0" Visibility="{Binding PlayHistorySummaryDiagnosticText, Converter={qc:QuickConverter 'String.IsNullOrWhiteSpace($P) ? Visibility.Collapsed : Visibility.Visible'}}" />
-              <ItemsControl ItemsSource="{Binding PlayHistorySummaryCards}">
+              <TextBlock DockPanel.Dock="Right" FontFamily="Meiryo" FontSize="11" Foreground="{DynamicResource App.WarningTextBrush}" Text="{Binding PlayHistory.SummaryDiagnosticText}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" Margin="8,0,2,0" Visibility="{Binding PlayHistory.SummaryDiagnosticText, Converter={qc:QuickConverter 'String.IsNullOrWhiteSpace($P) ? Visibility.Collapsed : Visibility.Visible'}}" />
+              <ItemsControl ItemsSource="{Binding PlayHistory.SummaryCards}">
                 <ItemsControl.ItemsPanel>
                   <ItemsPanelTemplate>
                     <WrapPanel Orientation="Horizontal" />
@@ -1886,7 +1886,7 @@
                 </ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                   <DataTemplate>
-                    <Button Command="{Binding DataContext.TogglePlayHistorySummaryCardFilterCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" CommandParameter="{Binding}" ToolTip="{Binding FilterText}">
+                    <Button Command="{Binding DataContext.PlayHistory.ToggleSummaryFilterCommand, RelativeSource={RelativeSource AncestorType={x:Type ItemsControl}}}" CommandParameter="{Binding}" ToolTip="{Binding FilterText}">
                       <Button.Style>
                         <Style TargetType="{x:Type Button}">
                           <Setter Property="OverridesDefaultStyle" Value="True" />
@@ -2486,7 +2486,7 @@
               <TreeViewItem Tag="Yesterday" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_yesterday, Mode=OneWay}" />
               <TreeViewItem Tag="Recent7Days" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_recent_7_days, Mode=OneWay}" />
               <TreeViewItem Tag="Recent30Days" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_recent_30_days, Mode=OneWay}" />
-              <TreeViewItem Focusable="False" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}" ItemsSource="{Binding PlayHistoryArchivePeriodTree}" ItemContainerStyle="{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}" />
+              <TreeViewItem Focusable="False" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_archive, Mode=OneWay}" ItemsSource="{Binding PlayHistory.ArchivePeriodTree}" ItemContainerStyle="{StaticResource styleTreeViewItemPlayHistoryPeriodContainer}" />
               <TreeViewItem Tag="Diagnostics" HeaderTemplate="{StaticResource templateTreeViewItemHeaderPlayHistoryPeriod}" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Play_history_period_diagnostics, Mode=OneWay}" />
             </TreeViewItem>
   </TreeView>

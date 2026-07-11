@@ -877,7 +877,7 @@ public sealed class ChartListVirtualViewTests
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
-        workflowOwner.ToggleSummaryFilter("exhard");
+        SelectSummaryFilter(workflowOwner, "exhard");
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
         var callerRows = new List<PlayHistoryRow>();
         var applyRequest = new PlayHistorySortedRowsApplyRequest(
@@ -971,7 +971,7 @@ public sealed class ChartListVirtualViewTests
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
-        workflowOwner.ToggleSummaryFilter("exhard");
+        SelectSummaryFilter(workflowOwner, "exhard");
 
         PlayHistorySortedRowsApplyResult result = workflowOwner.ApplySortedRows(
             new PlayHistorySortedRowsApplyRequest(
@@ -1406,7 +1406,7 @@ public sealed class ChartListVirtualViewTests
             out MainChartListViewModel table,
             propertyName =>
             {
-                if (propertyName == nameof(MainWindowViewModel.PlayHistorySummaryCards))
+                if (propertyName == nameof(PlayHistoryWorkflowOwner.SummaryCards))
                 {
                     shellPublished = true;
                 }
@@ -1432,6 +1432,49 @@ public sealed class ChartListVirtualViewTests
         Assert.IsTrue(exception.OwnershipTransferred);
         Assert.IsTrue(shellPublished);
         Assert.AreSame(request.SummaryCards, state.SummaryCards);
+    }
+
+    [TestMethod]
+    public void PlayHistoryTerminal_OwnerNotificationFailureDoesNotSuppressLaterNotifications()
+    {
+        var propertyNames = new List<string>();
+        PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(
+            out PlayHistoryPresentationState state,
+            out MainChartListViewModel table,
+            propertyName =>
+            {
+                propertyNames.Add(propertyName);
+                if (propertyName == nameof(PlayHistoryWorkflowOwner.ArchivePeriodTree))
+                {
+                    throw new InvalidOperationException("archive binding failed");
+                }
+            });
+        state.RequestGeneration = 1;
+        table.Rows = new List<object>();
+        PlayHistoryTerminalRequest request = CreatePlayHistoryTerminalRequest(
+            new List<object> { new object() },
+            "committed",
+            requestId: 1);
+        request.ArchivePeriodTree = [new PlayHistoryPeriodTreeItem("archive", PlayHistoryPeriodRequest.All())];
+        request.SummaryCards = [new PlayHistorySummaryCard("Label", "Value")];
+        request.DiagnosticText = "diagnostic";
+
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
+            () => owner.TryApply(request));
+
+        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.IsNotNull(exception.TerminalCommitResult);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                nameof(PlayHistoryWorkflowOwner.ArchivePeriodTree),
+                nameof(PlayHistoryWorkflowOwner.SummaryCards),
+                nameof(PlayHistoryWorkflowOwner.SummaryDiagnosticText)
+            },
+            propertyNames);
+        Assert.AreSame(request.ArchivePeriodTree, state.ArchivePeriodTree);
+        Assert.AreSame(request.SummaryCards, state.SummaryCards);
+        Assert.AreEqual("diagnostic", state.DiagnosticText);
     }
 
     [TestMethod]
@@ -3905,6 +3948,7 @@ public sealed class ChartListVirtualViewTests
         Action<PlaylistWorkspaceViewModel> configureWorkspace)
     {
         var workflowOwner = new PlayHistoryWorkflowOwner();
+        workflowOwner.PropertyChanged += (_, e) => publishPropertyChanged(e.PropertyName);
         state = workflowOwner.PresentationState;
         table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action());
@@ -3982,18 +4026,6 @@ public sealed class ChartListVirtualViewTests
             }
 
             List<Exception> publishExceptions = [];
-            if (result.ArchivePeriodTreeChanged)
-            {
-                TryPublish(() => publishPropertyChanged(nameof(MainWindowViewModel.PlayHistoryArchivePeriodTree)), publishExceptions);
-            }
-            if (result.SummaryCardsChanged)
-            {
-                TryPublish(() => publishPropertyChanged(nameof(MainWindowViewModel.PlayHistorySummaryCards)), publishExceptions);
-            }
-            if (result.DiagnosticTextChanged)
-            {
-                TryPublish(() => publishPropertyChanged(nameof(MainWindowViewModel.PlayHistorySummaryDiagnosticText)), publishExceptions);
-            }
             if (result.PlaylistSourceClear != null)
             {
                 TryPublish(() => playlistBuildState.PublishSourceClear(result.PlaylistSourceClear), publishExceptions);
@@ -4032,12 +4064,7 @@ public sealed class ChartListVirtualViewTests
 
         private static bool HasShellStateToPublish(PlayHistoryTerminalCommitResult result)
         {
-            return result != null
-                && (result.Applied
-                    || result.ArchivePeriodTreeChanged
-                    || result.SummaryCardsChanged
-                    || result.DiagnosticTextChanged
-                    || result.PlaylistSourceClear != null);
+            return result?.PlaylistSourceClear != null;
         }
 
         private static void TryPublish(Action action, ICollection<Exception> exceptions)
@@ -4112,6 +4139,16 @@ public sealed class ChartListVirtualViewTests
             keywordFilterRevision: 0,
             PlayHistoryDisplayTargetItem.All,
             displayTargetRevision: 0);
+    }
+
+    private static void SelectSummaryFilter(PlayHistoryWorkflowOwner owner, string filterKey)
+    {
+        PlayHistorySummaryCard card = PlayHistoryPresentationState.CreateSummaryCards(
+                PlayHistoryPeriodSummary.FromRows("All", []),
+                PlayHistoryProvider.Beatoraja)
+            .Single(item => item.FilterKey == filterKey);
+        owner.PresentationState.SetSummaryCards([card]);
+        owner.ToggleSummaryFilterCommand.Execute(card);
     }
 
     private sealed class ThrowingFolderBmsFile : BMSFile

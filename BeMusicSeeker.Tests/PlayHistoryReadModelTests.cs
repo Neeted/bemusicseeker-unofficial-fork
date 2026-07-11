@@ -1488,13 +1488,46 @@ public sealed class PlayHistoryReadModelTests
     public void SelectPlaylistSummaryClearsPlayHistorySummaryPresentation()
     {
         var viewModel = new MainWindowViewModel();
-        SetMainWindowViewModelProperty(viewModel, nameof(MainWindowViewModel.PlayHistorySummaryCards), new[] { new PlayHistorySummaryCard(Resources.Play_history_summary_judge_count, "1") });
-        SetMainWindowViewModelProperty(viewModel, nameof(MainWindowViewModel.PlayHistorySummaryDiagnosticText), "diagnostic");
+        var archive = new[] { new PlayHistoryPeriodTreeItem("archive", PlayHistoryPeriodRequest.All()) };
+        viewModel.PlayHistory.PresentationState.SetArchivePeriodTree(archive);
+        viewModel.PlayHistory.PresentationState.SetSummaryCards(new[] { new PlayHistorySummaryCard(Resources.Play_history_summary_judge_count, "1") });
+        viewModel.PlayHistory.PresentationState.SetDiagnosticText("diagnostic");
 
         viewModel.SelectPlaylistSummary();
 
-        Assert.AreEqual(0, viewModel.PlayHistorySummaryCards.Count);
-        Assert.AreEqual(string.Empty, viewModel.PlayHistorySummaryDiagnosticText);
+        Assert.AreEqual(0, viewModel.PlayHistory.SummaryCards.Count);
+        Assert.AreEqual(string.Empty, viewModel.PlayHistory.SummaryDiagnosticText);
+        Assert.AreSame(archive, viewModel.PlayHistory.ArchivePeriodTree);
+    }
+
+    [TestMethod]
+    public void SummaryFilterCommandUpdatesChildPresentationBeforeRequestingRefresh()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistorySummaryCard scoreCard = PlayHistoryPresentationState.CreateSummaryCards(
+            PlayHistoryPeriodSummary.FromRows("All", []),
+            PlayHistoryProvider.Lr2).Single(card => card.FilterKey == "score");
+        owner.PresentationState.SetSummaryCards([scoreCard]);
+        var propertyNames = new List<string>();
+        int refreshRequests = 0;
+        bool selectedWhenRefreshRequested = false;
+        owner.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        owner.SummaryFilterRefreshRequested += (_, _) =>
+        {
+            refreshRequests++;
+            selectedWhenRefreshRequested = owner.SummaryCards.Single().IsSelected;
+        };
+
+        owner.ToggleSummaryFilterCommand.Execute(scoreCard);
+
+        Assert.IsTrue(owner.SummaryCards.Single().IsSelected);
+        Assert.IsTrue(selectedWhenRefreshRequested);
+        Assert.AreEqual(1, refreshRequests);
+        CollectionAssert.AreEqual(new[] { nameof(PlayHistoryWorkflowOwner.SummaryCards) }, propertyNames);
+
+        owner.ToggleSummaryFilterCommand.Execute(new PlayHistorySummaryCard("label", "value"));
+        Assert.AreEqual(1, refreshRequests);
+        Assert.AreEqual(1, propertyNames.Count);
     }
 
     [TestMethod]
@@ -2846,13 +2879,6 @@ public sealed class PlayHistoryReadModelTests
             ]
         };
         return table;
-    }
-
-    private static void SetMainWindowViewModelProperty<T>(MainWindowViewModel viewModel, string propertyName, T value)
-    {
-        typeof(MainWindowViewModel)
-            .GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!
-            .SetValue(viewModel, value);
     }
 
     private static void SetPrivateField<T>(MainWindowViewModel viewModel, string fieldName, T value)

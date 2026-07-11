@@ -120,6 +120,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
 
+    public PlayHistoryWorkflowOwner PlayHistory { get; }
+
     internal MainChartListSortCoordinator MainChartListSort { get; }
 
     internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
@@ -618,7 +620,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private string _WindowTitle = "BeMusicSeeker Unofficial Fork - ";
 
-    private readonly PlayHistoryWorkflowOwner playHistoryWorkflowOwner = new();
+    private PlayHistoryWorkflowOwner playHistoryWorkflowOwner => PlayHistory;
 
     private PlayHistoryPresentationState playHistoryPresentationState => playHistoryWorkflowOwner.PresentationState;
 
@@ -660,8 +662,6 @@ public partial class MainWindowViewModel : ViewModel
     private long lastPlaylistDetailBuildCompletedTimestamp;
 
     private long lastPlaylistDetailBuildElapsedMs;
-
-    private ListenerCommand<PlayHistorySummaryCard> _TogglePlayHistorySummaryCardFilterCommand;
 
     private readonly DropInstallQueueProcessor dropInstallQueueProcessor;
 
@@ -3960,21 +3960,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public IReadOnlyList<PlayHistoryPeriodTreeItem> PlayHistoryArchivePeriodTree
-    {
-        get
-        {
-            return playHistoryPresentationState.ArchivePeriodTree;
-        }
-        private set
-        {
-            if (playHistoryPresentationState.SetArchivePeriodTree(value))
-            {
-                RaisePropertyChanged("PlayHistoryArchivePeriodTree");
-            }
-        }
-    }
-
     private void IncrementNormalLibrarySourceGeneration(string reason)
     {
         int cacheCount = regularChartListOwner.InvalidateSource();
@@ -4964,79 +4949,6 @@ public partial class MainWindowViewModel : ViewModel
         bool stale = currentSourceGenerationId != expectedSourceGenerationId || currentViewGenerationId != expectedViewGenerationId;
         LogPlaylistRetention("playlist_ui_retention_checkpoint checkpoint=" + checkpoint + " expectedSourceGenerationId=" + expectedSourceGenerationId + " expectedViewGenerationId=" + expectedViewGenerationId + " currentSourceGenerationId=" + currentSourceGenerationId + " currentViewGenerationId=" + currentViewGenerationId + " stale=" + stale + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + currentViewRowsAlive + " lastAppliedViewCount=" + lastAppliedViewCount);
         LogPlaylistWeakReferenceStatus("ui_" + checkpoint);
-    }
-
-    public IReadOnlyList<PlayHistorySummaryCard> PlayHistorySummaryCards
-    {
-        get
-        {
-            return playHistoryPresentationState.SummaryCards;
-        }
-        private set
-        {
-            if (playHistoryPresentationState.SetSummaryCards(value))
-            {
-                RaisePropertyChanged("PlayHistorySummaryCards");
-            }
-        }
-    }
-
-    public ListenerCommand<PlayHistorySummaryCard> TogglePlayHistorySummaryCardFilterCommand
-    {
-        get
-        {
-            _TogglePlayHistorySummaryCardFilterCommand ??= new ListenerCommand<PlayHistorySummaryCard>(TogglePlayHistorySummaryCardFilter);
-            return _TogglePlayHistorySummaryCardFilterCommand;
-        }
-    }
-
-    public void TogglePlayHistorySummaryCardFilter(PlayHistorySummaryCard card)
-    {
-        if (card?.IsFilterable != true)
-        {
-            return;
-        }
-        playHistoryWorkflowOwner.ToggleSummaryFilter(card.FilterKey);
-        PlayHistorySummaryCards = ApplyPlayHistorySummaryFilterSelection(PlayHistorySummaryCards);
-        QueuePlayHistoryKeywordFilterRefresh();
-    }
-
-    private IReadOnlyList<PlayHistorySummaryCard> ApplyPlayHistorySummaryFilterSelection(IReadOnlyList<PlayHistorySummaryCard> cards)
-    {
-        HashSet<string> selectedKeys = playHistoryWorkflowOwner.SnapshotSummaryFilterKeys();
-        if ((cards?.Count ?? 0) == 0)
-        {
-            return [];
-        }
-        return [.. cards.Select(card => card == null
-            ? null
-            : new PlayHistorySummaryCard(
-                card.Label,
-                card.Value,
-                card.Compact,
-                card.FilterKey,
-                card.FilterText,
-                card.IsFilterable && selectedKeys.Contains(card.FilterKey)))];
-    }
-
-    private void ClearPlayHistorySummaryCardFilters()
-    {
-        playHistoryWorkflowOwner.ClearSummaryFilters();
-    }
-
-    public string PlayHistorySummaryDiagnosticText
-    {
-        get
-        {
-            return playHistoryPresentationState.DiagnosticText;
-        }
-        private set
-        {
-            if (playHistoryPresentationState.SetDiagnosticText(value))
-            {
-                RaisePropertyChanged("PlayHistorySummaryDiagnosticText");
-            }
-        }
     }
 
     public bool IsDropInstallQueueActive
@@ -6533,6 +6445,8 @@ public partial class MainWindowViewModel : ViewModel
             () => DispatcherHelper.UIDispatcher);
         MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction);
         PlaylistWorkspace = new PlaylistWorkspaceViewModel(DispatchMainChartListAction);
+        PlayHistory = new PlayHistoryWorkflowOwner();
+        PlayHistory.SummaryFilterRefreshRequested += (_, _) => QueuePlayHistoryKeywordFilterRefresh();
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(PlaylistWorkspace);
         PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
             () => tables,
@@ -10581,18 +10495,6 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         List<Exception> publishExceptions = [];
-        if (terminalCommit.ArchivePeriodTreeChanged)
-        {
-            TryPlayHistoryTerminalShellPublish(() => RaisePropertyChanged("PlayHistoryArchivePeriodTree"), publishExceptions);
-        }
-        if (terminalCommit.SummaryCardsChanged)
-        {
-            TryPlayHistoryTerminalShellPublish(() => RaisePropertyChanged("PlayHistorySummaryCards"), publishExceptions);
-        }
-        if (terminalCommit.DiagnosticTextChanged)
-        {
-            TryPlayHistoryTerminalShellPublish(() => RaisePropertyChanged("PlayHistorySummaryDiagnosticText"), publishExceptions);
-        }
         if (terminalCommit.PlaylistSourceClear != null)
         {
             TryPlayHistoryTerminalShellPublish(() => playlistDetailBuildState.PublishSourceClear(terminalCommit.PlaylistSourceClear), publishExceptions);
@@ -10600,7 +10502,10 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (publishExceptions.Count > 0)
         {
-            throw new PlayHistoryTerminalPublishException(new AggregateException(publishExceptions), ownershipTransferred: true);
+            throw new PlayHistoryTerminalPublishException(
+                new AggregateException(publishExceptions),
+                ownershipTransferred: true,
+                terminalCommit);
         }
     }
 
@@ -10626,12 +10531,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private static bool HasPlayHistoryTerminalShellStateToPublish(PlayHistoryTerminalCommitResult terminalCommit)
     {
-        return terminalCommit != null
-            && (terminalCommit.Applied
-                || terminalCommit.ArchivePeriodTreeChanged
-                || terminalCommit.SummaryCardsChanged
-                || terminalCommit.DiagnosticTextChanged
-                || terminalCommit.PlaylistSourceClear != null);
+        return terminalCommit?.PlaylistSourceClear != null;
     }
 
     private static void TryPlayHistoryTerminalShellPublish(Action action, ICollection<Exception> exceptions)
@@ -10666,7 +10566,7 @@ public partial class MainWindowViewModel : ViewModel
             treeViewFilterTypeSelected = mode;
             treeViewFilterParameterSelected = parameter;
         });
-        ClearPlayHistorySummaryCardFilters();
+        playHistoryWorkflowOwner.ClearSummaryFilters();
     }
 
     private string ResolveMainViewLr2PlayHistoryScoreDbPath()
@@ -14229,9 +14129,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
         SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
-        ClearPlayHistorySummaryCardFilters();
-        PlayHistorySummaryCards = [];
-        PlayHistorySummaryDiagnosticText = string.Empty;
+        PlayHistory.ClearSummaryPresentation();
         SetPlaylistSummaryMode(enabled: true);
         if (wasPlayHistoryViewActive != IsPlayHistoryViewActive)
         {
