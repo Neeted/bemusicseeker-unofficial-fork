@@ -480,14 +480,29 @@ public sealed class RegularChartListOwnerTests
         owner.TryPublishVirtualSourceRows(
             lookup,
             [CreateSourceRow("Folder B", "Bravo"), CreateSourceRow("Folder A", "Alpha")]);
-        RegularChartListEntryRequest request = CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected);
-        owner.SetSort(ChartListSortSpecification.Create("UnsupportedColumn", ListSortDirection.Descending, hasValue: true));
+        owner.QueueSort(new MainChartListSortRequestedEventArgs(
+            "UnsupportedColumn",
+            ListSortDirection.Descending,
+            MainChartListSortTarget.Regular));
 
-        RegularChartListEntryResult result = owner.ApplyRegularView(request);
+        RegularChartListEntryResult result = owner.ApplyMainLibraryView(
+            new ChartListRefreshRoute(
+                ChartListRefreshRouteKind.ContinueMainLibrary,
+                MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
+                MainViewUpdateMode.FolderFilterSelected,
+                isPlaylistTreeActive: false,
+                includeBmsonRows: false),
+            library: null,
+            parameter: null,
+            treeParameter: null,
+            preserveSummary: false,
+            Stopwatch.StartNew());
 
         Assert.IsTrue(result.WasCommitted);
         Assert.AreEqual(RegularChartListEntryRoute.DefaultVirtual, result.Route);
         Assert.IsTrue(result.SortWasReset);
+        Assert.IsNull(owner.CaptureSortParameters());
         Assert.AreEqual("Alpha", ((LibraryChartRow)table.Rows[0]).Title);
         Assert.AreEqual("Bravo", ((LibraryChartRow)table.Rows[1]).Title);
     }

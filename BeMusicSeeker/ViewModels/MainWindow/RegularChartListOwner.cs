@@ -99,19 +99,45 @@ internal sealed class RegularChartListOwner : IDisposable
         this.logWarning = logWarning ?? log;
     }
 
-    internal void SetSort(ChartListSortSpecification sort)
-    {
-        lock (syncRoot)
-        {
-            currentSort = sort;
-        }
-    }
-
     internal ChartListSortSpecification CaptureSort()
     {
         lock (syncRoot)
         {
             return currentSort;
+        }
+    }
+
+    internal ChartListSortParameters CaptureSortParameters()
+    {
+        lock (syncRoot)
+        {
+            return currentSort.HasValue
+                ? new ChartListSortParameters
+                {
+                    ColumnsName = currentSort.RequestedColumnName,
+                    Direction = currentSort.Direction
+                }
+                : null;
+        }
+    }
+
+    internal bool ResetSortParameters(ChartListSortSpecification expectedSort)
+    {
+        lock (syncRoot)
+        {
+            if (!currentSort.HasValue
+                || !expectedSort.HasValue
+                || !string.Equals(currentSort.RequestedColumnName, expectedSort.RequestedColumnName, StringComparison.Ordinal)
+                || currentSort.Direction != expectedSort.Direction)
+            {
+                return false;
+            }
+
+            currentSort = ChartListSortSpecification.Create(
+                columnName: null,
+                ListSortDirection.Ascending,
+                hasValue: false);
+            return true;
         }
     }
 
@@ -1533,6 +1559,10 @@ internal sealed class RegularChartListOwner : IDisposable
                     Reason = request.Mode.ToString()
                 });
             LogDefaultVirtualEntry(request, sort, result, sortWasReset);
+            if (result.WasCommitted && sortWasReset)
+            {
+                ResetSortParameters(sort);
+            }
             return new RegularChartListEntryResult(result.WasCommitted, RegularChartListEntryRoute.DefaultVirtual, sortWasReset);
         }
 
@@ -1560,6 +1590,10 @@ internal sealed class RegularChartListOwner : IDisposable
                     Stopwatch = request.Stopwatch
                 });
             LogSubsetVirtualEntry(request, sort, subset.Name, result, sortWasReset);
+            if (result.WasCommitted && sortWasReset)
+            {
+                ResetSortParameters(sort);
+            }
             return new RegularChartListEntryResult(result.WasCommitted, RegularChartListEntryRoute.SubsetVirtual, sortWasReset);
         }
 
