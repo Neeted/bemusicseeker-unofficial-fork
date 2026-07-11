@@ -120,6 +120,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
 
+    internal MainChartListSortCoordinator MainChartListSort { get; }
+
     internal PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSort { get; }
 
     internal MainWindowRuntimeContext RuntimeContext { get; }
@@ -6583,7 +6585,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
         PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;
-        MainChartList.SortRequested += MainChartListSortRequested;
         regularChartListOwner = new RegularChartListOwner(
             MainChartList,
             PlaylistWorkspace,
@@ -6592,6 +6593,14 @@ public partial class MainWindowViewModel : ViewModel
             LogMainViewBuildWarning,
             playlistDetailBuildState,
             playlistViewState);
+        MainChartListSort = new MainChartListSortCoordinator(
+            regularChartListOwner,
+            () => PlayHistorySortParameters,
+            SetSortParameters,
+            SetPlayHistorySortParameters,
+            () => IsPlayHistoryViewActive,
+            mode => RefreshChartRowsView(mode));
+        MainChartList.SortRequested += (_, e) => MainChartListSort.Apply(e);
         regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -6664,11 +6673,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             RefreshPlaylistSummaryPresentationIfVisible();
         }
-    }
-
-    private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs e)
-    {
-        ApplyMainChartListSort(e.ColumnName, e.Direction, e.Target);
     }
 
     private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -11467,42 +11471,6 @@ public partial class MainWindowViewModel : ViewModel
     public void ResetPlaylistSummaryColumnSetting()
     {
         regularChartListOwner.ResetPlaylistSummaryColumnSetting();
-    }
-
-    private void ApplyMainChartListSort(
-        string columnName,
-        ListSortDirection direction,
-        MainChartListSortTarget target)
-    {
-        if (target == MainChartListSortTarget.PlayHistory)
-        {
-            if (PlayHistorySortParameters == null || PlayHistorySortParameters.ColumnsName != columnName || PlayHistorySortParameters.Direction != direction)
-            {
-                SetPlayHistorySortParameters(new ChartListSortParameters
-                {
-                    ColumnsName = columnName,
-                    Direction = direction
-                });
-                if (IsPlayHistoryViewActive)
-                {
-                    RefreshChartRowsView(MainViewUpdateMode.SortUpdated);
-                }
-            }
-            return;
-        }
-
-        if (regularChartListOwner.TryChangeSort(columnName, direction))
-        {
-            SetSortParameters(new ChartListSortParameters
-            {
-                ColumnsName = columnName,
-                Direction = direction
-            });
-            if (!IsPlayHistoryViewActive)
-            {
-                RefreshChartRowsView(MainViewUpdateMode.SortUpdated);
-            }
-        }
     }
 
     public void ExecFolderFilter(FolderFilterType type, string filterKey = null)
