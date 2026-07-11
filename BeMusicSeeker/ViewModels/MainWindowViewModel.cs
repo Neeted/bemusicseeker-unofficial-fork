@@ -10817,7 +10817,7 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistoryTerminalCommitResult terminalCommit;
         try
         {
-            terminalCommit = MainChartList.ApplyPlayHistoryTerminal(
+            terminalCommit = playHistoryWorkflowOwner.ApplyTerminal(
                 new PlayHistoryTerminalRequest
                 {
                     ViewState = state,
@@ -10837,7 +10837,7 @@ public partial class MainWindowViewModel : ViewModel
                         Stopwatch = viewBuildStopwatch
                     }
                 },
-                playHistoryPresentationState,
+                MainChartList,
                 PlaylistWorkspace,
                 regularChartListOwner,
                 playlistDetailBuildState,

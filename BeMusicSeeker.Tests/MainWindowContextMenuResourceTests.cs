@@ -167,6 +167,7 @@ public sealed class MainWindowContextMenuResourceTests
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string mainChartListCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
+        string playHistoryWorkflowCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
         string presentationStateCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
         string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
 
@@ -183,9 +184,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(summaryRow, "<DataTrigger Binding=\"{Binding IsSelected}\" Value=\"True\">");
         StringAssert.Contains(summaryRow, "App.WarningTextBrush");
         StringAssert.Contains(viewModelCode, "DiagnosticText = diagnosticSummaryText");
+        StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.ApplyTerminal(");
         StringAssert.Contains(presentationStateCode, "SetSummaryCards(request.SummaryCards)");
         StringAssert.Contains(presentationStateCode, "SetDiagnosticText(request.DiagnosticText)");
-        StringAssert.Contains(mainChartListCode, "ApplyPlayHistoryTerminal(");
+        Assert.IsFalse(mainChartListCode.Contains("ApplyPlayHistoryTerminal("));
+        Assert.IsFalse(mainChartListCode.Contains("PlayHistoryTerminalRequest"));
+        Assert.IsFalse(mainChartListCode.Contains("PlayHistoryTerminalCommitResult"));
+        StringAssert.Contains(playHistoryWorkflowCode, "ApplyTerminal(");
         StringAssert.Contains(mainChartListCode, "ApplyCoordinatedRows(");
     }
 

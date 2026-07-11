@@ -28,6 +28,87 @@ internal sealed class PlayHistoryWorkflowOwner
 
     internal PlayHistoryViewRequest ActiveRequest { get; private set; }
 
+    internal PlayHistoryTerminalCommitResult ApplyTerminal(
+        PlayHistoryTerminalRequest request,
+        MainChartListViewModel mainChartList,
+        PlaylistWorkspaceViewModel playlistWorkspace,
+        RegularChartListOwner regularChartListOwner,
+        PlaylistDetailBuildState playlistDetailBuildState,
+        PlaylistDetailViewState playlistDetailViewState)
+    {
+        if (request?.ViewState == null || request.MainRowsRequest?.Rows == null)
+        {
+            throw new ArgumentException("A complete play-history terminal request is required.", nameof(request));
+        }
+        if (mainChartList == null) throw new ArgumentNullException(nameof(mainChartList));
+        if (playlistWorkspace == null) throw new ArgumentNullException(nameof(playlistWorkspace));
+        if (regularChartListOwner == null) throw new ArgumentNullException(nameof(regularChartListOwner));
+        if (playlistDetailBuildState == null) throw new ArgumentNullException(nameof(playlistDetailBuildState));
+        if (playlistDetailViewState == null) throw new ArgumentNullException(nameof(playlistDetailViewState));
+
+        var result = new PlayHistoryTerminalCommitResult();
+        try
+        {
+            MainChartListCoordinatedRowsApplyResult coordinated = mainChartList.ApplyCoordinatedRows(
+                request.MainRowsRequest,
+                commitRows => PresentationState.TryCommitTerminal(
+                    request,
+                    result,
+                    commitRows,
+                    () =>
+                    {
+                        result.PlaylistSourceClear = playlistDetailBuildState.CommitSourceClear(playlistDetailViewState);
+                        result.BindingMode = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
+                        result.ColumnPresentation = playlistWorkspace.CommitColumnPresentationWithoutNotification(
+                            request.ColumnSelection.PlaylistColumnSettingsVisibility,
+                            request.ColumnSelection.PlaylistSummaryColumnsSettings);
+                        if (request.ColumnSelection.AppliedMode.HasValue)
+                        {
+                            regularChartListOwner.CommitExternalColumnMode(request.ColumnSelection.AppliedMode);
+                        }
+                        regularChartListOwner.ResetDerivedCaches();
+                    }),
+                () => PublishRelatedPresentation(result, playlistWorkspace));
+            result.MainRowsApply = coordinated.RowsApply;
+            return result;
+        }
+        catch (MainChartListCoordinatedPublishException ex)
+        {
+            throw new PlayHistoryTerminalPublishException(ex, ownershipTransferred: true, result);
+        }
+    }
+
+    private static void PublishRelatedPresentation(
+        PlayHistoryTerminalCommitResult result,
+        PlaylistWorkspaceViewModel playlistWorkspace)
+    {
+        List<Exception> publishExceptions = [];
+        if (result.ColumnPresentation != null)
+        {
+            TryPublish(() => playlistWorkspace.PublishColumnPresentation(result.ColumnPresentation), publishExceptions);
+        }
+        if (result.BindingMode != null)
+        {
+            TryPublish(() => playlistWorkspace.PublishBindingMode(result.BindingMode), publishExceptions);
+        }
+        if (publishExceptions.Count > 0)
+        {
+            throw new AggregateException(publishExceptions);
+        }
+    }
+
+    private static void TryPublish(Action action, ICollection<Exception> exceptions)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            exceptions.Add(ex);
+        }
+    }
+
     internal bool UpdateSortParameters(ChartListSortParameters value)
     {
         lock (PresentationState.SyncRoot)

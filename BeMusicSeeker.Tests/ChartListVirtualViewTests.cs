@@ -902,7 +902,9 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void PlayHistoryTerminal_SourceClearCancellationFailureDoesNotSuppressRetentionLog()
     {
-        var state = new PlayHistoryPresentationState { RequestGeneration = 1 };
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryPresentationState state = workflowOwner.PresentationState;
+        state.RequestGeneration = 1;
         var table = new MainChartListViewModel { Rows = new List<object>() };
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
@@ -912,7 +914,7 @@ public sealed class ChartListVirtualViewTests
         var viewState = new PlaylistDetailViewState();
         bool retentionLogged = false;
         var owner = new PlayHistoryTerminalHarness(
-            state,
+            workflowOwner,
             table,
             workspace,
             regularOwner,
@@ -968,7 +970,9 @@ public sealed class ChartListVirtualViewTests
     [TestMethod]
     public void PlayHistoryTerminal_PreAppliedTableFailureRecoveryPublishesSourceClearLog()
     {
-        var state = new PlayHistoryPresentationState { RequestGeneration = 1 };
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryPresentationState state = workflowOwner.PresentationState;
+        state.RequestGeneration = 1;
         var table = new MainChartListViewModel { Rows = new List<object>() };
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
@@ -976,7 +980,7 @@ public sealed class ChartListVirtualViewTests
         var viewState = new PlaylistDetailViewState();
         bool retentionLogged = false;
         var owner = new PlayHistoryTerminalHarness(
-            state,
+            workflowOwner,
             table,
             workspace,
             regularOwner,
@@ -3433,13 +3437,14 @@ public sealed class ChartListVirtualViewTests
         Action<string> publishPropertyChanged,
         Action<PlaylistWorkspaceViewModel> configureWorkspace)
     {
-        state = new PlayHistoryPresentationState();
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        state = workflowOwner.PresentationState;
         table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         configureWorkspace(workspace);
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         return new PlayHistoryTerminalHarness(
-            state,
+            workflowOwner,
             table,
             workspace,
             regularOwner,
@@ -3451,7 +3456,7 @@ public sealed class ChartListVirtualViewTests
 
     private sealed class PlayHistoryTerminalHarness
     {
-        private readonly PlayHistoryPresentationState state;
+        private readonly PlayHistoryWorkflowOwner workflowOwner;
         private readonly MainChartListViewModel table;
         private readonly PlaylistWorkspaceViewModel workspace;
         private readonly RegularChartListOwner regularOwner;
@@ -3461,7 +3466,7 @@ public sealed class ChartListVirtualViewTests
         private readonly Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear;
 
         internal PlayHistoryTerminalHarness(
-            PlayHistoryPresentationState state,
+            PlayHistoryWorkflowOwner workflowOwner,
             MainChartListViewModel table,
             PlaylistWorkspaceViewModel workspace,
             RegularChartListOwner regularOwner,
@@ -3470,7 +3475,7 @@ public sealed class ChartListVirtualViewTests
             Action<string> publishPropertyChanged,
             Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear)
         {
-            this.state = state;
+            this.workflowOwner = workflowOwner;
             this.table = table;
             this.workspace = workspace;
             this.regularOwner = regularOwner;
@@ -3485,9 +3490,9 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryTerminalCommitResult result;
             try
             {
-                result = table.ApplyPlayHistoryTerminal(
+                result = workflowOwner.ApplyTerminal(
                     request,
-                    state,
+                    table,
                     workspace,
                     regularOwner,
                     playlistBuildState,
@@ -3601,7 +3606,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryProvider.Lr2,
             default,
             sourceCount: 0,
-            default,
+            new SortSnapshot(null, null, revision: 0L),
             keywordFilter: string.Empty,
             keywordFilterRevision: 0,
             PlayHistoryDisplayTargetItem.All,
