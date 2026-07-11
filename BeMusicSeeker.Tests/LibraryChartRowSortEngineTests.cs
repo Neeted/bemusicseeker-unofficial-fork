@@ -243,6 +243,39 @@ public sealed class LibraryChartRowSortEngineTests
 
     [TestMethod]
     [TestCategory("SortEngine")]
+    public void ChartListRefreshCoordinator_ExcludesBmsonRowsForMaintenanceAndInstallViews()
+    {
+        var excludedModes = new HashSet<MainViewUpdateMode>
+        {
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistNotOwnedFilterSelected,
+            MainViewUpdateMode.FileMissingFilterSelected,
+            MainViewUpdateMode.FileMissingIgnoredFilterSelected,
+            MainViewUpdateMode.DuplicateFilterSelected,
+            MainViewUpdateMode.GarbledFilterSelected,
+            MainViewUpdateMode.GarbleFixedFilterSelected,
+            MainViewUpdateMode.UnregisteredFilterSelected,
+            MainViewUpdateMode.ZeroNoteFilterSelected,
+            MainViewUpdateMode.ChartInfoParseErrorFilterSelected,
+            MainViewUpdateMode.NewlyInstalledFolderSelected,
+            MainViewUpdateMode.PendingInstallFolderSelected
+        };
+
+        foreach (MainViewUpdateMode mode in (MainViewUpdateMode[])Enum.GetValues(typeof(MainViewUpdateMode)))
+        {
+            bool expected = mode == MainViewUpdateMode.FullScanAllChartsFilterSelected
+                || !excludedModes.Contains(mode);
+            Assert.AreEqual(
+                expected,
+                ChartListRefreshCoordinator.ShouldIncludeBmsonLibraryRows(mode, mode),
+                mode.ToString());
+        }
+
+        Assert.IsTrue(ChartListRefreshCoordinator.ShouldIncludeBmsonLibraryRows((MainViewUpdateMode)999, (MainViewUpdateMode)999));
+    }
+
+    [TestMethod]
+    [TestCategory("SortEngine")]
     public void NormalLibrarySortCacheCandidate_AllowsVirtualRegistryColumns()
     {
         Assert.IsTrue(RegularChartListOwner.IsSortCacheCandidate(null));

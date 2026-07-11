@@ -179,15 +179,34 @@ internal static class ChartListRefreshCoordinator
         {
             return false;
         }
-        if (Enum.IsDefined(typeof(MainWindowViewModel.MaintenanceFilterType), (int)mode))
+        if (IsMaintenanceViewMode(mode))
         {
             return false;
         }
-        if (Enum.IsDefined(typeof(MainWindowViewModel.InstallFilterType), (int)mode))
+        if (IsInstallViewMode(mode))
         {
             return false;
         }
         return true;
+    }
+
+    private static bool IsMaintenanceViewMode(MainViewUpdateMode mode)
+    {
+        return mode is MainViewUpdateMode.FullScanAllChartsFilterSelected
+            or MainViewUpdateMode.FileMissingFilterSelected
+            or MainViewUpdateMode.FileMissingIgnoredFilterSelected
+            or MainViewUpdateMode.DuplicateFilterSelected
+            or MainViewUpdateMode.GarbledFilterSelected
+            or MainViewUpdateMode.GarbleFixedFilterSelected
+            or MainViewUpdateMode.UnregisteredFilterSelected
+            or MainViewUpdateMode.ZeroNoteFilterSelected
+            or MainViewUpdateMode.ChartInfoParseErrorFilterSelected;
+    }
+
+    private static bool IsInstallViewMode(MainViewUpdateMode mode)
+    {
+        return mode == MainViewUpdateMode.NewlyInstalledFolderSelected
+            || mode == MainViewUpdateMode.PendingInstallFolderSelected;
     }
 
     private static bool IsPlaylistViewMode(MainViewUpdateMode mode)
