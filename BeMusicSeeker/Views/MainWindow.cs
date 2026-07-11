@@ -2032,34 +2032,34 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return (base.DataContext as MainWindowViewModel)?.CurrentMainViewChartOperationSourceScope ?? ChartOperationSourceScope.Library;
     }
 
-    private MainWindowViewModel.MainViewOperationSection GetCurrentMainViewOperationSection()
+    private MainViewOperationSection GetCurrentMainViewOperationSection()
     {
-        return (base.DataContext as MainWindowViewModel)?.CurrentMainViewOperationSection ?? MainWindowViewModel.MainViewOperationSection.Library;
+        return (base.DataContext as MainWindowViewModel)?.CurrentMainViewOperationSection ?? MainViewOperationSection.Library;
     }
 
-    private static bool IsPendingMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    private static bool IsPendingMainViewSection(MainViewOperationSection section)
     {
-        return section == MainWindowViewModel.MainViewOperationSection.InstallPending;
+        return section == MainViewOperationSection.InstallPending;
     }
 
-    private static bool IsInstalledMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    private static bool IsInstalledMainViewSection(MainViewOperationSection section)
     {
-        return section == MainWindowViewModel.MainViewOperationSection.InstallInstalled;
+        return section == MainViewOperationSection.InstallInstalled;
     }
 
-    private static bool IsPlaylistMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    private static bool IsPlaylistMainViewSection(MainViewOperationSection section)
     {
-        return section == MainWindowViewModel.MainViewOperationSection.Playlist;
+        return section == MainViewOperationSection.Playlist;
     }
 
-    private static bool IsFullScanMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    private static bool IsFullScanMainViewSection(MainViewOperationSection section)
     {
-        return section == MainWindowViewModel.MainViewOperationSection.FullScanCheck;
+        return section == MainViewOperationSection.FullScanCheck;
     }
 
-    private static bool IsChartInfoParseErrorMainViewSection(MainWindowViewModel.MainViewOperationSection section)
+    private static bool IsChartInfoParseErrorMainViewSection(MainViewOperationSection section)
     {
-        return section == MainWindowViewModel.MainViewOperationSection.ChartInfoParseError;
+        return section == MainViewOperationSection.ChartInfoParseError;
     }
 
     private List<ChartFile> GetSelectedBmsFormatCharts(ChartOperationCapabilities capability, bool isPendingSection = false)
@@ -2780,7 +2780,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
     private bool CanEditInstallDestinationInCurrentSection()
     {
-        MainWindowViewModel.MainViewOperationSection section = GetCurrentMainViewOperationSection();
+        MainViewOperationSection section = GetCurrentMainViewOperationSection();
         return IsPendingMainViewSection(section) || IsFullScanMainViewSection(section);
     }
 
@@ -6022,7 +6022,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         bool isPlaylistRow = GridRowResolver.IsPlaylistRow(row);
         Uri rowUrl = GridRowResolver.GetUrl(row);
         Uri rowUrlDiff = GridRowResolver.GetUrlDiff(row);
-        MainWindowViewModel.MainViewOperationSection effectiveSection = mainWindowViewModel.CurrentMainViewOperationSection;
+        MainViewOperationSection effectiveSection = mainWindowViewModel.CurrentMainViewOperationSection;
         bool isPendingSelected = IsPendingMainViewSection(effectiveSection);
         bool isInstalledSelected = IsInstalledMainViewSection(effectiveSection);
         bool isPlaylistSelected = IsPlaylistMainViewSection(effectiveSection);
@@ -9076,7 +9076,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        MainWindowViewModel.MainViewOperationSection section = GetCurrentMainViewOperationSection();
+        MainViewOperationSection section = GetCurrentMainViewOperationSection();
         bool isPendingSelected = IsPendingMainViewSection(section);
         List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(isPendingSelected);
         TryGetContextMenuChartTarget(sender, e.Source, out ChartOperationTarget contextTarget);
@@ -9364,7 +9364,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel.MainViewOperationSection section = GetCurrentMainViewOperationSection();
+        MainViewOperationSection section = GetCurrentMainViewOperationSection();
         bool isPendingSelected = IsPendingMainViewSection(section);
         bool isInstalledSelected = IsInstalledMainViewSection(section);
         if (!isPendingSelected && !isInstalledSelected)

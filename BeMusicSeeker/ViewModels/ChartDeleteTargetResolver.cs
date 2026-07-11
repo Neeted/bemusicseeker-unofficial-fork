@@ -30,7 +30,7 @@ internal static class ChartDeleteTargetResolver
     internal static ChartDeleteTargetResolution Resolve(
         IEnumerable<ChartOperationTarget> selectedTargets,
         ChartOperationTarget contextTarget,
-        MainWindowViewModel.MainViewOperationSection currentSection)
+        MainViewOperationSection currentSection)
     {
         List<ChartOperationTarget> selected = [.. (selectedTargets ?? []).Where(IsDeleteCandidate)];
         var result = new ChartDeleteTargetResolution
@@ -74,7 +74,7 @@ internal static class ChartDeleteTargetResolver
     private static ChartDeleteRoute ResolveRoute(
         List<ChartOperationTarget> candidates,
         ChartOperationTarget contextTarget,
-        MainWindowViewModel.MainViewOperationSection currentSection)
+        MainViewOperationSection currentSection)
     {
         if (IsPendingDeleteTarget(contextTarget))
         {
@@ -84,7 +84,7 @@ internal static class ChartDeleteTargetResolver
         {
             return ChartDeleteRoute.Library;
         }
-        if (currentSection == MainWindowViewModel.MainViewOperationSection.InstallPending
+        if (currentSection == MainViewOperationSection.InstallPending
             && candidates.Any(IsPendingDeleteTarget))
         {
             return ChartDeleteRoute.Pending;

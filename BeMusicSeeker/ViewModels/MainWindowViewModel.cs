@@ -167,17 +167,6 @@ public partial class MainWindowViewModel : ViewModel
         OwnedIncomplete
     }
 
-    internal enum MainViewOperationSection
-    {
-        Library,
-        Playlist,
-        InstallPending,
-        InstallInstalled,
-        FullScanCheck,
-        ChartInfoParseError,
-        PlayHistory
-    }
-
     public enum FolderFilterType
     {
         DirectoryFilter,

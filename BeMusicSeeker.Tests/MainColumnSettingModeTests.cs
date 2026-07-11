@@ -43,7 +43,7 @@ public sealed class MainColumnSettingModeTests
     public void ResolveMainViewOperationSection_MapsPlayHistoryToDedicatedSection()
     {
         Assert.AreEqual(
-            MainWindowViewModel.MainViewOperationSection.PlayHistory,
+            MainViewOperationSection.PlayHistory,
             MainWindowViewModel.ResolveMainViewOperationSection(MainViewUpdateMode.PlayHistorySelected));
     }
 

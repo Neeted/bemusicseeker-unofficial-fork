@@ -2486,43 +2486,43 @@ public sealed class PlaylistViewPipelineTests
     {
         AssertMainViewOperationContext(
             MainViewUpdateMode.PendingInstallFolderSelected,
-            MainWindowViewModel.MainViewOperationSection.InstallPending,
+            MainViewOperationSection.InstallPending,
             ChartOperationSourceScope.PendingPackage);
         AssertMainViewOperationContext(
             MainViewUpdateMode.NewlyInstalledFolderSelected,
-            MainWindowViewModel.MainViewOperationSection.InstallInstalled,
+            MainViewOperationSection.InstallInstalled,
             ChartOperationSourceScope.NewlyInstalledPackage);
         AssertMainViewOperationContext(
             MainViewUpdateMode.PlaylistFilterSelected,
-            MainWindowViewModel.MainViewOperationSection.Playlist,
+            MainViewOperationSection.Playlist,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
             MainViewUpdateMode.PlaylistNotOwnedFilterSelected,
-            MainWindowViewModel.MainViewOperationSection.Playlist,
+            MainViewOperationSection.Playlist,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
             MainViewUpdateMode.FullScanAllChartsFilterSelected,
-            MainWindowViewModel.MainViewOperationSection.FullScanCheck,
+            MainViewOperationSection.FullScanCheck,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
             MainViewUpdateMode.FileMissingFilterSelected,
-            MainWindowViewModel.MainViewOperationSection.FullScanCheck,
+            MainViewOperationSection.FullScanCheck,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
             MainViewUpdateMode.FileMissingIgnoredFilterSelected,
-            MainWindowViewModel.MainViewOperationSection.FullScanCheck,
+            MainViewOperationSection.FullScanCheck,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
             MainViewUpdateMode.ChartInfoParseErrorFilterSelected,
-            MainWindowViewModel.MainViewOperationSection.ChartInfoParseError,
+            MainViewOperationSection.ChartInfoParseError,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
             MainViewUpdateMode.PlayHistorySelected,
-            MainWindowViewModel.MainViewOperationSection.PlayHistory,
+            MainViewOperationSection.PlayHistory,
             ChartOperationSourceScope.Library);
         AssertMainViewOperationContext(
             MainViewUpdateMode.FolderFilterSelected,
-            MainWindowViewModel.MainViewOperationSection.Library,
+            MainViewOperationSection.Library,
             ChartOperationSourceScope.Library);
     }
 
@@ -2551,7 +2551,7 @@ public sealed class PlaylistViewPipelineTests
         ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
             [target],
             target,
-            MainWindowViewModel.MainViewOperationSection.InstallInstalled);
+            MainViewOperationSection.InstallInstalled);
 
         Assert.AreEqual(ChartDeleteRoute.Library, resolution.Route);
         Assert.AreEqual(1, resolution.Targets.Count);
@@ -2567,7 +2567,7 @@ public sealed class PlaylistViewPipelineTests
         ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
             [target],
             target,
-            MainWindowViewModel.MainViewOperationSection.InstallPending);
+            MainViewOperationSection.InstallPending);
 
         Assert.AreEqual(ChartDeleteRoute.Pending, resolution.Route);
         Assert.AreEqual(1, resolution.Targets.Count);
@@ -2582,7 +2582,7 @@ public sealed class PlaylistViewPipelineTests
         ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
             [],
             target,
-            MainWindowViewModel.MainViewOperationSection.Library);
+            MainViewOperationSection.Library);
 
         Assert.AreEqual(ChartDeleteRoute.Library, resolution.Route);
         Assert.AreEqual(1, resolution.Targets.Count);
@@ -2598,7 +2598,7 @@ public sealed class PlaylistViewPipelineTests
         ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
             [target],
             target,
-            MainWindowViewModel.MainViewOperationSection.Playlist);
+            MainViewOperationSection.Playlist);
 
         Assert.AreEqual(ChartDeleteRoute.None, resolution.Route);
         Assert.AreEqual(0, resolution.Targets.Count);
@@ -2613,7 +2613,7 @@ public sealed class PlaylistViewPipelineTests
         ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(
             [libraryTarget, pendingTarget],
             pendingTarget,
-            MainWindowViewModel.MainViewOperationSection.InstallPending);
+            MainViewOperationSection.InstallPending);
 
         Assert.AreEqual(ChartDeleteRoute.Pending, resolution.Route);
         Assert.AreEqual(1, resolution.Targets.Count);
@@ -2828,10 +2828,10 @@ public sealed class PlaylistViewPipelineTests
 
     private static void AssertMainViewOperationContext(
         MainViewUpdateMode mode,
-        MainWindowViewModel.MainViewOperationSection expectedSection,
+        MainViewOperationSection expectedSection,
         ChartOperationSourceScope expectedScope)
     {
-        MainWindowViewModel.MainViewOperationSection section = MainWindowViewModel.ResolveMainViewOperationSection(mode);
+        MainViewOperationSection section = MainWindowViewModel.ResolveMainViewOperationSection(mode);
 
         Assert.AreEqual(expectedSection, section);
         Assert.AreEqual(expectedScope, MainWindowViewModel.ResolveMainViewChartOperationSourceScope(section));
