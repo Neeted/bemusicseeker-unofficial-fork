@@ -1644,41 +1644,6 @@ public partial class MainWindowViewModel : ViewModel
         return null;
     }
 
-    private static BeMusicSeeker.Models.BMSScore ResolvePlaylistEntryScoreSnapshot(
-        BMSTableEntry entry,
-        ChartFile resolvedChart,
-        LR2SongDBExtended.chart_info entryChartInfo,
-        BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot,
-        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash,
-        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresBySha256)
-    {
-        if (entry == null || scoreSnapshot == null)
-        {
-            return null;
-        }
-        if (scoreSnapshot.ActiveScoreSource == ActiveScoreSource.Lr2)
-        {
-            string hash = FirstNonEmpty(resolvedChart?.Md5, entry.md5);
-            if (scoresByHash != null && scoresByHash.TryGetValue(hash, out BeMusicSeeker.Models.BMSScore lr2Score))
-            {
-                return lr2Score;
-            }
-            return null;
-        }
-        if (scoreSnapshot.ActiveScoreSource == ActiveScoreSource.Beatoraja && scoresBySha256 != null)
-        {
-            string sha256 = FirstNonEmpty(resolvedChart?.Sha256, entry.sha256, entryChartInfo?.sha256);
-            if (scoresBySha256.TryGetValue(sha256, out BeMusicSeeker.Models.BMSScore beatorajaScore))
-            {
-                string hash = FirstNonEmpty(resolvedChart?.Md5, entry.md5);
-                return string.IsNullOrWhiteSpace(hash)
-                    ? beatorajaScore
-                    : BmsLibraryIrService.CloneScoreForFileHash(beatorajaScore, hash);
-            }
-        }
-        return null;
-    }
-
     private static ChartFile ResolvePlaylistChartSnapshot(LibraryChartRef chartRef, IDictionary<LibraryChartRef, ChartFile> cache)
     {
         if (chartRef == null)
@@ -1695,33 +1660,6 @@ public partial class MainWindowViewModel : ViewModel
             cache[chartRef] = chart;
         }
         return chart;
-    }
-
-    internal static BeMusicSeeker.Models.BMSScore ResolvePlaylistEntryScoreSnapshotForTest(
-        BMSTableEntry entry,
-        ChartFile resolvedChart,
-        LR2SongDBExtended.chart_info entryChartInfo,
-        BeMusicSeeker.Models.BMSLibrary.ScoreSnapshot scoreSnapshot,
-        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresByHash,
-        IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> scoresBySha256)
-    {
-        return ResolvePlaylistEntryScoreSnapshot(entry, resolvedChart, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
-    }
-
-    private static string FirstNonEmpty(params string[] candidates)
-    {
-        if (candidates == null)
-        {
-            return string.Empty;
-        }
-        foreach (string candidate in candidates)
-        {
-            if (!string.IsNullOrWhiteSpace(candidate))
-            {
-                return candidate;
-            }
-        }
-        return string.Empty;
     }
 
     private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot(CancellationToken cancellationToken, long targetVersion, out bool cacheHit, out int staleRetryCount)
@@ -9391,7 +9329,7 @@ public partial class MainWindowViewModel : ViewModel
         foreach ((BMSTableEntry entry, LibraryChartRef resolvedChartRef, ChartFile resolvedChart, LR2SongDBExtended.chart_info entryChartInfo) in preparedEntries)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = ResolvePlaylistEntryScoreSnapshot(entry, resolvedChart, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
+            BeMusicSeeker.Models.BMSScore scoreSnapshotForRow = PlaylistEntryScoreSnapshotResolver.Resolve(entry, resolvedChart, entryChartInfo, scoreSnapshot, scoresByHash, scoresBySha256);
             scoreUpdateTargetCount++;
             if (scoreSnapshotForRow != null)
             {

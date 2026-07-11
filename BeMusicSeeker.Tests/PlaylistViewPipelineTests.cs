@@ -3689,7 +3689,7 @@ public sealed class PlaylistViewPipelineTests
             }
         };
 
-        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+        BMSScore resolved = PlaylistEntryScoreSnapshotResolver.Resolve(
             entry,
             representative,
             entryChartInfo: null,
@@ -3757,7 +3757,7 @@ public sealed class PlaylistViewPipelineTests
             }
         };
 
-        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+        BMSScore resolved = PlaylistEntryScoreSnapshotResolver.Resolve(
             entry,
             ChartFileProjection.FromBmsFile(file),
             entryChartInfo: null,
@@ -3804,7 +3804,7 @@ public sealed class PlaylistViewPipelineTests
             }
         };
 
-        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+        BMSScore resolved = PlaylistEntryScoreSnapshotResolver.Resolve(
             entry,
             ChartFileProjection.FromBmsFile(file),
             entryChartInfo: null,
@@ -3839,7 +3839,7 @@ public sealed class PlaylistViewPipelineTests
             }
         };
 
-        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+        BMSScore resolved = PlaylistEntryScoreSnapshotResolver.Resolve(
             entry,
             resolvedChart: null,
             entryChartInfo: chartInfo,
@@ -3882,7 +3882,7 @@ public sealed class PlaylistViewPipelineTests
             }
         };
 
-        BMSScore resolved = MainWindowViewModel.ResolvePlaylistEntryScoreSnapshotForTest(
+        BMSScore resolved = PlaylistEntryScoreSnapshotResolver.Resolve(
             entry,
             ChartFileProjection.FromBmsonSong(bmson, includeWarningSnapshot: false),
             entryChartInfo: null,
