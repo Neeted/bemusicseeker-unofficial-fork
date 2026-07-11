@@ -527,6 +527,19 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void PlayHistoryColumnModeCommit_CancelsPendingRegularRequest()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListRequestLease pending = owner.BeginRequest();
+
+        table.CommitAppliedColumnMode(MainViewUpdateMode.PlayHistorySelected);
+
+        Assert.IsTrue(pending.Token.IsCancellationRequested);
+        owner.InvalidatePendingRequest();
+    }
+
+    [TestMethod]
     public void RegularEntry_AppliesOwnerModeFilterState()
     {
         var table = new MainChartListViewModel();

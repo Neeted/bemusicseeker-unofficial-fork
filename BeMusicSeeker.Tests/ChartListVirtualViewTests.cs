@@ -929,7 +929,6 @@ public sealed class ChartListVirtualViewTests
             activateRequest: null);
         var table = new MainChartListViewModel { Rows = new List<object>() };
         var workspace = new PlaylistWorkspaceViewModel(action => action());
-        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         SelectSummaryFilter(workflowOwner, "exhard");
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
@@ -951,7 +950,6 @@ public sealed class ChartListVirtualViewTests
             Stopwatch.StartNew(),
             table,
             workspace,
-            regularOwner,
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState());
 
@@ -980,7 +978,6 @@ public sealed class ChartListVirtualViewTests
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         var table = new MainChartListViewModel { Rows = new List<object>() };
         var workspace = new PlaylistWorkspaceViewModel(action => action());
-        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         workflowOwner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = nameof(PlayHistoryRow.Title),
@@ -1001,7 +998,6 @@ public sealed class ChartListVirtualViewTests
             Stopwatch.StartNew(),
             table,
             workspace,
-            regularOwner,
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState());
 
@@ -1024,7 +1020,6 @@ public sealed class ChartListVirtualViewTests
         var oldRows = new List<object>();
         var table = new MainChartListViewModel { Rows = oldRows };
         var workspace = new PlaylistWorkspaceViewModel(action => action());
-        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
         SelectSummaryFilter(workflowOwner, "exhard");
 
@@ -1042,7 +1037,6 @@ public sealed class ChartListVirtualViewTests
             Stopwatch.StartNew(),
             table,
             workspace,
-            regularOwner,
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState());
 
@@ -1073,7 +1067,6 @@ public sealed class ChartListVirtualViewTests
                 throw new InvalidOperationException("workspace publish failed");
             }
         };
-        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
 
         PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(() =>
             workflowOwner.ApplySortedRows(
@@ -1090,7 +1083,6 @@ public sealed class ChartListVirtualViewTests
                 Stopwatch.StartNew(),
                 table,
                 workspace,
-                regularOwner,
                 new PlaylistDetailBuildState(),
                 new PlaylistDetailViewState()));
 
@@ -1429,7 +1421,6 @@ public sealed class ChartListVirtualViewTests
         state.RequestGeneration = 1;
         var table = new MainChartListViewModel { Rows = new List<object>() };
         var workspace = new PlaylistWorkspaceViewModel(action => action());
-        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         var buildCancellation = new System.Threading.CancellationTokenSource();
         buildCancellation.Token.Register(() => throw new InvalidOperationException("cancel callback failed"));
         var buildState = new PlaylistDetailBuildState { CurrentBuildCancellation = buildCancellation };
@@ -1439,7 +1430,6 @@ public sealed class ChartListVirtualViewTests
             workflowOwner,
             table,
             workspace,
-            regularOwner,
             buildState,
             viewState,
             _ => { },
@@ -1540,7 +1530,6 @@ public sealed class ChartListVirtualViewTests
         state.RequestGeneration = 1;
         var table = new MainChartListViewModel { Rows = new List<object>() };
         var workspace = new PlaylistWorkspaceViewModel(action => action());
-        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         var buildState = new PlaylistDetailBuildState();
         var viewState = new PlaylistDetailViewState();
         bool retentionLogged = false;
@@ -4004,12 +3993,10 @@ public sealed class ChartListVirtualViewTests
         table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action());
         configureWorkspace(workspace);
-        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         return new PlayHistoryTerminalHarness(
             workflowOwner,
             table,
             workspace,
-            regularOwner,
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState(),
             publishPropertyChanged,
@@ -4021,7 +4008,6 @@ public sealed class ChartListVirtualViewTests
         private readonly PlayHistoryWorkflowOwner workflowOwner;
         private readonly MainChartListViewModel table;
         private readonly PlaylistWorkspaceViewModel workspace;
-        private readonly RegularChartListOwner regularOwner;
         private readonly PlaylistDetailBuildState playlistBuildState;
         private readonly PlaylistDetailViewState playlistViewState;
         private readonly Action<string> publishPropertyChanged;
@@ -4031,7 +4017,6 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryWorkflowOwner workflowOwner,
             MainChartListViewModel table,
             PlaylistWorkspaceViewModel workspace,
-            RegularChartListOwner regularOwner,
             PlaylistDetailBuildState playlistBuildState,
             PlaylistDetailViewState playlistViewState,
             Action<string> publishPropertyChanged,
@@ -4040,7 +4025,6 @@ public sealed class ChartListVirtualViewTests
             this.workflowOwner = workflowOwner;
             this.table = table;
             this.workspace = workspace;
-            this.regularOwner = regularOwner;
             this.playlistBuildState = playlistBuildState;
             this.playlistViewState = playlistViewState;
             this.publishPropertyChanged = publishPropertyChanged;
@@ -4054,7 +4038,6 @@ public sealed class ChartListVirtualViewTests
                 request,
                 table,
                 workspace,
-                regularOwner,
                 playlistBuildState,
                 playlistViewState);
         }

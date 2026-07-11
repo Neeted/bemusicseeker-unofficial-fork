@@ -86,6 +86,11 @@ public sealed class MainChartListViewModel : ViewModel
         }
     }
 
+    /// <summary>
+    /// Raised after a terminal workflow commits the table's applied column mode.
+    /// </summary>
+    internal event Action<MainViewUpdateMode> AppliedColumnModeCommitted;
+
     internal void CommitAppliedColumnMode(MainViewUpdateMode? mode)
     {
         if (!mode.HasValue)
@@ -96,6 +101,7 @@ public sealed class MainChartListViewModel : ViewModel
         {
             lastAppliedColumnMode = mode.Value;
         }
+        AppliedColumnModeCommitted?.Invoke(mode.Value);
     }
 
     internal MainChartListColumnSelection ResolveColumnSettingForViewUpdate(

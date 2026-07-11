@@ -94,6 +94,15 @@ internal sealed class RegularChartListOwner : IDisposable
         this.log = log ?? throw new ArgumentNullException(nameof(log));
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logWarning = logWarning ?? log;
+        this.mainChartList.AppliedColumnModeCommitted += MainChartListAppliedColumnModeCommitted;
+    }
+
+    private void MainChartListAppliedColumnModeCommitted(MainViewUpdateMode mode)
+    {
+        if (mode == MainViewUpdateMode.PlayHistorySelected)
+        {
+            ResetDerivedCaches();
+        }
     }
 
     internal ChartListSortSpecification CaptureSort()
@@ -2786,6 +2795,7 @@ internal sealed class RegularChartListOwner : IDisposable
             prewarmCancellation = virtualOrderPrewarmCancellation;
             prewarmCompletion = virtualOrderPrewarmCompletion;
         }
+        mainChartList.AppliedColumnModeCommitted -= MainChartListAppliedColumnModeCommitted;
         CancelAndDispose(requestCancellation);
         Cancel(prewarmCancellation);
         return DrainPrewarmAsync(prewarmCompletion, prewarmCancellation);
@@ -2793,6 +2803,7 @@ internal sealed class RegularChartListOwner : IDisposable
 
     public void Dispose()
     {
+        mainChartList.AppliedColumnModeCommitted -= MainChartListAppliedColumnModeCommitted;
         _ = StopAsync();
     }
 

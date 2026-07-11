@@ -21,7 +21,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
     private int displayTargetActiveCount;
     private ChartListSortParameters sortParameters;
     private ListenerCommand<PlayHistorySummaryCard> toggleSummaryFilterCommand;
-
     internal PlayHistoryWorkflowOwner()
     {
         PresentationState.CurrentSortSnapshot = new SortSnapshot(null, null, revision: 0L);
@@ -563,7 +562,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         PlayHistoryTerminalRequest request,
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
-        RegularChartListOwner regularChartListOwner,
         PlaylistDetailBuildState playlistDetailBuildState,
         PlaylistDetailViewState playlistDetailViewState)
     {
@@ -573,7 +571,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         }
         if (mainChartList == null) throw new ArgumentNullException(nameof(mainChartList));
         if (playlistWorkspace == null) throw new ArgumentNullException(nameof(playlistWorkspace));
-        if (regularChartListOwner == null) throw new ArgumentNullException(nameof(regularChartListOwner));
         if (playlistDetailBuildState == null) throw new ArgumentNullException(nameof(playlistDetailBuildState));
         if (playlistDetailViewState == null) throw new ArgumentNullException(nameof(playlistDetailViewState));
 
@@ -592,7 +589,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
                         request.ColumnSelection.PlaylistColumnSettingsVisibility,
                         request.ColumnSelection.PlaylistSummaryColumnsSettings);
                     mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
-                    regularChartListOwner.ResetDerivedCaches();
                     PruneSummaryFilters(request.ViewState.Provider);
                 });
         }
@@ -640,7 +636,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         Stopwatch stopwatch,
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
-        RegularChartListOwner regularChartListOwner,
         PlaylistDetailBuildState playlistDetailBuildState,
         PlaylistDetailViewState playlistDetailViewState)
     {
@@ -763,7 +758,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
                 },
                 mainChartList,
                 playlistWorkspace,
-                regularChartListOwner,
                 playlistDetailBuildState,
                 playlistDetailViewState);
             if (!terminalCommit.Applied)

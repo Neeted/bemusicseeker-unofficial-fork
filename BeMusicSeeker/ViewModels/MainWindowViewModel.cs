@@ -10165,7 +10165,6 @@ public partial class MainWindowViewModel : ViewModel
             viewBuildStopwatch,
             MainChartList,
             PlaylistWorkspace,
-            regularChartListOwner,
             playlistDetailBuildState,
             playlistViewState);
         sortMs += applyResult.AdditionalSortMs;
