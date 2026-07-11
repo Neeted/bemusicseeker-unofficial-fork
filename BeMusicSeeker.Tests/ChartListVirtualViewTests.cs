@@ -929,6 +929,85 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PlayHistoryTerminal_TablePublishFailureDoesNotSuppressShellPublish()
+    {
+        bool shellPublished = false;
+        PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(
+            out PlayHistoryPresentationState state,
+            out MainChartListViewModel table,
+            propertyName =>
+            {
+                if (propertyName == nameof(MainWindowViewModel.PlayHistorySummaryCards))
+                {
+                    shellPublished = true;
+                }
+            },
+            workspace =>
+            {
+                workspace.PropertyChanged += (_, e) =>
+                {
+                    if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
+                    {
+                        throw new InvalidOperationException("workspace publish failed");
+                    }
+                };
+            });
+        state.RequestGeneration = 1;
+        table.Rows = new List<object>();
+        PlayHistoryTerminalRequest request = CreatePlayHistoryTerminalRequest(new List<object> { new object() }, "committed", requestId: 1);
+        request.SummaryCards = [new PlayHistorySummaryCard("Label", "Value")];
+
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
+            () => owner.TryApply(request));
+
+        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.IsTrue(shellPublished);
+        Assert.AreSame(request.SummaryCards, state.SummaryCards);
+    }
+
+    [TestMethod]
+    public void PlayHistoryTerminal_PreAppliedTableFailureRecoveryPublishesSourceClearLog()
+    {
+        var state = new PlayHistoryPresentationState { RequestGeneration = 1 };
+        var table = new MainChartListViewModel { Rows = new List<object>() };
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
+        var buildState = new PlaylistDetailBuildState();
+        var viewState = new PlaylistDetailViewState();
+        bool retentionLogged = false;
+        var owner = new PlayHistoryTerminalHarness(
+            state,
+            table,
+            workspace,
+            regularOwner,
+            buildState,
+            viewState,
+            _ => { },
+            _ => retentionLogged = true);
+        var sourceClear = new PlaylistSourceClearCommitResult(
+            [],
+            new List<object>(),
+            previousGenerationId: 1,
+            buildCancellation: null);
+        var result = new PlayHistoryTerminalCommitResult
+        {
+            Applied = false,
+            PlaylistSourceClear = sourceClear
+        };
+        var exception = new PlayHistoryTerminalPublishException(
+            new InvalidOperationException("table publish failed"),
+            ownershipTransferred: true,
+            result);
+
+        owner.PublishTableFailureForTest(exception);
+
+        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.IsFalse(exception.TerminalCommitResult.Applied);
+        Assert.IsNotNull(exception.TerminalCommitResult.PlaylistSourceClear);
+        Assert.IsTrue(retentionLogged);
+    }
+
+    [TestMethod]
     public void ChartListRefreshCoordinator_CreateVirtualSortMetricsPreservesOrderFields()
     {
         List<BMSFile> files =
@@ -3347,9 +3426,19 @@ public sealed class ChartListVirtualViewTests
         out MainChartListViewModel table,
         Action<string> publishPropertyChanged)
     {
+        return CreatePlayHistoryTerminalHarness(out state, out table, publishPropertyChanged, _ => { });
+    }
+
+    private static PlayHistoryTerminalHarness CreatePlayHistoryTerminalHarness(
+        out PlayHistoryPresentationState state,
+        out MainChartListViewModel table,
+        Action<string> publishPropertyChanged,
+        Action<PlaylistWorkspaceViewModel> configureWorkspace)
+    {
         state = new PlayHistoryPresentationState();
         table = new MainChartListViewModel();
         var workspace = new PlaylistWorkspaceViewModel(action => action());
+        configureWorkspace(workspace);
         var regularOwner = new RegularChartListOwner(table, workspace, _ => { }, action => action(), _ => { });
         return new PlayHistoryTerminalHarness(
             state,
@@ -3395,15 +3484,102 @@ public sealed class ChartListVirtualViewTests
 
         internal PlayHistoryTerminalCommitResult TryApply(PlayHistoryTerminalRequest request)
         {
-            return table.ApplyPlayHistoryTerminal(
-                request,
-                state,
-                workspace,
-                regularOwner,
-                playlistBuildState,
-                playlistViewState,
-                publishPropertyChanged,
-                logPlaylistSourceClear);
+            PlayHistoryTerminalCommitResult result;
+            try
+            {
+                result = table.ApplyPlayHistoryTerminal(
+                    request,
+                    state,
+                    workspace,
+                    regularOwner,
+                    playlistBuildState,
+                    playlistViewState);
+            }
+            catch (PlayHistoryTerminalPublishException ex)
+            {
+                PublishShellStateAfterTablePublishFailure(ex);
+                throw;
+            }
+            PublishShellState(result);
+            return result;
+        }
+
+        private void PublishShellState(PlayHistoryTerminalCommitResult result)
+        {
+            if (!HasShellStateToPublish(result))
+            {
+                return;
+            }
+
+            List<Exception> publishExceptions = [];
+            if (result.ArchivePeriodTreeChanged)
+            {
+                TryPublish(() => publishPropertyChanged(nameof(MainWindowViewModel.PlayHistoryArchivePeriodTree)), publishExceptions);
+            }
+            if (result.SummaryCardsChanged)
+            {
+                TryPublish(() => publishPropertyChanged(nameof(MainWindowViewModel.PlayHistorySummaryCards)), publishExceptions);
+            }
+            if (result.DiagnosticTextChanged)
+            {
+                TryPublish(() => publishPropertyChanged(nameof(MainWindowViewModel.PlayHistorySummaryDiagnosticText)), publishExceptions);
+            }
+            if (result.PlaylistSourceClear != null)
+            {
+                TryPublish(() => playlistBuildState.PublishSourceClear(result.PlaylistSourceClear), publishExceptions);
+                TryPublish(() => logPlaylistSourceClear(result.PlaylistSourceClear), publishExceptions);
+            }
+            if (publishExceptions.Count > 0)
+            {
+                throw new PlayHistoryTerminalPublishException(new AggregateException(publishExceptions), ownershipTransferred: true);
+            }
+        }
+
+        internal void PublishTableFailureForTest(PlayHistoryTerminalPublishException exception)
+        {
+            PublishShellStateAfterTablePublishFailure(exception);
+        }
+
+        private void PublishShellStateAfterTablePublishFailure(PlayHistoryTerminalPublishException exception)
+        {
+            if (exception == null || !HasShellStateToPublish(exception.TerminalCommitResult))
+            {
+                return;
+            }
+
+            try
+            {
+                PublishShellState(exception.TerminalCommitResult);
+            }
+            catch (PlayHistoryTerminalPublishException shellException)
+            {
+                throw new PlayHistoryTerminalPublishException(
+                    new AggregateException(exception, shellException),
+                    ownershipTransferred: true,
+                    exception.TerminalCommitResult);
+            }
+        }
+
+        private static bool HasShellStateToPublish(PlayHistoryTerminalCommitResult result)
+        {
+            return result != null
+                && (result.Applied
+                    || result.ArchivePeriodTreeChanged
+                    || result.SummaryCardsChanged
+                    || result.DiagnosticTextChanged
+                    || result.PlaylistSourceClear != null);
+        }
+
+        private static void TryPublish(Action action, ICollection<Exception> exceptions)
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                exceptions.Add(ex);
+            }
         }
     }
 

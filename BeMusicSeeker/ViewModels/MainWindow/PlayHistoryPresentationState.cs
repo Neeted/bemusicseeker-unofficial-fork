@@ -471,6 +471,15 @@ internal sealed class PlayHistoryTerminalPublishException : Exception
         OwnershipTransferred = ownershipTransferred;
     }
 
+    internal PlayHistoryTerminalPublishException(
+        Exception innerException,
+        bool ownershipTransferred,
+        PlayHistoryTerminalCommitResult terminalCommitResult)
+        : this(innerException, ownershipTransferred)
+    {
+        TerminalCommitResult = terminalCommitResult;
+    }
+
     private PlayHistoryTerminalPublishException(SerializationInfo info, StreamingContext context)
         : base(info, context)
     {
@@ -478,6 +487,8 @@ internal sealed class PlayHistoryTerminalPublishException : Exception
     }
 
     internal bool OwnershipTransferred { get; }
+
+    internal PlayHistoryTerminalCommitResult TerminalCommitResult { get; }
 
     public override void GetObjectData(SerializationInfo info, StreamingContext context)
     {

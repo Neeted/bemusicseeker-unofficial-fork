@@ -449,9 +449,7 @@ public sealed class MainChartListViewModel : ViewModel
         PlaylistWorkspaceViewModel playlistWorkspace,
         RegularChartListOwner regularChartListOwner,
         PlaylistDetailBuildState playlistDetailBuildState,
-        PlaylistDetailViewState playlistDetailViewState,
-        Action<string> publishPropertyChanged,
-        Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear)
+        PlaylistDetailViewState playlistDetailViewState)
     {
         if (request?.ViewState == null || request.MainRowsRequest?.Rows == null)
         {
@@ -462,8 +460,6 @@ public sealed class MainChartListViewModel : ViewModel
         if (regularChartListOwner == null) throw new ArgumentNullException(nameof(regularChartListOwner));
         if (playlistDetailBuildState == null) throw new ArgumentNullException(nameof(playlistDetailBuildState));
         if (playlistDetailViewState == null) throw new ArgumentNullException(nameof(playlistDetailViewState));
-        if (publishPropertyChanged == null) throw new ArgumentNullException(nameof(publishPropertyChanged));
-        if (logPlaylistSourceClear == null) throw new ArgumentNullException(nameof(logPlaylistSourceClear));
 
         var result = new PlayHistoryTerminalCommitResult();
         try
@@ -498,27 +494,6 @@ public sealed class MainChartListViewModel : ViewModel
                     {
                         TryCoordinatedAction(() => playlistWorkspace.PublishBindingMode(result.BindingMode), featurePublishExceptions);
                     }
-                    if (result.ArchivePeriodTreeChanged)
-                    {
-                        TryCoordinatedAction(() => publishPropertyChanged("PlayHistoryArchivePeriodTree"), featurePublishExceptions);
-                    }
-                    if (result.SummaryCardsChanged)
-                    {
-                        TryCoordinatedAction(() => publishPropertyChanged("PlayHistorySummaryCards"), featurePublishExceptions);
-                    }
-                    if (result.DiagnosticTextChanged)
-                    {
-                        TryCoordinatedAction(() => publishPropertyChanged("PlayHistorySummaryDiagnosticText"), featurePublishExceptions);
-                    }
-                    if (result.PlaylistSourceClear != null)
-                    {
-                        TryCoordinatedAction(
-                            () => playlistDetailBuildState.PublishSourceClear(result.PlaylistSourceClear),
-                            featurePublishExceptions);
-                        TryCoordinatedAction(
-                            () => logPlaylistSourceClear(result.PlaylistSourceClear),
-                            featurePublishExceptions);
-                    }
                     if (featurePublishExceptions.Count > 0)
                     {
                         throw new AggregateException(featurePublishExceptions);
@@ -529,7 +504,7 @@ public sealed class MainChartListViewModel : ViewModel
         }
         catch (MainChartListCoordinatedPublishException ex)
         {
-            throw new PlayHistoryTerminalPublishException(ex, ownershipTransferred: true);
+            throw new PlayHistoryTerminalPublishException(ex, ownershipTransferred: true, result);
         }
     }
 
