@@ -2934,8 +2934,8 @@ public sealed class MainWindowContextMenuResourceTests
         PlaylistDetailRow first = CreatePlaylistUrlRow("https://example.invalid/package.zip", "https://example.invalid/diff-a.zip");
         PlaylistDetailRow duplicateMain = CreatePlaylistUrlRow("https://example.invalid/package.zip", "https://example.invalid/diff-b.zip");
 
-        List<Uri> mainTargets = MainWindow.BuildPlaylistUrlTargetsForTest([first, duplicateMain, new object()], isDiffUrl: false);
-        List<Uri> diffTargets = MainWindow.BuildPlaylistUrlTargetsForTest([first, duplicateMain], isDiffUrl: true);
+        List<Uri> mainTargets = PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets([first, duplicateMain, new object()], isDiffUrl: false);
+        List<Uri> diffTargets = PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets([first, duplicateMain], isDiffUrl: true);
 
         Assert.AreEqual(1, mainTargets.Count);
         Assert.AreEqual("https://example.invalid/package.zip", mainTargets[0].ToString());
@@ -2968,7 +2968,7 @@ public sealed class MainWindowContextMenuResourceTests
         PlaylistDetailRow dummyFolderRow = CreatePlaylistExternalPackageRow(BMSTableEntry.DUMMY_MD5_FOR_EMPTY_FOLDER, isOwned: false);
         PlaylistDetailRow invalidRow = CreatePlaylistExternalPackageRow(null, isOwned: false);
 
-        List<string> targets = MainWindow.BuildPlaylistExternalPackageMd5TargetsForTest([ownedRow, missingRow, otherRow, dummyFolderRow, invalidRow, new object()]);
+        List<string> targets = PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets([ownedRow, missingRow, otherRow, dummyFolderRow, invalidRow, new object()]);
 
         CollectionAssert.AreEqual(
             new[]
@@ -2991,7 +2991,7 @@ public sealed class MainWindowContextMenuResourceTests
         string contextMenuMethod = ExtractBetween(mainWindowCode, "private async Task OpenPlaylistUrlFromContextMenuAsync", "private List<object> GetEffectiveContextMenuRows");
         string dropHandler = ExtractBetween(mainWindowCode, "private void Window_Drop", "private void Window_DragOver");
         string dragOverHandler = ExtractBetween(mainWindowCode, "private void Window_DragOver", "private void Window_MouseLeftButtonDown");
-        string selectionHelper = ExtractBetween(mainWindowCode, "private List<object> GetEffectiveContextMenuRows", "internal static List<Uri> BuildPlaylistUrlTargetsForTest");
+        string selectionHelper = ExtractBetween(mainWindowCode, "private List<object> GetEffectiveContextMenuRows", "private bool CanStartPlaylistExternalPackageLookup");
         string bulkMethod = ExtractBetween(mainWindowCode, "private async Task DownloadSelectedPlaylistUrlsAsync", "private void tableContextMenuItemOpenDocumentFileClick");
         string refreshStatus = ExtractBetween(
             SourceTextTestHelper.ReadMainWindowViewModelSourceText(),
@@ -3011,7 +3011,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(singleUrlStatusMethod, "UpdatePlaylistUrlDownloadStatus(true, 1, 1");
         StringAssert.Contains(singleUrlStatusMethod, "UpdatePlaylistUrlDownloadStatus(false, 0, 0");
         StringAssert.Contains(selectionHelper, "GetSelectedGridRowsSnapshot");
-        StringAssert.Contains(bulkMethod, "BuildPlaylistUrlTargets(rows, isDiffUrl)");
+        StringAssert.Contains(bulkMethod, "PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(rows, isDiffUrl)");
         StringAssert.Contains(bulkMethod, "IsDropInstallQueueActive: true");
         StringAssert.Contains(bulkMethod, "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue");
         StringAssert.Contains(bulkMethod, "SelectedPlaylistUrlDownloadLargeSelectionWarningThreshold");

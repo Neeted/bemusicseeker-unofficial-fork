@@ -6195,7 +6195,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 menuItem.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url : BeMusicSeeker.Properties.Resources.Open_Url;
                 menuItem.Visibility = Visibility.Visible;
                 menuItem.IsEnabled = !playlistUrlBulkDownloadRunning && (isBulkPlaylistUrlContext
-                    ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: false).Count > 0
+                    ? PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: false).Count > 0
                     : rowUrl != null && rowUrl.IsAbsoluteUri);
             }
             if (menuItem2 != null)
@@ -6203,7 +6203,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 menuItem2.Header = isBulkPlaylistUrlContext ? BeMusicSeeker.Properties.Resources.Import_Selected_Url_diff : BeMusicSeeker.Properties.Resources.Open_Url_diff;
                 menuItem2.Visibility = Visibility.Visible;
                 menuItem2.IsEnabled = !playlistUrlBulkDownloadRunning && (isBulkPlaylistUrlContext
-                    ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
+                    ? PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
                     : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
             }
             if (menuItemFindExternalPackage != null)
@@ -6602,7 +6602,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     }
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = !playlistUrlBulkDownloadRunning && (isBulkPlaylistUrlContext
-                        ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: false).Count > 0
+                        ? PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: false).Count > 0
                         : rowUrl != null && rowUrl.IsAbsoluteUri);
                     break;
                 case "tableContextMenuItemOpenURLdiff":
@@ -6612,7 +6612,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     }
                     item.Visibility = Visibility.Visible;
                     item.IsEnabled = !playlistUrlBulkDownloadRunning && (isBulkPlaylistUrlContext
-                        ? BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
+                        ? PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(effectivePlaylistUrlRows, isDiffUrl: true).Count > 0
                         : rowUrlDiff != null && rowUrlDiff.IsAbsoluteUri);
                     break;
                 case "tableContextMenuItemFindExternalPackage":
@@ -7040,60 +7040,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return [contextRow];
     }
 
-    internal static List<Uri> BuildPlaylistUrlTargetsForTest(IEnumerable<object> rows, bool isDiffUrl)
-    {
-        return BuildPlaylistUrlTargets(rows, isDiffUrl);
-    }
-
-    private static List<Uri> BuildPlaylistUrlTargets(IEnumerable<object> rows, bool isDiffUrl)
-    {
-        var targets = new List<Uri>();
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        foreach (object row in rows ?? [])
-        {
-            Uri url = isDiffUrl ? GridRowResolver.GetUrlDiff(row) : GridRowResolver.GetUrl(row);
-            if (url == null || !url.IsAbsoluteUri)
-            {
-                continue;
-            }
-            string key = url.ToString();
-            if (seen.Add(key))
-            {
-                targets.Add(url);
-            }
-        }
-        return targets;
-    }
-
-    internal static List<string> BuildPlaylistExternalPackageMd5TargetsForTest(IEnumerable<object> rows)
-    {
-        return BuildPlaylistExternalPackageMd5Targets(rows);
-    }
-
-    private static List<string> BuildPlaylistExternalPackageMd5Targets(IEnumerable<object> rows)
-    {
-        var targets = new List<string>();
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (object row in rows ?? [])
-        {
-            string md5 = GridRowResolver.GetPlaylistExternalPackageLookupMd5(row);
-            if (string.IsNullOrWhiteSpace(md5))
-            {
-                continue;
-            }
-            if (seen.Add(md5))
-            {
-                targets.Add(md5);
-            }
-        }
-        return targets;
-    }
-
     private bool CanStartPlaylistExternalPackageLookup(IEnumerable<object> rows)
     {
         return !playlistUrlBulkDownloadRunning
             && base.DataContext is not MainWindowViewModel { IsDropInstallQueueActive: true }
-            && BuildPlaylistExternalPackageMd5Targets(rows).Count > 0;
+            && PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets(rows).Count > 0;
     }
 
     private async Task DownloadSelectedPlaylistExternalPackagesAsync(IEnumerable<object> rows)
@@ -7102,7 +7053,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<string> targets = BuildPlaylistExternalPackageMd5Targets(rows);
+        List<string> targets = PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets(rows);
         if (targets.Count == 0)
         {
             UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupNoTargets, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
@@ -7278,7 +7229,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        List<Uri> targets = BuildPlaylistUrlTargets(rows, isDiffUrl);
+        List<Uri> targets = PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(rows, isDiffUrl);
         if (targets.Count == 0)
         {
             UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
