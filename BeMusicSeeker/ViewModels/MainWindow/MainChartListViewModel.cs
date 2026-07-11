@@ -479,7 +479,9 @@ public sealed class MainChartListViewModel : ViewModel
         }
         if (publishExceptions.Count > 0)
         {
-            throw new MainChartListPresentationPublishException(new AggregateException(publishExceptions));
+            throw new MainChartListPresentationPublishException(
+                new AggregateException(publishExceptions),
+                rowsApply);
         }
         return MainChartListPresentationApplyResult.Applied(rowsApply);
     }
@@ -1257,6 +1259,8 @@ internal readonly struct MainChartListPresentationApplyResult
 
 internal sealed class MainChartListPresentationPublishException : Exception
 {
+    internal MainChartListRowsApplyResult RowsApply { get; }
+
     internal MainChartListPresentationPublishException()
     {
     }
@@ -1269,6 +1273,14 @@ internal sealed class MainChartListPresentationPublishException : Exception
     internal MainChartListPresentationPublishException(Exception innerException)
         : base("Main chart-list presentation was committed but publishing failed.", innerException)
     {
+    }
+
+    internal MainChartListPresentationPublishException(
+        Exception innerException,
+        MainChartListRowsApplyResult rowsApply)
+        : this(innerException)
+    {
+        RowsApply = rowsApply;
     }
 
     internal MainChartListPresentationPublishException(string message, Exception innerException)

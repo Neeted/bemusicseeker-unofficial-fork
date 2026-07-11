@@ -578,14 +578,12 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         if (playlistDetailViewState == null) throw new ArgumentNullException(nameof(playlistDetailViewState));
 
         var result = new PlayHistoryTerminalCommitResult();
-        MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(request.MainRowsRequest);
-        Exception commitException = null;
-        try
+        bool CommitPlayHistoryPresentation(Action commitRows)
         {
-            bool applied = PresentationState.TryCommitTerminal(
+            return PresentationState.TryCommitTerminal(
                 request,
                 result,
-                transition.CommitOwnership,
+                commitRows,
                 () =>
                 {
                     result.PlaylistSourceClear = playlistDetailBuildState.CommitSourceClear(playlistDetailViewState);
@@ -593,44 +591,44 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
                     result.ColumnPresentation = playlistWorkspace.CommitColumnPresentationWithoutNotification(
                         request.ColumnSelection.PlaylistColumnSettingsVisibility,
                         request.ColumnSelection.PlaylistSummaryColumnsSettings);
-                    if (request.ColumnSelection.AppliedMode.HasValue)
-                    {
-                        mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
-                    }
+                    mainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
                     regularChartListOwner.ResetDerivedCaches();
                     PruneSummaryFilters(request.ViewState.Provider);
                 });
-            if (!applied)
-            {
-                transition.Cancel();
-                return result;
-            }
-        }
-        catch (Exception ex)
-        {
-            if (!transition.OwnershipTransferred)
-            {
-                transition.Cancel();
-                throw;
-            }
-            commitException = ex;
         }
 
-        var publishExceptions = new List<Exception>();
-        if (commitException != null)
+        void PublishPlayHistoryPresentation()
         {
-            publishExceptions.Add(commitException);
+            var publishExceptions = new List<Exception>();
+            TryPublish(() => PublishRelatedPresentation(result, playlistWorkspace), publishExceptions);
+            TryPublish(() => PublishOwnPresentation(result), publishExceptions);
+            if (publishExceptions.Count > 0)
+            {
+                throw new AggregateException(publishExceptions);
+            }
         }
-        TryPublish(() => result.MainRowsApply = transition.Complete(), publishExceptions);
-        TryPublish(() => PublishRelatedPresentation(result, playlistWorkspace), publishExceptions);
-        TryPublish(() => PublishOwnPresentation(result), publishExceptions);
-        if (publishExceptions.Count > 0)
+
+        MainChartListPresentationApplyResult applied;
+        try
         {
+            applied = mainChartList.ApplyPresentation(
+                request.MainRowsRequest,
+                CommitPlayHistoryPresentation,
+                PublishPlayHistoryPresentation);
+        }
+        catch (MainChartListPresentationPublishException ex)
+        {
+            result.MainRowsApply = ex.RowsApply;
             throw new PlayHistoryTerminalPublishException(
-                new AggregateException(publishExceptions),
+                ex.InnerException ?? ex,
                 ownershipTransferred: true,
                 result);
         }
+        if (!applied.WasApplied)
+        {
+            return result;
+        }
+        result.MainRowsApply = applied.RowsApply;
         return result;
     }
 

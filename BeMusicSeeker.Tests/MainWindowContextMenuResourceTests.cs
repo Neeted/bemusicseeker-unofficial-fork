@@ -197,6 +197,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainChartListCode.Contains("PlayHistoryTerminalRequest"));
         Assert.IsFalse(mainChartListCode.Contains("PlayHistoryTerminalCommitResult"));
         StringAssert.Contains(playHistoryWorkflowCode, "ApplyTerminal(");
+        StringAssert.Contains(playHistoryWorkflowCode, "ApplyPresentation(");
         StringAssert.Contains(playHistoryWorkflowCode, "ApplySortedRows(");
         StringAssert.Contains(playHistoryWorkflowCode, "BuildPresentationOnly(");
         StringAssert.Contains(playHistoryWorkflowCode, "BuildReadPresentation(");
