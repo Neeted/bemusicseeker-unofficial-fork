@@ -312,30 +312,35 @@ public sealed class LibraryChartRowSortEngineTests
     [TestCategory("SortEngine")]
     public void NormalLibraryVirtualSortKeyProperty_UsesVirtualRegistryColumns()
     {
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.Title)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.path)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.Folder)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.Artist)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.genre)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.mode)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.tag)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.hash)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.sha256)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.instl_dst)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.InstallDestinationTitle)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.InstallDestinationArtist)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.RefTablesSymbols)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.clear)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.rateDouble)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.score)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.maxcombo)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.minbp)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.ChartLevelSortKey)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.WarningDigestText)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.WAVHealth)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.BGAHealth)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.MovieHealth)));
-        Assert.IsTrue(MainWindowViewModel.IsNormalLibraryVirtualSortKeyPropertyForTest(nameof(LibraryChartRow.encoding)));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.Title));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.path));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.Folder));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.Artist));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.genre));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.mode));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.tag));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.hash));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.sha256));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.instl_dst));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.InstallDestinationTitle));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.InstallDestinationArtist));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.RefTablesSymbols));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.clear));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.rateDouble));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.score));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.maxcombo));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.minbp));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.ChartLevelSortKey));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.WarningDigestText));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.WAVHealth));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.BGAHealth));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.MovieHealth));
+        AssertIsVirtualSortColumn(nameof(LibraryChartRow.encoding));
+    }
+
+    private static void AssertIsVirtualSortColumn(string columnName)
+    {
+        Assert.IsTrue(ChartListOrder.TryNormalizeVirtualSortColumn(columnName, out _), columnName);
     }
 
     [TestMethod]

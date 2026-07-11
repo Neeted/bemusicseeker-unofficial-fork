@@ -3225,24 +3225,6 @@ public partial class MainWindowViewModel : ViewModel
         return true;
     }
 
-    internal static MainViewRefreshDecision BuildMainViewRefreshDecisionForTest(
-        MainViewUpdateMode currentMode,
-        bool folderFilterApplied,
-        string keywordFilter,
-        ChartModeFilter modeFilter,
-        string sortColumnName,
-        bool isPlaylistDetailView,
-        MainViewDataDependency dependency,
-        string reason)
-    {
-        return MainViewRefreshDecisionService.Build(currentMode, folderFilterApplied, keywordFilter, modeFilter, sortColumnName, isPlaylistDetailView, dependency, reason);
-    }
-
-    internal static MainViewDataDependency GetMainViewSortColumnDependencyForTest(string columnName)
-    {
-        return MainViewRefreshDecisionService.GetSortColumnDependency(columnName);
-    }
-
     private void RefreshChartInfoDependentViews()
     {
         MainChartList.RowProjection.CaptureVersions(files);
@@ -4475,16 +4457,6 @@ public partial class MainWindowViewModel : ViewModel
     private static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasons(bool hasBmsPathMutation, bool hasBmsonPathMutation)
     {
         return MainViewRefreshDecisionService.GetPathSortKeyInvalidationReasons(hasBmsPathMutation, hasBmsonPathMutation);
-    }
-
-    internal static IReadOnlyList<string> GetNormalLibraryPathSortKeyInvalidationReasonsForTest(bool hasBmsPathMutation, bool hasBmsonPathMutation)
-    {
-        return GetNormalLibraryPathSortKeyInvalidationReasons(hasBmsPathMutation, hasBmsonPathMutation);
-    }
-
-    internal static IReadOnlyList<string> GetNormalLibrarySortKeyInvalidationReasonsForTest()
-    {
-        return MainViewRefreshDecisionService.GetSortKeyInvalidationReasons();
     }
 
     private const string NormalLibraryBmsonSourceIdentityChangedReason = "bmson_source_identity_changed";
@@ -11681,11 +11653,6 @@ public partial class MainWindowViewModel : ViewModel
             return DuplicateViewContext.ForFolder(folderPath);
         }
         return null;
-    }
-
-    internal static bool IsNormalLibraryVirtualSortKeyPropertyForTest(string propertyName)
-    {
-        return ChartListOrder.TryNormalizeVirtualSortColumn(propertyName, out _);
     }
 
     private void SyncBmsonLibraryRowCacheWithoutRebuild(string reason = "bmson_sync_without_rebuild")
