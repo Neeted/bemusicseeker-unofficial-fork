@@ -592,9 +592,9 @@ public sealed class GridKeywordSearchQueryTests
     {
         PlayHistoryRow row = CreatePlayHistoryRow(finalized: true);
 
-        Assert.IsTrue(MainWindowViewModel.MatchesPlayHistoryKeywordAndSummaryFiltersForTest(row, "artist:artistx", "type:bp", "type:score"));
-        Assert.IsFalse(MainWindowViewModel.MatchesPlayHistoryKeywordAndSummaryFiltersForTest(row, "artist:missing", "type:score"));
-        Assert.IsFalse(MainWindowViewModel.MatchesPlayHistoryKeywordAndSummaryFiltersForTest(row, "artist:artistx", "type:bp", "type:clear newclear:EC"));
+        Assert.IsTrue(PlayHistoryWorkflowOwner.MatchesKeywordAndSummaryFilters(row, "artist:artistx", "type:bp", "type:score"));
+        Assert.IsFalse(PlayHistoryWorkflowOwner.MatchesKeywordAndSummaryFilters(row, "artist:missing", "type:score"));
+        Assert.IsFalse(PlayHistoryWorkflowOwner.MatchesKeywordAndSummaryFilters(row, "artist:artistx", "type:bp", "type:clear newclear:EC"));
     }
 
     [TestMethod]

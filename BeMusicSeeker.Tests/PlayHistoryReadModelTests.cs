@@ -916,16 +916,35 @@ public sealed class PlayHistoryReadModelTests
     [TestMethod]
     public void ApplyPlayHistoryDisplayTargetRows_AllKeepsProjectedRowsFastPath()
     {
-        var viewModel = new MainWindowViewModel();
+        var owner = new PlayHistoryWorkflowOwner();
         IReadOnlyList<PlayHistoryRow> rows = [CreateProjectedRow(HashA, initialFolderLabels: "SAT")];
-        MethodInfo method = typeof(MainWindowViewModel).GetMethod("ApplyPlayHistoryDisplayTargetRows", BindingFlags.Instance | BindingFlags.NonPublic)!;
-
-        object result = method.Invoke(
-            viewModel,
-            [rows, PlayHistoryDisplayTargetItem.All, 1L, 0L, CancellationToken.None]);
+        IReadOnlyList<PlayHistoryRow> result = owner.ApplyDisplayTarget(
+            rows,
+            PlayHistoryDisplayTargetItem.All,
+            requestId: 1L,
+            displayTargetRevision: 0L,
+            CancellationToken.None,
+            tableSnapshotFactory: () => throw new AssertFailedException("All must not snapshot display-target tables."),
+            ensureEntriesLoaded: null);
 
         Assert.AreSame(rows, result);
         Assert.AreEqual("SAT", rows[0].FolderLabels);
+    }
+
+    [TestMethod]
+    public void ApplyPlayHistoryDisplayTargetRows_StaleRequestStopsBeforeTableSnapshot()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        IReadOnlyList<PlayHistoryRow> rows = [CreateProjectedRow(HashA, initialFolderLabels: "SAT")];
+
+        Assert.ThrowsException<OperationCanceledException>(() => owner.ApplyDisplayTarget(
+            rows,
+            PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable()),
+            requestId: 1L,
+            displayTargetRevision: owner.DisplayTargetRevision,
+            CancellationToken.None,
+            tableSnapshotFactory: () => throw new AssertFailedException("Stale requests must not snapshot display-target tables."),
+            ensureEntriesLoaded: null));
     }
 
     [TestMethod]

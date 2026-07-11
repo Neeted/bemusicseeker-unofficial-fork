@@ -10660,7 +10660,14 @@ public partial class MainWindowViewModel : ViewModel
         IReadOnlyList<PlayHistoryRow> targetRows;
         try
         {
-            targetRows = ApplyPlayHistoryDisplayTargetRows(projectedRows, displayTarget, requestId, displayTargetRevision, cancellationToken);
+            targetRows = playHistoryWorkflowOwner.ApplyDisplayTarget(
+                projectedRows,
+                displayTarget,
+                requestId,
+                displayTargetRevision,
+                cancellationToken,
+                SnapshotPlayHistoryDisplayTargetTables,
+                table => tables?.EnsurePlaylistEntriesLoaded(table, "PlayHistoryDisplayTarget"));
         }
         catch (OperationCanceledException)
         {
@@ -10675,7 +10682,14 @@ public partial class MainWindowViewModel : ViewModel
             : playHistoryWorkflowOwner.KeywordRevision;
         try
         {
-            filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, SnapshotSelectedPlayHistorySummaryFilterTexts(), requestId, keywordRevision, cancellationToken, out keywordMs);
+            filteredRows = playHistoryWorkflowOwner.ApplyKeywordFilters(
+                targetRows,
+                keywordFilter,
+                SnapshotSelectedPlayHistorySummaryFilterTexts(),
+                requestId,
+                keywordRevision,
+                cancellationToken,
+                out keywordMs);
         }
         catch (OperationCanceledException)
         {
@@ -10825,126 +10839,6 @@ public partial class MainWindowViewModel : ViewModel
         settingDialog.ClearLr2PlayHistorySchemaStatus();
     }
 
-    private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryKeywordFilterRows(
-        IReadOnlyList<PlayHistoryRow> rows,
-        string keywordFilter,
-        IReadOnlyList<string> summaryFilterTexts,
-        long requestId,
-        long keywordRevision,
-        CancellationToken cancellationToken,
-        out long keywordMs)
-    {
-        var keywordStopwatch = Stopwatch.StartNew();
-        IReadOnlyList<PlayHistoryRow> safeRows = rows ?? [];
-        bool hasKeywordFilter = !string.IsNullOrWhiteSpace(keywordFilter);
-        GridKeywordSearchQuery[] summaryQueries = [.. (summaryFilterTexts ?? [])
-            .Where(text => !string.IsNullOrWhiteSpace(text))
-            .Select(GridKeywordSearchQuery.Parse)
-            .Where(query => query.HasTokens)];
-        if (!hasKeywordFilter && summaryQueries.Length == 0)
-        {
-            keywordMs = keywordStopwatch.ElapsedMilliseconds;
-            return safeRows;
-        }
-
-        var keywordQuery = hasKeywordFilter ? GridKeywordSearchQuery.Parse(keywordFilter) : null;
-        var filteredRows = new List<PlayHistoryRow>(safeRows.Count);
-        for (int index = 0; index < safeRows.Count; index++)
-        {
-            if ((index & 0x7f) == 0)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (!IsCurrentPlayHistoryViewRequest(requestId))
-                {
-                    throw new OperationCanceledException(cancellationToken);
-                }
-                if (playHistoryWorkflowOwner.KeywordRevision != keywordRevision)
-                {
-                    throw new OperationCanceledException(cancellationToken);
-                }
-            }
-            PlayHistoryRow row = safeRows[index];
-            if (MatchesPlayHistoryKeywordAndSummaryFilters(row, keywordQuery, summaryQueries))
-            {
-                filteredRows.Add(row);
-            }
-        }
-        cancellationToken.ThrowIfCancellationRequested();
-        keywordMs = keywordStopwatch.ElapsedMilliseconds;
-        return filteredRows;
-    }
-
-    private static bool MatchesPlayHistoryKeywordAndSummaryFilters(
-        PlayHistoryRow row,
-        GridKeywordSearchQuery keywordQuery,
-        IReadOnlyList<GridKeywordSearchQuery> summaryQueries)
-    {
-        bool keywordMatched = keywordQuery == null || keywordQuery.MatchesPlayHistoryRow(row);
-        bool summaryMatched = (summaryQueries?.Count ?? 0) == 0 || summaryQueries.Any(query => query.MatchesPlayHistoryRow(row));
-        return keywordMatched && summaryMatched;
-    }
-
-    internal static bool MatchesPlayHistoryKeywordAndSummaryFiltersForTest(PlayHistoryRow row, string keywordFilter, params string[] summaryFilterTexts)
-    {
-        GridKeywordSearchQuery keywordQuery = string.IsNullOrWhiteSpace(keywordFilter)
-            ? null
-            : GridKeywordSearchQuery.Parse(keywordFilter);
-        GridKeywordSearchQuery[] summaryQueries = [.. (summaryFilterTexts ?? [])
-            .Where(text => !string.IsNullOrWhiteSpace(text))
-            .Select(GridKeywordSearchQuery.Parse)
-            .Where(query => query.HasTokens)];
-        return MatchesPlayHistoryKeywordAndSummaryFilters(row, keywordQuery, summaryQueries);
-    }
-
-    private IReadOnlyList<PlayHistoryRow> ApplyPlayHistoryDisplayTargetRows(
-        IReadOnlyList<PlayHistoryRow> rows,
-        PlayHistoryDisplayTargetItem displayTarget,
-        long requestId,
-        long displayTargetRevision,
-        CancellationToken cancellationToken)
-    {
-        IReadOnlyList<PlayHistoryRow> safeRows = rows ?? [];
-        PlayHistoryDisplayTargetItem safeTarget = displayTarget ?? PlayHistoryDisplayTargetItem.All;
-        if (!safeTarget.UsesProjection)
-        {
-            return safeRows;
-        }
-        ThrowIfStalePlayHistoryDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
-        List<BMSTable> tableSnapshot = SnapshotPlayHistoryDisplayTargetTables();
-        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
-            safeTarget,
-            tableSnapshot,
-            table => tables?.EnsurePlaylistEntriesLoaded(table, "PlayHistoryDisplayTarget"),
-            cancellationToken,
-            () => IsCurrentPlayHistoryViewRequest(requestId)
-                && displayTargetRevision == playHistoryWorkflowOwner.DisplayTargetRevision);
-        var filteredRows = new List<PlayHistoryRow>(safeRows.Count);
-        for (int indexInRows = 0; indexInRows < safeRows.Count; indexInRows++)
-        {
-            if ((indexInRows & 0x7f) == 0)
-            {
-                ThrowIfStalePlayHistoryDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
-            }
-            PlayHistoryRow row = safeRows[indexInRows];
-            if (index.TryApply(row, out PlayHistoryRow displayRow))
-            {
-                filteredRows.Add(displayRow);
-            }
-        }
-        ThrowIfStalePlayHistoryDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
-        return filteredRows;
-    }
-
-    private void ThrowIfStalePlayHistoryDisplayTargetRequest(long requestId, long displayTargetRevision, CancellationToken cancellationToken)
-    {
-        cancellationToken.ThrowIfCancellationRequested();
-        if (!IsCurrentPlayHistoryViewRequest(requestId)
-            || displayTargetRevision != playHistoryWorkflowOwner.DisplayTargetRevision)
-        {
-            throw new OperationCanceledException(cancellationToken);
-        }
-    }
-
     private List<BMSTable> SnapshotPlayHistoryDisplayTargetTables()
     {
         try
@@ -11047,7 +10941,14 @@ public partial class MainWindowViewModel : ViewModel
             CancellationToken cancellationToken = playHistoryWorkflowOwner.GetCancellationToken(state.RequestId);
             try
             {
-                targetRows = ApplyPlayHistoryDisplayTargetRows(state.AllProjectedRows, displayTarget, state.RequestId, displayTargetRevision, cancellationToken);
+                targetRows = playHistoryWorkflowOwner.ApplyDisplayTarget(
+                    state.AllProjectedRows,
+                    displayTarget,
+                    state.RequestId,
+                    displayTargetRevision,
+                    cancellationToken,
+                    SnapshotPlayHistoryDisplayTargetTables,
+                    table => tables?.EnsurePlaylistEntriesLoaded(table, "PlayHistoryDisplayTarget"));
             }
             catch (OperationCanceledException)
             {
@@ -11061,7 +10962,14 @@ public partial class MainWindowViewModel : ViewModel
             CancellationToken cancellationToken = playHistoryWorkflowOwner.GetCancellationToken(state.RequestId);
             try
             {
-                filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, SnapshotSelectedPlayHistorySummaryFilterTexts(), state.RequestId, keywordRevision, cancellationToken, out keywordMs);
+                filteredRows = playHistoryWorkflowOwner.ApplyKeywordFilters(
+                    targetRows,
+                    keywordFilter,
+                    SnapshotSelectedPlayHistorySummaryFilterTexts(),
+                    state.RequestId,
+                    keywordRevision,
+                    cancellationToken,
+                    out keywordMs);
             }
             catch (OperationCanceledException)
             {

@@ -1,6 +1,10 @@
 using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -238,6 +242,128 @@ internal sealed class PlayHistoryWorkflowOwner
             + " keywordActiveCount=" + Volatile.Read(ref keywordActiveCount)
             + " displayTargetQueuedRevision=" + Interlocked.Read(ref displayTargetQueuedRevision)
             + " displayTargetActiveCount=" + Volatile.Read(ref displayTargetActiveCount);
+    }
+
+    internal IReadOnlyList<PlayHistoryRow> ApplyKeywordFilters(
+        IReadOnlyList<PlayHistoryRow> rows,
+        string keywordFilter,
+        IReadOnlyList<string> summaryFilterTexts,
+        long requestId,
+        long keywordRevision,
+        CancellationToken cancellationToken,
+        out long elapsedMs)
+    {
+        var stopwatch = Stopwatch.StartNew();
+        IReadOnlyList<PlayHistoryRow> safeRows = rows ?? [];
+        bool hasKeywordFilter = !string.IsNullOrWhiteSpace(keywordFilter);
+        GridKeywordSearchQuery[] summaryQueries = [.. (summaryFilterTexts ?? [])
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select(GridKeywordSearchQuery.Parse)
+            .Where(query => query.HasTokens)];
+        if (!hasKeywordFilter && summaryQueries.Length == 0)
+        {
+            elapsedMs = stopwatch.ElapsedMilliseconds;
+            return safeRows;
+        }
+
+        var keywordQuery = hasKeywordFilter ? GridKeywordSearchQuery.Parse(keywordFilter) : null;
+        var filteredRows = new List<PlayHistoryRow>(safeRows.Count);
+        for (int index = 0; index < safeRows.Count; index++)
+        {
+            if ((index & 0x7f) == 0)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!IsCurrentRequest(requestId) || KeywordRevision != keywordRevision)
+                {
+                    throw new OperationCanceledException(cancellationToken);
+                }
+            }
+            PlayHistoryRow row = safeRows[index];
+            if (MatchesKeywordAndSummaryFilters(row, keywordQuery, summaryQueries))
+            {
+                filteredRows.Add(row);
+            }
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        elapsedMs = stopwatch.ElapsedMilliseconds;
+        return filteredRows;
+    }
+
+    internal static bool MatchesKeywordAndSummaryFilters(
+        PlayHistoryRow row,
+        string keywordFilter,
+        params string[] summaryFilterTexts)
+    {
+        GridKeywordSearchQuery keywordQuery = string.IsNullOrWhiteSpace(keywordFilter)
+            ? null
+            : GridKeywordSearchQuery.Parse(keywordFilter);
+        GridKeywordSearchQuery[] summaryQueries = [.. (summaryFilterTexts ?? [])
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select(GridKeywordSearchQuery.Parse)
+            .Where(query => query.HasTokens)];
+        return MatchesKeywordAndSummaryFilters(row, keywordQuery, summaryQueries);
+    }
+
+    internal IReadOnlyList<PlayHistoryRow> ApplyDisplayTarget(
+        IReadOnlyList<PlayHistoryRow> rows,
+        PlayHistoryDisplayTargetItem displayTarget,
+        long requestId,
+        long displayTargetRevision,
+        CancellationToken cancellationToken,
+        Func<IReadOnlyList<BMSTable>> tableSnapshotFactory,
+        Action<BMSTable> ensureEntriesLoaded)
+    {
+        IReadOnlyList<PlayHistoryRow> safeRows = rows ?? [];
+        PlayHistoryDisplayTargetItem safeTarget = displayTarget ?? PlayHistoryDisplayTargetItem.All;
+        if (!safeTarget.UsesProjection)
+        {
+            return safeRows;
+        }
+        ThrowIfStaleDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
+        IReadOnlyList<BMSTable> tableSnapshot = tableSnapshotFactory?.Invoke() ?? [];
+        PlayHistoryDisplayTargetIndex index = PlayHistoryDisplayTargetIndex.Create(
+            safeTarget,
+            tableSnapshot,
+            table => ensureEntriesLoaded?.Invoke(table),
+            cancellationToken,
+            () => IsCurrentRequest(requestId) && displayTargetRevision == DisplayTargetRevision);
+        var filteredRows = new List<PlayHistoryRow>(safeRows.Count);
+        for (int indexInRows = 0; indexInRows < safeRows.Count; indexInRows++)
+        {
+            if ((indexInRows & 0x7f) == 0)
+            {
+                ThrowIfStaleDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
+            }
+            PlayHistoryRow row = safeRows[indexInRows];
+            if (index.TryApply(row, out PlayHistoryRow displayRow))
+            {
+                filteredRows.Add(displayRow);
+            }
+        }
+        ThrowIfStaleDisplayTargetRequest(requestId, displayTargetRevision, cancellationToken);
+        return filteredRows;
+    }
+
+    private static bool MatchesKeywordAndSummaryFilters(
+        PlayHistoryRow row,
+        GridKeywordSearchQuery keywordQuery,
+        IReadOnlyList<GridKeywordSearchQuery> summaryQueries)
+    {
+        bool keywordMatched = keywordQuery == null || keywordQuery.MatchesPlayHistoryRow(row);
+        bool summaryMatched = (summaryQueries?.Count ?? 0) == 0 || summaryQueries.Any(query => query.MatchesPlayHistoryRow(row));
+        return keywordMatched && summaryMatched;
+    }
+
+    private void ThrowIfStaleDisplayTargetRequest(
+        long requestId,
+        long displayTargetRevision,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!IsCurrentRequest(requestId) || displayTargetRevision != DisplayTargetRevision)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
     }
 
     private static bool TryReserveRevision(ref long queuedRevision, long revision)
