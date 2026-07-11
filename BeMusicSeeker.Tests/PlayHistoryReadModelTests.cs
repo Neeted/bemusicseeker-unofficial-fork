@@ -2543,4 +2543,79 @@ public sealed class PlayHistoryReadModelTests
     private const string HashC = "cccccccccccccccccccccccccccccccc";
 
     private const string ShaA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    [TestMethod]
+    public void WorkflowOwner_TransfersRequestIdentityAndCancelsPreviousLifecycle()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest? activated = null;
+        PlayHistoryViewRequest first = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            "keyword-a",
+            "target-a",
+            displayTargetRevision: 3,
+            request => activated = request);
+        System.Threading.CancellationToken firstToken = owner.GetCancellationToken(first.RequestId);
+
+        PlayHistoryViewRequest second = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            "keyword-b",
+            "target-b",
+            displayTargetRevision: 4,
+            request => activated = request);
+
+        Assert.IsTrue(firstToken.IsCancellationRequested);
+        Assert.IsFalse(owner.IsCurrentRequest(first.RequestId));
+        Assert.IsTrue(owner.IsCurrentRequest(second.RequestId));
+        Assert.AreSame(second, activated);
+        Assert.AreSame(second, owner.SnapshotActiveRequest());
+        Assert.AreEqual("keyword-b", owner.PresentationState.CurrentKeywordIdentity);
+        Assert.AreEqual("target-b", owner.PresentationState.CurrentDisplayTargetIdentity);
+        Assert.AreEqual(4L, owner.PresentationState.DisplayTargetRevision);
+
+        bool selectionDeactivated = false;
+        System.Threading.CancellationToken secondToken = owner.GetCancellationToken(second.RequestId);
+        owner.Deactivate(() => selectionDeactivated = true);
+
+        Assert.IsTrue(selectionDeactivated);
+        Assert.IsTrue(secondToken.IsCancellationRequested);
+        Assert.IsNull(owner.SnapshotActiveRequest());
+        Assert.IsFalse(owner.IsCurrentRequest(second.RequestId));
+    }
+
+    [TestMethod]
+    public void WorkflowOwner_CallbackFailureDoesNotLeaveRequestLifecycleActive()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest first = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            string.Empty,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        System.Threading.CancellationToken firstToken = owner.GetCancellationToken(first.RequestId);
+
+        Assert.ThrowsException<InvalidOperationException>(() => owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            string.Empty,
+            displayTargetRevision: 0,
+            _ => throw new InvalidOperationException("selection failed")));
+
+        Assert.IsTrue(firstToken.IsCancellationRequested);
+        Assert.IsNull(owner.SnapshotActiveRequest());
+        Assert.IsFalse(owner.IsCurrentRequest(owner.CurrentRequestId));
+
+        PlayHistoryViewRequest next = owner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            string.Empty,
+            string.Empty,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        System.Threading.CancellationToken nextToken = owner.GetCancellationToken(next.RequestId);
+        Assert.ThrowsException<InvalidOperationException>(() => owner.Deactivate(
+            () => throw new InvalidOperationException("deactivation failed")));
+        Assert.IsTrue(nextToken.IsCancellationRequested);
+        Assert.IsNull(owner.SnapshotActiveRequest());
+    }
 }

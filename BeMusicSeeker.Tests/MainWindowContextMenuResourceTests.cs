@@ -220,7 +220,7 @@ public sealed class MainWindowContextMenuResourceTests
         string rowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "ViewModels", "PlayHistoryRow.cs"));
 
         StringAssert.Contains(applyPlayHistoryView, "ShouldUseBeatorajaPlayHistoryProvider()");
-        StringAssert.Contains(applyPlayHistoryView, "playHistoryReadCache.ReadBeatoraja(");
+        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.ReadCache.ReadBeatoraja(");
         StringAssert.Contains(applyPlayHistoryView, "periodRequest.ToBeatorajaReadRequest");
         StringAssert.Contains(applyPlayHistoryView, "PlayHistoryRow.ProjectBeatorajaRows");
         StringAssert.Contains(applyPlayHistoryView, "provider=\" + activePlayHistoryProvider");

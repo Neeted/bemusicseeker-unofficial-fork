@@ -633,27 +633,17 @@ public partial class MainWindowViewModel : ViewModel
 
     private string _WindowTitle = "BeMusicSeeker Unofficial Fork - ";
 
-    private readonly PlayHistoryPresentationState playHistoryPresentationState = new();
+    private readonly PlayHistoryWorkflowOwner playHistoryWorkflowOwner = new();
+
+    private PlayHistoryPresentationState playHistoryPresentationState => playHistoryWorkflowOwner.PresentationState;
 
 
     private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
-
-    private long playHistoryViewRequestGeneration
-    {
-        get => playHistoryPresentationState.RequestGeneration;
-        set => playHistoryPresentationState.RequestGeneration = value;
-    }
 
     private long playHistorySortRevision
     {
         get => playHistoryPresentationState.SortRevision;
         set => playHistoryPresentationState.SortRevision = value;
-    }
-
-    private CancellationTokenSource playHistoryViewRequestCancellation
-    {
-        get => playHistoryPresentationState.RequestCancellation;
-        set => playHistoryPresentationState.RequestCancellation = value;
     }
 
     private ref PlayHistoryViewState playHistoryViewState => ref playHistoryPresentationState.CurrentView;
@@ -667,8 +657,6 @@ public partial class MainWindowViewModel : ViewModel
     private ref IReadOnlyList<PlayHistorySummaryCard> _PlayHistorySummaryCards => ref playHistoryPresentationState.SummaryCards;
 
     private ref string _PlayHistorySummaryDiagnosticText => ref playHistoryPresentationState.DiagnosticText;
-
-    private readonly PlayHistoryReadCache playHistoryReadCache = new();
 
     private long playHistoryKeywordFilterQueuedRevision;
 
@@ -7320,12 +7308,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void CancelPlayHistoryRequestsForShutdown()
     {
-        CancellationTokenSource cancellation;
-        lock (playHistoryViewRequestLock)
-        {
-            cancellation = InvalidatePlayHistoryFilterRequestUnsafe();
-        }
-        CancelPlayHistoryFilterRequest(cancellation);
+        playHistoryWorkflowOwner.Deactivate();
         Interlocked.Exchange(ref playHistoryKeywordFilterQueuedRevision, 0L);
         Interlocked.Exchange(ref playHistoryDisplayTargetQueuedRevision, 0L);
         Interlocked.Exchange(ref playHistoryDisplayTargetsRefreshRequestedRevision, Interlocked.Read(ref playHistoryDisplayTargetsRefreshCompletedRevision));
@@ -7909,13 +7892,8 @@ public partial class MainWindowViewModel : ViewModel
 
     internal void InvalidatePlayHistoryReadCache(string reason)
     {
-        CancellationTokenSource cancellation;
-        lock (playHistoryViewRequestLock)
-        {
-            cancellation = InvalidatePlayHistoryFilterRequestUnsafe();
-        }
-        CancelPlayHistoryFilterRequest(cancellation);
-        playHistoryReadCache.Invalidate();
+        playHistoryWorkflowOwner.Deactivate();
+        playHistoryWorkflowOwner.ReadCache.Invalidate();
         LogPlayHistoryEvent("play_history_read_cache_invalidated", "reason=" + (reason ?? string.Empty));
     }
 
@@ -10461,7 +10439,16 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistoryPeriodRequest periodRequest = viewRequest.PeriodRequest;
         long requestId = viewRequest.RequestId > 0
             ? viewRequest.RequestId
-            : RegisterPlayHistoryFilterRequest();
+            : playHistoryWorkflowOwner.RegisterRequest(
+                periodRequest,
+                NormalizePlaylistKeywordFilter(KeywordFilter),
+                SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty,
+                Interlocked.Read(ref playHistoryDisplayTargetRevision),
+                activeRequest =>
+                {
+                    treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
+                    treeViewFilterParameterSelected = activeRequest;
+                });
         if (requestedMode == MainViewUpdateMode.KeywordFilterUpdated
             && viewRequest.KeywordFilterRevision > 0
             && viewRequest.KeywordFilterRevision != Interlocked.Read(ref playHistoryKeywordFilterRevision))
@@ -10489,7 +10476,7 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         var readStopwatch = Stopwatch.StartNew();
-        CancellationToken cancellationToken = GetPlayHistoryFilterCancellationToken(requestId);
+        CancellationToken cancellationToken = playHistoryWorkflowOwner.GetCancellationToken(requestId);
         bool useBeatorajaProvider = ShouldUseBeatorajaPlayHistoryProvider();
         BeatorajaPlayHistoryScoreContext beatorajaScoreContext = useBeatorajaProvider
             ? ResolveBeatorajaPlayHistoryScoreContext()
@@ -10507,7 +10494,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 BeatorajaPlayHistoryReadRequest beatorajaReadRequest = periodRequest.ToBeatorajaReadRequest(ResolveMainViewBeatorajaPlayHistoryScoreDbPath());
                 ApplyBeatorajaPlayHistoryScoreContext(beatorajaReadRequest, beatorajaScoreContext);
-                beatorajaReadResult = playHistoryReadCache.ReadBeatoraja(
+                beatorajaReadResult = playHistoryWorkflowOwner.ReadCache.ReadBeatoraja(
                     beatorajaReadRequest,
                     cancellationToken,
                     out playHistoryReadCacheHit);
@@ -10517,7 +10504,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             else
             {
-                lr2ReadResult = playHistoryReadCache.ReadLr2(
+                lr2ReadResult = playHistoryWorkflowOwner.ReadCache.ReadLr2(
                     periodRequest.ToLr2ReadRequest(ResolveMainViewLr2PlayHistoryScoreDbPath(), Settings.Default.OperationModeLR2DB),
                     cancellationToken,
                     out playHistoryReadCacheHit);
@@ -10562,7 +10549,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 if (useBeatorajaProvider)
                 {
-                    BeatorajaPlayHistoryPeriodIndexResult periodIndexResult = playHistoryReadCache.ReadBeatorajaPeriodIndex(
+                    BeatorajaPlayHistoryPeriodIndexResult periodIndexResult = playHistoryWorkflowOwner.ReadCache.ReadBeatorajaPeriodIndex(
                         new BeatorajaPlayHistoryPeriodIndexRequest
                         {
                             ScoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath(),
@@ -10576,7 +10563,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 else
                 {
-                    Lr2PlayHistoryPeriodIndexResult periodIndexResult = playHistoryReadCache.ReadLr2PeriodIndex(
+                    Lr2PlayHistoryPeriodIndexResult periodIndexResult = playHistoryWorkflowOwner.ReadCache.ReadLr2PeriodIndex(
                         new Lr2PlayHistoryPeriodIndexRequest
                         {
                             ScoreDbPath = ResolveMainViewLr2PlayHistoryScoreDbPath(),
@@ -11079,7 +11066,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (targetStateStale)
         {
-            CancellationToken cancellationToken = GetPlayHistoryFilterCancellationToken(state.RequestId);
+            CancellationToken cancellationToken = playHistoryWorkflowOwner.GetCancellationToken(state.RequestId);
             try
             {
                 targetRows = ApplyPlayHistoryDisplayTargetRows(state.AllProjectedRows, displayTarget, state.RequestId, displayTargetRevision, cancellationToken);
@@ -11093,7 +11080,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (targetStateStale || keywordStateStale)
         {
-            CancellationToken cancellationToken = GetPlayHistoryFilterCancellationToken(state.RequestId);
+            CancellationToken cancellationToken = playHistoryWorkflowOwner.GetCancellationToken(state.RequestId);
             try
             {
                 filteredRows = ApplyPlayHistoryKeywordFilterRows(targetRows, keywordFilter, SnapshotSelectedPlayHistorySummaryFilterTexts(), state.RequestId, keywordRevision, cancellationToken, out keywordMs);
@@ -11226,7 +11213,7 @@ public partial class MainWindowViewModel : ViewModel
         long columnSettingStartMs = 0L;
         lock (playHistoryViewRequestLock)
         {
-            if (!IsCurrentPlayHistoryViewRequestUnsafe(state.RequestId))
+            if (!playHistoryWorkflowOwner.IsCurrentRequest(state.RequestId))
             {
                 LogStalePlayHistoryViewRequest(mode, requestedMode, parameter, periodRequest, state.RequestId, viewBuildStopwatch.ElapsedMilliseconds);
                 return;
@@ -11513,21 +11500,16 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (parameter is PlayHistoryPeriodRequest periodRequest)
         {
-            lock (playHistoryViewRequestLock)
-            {
-                return new PlayHistoryViewRequest(periodRequest, playHistoryViewRequestGeneration);
-            }
+            return new PlayHistoryViewRequest(periodRequest, playHistoryWorkflowOwner.SnapshotActiveRequest()?.RequestId ?? 0L);
         }
-        lock (playHistoryViewRequestLock)
+        PlayHistoryViewRequest activeRequest = playHistoryWorkflowOwner.SnapshotActiveRequest();
+        if (activeRequest != null)
         {
-            if (treeViewFilterParameterSelected is PlayHistoryViewRequest selectedRequest)
-            {
-                return selectedRequest;
-            }
-            return new PlayHistoryViewRequest(
-                treeViewFilterParameterSelected as PlayHistoryPeriodRequest ?? PlayHistoryPeriodRequest.All(),
-                playHistoryViewRequestGeneration);
+            return activeRequest;
         }
+        return new PlayHistoryViewRequest(
+            treeViewFilterParameterSelected as PlayHistoryPeriodRequest ?? PlayHistoryPeriodRequest.All(),
+            requestId: 0L);
     }
 
     private void GetTreeViewFilterSelection(out MainViewUpdateMode mode, out object parameter)
@@ -11541,21 +11523,16 @@ public partial class MainWindowViewModel : ViewModel
 
     private void SetTreeViewFilterSelection(MainViewUpdateMode mode, object parameter)
     {
-        CancellationTokenSource cancellation = null;
-        lock (playHistoryViewRequestLock)
+        if (mode == MainViewUpdateMode.PlayHistorySelected)
         {
-            if (mode != MainViewUpdateMode.PlayHistorySelected)
-            {
-                cancellation = InvalidatePlayHistoryFilterRequestUnsafe();
-            }
+            throw new InvalidOperationException("Play-history selection must be activated through BeginPlayHistoryFilterRequest.");
+        }
+        playHistoryWorkflowOwner.Deactivate(() =>
+        {
             treeViewFilterTypeSelected = mode;
             treeViewFilterParameterSelected = parameter;
-        }
-        CancelPlayHistoryFilterRequest(cancellation);
-        if (mode != MainViewUpdateMode.PlayHistorySelected)
-        {
-            ClearPlayHistorySummaryCardFilters();
-        }
+        });
+        ClearPlayHistorySummaryCardFilters();
     }
 
     private string ResolveMainViewLr2PlayHistoryScoreDbPath()
@@ -11629,39 +11606,21 @@ public partial class MainWindowViewModel : ViewModel
         internal IReadOnlyDictionary<string, BeMusicSeeker.Models.BMSScore> ScoresBySha256 { get; }
     }
 
-    internal long RegisterPlayHistoryFilterRequest()
-    {
-        CancellationTokenSource previousCancellation;
-        long requestId;
-        lock (playHistoryViewRequestLock)
-        {
-            previousCancellation = InvalidatePlayHistoryFilterRequestUnsafe();
-            playHistoryViewRequestCancellation = new CancellationTokenSource();
-            requestId = playHistoryViewRequestGeneration;
-        }
-        CancelPlayHistoryFilterRequest(previousCancellation);
-        return requestId;
-    }
-
     internal long BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest request)
     {
         SetPlaylistSummaryMode(enabled: false);
         EnsurePlayHistoryDisplayTargetSelection();
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
-        long requestId;
-        CancellationTokenSource previousCancellation;
-        lock (playHistoryViewRequestLock)
-        {
-            previousCancellation = InvalidatePlayHistoryFilterRequestUnsafe();
-            playHistoryViewRequestCancellation = new CancellationTokenSource();
-            requestId = playHistoryViewRequestGeneration;
-            playHistoryPresentationState.CurrentKeywordIdentity = NormalizePlaylistKeywordFilter(KeywordFilter);
-            playHistoryPresentationState.CurrentDisplayTargetIdentity = SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty;
-            playHistoryPresentationState.DisplayTargetRevision = Interlocked.Read(ref playHistoryDisplayTargetRevision);
-            treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
-            treeViewFilterParameterSelected = new PlayHistoryViewRequest(request ?? PlayHistoryPeriodRequest.All(), requestId);
-        }
-        CancelPlayHistoryFilterRequest(previousCancellation);
+        PlayHistoryViewRequest activeRequest = playHistoryWorkflowOwner.BeginRequest(
+            request ?? PlayHistoryPeriodRequest.All(),
+            NormalizePlaylistKeywordFilter(KeywordFilter),
+            SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty,
+            Interlocked.Read(ref playHistoryDisplayTargetRevision),
+            requestToActivate =>
+            {
+                treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
+                treeViewFilterParameterSelected = requestToActivate;
+            });
         UpdateKeywordSearchPresentation();
         if (previousOperationSection != CurrentMainViewOperationSection)
         {
@@ -11670,7 +11629,7 @@ public partial class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => IsPlayHistoryViewActive);
             SyncMainChartListSortPresentation();
         }
-        return requestId;
+        return activeRequest.RequestId;
     }
 
     private void QueuePlayHistoryKeywordFilterRefresh(bool advanceRevision = true)
@@ -11687,7 +11646,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             request = treeViewFilterParameterSelected as PlayHistoryViewRequest;
-            if (request == null || !IsCurrentPlayHistoryViewRequestUnsafe(request.RequestId))
+            if (request == null || !playHistoryWorkflowOwner.IsCurrentRequest(request.RequestId))
             {
                 return;
             }
@@ -11742,7 +11701,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             request = treeViewFilterParameterSelected as PlayHistoryViewRequest;
-            if (request == null || !IsCurrentPlayHistoryViewRequestUnsafe(request.RequestId))
+            if (request == null || !playHistoryWorkflowOwner.IsCurrentRequest(request.RequestId))
             {
                 if (advanceRevision)
                 {
@@ -11783,49 +11742,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool IsCurrentPlayHistoryViewRequest(long requestId)
     {
-        lock (playHistoryViewRequestLock)
-        {
-            return IsCurrentPlayHistoryViewRequestUnsafe(requestId);
-        }
-    }
-
-    private bool IsCurrentPlayHistoryViewRequestUnsafe(long requestId)
-    {
-        return requestId > 0
-            && playHistoryViewRequestGeneration == requestId
-            && treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected
-            && treeViewFilterParameterSelected is PlayHistoryViewRequest selectedRequest
-            && selectedRequest.RequestId == requestId
-            && playHistoryViewRequestCancellation?.IsCancellationRequested != true;
-    }
-
-    private CancellationToken GetPlayHistoryFilterCancellationToken(long requestId)
-    {
-        lock (playHistoryViewRequestLock)
-        {
-            return IsCurrentPlayHistoryViewRequestUnsafe(requestId)
-                ? playHistoryViewRequestCancellation?.Token ?? new CancellationToken(canceled: true)
-                : new CancellationToken(canceled: true);
-        }
-    }
-
-    private CancellationTokenSource InvalidatePlayHistoryFilterRequestUnsafe()
-    {
-        playHistoryViewRequestGeneration++;
-        CancellationTokenSource cancellation = playHistoryViewRequestCancellation;
-        playHistoryViewRequestCancellation = null;
-        return cancellation;
-    }
-
-    private static void CancelPlayHistoryFilterRequest(CancellationTokenSource cancellation)
-    {
-        try
-        {
-            cancellation?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-        }
+        return playHistoryWorkflowOwner.IsCurrentRequest(requestId);
     }
 
     private static bool IsSamePlayHistoryPeriod(PlayHistoryPeriodRequest left, PlayHistoryPeriodRequest right)
@@ -12071,7 +11988,7 @@ public partial class MainWindowViewModel : ViewModel
         long currentRequestId;
         lock (playHistoryViewRequestLock)
         {
-            currentRequestId = playHistoryViewRequestGeneration;
+            currentRequestId = playHistoryWorkflowOwner.CurrentRequestId;
         }
         LogPlayHistoryEvent(
             "play_history_view_stale_skipped",
@@ -12111,25 +12028,6 @@ public partial class MainWindowViewModel : ViewModel
     private static string QuotePlayHistoryLogValue(string value)
     {
         return "\"" + (value ?? string.Empty).Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
-    }
-
-    private sealed class PlayHistoryViewRequest
-    {
-        internal PlayHistoryViewRequest(PlayHistoryPeriodRequest periodRequest, long requestId, long keywordFilterRevision = 0L, long displayTargetRevision = 0L)
-        {
-            PeriodRequest = periodRequest ?? PlayHistoryPeriodRequest.All();
-            RequestId = requestId;
-            KeywordFilterRevision = keywordFilterRevision;
-            DisplayTargetRevision = displayTargetRevision;
-        }
-
-        internal PlayHistoryPeriodRequest PeriodRequest { get; }
-
-        internal long RequestId { get; }
-
-        internal long KeywordFilterRevision { get; }
-
-        internal long DisplayTargetRevision { get; }
     }
 
     private static bool ShouldIncludeBmsonLibraryRowsInMainView(MainViewUpdateMode mode, MainViewUpdateMode currentTreeMode)
