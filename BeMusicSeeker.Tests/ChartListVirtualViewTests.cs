@@ -7,6 +7,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -528,10 +529,7 @@ public sealed class ChartListVirtualViewTests
         mainChartList.SortRequested += (_, e) => request = e;
 
         mainChartList.SetSortPresentation(sort, MainChartListSortTarget.PlayHistory);
-        MainChartListSortRequestedEventArgs captured = mainChartList.CaptureSortRequest(
-            nameof(PlayHistoryRow.Title),
-            ListSortDirection.Ascending);
-        mainChartList.RequestSort(captured);
+        mainChartList.RequestSort(nameof(PlayHistoryRow.Title), ListSortDirection.Ascending);
 
         Assert.AreSame(sort, mainChartList.SortParameters);
         CollectionAssert.Contains(propertyNames, nameof(MainChartListViewModel.SortParameters));
@@ -2730,7 +2728,11 @@ public sealed class ChartListVirtualViewTests
             };
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
             typeof(MainWindowViewModel).GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, MainViewUpdateMode.DuplicateFilterSelected);
-            viewModel.MainChartListSort.Apply("UnsupportedColumn", ListSortDirection.Descending, MainChartListSortTarget.Regular);
+            viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
+            viewModel.MainChartList.RequestSort("UnsupportedColumn", ListSortDirection.Descending);
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => viewModel.SortParameters == null && viewModel.MainChartList.Rows is ChartListVirtualView,
+                TimeSpan.FromSeconds(5)));
 
             Assert.IsNull(viewModel.SortParameters);
             var view = viewModel.MainChartList.Rows as ChartListVirtualView;

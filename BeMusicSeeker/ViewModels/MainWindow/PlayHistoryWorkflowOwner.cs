@@ -4,8 +4,10 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using Livet;
 using Livet.Commands;
 
@@ -29,6 +31,14 @@ public sealed class PlayHistoryWorkflowOwner : ViewModel
 
     internal event EventHandler SummaryFilterRefreshRequested;
 
+    internal event EventHandler<MainChartListSortRequestedEventArgs> SortChanged;
+
+    internal event EventHandler<MainChartListSortRequestedEventArgs> SortRefreshRequested;
+
+    private MainChartListSortRequestedEventArgs pendingSortRefresh;
+
+    private bool sortRefreshWorkerActive;
+
     public IReadOnlyList<PlayHistoryPeriodTreeItem> ArchivePeriodTree => PresentationState.ArchivePeriodTree;
 
     public IReadOnlyList<PlayHistorySummaryCard> SummaryCards => PresentationState.SummaryCards;
@@ -37,6 +47,105 @@ public sealed class PlayHistoryWorkflowOwner : ViewModel
 
     public ListenerCommand<PlayHistorySummaryCard> ToggleSummaryFilterCommand =>
         toggleSummaryFilterCommand ??= new ListenerCommand<PlayHistorySummaryCard>(ToggleSummaryFilterCard);
+
+    internal void QueueSort(MainChartListSortRequestedEventArgs request)
+    {
+        if (request == null) throw new ArgumentNullException(nameof(request));
+        if (request.Target != MainChartListSortTarget.PlayHistory)
+        {
+            throw new ArgumentException("A play-history sort request is required.", nameof(request));
+        }
+        MainChartListSortRequestedEventArgs ownedRequest;
+        bool startWorker;
+        lock (PresentationState.SyncRoot)
+        {
+            var next = new ChartListSortParameters
+            {
+                ColumnsName = request.ColumnName,
+                Direction = request.Direction
+            };
+            if (AreSameSortParameters(sortParameters, next))
+            {
+                return;
+            }
+            sortParameters = CloneSortParameters(next);
+            PresentationState.SortRevision++;
+            PresentationState.CurrentSortSnapshot = new SortSnapshot(
+                sortParameters.ColumnsName,
+                sortParameters.Direction,
+                PresentationState.SortRevision);
+            ownedRequest = new MainChartListSortRequestedEventArgs(
+                request.ColumnName,
+                request.Direction,
+                request.Target,
+                PresentationState.SortRevision);
+            pendingSortRefresh = ownedRequest;
+            startWorker = !sortRefreshWorkerActive;
+            sortRefreshWorkerActive = true;
+        }
+        try
+        {
+            SortChanged?.Invoke(this, ownedRequest);
+        }
+        finally
+        {
+            if (startWorker)
+            {
+                Task.Run(ProcessSortRefreshQueue).Logging("playHistorySortRequested");
+            }
+        }
+    }
+
+    private void ProcessSortRefreshQueue()
+    {
+        bool restartWorker = false;
+        try
+        {
+            while (true)
+            {
+                MainChartListSortRequestedEventArgs request;
+                lock (PresentationState.SyncRoot)
+                {
+                    request = pendingSortRefresh;
+                    pendingSortRefresh = null;
+                    if (request == null)
+                    {
+                        return;
+                    }
+                }
+                if (IsCurrentSortRequest(request))
+                {
+                    SortRefreshRequested?.Invoke(this, request);
+                }
+            }
+        }
+        finally
+        {
+            lock (PresentationState.SyncRoot)
+            {
+                sortRefreshWorkerActive = false;
+                if (pendingSortRefresh != null)
+                {
+                    sortRefreshWorkerActive = true;
+                    restartWorker = true;
+                }
+            }
+            if (restartWorker)
+            {
+                Task.Run(ProcessSortRefreshQueue).Logging("playHistorySortRequested");
+            }
+        }
+    }
+
+    internal bool IsCurrentSortRequest(MainChartListSortRequestedEventArgs request)
+    {
+        lock (PresentationState.SyncRoot)
+        {
+            return request.OwnerRevision == PresentationState.SortRevision
+                && string.Equals(sortParameters?.ColumnsName, request.ColumnName, StringComparison.Ordinal)
+                && sortParameters?.Direction == request.Direction;
+        }
+    }
 
     private readonly PlayHistoryReadCache readCache = new();
 
@@ -1152,10 +1261,16 @@ public sealed class PlayHistoryWorkflowOwner : ViewModel
 
     internal bool UpdateSortParameters(ChartListSortParameters value)
     {
+        return TryUpdateSortParameters(value, out _);
+    }
+
+    private bool TryUpdateSortParameters(ChartListSortParameters value, out long revision)
+    {
         lock (PresentationState.SyncRoot)
         {
             if (AreSameSortParameters(sortParameters, value))
             {
+                revision = PresentationState.SortRevision;
                 return false;
             }
             sortParameters = CloneSortParameters(value);
@@ -1164,6 +1279,7 @@ public sealed class PlayHistoryWorkflowOwner : ViewModel
                 sortParameters?.ColumnsName,
                 sortParameters?.Direction,
                 PresentationState.SortRevision);
+            revision = PresentationState.SortRevision;
             return true;
         }
     }

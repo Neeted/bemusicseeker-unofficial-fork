@@ -1132,7 +1132,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private async void customTableView_SortRequested(object sender, CustomTableSortRequestedEventArgs e)
+    private void customTableView_SortRequested(object sender, CustomTableSortRequestedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("custom_table_sort"))
         {
@@ -1142,15 +1142,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainChartListSortRequestedEventArgs request = viewModel.MainChartList.CaptureSortRequest(e.SortMemberPath, e.Direction);
-        if (request == null)
-        {
-            return;
-        }
-        await Task.Run(delegate
-        {
-            viewModel.MainChartList.RequestSort(request);
-        }).Logging("customTableView_SortRequested");
+        viewModel.MainChartList.RequestSort(e.SortMemberPath, e.Direction);
     }
 
     private async void customTablePlaylistSummary_SortRequested(object sender, CustomTableSortRequestedEventArgs e)

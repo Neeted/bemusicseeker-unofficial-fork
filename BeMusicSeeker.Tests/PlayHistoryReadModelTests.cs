@@ -1867,7 +1867,10 @@ public sealed class PlayHistoryReadModelTests
             MainViewUpdateMode.FolderFilterSelected);
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
-        viewModel.MainChartList.RequestSort(viewModel.MainChartList.CaptureSortRequest(nameof(BMSFile.Title), ListSortDirection.Ascending));
+        viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => viewModel.SortParameters?.ColumnsName == nameof(BMSFile.Title),
+            TimeSpan.FromSeconds(5)));
 
         Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
         Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
@@ -1881,7 +1884,10 @@ public sealed class PlayHistoryReadModelTests
             MainViewUpdateMode.PlayHistorySelected);
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
-        viewModel.MainChartList.RequestSort(viewModel.MainChartList.CaptureSortRequest(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending));
+        viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => viewModel.PlayHistorySortParameters?.ColumnsName == nameof(PlayHistoryRow.PlayedAt),
+            TimeSpan.FromSeconds(5)));
 
         Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
         Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
@@ -1901,11 +1907,11 @@ public sealed class PlayHistoryReadModelTests
             MainViewUpdateMode.FolderFilterSelected);
 
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
-        MainChartListSortRequestedEventArgs playHistoryRequest = viewModel.MainChartList.CaptureSortRequest(
-            nameof(PlayHistoryRow.PlayedAt),
-            ListSortDirection.Descending);
+        viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
         viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
-        viewModel.MainChartList.RequestSort(playHistoryRequest);
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => viewModel.PlayHistorySortParameters?.ColumnsName == nameof(PlayHistoryRow.PlayedAt),
+            TimeSpan.FromSeconds(5)));
 
         Assert.IsNull(viewModel.SortParameters);
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
@@ -1922,21 +1928,176 @@ public sealed class PlayHistoryReadModelTests
                 viewModel.PlayHistorySortParameters.ColumnsName,
                 viewModel.PlayHistorySortParameters.Direction),
             MainChartListSortTarget.Regular);
-        MainChartListSortRequestedEventArgs regularRequest = viewModel.MainChartList.CaptureSortRequest(
-            nameof(BMSFile.Title),
-            ListSortDirection.Ascending);
+        viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
         viewModel.MainChartList.SetSortPresentation(
             new MainChartListSortPresentation(
                 viewModel.PlayHistorySortParameters.ColumnsName,
                 viewModel.PlayHistorySortParameters.Direction),
             MainChartListSortTarget.PlayHistory);
-        viewModel.MainChartList.RequestSort(regularRequest);
+        Assert.IsTrue(SpinWait.SpinUntil(
+            () => viewModel.SortParameters?.ColumnsName == nameof(BMSFile.Title),
+            TimeSpan.FromSeconds(5)));
 
         Assert.AreEqual(nameof(BMSFile.Title), viewModel.SortParameters.ColumnsName);
         Assert.AreEqual(ListSortDirection.Ascending, viewModel.SortParameters.Direction);
         Assert.AreEqual(nameof(PlayHistoryRow.PlayedAt), viewModel.PlayHistorySortParameters.ColumnsName);
         Assert.AreEqual(viewModel.PlayHistorySortParameters.ColumnsName, viewModel.MainChartList.SortParameters.ColumnsName);
         Assert.AreEqual(viewModel.PlayHistorySortParameters.Direction, viewModel.MainChartList.SortParameters.Direction);
+    }
+
+    [TestMethod]
+    public void MainChartListSortRequest_RejectsStaleAndAbaOwnerRevisions()
+    {
+        var viewModel = new MainWindowViewModel();
+        var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        var regularRequests = new List<MainChartListSortRequestedEventArgs>();
+        var playHistoryRequests = new List<MainChartListSortRequestedEventArgs>();
+        regularOwner.SortChanged += (_, request) => regularRequests.Add(request);
+        viewModel.PlayHistory.SortChanged += (_, request) => playHistoryRequests.Add(request);
+
+        viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.Regular);
+        viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
+        viewModel.MainChartList.RequestSort(nameof(BMSFile.Artist), ListSortDirection.Descending);
+        viewModel.MainChartList.RequestSort(nameof(BMSFile.Title), ListSortDirection.Ascending);
+
+        Assert.AreEqual(3, regularRequests.Count);
+        Assert.IsTrue(regularRequests[0].OwnerRevision < regularRequests[1].OwnerRevision);
+        Assert.IsTrue(regularRequests[1].OwnerRevision < regularRequests[2].OwnerRevision);
+        Assert.IsFalse(regularOwner.IsCurrentSortRequest(regularRequests[0]));
+        Assert.IsFalse(regularOwner.IsCurrentSortRequest(regularRequests[1]));
+        Assert.IsTrue(regularOwner.IsCurrentSortRequest(regularRequests[2]));
+
+        viewModel.MainChartList.SetSortPresentation(null, MainChartListSortTarget.PlayHistory);
+        viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.Title), ListSortDirection.Ascending);
+        viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.PlayedAt), ListSortDirection.Descending);
+        viewModel.MainChartList.RequestSort(nameof(PlayHistoryRow.Title), ListSortDirection.Ascending);
+
+        Assert.AreEqual(3, playHistoryRequests.Count);
+        Assert.IsTrue(playHistoryRequests[0].OwnerRevision < playHistoryRequests[1].OwnerRevision);
+        Assert.IsTrue(playHistoryRequests[1].OwnerRevision < playHistoryRequests[2].OwnerRevision);
+        Assert.IsFalse(viewModel.PlayHistory.IsCurrentSortRequest(playHistoryRequests[0]));
+        Assert.IsFalse(viewModel.PlayHistory.IsCurrentSortRequest(playHistoryRequests[1]));
+        Assert.IsTrue(viewModel.PlayHistory.IsCurrentSortRequest(playHistoryRequests[2]));
+    }
+
+    [TestMethod]
+    public void RegularSortMutation_CancelsTheInFlightRowRequestBeforeRefreshRuns()
+    {
+        var viewModel = new MainWindowViewModel();
+        var owner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        Assert.IsTrue(owner.TryBeginRequest(out RegularChartListRequestLease lease));
+
+        owner.QueueSort(new MainChartListSortRequestedEventArgs(
+            nameof(BMSFile.Title),
+            ListSortDirection.Ascending,
+            MainChartListSortTarget.Regular));
+
+        Assert.IsTrue(lease.Token.IsCancellationRequested);
+    }
+
+    [TestMethod]
+    public void PlayHistorySortRefreshQueue_CoalescesAndNeverPublishesOutOfRevisionOrder()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        var changed = new List<MainChartListSortRequestedEventArgs>();
+        var refreshed = new List<MainChartListSortRequestedEventArgs>();
+        owner.SortChanged += (_, request) => changed.Add(request);
+        owner.SortRefreshRequested += (_, request) =>
+        {
+            lock (refreshed)
+            {
+                refreshed.Add(request);
+            }
+            Thread.Sleep(2);
+        };
+
+        for (int index = 0; index < 40; index++)
+        {
+            owner.QueueSort(new MainChartListSortRequestedEventArgs(
+                index % 2 == 0 ? nameof(PlayHistoryRow.Title) : nameof(PlayHistoryRow.PlayedAt),
+                index % 2 == 0 ? ListSortDirection.Ascending : ListSortDirection.Descending,
+                MainChartListSortTarget.PlayHistory));
+        }
+
+        long finalRevision = changed[changed.Count - 1].OwnerRevision;
+        Assert.IsTrue(SpinWait.SpinUntil(() =>
+        {
+            lock (refreshed)
+            {
+                return refreshed.Count > 0 && refreshed[refreshed.Count - 1].OwnerRevision == finalRevision;
+            }
+        }, TimeSpan.FromSeconds(5)));
+
+        lock (refreshed)
+        {
+            Assert.IsTrue(refreshed.Count < changed.Count);
+            for (int index = 1; index < refreshed.Count; index++)
+            {
+                Assert.IsTrue(refreshed[index - 1].OwnerRevision < refreshed[index].OwnerRevision);
+            }
+            Assert.IsTrue(owner.IsCurrentSortRequest(refreshed[refreshed.Count - 1]));
+        }
+    }
+
+    [TestMethod]
+    public void PlayHistorySortRefreshQueue_RecoversAfterSubscriberFailure()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        using var firstAttempt = new ManualResetEventSlim();
+        using var recovered = new ManualResetEventSlim();
+        int attempt = 0;
+        owner.SortRefreshRequested += (_, _) =>
+        {
+            if (Interlocked.Increment(ref attempt) == 1)
+            {
+                firstAttempt.Set();
+                throw new InvalidOperationException("expected test failure");
+            }
+            recovered.Set();
+        };
+
+        owner.QueueSort(new MainChartListSortRequestedEventArgs(
+            nameof(PlayHistoryRow.Title),
+            ListSortDirection.Ascending,
+            MainChartListSortTarget.PlayHistory));
+        Assert.IsTrue(firstAttempt.Wait(TimeSpan.FromSeconds(5)));
+
+        owner.QueueSort(new MainChartListSortRequestedEventArgs(
+            nameof(PlayHistoryRow.PlayedAt),
+            ListSortDirection.Descending,
+            MainChartListSortTarget.PlayHistory));
+
+        Assert.IsTrue(recovered.Wait(TimeSpan.FromSeconds(5)));
+        Assert.AreEqual(2, Volatile.Read(ref attempt));
+    }
+
+    [TestMethod]
+    public void SortRefreshQueues_StartEvenWhenSortChangedSubscriberFails()
+    {
+        var viewModel = new MainWindowViewModel();
+        var regularOwner = GetPrivateField<RegularChartListOwner>(viewModel, "regularChartListOwner");
+        using var regularRefreshed = new ManualResetEventSlim();
+        regularOwner.SortChanged += (_, _) => throw new InvalidOperationException("expected regular notification failure");
+        regularOwner.SortRefreshRequested += (_, _) => regularRefreshed.Set();
+
+        Assert.ThrowsException<InvalidOperationException>(() => regularOwner.QueueSort(
+            new MainChartListSortRequestedEventArgs(
+                nameof(BMSFile.Title),
+                ListSortDirection.Ascending,
+                MainChartListSortTarget.Regular)));
+        Assert.IsTrue(regularRefreshed.Wait(TimeSpan.FromSeconds(5)));
+
+        var playHistoryOwner = new PlayHistoryWorkflowOwner();
+        using var playHistoryRefreshed = new ManualResetEventSlim();
+        playHistoryOwner.SortChanged += (_, _) => throw new InvalidOperationException("expected play-history notification failure");
+        playHistoryOwner.SortRefreshRequested += (_, _) => playHistoryRefreshed.Set();
+
+        Assert.ThrowsException<InvalidOperationException>(() => playHistoryOwner.QueueSort(
+            new MainChartListSortRequestedEventArgs(
+                nameof(PlayHistoryRow.Title),
+                ListSortDirection.Ascending,
+                MainChartListSortTarget.PlayHistory)));
+        Assert.IsTrue(playHistoryRefreshed.Wait(TimeSpan.FromSeconds(5)));
     }
 
     [TestMethod]
@@ -2886,6 +3047,13 @@ public sealed class PlayHistoryReadModelTests
         typeof(MainWindowViewModel)
             .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel, value);
+    }
+
+    private static T GetPrivateField<T>(MainWindowViewModel viewModel, string fieldName)
+    {
+        return (T)typeof(MainWindowViewModel)
+            .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(viewModel)!;
     }
 
     private const string HashA = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

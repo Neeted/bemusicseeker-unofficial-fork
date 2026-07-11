@@ -13,6 +13,7 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 using Ribbit.Util;
@@ -25,6 +26,10 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class RegularChartListOwner : IDisposable
 {
+    internal event EventHandler<MainChartListSortRequestedEventArgs> SortChanged;
+
+    internal event EventHandler<MainChartListSortRequestedEventArgs> SortRefreshRequested;
+
     private const long ColumnSettingSlowLogThresholdMs = 100L;
     private const int StartupVirtualOrderPrewarmMaxPriority = 3;
     private readonly object syncRoot = new();
@@ -65,6 +70,9 @@ internal sealed class RegularChartListOwner : IDisposable
     private bool virtualSourceRowsIncludeBmson;
     private long sourceGeneration;
     private long sortKeyGeneration;
+    private long sortRequestRevision;
+    private MainChartListSortRequestedEventArgs pendingSortRefresh;
+    private bool sortRefreshWorkerActive;
     private long warningGeneration;
     private long installDestinationGeneration;
     private long maintenanceGeneration;
@@ -138,22 +146,6 @@ internal sealed class RegularChartListOwner : IDisposable
         lock (syncRoot)
         {
             currentSort = sort;
-        }
-    }
-
-    internal bool TryChangeSort(string columnName, ListSortDirection direction)
-    {
-        ChartListSortSpecification next = ChartListSortSpecification.Create(columnName, direction, hasValue: true);
-        lock (syncRoot)
-        {
-            if (currentSort.HasValue
-                && string.Equals(currentSort.RequestedColumnName, next.RequestedColumnName, StringComparison.Ordinal)
-                && currentSort.Direction == next.Direction)
-            {
-                return false;
-            }
-            currentSort = next;
-            return true;
         }
     }
 
@@ -492,6 +484,105 @@ internal sealed class RegularChartListOwner : IDisposable
             regularRequestActive = false;
         }
         CancelAndDispose(previous);
+    }
+
+    internal void QueueSort(MainChartListSortRequestedEventArgs request)
+    {
+        if (request == null) throw new ArgumentNullException(nameof(request));
+        if (request.Target != MainChartListSortTarget.Regular)
+        {
+            throw new ArgumentException("A regular chart-list sort request is required.", nameof(request));
+        }
+        MainChartListSortRequestedEventArgs ownedRequest;
+        bool startWorker;
+        CancellationTokenSource previousRequest;
+        lock (syncRoot)
+        {
+            ChartListSortSpecification next = ChartListSortSpecification.Create(
+                request.ColumnName,
+                request.Direction,
+                hasValue: true);
+            if (currentSort.HasValue
+                && string.Equals(currentSort.RequestedColumnName, next.RequestedColumnName, StringComparison.Ordinal)
+                && currentSort.Direction == next.Direction)
+            {
+                return;
+            }
+            currentSort = next;
+            ownedRequest = new MainChartListSortRequestedEventArgs(
+                request.ColumnName,
+                request.Direction,
+                request.Target,
+                ++sortRequestRevision);
+            previousRequest = InvalidateCurrentRequestUnsafe();
+            pendingSortRefresh = ownedRequest;
+            startWorker = !sortRefreshWorkerActive;
+            sortRefreshWorkerActive = true;
+        }
+        CancelAndDispose(previousRequest);
+        try
+        {
+            SortChanged?.Invoke(this, ownedRequest);
+        }
+        finally
+        {
+            if (startWorker)
+            {
+                Task.Run(ProcessSortRefreshQueue).Logging("regularChartListSortRequested");
+            }
+        }
+    }
+
+    private void ProcessSortRefreshQueue()
+    {
+        bool restartWorker = false;
+        try
+        {
+            while (true)
+            {
+                MainChartListSortRequestedEventArgs request;
+                lock (syncRoot)
+                {
+                    request = pendingSortRefresh;
+                    pendingSortRefresh = null;
+                    if (request == null)
+                    {
+                        return;
+                    }
+                }
+                if (IsCurrentSortRequest(request))
+                {
+                    SortRefreshRequested?.Invoke(this, request);
+                }
+            }
+        }
+        finally
+        {
+            lock (syncRoot)
+            {
+                sortRefreshWorkerActive = false;
+                if (pendingSortRefresh != null)
+                {
+                    sortRefreshWorkerActive = true;
+                    restartWorker = true;
+                }
+            }
+            if (restartWorker)
+            {
+                Task.Run(ProcessSortRefreshQueue).Logging("regularChartListSortRequested");
+            }
+        }
+    }
+
+    internal bool IsCurrentSortRequest(MainChartListSortRequestedEventArgs request)
+    {
+        lock (syncRoot)
+        {
+            return request.OwnerRevision == sortRequestRevision
+                && currentSort.HasValue
+                && string.Equals(currentSort.RequestedColumnName, request.ColumnName, StringComparison.Ordinal)
+                && currentSort.Direction == request.Direction;
+        }
     }
 
     internal bool IsCurrentRegularRows(IList expectedRows)

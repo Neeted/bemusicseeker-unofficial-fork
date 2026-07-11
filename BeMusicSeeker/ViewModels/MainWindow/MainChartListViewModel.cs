@@ -186,27 +186,13 @@ public sealed class MainChartListViewModel : ViewModel
     /// </summary>
     /// <param name="columnName">The requested sort member.</param>
     /// <param name="direction">The requested direction.</param>
-    /// <returns>The immutable request, or <see langword="null"/> when no column was supplied.</returns>
-    internal MainChartListSortRequestedEventArgs CaptureSortRequest(string columnName, ListSortDirection direction)
+    internal void RequestSort(string columnName, ListSortDirection direction)
     {
         if (string.IsNullOrWhiteSpace(columnName))
         {
-            return null;
+            return;
         }
-        return new MainChartListSortRequestedEventArgs(columnName, direction, sortTarget);
-    }
-
-    /// <summary>
-    /// Publishes a previously captured sort request so view changes cannot redirect delayed work.
-    /// </summary>
-    /// <param name="request">The immutable request captured at interaction time.</param>
-    internal void RequestSort(MainChartListSortRequestedEventArgs request)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-        SortRequested?.Invoke(this, request);
+        SortRequested?.Invoke(this, new MainChartListSortRequestedEventArgs(columnName, direction, sortTarget));
     }
 
     /// <summary>
@@ -689,11 +675,13 @@ internal sealed class MainChartListSortRequestedEventArgs : EventArgs
     internal MainChartListSortRequestedEventArgs(
         string columnName,
         ListSortDirection direction,
-        MainChartListSortTarget target)
+        MainChartListSortTarget target,
+        long ownerRevision = 0L)
     {
         ColumnName = columnName ?? string.Empty;
         Direction = direction;
         Target = target;
+        OwnerRevision = ownerRevision;
     }
 
     /// <summary>
@@ -710,6 +698,11 @@ internal sealed class MainChartListSortRequestedEventArgs : EventArgs
     /// Gets the workflow that was active when the interaction occurred.
     /// </summary>
     internal MainChartListSortTarget Target { get; }
+
+    /// <summary>
+    /// Gets the owning workflow revision, or zero before the request reaches its owner.
+    /// </summary>
+    internal long OwnerRevision { get; }
 }
 
 internal enum MainChartListSelectionPolicy

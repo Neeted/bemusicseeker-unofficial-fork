@@ -102,8 +102,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsFalse(mainWindowSource.Contains("MainChartList.DisplayRefreshRequested"));
         string customTableSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "CustomTableView.cs");
         StringAssert.Contains(customTableSource, "subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;");
-        StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.CaptureSortRequest(e.SortMemberPath, e.Direction);");
-        StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.RequestSort(request);");
+        StringAssert.Contains(mainWindowSource, "viewModel.MainChartList.RequestSort(e.SortMemberPath, e.Direction);");
+        StringAssert.Contains(mainWindowSource, "private void customTableView_SortRequested(");
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("private async void customTableView_SortRequested(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainChartListSource.IndexOf("CaptureSortRequest", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
     }
 

@@ -122,8 +122,6 @@ public partial class MainWindowViewModel : ViewModel
 
     public PlayHistoryWorkflowOwner PlayHistory { get; }
 
-    internal MainChartListSortCoordinator MainChartListSort { get; }
-
     internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
 
     internal PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSort { get; }
@@ -6466,14 +6464,11 @@ public partial class MainWindowViewModel : ViewModel
             LogMainViewBuildWarning,
             playlistDetailBuildState,
             playlistViewState);
-        MainChartListSort = new MainChartListSortCoordinator(
-            regularChartListOwner,
-            () => PlayHistorySortParameters,
-            SetSortParameters,
-            SetPlayHistorySortParameters,
-            () => IsPlayHistoryViewActive,
-            mode => RefreshChartRowsView(mode));
-        MainChartList.SortRequested += (_, e) => MainChartListSort.Apply(e);
+        MainChartList.SortRequested += MainChartListSortRequested;
+        regularChartListOwner.SortChanged += RegularChartListOwnerSortChanged;
+        regularChartListOwner.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
+        PlayHistory.SortChanged += PlayHistorySortChanged;
+        PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -6481,6 +6476,50 @@ public partial class MainWindowViewModel : ViewModel
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
+    }
+
+    private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs request)
+    {
+        if (request.Target == MainChartListSortTarget.PlayHistory)
+        {
+            PlayHistory.QueueSort(request);
+        }
+        else
+        {
+            regularChartListOwner.QueueSort(request);
+        }
+    }
+
+    private void RegularChartListOwnerSortChanged(object sender, MainChartListSortRequestedEventArgs request)
+    {
+        SetSortParameters(new ChartListSortParameters
+        {
+            ColumnsName = request.ColumnName,
+            Direction = request.Direction
+        });
+    }
+
+    private void PlayHistorySortChanged(object sender, MainChartListSortRequestedEventArgs request)
+    {
+        RaisePropertyChanged("PlayHistorySortParameters");
+        if (IsPlayHistoryViewActive)
+        {
+            SyncMainChartListSortPresentation();
+        }
+    }
+
+    private void ChartListOwnerSortRefreshRequested(object sender, MainChartListSortRequestedEventArgs request)
+    {
+        bool isCurrent = request.Target == MainChartListSortTarget.PlayHistory
+            ? PlayHistory.IsCurrentSortRequest(request)
+            : regularChartListOwner.IsCurrentSortRequest(request);
+        if (isCurrent
+            && (request.Target == MainChartListSortTarget.PlayHistory
+                ? IsPlayHistoryViewActive
+                : !IsPlayHistoryViewActive))
+        {
+            RefreshChartRowsView(MainViewUpdateMode.SortUpdated, expectedSortTarget: request.Target);
+        }
     }
 
     private static void DispatchMainChartListAction(Action action)
@@ -9817,8 +9856,18 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="mode">更新の契機（どのフィルタや要素が変更されたかを示す更新モード）。</param>
     /// <param name="parameter">選択されたプレイリスト（BMSTable）やフォルダ名などの追加パラメータ、無い場合は null。</param>
-    private void RefreshChartRowsView(MainViewUpdateMode mode, object parameter = null)
+    private void RefreshChartRowsView(
+        MainViewUpdateMode mode,
+        object parameter = null,
+        MainChartListSortTarget? expectedSortTarget = null)
     {
+        if (expectedSortTarget.HasValue
+            && expectedSortTarget.Value != (IsPlayHistoryViewActive
+                ? MainChartListSortTarget.PlayHistory
+                : MainChartListSortTarget.Regular))
+        {
+            return;
+        }
         regularChartListOwner.InvalidatePendingRequest();
         var viewBuildStopwatch = Stopwatch.StartNew();
         MainViewUpdateMode requestedMode = mode;
