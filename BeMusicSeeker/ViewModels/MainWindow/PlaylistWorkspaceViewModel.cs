@@ -400,6 +400,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     }
 
     /// <summary>
+    /// Gets playlist summary keyword help text.
+    /// </summary>
+    public string PlaylistSummaryKeywordSearchHelpText => KeywordSearchPresentationText.BuildHelpText(GridKeywordSearchContext.PlaylistSummary);
+
+    /// <summary>
     /// Gets playlist summary keyword suggestions.
     /// </summary>
     public ObservableCollection<KeywordSearchSuggestionItem> PlaylistSummaryKeywordSearchSuggestions => playlistSummaryKeywordSearchSuggestions;

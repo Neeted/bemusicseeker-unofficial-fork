@@ -6,6 +6,12 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class KeywordSearchPresentationTests
 {
+    [TestInitialize]
+    public void TestInitialize()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+    }
+
     [TestMethod]
     public void BuildKeywordSearchWarningText_UsesContextSpecificFields()
     {

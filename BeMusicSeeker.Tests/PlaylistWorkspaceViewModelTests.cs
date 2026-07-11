@@ -159,14 +159,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceKeywordWarning_IsOwnedByPlaylistWorkspace()
     {
-        var viewModel = new MainWindowViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
         var propertyNames = new List<string>();
-        viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
-        viewModel.PlaylistWorkspace.SetPlaylistSummaryKeywordSearchWarningText("warning");
+        workspace.SetPlaylistSummaryKeywordSearchWarningText("warning");
 
-        Assert.AreEqual("warning", viewModel.PlaylistWorkspace.PlaylistSummaryKeywordSearchWarningText);
-        Assert.IsTrue(viewModel.PlaylistWorkspace.HasPlaylistSummaryKeywordSearchWarning);
+        Assert.AreEqual("warning", workspace.PlaylistSummaryKeywordSearchWarningText);
+        Assert.IsTrue(workspace.HasPlaylistSummaryKeywordSearchWarning);
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryKeywordSearchWarningText));
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.HasPlaylistSummaryKeywordSearchWarning));
     }
