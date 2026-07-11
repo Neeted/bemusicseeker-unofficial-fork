@@ -1181,6 +1181,103 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
+    public void PlayHistoryWorkflowOwner_BuildReadPresentationMergesDiagnosticsAndBuildsSnapshotState()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        workflowOwner.UpdateSortParameters(new ChartListSortParameters
+        {
+            ColumnsName = "LibraryChartRowOnlyColumn",
+            Direction = ListSortDirection.Ascending
+        });
+        var projectedRows = new List<PlayHistoryRow>();
+        var projectionDiagnostics = new List<PlayHistoryDiagnostic>
+        {
+            new() { Code = "projection" }
+        };
+        var periodDiagnostics = new List<PlayHistoryDiagnostic>
+        {
+            new() { Code = "period" }
+        };
+        var summaryOverride = new PlayHistoryPeriodSummaryOverride(playCount: 7, judgeCount: 11, playtimeSeconds: 13);
+        var request = new PlayHistoryReadPresentationBuildRequest(
+            activeRequest.RequestId,
+            PlayHistoryPeriodRequest.All(),
+            projectedRows,
+            projectionDiagnostics,
+            periodIndexPlayedAt: [DateTimeOffset.UtcNow.ToUnixTimeSeconds()],
+            periodDiagnostics,
+            PlayHistoryProvider.Lr2,
+            Lr2PlayHistorySchemaStatus.Installed,
+            sourceCount: 0,
+            keywordFilter: string.Empty,
+            keywordRevision: 0,
+            PlayHistoryDisplayTargetItem.All,
+            displayTargetRevision: 0,
+            summaryFilterTexts: [],
+            summaryOverride);
+        projectedRows.Add(null!);
+        projectionDiagnostics.Clear();
+        periodDiagnostics.Clear();
+
+        PlayHistoryReadPresentationBuildResult result = workflowOwner.BuildReadPresentation(request, playlist: null);
+
+        Assert.IsTrue(result.Built);
+        Assert.AreEqual(0, result.SortedRows.Count);
+        Assert.AreEqual(2, result.State.Diagnostics.Count);
+        Assert.AreEqual("projection", result.State.Diagnostics[0].Code);
+        Assert.AreEqual("period", result.State.Diagnostics[1].Code);
+        Assert.AreEqual(1L, result.State.SortSnapshot.Revision);
+        Assert.IsFalse(result.SortSucceeded);
+        Assert.AreEqual("play_history_unknown_column", result.SortProfile);
+        Assert.AreSame(summaryOverride, result.State.SummaryOverride);
+        Assert.IsTrue(result.ArchivePeriodTree.Count > 0);
+        Assert.AreEqual(0, result.DisplayTargetSourceCount);
+        Assert.AreEqual(0, result.DisplayTargetResultCount);
+    }
+
+    [TestMethod]
+    public void PlayHistoryWorkflowOwner_BuildReadPresentationReturnsStaleWhenRequestIsCanceled()
+    {
+        var workflowOwner = new PlayHistoryWorkflowOwner();
+        PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
+            PlayHistoryPeriodRequest.All(),
+            keywordIdentity: string.Empty,
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0,
+            activateRequest: null);
+        workflowOwner.PresentationState.RequestCancellation.Cancel();
+
+        PlayHistoryReadPresentationBuildResult result = workflowOwner.BuildReadPresentation(
+            new PlayHistoryReadPresentationBuildRequest(
+                activeRequest.RequestId,
+                PlayHistoryPeriodRequest.All(),
+                projectedRows: [],
+                projectionDiagnostics: [],
+                periodIndexPlayedAt: [],
+                periodIndexDiagnostics: [],
+                PlayHistoryProvider.Lr2,
+                Lr2PlayHistorySchemaStatus.Installed,
+                sourceCount: 0,
+                keywordFilter: string.Empty,
+                keywordRevision: 0,
+                PlayHistoryDisplayTargetItem.All,
+                displayTargetRevision: 0,
+                summaryFilterTexts: [],
+                summaryOverride: null),
+            playlist: null);
+
+        Assert.IsFalse(result.Built);
+        Assert.IsNull(result.State);
+        Assert.AreEqual(0, result.SortedRows.Count);
+    }
+
+    [TestMethod]
     public void PlayHistoryTerminal_PublishesExplicitSummaryWithCommittedMainState()
     {
         PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(out PlayHistoryPresentationState state, out MainChartListViewModel table);

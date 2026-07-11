@@ -196,6 +196,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playHistoryWorkflowCode, "ApplyTerminal(");
         StringAssert.Contains(playHistoryWorkflowCode, "ApplySortedRows(");
         StringAssert.Contains(playHistoryWorkflowCode, "BuildPresentationOnly(");
+        StringAssert.Contains(playHistoryWorkflowCode, "BuildReadPresentation(");
         StringAssert.Contains(presentationOnlyMethod, "playHistoryWorkflowOwner.BuildPresentationOnly(");
         Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
         Assert.IsFalse(presentationOnlyMethod.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
@@ -203,6 +204,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("new PlayHistoryTerminalRequest"));
         Assert.IsFalse(rootViewModelCode.Contains("CreatePlayHistoryViewDiagnostics"));
         Assert.IsFalse(rootViewModelCode.Contains("CountDistinctPlayHistoryFolderLabels"));
+        Assert.IsFalse(rootViewModelCode.Contains("SnapshotPlayHistoryDisplayTargetTables"));
+        Assert.IsFalse(rootViewModelCode.Contains("MergePlayHistoryDiagnostics"));
         StringAssert.Contains(mainChartListCode, "ApplyCoordinatedRows(");
     }
 
@@ -271,8 +274,10 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(applyPlayHistoryView, "requestedMode == MainViewUpdateMode.KeywordFilterUpdated");
         StringAssert.Contains(applyPlayHistoryView, "TryApplyPlayHistoryPresentationOnly");
-        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.ApplyDisplayTarget(");
-        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.ApplyKeywordFilters(");
+        StringAssert.Contains(applyPlayHistoryView, "playHistoryWorkflowOwner.BuildReadPresentation(");
+        Assert.IsFalse(applyPlayHistoryView.Contains("playHistoryWorkflowOwner.ApplyDisplayTarget("));
+        Assert.IsFalse(applyPlayHistoryView.Contains("playHistoryWorkflowOwner.ApplyKeywordFilters("));
+        Assert.IsFalse(applyPlayHistoryView.Contains("PlayHistorySortEngine.TrySort("));
         StringAssert.Contains(viewModelCode, "mode == MainViewUpdateMode.KeywordFilterUpdated && parameter is PlayHistoryViewRequest playHistoryKeywordRequest");
         StringAssert.Contains(viewModelCode, "ApplyPlayHistoryView(mode, requestedMode, parameter, viewBuildStopwatch);");
         StringAssert.Contains(presentationOnly, "playHistoryWorkflowOwner.BuildPresentationOnly(");

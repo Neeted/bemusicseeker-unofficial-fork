@@ -372,6 +372,118 @@ internal sealed class PlayHistoryWorkflowOwner
             targetRows.Count);
     }
 
+    internal PlayHistoryReadPresentationBuildResult BuildReadPresentation(
+        PlayHistoryReadPresentationBuildRequest request,
+        BMSPlaylist playlist)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        IReadOnlyList<PlayHistoryDiagnostic> diagnostics = MergeDiagnostics(
+            request.ProjectionDiagnostics,
+            request.PeriodIndexDiagnostics);
+        CancellationToken cancellationToken = GetCancellationToken(request.RequestId);
+        IReadOnlyList<PlayHistoryRow> targetRows;
+        try
+        {
+            targetRows = ApplyDisplayTarget(
+                request.ProjectedRows,
+                request.DisplayTarget,
+                request.RequestId,
+                request.DisplayTargetRevision,
+                cancellationToken,
+                () => SnapshotDisplayTargetTables(playlist),
+                table => playlist?.EnsurePlaylistEntriesLoaded(table, "PlayHistoryDisplayTarget"));
+        }
+        catch (OperationCanceledException)
+        {
+            return PlayHistoryReadPresentationBuildResult.Stale();
+        }
+
+        IReadOnlyList<PlayHistoryRow> filteredRows;
+        long keywordMs;
+        try
+        {
+            filteredRows = ApplyKeywordFilters(
+                targetRows,
+                request.KeywordFilter,
+                request.SummaryFilterTexts,
+                request.RequestId,
+                request.KeywordRevision,
+                cancellationToken,
+                out keywordMs);
+        }
+        catch (OperationCanceledException)
+        {
+            return PlayHistoryReadPresentationBuildResult.Stale();
+        }
+
+        IReadOnlyList<PlayHistoryPeriodTreeItem> archivePeriodTree = PlayHistoryPeriodTreeItem.BuildArchiveTree(
+            request.PeriodIndexPlayedAt,
+            TimeZoneInfo.Local);
+        if (!IsCurrentRequest(request.RequestId))
+        {
+            return PlayHistoryReadPresentationBuildResult.Stale();
+        }
+
+        var sortStopwatch = Stopwatch.StartNew();
+        ChartListSortParameters sortParameters = CaptureSortParameters(out SortSnapshot sortSnapshot);
+        bool sortSucceeded = PlayHistorySortEngine.TrySort(
+            filteredRows,
+            sortParameters,
+            out List<PlayHistoryRow> sortedRows,
+            out string sortProfile);
+        if (!sortSucceeded)
+        {
+            sortedRows = [.. filteredRows];
+        }
+        long sortMs = sortStopwatch.ElapsedMilliseconds;
+        var state = new PlayHistoryViewState(
+            request.RequestId,
+            request.PeriodRequest,
+            request.ProjectedRows,
+            targetRows,
+            filteredRows,
+            diagnostics,
+            request.Provider,
+            request.SchemaStatus,
+            request.SourceCount,
+            sortSnapshot,
+            request.KeywordFilter,
+            request.KeywordRevision,
+            request.DisplayTarget,
+            request.DisplayTargetRevision,
+            request.SummaryOverride);
+        return PlayHistoryReadPresentationBuildResult.Success(
+            state,
+            sortedRows,
+            sortSucceeded,
+            sortProfile,
+            sortMs,
+            keywordMs,
+            filteredRows.Count,
+            request.ProjectedRows.Count,
+            targetRows.Count,
+            archivePeriodTree);
+    }
+
+    private static IReadOnlyList<PlayHistoryDiagnostic> MergeDiagnostics(
+        IReadOnlyList<PlayHistoryDiagnostic> first,
+        IReadOnlyList<PlayHistoryDiagnostic> second)
+    {
+        if (second == null || second.Count == 0)
+        {
+            return first ?? [];
+        }
+        if (first == null || first.Count == 0)
+        {
+            return second;
+        }
+        return [.. first, .. second];
+    }
+
     private static IReadOnlyList<BMSTable> SnapshotDisplayTargetTables(BMSPlaylist playlist)
     {
         try
