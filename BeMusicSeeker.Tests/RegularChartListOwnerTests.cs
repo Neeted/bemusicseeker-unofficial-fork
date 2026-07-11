@@ -664,10 +664,10 @@ public sealed class RegularChartListOwnerTests
             RegularChartListRequestLease nestedLease = owner.BeginRequest();
             nestedRequestId = nestedLease.RequestId;
             nestedBuild = Build(owner, nestedLease, new List<LibraryChartRow>());
-            nestedTerminal = owner.TryCommit(nestedLease, nestedBuild, CreateTerminalInput(nestedBuild));
+            nestedTerminal = owner.TryCommit(nestedLease, CreateTerminalInput(nestedBuild));
         };
 
-        RegularChartListTerminalResult firstTerminal = owner.TryCommit(firstLease, firstBuild, CreateTerminalInput(firstBuild));
+        RegularChartListTerminalResult firstTerminal = owner.TryCommit(firstLease, CreateTerminalInput(firstBuild));
 
         Assert.IsTrue(nestedTerminal.WasCommitted);
         Assert.IsFalse(firstTerminal.WasCommitted);
@@ -693,11 +693,80 @@ public sealed class RegularChartListOwnerTests
             Assert.IsTrue(lockProbe.Wait(TimeSpan.FromSeconds(5)), "RowsReplacementCanceled must run after the regular owner lock is released.");
         };
 
-        RegularChartListTerminalResult terminal = owner.TryCommit(lease, build, CreateTerminalInput(build));
+        RegularChartListTerminalResult terminal = owner.TryCommit(lease, CreateTerminalInput(build));
 
         Assert.IsFalse(terminal.WasCommitted);
         Assert.AreSame(originalRows, table.Rows);
         Assert.AreEqual(1, canceled);
+    }
+
+    [TestMethod]
+    public void TryCommit_RejectsPresentationOfDifferentKind()
+    {
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListRequestLease lease = owner.BeginRequest();
+        RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
+
+        Assert.ThrowsException<ArgumentException>(() => owner.TryCommit(lease, CreateVirtualTerminalInput(new List<object>())));
+        Assert.ThrowsException<ArgumentException>(() => owner.TryCommitVirtual(lease, CreateTerminalInput(build)));
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var stopwatch = Stopwatch.StartNew();
+        Assert.ThrowsException<ArgumentException>(() => RegularChartListPresentationResult.ForMaterialized(
+            build,
+            new MainChartListRowsApplyRequest
+            {
+                Rows = new List<object>(),
+                ColumnsSettings = settings,
+                SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+                Summary = MainChartListSummaryUpdate.Preserve(),
+                Stopwatch = stopwatch
+            },
+            new MainChartListColumnSelection(
+                settings,
+                reused: false,
+                elapsedMs: 0L,
+                MainViewUpdateMode.UpdatedNone,
+                Visibility.Collapsed,
+                new PlaylistSummaryColumnSettings()),
+            MainViewUpdateMode.UpdatedNone,
+            stopwatch));
+    }
+
+    [TestMethod]
+    public void PresentationResult_SnapshotsRowsApplyRequest()
+    {
+        var table = new MainChartListViewModel();
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListRequestLease lease = owner.BeginRequest();
+        RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
+        var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var stopwatch = Stopwatch.StartNew();
+        var request = new MainChartListRowsApplyRequest
+        {
+            Rows = build.Sort.RowsView,
+            ColumnsSettings = settings,
+            SelectionPolicy = MainChartListSelectionPolicy.Preserve,
+            Summary = MainChartListSummaryUpdate.NormalRows(build.Sort.RowsView),
+            Stopwatch = stopwatch
+        };
+        RegularChartListPresentationResult presentation = RegularChartListPresentationResult.ForMaterialized(
+            build,
+            request,
+            new MainChartListColumnSelection(
+                settings,
+                reused: false,
+                elapsedMs: 0L,
+                MainViewUpdateMode.UpdatedNone,
+                Visibility.Collapsed,
+                new PlaylistSummaryColumnSettings()),
+            MainViewUpdateMode.UpdatedNone,
+            stopwatch);
+
+        request.Rows = new List<object>();
+        request.Summary = MainChartListSummaryUpdate.Explicit("mutated");
+
+        Assert.IsTrue(owner.TryCommit(lease, presentation).WasCommitted);
+        Assert.AreSame(build.Sort.RowsView, table.Rows);
     }
 
     [TestMethod]
@@ -839,7 +908,7 @@ public sealed class RegularChartListOwnerTests
         var source = new List<LibraryChartRow>();
         RegularChartListRequestLease firstLease = owner.BeginRequest();
         RegularChartListBuildResult first = Build(owner, firstLease, source, MainViewUpdateMode.FolderFilterSelected);
-        Assert.IsTrue(owner.TryCommit(firstLease, first, CreateTerminalInput(first, MainViewUpdateMode.FolderFilterSelected)).WasCommitted);
+        Assert.IsTrue(owner.TryCommit(firstLease, CreateTerminalInput(first, MainViewUpdateMode.FolderFilterSelected)).WasCommitted);
         Assert.AreEqual(1, owner.CacheCount);
 
         RegularChartListRequestLease secondLease = owner.BeginRequest();
@@ -856,7 +925,7 @@ public sealed class RegularChartListOwnerTests
         RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
-        Assert.IsTrue(owner.TryCommit(lease, build, CreateTerminalInput(build)).WasCommitted);
+        Assert.IsTrue(owner.TryCommit(lease, CreateTerminalInput(build)).WasCommitted);
         Assert.IsTrue(owner.IsCurrentRegularRows(table.Rows));
 
         owner.InvalidatePendingRequest();
@@ -882,7 +951,7 @@ public sealed class RegularChartListOwnerTests
             }
         };
 
-        Assert.IsTrue(owner.TryCommit(lease, build, CreateTerminalInput(build)).WasCommitted);
+        Assert.IsTrue(owner.TryCommit(lease, CreateTerminalInput(build)).WasCommitted);
 
         Assert.AreEqual(lease.RequestId, completionAtNotification);
         Assert.AreEqual(MainViewUpdateMode.UpdatedNone, columnModeAtNotification);
@@ -913,10 +982,10 @@ public sealed class RegularChartListOwnerTests
             RegularChartListRequestLease nestedLease = owner.BeginRequest();
             nestedRequestId = nestedLease.RequestId;
             nestedBuild = Build(owner, nestedLease, new List<LibraryChartRow>());
-            Assert.IsTrue(owner.TryCommit(nestedLease, nestedBuild, CreateTerminalInput(nestedBuild)).WasCommitted);
+            Assert.IsTrue(owner.TryCommit(nestedLease, CreateTerminalInput(nestedBuild)).WasCommitted);
         };
 
-        Assert.IsTrue(owner.TryCommit(outerLease, outerBuild, CreateTerminalInput(outerBuild)).WasCommitted);
+        Assert.IsTrue(owner.TryCommit(outerLease, CreateTerminalInput(outerBuild)).WasCommitted);
 
         Assert.AreSame(nestedBuild.Sort.RowsView, table.Rows);
         Assert.AreEqual(nestedRequestId, owner.LastCompletion.RequestId);
@@ -947,27 +1016,21 @@ public sealed class RegularChartListOwnerTests
             nested = true;
             RegularChartListRequestLease nestedLease = owner.BeginRequest();
             RegularChartListBuildResult nestedBuild = Build(owner, nestedLease, new List<LibraryChartRow>());
-            RegularChartListTerminalInput nestedInput = CreateTerminalInput(nestedBuild);
             nestedSummarySettings = new PlaylistSummaryColumnSettings();
-            nestedInput.ColumnSelection = new MainChartListColumnSelection(
-                nestedInput.ColumnSelection.ColumnsSettings,
-                reused: false,
-                elapsedMs: 0L,
+            RegularChartListPresentationResult nestedInput = CreateTerminalInput(
+                nestedBuild,
                 MainViewUpdateMode.UpdatedNone,
                 Visibility.Collapsed,
                 nestedSummarySettings);
-            Assert.IsTrue(owner.TryCommit(nestedLease, nestedBuild, nestedInput).WasCommitted);
+            Assert.IsTrue(owner.TryCommit(nestedLease, nestedInput).WasCommitted);
         };
-        RegularChartListTerminalInput outerInput = CreateTerminalInput(outerBuild);
-        outerInput.ColumnSelection = new MainChartListColumnSelection(
-            outerInput.ColumnSelection.ColumnsSettings,
-            reused: false,
-            elapsedMs: 0L,
+        RegularChartListPresentationResult outerInput = CreateTerminalInput(
+            outerBuild,
             MainViewUpdateMode.UpdatedNone,
             Visibility.Visible,
             new PlaylistSummaryColumnSettings());
 
-        Assert.IsTrue(owner.TryCommit(outerLease, outerBuild, outerInput).WasCommitted);
+        Assert.IsTrue(owner.TryCommit(outerLease, outerInput).WasCommitted);
 
         Assert.IsTrue(nested);
         Assert.AreSame(nestedSummarySettings, workspace.PlaylistSummaryColumnsSettings);
@@ -1006,26 +1069,20 @@ public sealed class RegularChartListOwnerTests
             nested = true;
             RegularChartListRequestLease nestedLease = owner.BeginRequest();
             RegularChartListBuildResult nestedBuild = Build(owner, nestedLease, new List<LibraryChartRow>());
-            RegularChartListTerminalInput nestedInput = CreateTerminalInput(nestedBuild);
-            nestedInput.ColumnSelection = new MainChartListColumnSelection(
-                nestedInput.ColumnSelection.ColumnsSettings,
-                reused: false,
-                elapsedMs: 0L,
+            RegularChartListPresentationResult nestedInput = CreateTerminalInput(
+                nestedBuild,
                 MainViewUpdateMode.UpdatedNone,
                 Visibility.Visible,
                 sharedSummarySettings);
-            Assert.IsTrue(owner.TryCommit(nestedLease, nestedBuild, nestedInput).WasCommitted);
+            Assert.IsTrue(owner.TryCommit(nestedLease, nestedInput).WasCommitted);
         };
-        RegularChartListTerminalInput outerInput = CreateTerminalInput(outerBuild);
-        outerInput.ColumnSelection = new MainChartListColumnSelection(
-            outerInput.ColumnSelection.ColumnsSettings,
-            reused: false,
-            elapsedMs: 0L,
+        RegularChartListPresentationResult outerInput = CreateTerminalInput(
+            outerBuild,
             MainViewUpdateMode.UpdatedNone,
             Visibility.Visible,
             sharedSummarySettings);
 
-        Assert.IsTrue(owner.TryCommit(outerLease, outerBuild, outerInput).WasCommitted);
+        Assert.IsTrue(owner.TryCommit(outerLease, outerInput).WasCommitted);
 
         Assert.IsTrue(nested);
         Assert.AreEqual(1, visibilityNotifications);
@@ -1177,16 +1234,13 @@ public sealed class RegularChartListOwnerTests
             }
         };
         workspace.PropertyChanged += (_, _) => workspaceNotifications++;
-        RegularChartListTerminalInput input = CreateTerminalInput(build);
-        input.ColumnSelection = new MainChartListColumnSelection(
-            input.ColumnSelection.ColumnsSettings,
-            reused: false,
-            elapsedMs: 0L,
+        RegularChartListPresentationResult input = CreateTerminalInput(
+            build,
             MainViewUpdateMode.FolderFilterSelected,
             Visibility.Visible,
             new PlaylistSummaryColumnSettings());
 
-        Assert.ThrowsException<RegularChartListTerminalPublishException>(() => owner.TryCommit(lease, build, input));
+        Assert.ThrowsException<RegularChartListTerminalPublishException>(() => owner.TryCommit(lease, input));
         Assert.AreSame(build.Sort.RowsView, table.Rows);
         Assert.IsTrue(workspaceNotifications > 0);
     }
@@ -1388,15 +1442,17 @@ public sealed class RegularChartListOwnerTests
         };
     }
 
-    private static RegularChartListTerminalInput CreateTerminalInput(
+    private static RegularChartListPresentationResult CreateTerminalInput(
         RegularChartListBuildResult build,
-        MainViewUpdateMode mode = MainViewUpdateMode.UpdatedNone)
+        MainViewUpdateMode mode = MainViewUpdateMode.UpdatedNone,
+        Visibility visibility = Visibility.Collapsed,
+        PlaylistSummaryColumnSettings? summarySettings = null)
     {
         var stopwatch = Stopwatch.StartNew();
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-        return new RegularChartListTerminalInput
-        {
-            RowsRequest = new MainChartListRowsApplyRequest
+        return RegularChartListPresentationResult.ForMaterialized(
+            build,
+            new MainChartListRowsApplyRequest
             {
                 Rows = build.Sort.RowsView,
                 ColumnsSettings = settings,
@@ -1404,25 +1460,23 @@ public sealed class RegularChartListOwnerTests
                 Summary = MainChartListSummaryUpdate.NormalRows(build.Sort.RowsView),
                 Stopwatch = stopwatch
             },
-            ColumnSelection = new MainChartListColumnSelection(
+            new MainChartListColumnSelection(
                 settings,
                 reused: false,
                 elapsedMs: 0L,
                 mode,
-                Visibility.Collapsed,
-                new PlaylistSummaryColumnSettings()),
-            Mode = mode,
-            Stopwatch = stopwatch
-        };
+                visibility,
+                summarySettings ?? new PlaylistSummaryColumnSettings()),
+            mode,
+            stopwatch);
     }
 
-    private static RegularChartListTerminalInput CreateVirtualTerminalInput(IList rows)
+    private static RegularChartListPresentationResult CreateVirtualTerminalInput(IList rows)
     {
         var stopwatch = Stopwatch.StartNew();
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-        return new RegularChartListTerminalInput
-        {
-            RowsRequest = new MainChartListRowsApplyRequest
+        return RegularChartListPresentationResult.ForVirtual(
+            new MainChartListRowsApplyRequest
             {
                 Rows = rows,
                 ColumnsSettings = settings,
@@ -1430,16 +1484,15 @@ public sealed class RegularChartListOwnerTests
                 Summary = MainChartListSummaryUpdate.NormalCounts(rows.Count, distinctFolderCount: -1),
                 Stopwatch = stopwatch
             },
-            ColumnSelection = new MainChartListColumnSelection(
+            new MainChartListColumnSelection(
                 settings,
                 reused: false,
                 elapsedMs: 0L,
                 MainViewUpdateMode.FolderFilterSelected,
                 Visibility.Collapsed,
                 new PlaylistSummaryColumnSettings()),
-            Mode = MainViewUpdateMode.FolderFilterSelected,
-            Stopwatch = stopwatch
-        };
+            MainViewUpdateMode.FolderFilterSelected,
+            stopwatch);
     }
 
     private sealed class BlockingSourceRows : IReadOnlyList<ChartListSourceRow>, IDisposable

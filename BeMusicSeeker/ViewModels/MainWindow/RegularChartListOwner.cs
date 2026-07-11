@@ -1454,10 +1454,9 @@ internal sealed class RegularChartListOwner : IDisposable
         long terminalStageStartMs = stopwatch.ElapsedMilliseconds;
         RegularChartListTerminalResult terminal = TryCommit(
             lease,
-            build,
-            new RegularChartListTerminalInput
-            {
-                RowsRequest = new MainChartListRowsApplyRequest
+            RegularChartListPresentationResult.ForMaterialized(
+                build,
+                new MainChartListRowsApplyRequest
                 {
                     Rows = rowsView,
                     ColumnsSettings = request.ColumnSelection.ColumnsSettings,
@@ -1470,10 +1469,9 @@ internal sealed class RegularChartListOwner : IDisposable
                     TerminalStageStartMs = terminalStageStartMs,
                     Stopwatch = stopwatch
                 },
-                ColumnSelection = request.ColumnSelection,
-                Mode = request.Mode,
-                Stopwatch = stopwatch
-            });
+                request.ColumnSelection,
+                request.Mode,
+                stopwatch));
         return terminal.WasCommitted
             ? new RegularMaterializedChartListApplyResult(terminal.RowsApply, build, request.Mode)
             : default;
@@ -2076,27 +2074,26 @@ internal sealed class RegularChartListOwner : IDisposable
 
     internal RegularChartListTerminalResult TryCommit(
         RegularChartListRequestLease lease,
-        RegularChartListBuildResult build,
-        RegularChartListTerminalInput input)
+        RegularChartListPresentationResult presentation)
     {
-        if (lease == null || build == null || input == null)
+        if (lease == null || presentation == null || presentation.Kind != RegularChartListPresentationKind.Materialized)
         {
             throw new ArgumentException("A complete regular chart-list terminal request is required.");
         }
 
-        return TryCommitCore(lease, build, input);
+        return TryCommitCore(lease, presentation);
     }
 
     internal RegularChartListTerminalResult TryCommitVirtual(
         RegularChartListRequestLease lease,
-        RegularChartListTerminalInput input)
+        RegularChartListPresentationResult presentation)
     {
-        if (lease == null || input == null)
+        if (lease == null || presentation == null || presentation.Kind != RegularChartListPresentationKind.Virtual)
         {
             throw new ArgumentException("A complete virtual regular chart-list terminal request is required.");
         }
 
-        return TryCommitCore(lease, null, input);
+        return TryCommitCore(lease, presentation);
     }
 
     internal RegularVirtualNormalLibraryApplyResult TryApplyVirtualNormalLibrary(
@@ -2192,9 +2189,8 @@ internal sealed class RegularChartListOwner : IDisposable
             distinctFolderCount);
         RegularChartListTerminalResult terminal = TryCommitVirtual(
             lease,
-            new RegularChartListTerminalInput
-            {
-                RowsRequest = new MainChartListRowsApplyRequest
+            RegularChartListPresentationResult.ForVirtual(
+                new MainChartListRowsApplyRequest
                 {
                     Rows = rowsView,
                     ColumnsSettings = request.ColumnSelection.ColumnsSettings,
@@ -2207,10 +2203,9 @@ internal sealed class RegularChartListOwner : IDisposable
                     TerminalStageStartMs = stageStartMs,
                     Stopwatch = stopwatch
                 },
-                ColumnSelection = request.ColumnSelection,
-                Mode = request.Mode,
-                Stopwatch = stopwatch
-            });
+                request.ColumnSelection,
+                request.Mode,
+                stopwatch));
         if (!terminal.WasCommitted)
         {
             return RegularVirtualNormalLibraryApplyResult.NotCommitted();
@@ -2343,9 +2338,8 @@ internal sealed class RegularChartListOwner : IDisposable
             distinctFolderCount);
         RegularChartListTerminalResult terminal = TryCommitVirtual(
             lease,
-            new RegularChartListTerminalInput
-            {
-                RowsRequest = new MainChartListRowsApplyRequest
+            RegularChartListPresentationResult.ForVirtual(
+                new MainChartListRowsApplyRequest
                 {
                     Rows = rowsView,
                     ColumnsSettings = request.ColumnSelection.ColumnsSettings,
@@ -2358,10 +2352,9 @@ internal sealed class RegularChartListOwner : IDisposable
                     TerminalStageStartMs = stageStartMs,
                     Stopwatch = stopwatch
                 },
-                ColumnSelection = request.ColumnSelection,
-                Mode = request.Mode,
-                Stopwatch = stopwatch
-            });
+                request.ColumnSelection,
+                request.Mode,
+                stopwatch));
         if (!terminal.WasCommitted)
         {
             return default;
@@ -2756,8 +2749,7 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private RegularChartListTerminalResult TryCommitCore(
         RegularChartListRequestLease lease,
-        RegularChartListBuildResult build,
-        RegularChartListTerminalInput input)
+        RegularChartListPresentationResult presentation)
     {
         lock (syncRoot)
         {
@@ -2767,7 +2759,7 @@ internal sealed class RegularChartListOwner : IDisposable
             }
         }
 
-        MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(input.RowsRequest);
+        MainChartListRowsTransition transition = mainChartList.PrepareRowsTransition(presentation.CreateRowsRequest());
         PlaylistColumnPresentationCommit columnCommit = null;
         PlaylistBindingModeCommit bindingModeCommit = null;
         Exception commitException = null;
@@ -2785,33 +2777,33 @@ internal sealed class RegularChartListOwner : IDisposable
                 {
                     transition.CommitOwnership();
                     columnCommit = playlistWorkspace.CommitColumnPresentationWithoutNotification(
-                        input.ColumnSelection.PlaylistColumnSettingsVisibility,
-                        input.ColumnSelection.PlaylistSummaryColumnsSettings);
+                        presentation.ColumnSelection.PlaylistColumnSettingsVisibility,
+                        presentation.ColumnSelection.PlaylistSummaryColumnsSettings);
                     bindingModeCommit = playlistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive: false);
-                    if (build != null)
+                    if (presentation.Build != null)
                     {
-                        folderRows = build.Stage.FolderRows;
-                        keywordRows = build.Stage.KeywordRows;
-                        modeRows = build.Stage.ModeRows;
-                        folderSortSourceSnapshot = build.Sort.FolderSortSourceSnapshot;
-                        folderSortResultSnapshot = build.Sort.FolderSortResultSnapshot;
-                        folderSortColumnName = build.Sort.FolderSortColumnName;
-                        folderSortDirection = build.Sort.FolderSortDirection;
-                        if (build.PendingCacheKey.HasValue && build.PendingCacheRows != null)
+                        folderRows = presentation.Build.Stage.FolderRows;
+                        keywordRows = presentation.Build.Stage.KeywordRows;
+                        modeRows = presentation.Build.Stage.ModeRows;
+                        folderSortSourceSnapshot = presentation.Build.Sort.FolderSortSourceSnapshot;
+                        folderSortResultSnapshot = presentation.Build.Sort.FolderSortResultSnapshot;
+                        folderSortColumnName = presentation.Build.Sort.FolderSortColumnName;
+                        folderSortDirection = presentation.Build.Sort.FolderSortDirection;
+                        if (presentation.Build.PendingCacheKey.HasValue && presentation.Build.PendingCacheRows != null)
                         {
-                            sortCache[build.PendingCacheKey.Value] = build.PendingCacheRows;
+                            sortCache[presentation.Build.PendingCacheKey.Value] = presentation.Build.PendingCacheRows;
                         }
                     }
-                    if (input.ColumnSelection.AppliedMode.HasValue)
+                    if (presentation.ColumnSelection.AppliedMode.HasValue)
                     {
-                        lastAppliedColumnMode = input.ColumnSelection.AppliedMode.Value;
+                        lastAppliedColumnMode = presentation.ColumnSelection.AppliedMode.Value;
                     }
                     lastCompletion = new RegularChartListCompletion(
                         lease.RequestId,
                         Stopwatch.GetTimestamp(),
                         Thread.CurrentThread.ManagedThreadId,
-                        input.Mode,
-                        input.Stopwatch.ElapsedMilliseconds);
+                        presentation.Mode,
+                        presentation.Stopwatch.ElapsedMilliseconds);
                 }
                 catch (Exception ex)
                 {
@@ -3505,12 +3497,128 @@ internal sealed class RegularChartListBuildResult
     internal long SortMs { get; }
 }
 
-internal sealed class RegularChartListTerminalInput
+internal enum RegularChartListPresentationKind
 {
-    internal MainChartListRowsApplyRequest RowsRequest { get; set; }
-    internal MainChartListColumnSelection ColumnSelection { get; set; }
-    internal MainViewUpdateMode Mode { get; set; }
-    internal Stopwatch Stopwatch { get; set; }
+    Materialized,
+    Virtual
+}
+
+internal sealed class RegularChartListPresentationResult
+{
+    private RegularChartListPresentationResult(
+        RegularChartListBuildResult build,
+        MainChartListRowsApplyRequest rowsRequest,
+        MainChartListColumnSelection columnSelection,
+        MainViewUpdateMode mode,
+        Stopwatch stopwatch,
+        RegularChartListPresentationKind kind)
+    {
+        Build = build;
+        if (rowsRequest == null)
+        {
+            throw new ArgumentNullException(nameof(rowsRequest));
+        }
+        rows = rowsRequest.Rows;
+        columnsSettings = rowsRequest.ColumnsSettings;
+        selectionPolicy = rowsRequest.SelectionPolicy;
+        summary = rowsRequest.Summary;
+        columnSettingReuse = rowsRequest.ColumnSettingReuse;
+        columnPreparationMs = rowsRequest.ColumnPreparationMs;
+        terminalStageStartMs = rowsRequest.TerminalStageStartMs;
+        rowsStopwatch = rowsRequest.Stopwatch;
+        rowsAlreadyPrepared = rowsRequest.RowsAlreadyPrepared;
+        ColumnSelection = columnSelection;
+        Stopwatch = stopwatch ?? throw new ArgumentNullException(nameof(stopwatch));
+        Mode = mode;
+        Kind = kind;
+    }
+
+    internal RegularChartListBuildResult Build { get; }
+
+    internal MainChartListColumnSelection ColumnSelection { get; }
+
+    internal MainViewUpdateMode Mode { get; }
+
+    internal Stopwatch Stopwatch { get; }
+
+    internal RegularChartListPresentationKind Kind { get; }
+
+    private readonly IList rows;
+
+    private readonly CustomTableColumnSettings columnsSettings;
+
+    private readonly MainChartListSelectionPolicy selectionPolicy;
+
+    private readonly MainChartListSummaryUpdate summary;
+
+    private readonly bool columnSettingReuse;
+
+    private readonly long columnPreparationMs;
+
+    private readonly long terminalStageStartMs;
+
+    private readonly Stopwatch rowsStopwatch;
+
+    private readonly bool rowsAlreadyPrepared;
+
+    internal MainChartListRowsApplyRequest CreateRowsRequest()
+    {
+        return new MainChartListRowsApplyRequest
+        {
+            Rows = rows,
+            ColumnsSettings = columnsSettings,
+            SelectionPolicy = selectionPolicy,
+            Summary = summary,
+            ColumnSettingReuse = columnSettingReuse,
+            ColumnPreparationMs = columnPreparationMs,
+            TerminalStageStartMs = terminalStageStartMs,
+            Stopwatch = rowsStopwatch,
+            RowsAlreadyPrepared = rowsAlreadyPrepared
+        };
+    }
+
+    internal static RegularChartListPresentationResult ForMaterialized(
+        RegularChartListBuildResult build,
+        MainChartListRowsApplyRequest rowsRequest,
+        MainChartListColumnSelection columnSelection,
+        MainViewUpdateMode mode,
+        Stopwatch stopwatch)
+    {
+        if (build == null)
+        {
+            throw new ArgumentNullException(nameof(build));
+        }
+        if (rowsRequest == null)
+        {
+            throw new ArgumentNullException(nameof(rowsRequest));
+        }
+        if (!ReferenceEquals(rowsRequest.Rows, build.Sort.RowsView))
+        {
+            throw new ArgumentException("Materialized presentation rows must match the build result.", nameof(rowsRequest));
+        }
+        return new RegularChartListPresentationResult(
+            build,
+            rowsRequest,
+            columnSelection,
+            mode,
+            stopwatch,
+            RegularChartListPresentationKind.Materialized);
+    }
+
+    internal static RegularChartListPresentationResult ForVirtual(
+        MainChartListRowsApplyRequest rowsRequest,
+        MainChartListColumnSelection columnSelection,
+        MainViewUpdateMode mode,
+        Stopwatch stopwatch)
+    {
+        return new RegularChartListPresentationResult(
+            build: null,
+            rowsRequest,
+            columnSelection,
+            mode,
+            stopwatch,
+            RegularChartListPresentationKind.Virtual);
+    }
 }
 
 internal sealed class RegularMaterializedChartListApplyRequest
