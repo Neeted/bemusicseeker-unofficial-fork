@@ -274,7 +274,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(refreshTargets, "ApplyPlayHistoryDisplayTargetSelection(");
         StringAssert.Contains(applyDisplayTargetSelection, "QueuePlayHistoryDisplayTargetRefresh(advanceRevision: false);");
         StringAssert.Contains(applyDisplayTargetSelection, "playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(nextIdentity);");
-        StringAssert.Contains(queueDisplayTarget, "new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision, targetRevision)");
+        StringAssert.Contains(queueDisplayTarget, "playHistoryWorkflowOwner.TryBeginDisplayTargetRefresh(");
         StringAssert.Contains(queueDisplayTarget, "playHistoryWorkflowOwner.CompleteDisplayTargetRefresh(request.DisplayTargetRevision)");
         StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshRequestedRevision");
         StringAssert.Contains(queueDisplayTargets, "playHistoryDisplayTargetsRefreshCompletedRevision");

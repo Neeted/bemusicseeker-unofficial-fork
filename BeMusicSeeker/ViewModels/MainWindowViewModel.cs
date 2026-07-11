@@ -11616,44 +11616,34 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        PlayHistoryViewRequest request = null;
-        lock (playHistoryViewRequestLock)
+        if (!playHistoryWorkflowOwner.TryBeginKeywordRefresh(
+            NormalizePlaylistKeywordFilter(KeywordFilter),
+            advanceRevision,
+            out PlayHistoryViewRequest request))
         {
-            if (treeViewFilterTypeSelected != MainViewUpdateMode.PlayHistorySelected)
-            {
-                return;
-            }
-            request = treeViewFilterParameterSelected as PlayHistoryViewRequest;
-            if (request == null || !playHistoryWorkflowOwner.IsCurrentRequest(request.RequestId))
-            {
-                return;
-            }
-            long keywordRevision = playHistoryWorkflowOwner.UpdateKeywordIdentity(
-                NormalizePlaylistKeywordFilter(KeywordFilter),
-                advanceRevision);
-            if (!playHistoryWorkflowOwner.TryQueueKeywordRevision(keywordRevision))
-            {
-                return;
-            }
-            request = new PlayHistoryViewRequest(
-                request.PeriodRequest,
-                request.RequestId,
-                keywordRevision,
-                playHistoryWorkflowOwner.DisplayTargetRevision);
+            return;
         }
-        playHistoryWorkflowOwner.BeginKeywordRefresh();
-        Task.Run(() =>
+        Task refreshTask;
+        try
         {
-            try
+            refreshTask = Task.Run(() =>
             {
-                RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request);
-            }
-            finally
-            {
-                playHistoryWorkflowOwner.CompleteKeywordRefresh(request.KeywordFilterRevision);
-            }
-        })
-            .Logging("playHistoryKeywordFilterUpdated");
+                try
+                {
+                    RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request);
+                }
+                finally
+                {
+                    playHistoryWorkflowOwner.CompleteKeywordRefresh(request.KeywordFilterRevision);
+                }
+            });
+        }
+        catch
+        {
+            playHistoryWorkflowOwner.CompleteKeywordRefresh(request.KeywordFilterRevision);
+            throw;
+        }
+        refreshTask.Logging("playHistoryKeywordFilterUpdated");
     }
 
     private void QueuePlayHistoryDisplayTargetRefresh(bool advanceRevision = true)
@@ -11662,50 +11652,34 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        PlayHistoryViewRequest request = null;
-        lock (playHistoryViewRequestLock)
+        if (!playHistoryWorkflowOwner.TryBeginDisplayTargetRefresh(
+            SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty,
+            advanceRevision,
+            out PlayHistoryViewRequest request))
         {
-            if (treeViewFilterTypeSelected != MainViewUpdateMode.PlayHistorySelected)
-            {
-                if (advanceRevision)
-                {
-                    playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty);
-                }
-                return;
-            }
-            request = treeViewFilterParameterSelected as PlayHistoryViewRequest;
-            if (request == null || !playHistoryWorkflowOwner.IsCurrentRequest(request.RequestId))
-            {
-                if (advanceRevision)
-                {
-                    playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty);
-                }
-                return;
-            }
-            long targetRevision = advanceRevision
-                ? playHistoryWorkflowOwner.AdvanceDisplayTargetRevision(SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty)
-                : playHistoryWorkflowOwner.DisplayTargetRevision;
-            playHistoryWorkflowOwner.SetDisplayTargetIdentity(SelectedPlayHistoryDisplayTarget?.Identity ?? string.Empty);
-            if (!playHistoryWorkflowOwner.TryQueueDisplayTargetRevision(targetRevision))
-            {
-                return;
-            }
-            long keywordRevision = playHistoryWorkflowOwner.KeywordRevision;
-            request = new PlayHistoryViewRequest(request.PeriodRequest, request.RequestId, keywordRevision, targetRevision);
+            return;
         }
-        playHistoryWorkflowOwner.BeginDisplayTargetRefresh();
-        Task.Run(() =>
+        Task refreshTask;
+        try
         {
-            try
+            refreshTask = Task.Run(() =>
             {
-                RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request);
-            }
-            finally
-            {
-                playHistoryWorkflowOwner.CompleteDisplayTargetRefresh(request.DisplayTargetRevision);
-            }
-        })
-            .Logging("playHistoryDisplayTargetUpdated");
+                try
+                {
+                    RefreshChartRowsView(MainViewUpdateMode.KeywordFilterUpdated, request);
+                }
+                finally
+                {
+                    playHistoryWorkflowOwner.CompleteDisplayTargetRefresh(request.DisplayTargetRevision);
+                }
+            });
+        }
+        catch
+        {
+            playHistoryWorkflowOwner.CompleteDisplayTargetRefresh(request.DisplayTargetRevision);
+            throw;
+        }
+        refreshTask.Logging("playHistoryDisplayTargetUpdated");
     }
 
     private bool IsCurrentPlayHistoryViewRequest(long requestId)

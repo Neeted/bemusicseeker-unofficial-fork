@@ -6,9 +6,9 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class PlayHistoryWorkflowOwner
 {
-    private long keywordQueuedRevision;
+    private long keywordQueuedRevision = -1L;
     private int keywordActiveCount;
-    private long displayTargetQueuedRevision;
+    private long displayTargetQueuedRevision = -1L;
     private int displayTargetActiveCount;
 
     internal PlayHistoryPresentationState PresentationState { get; } = new();
@@ -130,48 +130,106 @@ internal sealed class PlayHistoryWorkflowOwner
         }
     }
 
-    internal bool TryQueueKeywordRevision(long revision)
+    internal bool TryBeginKeywordRefresh(string identity, bool advanceRevision, out PlayHistoryViewRequest request)
     {
-        return TryReserveRevision(ref keywordQueuedRevision, revision);
+        lock (PresentationState.SyncRoot)
+        {
+            request = null;
+            if (!IsCurrentRequestUnsafe(ActiveRequest?.RequestId ?? 0L))
+            {
+                return false;
+            }
+            string normalizedIdentity = identity ?? string.Empty;
+            long revision;
+            if (advanceRevision)
+            {
+                revision = UpdateKeywordIdentity(normalizedIdentity, advanceRevision: true);
+            }
+            else
+            {
+                if (!string.Equals(PresentationState.CurrentKeywordIdentity, normalizedIdentity, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+                revision = KeywordRevision;
+            }
+            if (!TryReserveRevision(ref keywordQueuedRevision, revision))
+            {
+                return false;
+            }
+            request = new PlayHistoryViewRequest(
+                ActiveRequest.PeriodRequest,
+                ActiveRequest.RequestId,
+                revision,
+                DisplayTargetRevision);
+            Interlocked.Increment(ref keywordActiveCount);
+            return true;
+        }
     }
 
-    internal bool TryQueueDisplayTargetRevision(long revision)
+    internal bool TryBeginDisplayTargetRefresh(string identity, bool advanceRevision, out PlayHistoryViewRequest request)
     {
-        return TryReserveRevision(ref displayTargetQueuedRevision, revision);
-    }
-
-    internal void BeginKeywordRefresh()
-    {
-        Interlocked.Increment(ref keywordActiveCount);
+        lock (PresentationState.SyncRoot)
+        {
+            request = null;
+            if (!IsCurrentRequestUnsafe(ActiveRequest?.RequestId ?? 0L))
+            {
+                if (advanceRevision)
+                {
+                    AdvanceDisplayTargetRevision(identity);
+                }
+                return false;
+            }
+            string normalizedIdentity = identity ?? string.Empty;
+            long revision;
+            if (advanceRevision)
+            {
+                revision = AdvanceDisplayTargetRevision(normalizedIdentity);
+            }
+            else
+            {
+                if (!string.Equals(PresentationState.CurrentDisplayTargetIdentity, normalizedIdentity, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+                revision = DisplayTargetRevision;
+            }
+            if (!TryReserveRevision(ref displayTargetQueuedRevision, revision))
+            {
+                return false;
+            }
+            request = new PlayHistoryViewRequest(
+                ActiveRequest.PeriodRequest,
+                ActiveRequest.RequestId,
+                KeywordRevision,
+                revision);
+            Interlocked.Increment(ref displayTargetActiveCount);
+            return true;
+        }
     }
 
     internal void CompleteKeywordRefresh(long revision)
     {
         DecrementActiveCount(ref keywordActiveCount, "keyword");
-        Interlocked.CompareExchange(ref keywordQueuedRevision, 0L, revision);
-    }
-
-    internal void BeginDisplayTargetRefresh()
-    {
-        Interlocked.Increment(ref displayTargetActiveCount);
+        Interlocked.CompareExchange(ref keywordQueuedRevision, -1L, revision);
     }
 
     internal void CompleteDisplayTargetRefresh(long revision)
     {
         DecrementActiveCount(ref displayTargetActiveCount, "display-target");
-        Interlocked.CompareExchange(ref displayTargetQueuedRevision, 0L, revision);
+        Interlocked.CompareExchange(ref displayTargetQueuedRevision, -1L, revision);
     }
 
     internal void ClearQueuedRefreshes()
     {
-        Interlocked.Exchange(ref keywordQueuedRevision, 0L);
-        Interlocked.Exchange(ref displayTargetQueuedRevision, 0L);
+        Interlocked.Exchange(ref keywordQueuedRevision, -1L);
+        Interlocked.Exchange(ref displayTargetQueuedRevision, -1L);
     }
 
     internal bool AreRefreshQueuesIdle =>
-        Interlocked.Read(ref keywordQueuedRevision) == 0L
+        Interlocked.Read(ref keywordQueuedRevision) < 0L
         && Volatile.Read(ref keywordActiveCount) == 0
-        && Interlocked.Read(ref displayTargetQueuedRevision) == 0L
+        && Interlocked.Read(ref displayTargetQueuedRevision) < 0L
         && Volatile.Read(ref displayTargetActiveCount) == 0;
 
     internal string DescribeRefreshQueues()
