@@ -30,6 +30,54 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void ApplyRegularView_ClearsPlaylistSourceStateBeforeRegularPublish()
+    {
+        var table = new MainChartListViewModel();
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var buildState = new PlaylistDetailBuildState
+        {
+            RequestVersion = 1,
+            PendingRequest = new PlaylistBuildRequest(),
+            CurrentBuildRequest = new PlaylistBuildRequest(),
+            CurrentBuildCancellation = new CancellationTokenSource()
+        };
+        var sourceRows = new List<PlaylistDetailSourceRow> { CreatePlaylistSourceRow("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") };
+        var viewRows = new List<object> { new PlaylistDetailRow(sourceRows[0]) };
+        var viewState = new PlaylistDetailViewState();
+        viewState.Source.Rows = sourceRows;
+        viewState.View.Rows = viewRows;
+        var logs = new List<string>();
+        var owner = new RegularChartListOwner(
+            table,
+            workspace,
+            logs.Add,
+            action => action(),
+            logs.Add,
+            buildState,
+            viewState);
+        int? sourceClearVersionAtRowsNotification = null;
+        table.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(MainChartListViewModel.Rows) && viewState.Source.Rows.Count == 0)
+            {
+                sourceClearVersionAtRowsNotification = buildState.RequestVersion;
+            }
+        };
+
+        RegularChartListEntryResult result = owner.ApplyRegularView(CreateEntryRequest(MainViewUpdateMode.FolderFilterSelected));
+
+        Assert.IsTrue(result.WasCommitted);
+        Assert.AreEqual(2, buildState.RequestVersion);
+        Assert.AreEqual(0, viewState.Source.Rows.Count);
+        Assert.AreEqual(0, viewState.View.Rows.Count);
+        Assert.IsNull(buildState.PendingRequest);
+        Assert.IsNull(buildState.CurrentBuildRequest);
+        Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, owner.LastAppliedColumnMode);
+        Assert.AreEqual(2, sourceClearVersionAtRowsNotification);
+        Assert.IsTrue(logs.Any(log => log.Contains("playlist_source_replace action=clear")));
+    }
+
+    [TestMethod]
     public void MaterializedApply_OwnsBuildAndTerminalPipeline()
     {
         var table = new MainChartListViewModel();
@@ -1211,6 +1259,14 @@ public sealed class RegularChartListOwnerTests
             bmsFile: null,
             bmsonSong: null);
         return ChartListSourceRow.FromChartFile(chart);
+    }
+
+    private static PlaylistDetailSourceRow CreatePlaylistSourceRow(string md5)
+    {
+        ChartFile chart = CreateSourceRow("Playlist", md5).Chart;
+        return new PlaylistDetailSourceRow(
+            new BMSTableEntry(chart),
+            chart);
     }
 
     private static ChartListOrder CreateOrder(params ChartListSourceRow[] sourceRows)

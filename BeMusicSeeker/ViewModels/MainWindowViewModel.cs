@@ -4705,13 +4705,6 @@ public partial class MainWindowViewModel : ViewModel
             .Where(chart => chart != null)];
     }
 
-    private void ClearPlaylistSourceRows()
-    {
-        PlaylistSourceClearCommitResult commit = playlistDetailBuildState.CommitSourceClear(playlistViewState);
-        playlistDetailBuildState.PublishSourceClear(commit);
-        LogPlaylistSourceClear(commit);
-    }
-
     private void LogPlaylistSourceClear(PlaylistSourceClearCommitResult commit)
     {
         if (commit == null)
@@ -6815,7 +6808,9 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace,
             LogMainViewBuild,
             DispatchMainChartListAction,
-            LogMainViewBuildWarning);
+            LogMainViewBuildWarning,
+            playlistDetailBuildState,
+            playlistViewState);
         regularChartListOwner.SetFilters(_KeywordFilter, (RegularChartModeFilter)(int)_ModeFilter);
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
@@ -10241,7 +10236,6 @@ public partial class MainWindowViewModel : ViewModel
             RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter);
             return;
         }
-        ClearPlaylistSourceRows();
         RegularChartListEntryResult regularResult = regularChartListOwner.ApplyRegularView(
             new RegularChartListEntryRequest
             {
