@@ -211,6 +211,32 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void SettingDialogSettingsPersistence_UsesCompositionBoundary()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainWindowViewModel.SettingDialogViewModel.cs");
+
+        StringAssert.Contains(source, "this.reloadSettings();");
+        StringAssert.Contains(source, "saveSettings();");
+        Assert.IsFalse(source.Contains("Settings.Default.Reload();"));
+        Assert.IsFalse(source.Contains("Settings.Default.Save();"));
+    }
+
+    [TestMethod]
+    public void ShutdownSettingsPersistence_UsesCompositionBoundary()
+    {
+        string viewModelSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+
+        StringAssert.Contains(viewModelSource, "saveSettings();");
+        StringAssert.Contains(mainWindowSource, "viewModel.SaveSettingsForShutdown();");
+        Assert.IsFalse(mainWindowSource.Contains("Settings.Default.Save();"));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

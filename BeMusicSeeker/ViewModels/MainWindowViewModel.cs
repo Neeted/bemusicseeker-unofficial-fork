@@ -499,6 +499,10 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly Action completeFirstStartup;
 
+    private readonly Action reloadSettings;
+
+    private readonly Action saveSettings;
+
     private StartupSettingsSnapshot GetStartupSettingsSnapshot()
     {
         return startupSettingsProvider()
@@ -6211,6 +6215,8 @@ public partial class MainWindowViewModel : ViewModel
         customFolderOutputSettingsProvider = composition.CustomFolderOutputSettingsProvider;
         firstStartupProvider = composition.FirstStartupProvider;
         completeFirstStartup = composition.CompleteFirstStartup;
+        reloadSettings = composition.ReloadSettings;
+        saveSettings = composition.SaveSettings;
         ChartFilters = new ChartListFilterViewModel();
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
@@ -8376,7 +8382,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         try
         {
-            Settings.Default.Save();
+            saveSettings();
         }
         catch (Exception ex)
         {
@@ -8400,6 +8406,11 @@ public partial class MainWindowViewModel : ViewModel
         {
             LogShutdown("temp_remove_failed message=" + ex.Message);
         }
+    }
+
+    internal void SaveSettingsForShutdown()
+    {
+        saveSettings();
     }
 
     private static void WaitForFinalLr2DbProcessLocks()

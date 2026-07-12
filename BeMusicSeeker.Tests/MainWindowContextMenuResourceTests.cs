@@ -1540,17 +1540,17 @@ public sealed class MainWindowContextMenuResourceTests
             saveCore.IndexOf("if ((lr2SearchRootsChanged || lr2ConfigNeedsSave) && lr2config != null)", StringComparison.Ordinal)
             < saveCore.IndexOf("if (runPostSaveActions)", StringComparison.Ordinal),
             "LR2 config persistence, including autoreload normalization, must not be hidden behind runtime post-save actions.");
-        StringAssert.Contains(restartSaveMethod, "Settings.Default.Reload();");
+        StringAssert.Contains(restartSaveMethod, "reloadSettings();");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.OperationModeLR2DB = operationMode;");
         StringAssert.Contains(restartSaveMethod, "string playHistorySelectedDisplayTargetIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.PlayHistorySelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;");
-        StringAssert.Contains(restartSaveMethod, "Settings.Default.Save();");
+        StringAssert.Contains(restartSaveMethod, "saveSettings();");
         Assert.IsTrue(
             restartSaveMethod.IndexOf("string playHistorySelectedDisplayTargetIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;", StringComparison.Ordinal)
-            < restartSaveMethod.IndexOf("Settings.Default.Reload();", StringComparison.Ordinal),
+            < restartSaveMethod.IndexOf("reloadSettings();", StringComparison.Ordinal),
             "Restart save must preserve the in-memory play-history display target before reloading settings.");
         Assert.IsTrue(
-            restartSaveMethod.IndexOf("Settings.Default.Reload();", StringComparison.Ordinal)
+            restartSaveMethod.IndexOf("reloadSettings();", StringComparison.Ordinal)
             < restartSaveMethod.IndexOf("Settings.Default.PlayHistorySelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;", StringComparison.Ordinal),
             "Restart save must restore the play-history display target after reloading settings.");
         Assert.IsFalse(restartSaveMethod.Contains("ResetSettings();"));

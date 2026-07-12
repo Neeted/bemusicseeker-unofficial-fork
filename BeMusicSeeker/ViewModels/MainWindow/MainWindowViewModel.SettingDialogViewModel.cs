@@ -80,6 +80,10 @@ public partial class MainWindowViewModel
 
         private readonly MainWindowViewModel ownerViewModel;
 
+        private readonly Action reloadSettings;
+
+        private readonly Action saveSettings;
+
         private readonly PropertyChangedEventListener ownerViewModelEventListener;
 
         private readonly PropertyChangedEventListener resourceServiceEventListener;
@@ -3077,9 +3081,16 @@ public partial class MainWindowViewModel
         }
 
         public SettingDialogViewModel(MainWindowViewModel owner)
+            : this(owner, owner.reloadSettings, owner.saveSettings)
+        {
+        }
+
+        internal SettingDialogViewModel(MainWindowViewModel owner, Action reloadSettings, Action saveSettings)
         {
             SettingDialogViewModel settingDialogViewModel = this;
             ownerViewModel = owner;
+            this.reloadSettings = reloadSettings ?? throw new ArgumentNullException(nameof(reloadSettings));
+            this.saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
             appearanceThemeOptions =
             [
                 new AppearanceThemeOption(AppThemeService.Light),
@@ -3119,7 +3130,7 @@ public partial class MainWindowViewModel
                 }
                 ownerViewModel.RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges: false);
             });
-            Settings.Default.Reload();
+            this.reloadSettings();
             if (Settings.Default.OperationModeLR2DB)
             {
                 try
@@ -4043,7 +4054,7 @@ public partial class MainWindowViewModel
                 if (!Settings.Default.OperationModeLR2DB)
                 {
                     PersistStandaloneBmsRootPathsToSettings();
-                    Settings.Default.Save();
+                    saveSettings();
                 }
                 ApplyRuntimeSearchRootsForCurrentMode();
                 if (isBMSDirectoryAdded)
@@ -4698,7 +4709,7 @@ public partial class MainWindowViewModel
             if (isSearchRootsChanged)
             {
                 PersistStandaloneBmsRootPathsToSettings();
-                Settings.Default.Save();
+                saveSettings();
                 ApplyRuntimeSearchRootsForCurrentMode();
                 if (isBMSDirectoryRemoved)
                 {
@@ -6173,7 +6184,7 @@ public partial class MainWindowViewModel
                 if (userConfigNeedsSave)
                 {
                     var userConfigStopwatch = Stopwatch.StartNew();
-                    Settings.Default.Save();
+                    saveSettings();
                     userConfigSaveMs = userConfigStopwatch.ElapsedMilliseconds;
                     userConfigSaved = true;
                 }
@@ -6258,10 +6269,10 @@ public partial class MainWindowViewModel
         public void SaveOperationModeForRestart(bool operationMode)
         {
             string playHistorySelectedDisplayTargetIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
-            Settings.Default.Reload();
+            reloadSettings();
             Settings.Default.OperationModeLR2DB = operationMode;
             Settings.Default.PlayHistorySelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;
-            Settings.Default.Save();
+            saveSettings();
         }
 
         public void ResetSettings()

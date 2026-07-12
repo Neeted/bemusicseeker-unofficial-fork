@@ -1048,7 +1048,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         try
         {
-            Settings.Default.Save();
+            if (viewModel != null)
+            {
+                viewModel.SaveSettingsForShutdown();
+            }
+            else
+            {
+                ApplicationComposition.CreateDefault().SaveSettings();
+            }
         }
         catch (Exception ex)
         {

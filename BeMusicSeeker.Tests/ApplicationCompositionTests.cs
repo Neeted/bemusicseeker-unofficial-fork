@@ -105,6 +105,56 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionKeepsTheConfiguredSettingsPersistenceBoundary()
+    {
+        bool reloaded = false;
+        bool saved = false;
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            reloadSettings: () => reloaded = true,
+            saveSettings: () => saved = true);
+
+        composition.ReloadSettings();
+        composition.SaveSettings();
+
+        Assert.IsTrue(reloaded);
+        Assert.IsTrue(saved);
+    }
+
+    [TestMethod]
+    public void MainWindowSettingDialogUsesCompositionSettingsPersistenceDelegates()
+    {
+        int reloadCount = 0;
+        int saveCount = 0;
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            firstStartupProvider: () => false,
+            completeFirstStartup: () =>
+            {
+            },
+            reloadSettings: () => reloadCount++,
+            saveSettings: () => saveCount++);
+
+        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+        Assert.AreEqual(1, reloadCount);
+
+        bool operationMode = BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB;
+        string displayTargetIdentity = BeMusicSeeker.Properties.Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
+        try
+        {
+            viewModel.settingDialog.SaveOperationModeForRestart(operationMode);
+
+            Assert.AreEqual(2, reloadCount);
+            Assert.AreEqual(1, saveCount);
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = operationMode;
+            BeMusicSeeker.Properties.Settings.Default.PlayHistorySelectedDisplayTargetIdentity = displayTargetIdentity;
+        }
+    }
+
+    [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));

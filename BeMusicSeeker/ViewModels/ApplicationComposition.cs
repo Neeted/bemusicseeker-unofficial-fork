@@ -2,6 +2,7 @@ using System;
 using System.Windows.Markup;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -26,6 +27,10 @@ internal sealed class ApplicationComposition
 
     private readonly Action completeFirstStartup;
 
+    private readonly Action reloadSettings;
+
+    private readonly Action saveSettings;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -34,7 +39,9 @@ internal sealed class ApplicationComposition
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider = null,
         IMainChartColumnSettingsStore mainChartColumnSettingsStore = null,
         Func<bool> firstStartupProvider = null,
-        Action completeFirstStartup = null)
+        Action completeFirstStartup = null,
+        Action reloadSettings = null,
+        Action saveSettings = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
         this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
@@ -47,6 +54,10 @@ internal sealed class ApplicationComposition
             ?? (() => GetApplication().firstStartup);
         this.completeFirstStartup = completeFirstStartup
             ?? (() => GetApplication().firstStartup = false);
+        this.reloadSettings = reloadSettings
+            ?? (() => Settings.Default.Reload());
+        this.saveSettings = saveSettings
+            ?? (() => Settings.Default.Save());
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;
@@ -64,6 +75,10 @@ internal sealed class ApplicationComposition
     internal Func<bool> FirstStartupProvider => firstStartupProvider;
 
     internal Action CompleteFirstStartup => completeFirstStartup;
+
+    internal Action ReloadSettings => reloadSettings;
+
+    internal Action SaveSettings => saveSettings;
 
     private static App GetApplication()
     {
