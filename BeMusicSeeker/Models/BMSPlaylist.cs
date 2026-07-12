@@ -2150,6 +2150,129 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
+    /// <summary>
+    /// 現在の custom-folder output base と root playlist output を LR2Config の search root へ同期します。
+    /// 設定保存後の旧 root の除去と、起動後に残った親 root の adoption 整理を同じ playlist owner で行います。
+    /// </summary>
+    /// <param name="previousRootOutputBaseDirectory">保存前に設定されていた root output base。起動後の修復では現在値を渡します。</param>
+    /// <param name="configOverride">呼び出し側が保持している LR2Config。未指定時は playlist の provider を使います。</param>
+    /// <returns>LR2Config が変更された場合は <see langword="true"/>。</returns>
+    internal bool SyncCustomFolderOutputSearchRootsAfterSettingsChange(
+        string previousRootOutputBaseDirectory,
+        LR2Config configOverride = null)
+    {
+        if (!Settings.Default.OperationModeLR2DB)
+        {
+            return false;
+        }
+
+        LR2Config config = configOverride ?? lr2config();
+        if (config == null)
+        {
+            return false;
+        }
+
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        using (rwlockBMSTables.GetReaderGuard())
+        {
+            IReadOnlyList<string> previousRootDirectories = CreateRootCustomFolderOutputDirectories(previousRootOutputBaseDirectory);
+            IReadOnlyList<string> currentRootDirectories = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
+                CreateRootCustomFolderOutputDirectories(settings.LR2CustomFolderOutputBaseDirRootType));
+            foreach (string currentRootDirectory in currentRootDirectories)
+            {
+                Directory.CreateDirectory(currentRootDirectory);
+            }
+
+            List<string> beforeDirectories = config.GetBMSSearchDirectoriesForChangeTracking();
+            IReadOnlyList<string> explicitRemoveDirectories = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
+                previousRootDirectories.Concat([settings.LR2CustomFolderOutputBaseDirRootType]));
+            IEnumerable<string> removeDirectories = beforeDirectories.Where(registeredPath =>
+                explicitRemoveDirectories.Contains(registeredPath, StringComparer.OrdinalIgnoreCase)
+                || IsRootCustomFolderOutputSearchRootAdoptionRemovalTarget(
+                    registeredPath,
+                    settings.LR2CustomFolderOutputBaseDirRootType,
+                    currentRootDirectories));
+            List<string> nextDirectories = [.. beforeDirectories
+                .Except(removeDirectories, StringComparer.OrdinalIgnoreCase)
+                .Concat(currentRootDirectories)
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+            EnsureCustomFolderOutputBaseSearchRoots(
+                nextDirectories,
+                settings.LR2CustomFolderOutputBaseDir,
+                settings.LR2CustomFolderAdditionalOutputBaseDirs);
+            if (nextDirectories.SequenceEqual(beforeDirectories, StringComparer.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            config.SetBMSSearchDirectories(nextDirectories);
+            config.Save();
+            return true;
+        }
+    }
+
+    private IReadOnlyList<string> CreateRootCustomFolderOutputDirectories(string rootOutputBaseDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(rootOutputBaseDirectory))
+        {
+            return [];
+        }
+
+        return [.. BMSTables
+            .Where(table => table != null && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
+            .Select(table => Path.Combine(rootOutputBaseDirectory, table.Output_dir))];
+    }
+
+    private static void EnsureCustomFolderOutputBaseSearchRoots(
+        ICollection<string> directories,
+        string normalOutputBase,
+        string serializedAdditionalOutputBases)
+    {
+        EnsureCustomFolderOutputBaseSearchRoot(directories, normalOutputBase);
+        foreach (string additionalOutputBase in CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(serializedAdditionalOutputBases))
+        {
+            EnsureCustomFolderOutputBaseSearchRoot(directories, additionalOutputBase);
+        }
+    }
+
+    private static void EnsureCustomFolderOutputBaseSearchRoot(ICollection<string> directories, string outputBase)
+    {
+        string normalizedOutputBase = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(outputBase);
+        if (directories == null
+            || string.IsNullOrWhiteSpace(normalizedOutputBase)
+            || directories.Any(directory => IsSameOrDescendantCustomFolderDirectory(
+                normalizedOutputBase,
+                CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(directory))))
+        {
+            return;
+        }
+
+        Directory.CreateDirectory(normalizedOutputBase);
+        directories.Add(normalizedOutputBase);
+    }
+
+    private static bool IsRootCustomFolderOutputSearchRootAdoptionRemovalTarget(
+        string registeredPath,
+        string currentRootBase,
+        IReadOnlyList<string> currentRootDirectories)
+    {
+        if (string.IsNullOrWhiteSpace(registeredPath)
+            || currentRootDirectories.Contains(registeredPath, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(currentRootBase)
+            && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(registeredPath, currentRootBase))
+        {
+            return true;
+        }
+
+        return currentRootDirectories.Any(currentRootDirectory =>
+            !CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(registeredPath, currentRootDirectory)
+            && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(registeredPath, currentRootDirectory));
+    }
+
     public void QueueDeferredPlaylistEntriesHydration(string reason, bool runExternalSyncAfterHydration = false, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, List<Action> completionActions = null)
     {
         if (TrySkipForShutdown("playlist_entries_hydration", reason))
@@ -9749,10 +9872,15 @@ public partial class BMSPlaylist : NotificationObject
         return "#COMMAND " + command + Environment.NewLine + "#MAXTRACKS " + maxtracks + Environment.NewLine + "#CATEGORY " + category + Environment.NewLine + "#TITLE " + title + Environment.NewLine + "#INFORMATION_A " + (informationA ?? string.Empty) + Environment.NewLine + "#INFORMATION_B " + (informationB ?? string.Empty) + Environment.NewLine + Environment.NewLine;
     }
 
+    private CustomFolderOutputSettingsSnapshot GetCustomFolderOutputSettings()
+    {
+        return customFolderOutputSettingsProvider()
+            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+    }
+
     private string ResolveCustomFolderOutputDirectory(BMSTable bmsTable)
     {
-        CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
-            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
         return GetCustomFolderOutputDirectory(
             bmsTable,
             settings.LR2CustomFolderOutputBaseDir,

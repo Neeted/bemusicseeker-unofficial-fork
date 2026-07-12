@@ -5583,92 +5583,13 @@ public partial class MainWindowViewModel
 
         internal bool SyncRootCustomFolderOutputSearchRootsAfterSettingsChange()
         {
-            if (!Settings.Default.OperationModeLR2DB || lr2config == null)
+            if (!Settings.Default.OperationModeLR2DB || lr2config == null || ownerViewModel.tables == null)
             {
                 return false;
             }
-
-            string currentRootBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-            string previousRootBase = tempLR2CustomFolderAsRootOutputDir;
-            IEnumerable<string> previousRootDirectories = CreateRootFolderOutputDirectories(previousRootBase);
-            IReadOnlyList<string> currentRootDirectories = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
-                CreateRootFolderOutputDirectories(currentRootBase));
-            foreach (string currentRootDirectory in currentRootDirectories)
-            {
-                Directory.CreateDirectory(currentRootDirectory);
-            }
-            List<string> beforeDirectories = lr2config.GetBMSSearchDirectoriesForChangeTracking();
-            IReadOnlyList<string> explicitRemoveDirectories = CustomFolderOutputBaseRegistry.NormalizeBaseDirectories(
-                previousRootDirectories.Concat([currentRootBase]));
-            IEnumerable<string> removeDirectories = beforeDirectories.Where(registeredPath =>
-                explicitRemoveDirectories.Contains(registeredPath, StringComparer.OrdinalIgnoreCase)
-                || IsRootOutputBaseAdoptionRemovalTarget(registeredPath, currentRootBase, currentRootDirectories));
-            List<string> nextDirectories = [.. beforeDirectories
-                .Except(removeDirectories, StringComparer.OrdinalIgnoreCase)
-                .Concat(currentRootDirectories)
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-            EnsureCustomFolderOutputBaseSearchRoots(
-                nextDirectories,
-                Settings.Default.LR2CustomFolderOutputBaseDir,
-                Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
-            if (nextDirectories.SequenceEqual(beforeDirectories, StringComparer.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            lr2config.SetBMSSearchDirectories(nextDirectories);
-            lr2config.Save();
-            return true;
-        }
-
-        private static void EnsureCustomFolderOutputBaseSearchRoots(
-            ICollection<string> directories,
-            string normalOutputBase,
-            string serializedAdditionalOutputBases)
-        {
-            EnsureCustomFolderOutputBaseSearchRoot(directories, normalOutputBase);
-            foreach (string additionalOutputBase in CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(serializedAdditionalOutputBases))
-            {
-                EnsureCustomFolderOutputBaseSearchRoot(directories, additionalOutputBase);
-            }
-        }
-
-        private static void EnsureCustomFolderOutputBaseSearchRoot(ICollection<string> directories, string outputBase)
-        {
-            string normalizedOutputBase = CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(outputBase);
-            if (directories == null
-                || string.IsNullOrWhiteSpace(normalizedOutputBase)
-                || directories.Any(directory => IsSameOrChildPath(
-                    normalizedOutputBase,
-                    CustomFolderOutputBaseRegistry.NormalizeDirectoryPath(directory))))
-            {
-                return;
-            }
-
-            Directory.CreateDirectory(normalizedOutputBase);
-            directories.Add(normalizedOutputBase);
-        }
-
-        private static bool IsRootOutputBaseAdoptionRemovalTarget(
-            string registeredPath,
-            string currentRootBase,
-            IReadOnlyList<string> currentRootDirectories)
-        {
-            if (string.IsNullOrWhiteSpace(registeredPath)
-                || currentRootDirectories.Contains(registeredPath, StringComparer.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-
-            if (!string.IsNullOrWhiteSpace(currentRootBase)
-                && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(registeredPath, currentRootBase))
-            {
-                return true;
-            }
-
-            return currentRootDirectories.Any(currentRootDirectory =>
-                !CustomFolderOutputBaseSearchRootSyncService.IsSameDirectory(registeredPath, currentRootDirectory)
-                && CustomFolderOutputBaseSearchRootSyncService.IsSameOrNestedDirectory(registeredPath, currentRootDirectory));
+            return ownerViewModel.tables.SyncCustomFolderOutputSearchRootsAfterSettingsChange(
+                tempLR2CustomFolderAsRootOutputDir,
+                lr2config);
         }
 
         private int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges()
