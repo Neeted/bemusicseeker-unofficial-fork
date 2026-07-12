@@ -4085,7 +4085,8 @@ public partial class BMSPlaylist : NotificationObject
 
     private async Task<Lr2SongDbSyncPreparedDataSurface> ReOutputAllCustomFoldersForLr2SongDbSyncCoreAsync(string reason, bool yieldBetweenTables, Action<int, int, string> progressCallback = null)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (!settings.OperationModeLR2DB)
         {
             return Lr2SongDbSyncPreparedDataSurface.Empty;
         }
@@ -4104,7 +4105,8 @@ public partial class BMSPlaylist : NotificationObject
             throwOnProjectionFailure: false,
             buildPreparedDataSurface: true,
             yieldBetweenTables,
-            progressCallback);
+            progressCallback,
+            settings: settings);
         return result.PreparedDataSurface ?? Lr2SongDbSyncPreparedDataSurface.Empty;
     }
 
@@ -5367,7 +5369,8 @@ public partial class BMSPlaylist : NotificationObject
             stopwatch,
             projectionStopwatch.ElapsedMilliseconds,
             buildPreparedDataSurface,
-            progressCallback);
+            progressCallback,
+            settings);
     }
 
     private async Task<CustomFolderBatchOutputResult> ReOutputCustomFoldersForTablesCoreAsync(
@@ -5484,7 +5487,8 @@ public partial class BMSPlaylist : NotificationObject
             stopwatch,
             projectionStopwatch.ElapsedMilliseconds,
             buildPreparedDataSurface,
-            progressCallback);
+            progressCallback,
+            settings);
     }
 
     private CustomFolderBatchOutputResult CompleteCustomFolderBatchOutput(
@@ -5497,7 +5501,8 @@ public partial class BMSPlaylist : NotificationObject
         Stopwatch stopwatch,
         long projectionMs,
         bool buildPreparedDataSurface,
-        Action<int, int, string> progressCallback = null)
+        Action<int, int, string> progressCallback = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         projections ??= [];
         int progressTotalCount = GetCustomFolderBatchProgressTotalCount(tableCount, progressCallback);
@@ -5514,7 +5519,8 @@ public partial class BMSPlaylist : NotificationObject
                 progressCallback?.Invoke(completed, progressTotalCount, tableName ?? Resources.Custom_folder_output_progress_single_label);
             },
             operation,
-            reason);
+            reason,
+            settings);
         materializeStopwatch.Stop();
         LogPlaylistPerformance(operation + " materialize_done"
             + " reason=" + (reason ?? "unknown")
@@ -6415,13 +6421,15 @@ public partial class BMSPlaylist : NotificationObject
         IReadOnlyList<CustomFolderOutputProjection> projections,
         Action<int, int, string> progressCallback = null,
         string operation = null,
-        string reason = null)
+        string reason = null,
+        CustomFolderOutputSettingsSnapshot settingsOverride = null)
     {
         var result = new CustomFolderBatchMaterializationResult();
         var shiftJis = Encoding.GetEncoding("shift_jis");
         IReadOnlyList<CustomFolderOutputProjection> projectionList = [.. (projections ?? [])
             .Where(projection => projection != null && !string.IsNullOrWhiteSpace(projection.OutputDirectory))];
-        CustomFolderOutputSettingsSnapshot settings = projectionList
+        CustomFolderOutputSettingsSnapshot settings = settingsOverride
+            ?? projectionList
             .Select(projection => projection.Settings)
             .FirstOrDefault(snapshot => snapshot != null)
             ?? GetCustomFolderOutputSettings();

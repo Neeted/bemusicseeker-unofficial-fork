@@ -3499,11 +3499,26 @@ public sealed class BmsPlaylistUpdateTests
         {
             string lr2RootPath = Path.Combine(tempDirectory, "LR2");
             string bmsRoot = Path.Combine(tempDirectory, "BMS");
-            string outputBaseDir = Path.Combine(bmsRoot, "#BeMusicSeeker");
+            string providerOutputBaseDir = Path.Combine(bmsRoot, "#ProviderOutput");
+            string globalOutputBaseDir = Path.Combine(bmsRoot, "#GlobalOutput");
             Directory.CreateDirectory(bmsRoot);
             Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            Settings.Default.OperationModeLR2DB = false;
+            Settings.Default.LR2CustomFolderOutputBaseDir = globalOutputBaseDir;
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = lr2RootPath,
+                LR2CustomFolderOutputBaseDir = providerOutputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            int providerCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
+            {
+                providerCallCount++;
+                return outputSettings;
+            };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -3522,20 +3537,31 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder B"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                () => CreateLr2Config(lr2RootPath, bmsRoot),
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                getOutputSettings)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
                     Dispatcher.CurrentDispatcher)
             };
             Assert.AreEqual(1, InvokeRepairMissingCustomFolderOutputsAfterHydration(playlist, "test_seed"));
-            string outputFile = Path.Combine(outputBaseDir, "LockedCurrent", "0000.lr2folder");
+            string outputFile = Path.Combine(providerOutputBaseDir, "LockedCurrent", "0000.lr2folder");
             Assert.IsTrue(File.Exists(outputFile));
 
+            providerCallCount = 0;
             using var locked = new FileStream(outputFile, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
             Lr2SongDbSyncPreparedDataSurface surface =
                 playlist.ReOutputAllCustomFoldersForLr2SongDbSync("test_locked_current");
 
+            Assert.AreEqual(1, providerCallCount);
+            Assert.IsFalse(Directory.Exists(Path.Combine(globalOutputBaseDir, "LockedCurrent")));
             CollectionAssert.Contains(surface.Lr2FolderFilePaths.ToList(), outputFile);
         }
         finally
@@ -3543,6 +3569,62 @@ public sealed class BmsPlaylistUpdateTests
             Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
             Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             Settings.Default.LR2RootPath = previousLr2RootPath;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void ReOutputAllCustomFoldersForLr2SongDbSync_EmptyTablesUsesOneSettingsSnapshot()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            Settings.Default.OperationModeLR2DB = false;
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "ProviderOutput"),
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            int providerCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
+            {
+                providerCallCount++;
+                return outputSettings;
+            };
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                getOutputSettings)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+
+            Lr2SongDbSyncPreparedDataSurface surface =
+                playlist.ReOutputAllCustomFoldersForLr2SongDbSync("test_empty_snapshot");
+
+            Assert.AreEqual(1, providerCallCount);
+            Assert.IsNotNull(surface);
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
