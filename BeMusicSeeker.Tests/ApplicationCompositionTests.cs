@@ -298,6 +298,38 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionDefaultWorkflowSnapshotProvidersUseInjectedEditSessionValues()
+    {
+        var values = new BeMusicSeeker.Properties.Settings
+        {
+            PendingInstallEstimateMaxParallelPackages = 11,
+            LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-output\"]",
+            EnablePlaylistUrlCompletion = true,
+            EnableBeatorajaBmtOutput = true,
+            LR2CustomFolderOutputBaseDir = "session-output-base"
+        };
+        var session = new FakeSettingsEditSession { Values = values };
+        var composition = new ApplicationComposition(settingsEditSession: session);
+
+        BmsLibraryOptionsSnapshot libraryOptions = composition.BmsLibraryOptionsProvider();
+        PlaylistUrlCompletionOptionsSnapshot playlistOptions = composition.PlaylistUrlCompletionOptionsProvider();
+        BeatorajaBmtOptionsSnapshot beatorajaOptions = composition.BeatorajaBmtOptionsProvider();
+        CustomFolderOutputSettingsSnapshot customFolderOptions = composition.CustomFolderOutputSettingsProvider();
+
+        Assert.AreEqual(11, libraryOptions.PendingInstallEstimateMaxParallelPackages);
+        Assert.AreEqual(1, libraryOptions.LR2CustomFolderAdditionalOutputBaseDirs.Count);
+        Assert.AreEqual(
+            Path.GetFullPath("session-output"),
+            libraryOptions.LR2CustomFolderAdditionalOutputBaseDirs[0]);
+        Assert.IsTrue(playlistOptions.EnablePlaylistUrlCompletion);
+        Assert.IsTrue(beatorajaOptions.EnableBeatorajaBmtOutput);
+        Assert.AreEqual("session-output-base", customFolderOptions.LR2CustomFolderOutputBaseDir);
+
+        values.PendingInstallEstimateMaxParallelPackages = 13;
+        Assert.AreEqual(13, composition.BmsLibraryOptionsProvider().PendingInstallEstimateMaxParallelPackages);
+    }
+
+    [TestMethod]
     public void MainWindowKeywordSearchHistoryUsesCompositionSettingsStore()
     {
         var store = new FakeKeywordSearchHistorySettingsStore

@@ -1,3 +1,4 @@
+using System;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models;
@@ -21,14 +22,24 @@ internal sealed class BeatorajaBmtOptionsSnapshot
 
     internal static BeatorajaBmtOptionsSnapshot CreateCurrent()
     {
+        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
+    }
+
+    internal static BeatorajaBmtOptionsSnapshot CreateCurrent(Settings settings)
+    {
+        if (settings == null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+
         return new BeatorajaBmtOptionsSnapshot
         {
-            EnableBeatorajaBmtOutput = Settings.Default.EnableBeatorajaBmtOutput,
-            KeepBeatorajaBmtFilesWhenOutputDisabled = Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled,
-            BeatorajaRootPath = Settings.Default.BeatorajaRootPath,
-            BeatorajaBmtTablePath = Settings.Default.BeatorajaBmtTablePath,
-            RegisterBeatorajaBmtUrls = Settings.Default.RegisterBeatorajaBmtUrls,
-            BeatorajaBmtHashOutputMode = Settings.Default.BeatorajaBmtHashOutputMode
+            EnableBeatorajaBmtOutput = settings.EnableBeatorajaBmtOutput,
+            KeepBeatorajaBmtFilesWhenOutputDisabled = settings.KeepBeatorajaBmtFilesWhenOutputDisabled,
+            BeatorajaRootPath = settings.BeatorajaRootPath,
+            BeatorajaBmtTablePath = settings.BeatorajaBmtTablePath,
+            RegisterBeatorajaBmtUrls = settings.RegisterBeatorajaBmtUrls,
+            BeatorajaBmtHashOutputMode = settings.BeatorajaBmtHashOutputMode
         };
     }
 }

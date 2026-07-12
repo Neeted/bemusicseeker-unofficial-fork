@@ -1,3 +1,4 @@
+using System;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models;
@@ -21,14 +22,24 @@ internal sealed class CustomFolderOutputSettingsSnapshot
 
     internal static CustomFolderOutputSettingsSnapshot CreateCurrent()
     {
+        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
+    }
+
+    internal static CustomFolderOutputSettingsSnapshot CreateCurrent(Settings settings)
+    {
+        if (settings == null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+
         return new CustomFolderOutputSettingsSnapshot
         {
-            OperationModeLR2DB = Settings.Default.OperationModeLR2DB,
-            LR2RootPath = Settings.Default.LR2RootPath,
-            LR2CustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
-            LR2CustomFolderOutputBaseDirRootType = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
-            LR2CustomFolderAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
-            EnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent
+            OperationModeLR2DB = settings.OperationModeLR2DB,
+            LR2RootPath = settings.LR2RootPath,
+            LR2CustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDir,
+            LR2CustomFolderOutputBaseDirRootType = settings.LR2CustomFolderOutputBaseDirRootType,
+            LR2CustomFolderAdditionalOutputBaseDirs = settings.LR2CustomFolderAdditionalOutputBaseDirs,
+            EnableDownloadLr2IrScoreAndDetectUnsent = settings.EnableDownloadLr2IrScoreAndDetectUnsent
         };
     }
 

@@ -193,6 +193,37 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void CompositionWorkflowSnapshots_UseTheInjectedSettingsSession()
+    {
+        string root = FindRepositoryRoot();
+        string compositionSource = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "ApplicationComposition.cs"));
+
+        StringAssert.Contains(compositionSource, "BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
+        StringAssert.Contains(compositionSource, "PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
+        StringAssert.Contains(compositionSource, "BeatorajaBmtOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
+        StringAssert.Contains(compositionSource, "CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
+
+        string[] snapshotPaths =
+        [
+            Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryOptionsSnapshot.cs"),
+            Path.Combine(root, "BeMusicSeeker", "Models", "PlaylistUrlCompletionOptionsSnapshot.cs"),
+            Path.Combine(root, "BeMusicSeeker", "Models", "BeatorajaBmtOptionsSnapshot.cs"),
+            Path.Combine(root, "BeMusicSeeker", "Models", "CustomFolderOutputSettingsSnapshot.cs")
+        ];
+
+        foreach (string snapshotPath in snapshotPaths)
+        {
+            Assert.IsFalse(
+                File.ReadAllText(snapshotPath).Contains("Settings.Default."),
+                $"Workflow snapshot must not read Settings.Default directly: {snapshotPath}");
+        }
+    }
+
+    [TestMethod]
     public void MainWindowStartupFirstRunState_UsesCompositionBoundary()
     {
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();

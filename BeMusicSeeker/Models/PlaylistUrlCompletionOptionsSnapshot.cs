@@ -1,3 +1,4 @@
+using System;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models;
@@ -17,12 +18,22 @@ internal sealed class PlaylistUrlCompletionOptionsSnapshot
 
     internal static PlaylistUrlCompletionOptionsSnapshot CreateCurrent()
     {
+        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
+    }
+
+    internal static PlaylistUrlCompletionOptionsSnapshot CreateCurrent(Settings settings)
+    {
+        if (settings == null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+
         return new PlaylistUrlCompletionOptionsSnapshot
         {
-            EnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion,
-            PlaylistMd5UrlMappingTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri,
-            EnableStellaFullPlaylistUrlCompletion = Settings.Default.EnableStellaFullPlaylistUrlCompletion,
-            OverwritePlaylistUrlsWithCompletion = Settings.Default.OverwritePlaylistUrlsWithCompletion
+            EnablePlaylistUrlCompletion = settings.EnablePlaylistUrlCompletion,
+            PlaylistMd5UrlMappingTsvUri = settings.PlaylistMd5UrlMappingTsvUri,
+            EnableStellaFullPlaylistUrlCompletion = settings.EnableStellaFullPlaylistUrlCompletion,
+            OverwritePlaylistUrlsWithCompletion = settings.OverwritePlaylistUrlsWithCompletion
         };
     }
 }

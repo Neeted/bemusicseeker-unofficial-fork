@@ -57,31 +57,41 @@ internal sealed class BmsLibraryOptionsSnapshot
 
     public static BmsLibraryOptionsSnapshot CreateCurrent()
     {
+        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
+    }
+
+    internal static BmsLibraryOptionsSnapshot CreateCurrent(Settings settings)
+    {
+        if (settings == null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+
         return new BmsLibraryOptionsSnapshot
         {
-            OperationModeLR2DB = Settings.Default.OperationModeLR2DB,
-            LR2RootPath = Settings.Default.LR2RootPath,
-            LR2CustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
-            LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories(),
-            LR2CustomFolderOutputBaseDirRootType = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
-            EnableSmartComponentOverwrite = Settings.Default.EnableSmartComponentOverwrite,
-            KeepSmartOverwriteProtectedFilesByRenaming = Settings.Default.KeepSmartOverwriteProtectedFilesByRenaming,
-            DeletePendingPackageSourceAfterInstall = Settings.Default.DeletePendingPackageSourceAfterInstall,
-            KeepInstallablePackagesPending = Settings.Default.KeepInstallablePackagesPending,
-            AutoApplyAmbiguousInstallDestination = Settings.Default.AutoApplyAmbiguousInstallDestination,
-            EstimateOfflineScoreRanking = Settings.Default.EstimateOfflineScoreRanking,
-            UpdateLr2IrRankingCacheOnStartup = Settings.Default.UpdateLr2IrRankingCacheOnStartup,
-            EnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent,
-            UseBeatorajaScoreDb = Settings.Default.UseBeatorajaScoreDb,
-            BeatorajaScoreDbPath = BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath)
-                ? BeatorajaConfigService.GetScoreDbPath(Settings.Default.BeatorajaRootPath, Settings.Default.BeatorajaPlayerId)
-                : Settings.Default.BeatorajaScoreDbPath,
-            EnableReadOptimizedPragmas = Settings.Default.EnableReadOptimizedPragmas,
-            ScanBmsFilesOnStartup = Settings.Default.ScanBmsFilesOnStartup,
-            FolderNameFormat = Settings.Default.FolderNameFormat,
-            UseOnlyShiftJISChars = Settings.Default.UseOnlyShiftJISChars,
-            BMSInstallDir = Settings.Default.BMSInstallDir,
-            PendingInstallEstimateMaxParallelPackages = Settings.Default.PendingInstallEstimateMaxParallelPackages
+            OperationModeLR2DB = settings.OperationModeLR2DB,
+            LR2RootPath = settings.LR2RootPath,
+            LR2CustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDir,
+            LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs),
+            LR2CustomFolderOutputBaseDirRootType = settings.LR2CustomFolderOutputBaseDirRootType,
+            EnableSmartComponentOverwrite = settings.EnableSmartComponentOverwrite,
+            KeepSmartOverwriteProtectedFilesByRenaming = settings.KeepSmartOverwriteProtectedFilesByRenaming,
+            DeletePendingPackageSourceAfterInstall = settings.DeletePendingPackageSourceAfterInstall,
+            KeepInstallablePackagesPending = settings.KeepInstallablePackagesPending,
+            AutoApplyAmbiguousInstallDestination = settings.AutoApplyAmbiguousInstallDestination,
+            EstimateOfflineScoreRanking = settings.EstimateOfflineScoreRanking,
+            UpdateLr2IrRankingCacheOnStartup = settings.UpdateLr2IrRankingCacheOnStartup,
+            EnableDownloadLr2IrScoreAndDetectUnsent = settings.EnableDownloadLr2IrScoreAndDetectUnsent,
+            UseBeatorajaScoreDb = settings.UseBeatorajaScoreDb,
+            BeatorajaScoreDbPath = BeatorajaConfigService.IsBeatorajaRootPathValid(settings.BeatorajaRootPath)
+                ? BeatorajaConfigService.GetScoreDbPath(settings.BeatorajaRootPath, settings.BeatorajaPlayerId)
+                : settings.BeatorajaScoreDbPath,
+            EnableReadOptimizedPragmas = settings.EnableReadOptimizedPragmas,
+            ScanBmsFilesOnStartup = settings.ScanBmsFilesOnStartup,
+            FolderNameFormat = settings.FolderNameFormat,
+            UseOnlyShiftJISChars = settings.UseOnlyShiftJISChars,
+            BMSInstallDir = settings.BMSInstallDir,
+            PendingInstallEstimateMaxParallelPackages = settings.PendingInstallEstimateMaxParallelPackages
         };
     }
 }

@@ -41,7 +41,7 @@ internal sealed class ApplicationComposition
     private readonly ISettingsEditSession settingsEditSession;
 
     internal ApplicationComposition(
-        Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
+        Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
@@ -55,14 +55,18 @@ internal sealed class ApplicationComposition
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         ISettingsEditSession settingsEditSession = null)
     {
-        this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
+        this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
+            ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.startupSettingsProvider = startupSettingsProvider
             ?? (() => StartupSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values));
-        this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
-        this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
-        this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
+        this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider
+            ?? (() => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
+        this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider
+            ?? (() => BeatorajaBmtOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
+        this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
+            ?? (() => CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.mainChartColumnSettingsStore = mainChartColumnSettingsStore
             ?? new SettingsMainChartColumnSettingsStore();
         this.firstStartupProvider = firstStartupProvider
@@ -250,10 +254,6 @@ internal sealed class ApplicationComposition
     internal static ApplicationComposition CreateDefault()
     {
         return new ApplicationComposition(
-            BmsLibraryOptionsSnapshot.CreateCurrent,
-            playlistUrlCompletionOptionsProvider: PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-            beatorajaBmtOptionsProvider: BeatorajaBmtOptionsSnapshot.CreateCurrent,
-            customFolderOutputSettingsProvider: CustomFolderOutputSettingsSnapshot.CreateCurrent,
             mainChartColumnSettingsStore: new SettingsMainChartColumnSettingsStore());
     }
 
