@@ -1217,6 +1217,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string compositionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"));
         string portablePathCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "PortableSettingsPath.cs"));
         string standaloneDbCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "StandaloneLibraryDatabase.cs"));
 
@@ -1225,8 +1226,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(standaloneDbCode, "FileMode.OpenOrCreate");
         StringAssert.Contains(standaloneDbCode, "BMSPlaylist.EnsureSchema(songDbPath)");
         StringAssert.Contains(viewModelCode, "StandaloneLibraryDatabase.EnsurePortableSongDb()");
-        StringAssert.Contains(viewModelCode, "tables = new BMSPlaylist(");
-        StringAssert.Contains(viewModelCode, "libraryProfile.SongDbPath");
+        StringAssert.Contains(viewModelCode, "applicationComposition.CreateBmsPlaylist(");
+        StringAssert.Contains(compositionCode, "libraryProfile.SongDbPath");
         StringAssert.Contains(viewModelCode, "files.SearchTargets.AddRange(libraryProfile.SearchRoots)");
         StringAssert.Contains(viewModelCode, "return [];");
         StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = temp_custom_folder_output_settings?.OperationModeLR2DB == true");
@@ -1434,7 +1435,9 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void StartupReloadProgress_UsesSerializedOperationTokens()
     {
+        string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string compositionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"));
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
             "public async void ReloadFileDiff()",
@@ -1458,14 +1461,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "playlistSyncProgressUiVersion");
         StringAssert.Contains(viewModelCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion))");
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
-        Assert.IsTrue(initialize.IndexOf("files = new BMSLibrary", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
+        Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken)");
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
         StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)");
-        StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver(),");
-        StringAssert.Contains(initialize, "playlistUrlCompletionOptionsProvider,");
-        StringAssert.Contains(initialize, "beatorajaBmtOptionsProvider,");
-        StringAssert.Contains(initialize, "customFolderOutputSettingsProvider);");
+        StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver());");
+        StringAssert.Contains(compositionCode, "playlistUrlCompletionOptionsProvider,");
+        StringAssert.Contains(compositionCode, "beatorajaBmtOptionsProvider,");
+        StringAssert.Contains(compositionCode, "customFolderOutputSettingsProvider);");
         StringAssert.Contains(initialize, "if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)");
         StringAssert.Contains(initialize, "Backup.SaveBackupsWithResult(startupSettings.LR2BackupPath, new TimeSpan(startupSettings.LR2BackupSpan, 0, 0, 0), startupSettings.LR2BackupNum, bkPaths)");
         StringAssert.Contains(initialize, "if (!startupSettings.SkipInitPlaylistLoad)");

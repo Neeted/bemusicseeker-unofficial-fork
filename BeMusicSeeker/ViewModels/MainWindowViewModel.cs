@@ -485,13 +485,9 @@ public partial class MainWindowViewModel : ViewModel
 
     private BMSPlaylist tables;
 
-    private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
+    private readonly ApplicationComposition applicationComposition;
 
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
-
-    private readonly Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider;
-
-    private readonly Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
@@ -6214,10 +6210,8 @@ public partial class MainWindowViewModel : ViewModel
         {
             throw new ArgumentNullException(nameof(composition));
         }
-        bmsLibraryOptionsProvider = composition.BmsLibraryOptionsProvider;
+        applicationComposition = composition;
         startupSettingsProvider = composition.StartupSettingsProvider;
-        playlistUrlCompletionOptionsProvider = composition.PlaylistUrlCompletionOptionsProvider;
-        beatorajaBmtOptionsProvider = composition.BeatorajaBmtOptionsProvider;
         customFolderOutputSettingsProvider = composition.CustomFolderOutputSettingsProvider;
         firstStartupProvider = composition.FirstStartupProvider;
         completeFirstStartup = composition.CompleteFirstStartup;
@@ -7723,21 +7717,11 @@ public partial class MainWindowViewModel : ViewModel
         {
             InvalidatePlayHistoryReadCache("initialize");
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings);
-            files = new BMSLibrary(
-                libraryProfile.SongDbPath,
-                libraryProfile.Lr2ConfigProvider,
-                libraryProfile.Lr2ScoreDbPath,
-                startupRequiredFileScanReason: libraryProfile.StartupRequiredFileScanReason,
-                optionsSnapshotProvider: bmsLibraryOptionsProvider);
-            tables = new BMSPlaylist(
-                libraryProfile.SongDbPath,
-                libraryProfile.Lr2ConfigProvider,
-                libraryProfile.Lr2ScoreDbPath,
+            files = applicationComposition.CreateBmsLibrary(libraryProfile);
+            tables = applicationComposition.CreateBmsPlaylist(
+                libraryProfile,
                 () => files.GetBMSScores(),
-                () => files.CreateBeatorajaBmtSongHashResolver(),
-                playlistUrlCompletionOptionsProvider,
-                beatorajaBmtOptionsProvider,
-                customFolderOutputSettingsProvider);
+                () => files.CreateBeatorajaBmtSongHashResolver());
             tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2SongDbSyncMutationBlockedForPlaylist(operation);
             tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
             tables.CustomFolderOutputPhysicalSurfaceProvider = () => files.GetCurrentAppManagedCustomFolderOutputPhysicalSurface();

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Windows.Markup;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -124,6 +125,40 @@ internal sealed class ApplicationComposition
             playlistViewState,
             detailViewLog,
             detailRetentionLog);
+    }
+
+    internal BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
+    {
+        if (libraryProfile == null)
+        {
+            throw new ArgumentNullException(nameof(libraryProfile));
+        }
+        return new BMSLibrary(
+            libraryProfile.SongDbPath,
+            libraryProfile.Lr2ConfigProvider,
+            libraryProfile.Lr2ScoreDbPath,
+            libraryProfile.StartupRequiredFileScanReason,
+            bmsLibraryOptionsProvider);
+    }
+
+    internal BMSPlaylist CreateBmsPlaylist(
+        LibraryProfile libraryProfile,
+        Func<List<BMSScore>> getBMSScores,
+        Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver)
+    {
+        if (libraryProfile == null)
+        {
+            throw new ArgumentNullException(nameof(libraryProfile));
+        }
+        return new BMSPlaylist(
+            libraryProfile.SongDbPath,
+            libraryProfile.Lr2ConfigProvider,
+            libraryProfile.Lr2ScoreDbPath,
+            getBMSScores,
+            getBeatorajaBmtSongHashResolver,
+            playlistUrlCompletionOptionsProvider,
+            beatorajaBmtOptionsProvider,
+            customFolderOutputSettingsProvider);
     }
 
     internal static ApplicationComposition CreateDefault()
