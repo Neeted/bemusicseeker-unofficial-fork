@@ -1057,6 +1057,84 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ReOutputCustomFolderAndCommitToDB_UsesInjectedCustomFolderOutputSettings()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            string settingsOutputBaseDir = Path.Combine(tempDirectory, "SettingsOutput");
+            string providerOutputBaseDir = Path.Combine(tempDirectory, "ProviderOutput");
+            Settings.Default.LR2CustomFolderOutputBaseDir = settingsOutputBaseDir;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "SettingsRootOutput");
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                LR2CustomFolderOutputBaseDir = providerOutputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7302,
+                name = "InjectedOutputTable",
+                symbol = "IOT",
+                Output_dir = "InjectedOutputTable",
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
+                entries =
+                [
+                    CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Injected Folder")
+                ],
+                Folder_order = ["Injected Folder"]
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => outputSettings)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
+
+            playlist.ReOutputCustomFolderAndCommitToDB(table);
+
+            Assert.IsTrue(File.Exists(Path.Combine(providerOutputBaseDir, "InjectedOutputTable", "0001.lr2folder")));
+            Assert.IsFalse(File.Exists(Path.Combine(settingsOutputBaseDir, "InjectedOutputTable", "0001.lr2folder")));
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_WritesLr2FolderUnderLongPath()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;

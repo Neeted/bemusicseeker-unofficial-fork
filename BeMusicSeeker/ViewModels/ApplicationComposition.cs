@@ -18,16 +18,20 @@ internal sealed class ApplicationComposition
 
     private readonly Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider;
 
+    private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
-        Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null)
+        Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
+        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
         this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
         this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
+        this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;
@@ -38,13 +42,16 @@ internal sealed class ApplicationComposition
 
     internal Func<BeatorajaBmtOptionsSnapshot> BeatorajaBmtOptionsProvider => beatorajaBmtOptionsProvider;
 
+    internal Func<CustomFolderOutputSettingsSnapshot> CustomFolderOutputSettingsProvider => customFolderOutputSettingsProvider;
+
     internal static ApplicationComposition CreateDefault()
     {
         return new ApplicationComposition(
             BmsLibraryOptionsSnapshot.CreateCurrent,
             StartupSettingsSnapshot.CreateCurrent,
             PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-            BeatorajaBmtOptionsSnapshot.CreateCurrent);
+            BeatorajaBmtOptionsSnapshot.CreateCurrent,
+            CustomFolderOutputSettingsSnapshot.CreateCurrent);
     }
 
     internal MainWindowViewModel CreateMainWindowViewModel()

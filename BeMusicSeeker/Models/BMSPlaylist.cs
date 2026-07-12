@@ -397,6 +397,8 @@ public partial class BMSPlaylist : NotificationObject
 
     private readonly Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider;
 
+    private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
+
     /// <summary>
     /// 初期化処理の連携用に一時保持するセマフォです。
     /// </summary>
@@ -1022,7 +1024,8 @@ public partial class BMSPlaylist : NotificationObject
             getBMSScores,
             getBeatorajaBmtSongHashResolver,
             PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-            BeatorajaBmtOptionsSnapshot.CreateCurrent)
+            BeatorajaBmtOptionsSnapshot.CreateCurrent,
+            CustomFolderOutputSettingsSnapshot.CreateCurrent)
     {
     }
 
@@ -1033,7 +1036,8 @@ public partial class BMSPlaylist : NotificationObject
         Func<List<BMSScore>> getBMSScores,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
-        Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider)
+        Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
+        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider)
     {
         if (_lr2SongDB == null)
         {
@@ -1054,6 +1058,7 @@ public partial class BMSPlaylist : NotificationObject
         beatorajaBmtSongHashResolverFactory = getBeatorajaBmtSongHashResolver;
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
         this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
+        this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
         listenerForRwlockBMSTables = new PropertyChangedEventListener(rwlockBMSTables);
@@ -3876,7 +3881,7 @@ public partial class BMSPlaylist : NotificationObject
         }
         if (string.IsNullOrWhiteSpace(outputDirPathAfter))
         {
-            outputDirPathAfter = GetCustomFolderOutputDirectory(bmsTable);
+            outputDirPathAfter = ResolveCustomFolderOutputDirectory(bmsTable);
         }
         EnsurePlaylistEntriesLoaded(bmsTable, "MigrateCustomFolderOutputDirectory");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
@@ -4044,7 +4049,7 @@ public partial class BMSPlaylist : NotificationObject
 
             try
             {
-                string outputDirectory = GetCustomFolderOutputDirectory(table);
+                string outputDirectory = ResolveCustomFolderOutputDirectory(table);
                 if (string.IsNullOrWhiteSpace(outputDirectory))
                 {
                     continue;
@@ -5938,7 +5943,7 @@ public partial class BMSPlaylist : NotificationObject
     private CustomFolderOutputProjection CreateCustomFolderOutputLayoutProjection(BMSTable table, string outputDirectoryOverride = null)
     {
         string outputDirectory = string.IsNullOrWhiteSpace(outputDirectoryOverride)
-            ? GetCustomFolderOutputDirectory(table)
+            ? ResolveCustomFolderOutputDirectory(table)
             : outputDirectoryOverride;
         IReadOnlyList<string> relativeFilePaths = Lr2ManagedCustomFolderOutputLayout.CreateRelativeFilePaths(
             table,
@@ -5976,7 +5981,7 @@ public partial class BMSPlaylist : NotificationObject
     private CustomFolderOutputProjection CreateCustomFolderOutputProjection(BMSTable table, bool includeText = true, string outputDirectoryOverride = null)
     {
         string outputDirectory = string.IsNullOrWhiteSpace(outputDirectoryOverride)
-            ? GetCustomFolderOutputDirectory(table)
+            ? ResolveCustomFolderOutputDirectory(table)
             : outputDirectoryOverride;
         IReadOnlyList<CustomFolderDefinition> definitions = OrderCustomFolderDefinitionsForOutput(BuildCustomFolderDefinitions(table));
         var files = new List<CustomFolderOutputFileProjection>();
@@ -6049,7 +6054,7 @@ public partial class BMSPlaylist : NotificationObject
 
                 try
                 {
-                    AddCustomFolderOutputDirectory(directories, GetCustomFolderOutputDirectory(table));
+                    AddCustomFolderOutputDirectory(directories, ResolveCustomFolderOutputDirectory(table));
                 }
                 catch (Exception ex) when (ex is ArgumentNullException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
                 {
@@ -6500,7 +6505,7 @@ public partial class BMSPlaylist : NotificationObject
 
     private void reOutputCustomFolderFiles(BMSTable bmsTable)
     {
-        string customFolderOutputDirectory = GetCustomFolderOutputDirectory(bmsTable);
+        string customFolderOutputDirectory = ResolveCustomFolderOutputDirectory(bmsTable);
         migrateCustomFolderOutputDirectoryFiles(bmsTable, customFolderOutputDirectory, customFolderOutputDirectory, bmsTable.is_root_folder);
     }
 
@@ -6645,7 +6650,7 @@ public partial class BMSPlaylist : NotificationObject
             if (BMSTables.Contains(bmsTable))
             {
                 if (removeCustomFolder(
-                    GetCustomFolderOutputDirectory(bmsTable),
+                    ResolveCustomFolderOutputDirectory(bmsTable),
                     pruneRows: true,
                     wasRootFolder: bmsTable.is_root_folder,
                     rootCustomFolderOutputBaseDir: Settings.Default.LR2CustomFolderOutputBaseDirRootType,
@@ -7293,7 +7298,7 @@ public partial class BMSPlaylist : NotificationObject
                 if (Settings.Default.OperationModeLR2DB)
                 {
                     migrateCustomFolderOutput = true;
-                    customFolderOutputDirectory = GetCustomFolderOutputDirectory(bMSTable);
+                    customFolderOutputDirectory = ResolveCustomFolderOutputDirectory(bMSTable);
                 }
             }
         }
@@ -7360,7 +7365,7 @@ public partial class BMSPlaylist : NotificationObject
                         customFolderOutputTargets.Add(new CustomFolderOutputMigrationTarget
                         {
                             Table = bMSTable,
-                            Directory = GetCustomFolderOutputDirectory(bMSTable)
+                            Directory = ResolveCustomFolderOutputDirectory(bMSTable)
                         });
                     }
                 }
@@ -8308,7 +8313,7 @@ public partial class BMSPlaylist : NotificationObject
                 continue;
             }
 
-            string afterDirectory = GetCustomFolderOutputDirectory(table);
+            string afterDirectory = ResolveCustomFolderOutputDirectory(table);
             if (string.IsNullOrWhiteSpace(afterDirectory)
                 || IsSameCustomFolderDirectory(beforeDirectory, afterDirectory))
             {
@@ -8501,7 +8506,7 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     if (string.IsNullOrWhiteSpace(outputDirPathAfter))
                     {
-                        outputDirPathAfter = GetCustomFolderOutputDirectory(bmsTable);
+                        outputDirPathAfter = ResolveCustomFolderOutputDirectory(bmsTable);
                     }
                     migrateCustomFolderOutputDirectoryFiles(
                         bmsTable,
@@ -9744,8 +9749,20 @@ public partial class BMSPlaylist : NotificationObject
         return "#COMMAND " + command + Environment.NewLine + "#MAXTRACKS " + maxtracks + Environment.NewLine + "#CATEGORY " + category + Environment.NewLine + "#TITLE " + title + Environment.NewLine + "#INFORMATION_A " + (informationA ?? string.Empty) + Environment.NewLine + "#INFORMATION_B " + (informationB ?? string.Empty) + Environment.NewLine + Environment.NewLine;
     }
 
+    private string ResolveCustomFolderOutputDirectory(BMSTable bmsTable)
+    {
+        CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+        return GetCustomFolderOutputDirectory(
+            bmsTable,
+            settings.LR2CustomFolderOutputBaseDir,
+            settings.LR2CustomFolderOutputBaseDirRootType,
+            settings.LR2CustomFolderAdditionalOutputBaseDirs);
+    }
+
     /// <summary>
-    /// プレイリスト設定からカスタムフォルダ出力先ディレクトリを算出します。
+    /// 現在の global settings を使って、public compatibility 用の出力先ディレクトリを算出します。
+    /// production の instance 経路は provider-backed <see cref="ResolveCustomFolderOutputDirectory"/> を使います。
     /// </summary>
     /// <param name="bmsTable">対象プレイリスト。</param>
     /// <returns>算出された出力先ディレクトリ。</returns>

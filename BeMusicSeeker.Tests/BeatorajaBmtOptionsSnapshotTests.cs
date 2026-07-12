@@ -71,7 +71,8 @@ public sealed class BeatorajaBmtOptionsSnapshotTests
             null,
             null,
             () => new PlaylistUrlCompletionOptionsSnapshot(),
-            () => options);
+            () => options,
+            () => new CustomFolderOutputSettingsSnapshot());
         Func<Task> queuedWork = null!;
         int schedulerCallCount = 0;
         playlist.StartupBackgroundTaskScheduler = delegate (string name, string reason, string dependency, Func<Task> work)

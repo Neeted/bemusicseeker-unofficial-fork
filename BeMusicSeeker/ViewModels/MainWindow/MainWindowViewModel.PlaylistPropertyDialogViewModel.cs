@@ -737,7 +737,7 @@ public partial class MainWindowViewModel
 
         private void backupTableProperties()
         {
-            temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? MainWindowViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist property output directory notification") : null;
+            temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? ownerViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist property output directory notification") : null;
             temp_output_dir = bmsTable.output_dir;
             temp_is_root_folder = bmsTable.is_root_folder;
             temp_is_external_sync = bmsTable.is_external_sync;
@@ -882,7 +882,7 @@ public partial class MainWindowViewModel
             }
             if (Settings.Default.OperationModeLR2DB)
             {
-                string customFolderOutputDirectory = MainWindowViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist property output directory notification");
+                string customFolderOutputDirectory = ownerViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist property output directory notification");
                 bool customFolderOutputBaseDirectoryBeforeResolved = temp_is_root_folder;
                 string customFolderOutputBaseDirectoryBefore = temp_is_root_folder
                     ? Settings.Default.LR2CustomFolderOutputBaseDirRootType

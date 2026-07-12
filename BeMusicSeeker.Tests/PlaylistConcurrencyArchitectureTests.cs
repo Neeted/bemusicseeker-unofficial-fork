@@ -104,6 +104,21 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void CustomFolderOutputResolution_UsesDedicatedProviderBoundary()
+    {
+        string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string librarySource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSLibrary.cs"));
+        string viewModelSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+
+        StringAssert.Contains(playlistSource, "ResolveCustomFolderOutputDirectory(BMSTable bmsTable)");
+        StringAssert.Contains(playlistSource, "customFolderOutputSettingsProvider()");
+        StringAssert.Contains(librarySource, "CurrentOptionsSnapshot");
+        StringAssert.Contains(librarySource, "options.LR2CustomFolderAdditionalOutputBaseDirs");
+        StringAssert.Contains(viewModelSource, "customFolderOutputSettingsProvider()");
+        Assert.IsFalse(viewModelSource.Contains("return BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable);"));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

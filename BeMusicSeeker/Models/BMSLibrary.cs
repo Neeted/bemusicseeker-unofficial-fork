@@ -7908,9 +7908,10 @@ completeFileEnumerationOnce,
                 return new Lr2SongDbSyncAppManagedOutputScope([], [], [], isComplete: true);
             }
 
+            BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
             foreach (BMSTable table in songDb.Table<BMSTable>())
             {
-                string outputDirectory = ResolveManagedPlaylistOutputDirectory(table);
+                string outputDirectory = ResolveManagedPlaylistOutputDirectory(table, options);
                 if (!string.IsNullOrWhiteSpace(outputDirectory))
                 {
                     directories.Add(outputDirectory);
@@ -7932,7 +7933,7 @@ completeFileEnumerationOnce,
             isComplete);
     }
 
-    private static string ResolveManagedPlaylistOutputDirectory(BMSTable table)
+    private static string ResolveManagedPlaylistOutputDirectory(BMSTable table, BmsLibraryOptionsSnapshot options)
     {
         if (table == null)
         {
@@ -7956,7 +7957,11 @@ completeFileEnumerationOnce,
 
         try
         {
-            return SafeFullPathOrOriginal(BMSPlaylist.GetCustomFolderOutputDirectory(table));
+            return SafeFullPathOrOriginal(BMSPlaylist.GetCustomFolderOutputDirectory(
+                table,
+                options.LR2CustomFolderOutputBaseDir,
+                options.LR2CustomFolderOutputBaseDirRootType,
+                CustomFolderOutputBaseRegistry.SerializeBaseDirectories(options.LR2CustomFolderAdditionalOutputBaseDirs)));
         }
         catch (Exception ex) when (ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
         {

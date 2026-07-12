@@ -71,6 +71,20 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionKeepsTheConfiguredCustomFolderOutputSettingsProvider()
+    {
+        var snapshot = new CustomFolderOutputSettingsSnapshot
+        {
+            LR2CustomFolderOutputBaseDir = "output-base"
+        };
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            customFolderOutputSettingsProvider: () => snapshot);
+
+        Assert.AreSame(snapshot, composition.CustomFolderOutputSettingsProvider());
+    }
+
+    [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));

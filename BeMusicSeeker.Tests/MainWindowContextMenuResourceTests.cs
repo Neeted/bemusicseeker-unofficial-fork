@@ -1229,7 +1229,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "libraryProfile.SongDbPath");
         StringAssert.Contains(viewModelCode, "files.SearchTargets.AddRange(libraryProfile.SearchRoots)");
         StringAssert.Contains(viewModelCode, "return [];");
-        StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? MainWindowViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, \"playlist property output directory notification\") : null;");
+        StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? ownerViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, \"playlist property output directory notification\") : null;");
         string saveFollowup = ExtractBetween(
             viewModelCode,
             "internal async Task ApplyPostSaveUpdatesAsync()",
@@ -1464,7 +1464,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)");
         StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver(),");
         StringAssert.Contains(initialize, "playlistUrlCompletionOptionsProvider,");
-        StringAssert.Contains(initialize, "beatorajaBmtOptionsProvider);");
+        StringAssert.Contains(initialize, "beatorajaBmtOptionsProvider,");
+        StringAssert.Contains(initialize, "customFolderOutputSettingsProvider);");
         StringAssert.Contains(initialize, "if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)");
         StringAssert.Contains(initialize, "Backup.SaveBackupsWithResult(startupSettings.LR2BackupPath, new TimeSpan(startupSettings.LR2BackupSpan, 0, 0, 0), startupSettings.LR2BackupNum, bkPaths)");
         StringAssert.Contains(initialize, "if (!startupSettings.SkipInitPlaylistLoad)");

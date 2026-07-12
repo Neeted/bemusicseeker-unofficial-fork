@@ -491,6 +491,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider;
 
+    private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
+
     private StartupSettingsSnapshot GetStartupSettingsSnapshot()
     {
         return startupSettingsProvider()
@@ -6200,6 +6202,7 @@ public partial class MainWindowViewModel : ViewModel
         startupSettingsProvider = composition.StartupSettingsProvider;
         playlistUrlCompletionOptionsProvider = composition.PlaylistUrlCompletionOptionsProvider;
         beatorajaBmtOptionsProvider = composition.BeatorajaBmtOptionsProvider;
+        customFolderOutputSettingsProvider = composition.CustomFolderOutputSettingsProvider;
         ChartFilters = new ChartListFilterViewModel();
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
@@ -7700,7 +7703,8 @@ public partial class MainWindowViewModel : ViewModel
                 () => files.GetBMSScores(),
                 () => files.CreateBeatorajaBmtSongHashResolver(),
                 playlistUrlCompletionOptionsProvider,
-                beatorajaBmtOptionsProvider);
+                beatorajaBmtOptionsProvider,
+                customFolderOutputSettingsProvider);
             tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2SongDbSyncMutationBlockedForPlaylist(operation);
             tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
             tables.CustomFolderOutputPhysicalSurfaceProvider = () => files.GetCurrentAppManagedCustomFolderOutputPhysicalSurface();
@@ -16987,11 +16991,17 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private static string ResolveCustomFolderOutputDirectoryWithNotification(BMSTable bmsTable, string routeName)
+    private string ResolveCustomFolderOutputDirectoryWithNotification(BMSTable bmsTable, string routeName)
     {
         try
         {
-            return BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable);
+            CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+            return BMSPlaylist.GetCustomFolderOutputDirectory(
+                bmsTable,
+                settings.LR2CustomFolderOutputBaseDir,
+                settings.LR2CustomFolderOutputBaseDirRootType,
+                settings.LR2CustomFolderAdditionalOutputBaseDirs);
         }
         catch (ArgumentNullException)
         {

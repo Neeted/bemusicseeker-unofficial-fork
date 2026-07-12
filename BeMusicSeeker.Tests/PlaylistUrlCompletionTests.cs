@@ -349,7 +349,15 @@ public sealed class PlaylistUrlCompletionTests
                 fetchCount++;
                 return Task.FromResult("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t\thttps://example.com/injected");
             };
-            var playlist = new BMSPlaylist(tempDbPath, null, null, null, null, () => options, () => new BeatorajaBmtOptionsSnapshot());
+            var playlist = new BMSPlaylist(
+                tempDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => options,
+                () => new BeatorajaBmtOptionsSnapshot(),
+                () => new CustomFolderOutputSettingsSnapshot());
             BMSTable table = CreateTable(5003, "InjectedOptionsTable");
             BMSTableEntry entry = CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "InjectedOptionsSong");
             table.entries = [entry];
