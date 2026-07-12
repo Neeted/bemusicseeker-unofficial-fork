@@ -14206,6 +14206,9 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
 
+        CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+
         var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         var wasRootFolderBeforeByTable = new Dictionary<BMSTable, bool>();
@@ -14214,17 +14217,17 @@ public partial class MainWindowViewModel : ViewModel
             wasRootFolderBeforeByTable[table] = table.is_root_folder;
             bool beforeBaseDirectoryResolved = table.is_root_folder;
             string beforeBaseDirectory = table.is_root_folder
-                ? Settings.Default.LR2CustomFolderOutputBaseDirRootType
+                ? settings.LR2CustomFolderOutputBaseDirRootType
                 : null;
             if (!table.is_root_folder)
             {
                 beforeBaseDirectoryResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
                     table.custom_folder_output_base_name,
-                    Settings.Default.LR2CustomFolderOutputBaseDir,
-                    Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
+                    settings.LR2CustomFolderOutputBaseDir,
+                    settings.LR2CustomFolderAdditionalOutputBaseDirs,
                     out beforeBaseDirectory);
             }
-            string beforeDirectory = Settings.Default.OperationModeLR2DB
+            string beforeDirectory = settings.OperationModeLR2DB
                 && beforeBaseDirectoryResolved
                 && !string.IsNullOrWhiteSpace(table.Output_dir)
                 ? Path.Combine(beforeBaseDirectory, table.Output_dir)
@@ -14249,7 +14252,8 @@ public partial class MainWindowViewModel : ViewModel
                     "playlist_summary_root_folder_changed",
                     UpdatePlaylistSummaryCustomFolderOutputProgress,
                     wasRootFolderBeforeByTable,
-                    outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
+                    outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
+                    settings: settings);
             }
             finally
             {
@@ -14258,14 +14262,17 @@ public partial class MainWindowViewModel : ViewModel
             }
         }
 
-        if (Settings.Default.OperationModeLR2DB && lr2config != null)
+        if (settings.OperationModeLR2DB && lr2config != null)
         {
             List<string> bmsSearchDirectories = lr2config.GetBMSSearchDirectoriesForChangeTracking();
             if (isRootFolder)
             {
                 IEnumerable<string> addDirectories = changedTables
                     .Where(table => !string.IsNullOrWhiteSpace(table.Output_dir))
-                    .Select(table => ResolveCustomFolderOutputDirectoryWithNotification(table, "playlist summary root output directory notification"))
+                    .Select(table => ResolveCustomFolderOutputDirectoryWithNotification(
+                        table,
+                        "playlist summary root output directory notification",
+                        settings))
                     .Where(directory => !string.IsNullOrWhiteSpace(directory));
                 lr2config.SetBMSSearchDirectories(bmsSearchDirectories
                     .Union(addDirectories)
