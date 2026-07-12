@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Markup;
+using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -148,6 +149,42 @@ internal sealed class ApplicationComposition
             settingsEditSession);
     }
 
+    internal MainWindowChildComposition CreateMainWindowChildComposition(
+        MainChartListViewModel mainChartList,
+        PlaylistWorkspaceViewModel playlistWorkspace,
+        Func<BMSLibrary> filesProvider,
+        Func<BMSPlaylist> tablesProvider,
+        Func<LR2Config> lr2ConfigProvider,
+        Func<IBMSPlayer> bmsPlayerProvider,
+        Func<Dispatcher> uiDispatcherProvider,
+        Action<string> mainViewLog,
+        Action<Action> dispatchMainChartListAction,
+        Action<string> mainViewLogWarning,
+        Func<IEnumerable<BMSTable>> tableSnapshotProvider,
+        Func<string, bool, bool, long> refreshPlaylistSummary,
+        Action<DroppedInstallBatchRequest, System.Threading.CancellationToken> processDroppedInstallBatch,
+        Action<DropInstallQueueStatusSnapshot> updateDropInstallQueueStatus,
+        Action<Exception> handleDroppedInstallBatchException)
+    {
+        return new MainWindowChildComposition(
+            mainChartList,
+            playlistWorkspace,
+            mainChartColumnSettingsStore,
+            filesProvider,
+            tablesProvider,
+            lr2ConfigProvider,
+            bmsPlayerProvider,
+            uiDispatcherProvider,
+            mainViewLog,
+            dispatchMainChartListAction,
+            mainViewLogWarning,
+            tableSnapshotProvider,
+            refreshPlaylistSummary,
+            processDroppedInstallBatch,
+            updateDropInstallQueueStatus,
+            handleDroppedInstallBatchException);
+    }
+
     internal IBMSPlayer CreateBmsPlayer(
         StartupSettingsSnapshot startupSettings,
         Func<LR2Config> createLr2PlayerConfig)
@@ -224,6 +261,83 @@ internal sealed class ApplicationComposition
     {
         return new MainWindowViewModel(this);
     }
+}
+
+/// <summary>
+/// Constructs the child graph owned by one main-window ViewModel.
+/// </summary>
+internal sealed class MainWindowChildComposition
+{
+    internal MainWindowChildComposition(
+        MainChartListViewModel mainChartList,
+        PlaylistWorkspaceViewModel playlistWorkspace,
+        IMainChartColumnSettingsStore mainChartColumnSettingsStore,
+        Func<BMSLibrary> filesProvider,
+        Func<BMSPlaylist> tablesProvider,
+        Func<LR2Config> lr2ConfigProvider,
+        Func<IBMSPlayer> bmsPlayerProvider,
+        Func<Dispatcher> uiDispatcherProvider,
+        Action<string> mainViewLog,
+        Action<Action> dispatchMainChartListAction,
+        Action<string> mainViewLogWarning,
+        Func<IEnumerable<BMSTable>> tableSnapshotProvider,
+        Func<string, bool, bool, long> refreshPlaylistSummary,
+        Action<DroppedInstallBatchRequest, System.Threading.CancellationToken> processDroppedInstallBatch,
+        Action<DropInstallQueueStatusSnapshot> updateDropInstallQueueStatus,
+        Action<Exception> handleDroppedInstallBatchException)
+    {
+        MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
+        PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
+        ProgressHub = new OperationProgressHubViewModel();
+        PlaybackPanel = new PlaybackPanelViewModel();
+        ChartFilters = new ChartListFilterViewModel();
+        RuntimeContext = new MainWindowRuntimeContext(
+            filesProvider,
+            tablesProvider,
+            lr2ConfigProvider,
+            bmsPlayerProvider,
+            uiDispatcherProvider);
+        PlayHistory = new PlayHistoryWorkflowOwner();
+        PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(
+            PlaylistWorkspace,
+            mainChartColumnSettingsStore);
+        PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
+            tablesProvider,
+            tableSnapshotProvider,
+            refreshPlaylistSummary);
+        RegularChartListOwner = new RegularChartListOwner(
+            MainChartList,
+            PlaylistWorkspace,
+            mainViewLog,
+            dispatchMainChartListAction,
+            mainViewLogWarning);
+        DropInstallQueueProcessor = new DropInstallQueueProcessor(
+            processDroppedInstallBatch,
+            updateDropInstallQueueStatus,
+            handleDroppedInstallBatchException);
+    }
+
+    internal MainChartListViewModel MainChartList { get; }
+
+    internal PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
+
+    internal OperationProgressHubViewModel ProgressHub { get; }
+
+    internal PlaybackPanelViewModel PlaybackPanel { get; }
+
+    internal ChartListFilterViewModel ChartFilters { get; }
+
+    internal MainWindowRuntimeContext RuntimeContext { get; }
+
+    internal PlayHistoryWorkflowOwner PlayHistory { get; }
+
+    internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
+
+    internal PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSort { get; }
+
+    internal RegularChartListOwner RegularChartListOwner { get; }
+
+    internal DropInstallQueueProcessor DropInstallQueueProcessor { get; }
 }
 
 /// <summary>

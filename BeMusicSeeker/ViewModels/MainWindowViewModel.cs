@@ -103,12 +103,12 @@ public partial class MainWindowViewModel : ViewModel
     /// <summary>
     /// Gets status-bar progress presentation state owned outside the shell ViewModel while legacy root bindings remain in place.
     /// </summary>
-    public OperationProgressHubViewModel ProgressHub { get; } = new();
+    public OperationProgressHubViewModel ProgressHub { get; }
 
     /// <summary>
     /// Gets playback-panel presentation state while player operations stay on the shell ViewModel.
     /// </summary>
-    public PlaybackPanelViewModel PlaybackPanel { get; } = new();
+    public PlaybackPanelViewModel PlaybackPanel { get; }
 
     /// <summary>
     /// Gets main chart-table binding state while refresh orchestration remains in the shell ViewModel.
@@ -6219,15 +6219,6 @@ public partial class MainWindowViewModel : ViewModel
         saveSettings = composition.SaveSettings;
         keywordSearchHistorySettingsStore = composition.KeywordSearchHistorySettingsStore;
         playHistoryDisplaySettingsStore = composition.PlayHistoryDisplaySettingsStore;
-        ChartFilters = new ChartListFilterViewModel();
-        ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
-        ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
-        RuntimeContext = new MainWindowRuntimeContext(
-            () => files,
-            () => tables,
-            () => lr2config,
-            () => bmsPlayer,
-            () => DispatcherHelper.UIDispatcher);
         MainChartList = composition.CreateMainChartListViewModel(
             DispatchMainChartListPresentationAction,
             LogMainViewBuild);
@@ -6240,7 +6231,29 @@ public partial class MainWindowViewModel : ViewModel
             LogPlaylistRetention);
         PlaylistWorkspace.ConfigureDetailEditing(() => tables);
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
-        PlayHistory = new PlayHistoryWorkflowOwner();
+        MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
+            MainChartList,
+            PlaylistWorkspace,
+            () => files,
+            () => tables,
+            () => lr2config,
+            () => bmsPlayer,
+            () => DispatcherHelper.UIDispatcher,
+            LogMainViewBuild,
+            DispatchMainChartListAction,
+            LogMainViewBuildWarning,
+            () => BMSTables,
+            (reason, invalidateTableCountCache, rebuildAsync) => RefreshPlaylistSummaryIfVisible(reason, invalidateTableCountCache, rebuildAsync),
+            ProcessDroppedInstallBatch,
+            UpdateDropInstallQueueStatus,
+            HandleDroppedInstallBatchException);
+        ProgressHub = childComposition.ProgressHub;
+        PlaybackPanel = childComposition.PlaybackPanel;
+        ChartFilters = childComposition.ChartFilters;
+        ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
+        ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
+        RuntimeContext = childComposition.RuntimeContext;
+        PlayHistory = childComposition.PlayHistory;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
@@ -6277,25 +6290,15 @@ public partial class MainWindowViewModel : ViewModel
             advanceRevision: false);
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => PlayHistory.QueueKeywordFilterRefresh(
             NormalizePlaylistKeywordFilter(ChartFilters.KeywordFilter));
-        PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(
-            PlaylistWorkspace,
-            composition.MainChartColumnSettingsStore);
-        PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
-            () => tables,
-            () => BMSTables,
-            (reason, invalidateTableCountCache, rebuildAsync) => RefreshPlaylistSummaryIfVisible(reason, invalidateTableCountCache, rebuildAsync));
+        PlaylistSummaryColumns = childComposition.PlaylistSummaryColumns;
+        PlaylistSummaryBmtSort = childComposition.PlaylistSummaryBmtSort;
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
         PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
         PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;
-        regularChartListOwner = new RegularChartListOwner(
-            MainChartList,
-            PlaylistWorkspace,
-            LogMainViewBuild,
-            DispatchMainChartListAction,
-            LogMainViewBuildWarning);
+        regularChartListOwner = childComposition.RegularChartListOwner;
         MainChartList.SortRequested += MainChartListSortRequested;
         MainChartList.CellEditBeginningRequested += MainChartListCellEditBeginningRequested;
         MainChartList.CellEditStarted += MainChartListCellEditStarted;
@@ -6311,7 +6314,7 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistory.RestoreDisplayTargetIdentity(playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = applicationComposition.CreateSettingDialogViewModel(this);
-        dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
+        dropInstallQueueProcessor = childComposition.DropInstallQueueProcessor;
     }
 
     private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs request)

@@ -148,6 +148,73 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionCreatesMainWindowChildOwnersFromOneBoundary()
+    {
+        var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+        MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(
+            action => action(),
+            _ =>
+            {
+            });
+        PlaylistWorkspaceViewModel playlistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
+            action => action(),
+            mainChartList,
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ =>
+            {
+            },
+            _ =>
+            {
+            });
+        MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
+            mainChartList,
+            playlistWorkspace,
+            () => null,
+            () => null,
+            () => null,
+            () => null,
+            () => null,
+            _ =>
+            {
+            },
+            action => action(),
+            _ =>
+            {
+            },
+            () => [],
+            (_, _, _) => 0L,
+            (_, _) =>
+            {
+            },
+            _ =>
+            {
+            },
+            _ =>
+            {
+            });
+
+        try
+        {
+            Assert.AreSame(mainChartList, childComposition.MainChartList);
+            Assert.AreSame(playlistWorkspace, childComposition.PlaylistWorkspace);
+            Assert.IsNotNull(childComposition.ProgressHub);
+            Assert.IsNotNull(childComposition.PlaybackPanel);
+            Assert.IsNotNull(childComposition.ChartFilters);
+            Assert.IsNotNull(childComposition.RuntimeContext);
+            Assert.IsNotNull(childComposition.PlayHistory);
+            Assert.IsNotNull(childComposition.PlaylistSummaryColumns);
+            Assert.IsNotNull(childComposition.PlaylistSummaryBmtSort);
+            Assert.IsNotNull(childComposition.RegularChartListOwner);
+            Assert.IsNotNull(childComposition.DropInstallQueueProcessor);
+        }
+        finally
+        {
+            childComposition.RegularChartListOwner.Dispose();
+        }
+    }
+
+    [TestMethod]
     public void MainWindowSettingDialogUsesCompositionSettingsPersistenceDelegates()
     {
         int reloadCount = 0;

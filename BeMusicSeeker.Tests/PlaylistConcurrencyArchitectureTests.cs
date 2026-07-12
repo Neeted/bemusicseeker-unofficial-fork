@@ -360,6 +360,26 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void MainWindowChildOwners_AreConstructedByApplicationComposition()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+
+        StringAssert.Contains(source, "composition.CreateMainWindowChildComposition(");
+        Assert.IsFalse(source.Contains("new OperationProgressHubViewModel("));
+        Assert.IsFalse(source.Contains("new PlaybackPanelViewModel("));
+        Assert.IsFalse(source.Contains("new ChartListFilterViewModel("));
+        Assert.IsFalse(source.Contains("new MainWindowRuntimeContext("));
+        Assert.IsFalse(source.Contains("new PlayHistoryWorkflowOwner("));
+        Assert.IsFalse(source.Contains("new PlaylistSummaryColumnSettingsCoordinator("));
+        Assert.IsFalse(source.Contains("new PlaylistSummaryBmtSortCoordinator("));
+        Assert.IsFalse(source.Contains("new RegularChartListOwner("));
+        Assert.IsFalse(source.Contains("new DropInstallQueueProcessor("));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
