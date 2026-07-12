@@ -103,6 +103,8 @@ public partial class MainWindowViewModel
 
         private string temp_output_dir;
 
+        private readonly CustomFolderOutputSettingsSnapshot temp_custom_folder_output_settings;
+
         private string temp_custom_folder_output_base_name;
 
         private string _output_dir;
@@ -114,7 +116,10 @@ public partial class MainWindowViewModel
         private IReadOnlyList<PlaylistCustomFolderOutputBaseOption> _outputBaseOptions;
 
         public IReadOnlyList<PlaylistCustomFolderOutputBaseOption> OutputBaseOptions =>
-            _outputBaseOptions ??= MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions();
+            _outputBaseOptions ??= MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions(
+                temp_custom_folder_output_settings?.LR2CustomFolderOutputBaseDir,
+                CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(temp_custom_folder_output_settings?.LR2CustomFolderAdditionalOutputBaseDirs),
+                useCurrentSettingsWhenMissing: false);
 
         public DispatcherCollection<string> folder_order
         {
@@ -278,7 +283,7 @@ public partial class MainWindowViewModel
                     }
                     RaisePropertyChanged("name");
                     RaisePropertyChanged(() => output_dir);
-                    if (Settings.Default.OperationModeLR2DB && !IsOutputDirValid())
+                    if (temp_custom_folder_output_settings?.OperationModeLR2DB == true && !IsOutputDirValid())
                     {
                         MainWindowViewModel.ShowUiMessage(BeMusicSeeker.Properties.Resources.Error_OutputFolderNameEmptyOrDuplicateChangePlaylist, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
                     }
@@ -455,7 +460,7 @@ public partial class MainWindowViewModel
                 if (!string.IsNullOrWhiteSpace(value)
                     && !string.Equals(defaultOutputDirectoryName, value, StringComparison.Ordinal))
                 {
-                    if (!Settings.Default.OperationModeLR2DB || IsOutputDirValid(value))
+                    if (temp_custom_folder_output_settings?.OperationModeLR2DB != true || IsOutputDirValid(value))
                     {
                         _output_dir = value;
                     }
@@ -522,6 +527,8 @@ public partial class MainWindowViewModel
             ownerViewModel = _owner;
             bmsTable = _table ?? throw new ArgumentNullException("_table");
             isForNewTable = _isForNewTable;
+            temp_custom_folder_output_settings = ownerViewModel.customFolderOutputSettingsProvider()
+                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
             ownerViewModel.tables.AcquireWriterLockBMSTables();
             backupTableProperties();
             loadTableProperties();
@@ -635,7 +642,7 @@ public partial class MainWindowViewModel
             {
                 return false;
             }
-            if (Settings.Default.OperationModeLR2DB)
+            if (temp_custom_folder_output_settings?.OperationModeLR2DB == true)
             {
                 if (!IsOutputDirValid())
                 {
@@ -723,7 +730,10 @@ public partial class MainWindowViewModel
             RaisePropertyChanged(() => is_external_sync);
             _output_dir = bmsTable.output_dir;
             RaisePropertyChanged(() => output_dir);
-            _outputBaseOptions = MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions();
+            _outputBaseOptions = MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions(
+                temp_custom_folder_output_settings?.LR2CustomFolderOutputBaseDir,
+                CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(temp_custom_folder_output_settings?.LR2CustomFolderAdditionalOutputBaseDirs),
+                useCurrentSettingsWhenMissing: false);
             _custom_folder_output_base_option = ResolveOutputBaseOption(bmsTable.custom_folder_output_base_name);
             RaisePropertyChanged(() => OutputBaseOptions);
             RaisePropertyChanged(() => custom_folder_output_base_option);
@@ -737,7 +747,12 @@ public partial class MainWindowViewModel
 
         private void backupTableProperties()
         {
-            temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? ownerViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist property output directory notification") : null;
+            temp_output_dir_full_path = temp_custom_folder_output_settings?.OperationModeLR2DB == true
+                ? ownerViewModel.ResolveCustomFolderOutputDirectoryWithNotification(
+                    bmsTable,
+                    "playlist property output directory notification",
+                    temp_custom_folder_output_settings)
+                : null;
             temp_output_dir = bmsTable.output_dir;
             temp_is_root_folder = bmsTable.is_root_folder;
             temp_is_external_sync = bmsTable.is_external_sync;
@@ -880,30 +895,35 @@ public partial class MainWindowViewModel
             {
                 ownerViewModel.tables.CommitBMSTableHeaderToDB(bmsTable);
             }
-            if (Settings.Default.OperationModeLR2DB)
+            if (temp_custom_folder_output_settings?.OperationModeLR2DB == true)
             {
-                string customFolderOutputDirectory = ownerViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist property output directory notification");
+                string customFolderOutputDirectory = ownerViewModel.ResolveCustomFolderOutputDirectoryWithNotification(
+                    bmsTable,
+                    "playlist property output directory notification",
+                    temp_custom_folder_output_settings);
                 bool customFolderOutputBaseDirectoryBeforeResolved = temp_is_root_folder;
                 string customFolderOutputBaseDirectoryBefore = temp_is_root_folder
-                    ? Settings.Default.LR2CustomFolderOutputBaseDirRootType
+                    ? temp_custom_folder_output_settings.LR2CustomFolderOutputBaseDirRootType
                     : null;
                 if (!temp_is_root_folder)
                 {
                     customFolderOutputBaseDirectoryBeforeResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
                         temp_custom_folder_output_base_name,
-                        Settings.Default.LR2CustomFolderOutputBaseDir,
-                        Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
+                        temp_custom_folder_output_settings.LR2CustomFolderOutputBaseDir,
+                        temp_custom_folder_output_settings.LR2CustomFolderAdditionalOutputBaseDirs,
                         out customFolderOutputBaseDirectoryBefore);
                 }
                 try
                 {
-                    ownerViewModel.tables.MigrateCustomFolderOutputDirectory(
+                    ownerViewModel.tables.MigrateCustomFolderOutputDirectoryWithSettings(
                         bmsTable,
                         temp_output_dir_full_path,
                         customFolderOutputDirectory,
-                        temp_is_root_folder,
+                        wasRootFolderBefore: temp_is_root_folder,
+                        rootOutputBaseDirBefore: null,
                         outputBaseDirBefore: customFolderOutputBaseDirectoryBeforeResolved ? customFolderOutputBaseDirectoryBefore : null,
-                        inferOutputBaseDirBeforeWhenMissing: customFolderOutputBaseDirectoryBeforeResolved);
+                        inferOutputBaseDirBeforeWhenMissing: customFolderOutputBaseDirectoryBeforeResolved,
+                        settings: temp_custom_folder_output_settings);
                 }
                 finally
                 {

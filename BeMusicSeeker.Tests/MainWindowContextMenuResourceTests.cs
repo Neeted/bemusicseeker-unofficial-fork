@@ -1229,7 +1229,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "libraryProfile.SongDbPath");
         StringAssert.Contains(viewModelCode, "files.SearchTargets.AddRange(libraryProfile.SearchRoots)");
         StringAssert.Contains(viewModelCode, "return [];");
-        StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = Settings.Default.OperationModeLR2DB ? ownerViewModel.ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, \"playlist property output directory notification\") : null;");
+        StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = temp_custom_folder_output_settings?.OperationModeLR2DB == true");
         string saveFollowup = ExtractBetween(
             viewModelCode,
             "internal async Task ApplyPostSaveUpdatesAsync()",
@@ -1239,7 +1239,7 @@ public sealed class MainWindowContextMenuResourceTests
         int detailRefreshIndex = saveFollowup.IndexOf("ownerViewModel.RefreshChartRowsViewForPlaylist(bmsTable);", StringComparison.Ordinal);
         int selectionReplaceIndex = saveFollowup.IndexOf("ownerViewModel.ReplaceCurrentPlaylistSelectionTable(sourceTable, bmsTable);", StringComparison.Ordinal);
         int folderSelectionRemapIndex = saveFollowup.IndexOf("ownerViewModel.RemapCurrentPlaylistFolderSelection(bmsTable, rewrittenFolders);", StringComparison.Ordinal);
-        int lr2CustomFolderIndex = saveFollowup.IndexOf("if (Settings.Default.OperationModeLR2DB)", StringComparison.Ordinal);
+        int lr2CustomFolderIndex = saveFollowup.IndexOf("if (temp_custom_folder_output_settings?.OperationModeLR2DB == true)", StringComparison.Ordinal);
         string externalReloadBlock = ExtractBetween(
             saveFollowup,
             "bool shouldReloadExternalPlaylist =",

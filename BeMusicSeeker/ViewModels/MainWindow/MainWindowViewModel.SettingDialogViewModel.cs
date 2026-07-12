@@ -6508,7 +6508,8 @@ public partial class MainWindowViewModel
     internal static IReadOnlyList<PlaylistCustomFolderOutputBaseOption> CreatePlaylistCustomFolderOutputBaseOptions(
         string defaultOutputBaseDirectory = null,
         IEnumerable<string> additionalOutputBaseDirectories = null,
-        bool includeNoChange = false)
+        bool includeNoChange = false,
+        bool useCurrentSettingsWhenMissing = true)
     {
         List<PlaylistCustomFolderOutputBaseOption> options = [];
         if (includeNoChange)
@@ -6519,7 +6520,7 @@ public partial class MainWindowViewModel
                 isNoChange: true));
         }
 
-        string defaultBase = string.IsNullOrWhiteSpace(defaultOutputBaseDirectory)
+        string defaultBase = useCurrentSettingsWhenMissing && string.IsNullOrWhiteSpace(defaultOutputBaseDirectory)
             ? Settings.Default.LR2CustomFolderOutputBaseDir
             : defaultOutputBaseDirectory;
         string defaultLabel = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(defaultBase);
@@ -6528,7 +6529,10 @@ public partial class MainWindowViewModel
             null));
 
         foreach (CustomFolderOutputBaseEntry entry in CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
-            additionalOutputBaseDirectories ?? CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories()))
+            additionalOutputBaseDirectories
+                ?? (useCurrentSettingsWhenMissing
+                    ? CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories()
+                    : [])))
         {
             if (!options.Any(option =>
                     !option.IsNoChange

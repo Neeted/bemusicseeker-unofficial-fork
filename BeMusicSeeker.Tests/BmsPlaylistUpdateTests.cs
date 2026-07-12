@@ -1746,6 +1746,142 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public async Task PlaylistPropertyDialogApplyPostSaveUpdates_UsesOpenCustomFolderSettingsSnapshot()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+        string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        MainWindowViewModel.PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            DispatcherHelper.UIDispatcher = Dispatcher.CurrentDispatcher;
+            string initialNormalOutputBaseDir = Path.Combine(tempDirectory, "InitialNormalCustomFolder");
+            string initialRootOutputBaseDir = Path.Combine(tempDirectory, "InitialRootCustomFolder");
+            string changedNormalOutputBaseDir = Path.Combine(tempDirectory, "ChangedNormalCustomFolder");
+            string changedRootOutputBaseDir = Path.Combine(tempDirectory, "ChangedRootCustomFolder");
+            Settings.Default.OperationModeLR2DB = false;
+            Settings.Default.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "GlobalNormalCustomFolder");
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "GlobalRootCustomFolder");
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            CustomFolderOutputSettingsSnapshot initialSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = tempDirectory,
+                LR2CustomFolderOutputBaseDir = initialNormalOutputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = initialRootOutputBaseDir,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            CustomFolderOutputSettingsSnapshot changedSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = tempDirectory,
+                LR2CustomFolderOutputBaseDir = changedNormalOutputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = changedRootOutputBaseDir,
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            CustomFolderOutputSettingsSnapshot currentSettings = initialSettings;
+            int viewModelProviderCallCount = 0;
+            int playlistProviderCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getViewModelSettings = () =>
+            {
+                viewModelProviderCallCount++;
+                return currentSettings;
+            };
+            Func<CustomFolderOutputSettingsSnapshot> getPlaylistSettings = () =>
+            {
+                playlistProviderCallCount++;
+                return new CustomFolderOutputSettingsSnapshot
+                {
+                    OperationModeLR2DB = false
+                };
+            };
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            var table = new BMSTable
+            {
+                playlist_id = 7312,
+                name = "DialogSnapshotSettings",
+                symbol = "DSS",
+                Output_dir = "DialogSnapshotSettings",
+                entries =
+                [
+                    CreateEntry("dddddddddddddddddddddddddddddddd", "Folder D")
+                ],
+                Folder_order = ["Folder D"]
+            };
+            string oldOutputPath = Path.Combine(initialNormalOutputBaseDir, table.Output_dir, "0000.lr2folder");
+            Directory.CreateDirectory(Path.GetDirectoryName(oldOutputPath));
+            File.WriteAllText(oldOutputPath, "#TITLE stale normal output", Encoding.GetEncoding("shift_jis"));
+            LR2Config config = CreateLr2Config(tempDirectory, Path.Combine(tempDirectory, "ManualBmsRoot"));
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                () => config,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                getPlaylistSettings)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var viewModel = new ApplicationComposition(
+                () => new BmsLibraryOptionsSnapshot(),
+                customFolderOutputSettingsProvider: getViewModelSettings).CreateMainWindowViewModel();
+            typeof(MainWindowViewModel)
+                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, playlist);
+            typeof(MainWindowViewModel)
+                .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, config);
+
+            dialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(viewModel, table);
+            currentSettings = changedSettings;
+            dialog.is_root_folder = true;
+            Assert.IsTrue(dialog.SaveProperties());
+            MainWindowViewModel.PlaylistPropertyDialogViewModel savedDialog = dialog;
+            savedDialog.Dispose();
+            dialog = null;
+            await savedDialog.ApplyPostSaveUpdatesAsync();
+
+            string newOutputDirectory = Path.Combine(initialRootOutputBaseDir, table.Output_dir);
+            Assert.AreEqual(1, viewModelProviderCallCount);
+            Assert.AreEqual(0, playlistProviderCallCount);
+            Assert.IsTrue(table.is_root_folder);
+            Assert.IsFalse(File.Exists(oldOutputPath));
+            Assert.IsTrue(File.Exists(Path.Combine(newOutputDirectory, "0001.lr2folder")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(changedRootOutputBaseDir, table.Output_dir)));
+            CollectionAssert.Contains(config.GetBMSSearchDirectoriesForChangeTracking(), newOutputDirectory);
+            var reloadedConfig = new LR2Config(Path.Combine(tempDirectory, "LR2files", "Config", "config.xml"));
+            CollectionAssert.Contains(reloadedConfig.GetBMSSearchDirectoriesForChangeTracking(), newOutputDirectory);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            DispatcherHelper.UIDispatcher = previousDispatcher;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_SyncsRootOutputRowsUnderTableDirectory()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;

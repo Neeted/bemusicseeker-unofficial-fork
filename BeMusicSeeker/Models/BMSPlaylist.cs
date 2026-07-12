@@ -3999,7 +3999,28 @@ public partial class BMSPlaylist : NotificationObject
         string outputBaseDirBefore = null,
         bool inferOutputBaseDirBeforeWhenMissing = true)
     {
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        MigrateCustomFolderOutputDirectoryWithSettings(
+            bmsTable,
+            outputDirPathBefore,
+            outputDirPathAfter,
+            wasRootFolderBefore,
+            rootOutputBaseDirBefore,
+            outputBaseDirBefore,
+            inferOutputBaseDirBeforeWhenMissing,
+            settings: null);
+    }
+
+    internal void MigrateCustomFolderOutputDirectoryWithSettings(
+        BMSTable bmsTable,
+        string outputDirPathBefore,
+        string outputDirPathAfter,
+        bool? wasRootFolderBefore,
+        string rootOutputBaseDirBefore,
+        string outputBaseDirBefore,
+        bool inferOutputBaseDirBeforeWhenMissing,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
             throw new InvalidOperationException("Properties.Settings.Default.OperationModeLR2DB is not true");
