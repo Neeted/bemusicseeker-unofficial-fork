@@ -7217,28 +7217,6 @@ public partial class MainWindowViewModel : ViewModel
         return new LR2Config(startupSettings.LR2ConfigXmlPath);
     }
 
-    internal IBMSPlayer CreateDefaultBmsPlayer()
-    {
-        return applicationComposition.CreateDefaultBmsPlayer();
-    }
-
-    internal IBMSPlayer CreateBmsPlayerForSettings()
-    {
-        StartupSettingsSnapshot settings = StartupSettingsSnapshot.CreateCurrent(ApplicationSettings);
-        IBMSPlayer player = applicationComposition.CreateBmsPlayer(
-            settings,
-            () => new LR2Config(settings.LR2ConfigXmlPath));
-        if (player != null)
-        {
-            return player;
-        }
-        if (settings.UsePlayerLR2body)
-        {
-            throw new InvalidOperationException("Configured LR2 playback player could not be created.");
-        }
-        return applicationComposition.CreateDefaultBmsPlayer();
-    }
-
     public async void Initialize()
     {
         await _semaphore.WaitAsync();

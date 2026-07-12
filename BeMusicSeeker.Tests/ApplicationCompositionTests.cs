@@ -51,6 +51,63 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionUsesInjectedDefaultWhenNoExternalPlayerIsSelected()
+    {
+        bool originalUbMplay = BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay;
+        bool originalBmi = BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView;
+        bool originalLr2 = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
+        var expected = new InternalBMSAutoPlayerSoundOnly();
+        var composition = new ApplicationComposition(defaultBmsPlayerFactory: () => expected);
+        try
+        {
+            BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay = false;
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView = false;
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = false;
+
+            Assert.AreSame(expected, composition.CreateBmsPlayerForSettings(BeMusicSeeker.Properties.Settings.Default));
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay = originalUbMplay;
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView = originalBmi;
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = originalLr2;
+        }
+    }
+
+    [TestMethod]
+    public void CompositionRejectsConfiguredLr2PlayerWhenExecutableIsMissing()
+    {
+        bool originalUbMplay = BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay;
+        bool originalBmi = BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView;
+        bool originalLr2 = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
+        string originalLr2RootPath = BeMusicSeeker.Properties.Settings.Default.LR2RootPath;
+        string originalLr2ConfigPath = BeMusicSeeker.Properties.Settings.Default.LR2ConfigXmlPath;
+        try
+        {
+            BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay = false;
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView = false;
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = true;
+            string missingRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+            BeMusicSeeker.Properties.Settings.Default.LR2RootPath = missingRoot;
+            BeMusicSeeker.Properties.Settings.Default.LR2ConfigXmlPath = Path.Combine(missingRoot, "LR2files", "Config.xml");
+            var composition = new ApplicationComposition();
+
+            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+                () => composition.CreateBmsPlayerForSettings(BeMusicSeeker.Properties.Settings.Default));
+
+            Assert.AreEqual("Configured LR2 playback player could not be created.", exception.Message);
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay = originalUbMplay;
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerBMIIDXView = originalBmi;
+            BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = originalLr2;
+            BeMusicSeeker.Properties.Settings.Default.LR2RootPath = originalLr2RootPath;
+            BeMusicSeeker.Properties.Settings.Default.LR2ConfigXmlPath = originalLr2ConfigPath;
+        }
+    }
+
+    [TestMethod]
     public void CompositionKeepsTheConfiguredPlaylistUrlCompletionOptionsProvider()
     {
         var snapshot = new PlaylistUrlCompletionOptionsSnapshot

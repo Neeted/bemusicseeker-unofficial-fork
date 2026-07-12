@@ -426,7 +426,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "MainWindowViewModel.cs");
 
         StringAssert.Contains(source, "applicationComposition.CreateBmsPlayer(");
-        StringAssert.Contains(source, "applicationComposition.CreateDefaultBmsPlayer();");
+        StringAssert.Contains(source, "applicationComposition.CreateDefaultBmsPlayer");
         Assert.IsFalse(source.Contains("new uBMplay("));
         Assert.IsFalse(source.Contains("new BMIIDXView2015("));
         Assert.IsFalse(source.Contains("new LR2body("));

@@ -5449,8 +5449,8 @@ public partial class MainWindowViewModel
                 if (impact.HasFlag(SettingsPostSaveImpact.PlayerRuntime))
                 {
                     IBMSPlayer replacementPlayer = forceInternalPlayerForStandaloneModeChange
-                        ? ownerViewModel.CreateDefaultBmsPlayer()
-                        : ownerViewModel.CreateBmsPlayerForSettings();
+                        ? ownerViewModel.applicationComposition.CreateDefaultBmsPlayer()
+                        : ownerViewModel.applicationComposition.CreateBmsPlayerForSettings(ApplicationSettings);
                     ownerViewModel.PlaybackPanel.StopPlayback(closeProcess: false);
                     ownerViewModel.PlaybackPanel.ReplacePlayer(replacementPlayer);
                     ownerViewModel.RaiseInitializationSucceeded();

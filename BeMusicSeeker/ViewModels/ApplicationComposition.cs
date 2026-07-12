@@ -228,6 +228,27 @@ internal sealed class ApplicationComposition
             ?? throw new InvalidOperationException("Default playback player factory returned null.");
     }
 
+    internal IBMSPlayer CreateBmsPlayerForSettings(BeMusicSeeker.Properties.Settings settingsValues)
+    {
+        if (settingsValues == null)
+        {
+            throw new ArgumentNullException(nameof(settingsValues));
+        }
+        StartupSettingsSnapshot settings = StartupSettingsSnapshot.CreateCurrent(settingsValues);
+        IBMSPlayer player = CreateBmsPlayer(
+            settings,
+            () => new LR2Config(settings.LR2ConfigXmlPath));
+        if (player != null)
+        {
+            return player;
+        }
+        if (settings.UsePlayerLR2body)
+        {
+            throw new InvalidOperationException("Configured LR2 playback player could not be created.");
+        }
+        return CreateDefaultBmsPlayer();
+    }
+
     internal BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
     {
         if (libraryProfile == null)

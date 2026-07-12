@@ -1318,7 +1318,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(compositionCode, "if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))");
         StringAssert.Contains(compositionCode, "new LR2body(startupSettings.LR2bodyPath, createLr2PlayerConfig())");
         Assert.IsFalse(initialize.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
-        StringAssert.Contains(saveFollowup, "ownerViewModel.CreateBmsPlayerForSettings()");
+        StringAssert.Contains(saveFollowup, "ownerViewModel.applicationComposition.CreateBmsPlayerForSettings(ApplicationSettings)");
         StringAssert.Contains(saveFollowup, "ownerViewModel.PlaybackPanel.ReplacePlayer(replacementPlayer);");
         Assert.IsFalse(saveFollowup.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
         StringAssert.Contains(viewModelCode, "private LR2Config CreateLR2PlayerConfig(StartupSettingsSnapshot startupSettings)");
