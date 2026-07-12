@@ -31,6 +31,8 @@ internal sealed class ApplicationComposition
 
     private readonly Action saveSettings;
 
+    private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -41,7 +43,8 @@ internal sealed class ApplicationComposition
         Func<bool> firstStartupProvider = null,
         Action completeFirstStartup = null,
         Action reloadSettings = null,
-        Action saveSettings = null)
+        Action saveSettings = null,
+        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
         this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
@@ -58,6 +61,8 @@ internal sealed class ApplicationComposition
             ?? (() => Settings.Default.Reload());
         this.saveSettings = saveSettings
             ?? (() => Settings.Default.Save());
+        this.keywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
+            ?? new SettingsKeywordSearchHistorySettingsStore();
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;
@@ -79,6 +84,8 @@ internal sealed class ApplicationComposition
     internal Action ReloadSettings => reloadSettings;
 
     internal Action SaveSettings => saveSettings;
+
+    internal IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore => keywordSearchHistorySettingsStore;
 
     private static App GetApplication()
     {

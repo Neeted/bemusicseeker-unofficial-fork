@@ -155,6 +155,43 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void MainWindowKeywordSearchHistoryUsesCompositionSettingsStore()
+    {
+        var store = new FakeKeywordSearchHistorySettingsStore
+        {
+            KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["old"]),
+            PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["summary-old"])
+        };
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            firstStartupProvider: () => false,
+            completeFirstStartup: () =>
+            {
+            },
+            reloadSettings: () =>
+            {
+            },
+            saveSettings: () =>
+            {
+            },
+            keywordSearchHistorySettingsStore: store);
+
+        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+        viewModel.CommitKeywordSearchHistory("new");
+        viewModel.CommitPlaylistSummaryKeywordSearchHistory("summary-new");
+
+        Assert.AreEqual("new", KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory)[0]);
+        Assert.AreEqual("summary-new", KeywordSearchHistoryStore.Deserialize(store.PlaylistSummaryKeywordSearchHistory)[0]);
+    }
+
+    private sealed class FakeKeywordSearchHistorySettingsStore : IKeywordSearchHistorySettingsStore
+    {
+        public string KeywordSearchHistory { get; set; } = string.Empty;
+
+        public string PlaylistSummaryKeywordSearchHistory { get; set; } = string.Empty;
+    }
+
+    [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));

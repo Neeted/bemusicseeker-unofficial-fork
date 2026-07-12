@@ -503,6 +503,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly Action saveSettings;
 
+    private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
+
     private StartupSettingsSnapshot GetStartupSettingsSnapshot()
     {
         return startupSettingsProvider()
@@ -5555,7 +5557,7 @@ public partial class MainWindowViewModel : ViewModel
     internal void CommitKeywordSearchHistory(string keywordFilter)
     {
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.AddEntry(keywordSearchHistory, keywordFilter));
-        Settings.Default.KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(keywordSearchHistory);
+        keywordSearchHistorySettingsStore.KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(keywordSearchHistory);
     }
 
     /// <summary>
@@ -5565,7 +5567,7 @@ public partial class MainWindowViewModel : ViewModel
     internal void CommitPlaylistSummaryKeywordSearchHistory(string keywordFilter)
     {
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.AddEntry(playlistSummaryKeywordSearchHistory, keywordFilter));
-        Settings.Default.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(playlistSummaryKeywordSearchHistory);
+        keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(playlistSummaryKeywordSearchHistory);
     }
 
     private void EnsurePlayHistoryDisplayTargetSelection()
@@ -6217,6 +6219,7 @@ public partial class MainWindowViewModel : ViewModel
         completeFirstStartup = composition.CompleteFirstStartup;
         reloadSettings = composition.ReloadSettings;
         saveSettings = composition.SaveSettings;
+        keywordSearchHistorySettingsStore = composition.KeywordSearchHistorySettingsStore;
         ChartFilters = new ChartListFilterViewModel();
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
@@ -6305,8 +6308,8 @@ public partial class MainWindowViewModel : ViewModel
         regularChartListOwner.InstallDestinationEditRequested += RegularChartListOwnerInstallDestinationEditRequested;
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
-        ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.KeywordSearchHistory));
-        ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(Settings.Default.PlaylistSummaryKeywordSearchHistory));
+        ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.KeywordSearchHistory));
+        ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory));
         PlayHistory.RestoreDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);

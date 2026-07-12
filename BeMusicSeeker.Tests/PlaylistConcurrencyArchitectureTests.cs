@@ -249,6 +249,20 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void MainWindowKeywordSearchHistory_UsesSettingsStoreBoundary()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+
+        StringAssert.Contains(source, "keywordSearchHistorySettingsStore.KeywordSearchHistory");
+        StringAssert.Contains(source, "keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory");
+        Assert.IsFalse(source.Contains("Settings.Default.KeywordSearchHistory"));
+        Assert.IsFalse(source.Contains("Settings.Default.PlaylistSummaryKeywordSearchHistory"));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
