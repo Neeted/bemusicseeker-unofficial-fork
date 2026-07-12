@@ -198,6 +198,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "MainWindowViewModel.SettingDialogViewModel.cs");
         Assert.IsFalse(settingDialogSource.Contains("useCurrentSettingsWhenMissing"));
         Assert.IsFalse(settingDialogSource.Contains("Settings.Default."));
+        Assert.IsFalse(settingDialogSource.Contains("ReadAdditionalBaseDirectories()"));
 
         string summaryBuildSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",

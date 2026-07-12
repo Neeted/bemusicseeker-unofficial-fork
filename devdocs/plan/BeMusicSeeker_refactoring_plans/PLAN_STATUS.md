@@ -12,28 +12,27 @@
 
 ## Active outcome
 
-### `APP-01 Composition and configuration ownership`
+### `UI-02 Playback ownership`
 
-状態: in progress
+状態: ready
 
 目的:
 
-startup composition と settings load / edit / save / upgrade の ownership を明示し、feature owner が global settings と root の構築状態を直接取得しない境界を閉じる。既存の setting key、serialized value、upgrade timing、UI observable behavior は維持し、後続 outcome が用途別 snapshot / adapter を受け取れる状態にする。
+playback の state、command、progress、player lifecycle の ownership を child View / ViewModel と player adapter に集約し、root と code-behind を composition と view-host 操作に限定する。既存の player 選択、再生・停止・一時停止、進捗表示、失敗契約、UI observable behavior は維持し、後続 outcome が playback の結果だけを利用できる境界を閉じる。
 
 Acceptance criteria:
 
-- startup の child ViewModel / service / adapter composition が一つの明示的な owner を通り、root は composition と lifecycle に限定される。
-- settings の load、editable な edit session、save、upgrade / migration が用途別 contract または adapter を通り、feature owner が `Settings.Default` を直接取得しない。
-- settings snapshot は workflow が必要とする値だけを immutable に保持し、巨大な settings facade や interface-per-setting を追加しない。
-- 既存の setting key、serialized value、upgrade timing、保存先、失敗契約を変更しない behavior test がある。
-- startup、settings dialog の open / edit / save / 再表示、reload、shutdown の composition behavior test がある。
-- 後続の UI / library / playlist owner を新しい composition boundary から構築でき、root の global singleton / platform dependency の直接取得が増えていない。
-- build / test / format / analyzer / diff check と、重大な指摘なしのサブエージェント静的レビューが完了する。
+- playback state、command、progress、player lifecycle が child View / ViewModel と player adapter の production 経路を通る。
+- root ViewModel は playback workflow を直接実装せず、明示的な composition を通じて child owner と adapter を構築する。
+- code-behind に残る playback 処理は view-host 操作に限定され、旧 root callback / workflow host / binding relay と test-only production seam が削除される。
+- 内部 player、外部 player、再生状態遷移、停止・一時停止、progress 更新、失敗時の既存契約を behavior test で検証する。
+- 移管済み child owner から `Application.Current`、`DispatcherHelper.UIDispatcher`、root の nested contract を直接取得しない。
+- 変更範囲に対応する UI smoke check、Full 検証、重大な指摘なしのサブエージェント静的レビューが完了する。
 
 Non-goals:
 
-- feature workflow の owner 移管（UI-02、UI-03、UI-04、LIB-*、PL-*）。
-- `MainWindow.cs` 全体の薄型化。main-table 以外の code-behind workflow は UI-02 / UI-03 / UI-04 / UI-05 で扱う。
+- playlist workspace、play history、library、playlist persistence / sync / output の owner 移管（UI-03、UI-04、LIB-*、PL-*）。
+- settings dialog、library refresh、package operation など playback 以外の `MainWindow.cs` workflow の thin-shell 化（UI-05）。
 - `.NET 10` TFM 変更、NuGet の一括更新、native dependency の置換。
 
 ## Outcome states
@@ -41,8 +40,8 @@ Non-goals:
 | Outcome | State |
 |---|---|
 | UI-01 Main table presentation and regular chart ownership | completed |
-| APP-01 Composition and configuration ownership | in progress |
-| UI-02 Playback ownership | not started |
+| APP-01 Composition and configuration ownership | completed |
+| UI-02 Playback ownership | ready |
 | UI-03 Playlist workspace ownership | not started |
 | UI-04 Play history ownership | not started |
 | LIB-01 Initialization and scan ownership | not started |

@@ -3378,7 +3378,8 @@ public partial class MainWindowViewModel
 
         private void RefreshCustomFolderAdditionalOutputBaseDirsFromSettings()
         {
-            IReadOnlyList<string> paths = CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories();
+            IReadOnlyList<string> paths = CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(
+                ApplicationSettings.LR2CustomFolderAdditionalOutputBaseDirs);
             bool pathsChanged = !CustomFolderAdditionalOutputBaseDirList.SequenceEqual(paths, StringComparer.OrdinalIgnoreCase);
             string selectedPath = paths.FirstOrDefault();
             bool selectedChanged = !string.Equals(selectedCustomFolderAdditionalOutputBaseDir, selectedPath, StringComparison.OrdinalIgnoreCase);

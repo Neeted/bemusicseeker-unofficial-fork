@@ -11,6 +11,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
+[DoNotParallelize]
 public sealed class ApplicationCompositionTests
 {
     [TestMethod]
@@ -422,6 +423,33 @@ public sealed class ApplicationCompositionTests
         CollectionAssert.AreEqual(
             new[] { "reload", "reload", "save", "reload", "save" },
             session.Calls);
+    }
+
+    [TestMethod]
+    public void SettingDialogAdditionalOutputPathsUseInjectedSessionInsteadOfGlobalSettings()
+    {
+        string previousGlobalPaths = BeMusicSeeker.Properties.Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string sessionPath = Path.GetFullPath("session-additional-output");
+        string globalPath = Path.GetFullPath("global-additional-output");
+        var values = new BeMusicSeeker.Properties.Settings
+        {
+            LR2CustomFolderAdditionalOutputBaseDirs = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([sessionPath])
+        };
+        BeMusicSeeker.Properties.Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
+            CustomFolderOutputBaseRegistry.SerializeBaseDirectories([globalPath]);
+        try
+        {
+            var composition = new ApplicationComposition(
+                settingsEditSession: new FakeSettingsEditSession { Values = values });
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+
+            CollectionAssert.Contains(viewModel.settingDialog.CustomFolderAdditionalOutputBaseDirList, sessionPath);
+            CollectionAssert.DoesNotContain(viewModel.settingDialog.CustomFolderAdditionalOutputBaseDirList, globalPath);
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousGlobalPaths;
+        }
     }
 
     [TestMethod]
