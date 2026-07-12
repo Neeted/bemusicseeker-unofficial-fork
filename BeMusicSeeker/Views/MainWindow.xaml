@@ -1390,7 +1390,7 @@
                         <Binding Path="Visibility" ElementName="loadPlaylistURIDialog" />
                         <Binding Path="Visibility" ElementName="webBrowser" />
                         <Binding Path="IsEnabled" ElementName="windowsFormsHost" />
-                        <Binding Path="NowPlayingBMS" />
+                        <Binding Path="PlaybackPanel.NowPlayingBmsFile" />
                         <Binding RelativeSource="{RelativeSource Self}" />
                       </MultiBinding>
                     </UIElement.Visibility>
@@ -1557,7 +1557,7 @@
                       </Style.Triggers>
                     </Style>
                   </FrameworkElement.Style>
-                  <Button Name="buttonBMSPlayerControlsPlayAndPauseButton" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="17" Margin="0,1,0,0" ToolTip="再生/一時停止" Content="{Binding NowPlayingBMS.status, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPlayStartButtonClicked" />
+                  <Button Name="buttonBMSPlayerControlsPlayAndPauseButton" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="17" Margin="0,1,0,0" ToolTip="再生/一時停止" Content="{Binding PlaybackPanel.NowPlayingBmsFile.status, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPlayStartButtonClicked" />
                   <Button Content="stop" Style="{StaticResource stylePlayerButtonSymbol}" ToolTip="停止" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPlayStopButtonClicked" />
                   <Button Content="backback" Style="{StaticResource stylePlayerButtonSymbol}" ToolTip="前の曲" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPreviousButtonClicked" />
                   <Button Content="nextnext" Style="{StaticResource stylePlayerButtonSymbol}" ToolTip="次の曲" PreviewMouseLeftButtonDown="gridBMSPlayerControlsNextButtonClicked" />

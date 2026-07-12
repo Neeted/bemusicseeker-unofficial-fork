@@ -41,7 +41,7 @@ Non-goals:
 |---|---|
 | UI-01 Main table presentation and regular chart ownership | completed |
 | APP-01 Composition and configuration ownership | completed |
-| UI-02 Playback ownership | ready |
+| UI-02 Playback ownership | in progress |
 | UI-03 Playlist workspace ownership | not started |
 | UI-04 Play history ownership | not started |
 | LIB-01 Initialization and scan ownership | not started |

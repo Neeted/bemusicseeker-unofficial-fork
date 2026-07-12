@@ -64,8 +64,9 @@ public sealed class PlaybackPanelViewModelTests
         panel.CurrentlyPlayingTime = TimeSpan.FromSeconds(15);
         Assert.AreEqual(TimeSpan.FromSeconds(15), player.CurrentTime);
 
-        panel.PlayStart("chart.bms", null);
-        panel.PausePlayingBmsFileToggle();
+        long playbackGeneration = panel.BeginPlayback(new BMSFile(), 0);
+        Assert.IsTrue(panel.TryPlayStart(playbackGeneration, "chart.bms", null));
+        panel.TogglePause();
         panel.RestartPlayingBmsFile();
         panel.FastForwardStart();
         panel.FastForwardEnd();
@@ -129,6 +130,76 @@ public sealed class PlaybackPanelViewModelTests
         Assert.AreEqual(1, second.CloseProcessCount);
     }
 
+    [TestMethod]
+    public void PlaybackPanel_OwnsSessionStateAndIgnoresStaleExitCallbacks()
+    {
+        var player = new FakeBmsPlayer();
+        var panel = new PlaybackPanelViewModel(player, () => Dispatcher.CurrentDispatcher);
+        var first = new BMSFile();
+        var second = new BMSFile();
+        int exitCount = 0;
+        int startingCount = 0;
+        int startedCount = 0;
+        panel.PlaybackStarting += (_, _) => startingCount++;
+        panel.PlaybackStarted += (_, _) => startedCount++;
+
+        long firstGeneration = panel.BeginPlayback(first, 3);
+        Assert.IsTrue(panel.TryPlayStart(firstGeneration, "first.bms", (_, _) => exitCount++));
+        Action<object, EventArgs> firstExit = player.ExitHandler!;
+        panel.NotifyPlaybackStarted(firstGeneration);
+
+        Assert.AreSame(first, panel.NowPlayingBmsFile);
+        Assert.AreEqual(3, panel.NowPlayingRowIndex);
+        Assert.IsTrue(panel.IsPlaying);
+        Assert.AreEqual(1, startingCount);
+        Assert.AreEqual(1, startedCount);
+
+        long secondGeneration = panel.BeginPlayback(second, 4);
+        Assert.IsTrue(panel.TryPlayStart(secondGeneration, "second.bms", (_, _) => exitCount++));
+        Action<object, EventArgs> secondExit = player.ExitHandler!;
+        firstExit(player, EventArgs.Empty);
+        Assert.AreEqual(0, exitCount);
+
+        secondExit(player, EventArgs.Empty);
+        Assert.AreEqual(1, exitCount);
+
+        panel.StopPlayback();
+        secondExit(player, EventArgs.Empty);
+        Assert.AreEqual(1, exitCount);
+        Assert.IsNull(panel.NowPlayingBmsFile);
+        Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+        Assert.IsTrue(panel.IsStoppedOrPaused);
+        Assert.AreEqual(0, player.CloseProcessCount);
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_StopReplaceAndCloseInvalidatePreparedOrRunningSessions()
+    {
+        var firstPlayer = new FakeBmsPlayer();
+        var replacementPlayer = new FakeBmsPlayer();
+        var panel = new PlaybackPanelViewModel(firstPlayer, () => Dispatcher.CurrentDispatcher);
+
+        long stoppedGeneration = panel.BeginPlayback(new BMSFile(), 1);
+        panel.StopPlayback();
+        Assert.IsFalse(panel.TryPlayStart(stoppedGeneration, "stopped.bms", null));
+        Assert.IsFalse(firstPlayer.Commands.Any(command => command == "PlayStart:stopped.bms"));
+
+        long replacedGeneration = panel.BeginPlayback(new BMSFile(), 2);
+        panel.ReplacePlayer(replacementPlayer);
+        Assert.IsFalse(panel.TryPlayStart(replacedGeneration, "replaced.bms", null));
+        Assert.IsFalse(replacementPlayer.Commands.Any(command => command == "PlayStart:replaced.bms"));
+
+        long runningGeneration = panel.BeginPlayback(new BMSFile(), 3);
+        int exitCount = 0;
+        Assert.IsTrue(panel.TryPlayStart(runningGeneration, "running.bms", (_, _) => exitCount++));
+        Action<object, EventArgs> exit = replacementPlayer.ExitHandler!;
+        panel.CloseProcess();
+        exit(replacementPlayer, EventArgs.Empty);
+
+        Assert.AreEqual(0, exitCount);
+        Assert.AreEqual(1, replacementPlayer.CloseProcessCount);
+    }
+
     private sealed class FakeBmsPlayer : IBMSPlayer
     {
         public event PropertyChangedEventHandler? PropertyChanged;
@@ -173,6 +244,8 @@ public sealed class PlaybackPanelViewModelTests
 
         public int CloseProcessCount { get; private set; }
 
+        public Action<object, EventArgs>? ExitHandler { get; private set; }
+
         public System.Collections.Generic.List<string> Commands { get; } = [];
 
         public void Raise(string propertyName)
@@ -189,6 +262,7 @@ public sealed class PlaybackPanelViewModelTests
         public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
         {
             Commands.Add("PlayStart:" + bmsFilePath);
+            ExitHandler = onExitEventHandler;
         }
 
         public void RestartPlayingBMSfile() => Commands.Add("Restart");

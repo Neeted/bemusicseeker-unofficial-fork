@@ -1161,19 +1161,20 @@ public sealed class PlaylistViewPipelineTests
         file.SetSubtitle("[LAST BOSS]");
         file.SetArtist("Nepentropy Movie:Vogeln obj:sak");
 
-        viewModel.SetBmsPlayerHeader(file);
+        PlaybackPanelViewModel panel = viewModel.PlaybackPanel;
+        panel.SetBmsPlayerHeader(file);
 
-        Assert.AreSame(file, viewModel.DisplayedBmsPlayerFile);
-        Assert.AreEqual("ouroVoros", viewModel.BmsPlayerHeaderTitle);
-        Assert.AreEqual("[LAST BOSS]", viewModel.BmsPlayerHeaderSubtitle);
-        Assert.AreEqual("Nepentropy Movie:Vogeln obj:sak", viewModel.BmsPlayerHeaderArtist);
-        Assert.AreEqual("ouroVoros", viewModel.PlayerHeaderTitle);
-        Assert.AreEqual("[LAST BOSS]", viewModel.PlayerHeaderSubtitle);
-        Assert.AreEqual("Nepentropy Movie:Vogeln obj:sak", viewModel.PlayerHeaderArtist);
+        Assert.AreSame(file, panel.DisplayedBmsPlayerFile);
+        Assert.AreEqual("ouroVoros", panel.BmsPlayerHeaderTitle);
+        Assert.AreEqual("[LAST BOSS]", panel.BmsPlayerHeaderSubtitle);
+        Assert.AreEqual("Nepentropy Movie:Vogeln obj:sak", panel.BmsPlayerHeaderArtist);
+        Assert.AreEqual("ouroVoros", panel.PlayerHeaderTitle);
+        Assert.AreEqual("[LAST BOSS]", panel.PlayerHeaderSubtitle);
+        Assert.AreEqual("Nepentropy Movie:Vogeln obj:sak", panel.PlayerHeaderArtist);
     }
 
     [TestMethod]
-    public void NowPlayingBMS_SetterSynchronizesPlayerHeader()
+    public void BeginPlayback_SynchronizesPlayerHeader()
     {
         var viewModel = new MainWindowViewModel();
         var file = new TestableBmsFile();
@@ -1181,15 +1182,16 @@ public sealed class PlaylistViewPipelineTests
         file.SetSubtitle("[NextSubtitle]");
         file.SetArtist("NextArtist");
 
-        viewModel.NowPlayingBMS = file;
+        PlaybackPanelViewModel panel = viewModel.PlaybackPanel;
+        panel.BeginPlayback(file, 0);
 
-        Assert.AreSame(file, viewModel.DisplayedBmsPlayerFile);
-        Assert.AreEqual("NextTitle", viewModel.BmsPlayerHeaderTitle);
-        Assert.AreEqual("[NextSubtitle]", viewModel.BmsPlayerHeaderSubtitle);
-        Assert.AreEqual("NextArtist", viewModel.BmsPlayerHeaderArtist);
-        Assert.AreEqual("NextTitle", viewModel.PlayerHeaderTitle);
-        Assert.AreEqual("[NextSubtitle]", viewModel.PlayerHeaderSubtitle);
-        Assert.AreEqual("NextArtist", viewModel.PlayerHeaderArtist);
+        Assert.AreSame(file, panel.DisplayedBmsPlayerFile);
+        Assert.AreEqual("NextTitle", panel.BmsPlayerHeaderTitle);
+        Assert.AreEqual("[NextSubtitle]", panel.BmsPlayerHeaderSubtitle);
+        Assert.AreEqual("NextArtist", panel.BmsPlayerHeaderArtist);
+        Assert.AreEqual("NextTitle", panel.PlayerHeaderTitle);
+        Assert.AreEqual("[NextSubtitle]", panel.PlayerHeaderSubtitle);
+        Assert.AreEqual("NextArtist", panel.PlayerHeaderArtist);
     }
 
     [TestMethod]
@@ -1200,7 +1202,8 @@ public sealed class PlaylistViewPipelineTests
         bmsFile.ApplySnapshot("abababababababababababababababab", "BmsTitle", 7);
         bmsFile.SetSubtitle("[BmsSubtitle]");
         bmsFile.SetArtist("BmsArtist");
-        viewModel.SetBmsPlayerHeader(bmsFile);
+        PlaybackPanelViewModel panel = viewModel.PlaybackPanel;
+        panel.SetBmsPlayerHeader(bmsFile);
 
         var movieFile = new TestableBmsFile();
         movieFile.ApplySnapshot("cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd", "MovieTitle", 7);
@@ -1208,15 +1211,15 @@ public sealed class PlaylistViewPipelineTests
         movieFile.SetArtist("MovieArtist");
         LibraryChartRow row = LibraryChartRow.FromBmsFile(movieFile);
 
-        viewModel.SetMoviePlayerHeader(row);
+        panel.SetMoviePlayerHeader(row);
 
-        Assert.AreSame(bmsFile, viewModel.DisplayedBmsPlayerFile);
-        Assert.AreEqual("BmsTitle", viewModel.BmsPlayerHeaderTitle);
-        Assert.AreEqual("[BmsSubtitle]", viewModel.BmsPlayerHeaderSubtitle);
-        Assert.AreEqual("BmsArtist", viewModel.BmsPlayerHeaderArtist);
-        Assert.AreEqual("MovieTitle", viewModel.MoviePlayerHeaderTitle);
-        Assert.AreEqual("[MovieSubtitle]", viewModel.MoviePlayerHeaderSubtitle);
-        Assert.AreEqual("MovieArtist", viewModel.MoviePlayerHeaderArtist);
+        Assert.AreSame(bmsFile, panel.DisplayedBmsPlayerFile);
+        Assert.AreEqual("BmsTitle", panel.BmsPlayerHeaderTitle);
+        Assert.AreEqual("[BmsSubtitle]", panel.BmsPlayerHeaderSubtitle);
+        Assert.AreEqual("BmsArtist", panel.BmsPlayerHeaderArtist);
+        Assert.AreEqual("MovieTitle", panel.MoviePlayerHeaderTitle);
+        Assert.AreEqual("[MovieSubtitle]", panel.MoviePlayerHeaderSubtitle);
+        Assert.AreEqual("MovieArtist", panel.MoviePlayerHeaderArtist);
     }
 
     [TestMethod]

@@ -15,7 +15,17 @@ public sealed class PlaybackPanelViewModel : ViewModel
 {
     private readonly Func<Dispatcher> uiDispatcherProvider;
 
+    private readonly object sessionGate = new();
+
     private IBMSPlayer bmsPlayer;
+
+    private long playbackGeneration;
+
+    private BMSFile nowPlayingBmsFile;
+
+    private BMSFile displayedBmsPlayerFile;
+
+    private int nowPlayingRowIndex = -1;
 
     private IntPtr? parentHandle;
 
@@ -69,6 +79,53 @@ public sealed class PlaybackPanelViewModel : ViewModel
         ReplacePlayer(player);
     }
 
+    internal event EventHandler PlaybackStarting;
+
+    internal event EventHandler PlaybackStarted;
+
+    /// <summary>
+    /// Gets the chart whose playback session is active or being prepared.
+    /// </summary>
+    public BMSFile NowPlayingBmsFile
+    {
+        get => nowPlayingBmsFile;
+        private set
+        {
+            if (ReferenceEquals(nowPlayingBmsFile, value))
+            {
+                return;
+            }
+
+            nowPlayingBmsFile = value;
+            RaisePropertyChanged(nameof(NowPlayingBmsFile));
+            RaisePlaybackStatusPropertiesChanged();
+        }
+    }
+
+    /// <summary>
+    /// Gets the chart whose metadata is displayed by the BMS player header.
+    /// </summary>
+    public BMSFile DisplayedBmsPlayerFile
+    {
+        get => displayedBmsPlayerFile;
+        private set
+        {
+            if (!ReferenceEquals(displayedBmsPlayerFile, value))
+            {
+                displayedBmsPlayerFile = value;
+                RaisePropertyChanged(nameof(DisplayedBmsPlayerFile));
+            }
+        }
+    }
+
+    public bool IsPlaying => NowPlayingBmsFile?.status.HasFlag(BMSFile.BMSFileStatus.PLAY) == true;
+
+    public bool IsPaused => NowPlayingBmsFile?.status.HasFlag(BMSFile.BMSFileStatus.PAUSE) == true;
+
+    public bool IsStoppedOrPaused => NowPlayingBmsFile == null || IsPaused;
+
+    internal int NowPlayingRowIndex => nowPlayingRowIndex;
+
     /// <summary>
     /// Gets the current player duration used by the progress controls.
     /// </summary>
@@ -83,17 +140,26 @@ public sealed class PlaybackPanelViewModel : ViewModel
     /// </summary>
     public TimeSpan CurrentlyPlayingTime
     {
-        get => bmsPlayer?.CurrentTime ?? TimeSpan.MinValue;
+        get
+        {
+            lock (sessionGate)
+            {
+                return bmsPlayer?.CurrentTime ?? TimeSpan.MinValue;
+            }
+        }
         set
         {
-            if (bmsPlayer == null)
+            lock (sessionGate)
             {
-                RaisePropertyChanged(nameof(CurrentlyPlayingTime));
-                return;
-            }
+                if (bmsPlayer == null)
+                {
+                    RaisePropertyChanged(nameof(CurrentlyPlayingTime));
+                    return;
+                }
 
-            bmsPlayer.CurrentTime = value;
-            RaisePropertyChanged(nameof(CurrentlyPlayingTime));
+                bmsPlayer.CurrentTime = value;
+                RaisePropertyChanged(nameof(CurrentlyPlayingTime));
+            }
         }
     }
 
@@ -197,110 +263,280 @@ public sealed class PlaybackPanelViewModel : ViewModel
             throw new ArgumentNullException(nameof(player));
         }
 
-        if (ReferenceEquals(bmsPlayer, player))
+        lock (sessionGate)
         {
-            RefreshPlayerState(player);
-            return;
-        }
+            if (ReferenceEquals(bmsPlayer, player))
+            {
+                RefreshPlayerState(player);
+                return;
+            }
 
-        if (bmsPlayer != null)
-        {
-            bmsPlayer.PropertyChanged -= BmsPlayerPropertyChanged;
-            bmsPlayer.CloseProcess();
-        }
+            if (bmsPlayer != null)
+            {
+                playbackGeneration++;
+                bmsPlayer.PropertyChanged -= BmsPlayerPropertyChanged;
+                bmsPlayer.CloseProcess();
+            }
 
-        bmsPlayer = player;
-        bmsPlayer.PropertyChanged += BmsPlayerPropertyChanged;
-        if (parentHandle.HasValue)
-        {
-            bmsPlayer.ParentHandle = parentHandle.Value;
+            bmsPlayer = player;
+            bmsPlayer.PropertyChanged += BmsPlayerPropertyChanged;
+            if (parentHandle.HasValue)
+            {
+                bmsPlayer.ParentHandle = parentHandle.Value;
+            }
+            RefreshPlayerState(bmsPlayer);
+            RaisePropertyChanged(nameof(CurrentlyPlayingTime));
         }
-        RefreshPlayerState(bmsPlayer);
-        RaisePropertyChanged(nameof(CurrentlyPlayingTime));
     }
 
     internal void AttachParentHandle(IntPtr parentHandle)
     {
-        this.parentHandle = parentHandle;
-        RequirePlayer().ParentHandle = parentHandle;
+        lock (sessionGate)
+        {
+            this.parentHandle = parentHandle;
+            RequirePlayer().ParentHandle = parentHandle;
+        }
     }
 
     internal void CloseProcess()
     {
-        if (bmsPlayer == null)
+        lock (sessionGate)
         {
-            return;
+            if (bmsPlayer == null)
+            {
+                return;
+            }
+
+            playbackGeneration++;
+            IBMSPlayer player = bmsPlayer;
+            player.CloseProcess();
+            DispatchToUi(() =>
+            {
+                if (ReferenceEquals(player, bmsPlayer))
+                {
+                    RefreshPlayerState(player);
+                }
+            });
+        }
+    }
+
+    internal bool TryPlayStart(long expectedGeneration, string bmsFilePath, Action<object, EventArgs> onExitEventHandler)
+    {
+        lock (sessionGate)
+        {
+            IBMSPlayer player = RequirePlayer();
+            BMSFile file = NowPlayingBmsFile;
+            if (file == null || expectedGeneration != playbackGeneration)
+            {
+                return false;
+            }
+
+            file.status |= BMSFile.BMSFileStatus.LOADING;
+            RaisePlaybackStatusPropertiesChanged();
+
+            player.PlayStart(bmsFilePath, (sender, e) =>
+            {
+                bool advanceClaimed;
+                lock (sessionGate)
+                {
+                    advanceClaimed = expectedGeneration == playbackGeneration
+                        && ReferenceEquals(player, bmsPlayer)
+                        && ReferenceEquals(file, NowPlayingBmsFile);
+                    if (advanceClaimed)
+                    {
+                        playbackGeneration++;
+                    }
+                }
+                if (advanceClaimed)
+                {
+                    onExitEventHandler?.Invoke(sender, e);
+                }
+            });
+
+            if (expectedGeneration == playbackGeneration
+                && ReferenceEquals(player, bmsPlayer)
+                && ReferenceEquals(file, NowPlayingBmsFile))
+            {
+                file.status &= ~BMSFile.BMSFileStatus.LOADING;
+                file.status |= BMSFile.BMSFileStatus.PLAY;
+                RaisePlaybackStatusPropertiesChanged();
+            }
+            return true;
+        }
+    }
+
+    internal long BeginPlayback(BMSFile bmsFile, int rowIndex)
+    {
+        if (bmsFile == null)
+        {
+            throw new ArgumentNullException(nameof(bmsFile));
         }
 
-        IBMSPlayer player = bmsPlayer;
-        player.CloseProcess();
-        DispatchToUi(() =>
+        long generation;
+        lock (sessionGate)
         {
-            if (ReferenceEquals(player, bmsPlayer))
+            ClearCurrentPlaybackStatus();
+            playbackGeneration++;
+            nowPlayingRowIndex = rowIndex;
+            NowPlayingBmsFile = bmsFile;
+            SetBmsPlayerHeader(bmsFile);
+            generation = playbackGeneration;
+        }
+        DispatchPlaybackEvent(PlaybackStarting, generation);
+        return generation;
+    }
+
+    internal void SkipUnavailablePlaybackCandidate(int rowIndex)
+    {
+        lock (sessionGate)
+        {
+            ClearCurrentPlaybackStatus();
+            playbackGeneration++;
+            NowPlayingBmsFile = null;
+            nowPlayingRowIndex = rowIndex;
+        }
+    }
+
+    internal void NotifyPlaybackStarted(long expectedGeneration)
+    {
+        DispatchPlaybackEvent(PlaybackStarted, expectedGeneration);
+    }
+
+    internal void StopPlayback(bool closeProcess = false)
+    {
+        lock (sessionGate)
+        {
+            playbackGeneration++;
+            if (closeProcess)
             {
-                RefreshPlayerState(player);
+                CloseProcess();
             }
-        });
+            ClearCurrentPlaybackStatus();
+            NowPlayingBmsFile = null;
+            nowPlayingRowIndex = -1;
+        }
     }
 
-    internal void PlayStart(string bmsFilePath, Action<object, EventArgs> onExitEventHandler)
+    internal void TogglePause()
     {
-        RequirePlayer().PlayStart(bmsFilePath, onExitEventHandler);
-    }
-
-    internal void PausePlayingBmsFileToggle()
-    {
-        RequirePlayer().PausePlayingBMSfileToggle();
+        lock (sessionGate)
+        {
+            if (NowPlayingBmsFile != null)
+            {
+                if (IsPlaying)
+                {
+                    NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.PLAYALL;
+                    NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.PAUSE;
+                }
+                else if (IsPaused)
+                {
+                    NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.PLAYALL;
+                    NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.PLAY;
+                }
+                RaisePlaybackStatusPropertiesChanged();
+            }
+            RequirePlayer().PausePlayingBMSfileToggle();
+        }
     }
 
     internal void RestartPlayingBmsFile()
     {
-        RequirePlayer().RestartPlayingBMSfile();
+        lock (sessionGate)
+        {
+            RequirePlayer().RestartPlayingBMSfile();
+        }
     }
 
     internal void FastForwardStart()
     {
-        RequirePlayer().FastForwardPlayingBMSfileStart();
+        lock (sessionGate)
+        {
+            if (NowPlayingBmsFile != null)
+            {
+                NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.FORWARD;
+                RaisePlaybackStatusPropertiesChanged();
+            }
+            RequirePlayer().FastForwardPlayingBMSfileStart();
+        }
     }
 
     internal void FastForwardEnd()
     {
-        RequirePlayer().FastForwardPlayingBMSfileEnd();
+        lock (sessionGate)
+        {
+            if (NowPlayingBmsFile != null)
+            {
+                NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.FORWARD;
+                RaisePlaybackStatusPropertiesChanged();
+            }
+            RequirePlayer().FastForwardPlayingBMSfileEnd();
+        }
     }
 
     internal void FastBackwardStart()
     {
-        RequirePlayer().FastBackwardPlayingBMSfileStart();
+        lock (sessionGate)
+        {
+            if (NowPlayingBmsFile != null)
+            {
+                NowPlayingBmsFile.status |= BMSFile.BMSFileStatus.BACKWARD;
+                RaisePlaybackStatusPropertiesChanged();
+            }
+            RequirePlayer().FastBackwardPlayingBMSfileStart();
+        }
     }
 
     internal void FastBackwardEnd()
     {
-        RequirePlayer().FastBackwardPlayingBMSfileEnd();
+        lock (sessionGate)
+        {
+            if (NowPlayingBmsFile != null)
+            {
+                NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.BACKWARD;
+                RaisePlaybackStatusPropertiesChanged();
+            }
+            RequirePlayer().FastBackwardPlayingBMSfileEnd();
+        }
     }
 
     internal void ShowInfo()
     {
-        RequirePlayer().ShowInfo();
+        lock (sessionGate)
+        {
+            RequirePlayer().ShowInfo();
+        }
     }
 
     internal void ShowEffect()
     {
-        RequirePlayer().ShowEffect();
+        lock (sessionGate)
+        {
+            RequirePlayer().ShowEffect();
+        }
     }
 
     internal void ChangePlayside()
     {
-        RequirePlayer().ChangePlayside();
+        lock (sessionGate)
+        {
+            RequirePlayer().ChangePlayside();
+        }
     }
 
     internal void IncreaseHighSpeed()
     {
-        RequirePlayer().IncreaseHighSpeed();
+        lock (sessionGate)
+        {
+            RequirePlayer().IncreaseHighSpeed();
+        }
     }
 
     internal void DecreaseHighSpeed()
     {
-        RequirePlayer().DecreaseHighSpeed();
+        lock (sessionGate)
+        {
+            RequirePlayer().DecreaseHighSpeed();
+        }
     }
 
     /// <summary>
@@ -377,6 +613,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
     /// <param name="bmsFile">BMS file whose metadata should be displayed.</param>
     internal void SetBmsPlayerHeader(BMSFile bmsFile)
     {
+        DisplayedBmsPlayerFile = bmsFile;
         bool changed = SetHeaderValue(ref bmsPlayerHeaderTitle, GridRowResolver.GetBmsPlayerDisplayTitle(bmsFile))
             | SetHeaderValue(ref bmsPlayerHeaderSubtitle, GridRowResolver.GetBmsPlayerDisplaySubtitle(bmsFile))
             | SetHeaderValue(ref bmsPlayerHeaderArtist, GridRowResolver.GetBmsPlayerDisplayArtist(bmsFile));
@@ -426,6 +663,40 @@ public sealed class PlaybackPanelViewModel : ViewModel
         RaisePropertyChanged(nameof(PlayerHeaderTitle));
         RaisePropertyChanged(nameof(PlayerHeaderSubtitle));
         RaisePropertyChanged(nameof(PlayerHeaderArtist));
+    }
+
+    private void ClearCurrentPlaybackStatus()
+    {
+        if (NowPlayingBmsFile == null)
+        {
+            return;
+        }
+
+        NowPlayingBmsFile.status &= ~BMSFile.BMSFileStatus.PLAYALL;
+        RaisePlaybackStatusPropertiesChanged();
+    }
+
+    private void RaisePlaybackStatusPropertiesChanged()
+    {
+        RaisePropertyChanged(nameof(IsPlaying));
+        RaisePropertyChanged(nameof(IsPaused));
+        RaisePropertyChanged(nameof(IsStoppedOrPaused));
+    }
+
+    private void DispatchPlaybackEvent(EventHandler handler, long expectedGeneration)
+    {
+        DispatchToUi(() =>
+        {
+            bool isCurrent;
+            lock (sessionGate)
+            {
+                isCurrent = expectedGeneration == playbackGeneration && NowPlayingBmsFile != null;
+            }
+            if (isCurrent)
+            {
+                handler?.Invoke(this, EventArgs.Empty);
+            }
+        });
     }
 
     private void BmsPlayerPropertyChanged(object sender, PropertyChangedEventArgs e)

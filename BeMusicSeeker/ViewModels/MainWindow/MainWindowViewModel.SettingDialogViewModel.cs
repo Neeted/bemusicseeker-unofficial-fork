@@ -4858,7 +4858,7 @@ public partial class MainWindowViewModel
 
         public void AudioPlayerInitTest(bool playSound = true)
         {
-            ownerViewModel.PlayEndBMSFile(closeProcess: true);
+            ownerViewModel.PlaybackPanel.StopPlayback(closeProcess: true);
             BassAudioPlayer.DeviceDescriptor desc = (string.IsNullOrWhiteSpace(ApplicationSettings.PlayerDevice) ? default : new BassAudioPlayer.DeviceDescriptor(ApplicationSettings.PlayerDeviceName, ApplicationSettings.PlayerDevice));
             BassAudioPlayer.Frequency = ApplicationSettings.PlayerSampleRate;
             BassAudioPlayer.Format = ApplicationSettings.PlayerFormat;
@@ -5451,7 +5451,7 @@ public partial class MainWindowViewModel
                     IBMSPlayer replacementPlayer = forceInternalPlayerForStandaloneModeChange
                         ? ownerViewModel.CreateDefaultBmsPlayer()
                         : ownerViewModel.CreateBmsPlayerForSettings();
-                    ownerViewModel.PlayEndBMSFile(closeProcess: false);
+                    ownerViewModel.PlaybackPanel.StopPlayback(closeProcess: false);
                     ownerViewModel.PlaybackPanel.ReplacePlayer(replacementPlayer);
                     ownerViewModel.RaiseInitializationSucceeded();
                 }

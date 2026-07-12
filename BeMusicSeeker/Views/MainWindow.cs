@@ -411,7 +411,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             if (base.DataContext is MainWindowViewModel viewModel)
             {
-                viewModel.NotifyPlayerHeaderSourceChanged();
+                viewModel.PlaybackPanel.NotifyPlayerHeaderSourceChanged();
             }
         });
         gridBMSPlayerImage.Source = panelImage;
@@ -510,8 +510,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.InitializationExceptionRequested += MainWindowViewModel_InitializationExceptionRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
-        viewModel.PlaybackStarting += MainWindowViewModel_PlaybackStarting;
-        viewModel.PlaybackStarted += MainWindowViewModel_PlaybackStarted;
+        viewModel.PlaybackPanel.PlaybackStarting += MainWindowViewModel_PlaybackStarting;
+        viewModel.PlaybackPanel.PlaybackStarted += MainWindowViewModel_PlaybackStarted;
     }
 
     private void UnsubscribeViewModelUiInteractions()
@@ -523,8 +523,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.InitializationExceptionRequested -= MainWindowViewModel_InitializationExceptionRequested;
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
-        subscribedViewModel.PlaybackStarting -= MainWindowViewModel_PlaybackStarting;
-        subscribedViewModel.PlaybackStarted -= MainWindowViewModel_PlaybackStarted;
+        subscribedViewModel.PlaybackPanel.PlaybackStarting -= MainWindowViewModel_PlaybackStarting;
+        subscribedViewModel.PlaybackPanel.PlaybackStarted -= MainWindowViewModel_PlaybackStarted;
         subscribedViewModel = null;
     }
 
@@ -542,7 +542,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (sender is MainWindowViewModel viewModel)
         {
-            viewModel.SetuBMplayPanel(_panel);
+            viewModel.PlaybackPanel.AttachParentHandle(_panel.Handle);
         }
         gridBMSPlayerControlsRotatePanelStateButtonClicked();
     }
@@ -1404,7 +1404,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void customTableView_SelectionChanged(object sender, CustomTableSelectionChangedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel { NowPlayingBMS: null } viewModel)
+        if (base.DataContext is MainWindowViewModel viewModel && viewModel.PlaybackPanel.NowPlayingBmsFile == null)
         {
             if (viewModel.IsPlaylistDetailViewActive)
             {
@@ -1412,7 +1412,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             if (GridRowResolver.TryGetBmsPlayerFile(e.SelectedRow, out BMSFile bmsFile))
             {
-                viewModel.SetBmsPlayerHeader(bmsFile);
+                viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
                 _renewBMSPlayerControlInfo(bmsFile);
             }
         }
@@ -1432,9 +1432,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        viewModel.SetBmsPlayerHeader(bmsFile);
+        viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
         _renewBMSPlayerControlInfo(bmsFile);
-        if ((viewModel.NowPlayingBMS == null || viewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE)) && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
+        if (viewModel.PlaybackPanel.IsStoppedOrPaused && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
         {
             NowPanelState = MainWindowViewModel.PanelState.BMS_PLAYER;
         }
@@ -1781,10 +1781,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     public void _renewBMSPlayerControlInfo()
     {
-        if (base.DataContext is MainWindowViewModel { NowPlayingBMS: not null } mainWindowViewModel)
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel && mainWindowViewModel.PlaybackPanel.NowPlayingBmsFile != null)
         {
-            mainWindowViewModel.SetBmsPlayerHeader(mainWindowViewModel.NowPlayingBMS);
-            _renewBMSPlayerControlInfo(mainWindowViewModel.NowPlayingBMS);
+            mainWindowViewModel.PlaybackPanel.SetBmsPlayerHeader(mainWindowViewModel.PlaybackPanel.NowPlayingBmsFile);
+            _renewBMSPlayerControlInfo(mainWindowViewModel.PlaybackPanel.NowPlayingBmsFile);
         }
     }
 
@@ -9516,7 +9516,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
             await Task.Run(delegate
             {
-                viewModel.RestartPlayingBMSfileStart();
+                viewModel.PlaybackPanel.RestartPlayingBmsFile();
             }).Logging("gridBMSPlayerControlsPreviousButtonSingleClicked");
         }
     }
@@ -9530,7 +9530,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel viewModel)
         {
             e.Handled = true;
-            if ((viewModel.NowPlayingBMS == null || viewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE)) && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
+            if (viewModel.PlaybackPanel.IsStoppedOrPaused && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
             {
                 NowPanelState = MainWindowViewModel.PanelState.BMS_PLAYER;
             }
@@ -9552,7 +9552,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             await Task.Run(delegate
             {
-                viewModel.PlayEndBMSFile(closeProcess: true);
+                viewModel.PlaybackPanel.StopPlayback(closeProcess: true);
             }).Logging("gridBMSPlayerControlsPlayStopButtonClicked");
         }
     }
@@ -9563,7 +9563,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.FastForwardPlayingBMSfileStart();
+                viewModel.PlaybackPanel.FastForwardStart();
             }).Logging("gridBMSPlayerControlsFastForwardButtonClicked");
         }
     }
@@ -9573,7 +9573,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         var viewModel = base.DataContext as MainWindowViewModel;
         await Task.Run(delegate
         {
-            viewModel.FastForwardPlayingBMSfileEnd();
+            viewModel.PlaybackPanel.FastForwardEnd();
         }).Logging("gridBMSPlayerControlsFastForwardButtonReleased");
     }
 
@@ -9587,7 +9587,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.FastForwardPlayingBMSfileEnd();
+                viewModel.PlaybackPanel.FastForwardEnd();
             }).Logging("gridBMSPlayerControlsFastForwardButtonReleased");
         }
     }
@@ -9598,7 +9598,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.FastBackwardPlayingBMSfileStart();
+                viewModel.PlaybackPanel.FastBackwardStart();
             }).Logging("gridBMSPlayerControlsFastBackwardButtonClicked");
         }
     }
@@ -9609,7 +9609,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.FastBackwardPlayingBMSfileEnd();
+                viewModel.PlaybackPanel.FastBackwardEnd();
             }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased");
         }
     }
@@ -9624,7 +9624,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.FastBackwardPlayingBMSfileEnd();
+                viewModel.PlaybackPanel.FastBackwardEnd();
             }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased");
         }
     }
@@ -10041,8 +10041,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel mainWindowViewModel = viewModel;
-        if (mainWindowViewModel != null && mainWindowViewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PLAY))
+        if (viewModel.PlaybackPanel.IsPlaying)
         {
             await Task.Run(delegate
             {
@@ -10057,8 +10056,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel mainWindowViewModel = viewModel;
-        if (mainWindowViewModel != null && mainWindowViewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE))
+        if (viewModel.PlaybackPanel.IsPaused)
         {
             await Task.Run(delegate
             {
@@ -10077,8 +10075,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel mainWindowViewModel = viewModel;
-        if (mainWindowViewModel != null && mainWindowViewModel.NowPlayingBMS.status.HasFlag(BMSFile.BMSFileStatus.PAUSE))
+        if (viewModel.PlaybackPanel.IsPaused)
         {
             await Task.Run(delegate
             {

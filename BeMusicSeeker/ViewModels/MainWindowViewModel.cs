@@ -96,10 +96,6 @@ public partial class MainWindowViewModel : ViewModel
 
     internal event EventHandler InitializationSucceeded;
 
-    internal event EventHandler PlaybackStarting;
-
-    internal event EventHandler PlaybackStarted;
-
     /// <summary>
     /// Gets status-bar progress presentation state owned outside the shell ViewModel while legacy root bindings remain in place.
     /// </summary>
@@ -654,12 +650,6 @@ public partial class MainWindowViewModel : ViewModel
 
 
     private object playHistoryViewRequestLock => playHistoryPresentationState.SyncRoot;
-
-    private BeMusicSeeker.Models.BMSFile _NowPlayingBMS;
-
-    private BeMusicSeeker.Models.BMSFile _DisplayedBmsPlayerFile;
-
-    private int nowPlayingChartRowsViewIndex = -1;
 
     private Uri _BrowserSource;
 
@@ -4643,79 +4633,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    /// <summary>
-    /// 現在プレビュー再生（または再生準備）中である BMS ファイルを表す状態プロパティです。
-    /// BMSPlayer からのフィードバックやプレビュー指示に応じて操作され、UI上でどの曲が再生中かの表示管理に使われます。
-    /// </summary>
-    public BeMusicSeeker.Models.BMSFile NowPlayingBMS
-    {
-        get
-        {
-            return _NowPlayingBMS;
-        }
-        set
-        {
-            if (_NowPlayingBMS != value)
-            {
-                _NowPlayingBMS = value;
-                RaisePropertyChanged("NowPlayingBMS");
-                if (value != null)
-                {
-                    SetBmsPlayerHeader(value);
-                }
-            }
-        }
-    }
-
-    public BeMusicSeeker.Models.BMSFile DisplayedBmsPlayerFile
-    {
-        get
-        {
-            return _DisplayedBmsPlayerFile;
-        }
-        private set
-        {
-            if (_DisplayedBmsPlayerFile != value)
-            {
-                _DisplayedBmsPlayerFile = value;
-                RaisePropertyChanged("DisplayedBmsPlayerFile");
-            }
-        }
-    }
-
-    public string PlayerHeaderTitle => PlaybackPanel.PlayerHeaderTitle;
-
-    public string PlayerHeaderSubtitle => PlaybackPanel.PlayerHeaderSubtitle;
-
-    public string PlayerHeaderArtist => PlaybackPanel.PlayerHeaderArtist;
-
-    internal string BmsPlayerHeaderTitle => PlaybackPanel.BmsPlayerHeaderTitle;
-
-    internal string BmsPlayerHeaderSubtitle => PlaybackPanel.BmsPlayerHeaderSubtitle;
-
-    internal string BmsPlayerHeaderArtist => PlaybackPanel.BmsPlayerHeaderArtist;
-
-    internal string MoviePlayerHeaderTitle => PlaybackPanel.MoviePlayerHeaderTitle;
-
-    internal string MoviePlayerHeaderSubtitle => PlaybackPanel.MoviePlayerHeaderSubtitle;
-
-    internal string MoviePlayerHeaderArtist => PlaybackPanel.MoviePlayerHeaderArtist;
-
-    internal void SetBmsPlayerHeader(BeMusicSeeker.Models.BMSFile bmsFile)
-    {
-        DisplayedBmsPlayerFile = bmsFile;
-        PlaybackPanel.SetBmsPlayerHeader(bmsFile);
-    }
-
-    internal void SetMoviePlayerHeader(object row)
-    {
-        PlaybackPanel.SetMoviePlayerHeader(row);
-    }
-
-    internal void NotifyPlayerHeaderSourceChanged()
-    {
-        PlaybackPanel.NotifyPlayerHeaderSourceChanged();
-    }
     public Uri BrowserSource
     {
         get
@@ -6895,16 +6812,6 @@ public partial class MainWindowViewModel : ViewModel
         RaiseUiInteractionOnUiThread(InitializationSucceeded, nameof(InitializationSucceeded));
     }
 
-    private void RaisePlaybackStarting()
-    {
-        RaiseUiInteractionOnUiThread(PlaybackStarting, nameof(PlaybackStarting));
-    }
-
-    private void RaisePlaybackStarted()
-    {
-        RaiseUiInteractionOnUiThread(PlaybackStarted, nameof(PlaybackStarted));
-    }
-
     private static void LogUiInteractionSkippedOnShutdown(string interactionName)
     {
         NLogWrapper.FileLogger?.Warn("ui_interaction skipped reason=dispatcher_shutdown name=" + (interactionName ?? string.Empty));
@@ -7975,16 +7882,6 @@ public partial class MainWindowViewModel : ViewModel
             StartupProgressPhase.InstallableMaintenanceDeferredDone);
     }
 
-    public void SetuBMplayPanel(Panel panel)
-    {
-        if (panel == null)
-        {
-            throw new ArgumentNullException(nameof(panel));
-        }
-
-        PlaybackPanel.AttachParentHandle(panel.Handle);
-    }
-
     public void CloseProcess()
     {
         if (!IsShutdownRequested)
@@ -8083,24 +7980,15 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        nowPlayingChartRowsViewIndex = indexChartRowsView;
         if (bmsFile == null || string.IsNullOrWhiteSpace(bmsFile.path) || !LongPathFileSystem.FileExists(bmsFile.path))
         {
-            if (NowPlayingBMS != null)
-            {
-                NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
-            }
-            NowPlayingBMS = null;
+            PlaybackPanel.SkipUnavailablePlaybackCandidate(indexChartRowsView);
             PlayNextBMSfile();
             return;
         }
-        if (NowPlayingBMS != null)
-        {
-            NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
-        }
-        NowPlayingBMS = bmsFile;
+        long playbackGeneration = PlaybackPanel.BeginPlayback(bmsFile, indexChartRowsView);
+        bool playbackStartAccepted = true;
         MainChartList.SelectedIndex = indexChartRowsView;
-        RaisePlaybackStarting();
         playbackChart ??= ChartFileProjection.FromBmsFile(
             bmsFile,
             includeResourceReferences: false);
@@ -8160,17 +8048,14 @@ public partial class MainWindowViewModel : ViewModel
                 using (new temporarilyCopyFiles(list, installDestination, 2000))
                 {
                     string bmsFilePath = Path.Combine(installDestination, Path.GetFileName(bmsFile.path));
-                    bmsFile.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.LOADING;
                     try
                     {
-                        PlaybackPanel.PlayStart(bmsFilePath, PlayNextBMSfile);
-                        bmsFile.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.LOADING;
-                        bmsFile.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY;
+                        playbackStartAccepted = PlaybackPanel.TryPlayStart(playbackGeneration, bmsFilePath, PlayNextBMSfile);
                     }
                     catch (Exception ex)
                     {
                         ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_play + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-                        PlayEndBMSFile();
+                        PlaybackPanel.StopPlayback();
                         return;
                     }
                 }
@@ -8187,22 +8072,26 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 bmsFile.path = Path.Combine(Path.GetDirectoryName(bmsFile.path), fileName);
             }
+            if (!playbackStartAccepted)
+            {
+                return;
+            }
         }
         else
         {
-            bmsFile.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.LOADING;
             try
             {
-                PlaybackPanel.PlayStart(bmsFile.path, PlayNextBMSfile);
-                bmsFile.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.LOADING;
-                bmsFile.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY;
+                if (!PlaybackPanel.TryPlayStart(playbackGeneration, bmsFile.path, PlayNextBMSfile))
+                {
+                    return;
+                }
             }
             catch (InvalidDataException value)
             {
                 NLogWrapper.TraceLogger?.Warn(value);
                 if (ApplicationSettings.RepeatPlayMode && (ApplicationSettings.SinglePlayMode || indexChartRowsView == 0))
                 {
-                    PlayEndBMSFile();
+                    PlaybackPanel.StopPlayback();
                     return;
                 }
                 PlayNextBMSfile();
@@ -8210,11 +8099,11 @@ public partial class MainWindowViewModel : ViewModel
             catch (Exception ex2)
             {
                 ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_play + Environment.NewLine + ex2.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-                PlayEndBMSFile();
+                PlaybackPanel.StopPlayback();
                 return;
             }
         }
-        RaisePlaybackStarted();
+        PlaybackPanel.NotifyPlaybackStarted(playbackGeneration);
     }
 
     /// <summary>
@@ -8226,23 +8115,13 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            if (!forceNewPlay && NowPlayingBMS != null)
+            if (!forceNewPlay && PlaybackPanel.NowPlayingBmsFile != null)
             {
-                if (NowPlayingBMS.status.HasFlag(BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY))
-                {
-                    NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
-                    NowPlayingBMS.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.PAUSE;
-                }
-                else if (NowPlayingBMS.status.HasFlag(BeMusicSeeker.Models.BMSFile.BMSFileStatus.PAUSE))
-                {
-                    NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
-                    NowPlayingBMS.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY;
-                }
-                PlaybackPanel.PausePlayingBmsFileToggle();
+                PlaybackPanel.TogglePause();
             }
             else
             {
-                PlayEndBMSFile();
+                PlaybackPanel.StopPlayback();
                 if (MainChartList.SelectedIndex >= 0 && MainChartList.SelectedIndex < MainChartList.Rows.Count)
                 {
                     PlayStartBmsFile(MainChartList.SelectedIndex);
@@ -8255,23 +8134,23 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            int num = nowPlayingChartRowsViewIndex;
+            int num = PlaybackPanel.NowPlayingRowIndex;
             if (num < 0 || num >= MainChartList.Rows.Count)
             {
-                PlayEndBMSFile();
+                PlaybackPanel.StopPlayback();
                 return;
             }
             if (sender != null && ApplicationSettings.SinglePlayMode)
             {
                 if (!ApplicationSettings.RepeatPlayMode)
                 {
-                    PlayEndBMSFile();
+                    PlaybackPanel.StopPlayback();
                     return;
                 }
             }
             else
             {
-                string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && LongPathFileSystem.FileExists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
+                string text = (!string.IsNullOrWhiteSpace(PlaybackPanel.NowPlayingBmsFile?.path) && LongPathFileSystem.FileExists(PlaybackPanel.NowPlayingBmsFile.path)) ? Path.GetDirectoryName(PlaybackPanel.NowPlayingBmsFile.path) : num.ToString();
                 num++;
                 if (ApplicationSettings.RepeatPlayMode && num == MainChartList.Rows.Count)
                 {
@@ -8281,7 +8160,7 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     object candidateRow = MainChartList.Rows[num];
                     GridRowResolver.TryGetBmsPlayerFile(candidateRow, out BeMusicSeeker.Models.BMSFile bMSFile);
-                    if (num == nowPlayingChartRowsViewIndex)
+                    if (num == PlaybackPanel.NowPlayingRowIndex)
                     {
                         break;
                     }
@@ -8300,12 +8179,12 @@ public partial class MainWindowViewModel : ViewModel
             }
             if (num < MainChartList.Rows.Count)
             {
-                PlayEndBMSFile();
+                PlaybackPanel.StopPlayback();
                 PlayStartBmsFile(num);
             }
             else if (sender != null)
             {
-                PlayEndBMSFile();
+                PlaybackPanel.StopPlayback();
             }
         }
     }
@@ -8314,23 +8193,23 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            int num = nowPlayingChartRowsViewIndex;
+            int num = PlaybackPanel.NowPlayingRowIndex;
             if (num < 0 || num >= MainChartList.Rows.Count)
             {
-                PlayEndBMSFile();
+                PlaybackPanel.StopPlayback();
                 return;
             }
             if (sender != null && ApplicationSettings.SinglePlayMode)
             {
                 if (!ApplicationSettings.RepeatPlayMode)
                 {
-                    PlayEndBMSFile();
+                    PlaybackPanel.StopPlayback();
                     return;
                 }
             }
             else
             {
-                string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && LongPathFileSystem.FileExists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
+                string text = (!string.IsNullOrWhiteSpace(PlaybackPanel.NowPlayingBmsFile?.path) && LongPathFileSystem.FileExists(PlaybackPanel.NowPlayingBmsFile.path)) ? Path.GetDirectoryName(PlaybackPanel.NowPlayingBmsFile.path) : num.ToString();
                 num--;
                 if (ApplicationSettings.RepeatPlayMode && num == -1)
                 {
@@ -8340,7 +8219,7 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     object candidateRow = MainChartList.Rows[num];
                     GridRowResolver.TryGetBmsPlayerFile(candidateRow, out BeMusicSeeker.Models.BMSFile bMSFile);
-                    if (num == nowPlayingChartRowsViewIndex)
+                    if (num == PlaybackPanel.NowPlayingRowIndex)
                     {
                         break;
                     }
@@ -8359,63 +8238,46 @@ public partial class MainWindowViewModel : ViewModel
             }
             if (num >= 0)
             {
-                PlayEndBMSFile();
+                PlaybackPanel.StopPlayback();
                 PlayStartBmsFile(num);
             }
             else if (sender != null)
             {
-                PlayEndBMSFile();
+                PlaybackPanel.StopPlayback();
             }
-        }
-    }
-
-    public void PlayEndBMSFile(bool closeProcess = false)
-    {
-        lock (lockThis)
-        {
-            if (closeProcess)
-            {
-                PlaybackPanel.CloseProcess();
-            }
-            if (NowPlayingBMS != null)
-            {
-                NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
-                NowPlayingBMS = null;
-            }
-            nowPlayingChartRowsViewIndex = -1;
         }
     }
 
     private void stopPlayingChartFiles(IEnumerable<ChartFile> charts)
     {
-        if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path))
+        if (!string.IsNullOrWhiteSpace(PlaybackPanel.NowPlayingBmsFile?.path))
         {
-            string playingDirectory = Path.GetDirectoryName(NowPlayingBMS.path);
+            string playingDirectory = Path.GetDirectoryName(PlaybackPanel.NowPlayingBmsFile.path);
             if ((charts ?? []).Any(chart => IsChartDirectoryUnder(playingDirectory, chart?.Path)))
             {
-                PlayEndBMSFile(closeProcess: true);
+                PlaybackPanel.StopPlayback(closeProcess: true);
             }
         }
     }
 
     private void stopPlayingLibraryCharts(IEnumerable<LibraryChartRef> charts)
     {
-        if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path))
+        if (!string.IsNullOrWhiteSpace(PlaybackPanel.NowPlayingBmsFile?.path))
         {
-            string playingDirectory = Path.GetDirectoryName(NowPlayingBMS.path);
+            string playingDirectory = Path.GetDirectoryName(PlaybackPanel.NowPlayingBmsFile.path);
             if ((charts ?? []).Any(chart => IsChartDirectoryUnder(playingDirectory, chart?.Path)))
             {
-                PlayEndBMSFile(closeProcess: true);
+                PlaybackPanel.StopPlayback(closeProcess: true);
             }
         }
     }
 
     private void stopPlayingChartDirectories(IEnumerable<string> directories)
     {
-        if (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path)
-            && (directories ?? []).Any(directory => IsChartDirectorySameOrUnder(directory, NowPlayingBMS.path)))
+        if (!string.IsNullOrWhiteSpace(PlaybackPanel.NowPlayingBmsFile?.path)
+            && (directories ?? []).Any(directory => IsChartDirectorySameOrUnder(directory, PlaybackPanel.NowPlayingBmsFile.path)))
         {
-            PlayEndBMSFile(closeProcess: true);
+            PlaybackPanel.StopPlayback(closeProcess: true);
         }
     }
 
@@ -8461,50 +8323,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             return directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         }
-    }
-
-    internal void RestartPlayingBMSfileStart()
-    {
-        lock (lockThis)
-        {
-            PlaybackPanel.RestartPlayingBmsFile();
-        }
-    }
-
-    internal void FastForwardPlayingBMSfileStart()
-    {
-        if (NowPlayingBMS != null)
-        {
-            NowPlayingBMS.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.FORWARD;
-        }
-        PlaybackPanel.FastForwardStart();
-    }
-
-    internal void FastForwardPlayingBMSfileEnd()
-    {
-        if (NowPlayingBMS != null)
-        {
-            NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.FORWARD;
-        }
-        PlaybackPanel.FastForwardEnd();
-    }
-
-    internal void FastBackwardPlayingBMSfileStart()
-    {
-        if (NowPlayingBMS != null)
-        {
-            NowPlayingBMS.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.BACKWARD;
-        }
-        PlaybackPanel.FastBackwardStart();
-    }
-
-    internal void FastBackwardPlayingBMSfileEnd()
-    {
-        if (NowPlayingBMS != null)
-        {
-            NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.BACKWARD;
-        }
-        PlaybackPanel.FastBackwardEnd();
     }
 
     internal void uBMplayShowInfo()
@@ -15961,7 +15779,7 @@ public partial class MainWindowViewModel : ViewModel
             stopPlayback: () =>
             {
                 var playEndStopwatch = Stopwatch.StartNew();
-                PlayEndBMSFile(closeProcess: true);
+                PlaybackPanel.StopPlayback(closeProcess: true);
                 LogDuplicateMergePerformance("duplicate_merge_vm play_end_done op=" + operationId + " elapsedMs=" + playEndStopwatch.ElapsedMilliseconds);
             },
             beforeAction: () => BeginDuplicateRefreshPriorityWindow("merge_folder"),
@@ -16164,7 +15982,7 @@ public partial class MainWindowViewModel : ViewModel
             progressStarted = true;
             try
             {
-                PlayEndBMSFile(closeProcess: true);
+                PlaybackPanel.StopPlayback(closeProcess: true);
                 if (files?.AutoRenameAllChartFolders(parentDir, UpdateFolderAutoRenameProgressStatus) == true)
                 {
                     ApplyLatestNormalLibraryRefreshNotification();
@@ -16735,7 +16553,7 @@ public partial class MainWindowViewModel : ViewModel
             throw new DirectoryNotFoundException("Directory " + saveDir + " not found");
         }
         bmsFiles = bmsFiles.Materialize();
-        PlayEndBMSFile(closeProcess: true);
+        PlaybackPanel.StopPlayback(closeProcess: true);
         BassAudioPlayer.Frequency = ApplicationSettings.EncoderSampleRate;
         BassAudioPlayer.Format = ApplicationSettings.EncoderFormat;
         BassAudioWriter.EncoderDirectory = ApplicationSettings.EncoderExeDir;

@@ -60,7 +60,7 @@ internal static class SourceTextTestHelper
         ];
         string logicalMainWindowViewModelSource = InsertSourceAfterMarker(
             File.ReadAllText(mainWindowViewModelPath),
-            "    internal event EventHandler PlaybackStarted;",
+            "    internal event EventHandler InitializationSucceeded;",
             string.Join(
                 Environment.NewLine,
                 nestedSourcePaths.Select(ExtractMainWindowViewModelPartialBody)));

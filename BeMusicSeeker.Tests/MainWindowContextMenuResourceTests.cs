@@ -782,7 +782,7 @@ public sealed class MainWindowContextMenuResourceTests
             GetAttributeValue(element, "Text").IndexOf("PlaybackPanel.PlayerVolume", StringComparison.Ordinal) >= 0));
         Assert.IsTrue(document.Descendants().Any(element =>
             GetAttributeValue(element, "Value").IndexOf("PlaybackPanel.PlayerVolume", StringComparison.Ordinal) >= 0));
-        Assert.AreEqual("{Binding NowPlayingBMS.status, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}", GetAttributeValue(playButton, "Content"));
+        Assert.AreEqual("{Binding PlaybackPanel.NowPlayingBmsFile.status, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}", GetAttributeValue(playButton, "Content"));
 
         Assert.AreEqual("{Binding PlayerHeaderArtist}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsArtist"), "Text"));
         Assert.AreEqual("{Binding PlayerHeaderTitle}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsTitle"), "Text"));
@@ -1394,7 +1394,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialize = ExtractBetween(
             viewModelCode,
             "public async void Initialize()",
-            "public void SetuBMplayPanel(Panel panel)");
+            "public void CloseProcess()");
         string validationFailure = ExtractBetween(
             initialize,
             "if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))",
@@ -1451,7 +1451,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialize = ExtractBetween(
             viewModelCode,
             "public async void Initialize()",
-            "public void SetuBMplayPanel(Panel panel)");
+            "public void CloseProcess()");
         string endSuppression = ExtractBetween(
             viewModelCode,
             "private void EndUiUpdateSuppression()",
