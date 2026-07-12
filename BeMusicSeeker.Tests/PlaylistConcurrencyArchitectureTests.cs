@@ -115,6 +115,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(librarySource, "CurrentOptionsSnapshot");
         StringAssert.Contains(librarySource, "options.LR2CustomFolderAdditionalOutputBaseDirs");
         StringAssert.Contains(viewModelSource, "customFolderOutputSettingsProvider()");
+        Assert.IsFalse(playlistSource.Contains("Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent"));
         Assert.IsFalse(viewModelSource.Contains("return BMSPlaylist.GetCustomFolderOutputDirectory(bmsTable);"));
     }
 

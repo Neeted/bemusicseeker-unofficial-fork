@@ -3354,8 +3354,11 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     /// <param name="bmsTable">対象プレイリスト。</param>
     /// <returns>その他系フォルダ定義の一覧。</returns>
-    private List<string> makeCustomFolderTextsOtherFolder(BMSTable bmsTable)
+    private List<string> makeCustomFolderTextsOtherFolder(
+        BMSTable bmsTable,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.playcount);
         SQLiteTable<LR2ScoreDB.score>.GetColumnName(e => e.playcount);
         var source = new Dictionary<string, LR2SongDBExtended.playlist.CustomFolderSortType>
@@ -3374,7 +3377,7 @@ public partial class BMSPlaylist : NotificationObject
         string columnNamePlaylistId = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id);
         string columnNameIsRemoved = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.is_removed);
         List<string> list = [.. source.Select(f => getCustomFolderText(((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? "song.folder in (SELECT folder FROM song WHERE hash in (" : "song.hash in (") + "SELECT " + columnNameMD5 + " FROM " + tblNameEntry + " WHERE " + columnNamePlaylistId + " = " + bmsTable.playlist_id + " AND " + columnNameIsRemoved + " = 0)" + ((bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder) ? ")" : " ") + "ORDER BY " + makeCustomFolderCmdSort(f.Value, asc: false, bmsTable.playlist_id), bmsTable.name, f.Key, 40))];
-        if (Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent)
+        if (settings.EnableDownloadLr2IrScoreAndDetectUnsent)
         {
             string tableName = SQLiteTable<LR2SongDBExtended.ir_score>.GetTableName();
             string columnName = SQLiteTable<LR2SongDBExtended.ir_score>.GetColumnName(e => e.hash);
@@ -4032,7 +4035,8 @@ public partial class BMSPlaylist : NotificationObject
     /// <exception cref="ArgumentException">出力先に必要な情報が不足している場合。</exception>
     public void ReOutputCustomFolder(BMSTable bmsTable)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (!settings.OperationModeLR2DB)
         {
             throw new InvalidOperationException("Properties.Settings.Default.OperationModeLR2DB is not true");
         }
@@ -4048,7 +4052,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             if (BMSTables.Contains(bmsTable))
             {
-                reOutputCustomFolderFiles(bmsTable);
+                reOutputCustomFolderFiles(bmsTable, settings);
             }
         }
     }
@@ -4595,7 +4599,7 @@ public partial class BMSPlaylist : NotificationObject
             if (!string.IsNullOrWhiteSpace(rowPath))
             {
                 result.Add(rowPath);
-                string databasePath = ResolveCustomFolderDatabasePath(projection.Table, rowPath);
+                string databasePath = ResolveCustomFolderDatabasePath(projection.Table, rowPath, projection.Settings);
                 if (!string.IsNullOrWhiteSpace(databasePath))
                 {
                     result.Add(databasePath);
@@ -4610,7 +4614,10 @@ public partial class BMSPlaylist : NotificationObject
         return projection?.OutputRowScopePaths ?? [];
     }
 
-    private static IReadOnlyCollection<string> CreateCustomFolderOutputRowScopePaths(BMSTable table, string outputDirectory)
+    private static IReadOnlyCollection<string> CreateCustomFolderOutputRowScopePaths(
+        BMSTable table,
+        string outputDirectory,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         if (string.IsNullOrWhiteSpace(outputDirectory))
         {
@@ -4623,7 +4630,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             result.Add(physicalPath);
         }
-        string databasePath = ResolveCustomFolderDatabasePath(table, physicalPath ?? outputDirectory);
+        string databasePath = ResolveCustomFolderDatabasePath(table, physicalPath ?? outputDirectory, settings);
         if (!string.IsNullOrWhiteSpace(databasePath))
         {
             result.Add(databasePath);
@@ -4641,7 +4648,7 @@ public partial class BMSPlaylist : NotificationObject
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (string protectedDirectory in projection.ProtectedOutputDirectories)
         {
-            foreach (string scopePath in CreateCustomFolderOutputRowScopePaths(projection.Table, protectedDirectory))
+            foreach (string scopePath in CreateCustomFolderOutputRowScopePaths(projection.Table, protectedDirectory, projection.Settings))
             {
                 if (!string.IsNullOrWhiteSpace(scopePath))
                 {
@@ -4989,7 +4996,7 @@ public partial class BMSPlaylist : NotificationObject
         }
 
         IReadOnlyCollection<string> directoryRowGenerationScopes =
-            CreateCustomFolderDirectoryRowGenerationScopes(projection.OutputDirectory, projection.Table);
+            CreateCustomFolderDirectoryRowGenerationScopes(projection.OutputDirectory, projection.Table, projection.Settings);
         return Lr2FolderFileDbSyncService.CreateParentDirectoryMetadataTargets(
             CreateCustomFolderFileSyncItemsForMetadata(projection),
             directoryRowGenerationScopes);
@@ -5007,7 +5014,7 @@ public partial class BMSPlaylist : NotificationObject
                     FilePath = file.FilePath,
                     DatabasePath = file.DatabasePath
                 };
-                ApplyCustomFolderSourceClassification(item, projection.Table);
+                ApplyCustomFolderSourceClassification(item, projection.Table, projection.Settings);
                 return item;
             })];
     }
@@ -5040,7 +5047,7 @@ public partial class BMSPlaylist : NotificationObject
             foreach (string directory in CreateCustomFolderExpectedDirectoryMetadataTargets(projection))
             {
                 string rowPath = Lr2FolderPath.ToFolderPath(directory);
-                rowPath = ResolveCustomFolderDatabasePath(projection.Table, rowPath ?? directory);
+                rowPath = ResolveCustomFolderDatabasePath(projection.Table, rowPath ?? directory, projection.Settings);
                 string normalizedRowPath = NormalizeCustomFolderRowPath(rowPath);
                 if (string.IsNullOrWhiteSpace(normalizedRowPath)
                     || rowsByPath?.TryGetValue(normalizedRowPath, out LR2SongDB.folder directoryRow) != true)
@@ -5162,7 +5169,7 @@ public partial class BMSPlaylist : NotificationObject
             FilePath = file.FilePath,
             DatabasePath = file.DatabasePath
         };
-        ApplyCustomFolderSourceClassification(item, projection.Table);
+        ApplyCustomFolderSourceClassification(item, projection.Table, projection.Settings);
         bool created = Lr2FolderFileProjection.TryCreateFolderRow(new Lr2FolderFileRowRequest
         {
             FilePath = item.FilePath,
@@ -5206,13 +5213,16 @@ public partial class BMSPlaylist : NotificationObject
         return Lr2FolderFileProjection.NormalizeDatabasePath(path);
     }
 
-    private static string ResolveCustomFolderDatabasePath(BMSTable table, string filePath)
+    private static string ResolveCustomFolderDatabasePath(
+        BMSTable table,
+        string filePath,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         var item = new Lr2FolderFileSyncItem
         {
             FilePath = filePath
         };
-        ApplyCustomFolderSourceClassification(item, table);
+        ApplyCustomFolderSourceClassification(item, table, settings);
         return NormalizeCustomFolderRowPath(item.DatabasePath ?? item.FilePath);
     }
 
@@ -5233,8 +5243,10 @@ public partial class BMSPlaylist : NotificationObject
         bool throwOnProjectionFailure,
         bool buildPreparedDataSurface,
         bool yieldBetweenTables,
-        Action<int, int, string> progressCallback = null)
+        Action<int, int, string> progressCallback = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         tablesSnapshot ??= [];
         int progressTotalCount = GetCustomFolderBatchProgressTotalCount(tablesSnapshot.Count, progressCallback);
         int reOutputCount = 0;
@@ -5278,7 +5290,7 @@ public partial class BMSPlaylist : NotificationObject
                 EnsurePlaylistEntriesLoaded(table, "ReOutputCustomFoldersForTablesCoreAsync");
                 using (table.ReaderWriterLock.GetReaderGuard())
                 {
-                    CustomFolderOutputProjection projection = CreateCustomFolderOutputProjection(table);
+                    CustomFolderOutputProjection projection = CreateCustomFolderOutputProjection(table, settings: settings);
                     if (forceWriteAllFiles)
                     {
                         MarkAllCustomFolderOutputFilesForWrite(projection);
@@ -5334,7 +5346,8 @@ public partial class BMSPlaylist : NotificationObject
         string operation,
         bool buildPreparedDataSurface,
         bool yieldBetweenTables,
-        Action<int, int, string> progressCallback = null)
+        Action<int, int, string> progressCallback = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         return await ReOutputCustomFoldersForPlansCoreAsync(
             tablePlansSnapshot,
@@ -5342,7 +5355,8 @@ public partial class BMSPlaylist : NotificationObject
             operation,
             buildPreparedDataSurface,
             yieldBetweenTables,
-            progressCallback);
+            progressCallback,
+            settings);
     }
 
     private async Task<CustomFolderBatchOutputResult> ReOutputCustomFoldersForPlansCoreAsync(
@@ -5351,8 +5365,10 @@ public partial class BMSPlaylist : NotificationObject
         string operation,
         bool buildPreparedDataSurface,
         bool yieldBetweenTables,
-        Action<int, int, string> progressCallback = null)
+        Action<int, int, string> progressCallback = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         tablePlansSnapshot ??= [];
         int progressTotalCount = GetCustomFolderBatchProgressTotalCount(tablePlansSnapshot.Count, progressCallback);
         int reOutputCount = 0;
@@ -5397,7 +5413,7 @@ public partial class BMSPlaylist : NotificationObject
                     EnsurePlaylistEntriesLoaded(table, "ReOutputAllCustomFoldersForLr2SongDbSync");
                     using (table.ReaderWriterLock.GetReaderGuard())
                     {
-                        projection = CreateCustomFolderOutputProjection(table);
+                        projection = CreateCustomFolderOutputProjection(table, settings: settings);
                     }
                 }
                 catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
@@ -5620,6 +5636,8 @@ public partial class BMSPlaylist : NotificationObject
     private sealed class CustomFolderOutputProjection
     {
         public BMSTable Table { get; set; }
+
+        public CustomFolderOutputSettingsSnapshot Settings { get; set; }
 
         public string OutputDirectory { get; set; }
 
@@ -5896,6 +5914,10 @@ public partial class BMSPlaylist : NotificationObject
 
         try
         {
+            CustomFolderOutputSettingsSnapshot settings = projectionList
+                .Select(projection => projection.Settings)
+                .FirstOrDefault(snapshot => snapshot != null)
+                ?? CustomFolderOutputSettingsSnapshot.CreateCurrent();
             using var db = new LR2SongDBExtended(lr2SongDBPath);
             EnsureCustomFolderOutputStatusTable(db);
             string savepoint = db.SaveTransactionPoint();
@@ -5925,7 +5947,7 @@ public partial class BMSPlaylist : NotificationObject
                         (int)table.entry_type,
                         (int)table.folder_sort_key,
                         table.folder_sort_ascending ? 1 : 0,
-                        Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent ? 1 : 0,
+                        settings.EnableDownloadLr2IrScoreAndDetectUnsent ? 1 : 0,
                         table.header_sha256 ?? string.Empty,
                         table.data_sha256 ?? string.Empty,
                         table.last_update.Ticks,
@@ -5975,13 +5997,15 @@ public partial class BMSPlaylist : NotificationObject
     private static bool IsCustomFolderOutputStatusConfigCurrent(
         BMSTable table,
         string outputDirectory,
-        CustomFolderOutputStatusRow status)
+        CustomFolderOutputStatusRow status,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         if (table?.playlist_id == null || status == null)
         {
             return false;
         }
 
+        settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
         return status.PlaylistId == table.playlist_id.Value
             && string.Equals(status.OutputDirectory, NormalizeCustomFolderStatusPath(outputDirectory), StringComparison.OrdinalIgnoreCase)
             && status.IsRootFolder == (table.is_root_folder ? 1 : 0)
@@ -5989,7 +6013,7 @@ public partial class BMSPlaylist : NotificationObject
             && status.EntryType == (int)table.entry_type
             && status.FolderSortKey == (int)table.folder_sort_key
             && status.FolderSortAscending == (table.folder_sort_ascending ? 1 : 0)
-            && status.EnableUnsent == (Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent ? 1 : 0)
+            && status.EnableUnsent == (settings.EnableDownloadLr2IrScoreAndDetectUnsent ? 1 : 0)
             && string.Equals(status.HeaderSha256 ?? string.Empty, table.header_sha256 ?? string.Empty, StringComparison.Ordinal)
             && string.Equals(status.DataSha256 ?? string.Empty, table.data_sha256 ?? string.Empty, StringComparison.Ordinal)
             && status.LastUpdateTicks == table.last_update.Ticks;
@@ -6037,6 +6061,8 @@ public partial class BMSPlaylist : NotificationObject
 
     private sealed class CustomFolderBatchMaterializationResult
     {
+        public CustomFolderOutputSettingsSnapshot Settings { get; set; }
+
         public List<string> OutputDirectories { get; } = [];
 
         public List<string> OutputRowScopeDirectories { get; } = [];
@@ -6063,15 +6089,19 @@ public partial class BMSPlaylist : NotificationObject
         public List<string> EmptyOutputDirectories { get; } = [];
     }
 
-    private CustomFolderOutputProjection CreateCustomFolderOutputLayoutProjection(BMSTable table, string outputDirectoryOverride = null)
+    private CustomFolderOutputProjection CreateCustomFolderOutputLayoutProjection(
+        BMSTable table,
+        string outputDirectoryOverride = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         string outputDirectory = string.IsNullOrWhiteSpace(outputDirectoryOverride)
-            ? ResolveCustomFolderOutputDirectory(table)
+            ? ResolveCustomFolderOutputDirectory(table, settings)
             : outputDirectoryOverride;
         IReadOnlyList<string> relativeFilePaths = Lr2ManagedCustomFolderOutputLayout.CreateRelativeFilePaths(
             table,
             Lr2ManagedCustomFolderOutputLayout.CreateCountsFromLoadedTable(table),
-            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent);
+            settings.EnableDownloadLr2IrScoreAndDetectUnsent);
         var files = new List<CustomFolderOutputFileProjection>();
         foreach (string relativeFilePath in relativeFilePaths ?? [])
         {
@@ -6088,25 +6118,31 @@ public partial class BMSPlaylist : NotificationObject
             {
                 RelativeDirectory = relativeDirectory,
                 FilePath = filePath,
-                DatabasePath = ResolveCustomFolderDatabasePath(table, filePath)
+                DatabasePath = ResolveCustomFolderDatabasePath(table, filePath, settings)
             });
         }
 
         return new CustomFolderOutputProjection
         {
             Table = table,
+            Settings = settings,
             OutputDirectory = outputDirectory,
-            OutputRowScopePaths = CreateCustomFolderOutputRowScopePaths(table, outputDirectory),
+            OutputRowScopePaths = CreateCustomFolderOutputRowScopePaths(table, outputDirectory, settings),
             Files = files
         };
     }
 
-    private CustomFolderOutputProjection CreateCustomFolderOutputProjection(BMSTable table, bool includeText = true, string outputDirectoryOverride = null)
+    private CustomFolderOutputProjection CreateCustomFolderOutputProjection(
+        BMSTable table,
+        bool includeText = true,
+        string outputDirectoryOverride = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         string outputDirectory = string.IsNullOrWhiteSpace(outputDirectoryOverride)
-            ? ResolveCustomFolderOutputDirectory(table)
+            ? ResolveCustomFolderOutputDirectory(table, settings)
             : outputDirectoryOverride;
-        IReadOnlyList<CustomFolderDefinition> definitions = OrderCustomFolderDefinitionsForOutput(BuildCustomFolderDefinitions(table));
+        IReadOnlyList<CustomFolderDefinition> definitions = OrderCustomFolderDefinitionsForOutput(BuildCustomFolderDefinitions(table, settings));
         var files = new List<CustomFolderOutputFileProjection>();
         var nextFileIndexByDirectory = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         foreach (CustomFolderDefinition definition in definitions)
@@ -6122,22 +6158,29 @@ public partial class BMSPlaylist : NotificationObject
                 Text = includeText ? definition.Text ?? string.Empty : null,
                 Definition = definition.ParsedDefinition,
                 FilePath = filePath,
-                DatabasePath = ResolveCustomFolderDatabasePath(table, filePath)
+                DatabasePath = ResolveCustomFolderDatabasePath(table, filePath, settings)
             });
         }
 
         return new CustomFolderOutputProjection
         {
             Table = table,
+            Settings = settings,
             OutputDirectory = outputDirectory,
-            OutputRowScopePaths = CreateCustomFolderOutputRowScopePaths(table, outputDirectory),
+            OutputRowScopePaths = CreateCustomFolderOutputRowScopePaths(table, outputDirectory, settings),
             Files = files
         };
     }
 
-    private void AssignCustomFolderProtectedOutputDirectories(IReadOnlyCollection<CustomFolderOutputProjection> projections)
+    private void AssignCustomFolderProtectedOutputDirectories(
+        IReadOnlyCollection<CustomFolderOutputProjection> projections,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
-        IReadOnlyCollection<string> knownOutputDirectories = CreateKnownCustomFolderOutputDirectories(projections);
+        settings ??= projections?
+            .Select(projection => projection?.Settings)
+            .FirstOrDefault(snapshot => snapshot != null)
+            ?? GetCustomFolderOutputSettings();
+        IReadOnlyCollection<string> knownOutputDirectories = CreateKnownCustomFolderOutputDirectories(projections, settings);
         foreach (CustomFolderOutputProjection projection in projections ?? [])
         {
             string outputDirectory = Lr2FolderPath.NormalizeDirectoryPath(projection?.OutputDirectory);
@@ -6153,8 +6196,11 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private IReadOnlyCollection<string> CreateKnownCustomFolderOutputDirectories(IEnumerable<CustomFolderOutputProjection> projections)
+    private IReadOnlyCollection<string> CreateKnownCustomFolderOutputDirectories(
+        IEnumerable<CustomFolderOutputProjection> projections,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (CustomFolderOutputProjection projection in projections ?? [])
         {
@@ -6177,7 +6223,7 @@ public partial class BMSPlaylist : NotificationObject
 
                 try
                 {
-                    AddCustomFolderOutputDirectory(directories, ResolveCustomFolderOutputDirectory(table));
+                    AddCustomFolderOutputDirectory(directories, ResolveCustomFolderOutputDirectory(table, settings));
                 }
                 catch (Exception ex) when (ex is ArgumentNullException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException)
                 {
@@ -6234,7 +6280,12 @@ public partial class BMSPlaylist : NotificationObject
         var shiftJis = Encoding.GetEncoding("shift_jis");
         IReadOnlyList<CustomFolderOutputProjection> projectionList = [.. (projections ?? [])
             .Where(projection => projection != null && !string.IsNullOrWhiteSpace(projection.OutputDirectory))];
-        AssignCustomFolderProtectedOutputDirectories(projectionList);
+        CustomFolderOutputSettingsSnapshot settings = projectionList
+            .Select(projection => projection.Settings)
+            .FirstOrDefault(snapshot => snapshot != null)
+            ?? GetCustomFolderOutputSettings();
+        result.Settings = settings;
+        AssignCustomFolderProtectedOutputDirectories(projectionList, settings);
         if (projectionList.Any(projection => projection.PhysicalSurface == null))
         {
             CustomFolderOutputPhysicalSurface physicalSurface =
@@ -6289,7 +6340,7 @@ public partial class BMSPlaylist : NotificationObject
             {
                 result.OutputDirectories.Add(outputDir);
                 result.OutputRowScopeDirectories.AddRange(projection.OutputRowScopePaths ?? []);
-                result.DirectoryRowGenerationScopeDirectories.AddRange(CreateCustomFolderDirectoryRowGenerationScopes(outputDir, projection.Table));
+                result.DirectoryRowGenerationScopeDirectories.AddRange(CreateCustomFolderDirectoryRowGenerationScopes(outputDir, projection.Table, projection.Settings ?? settings));
                 IReadOnlyList<CustomFolderOutputFileProjection> files = projection.Files ?? [];
                 if (files.Count > 0)
                 {
@@ -6333,7 +6384,7 @@ public partial class BMSPlaylist : NotificationObject
                         Definition = file.Definition ?? Lr2FolderFileProjection.ParseDefinition(ReadLinesFromText(text)),
                         LastWriteTimeUtc = physicalEntry?.LastWriteTimeUtc ?? LongPathFileSystem.GetLastWriteTimeUtc(filePath, isDirectory: false)
                     };
-                    ApplyCustomFolderSourceClassification(syncItem, projection.Table);
+                    ApplyCustomFolderSourceClassification(syncItem, projection.Table, projection.Settings ?? settings);
                     result.SyncItems.Add(syncItem);
                 }
                 RemoveStaleManagedCustomFolderFiles(projection, batchExpectedFilePaths, result);
@@ -6391,8 +6442,11 @@ public partial class BMSPlaylist : NotificationObject
         return result;
     }
 
-    private List<CustomFolderDefinition> BuildCustomFolderDefinitions(BMSTable bmsTable)
+    private List<CustomFolderDefinition> BuildCustomFolderDefinitions(
+        BMSTable bmsTable,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         var definitions = new List<CustomFolderDefinition>();
         if (bmsTable == null)
         {
@@ -6410,7 +6464,7 @@ public partial class BMSPlaylist : NotificationObject
             new(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder, makeCustomFolderDefinitionsClearFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.DJLevelFolder, makeCustomFolderDefinitionsDJLevelFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.CategoryAllFolder, table => WrapFlatCustomFolderDefinitions(makeCustomFolderTextsCategoryAllFolder(table))),
-            new(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, table => WrapFlatCustomFolderDefinitions(makeCustomFolderTextsOtherFolder(table))),
+            new(LR2SongDBExtended.playlist.CustomFolderType.OtherFolder, table => WrapFlatCustomFolderDefinitions(makeCustomFolderTextsOtherFolder(table, settings))),
             new(LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder, makeCustomFolderDefinitionsBpmSortFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.BpSortFolder, makeCustomFolderDefinitionsBpSortFolder),
             new(LR2SongDBExtended.playlist.CustomFolderType.PlayCountSortFolder, makeCustomFolderDefinitionsPlayCountSortFolder),
@@ -6531,7 +6585,8 @@ public partial class BMSPlaylist : NotificationObject
         result.PruneScopePaths.Add(path);
         string databasePath = ResolveCustomFolderDatabasePath(
             table,
-            directoryPath ? Lr2FolderPath.ToFolderPath(path) : path);
+            directoryPath ? Lr2FolderPath.ToFolderPath(path) : path,
+            result.Settings);
         if (!string.IsNullOrWhiteSpace(databasePath))
         {
             result.PruneScopePaths.Add(databasePath);
@@ -6626,10 +6681,18 @@ public partial class BMSPlaylist : NotificationObject
         return false;
     }
 
-    private void reOutputCustomFolderFiles(BMSTable bmsTable)
+    private void reOutputCustomFolderFiles(
+        BMSTable bmsTable,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
-        string customFolderOutputDirectory = ResolveCustomFolderOutputDirectory(bmsTable);
-        migrateCustomFolderOutputDirectoryFiles(bmsTable, customFolderOutputDirectory, customFolderOutputDirectory, bmsTable.is_root_folder);
+        settings ??= GetCustomFolderOutputSettings();
+        string customFolderOutputDirectory = ResolveCustomFolderOutputDirectory(bmsTable, settings);
+        migrateCustomFolderOutputDirectoryFiles(
+            bmsTable,
+            customFolderOutputDirectory,
+            customFolderOutputDirectory,
+            bmsTable.is_root_folder,
+            settings: settings);
     }
 
     private void migrateCustomFolderOutputDirectoryFiles(
@@ -6639,16 +6702,18 @@ public partial class BMSPlaylist : NotificationObject
         bool wasRootFolderBefore,
         string rootOutputBaseDirBefore = null,
         string outputBaseDirBefore = null,
-        bool inferOutputBaseDirBeforeWhenMissing = true)
+        bool inferOutputBaseDirBeforeWhenMissing = true,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         bool sameDirectory = IsSameCustomFolderDirectory(outputDirPathBefore, outputDirPathAfter);
         if (sameDirectory)
         {
-            createCustomFolder(bmsTable, outputDirPathAfter, forceWriteFiles: true);
+            createCustomFolder(bmsTable, outputDirPathAfter, forceWriteFiles: true, settings: settings);
             return;
         }
 
-        bool created = createCustomFolder(bmsTable, outputDirPathAfter);
+        bool created = createCustomFolder(bmsTable, outputDirPathAfter, settings: settings);
         if (!created)
         {
             return;
@@ -6659,7 +6724,8 @@ public partial class BMSPlaylist : NotificationObject
             wasRootFolderBefore,
             rootOutputBaseDirBefore,
             outputBaseDirBefore,
-            inferOutputBaseDirBeforeWhenMissing);
+            inferOutputBaseDirBeforeWhenMissing,
+            settings);
         if (!DeleteCustomFolderOutputDirectoryTree(outputDirPathBefore, deleteBaseDirectories))
         {
             return;
@@ -6669,7 +6735,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             try
             {
-                SyncCustomFolderRowsByPaths([], CreateCustomFolderDirectoryPruneScopes(outputDirPathBefore, wasRootFolderBefore, rootOutputBaseDirBefore));
+                SyncCustomFolderRowsByPaths([], CreateCustomFolderDirectoryPruneScopes(outputDirPathBefore, wasRootFolderBefore, rootOutputBaseDirBefore, settings));
             }
             catch
             {
@@ -6704,11 +6770,19 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     /// <param name="bmsTable">出力元のプレイリスト。</param>
     /// <param name="outputDir">出力先ディレクトリ。</param>
-    private bool createCustomFolder(BMSTable bmsTable, string outputDir, bool forceWriteFiles = false)
+    private bool createCustomFolder(
+        BMSTable bmsTable,
+        string outputDir,
+        bool forceWriteFiles = false,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         try
         {
-            CustomFolderOutputProjection projection = CreateCustomFolderOutputProjection(bmsTable, outputDirectoryOverride: outputDir);
+            settings ??= GetCustomFolderOutputSettings();
+            CustomFolderOutputProjection projection = CreateCustomFolderOutputProjection(
+                bmsTable,
+                outputDirectoryOverride: outputDir,
+                settings: settings);
             if (forceWriteFiles)
             {
                 foreach (CustomFolderOutputFileProjection file in projection.Files ?? [])
@@ -6785,17 +6859,21 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private static void ApplyCustomFolderSourceClassification(Lr2FolderFileSyncItem item, BMSTable bmsTable)
+    private static void ApplyCustomFolderSourceClassification(
+        Lr2FolderFileSyncItem item,
+        BMSTable bmsTable,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         if (item == null || bmsTable?.is_root_folder != true)
         {
             return;
         }
+        settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
         Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
         {
             FilePath = item.FilePath,
-            Lr2RootPath = Settings.Default.LR2RootPath,
-            RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType
+            Lr2RootPath = settings.LR2RootPath,
+            RootCustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDirRootType
         });
         item.DatabasePath = classification.DatabasePath;
         item.FolderType = classification.FolderType;
@@ -7046,6 +7124,14 @@ public partial class BMSPlaylist : NotificationObject
 
     private static IReadOnlyCollection<string> CreateCustomFolderDirectoryRowGenerationScopes(string outputDir, BMSTable bmsTable = null)
     {
+        return CreateCustomFolderDirectoryRowGenerationScopes(outputDir, bmsTable, null);
+    }
+
+    private static IReadOnlyCollection<string> CreateCustomFolderDirectoryRowGenerationScopes(
+        string outputDir,
+        BMSTable bmsTable,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
         if (string.IsNullOrWhiteSpace(outputDir))
         {
             return [];
@@ -7053,13 +7139,14 @@ public partial class BMSPlaylist : NotificationObject
         try
         {
             string normalizedOutputDir = Lr2FolderPath.NormalizeDirectoryPath(outputDir);
+            settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
             if (bmsTable?.is_root_folder != true)
             {
                 IEnumerable<string> normalOutputBases = new[]
                     {
-                        Settings.Default.LR2CustomFolderOutputBaseDir
+                        settings.LR2CustomFolderOutputBaseDir
                     }
-                    .Concat(CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories());
+                    .Concat(CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs));
                 string normalOutputBase = normalOutputBases
                     .Select(NormalizeDirectoryPathOrNull)
                     .Where(baseDir => !string.IsNullOrWhiteSpace(baseDir))
@@ -7117,8 +7204,10 @@ public partial class BMSPlaylist : NotificationObject
     private static IReadOnlyCollection<string> CreateCustomFolderDirectoryPruneScopes(
         string physicalDirectory,
         bool wasRootFolder,
-        string rootCustomFolderOutputBaseDir = null)
+        string rootCustomFolderOutputBaseDir = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
         var scopes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         AddCustomFolderDirectoryPruneScope(scopes, physicalDirectory);
         if (wasRootFolder)
@@ -7126,8 +7215,8 @@ public partial class BMSPlaylist : NotificationObject
             Lr2FolderFileSourceClassification classification = Lr2FolderFileSourceClassifier.Classify(new Lr2FolderFileSourceClassificationRequest
             {
                 FilePath = physicalDirectory,
-                Lr2RootPath = Settings.Default.LR2RootPath,
-                RootCustomFolderOutputBaseDir = rootCustomFolderOutputBaseDir ?? Settings.Default.LR2CustomFolderOutputBaseDirRootType
+                Lr2RootPath = settings.LR2RootPath,
+                RootCustomFolderOutputBaseDir = rootCustomFolderOutputBaseDir ?? settings.LR2CustomFolderOutputBaseDirRootType
             });
             AddCustomFolderDirectoryPruneScope(scopes, classification.DatabasePath);
         }
@@ -7148,12 +7237,14 @@ public partial class BMSPlaylist : NotificationObject
         bool wasRootFolder,
         string rootOutputBaseDirBefore = null,
         string outputBaseDirBefore = null,
-        bool inferOutputBaseDirBeforeWhenMissing = true)
+        bool inferOutputBaseDirBeforeWhenMissing = true,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
         string outputBaseDir = !string.IsNullOrWhiteSpace(outputBaseDirBefore)
             ? outputBaseDirBefore
             : inferOutputBaseDirBeforeWhenMissing
-                ? CreateCustomFolderManagedOutputBase(bmsTable, wasRootFolder, rootOutputBaseDirBefore)
+                ? CreateCustomFolderManagedOutputBase(bmsTable, wasRootFolder, rootOutputBaseDirBefore, settings)
                 : null;
         return string.IsNullOrWhiteSpace(outputBaseDir)
             ? []
@@ -7163,16 +7254,18 @@ public partial class BMSPlaylist : NotificationObject
     private static string CreateCustomFolderManagedOutputBase(
         BMSTable bmsTable,
         bool isRootFolder,
-        string rootOutputBaseDir = null)
+        string rootOutputBaseDir = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= CustomFolderOutputSettingsSnapshot.CreateCurrent();
         if (isRootFolder)
         {
-            return rootOutputBaseDir ?? Settings.Default.LR2CustomFolderOutputBaseDirRootType;
+            return rootOutputBaseDir ?? settings.LR2CustomFolderOutputBaseDirRootType;
         }
         return CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
             bmsTable?.custom_folder_output_base_name,
-            Settings.Default.LR2CustomFolderOutputBaseDir,
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
+            settings.LR2CustomFolderOutputBaseDir,
+            settings.LR2CustomFolderAdditionalOutputBaseDirs,
             out string outputBaseDir)
                 ? outputBaseDir
                 : null;
@@ -8304,15 +8397,16 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException("bmsTable");
         }
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
         EnsurePlaylistEntriesLoaded(bmsTable, "ReOutputCustomFolderAndCommitToDB");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
             {
                 CommitBMSTable(bmsTable);
-                if (Settings.Default.OperationModeLR2DB)
+                if (settings.OperationModeLR2DB)
                 {
-                    reOutputCustomFolderFiles(bmsTable);
+                    reOutputCustomFolderFiles(bmsTable, settings);
                 }
             }
         }
@@ -8346,7 +8440,8 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
-        if (!Settings.Default.OperationModeLR2DB)
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (!settings.OperationModeLR2DB)
         {
             CommitBMSTableHeadersToDB(tableList);
             return;
@@ -8360,7 +8455,8 @@ public partial class BMSPlaylist : NotificationObject
             throwOnProjectionFailure: true,
             buildPreparedDataSurface: false,
             yieldBetweenTables: false,
-            progressCallback)
+            progressCallback,
+            settings)
             .GetAwaiter()
             .GetResult();
         CommitBMSTableHeadersToDB(tableList);
@@ -9881,6 +9977,17 @@ public partial class BMSPlaylist : NotificationObject
     private string ResolveCustomFolderOutputDirectory(BMSTable bmsTable)
     {
         CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        return ResolveCustomFolderOutputDirectory(bmsTable, settings);
+    }
+
+    private static string ResolveCustomFolderOutputDirectory(
+        BMSTable bmsTable,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        if (settings == null)
+        {
+            throw new InvalidOperationException("Custom-folder output settings snapshot was not provided.");
+        }
         return GetCustomFolderOutputDirectory(
             bmsTable,
             settings.LR2CustomFolderOutputBaseDir,

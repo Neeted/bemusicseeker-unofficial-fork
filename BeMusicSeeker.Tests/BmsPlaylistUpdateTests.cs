@@ -1063,21 +1063,31 @@ public sealed class BmsPlaylistUpdateTests
         string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
         string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
         string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        bool previousEnableUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.OperationModeLR2DB = false;
             string settingsOutputBaseDir = Path.Combine(tempDirectory, "SettingsOutput");
             string providerOutputBaseDir = Path.Combine(tempDirectory, "ProviderOutput");
             Settings.Default.LR2CustomFolderOutputBaseDir = settingsOutputBaseDir;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "SettingsRootOutput");
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = false;
             CustomFolderOutputSettingsSnapshot outputSettings = new()
             {
+                OperationModeLR2DB = true,
                 LR2CustomFolderOutputBaseDir = providerOutputBaseDir,
                 LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootOutput"),
-                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]",
+                EnableDownloadLr2IrScoreAndDetectUnsent = true
+            };
+            int providerCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
+            {
+                providerCallCount++;
+                return outputSettings;
             };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
@@ -1089,7 +1099,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "InjectedOutputTable",
                 ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
                     & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
-                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.OtherFolder,
                 entries =
                 [
                     CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Injected Folder")
@@ -1108,7 +1119,7 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                () => outputSettings)
+                getOutputSettings)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -1119,6 +1130,9 @@ public sealed class BmsPlaylistUpdateTests
 
             Assert.IsTrue(File.Exists(Path.Combine(providerOutputBaseDir, "InjectedOutputTable", "0001.lr2folder")));
             Assert.IsFalse(File.Exists(Path.Combine(settingsOutputBaseDir, "InjectedOutputTable", "0001.lr2folder")));
+            Assert.IsTrue(Directory.GetFiles(Path.Combine(providerOutputBaseDir, "InjectedOutputTable"), "*.lr2folder")
+                .Any(path => File.ReadAllText(path, Encoding.GetEncoding("shift_jis")).IndexOf("#TITLE UNSENT SONGS", StringComparison.Ordinal) >= 0));
+            Assert.AreEqual(1, providerCallCount);
         }
         finally
         {
@@ -1126,6 +1140,7 @@ public sealed class BmsPlaylistUpdateTests
             Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = previousEnableUnsent;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -2292,6 +2307,21 @@ public sealed class BmsPlaylistUpdateTests
             Settings.Default.LR2RootPath = lr2RootPath;
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = lr2RootPath,
+                LR2CustomFolderOutputBaseDir = outputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]",
+                EnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent
+            };
+            int providerCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
+            {
+                providerCallCount++;
+                return outputSettings;
+            };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -2313,7 +2343,15 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                () => CreateLr2Config(lr2RootPath, bmsRoot),
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                getOutputSettings)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -2330,6 +2368,7 @@ public sealed class BmsPlaylistUpdateTests
             LR2SongDB.folder row = verify.Table<LR2SongDB.folder>().Single(item => item.path == outputFile);
             Assert.AreEqual(File.GetLastWriteTimeUtc(outputFile).ToUnixtime(), row.date);
             Assert.AreEqual("BulkRewrite ALL", row.title);
+            Assert.AreEqual(1, providerCallCount);
         }
         finally
         {
