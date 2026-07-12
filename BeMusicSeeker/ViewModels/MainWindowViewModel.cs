@@ -485,6 +485,14 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
 
+    private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
+
+    private StartupSettingsSnapshot GetStartupSettingsSnapshot()
+    {
+        return startupSettingsProvider()
+            ?? throw new InvalidOperationException("Startup settings provider returned null.");
+    }
+
     private LR2Config lr2config;
 
     private IBMSPlayer bmsPlayer = new InternalBMSAutoPlayerSoundOnly();
@@ -6185,6 +6193,7 @@ public partial class MainWindowViewModel : ViewModel
             throw new ArgumentNullException(nameof(composition));
         }
         bmsLibraryOptionsProvider = composition.BmsLibraryOptionsProvider;
+        startupSettingsProvider = composition.StartupSettingsProvider;
         ChartFilters = new ChartListFilterViewModel();
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
@@ -7449,11 +7458,11 @@ public partial class MainWindowViewModel : ViewModel
         return true;
     }
 
-    private async Task<bool> EnsureAppSchemaRepairApprovedForStartupAsync()
+    private async Task<bool> EnsureAppSchemaRepairApprovedForStartupAsync(StartupSettingsSnapshot startupSettings)
     {
         LogInitStage("app_schema_preflight_inspect_start", "Initialize");
         var appSchemaPreflightService = new AppSchemaPreflightService();
-        AppSchemaPreflightResult preflightResult = appSchemaPreflightService.Inspect(Settings.Default.LR2SongDBPath);
+        AppSchemaPreflightResult preflightResult = appSchemaPreflightService.Inspect(startupSettings.LR2SongDBPath);
         LogInitStage("app_schema_preflight_inspect_done", "Initialize");
         if (preflightResult.WarnRequired && !bmsonMigrationApprovedForSession)
         {
@@ -7469,16 +7478,19 @@ public partial class MainWindowViewModel : ViewModel
         }
         await Task.Run(delegate
         {
-            ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult);
+            ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult, startupSettings.LR2SongDBPath);
         }).Logging("AppSchemaStartupRepair");
         return true;
     }
 
-    private void ApplyAppSchemaRepairForStartupOrThrow(AppSchemaPreflightService appSchemaPreflightService, AppSchemaPreflightResult preflightResult)
+    private void ApplyAppSchemaRepairForStartupOrThrow(
+        AppSchemaPreflightService appSchemaPreflightService,
+        AppSchemaPreflightResult preflightResult,
+        string songDbPath)
     {
         var stopwatch = Stopwatch.StartNew();
         LogInitStage("app_schema_repair_start", "Initialize");
-        var gateway = new BmsLibraryDbGateway(Settings.Default.LR2SongDBPath);
+        var gateway = new BmsLibraryDbGateway(songDbPath);
         long schemaStartMs = stopwatch.ElapsedMilliseconds;
         if (preflightResult.WarnRequired || preflightResult.NeedsAppSchemaVersionRepair || preflightResult.RepairRequired)
         {
@@ -7493,7 +7505,7 @@ public partial class MainWindowViewModel : ViewModel
             LogInitStage("app_schema_ensure_done elapsedMs=" + (stopwatch.ElapsedMilliseconds - schemaStartMs), "Initialize");
         }
         LogInitStage("app_schema_preflight_final_reinspect_start", "Initialize");
-        AppSchemaPreflightResult finalResult = appSchemaPreflightService.Inspect(Settings.Default.LR2SongDBPath);
+        AppSchemaPreflightResult finalResult = appSchemaPreflightService.Inspect(songDbPath);
         LogInitStage("app_schema_preflight_final_reinspect_done", "Initialize");
         if (finalResult.NeedsAppSchemaVersionRepair
             || finalResult.RepairRequired)
@@ -7508,16 +7520,16 @@ public partial class MainWindowViewModel : ViewModel
     /// 設定の妥当性チェック、BMSデータベース (LR2SongDB形式など) との接続、BMSプレイヤーインスタンスの生成、
     /// およびコレクション更新をフックする各種イベントリスナーの登録を順次行います。
     /// </summary>
-    private LibraryProfile CreateLibraryProfileForStartup()
+    private LibraryProfile CreateLibraryProfileForStartup(StartupSettingsSnapshot startupSettings)
     {
-        if (Settings.Default.OperationModeLR2DB)
+        if (startupSettings.OperationModeLR2DB)
         {
-            lr2config ??= new LR2Config(Settings.Default.LR2ConfigXmlPath);
-            EnsureLR2DatabaseAutoReloadManualOnlyForStartup();
-            string scoreDbPath = Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(Settings.Default.LR2RootPath, lr2config.GetPlayerId);
+            lr2config = new LR2Config(startupSettings.LR2ConfigXmlPath);
+            EnsureLR2DatabaseAutoReloadManualOnlyForStartup(startupSettings);
+            string scoreDbPath = Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(startupSettings.LR2RootPath, lr2config.GetPlayerId);
             return new LibraryProfile(
                 operationModeLR2DB: true,
-                songDbPath: Settings.Default.LR2SongDBPath,
+                songDbPath: startupSettings.LR2SongDBPath,
                 searchRoots: [],
                 lr2ConfigProvider: () => lr2config,
                 lr2ScoreDbPath: scoreDbPath,
@@ -7532,7 +7544,7 @@ public partial class MainWindowViewModel : ViewModel
         return new LibraryProfile(
             operationModeLR2DB: false,
             songDbPath: standaloneSongDb.SongDbPath,
-            searchRoots: SettingDialogViewModel.GetStandaloneBmsRootPathsFromSettings(),
+            searchRoots: startupSettings.StandaloneBmsRootPaths,
             lr2ConfigProvider: null,
             lr2ScoreDbPath: null,
             canWriteLr2Config: false,
@@ -7542,21 +7554,21 @@ public partial class MainWindowViewModel : ViewModel
             startupRequiredFileScanReason: standaloneSongDb.RequiresInitialLibraryBuild ? standaloneSongDb.InitialLibraryBuildReason : null);
     }
 
-    private void RepairCustomFolderOutputSearchRootsBeforeStartupValidation()
+    private void RepairCustomFolderOutputSearchRootsBeforeStartupValidation(StartupSettingsSnapshot startupSettings)
     {
-        if (!Settings.Default.OperationModeLR2DB
-            || string.IsNullOrWhiteSpace(Settings.Default.LR2ConfigXmlPath)
-            || !File.Exists(Settings.Default.LR2ConfigXmlPath))
+        if (!startupSettings.OperationModeLR2DB
+            || string.IsNullOrWhiteSpace(startupSettings.LR2ConfigXmlPath)
+            || !File.Exists(startupSettings.LR2ConfigXmlPath))
         {
             return;
         }
 
-        lr2config ??= new LR2Config(Settings.Default.LR2ConfigXmlPath);
+        lr2config = new LR2Config(startupSettings.LR2ConfigXmlPath);
         CustomFolderOutputBaseSearchRootSyncResult result =
             CustomFolderOutputBaseSearchRootSyncService.RepairNormalOutputBaseRoots(
                 lr2config,
-                Settings.Default.LR2CustomFolderOutputBaseDir,
-                Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
+                startupSettings.LR2CustomFolderOutputBaseDir,
+                startupSettings.LR2CustomFolderAdditionalOutputBaseDirs);
         if (result.Changed)
         {
             lr2config.Save();
@@ -7578,9 +7590,9 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void EnsureLR2DatabaseAutoReloadManualOnlyForStartup()
+    private void EnsureLR2DatabaseAutoReloadManualOnlyForStartup(StartupSettingsSnapshot startupSettings)
     {
-        if (!Settings.Default.OperationModeLR2DB || lr2config == null)
+        if (!startupSettings.OperationModeLR2DB || lr2config == null)
         {
             return;
         }
@@ -7590,13 +7602,13 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private LR2Config CreateLR2PlayerConfig()
+    private LR2Config CreateLR2PlayerConfig(StartupSettingsSnapshot startupSettings)
     {
-        if (Settings.Default.OperationModeLR2DB && lr2config != null)
+        if (startupSettings.OperationModeLR2DB && lr2config != null)
         {
             return lr2config;
         }
-        return new LR2Config(Settings.Default.LR2ConfigXmlPath);
+        return new LR2Config(startupSettings.LR2ConfigXmlPath);
     }
 
     public async void Initialize()
@@ -7609,9 +7621,11 @@ public partial class MainWindowViewModel : ViewModel
         _ = string.Empty;
         string text = Assembly.GetEntryAssembly().GetName().Version.ToString();
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
+        StartupSettingsSnapshot startupSettings;
         try
         {
-            RepairCustomFolderOutputSearchRootsBeforeStartupValidation();
+            startupSettings = GetStartupSettingsSnapshot();
+            RepairCustomFolderOutputSearchRootsBeforeStartupValidation(startupSettings);
         }
         catch (Exception ex)
         {
@@ -7644,7 +7658,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         try
         {
-            if (Settings.Default.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync())
+            if (startupSettings.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings))
             {
                 _semaphore.Release();
                 SetStartupUiInteractionBlocked(false);
@@ -7666,7 +7680,7 @@ public partial class MainWindowViewModel : ViewModel
         try
         {
             InvalidatePlayHistoryReadCache("initialize");
-            LibraryProfile libraryProfile = CreateLibraryProfileForStartup();
+            LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings);
             files = new BMSLibrary(
                 libraryProfile.SongDbPath,
                 libraryProfile.Lr2ConfigProvider,
@@ -7690,17 +7704,17 @@ public partial class MainWindowViewModel : ViewModel
             {
                 files.SearchTargets.AddRange(libraryProfile.SearchRoots);
             }
-            if (Settings.Default.UsePlayeruBMplay)
+            if (startupSettings.UsePlayeruBMplay)
             {
-                bmsPlayer = new uBMplay(Settings.Default.uBMplayPath);
+                bmsPlayer = new uBMplay(startupSettings.uBMplayPath);
             }
-            else if (Settings.Default.UsePlayerBMIIDXView)
+            else if (startupSettings.UsePlayerBMIIDXView)
             {
-                bmsPlayer = new BMIIDXView2015(Settings.Default.BMIIDXViewPath);
+                bmsPlayer = new BMIIDXView2015(startupSettings.BMIIDXViewPath);
             }
-            else if (Settings.Default.UsePlayerLR2body && File.Exists(settingDialog.LR2bodyPath))
+            else if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))
             {
-                bmsPlayer = new LR2body(settingDialog.LR2bodyPath, CreateLR2PlayerConfig());
+                bmsPlayer = new LR2body(startupSettings.LR2bodyPath, CreateLR2PlayerConfig(startupSettings));
             }
             operationToken = StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         }

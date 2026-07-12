@@ -1294,13 +1294,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(checkValidation, "else if (UsePlayerLR2body)");
         StringAssert.Contains(checkValidation, "if (!IsLR2PlayerRootPathValid())");
         Assert.IsFalse(checkValidation.Contains("OperationModeLR2DB && UsePlayerLR2body"));
-        StringAssert.Contains(initialize, "else if (Settings.Default.UsePlayerLR2body && File.Exists(settingDialog.LR2bodyPath))");
-        StringAssert.Contains(initialize, "new LR2body(settingDialog.LR2bodyPath, CreateLR2PlayerConfig())");
+        StringAssert.Contains(initialize, "else if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))");
+        StringAssert.Contains(initialize, "new LR2body(startupSettings.LR2bodyPath, CreateLR2PlayerConfig(startupSettings))");
         Assert.IsFalse(initialize.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
         StringAssert.Contains(saveFollowup, "else if (!forceInternalPlayerForStandaloneModeChange && Settings.Default.UsePlayerLR2body)");
         StringAssert.Contains(saveFollowup, "ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(Settings.Default.LR2ConfigXmlPath));");
         Assert.IsFalse(saveFollowup.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
-        StringAssert.Contains(viewModelCode, "private LR2Config CreateLR2PlayerConfig()");
+        StringAssert.Contains(viewModelCode, "private LR2Config CreateLR2PlayerConfig(StartupSettingsSnapshot startupSettings)");
         StringAssert.Contains(viewModelCode, "private bool IsLR2PlayerRootPathValid(string value)");
         Assert.IsFalse(lr2RootPathGetter.Contains("Settings.Default.LR2RootPath = null"));
         StringAssert.Contains(lr2RootPathGetter, "return Settings.Default.LR2RootPath;");
@@ -1391,7 +1391,7 @@ public sealed class MainWindowContextMenuResourceTests
         string validationFailure = ExtractBetween(
             initialize,
             "if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))",
-            "if (Settings.Default.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync())");
+            "if (startupSettings.OperationModeLR2DB && !await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings))");
 
         Assert.IsFalse(validationFailure.Contains("DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings,"));
         StringAssert.Contains(validationFailure, "RaiseInitialSetupLanguageDialogRequested();");
@@ -1464,10 +1464,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(deferredExternalSync, "tables.QueueBeatorajaBmtExportAll(\"DeferredExternalSync:\" + reason)");
         StringAssert.Contains(initialize, "initialSetupCompletionMessagePending = true;");
         Assert.IsFalse(initialize.Contains("Resources.Msg_init_completed"));
-        StringAssert.Contains(initialize, "await EnsureAppSchemaRepairApprovedForStartupAsync()");
+        StringAssert.Contains(initialize, "await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings)");
         string appSchemaStartupPreflight = ExtractBetween(
             viewModelCode,
-            "private async Task<bool> EnsureAppSchemaRepairApprovedForStartupAsync()",
+            "private async Task<bool> EnsureAppSchemaRepairApprovedForStartupAsync(StartupSettingsSnapshot startupSettings)",
             "private void ApplyAppSchemaRepairForStartupOrThrow");
         string gatewayCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryDbGateway.cs"));
         string repairAppOwnedSchema = ExtractBetween(
@@ -1476,7 +1476,7 @@ public sealed class MainWindowContextMenuResourceTests
             "internal static void EnsureAppOwnedSchema(LR2SongDBExtended songDb)");
         StringAssert.Contains(appSchemaStartupPreflight, "ShowUiConfirmation(BuildAppSchemaRepairWarningMessage(preflightResult)");
         StringAssert.Contains(appSchemaStartupPreflight, "await Task.Run(delegate");
-        StringAssert.Contains(appSchemaStartupPreflight, "ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult);");
+        StringAssert.Contains(appSchemaStartupPreflight, "ApplyAppSchemaRepairForStartupOrThrow(appSchemaPreflightService, preflightResult, startupSettings.LR2SongDBPath);");
         Assert.IsFalse(repairAppOwnedSchema.Contains("RepairChartDigestMapConsistency"));
         Assert.IsFalse(repairAppOwnedSchema.Contains("BMSFile.GetSHA256Hash"));
         StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending()");

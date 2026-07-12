@@ -11,16 +11,25 @@ internal sealed class ApplicationComposition
 {
     private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
 
-    internal ApplicationComposition(Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider)
+    private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
+
+    internal ApplicationComposition(
+        Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
+        Func<StartupSettingsSnapshot> startupSettingsProvider = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
+        this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;
 
+    internal Func<StartupSettingsSnapshot> StartupSettingsProvider => startupSettingsProvider;
+
     internal static ApplicationComposition CreateDefault()
     {
-        return new ApplicationComposition(BmsLibraryOptionsSnapshot.CreateCurrent);
+        return new ApplicationComposition(
+            BmsLibraryOptionsSnapshot.CreateCurrent,
+            StartupSettingsSnapshot.CreateCurrent);
     }
 
     internal MainWindowViewModel CreateMainWindowViewModel()

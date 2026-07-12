@@ -917,7 +917,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             typeof(MainWindowViewModel)
                 .GetMethod("RepairCustomFolderOutputSearchRootsBeforeStartupValidation", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(viewModel, null);
+                .Invoke(viewModel, [StartupSettingsSnapshot.CreateCurrent()]);
 
             Assert.AreEqual(rootOutputChild, Settings.Default.BMSInstallDir);
             Assert.AreEqual(rootOutputChild, GetDialogField<string>(dialog, "tempBMSInstallDir"));

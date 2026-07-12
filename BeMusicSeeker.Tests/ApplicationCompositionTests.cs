@@ -25,6 +25,21 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionKeepsTheConfiguredStartupSettingsProvider()
+    {
+        var snapshot = new StartupSettingsSnapshot
+        {
+            OperationModeLR2DB = false,
+            LR2SongDBPath = "startup-song.db"
+        };
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            () => snapshot);
+
+        Assert.AreSame(snapshot, composition.StartupSettingsProvider());
+    }
+
+    [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));
