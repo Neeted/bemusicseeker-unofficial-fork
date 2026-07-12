@@ -132,7 +132,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
 
         StringAssert.Contains(playlistSource, "SyncCustomFolderOutputSearchRootsAfterSettingsChange(");
         StringAssert.Contains(playlistSource, "config.SetBMSSearchDirectories(nextDirectories);");
-        StringAssert.Contains(settingDialogSource, "ownerViewModel.tables.SyncCustomFolderOutputSearchRootsAfterSettingsChange(");
+        StringAssert.Contains(settingDialogSource, "ownerViewModel.tables.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(");
         Assert.IsFalse(settingDialogSource.Contains("lr2config.SetBMSSearchDirectories(nextDirectories)"));
         Assert.IsFalse(settingDialogSource.Contains("private static bool IsRootOutputBaseAdoptionRemovalTarget"));
     }

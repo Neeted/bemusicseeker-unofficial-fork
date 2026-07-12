@@ -5369,7 +5369,13 @@ public partial class MainWindowViewModel
                 {
                     return;
                 }
-                if (impact.HasFlag(SettingsPostSaveImpact.CustomFolderSearchRootSync) && Settings.Default.OperationModeLR2DB)
+                CustomFolderOutputSettingsSnapshot customFolderOutputSettingsAfterSave = null;
+                if (impact.HasFlag(SettingsPostSaveImpact.CustomFolderSearchRootSync))
+                {
+                    customFolderOutputSettingsAfterSave = ownerViewModel.customFolderOutputSettingsProvider()
+                        ?? throw new InvalidOperationException("Custom-folder output settings provider returned null after settings save.");
+                }
+                if (customFolderOutputSettingsAfterSave?.OperationModeLR2DB == true)
                 {
                     var stepStopwatch = Stopwatch.StartNew();
                     while (ownerViewModel.BMSTables == null)
@@ -5384,24 +5390,29 @@ public partial class MainWindowViewModel
                     {
                         await Task.Run(delegate
                         {
-                            normalOutputBaseRootSyncPlan = PrepareCustomFolderNormalOutputBaseSearchRootSync();
-                            if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderOutputDir) && !string.IsNullOrWhiteSpace(Settings.Default.LR2CustomFolderOutputBaseDir) && tempLR2CustomFolderOutputDir != Settings.Default.LR2CustomFolderOutputBaseDir)
+                            normalOutputBaseRootSyncPlan = PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(customFolderOutputSettingsAfterSave);
+                            if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir) && tempLR2CustomFolderOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir)
                             {
-                                ownerViewModel.tables.ChangeCustomFolderBaseDirectory(
+                                ownerViewModel.tables.ChangeCustomFolderBaseDirectoryWithSettings(
                                     tempLR2CustomFolderOutputDir,
-                                    Settings.Default.LR2CustomFolderOutputBaseDir,
+                                    customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir,
                                     tempLR2CustomFolderAdditionalOutputBaseDirs,
-                                    Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
+                                    customFolderOutputSettingsAfterSave.LR2CustomFolderAdditionalOutputBaseDirs,
+                                    customFolderOutputSettingsAfterSave);
                             }
-                            ApplyCustomFolderAdditionalOutputBaseRegistrationChanges();
-                            normalOutputBaseRootSyncResult = CompleteCustomFolderNormalOutputBaseSearchRootSync(normalOutputBaseRootSyncPlan);
-                            if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir) && !string.IsNullOrWhiteSpace(Settings.Default.LR2CustomFolderOutputBaseDirRootType) && tempLR2CustomFolderAsRootOutputDir != Settings.Default.LR2CustomFolderOutputBaseDirRootType)
+                            ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(customFolderOutputSettingsAfterSave);
+                            normalOutputBaseRootSyncResult = CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
+                                normalOutputBaseRootSyncPlan,
+                                customFolderOutputSettingsAfterSave);
+                            if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType) && tempLR2CustomFolderAsRootOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType)
                             {
-                                ownerViewModel.tables.ChangeCustomFolderBaseDirectoryRoot(
+                                ownerViewModel.tables.ChangeCustomFolderBaseDirectoryRootWithSettings(
                                     tempLR2CustomFolderAsRootOutputDir,
-                                    Settings.Default.LR2CustomFolderOutputBaseDirRootType);
+                                    customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType,
+                                    customFolderOutputSettingsAfterSave);
                             }
-                            rootOutputBaseRootSyncChanged = SyncRootCustomFolderOutputSearchRootsAfterSettingsChange();
+                            rootOutputBaseRootSyncChanged = SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+                                customFolderOutputSettingsAfterSave);
                         });
                     }
                     catch (Exception ex)
@@ -5520,7 +5531,19 @@ public partial class MainWindowViewModel
 
         private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderNormalOutputBaseSearchRootSync()
         {
-            if (!Settings.Default.OperationModeLR2DB || lr2config == null)
+            return PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
+                ownerViewModel.customFolderOutputSettingsProvider()
+                    ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
+        }
+
+        private CustomFolderOutputBaseSearchRootSyncPlan PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
+            CustomFolderOutputSettingsSnapshot settings)
+        {
+            if (settings == null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
+            if (!settings.OperationModeLR2DB || lr2config == null)
             {
                 return default;
             }
@@ -5528,9 +5551,9 @@ public partial class MainWindowViewModel
             CustomFolderOutputBaseSearchRootSyncPlan plan = CustomFolderOutputBaseSearchRootSyncService.PrepareNormalOutputBaseRoots(
                 lr2config,
                 tempLR2CustomFolderOutputDir,
-                Settings.Default.LR2CustomFolderOutputBaseDir,
+                settings.LR2CustomFolderOutputBaseDir,
                 tempLR2CustomFolderAdditionalOutputBaseDirs,
-                Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
+                settings.LR2CustomFolderAdditionalOutputBaseDirs,
                 []);
             if (plan.Changed)
             {
@@ -5541,7 +5564,21 @@ public partial class MainWindowViewModel
 
         private CustomFolderOutputBaseSearchRootSyncResult CompleteCustomFolderNormalOutputBaseSearchRootSync(CustomFolderOutputBaseSearchRootSyncPlan plan)
         {
-            if (!Settings.Default.OperationModeLR2DB || lr2config == null)
+            return CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
+                plan,
+                ownerViewModel.customFolderOutputSettingsProvider()
+                    ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
+        }
+
+        private CustomFolderOutputBaseSearchRootSyncResult CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
+            CustomFolderOutputBaseSearchRootSyncPlan plan,
+            CustomFolderOutputSettingsSnapshot settings)
+        {
+            if (settings == null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
+            if (!settings.OperationModeLR2DB || lr2config == null)
             {
                 return default;
             }
@@ -5583,21 +5620,46 @@ public partial class MainWindowViewModel
 
         internal bool SyncRootCustomFolderOutputSearchRootsAfterSettingsChange()
         {
-            if (!Settings.Default.OperationModeLR2DB || lr2config == null || ownerViewModel.tables == null)
+            return SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+                ownerViewModel.customFolderOutputSettingsProvider()
+                    ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
+        }
+
+        internal bool SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+            CustomFolderOutputSettingsSnapshot settings)
+        {
+            if (settings == null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
+            if (!settings.OperationModeLR2DB || lr2config == null || ownerViewModel.tables == null)
             {
                 return false;
             }
-            return ownerViewModel.tables.SyncCustomFolderOutputSearchRootsAfterSettingsChange(
+            return ownerViewModel.tables.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
                 tempLR2CustomFolderAsRootOutputDir,
-                lr2config);
+                lr2config,
+                settings);
         }
 
         private int ApplyCustomFolderAdditionalOutputBaseRegistrationChanges()
         {
+            return ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
+                ownerViewModel.customFolderOutputSettingsProvider()
+                    ?? throw new InvalidOperationException("Custom-folder output settings provider returned null."));
+        }
+
+        private int ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(
+            CustomFolderOutputSettingsSnapshot settings)
+        {
+            if (settings == null)
+            {
+                throw new ArgumentNullException(nameof(settings));
+            }
             IReadOnlyList<CustomFolderOutputBaseEntry> oldEntries = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
                 CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(tempLR2CustomFolderAdditionalOutputBaseDirs));
             IReadOnlyList<CustomFolderOutputBaseEntry> newEntries = CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
-                CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs));
+                CustomFolderOutputBaseRegistry.DeserializeBaseDirectoriesStrict(settings.LR2CustomFolderAdditionalOutputBaseDirs));
             Dictionary<string, CustomFolderOutputBaseEntry> oldByName = oldEntries
                 .GroupBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
@@ -5623,7 +5685,7 @@ public partial class MainWindowViewModel
                 }
 
                 string newBasePath = newName == null
-                    ? Settings.Default.LR2CustomFolderOutputBaseDir
+                    ? settings.LR2CustomFolderOutputBaseDir
                     : newByName[newName].Path;
                 if (newName != null
                     && string.Equals(oldEntry.Name, newName, StringComparison.OrdinalIgnoreCase)
@@ -5639,7 +5701,8 @@ public partial class MainWindowViewModel
                     processedTables,
                     changedTables,
                     outputDirPathBeforeByTable,
-                    outputBaseDirPathBeforeByTable);
+                    outputBaseDirPathBeforeByTable,
+                    settings);
             }
 
             foreach (CustomFolderOutputBaseEntry newEntry in newEntries)
@@ -5656,7 +5719,8 @@ public partial class MainWindowViewModel
                     processedTables,
                     changedTables,
                     outputDirPathBeforeByTable,
-                    outputBaseDirPathBeforeByTable);
+                    outputBaseDirPathBeforeByTable,
+                    settings);
             }
 
             if (changedTables.Count > 0)
@@ -5665,7 +5729,8 @@ public partial class MainWindowViewModel
                     changedTables,
                     outputDirPathBeforeByTable,
                     "setting_custom_folder_output_base_registration_changed",
-                    outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
+                    outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
+                    settings: settings);
             }
             return changedTables.Count;
         }
@@ -5677,7 +5742,8 @@ public partial class MainWindowViewModel
             ISet<BMSTable> processedTables,
             ICollection<BMSTable> changedTables,
             IDictionary<BMSTable, string> outputDirPathBeforeByTable,
-            IDictionary<BMSTable, string> outputBaseDirPathBeforeByTable)
+            IDictionary<BMSTable, string> outputBaseDirPathBeforeByTable,
+            CustomFolderOutputSettingsSnapshot settings)
         {
             if (string.IsNullOrWhiteSpace(oldBaseName) || ownerViewModel.BMSTables == null)
             {
@@ -5695,7 +5761,7 @@ public partial class MainWindowViewModel
                 string beforeDirectory = !string.IsNullOrWhiteSpace(oldBasePath) && !string.IsNullOrWhiteSpace(outputDirName)
                     ? Path.Combine(oldBasePath, outputDirName)
                     : null;
-                if (Settings.Default.OperationModeLR2DB
+                if (settings.OperationModeLR2DB
                     && !table.is_root_folder
                     && !string.IsNullOrWhiteSpace(beforeDirectory))
                 {

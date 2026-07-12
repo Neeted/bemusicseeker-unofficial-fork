@@ -2165,7 +2165,18 @@ public partial class BMSPlaylist : NotificationObject
         string previousRootOutputBaseDirectory,
         LR2Config configOverride = null)
     {
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        return SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+            previousRootOutputBaseDirectory,
+            configOverride,
+            settings: null);
+    }
+
+    internal bool SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+        string previousRootOutputBaseDirectory,
+        LR2Config configOverride,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
             return false;
@@ -3901,6 +3912,22 @@ public partial class BMSPlaylist : NotificationObject
         string additionalOutputBaseDirsAfter = null)
     {
         CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        ChangeCustomFolderBaseDirectoryWithSettings(
+            outputDirBaseBefore,
+            outputDirBaseAfter,
+            additionalOutputBaseDirsBefore,
+            additionalOutputBaseDirsAfter,
+            settings);
+    }
+
+    internal void ChangeCustomFolderBaseDirectoryWithSettings(
+        string outputDirBaseBefore,
+        string outputDirBaseAfter,
+        string additionalOutputBaseDirsBefore,
+        string additionalOutputBaseDirsAfter,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        settings ??= GetCustomFolderOutputSettings();
         additionalOutputBaseDirsBefore ??= settings.LR2CustomFolderAdditionalOutputBaseDirs;
         additionalOutputBaseDirsAfter ??= settings.LR2CustomFolderAdditionalOutputBaseDirs;
         var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
@@ -3962,6 +3989,18 @@ public partial class BMSPlaylist : NotificationObject
         string outputDirBaseBefore,
         string outputDirBaseAfter)
     {
+        ChangeCustomFolderBaseDirectoryRootWithSettings(
+            outputDirBaseBefore,
+            outputDirBaseAfter,
+            settings: null);
+    }
+
+    internal void ChangeCustomFolderBaseDirectoryRootWithSettings(
+        string outputDirBaseBefore,
+        string outputDirBaseAfter,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        settings ??= GetCustomFolderOutputSettings();
         var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         using (rwlockBMSTables.GetReaderGuard())
@@ -3978,7 +4017,8 @@ public partial class BMSPlaylist : NotificationObject
             "setting_custom_folder_root_output_base_dir_changed",
             wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => true),
             rootOutputBaseDirBefore: outputDirBaseBefore,
-            outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
+            outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
+            settings: settings);
     }
 
     /// <summary>
