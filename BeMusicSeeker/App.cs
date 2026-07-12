@@ -17,7 +17,6 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Localization;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
@@ -39,6 +38,8 @@ public partial class App : System.Windows.Application
     private static int coordinatedShutdownStarted;
 
     private static string coordinatedShutdownReason;
+
+    private readonly ApplicationSettingsLifecycle applicationSettingsLifecycle = new();
 
     public bool firstStartup { get; set; }
 
@@ -90,7 +91,7 @@ public partial class App : System.Windows.Application
             NLogWrapper.FileLogger?.Warn("Invalid --log-level value '" + CommandLineSwitches.InvalidLogLevelValue + "'. Fallback to Warn.");
         }
         InitializeAvailableCultures();
-        LegacyUserConfigMigrator.MigrateIfNeeded(new HashSet<string>(AvailableCultures.Values), CultureInfo.CurrentCulture.Name);
+        applicationSettingsLifecycle.MigrateLegacy(AvailableCultures.Values, CultureInfo.CurrentCulture.Name);
         EquationTokenizer.AddNamespace(typeof(object));
         EquationTokenizer.AddNamespace(typeof(Visibility));
         EquationTokenizer.AddNamespace(typeof(DataGridLength));
@@ -99,27 +100,10 @@ public partial class App : System.Windows.Application
         EquationTokenizer.AddNamespace(typeof(BMSTable));
         EquationTokenizer.AddNamespace(typeof(Path));
         EquationTokenizer.AddNamespace(typeof(SystemInformation));
-        try
-        {
-            var serializableVersion = new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version);
-            firstStartup = Settings.Default.AssemblyVersion == null;
-            if (Settings.Default.AssemblyVersion == null || Settings.Default.AssemblyVersion != serializableVersion)
-            {
-                Settings.Default.Upgrade();
-                Settings.Default.AssemblyVersion = serializableVersion;
-                Settings.Default.Save();
-            }
-        }
-        catch (Exception ex)
-        {
-            NLogWrapper.TraceLogger?.Warn(ex, "Settings upgrade/migration failed");
-        }
-        if (!AvailableCultures.Values.Contains(Settings.Default.Lang))
-        {
-            Settings.Default.Lang = "ja-JP";
-        }
-        Settings.Default.AppearanceTheme = AppThemeService.NormalizeTheme(Settings.Default.AppearanceTheme);
-        BeMusicSeeker.Properties.Resources.Culture = CultureInfo.GetCultureInfo(Settings.Default.Lang);
+        applicationSettingsLifecycle.Initialize(
+            AvailableCultures.Values,
+            () => new SerializableVersion(Assembly.GetExecutingAssembly().GetName().Version),
+            value => firstStartup = value);
     }
 
     private static LogLevel ConvertToNLogLevel(NormalLogLevel level)
@@ -154,7 +138,7 @@ public partial class App : System.Windows.Application
         }
         _mutexOwned = true;
         DispatcherHelper.UIDispatcher = base.Dispatcher;
-        AppThemeService.ApplyTheme(Settings.Default.AppearanceTheme);
+        AppThemeService.ApplyTheme(applicationSettingsLifecycle.GetCurrentAppearanceTheme());
         AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
         base.DispatcherUnhandledException += Application_DispatcherUnhandledException;
         TempDirectoryPublisher.StartCleanupStaleDirectoriesAsync(
