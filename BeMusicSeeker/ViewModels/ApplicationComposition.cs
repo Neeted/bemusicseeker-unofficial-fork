@@ -217,6 +217,11 @@ internal sealed class ApplicationComposition
         return null;
     }
 
+    internal IBMSPlayer CreateDefaultBmsPlayer()
+    {
+        return new InternalBMSAutoPlayerSoundOnly();
+    }
+
     internal BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
     {
         if (libraryProfile == null)

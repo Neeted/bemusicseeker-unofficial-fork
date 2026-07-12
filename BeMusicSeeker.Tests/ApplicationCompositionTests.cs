@@ -40,6 +40,14 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionCreatesTheDefaultInternalBmsPlayer()
+    {
+        var composition = new ApplicationComposition();
+
+        Assert.IsInstanceOfType(composition.CreateDefaultBmsPlayer(), typeof(InternalBMSAutoPlayerSoundOnly));
+    }
+
+    [TestMethod]
     public void CompositionKeepsTheConfiguredPlaylistUrlCompletionOptionsProvider()
     {
         var snapshot = new PlaylistUrlCompletionOptionsSnapshot

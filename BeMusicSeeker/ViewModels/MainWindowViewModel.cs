@@ -515,7 +515,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private LR2Config lr2config;
 
-    private IBMSPlayer bmsPlayer = new InternalBMSAutoPlayerSoundOnly();
+    private IBMSPlayer bmsPlayer;
 
     private PropertyChangedEventListener listenerForBMSLibrary;
 
@@ -6213,6 +6213,7 @@ public partial class MainWindowViewModel : ViewModel
             throw new ArgumentNullException(nameof(composition));
         }
         applicationComposition = composition;
+        bmsPlayer = applicationComposition.CreateDefaultBmsPlayer();
         treeViewFilterTypeSelected = ApplicationSettings.StartupSelectInstallPending
             ? MainViewUpdateMode.PendingInstallFolderSelected
             : MainViewUpdateMode.FolderFilterSelected;
