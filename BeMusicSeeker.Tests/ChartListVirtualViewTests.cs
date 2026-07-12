@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -68,36 +67,6 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void SummaryConverter_UsesMetadataWithoutEnumeratingRows()
-    {
-        ChartListVirtualView view = CreateView(out Func<int> getCreatedCount);
-        var converter = new ChartRowsViewToSummaryTextConverter();
-
-        object text = converter.Convert(view, typeof(string), null, CultureInfo.InvariantCulture);
-
-        StringAssert.StartsWith(text.ToString(), "[3");
-        Assert.AreEqual(-1, view.DistinctFolderCount);
-        Assert.IsFalse(text.ToString().Contains("/"));
-        Assert.AreEqual(0, view.RealizedRowCount);
-        Assert.AreEqual(0, getCreatedCount());
-    }
-
-    [TestMethod]
-    public void SummaryConverter_UsesSuppliedFolderCountWithoutEnumeratingRows()
-    {
-        ChartListVirtualView view = CreateView(out Func<int> getCreatedCount, distinctFolderCount: 2);
-        var converter = new ChartRowsViewToSummaryTextConverter();
-
-        object text = converter.Convert(view, typeof(string), null, CultureInfo.InvariantCulture);
-
-        StringAssert.StartsWith(text.ToString(), "[3");
-        StringAssert.Contains(text.ToString(), "/ 2");
-        Assert.AreEqual(2, view.DistinctFolderCount);
-        Assert.AreEqual(0, view.RealizedRowCount);
-        Assert.AreEqual(0, getCreatedCount());
-    }
-
-    [TestMethod]
     public void LibraryChartRow_FromChartFile_UsesChartDomainFieldsWithoutStorageRow()
     {
         ChartFile chart = ChartFileProjection.FromBmsMetadata(
@@ -129,68 +98,6 @@ public sealed class ChartListVirtualViewTests
         Assert.AreEqual(7, row.mode);
         Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", row.hash);
         Assert.AreEqual(new string('b', 64), row.sha256);
-    }
-
-    [TestMethod]
-    public void SummaryConverter_UsesChartFileFolderForMetadataOnlyRows()
-    {
-        ChartFile first = ChartFileProjection.FromBmsMetadata(
-            @"D:\Charts\Root\alpha.bms",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            null,
-            "Alpha",
-            "Artist",
-            "Genre",
-            "Root",
-            string.Empty,
-            12,
-            7,
-            null);
-        ChartFile second = ChartFileProjection.FromBmsMetadata(
-            @"D:\Charts\Other\beta.bms",
-            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-            null,
-            "Beta",
-            "Artist",
-            "Genre",
-            "Other",
-            string.Empty,
-            10,
-            7,
-            null);
-        var converter = new ChartRowsViewToSummaryTextConverter();
-
-        object text = converter.Convert(
-            new[] { LibraryChartRow.FromChartFile(first), LibraryChartRow.FromChartFile(second) },
-            typeof(string),
-            null,
-            CultureInfo.InvariantCulture);
-
-        StringAssert.StartsWith(text.ToString(), "[2");
-        StringAssert.Contains(text.ToString(), "/ 2");
-    }
-
-    [TestMethod]
-    public void SummaryConverter_UsesLiveOwnerFolderForOwnerBackedChartRows()
-    {
-        BMSFile file = CreateFile(
-            @"D:\Charts\Old\alpha.bms",
-            "Alpha",
-            "Old",
-            hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        LibraryChartRow row = LibraryChartRow.FromChartFile(ChartFileProjection.FromBmsFile(file));
-        file.path = @"D:\Charts\New\alpha.bms";
-        var converter = new ChartRowsViewToSummaryTextConverter();
-
-        object text = converter.Convert(
-            new[] { row, row },
-            typeof(string),
-            null,
-            CultureInfo.InvariantCulture);
-
-        Assert.AreEqual("New", row.Folder);
-        StringAssert.StartsWith(text.ToString(), "[2");
-        Assert.IsFalse(text.ToString().Contains("/"));
     }
 
     [TestMethod]

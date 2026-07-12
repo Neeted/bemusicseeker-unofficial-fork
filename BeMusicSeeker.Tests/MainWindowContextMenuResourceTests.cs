@@ -121,6 +121,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings.Title.Visibility, Source={StaticResource vm}");
         Assert.AreEqual(69, CountOccurrences(xaml, "IsChecked=\"{Binding MainChartList.ColumnsSettings."));
         Assert.IsFalse(xaml.Contains("ColumnsSettingsChartRowsView"));
+        Assert.IsFalse(xaml.Contains("ChartRowsViewToSummaryTextConverter"));
         Assert.IsFalse(mainTable.Contains("ItemsSource=\"{Binding ChartRowsView"));
         Assert.IsFalse(mainTable.Contains("SelectedIndex=\"{Binding SelectedIndexChartRowsView"));
         Assert.IsFalse(mainTable.Contains("RowDragKind=\"{Binding ChartRowsViewRowDragKind"));
