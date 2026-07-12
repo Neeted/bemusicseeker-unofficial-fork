@@ -30,7 +30,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_SortKeepsAllRowsVisible()
+    public void PlaylistDetailPresentationService_SortKeepsAllRowsVisible()
     {
         PlaylistDetailSourceRow zetaRow = CreateSourceRow("11111111111111111111111111111111", "Zeta", 7);
         PlaylistDetailSourceRow alphaRow = CreateSourceRow("22222222222222222222222222222222", "Alpha", 7);
@@ -41,7 +41,7 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
             sourceRows,
             keywordFilter: null,
             modeFilter: ChartModeFilter.All,
@@ -542,7 +542,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_KeywordFilterMatchesPlaylistMemoAndComment()
+    public void PlaylistDetailPresentationService_KeywordFilterMatchesPlaylistMemoAndComment()
     {
         PlaylistDetailSourceRow matchedRow = CreateSourceRow("33333333333333333333333333333333", "Matched", 7, memo: "special memo");
         PlaylistDetailSourceRow filteredRow = CreateSourceRow("44444444444444444444444444444444", "Filtered", 7, comment: "ordinary");
@@ -553,7 +553,7 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
             sourceRows,
             keywordFilter: "SPECIAL",
             modeFilter: ChartModeFilter.All,
@@ -574,7 +574,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_KeywordFilterSupportsAndAndHashFields()
+    public void PlaylistDetailPresentationService_KeywordFilterSupportsAndAndHashFields()
     {
         PlaylistDetailSourceRow matchedRow = CreateSourceRow(
             "33333333333333333333333333333333",
@@ -590,7 +590,7 @@ public sealed class PlaylistViewPipelineTests
             sha256: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd");
         var sourceRows = new PlaylistDetailSourceRow[] { matchedRow, filteredRow };
 
-        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
             sourceRows,
             keywordFilter: "title:Matched memo:special md5:333333 sha256:abab",
             modeFilter: ChartModeFilter.All,
@@ -610,11 +610,11 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_UnknownFieldQueryDoesNotMatch()
+    public void PlaylistDetailPresentationService_UnknownFieldQueryDoesNotMatch()
     {
         PlaylistDetailSourceRow matchedRow = CreateSourceRow("33333333333333333333333333333333", "Matched", 7, memo: "special memo");
 
-        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
             [matchedRow],
             keywordFilter: "unknown:Matched",
             modeFilter: ChartModeFilter.All,
@@ -633,7 +633,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_KeywordFilterSupportsQuoteNegationOrAndRegex()
+    public void PlaylistDetailPresentationService_KeywordFilterSupportsQuoteNegationOrAndRegex()
     {
         PlaylistDetailSourceRow matchedRow = CreateSourceRow(
             "33333333333333333333333333333333",
@@ -650,7 +650,7 @@ public sealed class PlaylistViewPipelineTests
             comment: "ordinary comment",
             sha256: "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd");
 
-        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
             [matchedRow, filteredRow],
             keywordFilter: "memo:\"special memo\" -comment:ordinary md5:333333|555555 sha256:abab|efef title:re:^matched",
             modeFilter: ChartModeFilter.All,
@@ -670,7 +670,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_ModeFilterRecomputesFromSourceRows()
+    public void PlaylistDetailPresentationService_ModeFilterRecomputesFromSourceRows()
     {
         PlaylistDetailSourceRow sevenKeysRow = CreateSourceRow("55555555555555555555555555555555", "SevenKeys", 7);
         PlaylistDetailSourceRow fourteenKeysRow = CreateSourceRow("66666666666666666666666666666666", "FourteenKeys", 14);
@@ -681,7 +681,7 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
             sourceRows,
             keywordFilter: null,
             modeFilter: ChartModeFilter._14KEYS,
@@ -702,7 +702,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_RebuildsDetachedSnapshotsForEachApply()
+    public void PlaylistDetailPresentationService_RebuildsDetachedSnapshotsForEachApply()
     {
         PlaylistDetailSourceRow alphaRow = CreateSourceRow("77777777777777777777777777777777", "Alpha", 7);
         var sourceRows = new PlaylistDetailSourceRow[] { alphaRow };
@@ -712,7 +712,7 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<PlaylistDetailRow> first = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> first = PlaylistDetailPresentationService.ApplyViewFromSource(
             sourceRows,
             keywordFilter: null,
             modeFilter: ChartModeFilter.All,
@@ -724,7 +724,7 @@ public sealed class PlaylistViewPipelineTests
             out long _,
             out long _,
             out long _);
-        List<PlaylistDetailRow> second = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> second = PlaylistDetailPresentationService.ApplyViewFromSource(
             sourceRows,
             keywordFilter: null,
             modeFilter: ChartModeFilter.All,
@@ -745,7 +745,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_LevelSortUsesPlaylistEntryDoubleValueNumerically()
+    public void PlaylistDetailPresentationService_LevelSortUsesPlaylistEntryDoubleValueNumerically()
     {
         PlaylistDetailSourceRow entryLevelTwelve = CreateSourceRow("88888888888888888888888888888888", "Twelve", 7, entryLevel: 12);
         PlaylistDetailSourceRow entryLevelTwoPointFive = CreateSourceRow("99999999999999999999999999999999", "TwoPointFive", 7, entryLevel: 2.5);
@@ -756,7 +756,7 @@ public sealed class PlaylistViewPipelineTests
             Direction = ListSortDirection.Ascending
         };
 
-        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
             [entryLevelTwelve, entryLevelTwoPointFive, entryLevelThree],
             keywordFilter: null,
             modeFilter: ChartModeFilter.All,
@@ -3620,14 +3620,14 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ApplyPlaylistViewFromSource_MissingChartInfoParticipatesInKeywordAndNumericSort()
+    public void PlaylistDetailPresentationService_MissingChartInfoParticipatesInKeywordAndNumericSort()
     {
         LR2SongDBExtended.chart_info highNotesInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12, notes: 2500, total: 500);
         LR2SongDBExtended.chart_info lowNotesInfo = CreateChartInfo(new string('f', 64), "ffffffffffffffffffffffffffffffff", level: 3, notes: 500, total: 100);
         PlaylistDetailSourceRow highNotesRow = CreateMissingSourceRow("HighNotes", highNotesInfo);
         PlaylistDetailSourceRow lowNotesRow = CreateMissingSourceRow("LowNotes", lowNotesInfo);
 
-        List<PlaylistDetailRow> result = MainWindowViewModel.ApplyPlaylistViewFromSource(
+        List<PlaylistDetailRow> result = PlaylistDetailPresentationService.ApplyViewFromSource(
             [highNotesRow, lowNotesRow],
             keywordFilter: "notes:>=2000 feature:random level:12",
             modeFilter: ChartModeFilter.All,

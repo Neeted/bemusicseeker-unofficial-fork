@@ -9125,36 +9125,6 @@ public partial class MainWindowViewModel : ViewModel
         return false;
     }
 
-    /// <summary>
-    /// プレイリスト source snapshot から keyword/mode/sort を適用し、表示用行集合を返します。
-    /// </summary>
-    /// <param name="sourceRows">keyword/mode/sort 適用前の source snapshot。</param>
-    /// <param name="keywordFilter">現在の keyword filter。</param>
-    /// <param name="modeFilter">現在の mode filter。</param>
-    /// <param name="sortParameters">現在の sort 条件。</param>
-    /// <param name="sortProfile">利用された sort profile。</param>
-    /// <param name="keywordCount">keyword 適用後件数。</param>
-    /// <param name="modeCount">mode 適用後件数。</param>
-    /// <param name="keywordStageMs">keyword 適用時間。</param>
-    /// <param name="modeStageMs">mode 適用時間。</param>
-    /// <param name="sortStageMs">sort 適用時間。</param>
-    /// <returns>表示用行集合。</returns>
-    internal static List<PlaylistDetailRow> ApplyPlaylistViewFromSource(IReadOnlyList<PlaylistDetailSourceRow> sourceRows, string keywordFilter, ChartModeFilter modeFilter, ChartListSortParameters sortParameters, out string sortProfile, out int keywordCount, out int modeCount, out long keywordStageMs, out long modeStageMs, out long sortStageMs, out long viewMaterializeMs)
-    {
-        return PlaylistDetailPresentationService.ApplyViewFromSource(
-            sourceRows,
-            keywordFilter,
-            modeFilter,
-            sortParameters,
-            out sortProfile,
-            out keywordCount,
-            out modeCount,
-            out keywordStageMs,
-            out modeStageMs,
-            out sortStageMs,
-            out viewMaterializeMs);
-    }
-
     private bool TryPatchPlaylistSourceChartInfoIndex(PlaylistBuildRequest request, CancellationToken cancellationToken, out int sourceCount, out int dependencyCount, out int patchedCount, out long elapsedMs)
     {
         sourceCount = 0;
