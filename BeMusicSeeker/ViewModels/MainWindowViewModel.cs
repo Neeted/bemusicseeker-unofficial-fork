@@ -138,15 +138,6 @@ public partial class MainWindowViewModel : ViewModel
     {
     }
 
-    [Flags]
-    public enum PanelState
-    {
-        TITLE_LARGE = 0,
-        TITLE_SMALL = 1,
-        BMS_PLAYER = 2,
-        MOVIE_PLAYER = 4
-    }
-
     /// <summary>
     /// Compatibility name for callers compiled against the former nested chart mode filter.
     /// The main-window binding uses <see cref="ChartFilters"/> instead.

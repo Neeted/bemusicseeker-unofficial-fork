@@ -14,7 +14,7 @@
 
 ### パネル状態
 
-プレイヤーパネル状態は `Settings.Default.PlayerPanelState` に保存され、`MainWindowViewModel.PanelState` の `BMS_PLAYER` / `MOVIE_PLAYER` / `TITLE_SMALL` の組み合わせで扱う。
+プレイヤーパネル状態は `Settings.Default.PlayerPanelState` に保存され、standalone `PlayerPanelState` の `BMS_PLAYER` / `MOVIE_PLAYER` / `TITLE_SMALL` の組み合わせで扱う。
 
 `MOVIE_PLAYER` が有効な場合、メインウィンドウは通常の BMS プレイヤー領域ではなくブラウザ領域を表示する。プレイヤー制御部の回転ボタンからも `BMS_PLAYER` と `MOVIE_PLAYER` の切り替え候補が生成される。
 

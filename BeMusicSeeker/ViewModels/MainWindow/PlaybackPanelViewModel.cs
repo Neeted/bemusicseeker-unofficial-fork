@@ -164,6 +164,54 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     public bool IsStoppedOrPaused => NowPlayingBmsFile == null || IsPaused;
 
+    public PlayerPanelState PlayerPanelState
+    {
+        get => ApplicationSettings.PlayerPanelState;
+        set
+        {
+            if (ApplicationSettings.PlayerPanelState != value)
+            {
+                ApplicationSettings.PlayerPanelState = value;
+                RaisePropertyChanged(nameof(PlayerPanelState));
+                RaisePlayerHeaderPropertiesChanged();
+            }
+        }
+    }
+
+    public bool RepeatPlayMode
+    {
+        get => ApplicationSettings.RepeatPlayMode;
+        set => SetPlaybackSetting(ApplicationSettings.RepeatPlayMode, value, v => ApplicationSettings.RepeatPlayMode = v, nameof(RepeatPlayMode));
+    }
+
+    public bool FolderSkipPlayMode
+    {
+        get => ApplicationSettings.FolderSkipPlayMode;
+        set => SetPlaybackSetting(ApplicationSettings.FolderSkipPlayMode, value, v => ApplicationSettings.FolderSkipPlayMode = v, nameof(FolderSkipPlayMode));
+    }
+
+    public bool SinglePlayMode
+    {
+        get => ApplicationSettings.SinglePlayMode;
+        set => SetPlaybackSetting(ApplicationSettings.SinglePlayMode, value, v => ApplicationSettings.SinglePlayMode = v, nameof(SinglePlayMode));
+    }
+
+    public bool CanSeek => !ApplicationSettings.UsePlayerLR2body;
+
+    public bool CanChangeHighSpeed => ApplicationSettings.UsePlayeruBMplay || ApplicationSettings.UsePlayerBMIIDXView;
+
+    public bool CanShowInfo => !ApplicationSettings.UsePlayerLR2body && !ApplicationSettings.UsePlayerBMIIDXView;
+
+    public bool CanShowEffect => ApplicationSettings.UsePlayeruBMplay;
+
+    public bool CanChangePlayside => ApplicationSettings.UsePlayeruBMplay;
+
+    internal bool UsesUbMplay => ApplicationSettings.UsePlayeruBMplay;
+
+    internal bool UsesLr2Body => ApplicationSettings.UsePlayerLR2body;
+
+    internal bool UsesBmiIdxView => ApplicationSettings.UsePlayerBMIIDXView;
+
     internal int NowPlayingRowIndex => nowPlayingRowIndex;
 
     /// <summary>
@@ -1125,7 +1173,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
     }
 
     private bool IsMoviePlayerHeaderActive =>
-        ApplicationSettings.PlayerPanelState == MainWindowViewModel.PanelState.MOVIE_PLAYER
+        ApplicationSettings.PlayerPanelState == PlayerPanelState.MOVIE_PLAYER
         && (!string.IsNullOrWhiteSpace(moviePlayerHeaderTitle)
             || !string.IsNullOrWhiteSpace(moviePlayerHeaderSubtitle)
             || !string.IsNullOrWhiteSpace(moviePlayerHeaderArtist));
@@ -1204,6 +1252,33 @@ public sealed class PlaybackPanelViewModel : ViewModel
         RaisePropertyChanged(nameof(IsPlaying));
         RaisePropertyChanged(nameof(IsPaused));
         RaisePropertyChanged(nameof(IsStoppedOrPaused));
+    }
+
+    private void SetPlaybackSetting(bool currentValue, bool newValue, Action<bool> assign, string propertyName)
+    {
+        if (currentValue != newValue)
+        {
+            assign(newValue);
+            RaisePropertyChanged(propertyName);
+        }
+    }
+
+    internal void NotifySettingsChanged()
+    {
+        RaisePropertyChanged(nameof(PlayerPanelState));
+        RaisePropertyChanged(nameof(RepeatPlayMode));
+        RaisePropertyChanged(nameof(FolderSkipPlayMode));
+        RaisePropertyChanged(nameof(SinglePlayMode));
+        RaisePropertyChanged(nameof(CanSeek));
+        RaisePropertyChanged(nameof(CanChangeHighSpeed));
+        RaisePropertyChanged(nameof(CanShowInfo));
+        RaisePropertyChanged(nameof(CanShowEffect));
+        RaisePropertyChanged(nameof(CanChangePlayside));
+        RaisePropertyChanged(nameof(UsesUbMplay));
+        RaisePropertyChanged(nameof(UsesLr2Body));
+        RaisePropertyChanged(nameof(UsesBmiIdxView));
+        RaisePropertyChanged(nameof(PlayerVolume));
+        RaisePlayerHeaderPropertiesChanged();
     }
 
     private void DispatchPlaybackEvent(EventHandler handler, long expectedGeneration)

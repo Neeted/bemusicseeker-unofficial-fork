@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
@@ -291,6 +292,77 @@ public sealed class PlaybackPanelViewModelTests
 
         StringAssert.Contains(source, "onExitEventHandlerRegstered = onExitEventHandler;");
         StringAssert.Contains(source, "BMIIDXView2015Process.Exited += onExitEventHandlerRegstered;");
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_OwnsPersistedPanelAndPlaybackModeBindings()
+    {
+        PlayerPanelState originalPanelState = Settings.Default.PlayerPanelState;
+        bool originalRepeat = Settings.Default.RepeatPlayMode;
+        bool originalFolderSkip = Settings.Default.FolderSkipPlayMode;
+        bool originalSingle = Settings.Default.SinglePlayMode;
+        PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer());
+        try
+        {
+            panel.PlayerPanelState = PlayerPanelState.BMS_PLAYER | PlayerPanelState.TITLE_SMALL;
+            panel.RepeatPlayMode = !originalRepeat;
+            panel.FolderSkipPlayMode = !originalFolderSkip;
+            panel.SinglePlayMode = !originalSingle;
+
+            Assert.AreEqual(panel.PlayerPanelState, Settings.Default.PlayerPanelState);
+            Assert.AreEqual(panel.RepeatPlayMode, Settings.Default.RepeatPlayMode);
+            Assert.AreEqual(panel.FolderSkipPlayMode, Settings.Default.FolderSkipPlayMode);
+            Assert.AreEqual(panel.SinglePlayMode, Settings.Default.SinglePlayMode);
+        }
+        finally
+        {
+            Settings.Default.PlayerPanelState = originalPanelState;
+            Settings.Default.RepeatPlayMode = originalRepeat;
+            Settings.Default.FolderSkipPlayMode = originalFolderSkip;
+            Settings.Default.SinglePlayMode = originalSingle;
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_RefreshesCapabilityBindingsAfterSettingsChange()
+    {
+        bool originalUbMplay = Settings.Default.UsePlayeruBMplay;
+        bool originalLr2 = Settings.Default.UsePlayerLR2body;
+        bool originalBmi = Settings.Default.UsePlayerBMIIDXView;
+        PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer());
+        var changed = new HashSet<string>(StringComparer.Ordinal);
+        panel.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? string.Empty);
+        try
+        {
+            Settings.Default.UsePlayeruBMplay = false;
+            Settings.Default.UsePlayerLR2body = true;
+            Settings.Default.UsePlayerBMIIDXView = false;
+            panel.NotifySettingsChanged();
+
+            Assert.IsFalse(panel.CanSeek);
+            Assert.IsFalse(panel.CanChangeHighSpeed);
+            Assert.IsFalse(panel.CanShowInfo);
+            Assert.IsFalse(panel.CanShowEffect);
+            Assert.IsFalse(panel.CanChangePlayside);
+            CollectionAssert.IsSubsetOf(
+                new[] { "PlayerPanelState", "CanSeek", "CanChangeHighSpeed", "CanShowInfo", "CanShowEffect", "CanChangePlayside" },
+                changed.ToArray());
+
+            Settings.Default.UsePlayeruBMplay = true;
+            Settings.Default.UsePlayerLR2body = false;
+            panel.NotifySettingsChanged();
+            Assert.IsTrue(panel.CanSeek);
+            Assert.IsTrue(panel.CanChangeHighSpeed);
+            Assert.IsTrue(panel.CanShowInfo);
+            Assert.IsTrue(panel.CanShowEffect);
+            Assert.IsTrue(panel.CanChangePlayside);
+        }
+        finally
+        {
+            Settings.Default.UsePlayeruBMplay = originalUbMplay;
+            Settings.Default.UsePlayerLR2body = originalLr2;
+            Settings.Default.UsePlayerBMIIDXView = originalBmi;
+        }
     }
 
     private static PlaybackPanelViewModel CreatePanel(IBMSPlayer player)

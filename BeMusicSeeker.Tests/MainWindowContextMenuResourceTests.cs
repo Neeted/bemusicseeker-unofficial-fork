@@ -804,6 +804,20 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaybackControls_BindPanelStateAndCapabilitiesThroughPlaybackOwner()
+    {
+        string xaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
+
+        Assert.IsFalse(xaml.Contains("Path=\"PlayerPanelState\" Source=\"{x:Static prop:Settings.Default}\""));
+        Assert.IsFalse(xaml.Contains("UsePlayeruBMplay, Source={x:Static prop:Settings.Default}"));
+        Assert.IsFalse(xaml.Contains("UsePlayerLR2body, Source={x:Static prop:Settings.Default}"));
+        Assert.IsFalse(xaml.Contains("UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}"));
+        StringAssert.Contains(xaml, "{Binding PlaybackPanel.CanSeek}");
+        StringAssert.Contains(xaml, "{Binding PlaybackPanel.CanChangeHighSpeed, Source={StaticResource vm}}");
+        StringAssert.Contains(xaml, "{Binding PlaybackPanel.RepeatPlayMode, Source={StaticResource vm}, Mode=TwoWay}");
+    }
+
+    [TestMethod]
     public void ProgressStatusBar_BindsThroughProgressHubDataContextAndKeepsRootClickHandlers()
     {
         XDocument document = LoadMainWindowXamlDocument();

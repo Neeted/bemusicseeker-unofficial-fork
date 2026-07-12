@@ -1216,7 +1216,7 @@
                 <FrameworkElement.Style>
                   <Style TargetType="{x:Type Grid}">
                     <Style.Triggers>
-                      <DataTrigger Value="True" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
+                      <DataTrigger Value="True" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
                         <TriggerBase.EnterActions>
                           <BeginStoryboard Name="animationOpenBMSPlayerBody">
                             <Storyboard FillBehavior="HoldEnd">
@@ -1232,7 +1232,7 @@
                           <StopStoryboard BeginStoryboardName="animationOpenBMSPlayerBody" />
                         </TriggerBase.ExitActions>
                       </DataTrigger>
-                      <DataTrigger Value="False" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
+                      <DataTrigger Value="False" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
                         <TriggerBase.EnterActions>
                           <BeginStoryboard Name="animationCloseBMSPlayerBody">
                             <Storyboard FillBehavior="HoldEnd">
@@ -1258,7 +1258,7 @@
                   <FrameworkElement.Style>
                     <Style TargetType="{x:Type Image}">
                       <Style.Triggers>
-                        <DataTrigger Value="True" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
+                        <DataTrigger Value="True" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
                           <TriggerBase.EnterActions>
                             <BeginStoryboard Name="animationCloseBMSPlayerImage">
                               <Storyboard FillBehavior="HoldEnd">
@@ -1270,7 +1270,7 @@
                             <StopStoryboard BeginStoryboardName="animationCloseBMSPlayerImage" />
                           </TriggerBase.ExitActions>
                         </DataTrigger>
-                        <DataTrigger Value="False" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
+                        <DataTrigger Value="False" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
                           <TriggerBase.EnterActions>
                             <BeginStoryboard Name="animationOpenBMSPlayerImage">
                               <Storyboard FillBehavior="HoldEnd">
@@ -1291,7 +1291,7 @@
                     <FrameworkElement.Style>
                       <Style TargetType="{x:Type DockPanel}">
                         <Style.Triggers>
-                          <DataTrigger Value="True" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
+                          <DataTrigger Value="True" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
                             <TriggerBase.EnterActions>
                               <BeginStoryboard Name="animationCloseBMSPlayerTitle">
                                 <Storyboard FillBehavior="HoldEnd">
@@ -1306,7 +1306,7 @@
                               <StopStoryboard BeginStoryboardName="animationCloseBMSPlayerTitle" />
                             </TriggerBase.ExitActions>
                           </DataTrigger>
-                          <DataTrigger Value="False" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
+                          <DataTrigger Value="False" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
                             <TriggerBase.EnterActions>
                               <BeginStoryboard Name="animationOpenBMSPlayerTitle">
                                 <Storyboard FillBehavior="HoldEnd">
@@ -1341,7 +1341,7 @@
                     <FrameworkElement.Style>
                       <Style TargetType="{x:Type Border}">
                         <Style.Triggers>
-                          <DataTrigger Value="True" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
+                          <DataTrigger Value="True" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
                             <TriggerBase.EnterActions>
                               <BeginStoryboard Name="animationOpenBMSPlayerBanner">
                                 <Storyboard FillBehavior="HoldEnd" BeginTime="0:0:0.8">
@@ -1357,7 +1357,7 @@
                               <StopStoryboard BeginStoryboardName="animationOpenBMSPlayerBanner" />
                             </TriggerBase.ExitActions>
                           </DataTrigger>
-                          <DataTrigger Value="False" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
+                          <DataTrigger Value="False" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
                             <TriggerBase.EnterActions>
                               <BeginStoryboard Name="animationCloseBMSPlayerBanner">
                                 <Storyboard FillBehavior="HoldEnd">
@@ -1548,10 +1548,10 @@
                   <FrameworkElement.Style>
                     <Style TargetType="{x:Type StackPanel}">
                       <Style.Triggers>
-                        <DataTrigger Value="True" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
+                        <DataTrigger Value="True" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
                           <Setter Property="Visibility" Value="Collapsed" />
                         </DataTrigger>
-                        <DataTrigger Value="False" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
+                        <DataTrigger Value="False" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
                           <Setter Property="Visibility" Value="Visible" />
                         </DataTrigger>
                       </Style.Triggers>
@@ -1561,21 +1561,21 @@
                   <Button Content="stop" Style="{StaticResource stylePlayerButtonSymbol}" ToolTip="停止" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPlayStopButtonClicked" />
                   <Button Content="backback" Style="{StaticResource stylePlayerButtonSymbol}" ToolTip="前の曲" PreviewMouseLeftButtonDown="gridBMSPlayerControlsPreviousButtonClicked" />
                   <Button Content="nextnext" Style="{StaticResource stylePlayerButtonSymbol}" ToolTip="次の曲" PreviewMouseLeftButtonDown="gridBMSPlayerControlsNextButtonClicked" />
-                  <Button Content="leftleft" Style="{StaticResource stylePlayerButtonSymbolShrink}" ToolTip="巻き戻し" IsEnabled="{qc:MultiBinding $P1 ? false : true, P0={Binding UsePlayeruBMplay, Source={x:Static prop:Settings.Default}}, P1={Binding UsePlayerLR2body, Source={x:Static prop:Settings.Default}}, P2={Binding UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}}}" PreviewMouseLeftButtonDown="gridBMSPlayerControlsFastBackwardButtonClicked" PreviewMouseLeftButtonUp="gridBMSPlayerControlsFastBackwardButtonReleased" MouseLeave="gridBMSPlayerControlsFastBackwardButtonReleased" />
-                  <Button Content="rightright" Style="{StaticResource stylePlayerButtonSymbolShrink}" ToolTip="早送り" IsEnabled="{qc:MultiBinding $P1 ? false : true, P0={Binding UsePlayeruBMplay, Source={x:Static prop:Settings.Default}}, P1={Binding UsePlayerLR2body, Source={x:Static prop:Settings.Default}}, P2={Binding UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}}}" PreviewMouseLeftButtonDown="gridBMSPlayerControlsFastForwardButtonClicked" PreviewMouseLeftButtonUp="gridBMSPlayerControlsFastForwardButtonReleased" MouseLeave="gridBMSPlayerControlsFastForwardButtonReleased" />
+                  <Button Content="leftleft" Style="{StaticResource stylePlayerButtonSymbolShrink}" ToolTip="巻き戻し" IsEnabled="{Binding PlaybackPanel.CanSeek}" PreviewMouseLeftButtonDown="gridBMSPlayerControlsFastBackwardButtonClicked" PreviewMouseLeftButtonUp="gridBMSPlayerControlsFastBackwardButtonReleased" MouseLeave="gridBMSPlayerControlsFastBackwardButtonReleased" />
+                  <Button Content="rightright" Style="{StaticResource stylePlayerButtonSymbolShrink}" ToolTip="早送り" IsEnabled="{Binding PlaybackPanel.CanSeek}" PreviewMouseLeftButtonDown="gridBMSPlayerControlsFastForwardButtonClicked" PreviewMouseLeftButtonUp="gridBMSPlayerControlsFastForwardButtonReleased" MouseLeave="gridBMSPlayerControlsFastForwardButtonReleased" />
                 </StackPanel>
                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" FlowDirection="RightToLeft" Margin="0,0,5,0">
-                  <Button Name="buttonBMSPlayerControlsRotatePanelState2" FlowDirection="LeftToRight" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="20" ToolTip="プレイヤーパネルの開閉" Content="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Mode=OneWay, Converter={StaticResource panelStateToStringConverter2}}" Click="gridBMSPlayerControlsRotatePanelStateButtonClicked2" />
-                  <Button Name="buttonBMSPlayerControlsRotatePanelState" FlowDirection="LeftToRight" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="20" Content="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Mode=OneWay, Converter={StaticResource panelStateToStringConverter}}" ToolTip="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Mode=OneWay, Converter={StaticResource panelStateToTooltipConverter}}" Click="gridBMSPlayerControlsRotatePanelStateButtonClicked" />
+                  <Button Name="buttonBMSPlayerControlsRotatePanelState2" FlowDirection="LeftToRight" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="20" ToolTip="プレイヤーパネルの開閉" Content="{Binding PlaybackPanel.PlayerPanelState, Mode=OneWay, Converter={StaticResource panelStateToStringConverter2}}" Click="gridBMSPlayerControlsRotatePanelStateButtonClicked2" />
+                  <Button Name="buttonBMSPlayerControlsRotatePanelState" FlowDirection="LeftToRight" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="20" Content="{Binding PlaybackPanel.PlayerPanelState, Mode=OneWay, Converter={StaticResource panelStateToStringConverter}}" ToolTip="{Binding PlaybackPanel.PlayerPanelState, Mode=OneWay, Converter={StaticResource panelStateToTooltipConverter}}" Click="gridBMSPlayerControlsRotatePanelStateButtonClicked" />
                   <Button Content="gear" Style="{StaticResource stylePlayerButtonSymbol}" FlowDirection="LeftToRight" FontSize="20" ToolTip="本体設定" Click="showSettingDialogButtonClick" />
                   <v:DropDownMenuButton Width="25" Height="25" Template="{DynamicResource templateDropmenuButtonSetting}" FontSize="17" FlowDirection="LeftToRight" Margin="0,1,0,0" BorderThickness="0" ToolTip="プレイヤー設定">
                     <FrameworkElement.Style>
                       <Style TargetType="{x:Type v:DropDownMenuButton}">
                         <Style.Triggers>
-                          <DataTrigger Value="True" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
+                          <DataTrigger Value="True" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
                             <Setter Property="Visibility" Value="Hidden" />
                           </DataTrigger>
-                          <DataTrigger Value="False" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
+                          <DataTrigger Value="False" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsMoviePlayerConverter}}">
                             <Setter Property="Visibility" Value="Visible" />
                           </DataTrigger>
                         </Style.Triggers>
@@ -1619,7 +1619,7 @@
                       <ContextMenu>
                         <MenuItem>
                           <HeaderedItemsControl.Header>
-                            <UniformGrid Rows="1" Columns="2" Width="150" IsEnabled="{qc:MultiBinding $P0 || $P2 ? true : false, P0={Binding UsePlayeruBMplay, Source={x:Static prop:Settings.Default}}, P1={Binding UsePlayerLR2body, Source={x:Static prop:Settings.Default}}, P2={Binding UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}}}">
+                            <UniformGrid Rows="1" Columns="2" Width="150" IsEnabled="{Binding PlaybackPanel.CanChangeHighSpeed, Source={StaticResource vm}}">
                               <Button Content="HS UP" Padding="5,1" Click="gridBMSPlayerControlsIncreaseHighSpeedButtonClicked" />
                               <Button Content="HS DOWN" Padding="5,1" Click="gridBMSPlayerControlsDecreaseHighSpeedButtonClicked" />
                             </UniformGrid>
@@ -1628,9 +1628,9 @@
                         <MenuItem>
                           <HeaderedItemsControl.Header>
                             <UniformGrid Rows="1" Columns="3" Width="150">
-                              <Button Content="Info" Padding="5,1" IsEnabled="{qc:MultiBinding (!$P1 &amp;&amp; !$P2)? true : false, P0={Binding UsePlayeruBMplay, Source={x:Static prop:Settings.Default}}, P1={Binding UsePlayerLR2body, Source={x:Static prop:Settings.Default}}, P2={Binding UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}}}" Click="gridBMSPlayerControlsShowInfoButtonClicked" />
-                              <Button Content="Effect" Padding="3,1" IsEnabled="{qc:MultiBinding $P0 ? true : false, P0={Binding UsePlayeruBMplay, Source={x:Static prop:Settings.Default}}, P1={Binding UsePlayerLR2body, Source={x:Static prop:Settings.Default}}, P2={Binding UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}}}" Click="gridBMSPlayerControlsShowEffectButtonClicked" />
-                              <Button Content="1P/2P" Padding="5,1" IsEnabled="{qc:MultiBinding $P0 ? true : false, P0={Binding UsePlayeruBMplay, Source={x:Static prop:Settings.Default}}, P1={Binding UsePlayerLR2body, Source={x:Static prop:Settings.Default}}, P2={Binding UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}}}" Click="gridBMSPlayerControlsChangePlaysideButtonClicked" />
+                              <Button Content="Info" Padding="5,1" IsEnabled="{Binding PlaybackPanel.CanShowInfo, Source={StaticResource vm}}" Click="gridBMSPlayerControlsShowInfoButtonClicked" />
+                              <Button Content="Effect" Padding="3,1" IsEnabled="{Binding PlaybackPanel.CanShowEffect, Source={StaticResource vm}}" Click="gridBMSPlayerControlsShowEffectButtonClicked" />
+                              <Button Content="1P/2P" Padding="5,1" IsEnabled="{Binding PlaybackPanel.CanChangePlayside, Source={StaticResource vm}}" Click="gridBMSPlayerControlsChangePlaysideButtonClicked" />
                             </UniformGrid>
                           </HeaderedItemsControl.Header>
                         </MenuItem>
@@ -1643,9 +1643,9 @@
                           </HeaderedItemsControl.Header>
                         </MenuItem>
                         <Separator />
-                        <MenuItem Header="REPEAT" IsCheckable="True" IsChecked="{Binding RepeatPlayMode, Source={x:Static prop:Settings.Default}}" />
-                        <MenuItem Header="FOLDER SKIP" IsCheckable="True" IsChecked="{Binding FolderSkipPlayMode, Source={x:Static prop:Settings.Default}}" />
-                        <MenuItem Header="SINGLE PLAY" IsCheckable="True" IsChecked="{Binding SinglePlayMode, Source={x:Static prop:Settings.Default}}" />
+                        <MenuItem Header="REPEAT" IsCheckable="True" IsChecked="{Binding PlaybackPanel.RepeatPlayMode, Source={StaticResource vm}, Mode=TwoWay}" />
+                        <MenuItem Header="FOLDER SKIP" IsCheckable="True" IsChecked="{Binding PlaybackPanel.FolderSkipPlayMode, Source={StaticResource vm}, Mode=TwoWay}" />
+                        <MenuItem Header="SINGLE PLAY" IsCheckable="True" IsChecked="{Binding PlaybackPanel.SinglePlayMode, Source={StaticResource vm}, Mode=TwoWay}" />
                       </ContextMenu>
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
@@ -1668,7 +1668,7 @@
                   <UIElement.Visibility>
                     <MultiBinding Converter="{StaticResource panelStateToVisibilityConverter}">
                       <Binding Path="Visibility" ElementName="gridPlayerTitle" />
-                      <Binding Path="PlayerPanelState" Source="{x:Static prop:Settings.Default}" />
+                      <Binding Path="PlayerPanelState" />
                     </MultiBinding>
                   </UIElement.Visibility>
                   <TextBlock.Text>
@@ -1681,7 +1681,7 @@
                   <FrameworkElement.Style>
                     <Style TargetType="{x:Type TextBlock}">
                       <Style.Triggers>
-                        <DataTrigger Value="True" Binding="{Binding PlayerPanelState, Source={x:Static prop:Settings.Default}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
+                        <DataTrigger Value="True" Binding="{Binding PlaybackPanel.PlayerPanelState, Source={StaticResource vm}, Converter={StaticResource panelStateIsTitleSmallConverter}}">
                           <TriggerBase.EnterActions>
                             <BeginStoryboard Name="animationBMSPlayerControlsTitle2">
                               <Storyboard FillBehavior="HoldEnd" BeginTime="0:0:0">

@@ -9,7 +9,7 @@ internal class panelStateIsMoviePlayerConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        return value is MainWindowViewModel.PanelState && (MainWindowViewModel.PanelState)value == MainWindowViewModel.PanelState.MOVIE_PLAYER;
+        return value is PlayerPanelState && (PlayerPanelState)value == PlayerPanelState.MOVIE_PLAYER;
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

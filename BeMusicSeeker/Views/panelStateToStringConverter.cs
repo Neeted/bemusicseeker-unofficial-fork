@@ -9,13 +9,13 @@ internal class panelStateToStringConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (value is MainWindowViewModel.PanelState)
+        if (value is PlayerPanelState)
         {
-            if (((MainWindowViewModel.PanelState)value).HasFlag(MainWindowViewModel.PanelState.BMS_PLAYER))
+            if (((PlayerPanelState)value).HasFlag(PlayerPanelState.BMS_PLAYER))
             {
                 return "music";
             }
-            if (((MainWindowViewModel.PanelState)value).HasFlag(MainWindowViewModel.PanelState.MOVIE_PLAYER))
+            if (((PlayerPanelState)value).HasFlag(PlayerPanelState.MOVIE_PLAYER))
             {
                 return "video";
             }

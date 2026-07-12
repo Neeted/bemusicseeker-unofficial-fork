@@ -5455,6 +5455,7 @@ public partial class MainWindowViewModel
                     ownerViewModel.PlaybackPanel.ReplacePlayer(replacementPlayer);
                     ownerViewModel.RaiseInitializationSucceeded();
                 }
+                ownerViewModel.PlaybackPanel.NotifySettingsChanged();
                 playerRuntimeMs = playerRuntimeStopwatch.ElapsedMilliseconds;
                 var lr2BackupNoticeStopwatch = Stopwatch.StartNew();
                 if (impact.HasFlag(SettingsPostSaveImpact.Lr2BackupEnabledNotice))

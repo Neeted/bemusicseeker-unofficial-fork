@@ -344,22 +344,23 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    public MainWindowViewModel.PanelState NowPanelState
+    public PlayerPanelState NowPanelState
     {
         get
         {
-            return Settings.Default.PlayerPanelState;
+            return RequirePlaybackPanel().PlayerPanelState;
         }
         set
         {
-            if (Settings.Default.PlayerPanelState != value)
+            PlaybackPanelViewModel playbackPanel = RequirePlaybackPanel();
+            if (playbackPanel.PlayerPanelState != value)
             {
                 switch (value)
                 {
-                    case MainWindowViewModel.PanelState.BMS_PLAYER:
+                    case PlayerPanelState.BMS_PLAYER:
                         showBMSPlayerPanel();
                         break;
-                    case MainWindowViewModel.PanelState.MOVIE_PLAYER:
+                    case PlayerPanelState.MOVIE_PLAYER:
                         showBrowserPanel();
                         break;
                     default:
@@ -367,9 +368,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                         collapseBrowserPanel();
                         break;
                 }
-                Settings.Default.PlayerPanelState = value;
+                playbackPanel.PlayerPanelState = value;
             }
         }
+    }
+
+    private PlaybackPanelViewModel RequirePlaybackPanel()
+    {
+        return (base.DataContext as MainWindowViewModel)?.PlaybackPanel
+            ?? throw new InvalidOperationException("MainWindow playback panel is unavailable before DataContext composition.");
     }
 
     /// <summary>
@@ -406,13 +413,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         settingsDefaultEventListnener.RegisterHandler(() => Settings.Default.StagefilePath, delegate
         {
             _panelImage = null;
-        });
-        settingsDefaultEventListnener.RegisterHandler(() => Settings.Default.PlayerPanelState, delegate
-        {
-            if (base.DataContext is MainWindowViewModel viewModel)
-            {
-                viewModel.PlaybackPanel.NotifyPlayerHeaderSourceChanged();
-            }
         });
         gridBMSPlayerImage.Source = panelImage;
 
@@ -1434,9 +1434,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
         _renewBMSPlayerControlInfo(bmsFile);
-        if (viewModel.PlaybackPanel.IsStoppedOrPaused && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
+        if (viewModel.PlaybackPanel.IsStoppedOrPaused && isPanelStateValid(PlayerPanelState.BMS_PLAYER))
         {
-            NowPanelState = MainWindowViewModel.PanelState.BMS_PLAYER;
+            NowPanelState = PlayerPanelState.BMS_PLAYER;
         }
         await Task.Run(delegate
         {
@@ -9530,9 +9530,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel viewModel)
         {
             e.Handled = true;
-            if (viewModel.PlaybackPanel.IsStoppedOrPaused && isPanelStateValid(MainWindowViewModel.PanelState.BMS_PLAYER))
+            if (viewModel.PlaybackPanel.IsStoppedOrPaused && isPanelStateValid(PlayerPanelState.BMS_PLAYER))
             {
-                NowPanelState = MainWindowViewModel.PanelState.BMS_PLAYER;
+                NowPanelState = PlayerPanelState.BMS_PLAYER;
             }
             await Task.Run(delegate
             {
@@ -9631,15 +9631,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private async void gridBMSPlayerControlsShowInfoButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (Settings.Default.UsePlayeruBMplay)
+        if (base.DataContext is MainWindowViewModel viewModel && viewModel.PlaybackPanel.UsesUbMplay)
         {
-            if (base.DataContext is MainWindowViewModel viewModel)
+            await Task.Run(delegate
             {
-                await Task.Run(delegate
-                {
-                    viewModel.PlaybackPanel.ShowInfo();
-                }).Logging("gridBMSPlayerControlsShowInfoButtonClicked");
-            }
+                viewModel.PlaybackPanel.ShowInfo();
+            }).Logging("gridBMSPlayerControlsShowInfoButtonClicked");
         }
         else
         {
@@ -9713,7 +9710,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (NowPanelState == MainWindowViewModel.PanelState.BMS_PLAYER)
+        if (NowPanelState == PlayerPanelState.BMS_PLAYER)
         {
             showBMSPlayerPanel();
         }
@@ -9782,7 +9779,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (NowPanelState == MainWindowViewModel.PanelState.MOVIE_PLAYER)
+        if (NowPanelState == PlayerPanelState.MOVIE_PLAYER)
         {
             showBrowserPanel();
         }
@@ -9830,10 +9827,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             switch (NowPanelState)
             {
-                case MainWindowViewModel.PanelState.BMS_PLAYER:
+                case PlayerPanelState.BMS_PLAYER:
                     showBMSPlayerPanel();
                     break;
-                case MainWindowViewModel.PanelState.MOVIE_PLAYER:
+                case PlayerPanelState.MOVIE_PLAYER:
                     showBrowserPanel();
                     break;
             }
@@ -9862,10 +9859,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        MainWindowViewModel.PanelState panelState = NowPanelState;
+        PlayerPanelState panelState = NowPanelState;
         do
         {
-            panelState = (panelState.HasFlag(MainWindowViewModel.PanelState.BMS_PLAYER) ? ((panelState & ~MainWindowViewModel.PanelState.BMS_PLAYER) | MainWindowViewModel.PanelState.MOVIE_PLAYER) : ((!panelState.HasFlag(MainWindowViewModel.PanelState.MOVIE_PLAYER)) ? (panelState | MainWindowViewModel.PanelState.BMS_PLAYER) : (panelState & ~MainWindowViewModel.PanelState.MOVIE_PLAYER)));
+            panelState = (panelState.HasFlag(PlayerPanelState.BMS_PLAYER) ? ((panelState & ~PlayerPanelState.BMS_PLAYER) | PlayerPanelState.MOVIE_PLAYER) : ((!panelState.HasFlag(PlayerPanelState.MOVIE_PLAYER)) ? (panelState | PlayerPanelState.BMS_PLAYER) : (panelState & ~PlayerPanelState.MOVIE_PLAYER)));
         }
         while (!isPanelStateValid(panelState));
         NowPanelState = panelState;
@@ -9873,36 +9870,37 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked2(object sender = null, RoutedEventArgs e = null)
     {
-        NowPanelState ^= MainWindowViewModel.PanelState.TITLE_SMALL;
+        NowPanelState ^= PlayerPanelState.TITLE_SMALL;
     }
 
-    private bool isPanelStateValid(MainWindowViewModel.PanelState state)
+    private bool isPanelStateValid(PlayerPanelState state)
     {
-        if (state.HasFlag(MainWindowViewModel.PanelState.BMS_PLAYER))
+        if (state.HasFlag(PlayerPanelState.BMS_PLAYER))
         {
             if (windowsFormsHost == null || !windowsFormsHost.IsEnabled)
             {
                 return false;
             }
-            if (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && Settings.Default.UsePlayeruBMplay)
+            PlaybackPanelViewModel playbackPanel = RequirePlaybackPanel();
+            if (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay)
             {
                 return false;
             }
-            if (!Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && Settings.Default.UsePlayeruBMplay)
+            if (!Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay)
             {
                 return true;
             }
-            if (Settings.Default.UsePlayerLR2body)
+            if (playbackPanel.UsesLr2Body)
             {
                 return false;
             }
-            if (Settings.Default.UsePlayerBMIIDXView)
+            if (playbackPanel.UsesBmiIdxView)
             {
                 return true;
             }
             return false;
         }
-        if (state.HasFlag(MainWindowViewModel.PanelState.MOVIE_PLAYER) && (webBrowser == null || !webBrowser.IsEnabled || ((MainWindowViewModel)base.DataContext).BrowserHtml == null))
+        if (state.HasFlag(PlayerPanelState.MOVIE_PLAYER) && (webBrowser == null || !webBrowser.IsEnabled || ((MainWindowViewModel)base.DataContext).BrowserHtml == null))
         {
             return false;
         }
@@ -9925,7 +9923,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void webBrowserLoadCompleted(object sender, NavigationEventArgs e)
     {
         webBrowser.Navigating += forbidNavigating;
-        NowPanelState = MainWindowViewModel.PanelState.MOVIE_PLAYER;
+        NowPanelState = PlayerPanelState.MOVIE_PLAYER;
     }
 
     private TreeViewItem _lastSelectedTreeViewItem;

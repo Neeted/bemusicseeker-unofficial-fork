@@ -899,11 +899,11 @@ internal sealed class Settings : ApplicationSettingsBase
     [UserScopedSetting]
     [DebuggerNonUserCode]
     [DefaultSettingValue("TITLE_SMALL")]
-    public MainWindowViewModel.PanelState PlayerPanelState
+    public PlayerPanelState PlayerPanelState
     {
         get
         {
-            return (MainWindowViewModel.PanelState)this["PlayerPanelState"];
+            return (PlayerPanelState)this["PlayerPanelState"];
         }
         set
         {

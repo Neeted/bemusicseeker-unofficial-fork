@@ -9,7 +9,7 @@ internal class panelStateIsTitleSmallConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        return value is MainWindowViewModel.PanelState && ((MainWindowViewModel.PanelState)value).HasFlag(MainWindowViewModel.PanelState.TITLE_SMALL);
+        return value is PlayerPanelState && ((PlayerPanelState)value).HasFlag(PlayerPanelState.TITLE_SMALL);
     }
 
     public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

@@ -9,9 +9,9 @@ internal class panelStateToStringConverter2 : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (value is MainWindowViewModel.PanelState)
+        if (value is PlayerPanelState)
         {
-            if (((MainWindowViewModel.PanelState)value).HasFlag(MainWindowViewModel.PanelState.TITLE_SMALL))
+            if (((PlayerPanelState)value).HasFlag(PlayerPanelState.TITLE_SMALL))
             {
                 return "full";
             }

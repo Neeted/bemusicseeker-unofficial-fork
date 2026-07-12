@@ -10,13 +10,13 @@ internal class panelStateToTooltipConverter : IValueConverter
 {
     public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
     {
-        if (value is MainWindowViewModel.PanelState && value is MainWindowViewModel.PanelState)
+        if (value is PlayerPanelState)
         {
-            if (((MainWindowViewModel.PanelState)value).HasFlag(MainWindowViewModel.PanelState.BMS_PLAYER))
+            if (((PlayerPanelState)value).HasFlag(PlayerPanelState.BMS_PLAYER))
             {
                 return Resources.Tooltip_view_mode + ": " + Resources.Tooltip_bms_player;
             }
-            if (((MainWindowViewModel.PanelState)value).HasFlag(MainWindowViewModel.PanelState.MOVIE_PLAYER))
+            if (((PlayerPanelState)value).HasFlag(PlayerPanelState.MOVIE_PLAYER))
             {
                 return Resources.Tooltip_view_mode + ": " + Resources.Tooltip_movie_preview;
             }
