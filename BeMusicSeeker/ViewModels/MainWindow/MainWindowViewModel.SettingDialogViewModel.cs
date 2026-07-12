@@ -84,6 +84,8 @@ public partial class MainWindowViewModel
 
         private readonly Action saveSettings;
 
+        private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
+
         private readonly PropertyChangedEventListener ownerViewModelEventListener;
 
         private readonly PropertyChangedEventListener resourceServiceEventListener;
@@ -3091,6 +3093,7 @@ public partial class MainWindowViewModel
             ownerViewModel = owner;
             this.reloadSettings = reloadSettings ?? throw new ArgumentNullException(nameof(reloadSettings));
             this.saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
+            playHistoryDisplaySettingsStore = owner.PlayHistoryDisplaySettingsStore;
             appearanceThemeOptions =
             [
                 new AppearanceThemeOption(AppThemeService.Light),
@@ -3436,7 +3439,7 @@ public partial class MainWindowViewModel
         private void RefreshPlayHistoryFolderDisplayPresetsFromSettings()
         {
             PlayHistoryFolderDisplayPresets.Clear();
-            foreach (PlayHistoryDisplayTargetSet targetSet in PlayHistoryDisplayTargetSetStore.Deserialize(Settings.Default.PlayHistoryDisplayTargetSetsJson))
+            foreach (PlayHistoryDisplayTargetSet targetSet in PlayHistoryDisplayTargetSetStore.Deserialize(playHistoryDisplaySettingsStore.DisplayTargetSetsJson))
             {
                 PlayHistoryFolderDisplayPresets.Add(new PlayHistoryFolderDisplayPresetEditor(targetSet.Name, targetSet.Targets));
             }
@@ -3489,7 +3492,7 @@ public partial class MainWindowViewModel
             string serializedDisplayTargetSets = SerializePlayHistoryFolderDisplayPresets();
             bool playHistoryDisplayTargetSetsChanged =
                 !string.Equals(tempPlayHistoryDisplayTargetSetsJson, serializedDisplayTargetSets, StringComparison.Ordinal);
-            Settings.Default.PlayHistoryDisplayTargetSetsJson = serializedDisplayTargetSets;
+            playHistoryDisplaySettingsStore.DisplayTargetSetsJson = serializedDisplayTargetSets;
             if (playHistoryDisplayTargetSetsChanged)
             {
                 ownerViewModel.RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: true);
@@ -5026,7 +5029,7 @@ public partial class MainWindowViewModel
             tempOverwritePlaylistUrlsWithCompletion = Settings.Default.OverwritePlaylistUrlsWithCompletion;
             tempEnableStellaFullPlaylistUrlCompletion = Settings.Default.EnableStellaFullPlaylistUrlCompletion;
             tempPlaylistMd5UrlMappingTsvUri = Settings.Default.PlaylistMd5UrlMappingTsvUri;
-            tempPlayHistoryDisplayTargetSetsJson = Settings.Default.PlayHistoryDisplayTargetSetsJson;
+            tempPlayHistoryDisplayTargetSetsJson = playHistoryDisplaySettingsStore.DisplayTargetSetsJson;
             tempIsLR2BackupEnabled = Settings.Default.IsLR2BackupEnabled;
             tempLR2BackupPath = Settings.Default.LR2BackupPath;
             tempLR2BackupTarget = Settings.Default.LR2BackupTarget;
@@ -5149,7 +5152,7 @@ public partial class MainWindowViewModel
                 || tempOverwritePlaylistUrlsWithCompletion != Settings.Default.OverwritePlaylistUrlsWithCompletion
                 || tempEnableStellaFullPlaylistUrlCompletion != Settings.Default.EnableStellaFullPlaylistUrlCompletion
                 || !string.Equals(tempPlaylistMd5UrlMappingTsvUri, Settings.Default.PlaylistMd5UrlMappingTsvUri, StringComparison.Ordinal)
-                || !string.Equals(tempPlayHistoryDisplayTargetSetsJson, Settings.Default.PlayHistoryDisplayTargetSetsJson, StringComparison.Ordinal)
+                || !string.Equals(tempPlayHistoryDisplayTargetSetsJson, playHistoryDisplaySettingsStore.DisplayTargetSetsJson, StringComparison.Ordinal)
                 || tempIsLR2BackupEnabled != Settings.Default.IsLR2BackupEnabled
                 || HasPathSettingValueChanged(tempLR2BackupPath, Settings.Default.LR2BackupPath, IsLR2BackupPathValid)
                 || tempLR2BackupTarget != Settings.Default.LR2BackupTarget
@@ -6268,10 +6271,10 @@ public partial class MainWindowViewModel
 
         public void SaveOperationModeForRestart(bool operationMode)
         {
-            string playHistorySelectedDisplayTargetIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
+            string playHistorySelectedDisplayTargetIdentity = playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity;
             reloadSettings();
             Settings.Default.OperationModeLR2DB = operationMode;
-            Settings.Default.PlayHistorySelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;
+            playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;
             saveSettings();
         }
 
@@ -6308,7 +6311,7 @@ public partial class MainWindowViewModel
             Settings.Default.OverwritePlaylistUrlsWithCompletion = tempOverwritePlaylistUrlsWithCompletion;
             Settings.Default.EnableStellaFullPlaylistUrlCompletion = tempEnableStellaFullPlaylistUrlCompletion;
             Settings.Default.PlaylistMd5UrlMappingTsvUri = tempPlaylistMd5UrlMappingTsvUri;
-            Settings.Default.PlayHistoryDisplayTargetSetsJson = tempPlayHistoryDisplayTargetSetsJson;
+            playHistoryDisplaySettingsStore.DisplayTargetSetsJson = tempPlayHistoryDisplayTargetSetsJson;
             Settings.Default.LR2bodyResolution = tempLR2bodyResolution;
             Settings.Default.IsSaveLR2bodyWindowPosition = tempIsSaveLR2bodyWindowPosition;
             Settings.Default.IsLR2BackupEnabled = tempIsLR2BackupEnabled;
@@ -6489,7 +6492,7 @@ public partial class MainWindowViewModel
         /// </summary>
         internal void ResetPlayHistoryFolderDisplayPresetsForCancel()
         {
-            Settings.Default.PlayHistoryDisplayTargetSetsJson = tempPlayHistoryDisplayTargetSetsJson;
+            playHistoryDisplaySettingsStore.DisplayTargetSetsJson = tempPlayHistoryDisplayTargetSetsJson;
             RefreshPlayHistoryFolderDisplayPresetsFromSettings();
             tempPlayHistoryDisplayTargetSetDraftsJson = SerializePlayHistoryFolderDisplayPresetDraftsForChangeTracking();
         }

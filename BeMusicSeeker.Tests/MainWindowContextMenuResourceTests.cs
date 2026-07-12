@@ -437,7 +437,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(displayTargetOwner, "nextItems.AddRange(displayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSet));");
         StringAssert.Contains(displayTargetOwner, "nextItems.AddRange(displayTargetSets.Select(PlayHistoryDisplayTargetItem.FromTargetSetProjectionOnly));");
         StringAssert.Contains(displayTargetOwner, ".Select(PlayHistoryDisplayTargetItem.FromPlaylist));");
-        StringAssert.Contains(viewModelCode, "Settings.Default.PlayHistorySelectedDisplayTargetIdentity");
+        StringAssert.Contains(viewModelCode, "playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity");
         StringAssert.Contains(displayTargetOwner, "preferredDisplayTargetIdentity");
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Play_history_display_target_folder_only_set_format));
         StringAssert.Contains(settingDialogXaml, "Path=Resources.Play_history_folder_display_preset, Mode=OneWay");
@@ -1542,16 +1542,16 @@ public sealed class MainWindowContextMenuResourceTests
             "LR2 config persistence, including autoreload normalization, must not be hidden behind runtime post-save actions.");
         StringAssert.Contains(restartSaveMethod, "reloadSettings();");
         StringAssert.Contains(restartSaveMethod, "Settings.Default.OperationModeLR2DB = operationMode;");
-        StringAssert.Contains(restartSaveMethod, "string playHistorySelectedDisplayTargetIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;");
-        StringAssert.Contains(restartSaveMethod, "Settings.Default.PlayHistorySelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;");
+        StringAssert.Contains(restartSaveMethod, "string playHistorySelectedDisplayTargetIdentity = playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity;");
+        StringAssert.Contains(restartSaveMethod, "playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;");
         StringAssert.Contains(restartSaveMethod, "saveSettings();");
         Assert.IsTrue(
-            restartSaveMethod.IndexOf("string playHistorySelectedDisplayTargetIdentity = Settings.Default.PlayHistorySelectedDisplayTargetIdentity;", StringComparison.Ordinal)
+            restartSaveMethod.IndexOf("string playHistorySelectedDisplayTargetIdentity = playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity;", StringComparison.Ordinal)
             < restartSaveMethod.IndexOf("reloadSettings();", StringComparison.Ordinal),
             "Restart save must preserve the in-memory play-history display target before reloading settings.");
         Assert.IsTrue(
             restartSaveMethod.IndexOf("reloadSettings();", StringComparison.Ordinal)
-            < restartSaveMethod.IndexOf("Settings.Default.PlayHistorySelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;", StringComparison.Ordinal),
+            < restartSaveMethod.IndexOf("playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;", StringComparison.Ordinal),
             "Restart save must restore the play-history display target after reloading settings.");
         Assert.IsFalse(restartSaveMethod.Contains("ResetSettings();"));
         Assert.IsFalse(restartSaveMethod.Contains("SetOperationModeSelection"));

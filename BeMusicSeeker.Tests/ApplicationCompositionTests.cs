@@ -192,6 +192,59 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void MainWindowPlayHistoryDisplaySettingsUseCompositionStore()
+    {
+        var store = new FakePlayHistoryDisplaySettingsStore
+        {
+            SelectedDisplayTargetIdentity = "set:CUSTOM",
+            DisplayTargetSetsJson = PlayHistoryDisplayTargetSetStore.Serialize(
+            [
+                new PlayHistoryDisplayTargetSet
+                {
+                    Name = "custom",
+                    Targets = [new PlayHistoryDisplayTargetReference { PlaylistId = 123 }]
+                }
+            ])
+        };
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            firstStartupProvider: () => false,
+            completeFirstStartup: () =>
+            {
+            },
+            reloadSettings: () =>
+            {
+            },
+            saveSettings: () =>
+            {
+            },
+            playHistoryDisplaySettingsStore: store);
+
+        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+
+        Assert.AreEqual("set:CUSTOM", viewModel.PlayHistory.SelectedDisplayTargetIdentity);
+        viewModel.PlayHistory.SelectedDisplayTargetIdentity = "all";
+        Assert.AreEqual("all", store.SelectedDisplayTargetIdentity);
+
+        viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+        [
+            new PlayHistoryDisplayTargetSet
+            {
+                Name = "replacement",
+                Targets = [new PlayHistoryDisplayTargetReference { PlaylistId = 456 }]
+            }
+        ]);
+        Assert.AreEqual("replacement", PlayHistoryDisplayTargetSetStore.Deserialize(store.DisplayTargetSetsJson)[0].Name);
+    }
+
+    private sealed class FakePlayHistoryDisplaySettingsStore : IPlayHistoryDisplaySettingsStore
+    {
+        public string SelectedDisplayTargetIdentity { get; set; } = string.Empty;
+
+        public string DisplayTargetSetsJson { get; set; } = string.Empty;
+    }
+
+    [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));

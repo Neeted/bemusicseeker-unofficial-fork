@@ -263,6 +263,29 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void PlayHistoryDisplaySettings_UseSettingsStoreBoundary()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainWindowViewModel.SettingDialogViewModel.cs");
+
+        StringAssert.Contains(mainWindowSource, "playHistoryDisplaySettingsStore.DisplayTargetSetsJson");
+        StringAssert.Contains(mainWindowSource, "playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity");
+        StringAssert.Contains(settingDialogSource, "playHistoryDisplaySettingsStore.DisplayTargetSetsJson");
+        StringAssert.Contains(settingDialogSource, "playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity");
+        Assert.IsFalse(mainWindowSource.Contains("Settings.Default.PlayHistoryDisplayTargetSetsJson"));
+        Assert.IsFalse(mainWindowSource.Contains("Settings.Default.PlayHistorySelectedDisplayTargetIdentity"));
+        Assert.IsFalse(settingDialogSource.Contains("Settings.Default.PlayHistoryDisplayTargetSetsJson"));
+        Assert.IsFalse(settingDialogSource.Contains("Settings.Default.PlayHistorySelectedDisplayTargetIdentity"));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

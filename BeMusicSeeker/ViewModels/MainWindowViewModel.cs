@@ -505,6 +505,10 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
 
+    private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
+
+    internal IPlayHistoryDisplaySettingsStore PlayHistoryDisplaySettingsStore => playHistoryDisplaySettingsStore;
+
     private StartupSettingsSnapshot GetStartupSettingsSnapshot()
     {
         return startupSettingsProvider()
@@ -5611,7 +5615,7 @@ public partial class MainWindowViewModel : ViewModel
     internal void ReplacePlayHistoryDisplayTargetSetsForTest(IEnumerable<PlayHistoryDisplayTargetSet> targetSets)
     {
         string serializedTargetSets = PlayHistoryDisplayTargetSetStore.Serialize(targetSets);
-        Settings.Default.PlayHistoryDisplayTargetSetsJson = serializedTargetSets;
+        playHistoryDisplaySettingsStore.DisplayTargetSetsJson = serializedTargetSets;
         PlayHistory.ReplaceDisplayTargetSets(
             PlayHistoryDisplayTargetSetStore.Deserialize(serializedTargetSets),
             SnapshotPlayHistoryDisplayTargetTables(),
@@ -6220,6 +6224,7 @@ public partial class MainWindowViewModel : ViewModel
         reloadSettings = composition.ReloadSettings;
         saveSettings = composition.SaveSettings;
         keywordSearchHistorySettingsStore = composition.KeywordSearchHistorySettingsStore;
+        playHistoryDisplaySettingsStore = composition.PlayHistoryDisplaySettingsStore;
         ChartFilters = new ChartListFilterViewModel();
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
@@ -6243,7 +6248,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.ConfigureDetailEditing(() => tables);
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
         PlayHistory = new PlayHistoryWorkflowOwner();
-        PlayHistory.ConfigureDisplayTargetPersistence(identity => Settings.Default.PlayHistorySelectedDisplayTargetIdentity = identity);
+        PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
             SnapshotPlayHistoryDisplayTargetTables,
@@ -6310,7 +6315,7 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.KeywordSearchHistory));
         ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory));
-        PlayHistory.RestoreDisplayTargetIdentity(Settings.Default.PlayHistorySelectedDisplayTargetIdentity);
+        PlayHistory.RestoreDisplayTargetIdentity(playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = new SettingDialogViewModel(this);
         dropInstallQueueProcessor = new DropInstallQueueProcessor(ProcessDroppedInstallBatch, UpdateDropInstallQueueStatus, HandleDroppedInstallBatchException);
@@ -7165,7 +7170,7 @@ public partial class MainWindowViewModel : ViewModel
     private void RefreshPlayHistoryDisplayTargetSetsFromSettings(bool queueRefreshWhenSelectionChanges)
     {
         PlayHistory.ReplaceDisplayTargetSetsFromSettings(
-            Settings.Default.PlayHistoryDisplayTargetSetsJson,
+            playHistoryDisplaySettingsStore.DisplayTargetSetsJson,
             SnapshotPlayHistoryDisplayTargetTables(),
             queueRefreshWhenSelectionChanges);
     }

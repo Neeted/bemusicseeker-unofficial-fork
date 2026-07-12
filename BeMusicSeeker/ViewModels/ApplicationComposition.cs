@@ -33,6 +33,8 @@ internal sealed class ApplicationComposition
 
     private readonly IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore;
 
+    private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -44,7 +46,8 @@ internal sealed class ApplicationComposition
         Action completeFirstStartup = null,
         Action reloadSettings = null,
         Action saveSettings = null,
-        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore = null)
+        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore = null,
+        IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
         this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
@@ -63,6 +66,8 @@ internal sealed class ApplicationComposition
             ?? (() => Settings.Default.Save());
         this.keywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
             ?? new SettingsKeywordSearchHistorySettingsStore();
+        this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
+            ?? new SettingsPlayHistoryDisplaySettingsStore();
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;
@@ -86,6 +91,8 @@ internal sealed class ApplicationComposition
     internal Action SaveSettings => saveSettings;
 
     internal IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore => keywordSearchHistorySettingsStore;
+
+    internal IPlayHistoryDisplaySettingsStore PlayHistoryDisplaySettingsStore => playHistoryDisplaySettingsStore;
 
     private static App GetApplication()
     {
