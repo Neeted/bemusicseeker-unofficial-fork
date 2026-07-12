@@ -14388,10 +14388,6 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         string normalizedBaseName = CustomFolderOutputBaseRegistry.NormalizeBaseName(outputBaseName);
-        if (!string.IsNullOrWhiteSpace(normalizedBaseName) && !CustomFolderOutputBaseRegistry.ContainsBaseName(normalizedBaseName))
-        {
-            return;
-        }
         List<BMSTable> changedTables = [.. rows
             .Where(row => row?.TableRef != null)
             .Select(row => row.TableRef)
@@ -14401,6 +14397,15 @@ public partial class MainWindowViewModel : ViewModel
                 normalizedBaseName,
                 StringComparison.OrdinalIgnoreCase))];
         if (changedTables.Count == 0)
+        {
+            return;
+        }
+        CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+        if (!string.IsNullOrWhiteSpace(normalizedBaseName)
+            && !CustomFolderOutputBaseRegistry.ContainsBaseName(
+                normalizedBaseName,
+                settings.LR2CustomFolderAdditionalOutputBaseDirs))
         {
             return;
         }
@@ -14414,15 +14419,15 @@ public partial class MainWindowViewModel : ViewModel
             {
                 bool beforeBaseDirectoryResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
                     table.custom_folder_output_base_name,
-                    Settings.Default.LR2CustomFolderOutputBaseDir,
-                    Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
+                    settings.LR2CustomFolderOutputBaseDir,
+                    settings.LR2CustomFolderAdditionalOutputBaseDirs,
                     out string beforeBaseDirectory);
                 if (!beforeBaseDirectoryResolved)
                 {
-                    beforeBaseDirectory = Settings.Default.LR2CustomFolderOutputBaseDir;
+                    beforeBaseDirectory = settings.LR2CustomFolderOutputBaseDir;
                     beforeBaseDirectoryResolved = !string.IsNullOrWhiteSpace(beforeBaseDirectory);
                 }
-                string beforeDirectory = Settings.Default.OperationModeLR2DB
+                string beforeDirectory = settings.OperationModeLR2DB
                     && beforeBaseDirectoryResolved
                     && !string.IsNullOrWhiteSpace(table.Output_dir)
                     ? Path.Combine(beforeBaseDirectory, table.Output_dir)
@@ -14450,7 +14455,8 @@ public partial class MainWindowViewModel : ViewModel
                         outputDirPathBeforeByTable,
                         "playlist_summary_output_base_changed",
                         UpdatePlaylistSummaryCustomFolderOutputProgress,
-                        outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
+                        outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
+                        settings: settings);
                 }
                 finally
                 {

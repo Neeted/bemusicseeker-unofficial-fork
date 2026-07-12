@@ -161,9 +161,15 @@ internal static class CustomFolderOutputBaseRegistry
 
     internal static bool ContainsBaseName(string savedBaseName)
     {
+        return ContainsBaseName(savedBaseName, Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
+    }
+
+    internal static bool ContainsBaseName(string savedBaseName, string serializedAdditionalBaseDirectories)
+    {
         string normalizedSavedName = NormalizeBaseName(savedBaseName);
         return !string.IsNullOrWhiteSpace(normalizedSavedName)
-            && CreateAdditionalEntries().Any(entry => string.Equals(entry.Name, normalizedSavedName, StringComparison.OrdinalIgnoreCase));
+            && CreateAdditionalEntries(DeserializeBaseDirectories(serializedAdditionalBaseDirectories))
+                .Any(entry => string.Equals(entry.Name, normalizedSavedName, StringComparison.OrdinalIgnoreCase));
     }
 
     internal static string NormalizeBaseName(string name)

@@ -1472,6 +1472,104 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ApplyPlaylistSummaryOutputBase_UsesInjectedCustomFolderSettingsSnapshot()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string previousAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string providerNormalOutputBaseDir = Path.Combine(tempDirectory, "ProviderNormalCustomFolder");
+            string providerAdditionalOutputBaseDir = Path.Combine(tempDirectory, "ProviderAdditionalCustomFolder");
+            string globalNormalOutputBaseDir = Path.Combine(tempDirectory, "GlobalNormalCustomFolder");
+            Settings.Default.OperationModeLR2DB = false;
+            Settings.Default.LR2CustomFolderOutputBaseDir = globalNormalOutputBaseDir;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = "[]";
+            CustomFolderOutputSettingsSnapshot operationSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = providerNormalOutputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootCustomFolder"),
+                LR2CustomFolderAdditionalOutputBaseDirs =
+                    CustomFolderOutputBaseRegistry.SerializeBaseDirectories([providerAdditionalOutputBaseDir])
+            };
+            int providerCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getOperationSettings = () =>
+            {
+                providerCallCount++;
+                return operationSettings;
+            };
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.CreateTable<LR2SongDB.folder>();
+            }
+            var table = new BMSTable
+            {
+                playlist_id = 7310,
+                name = "OutputBaseProviderSettings",
+                symbol = "OBPS",
+                Output_dir = "OutputBaseProviderSettings",
+                entries =
+                [
+                    CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Folder B")
+                ],
+                Folder_order = ["Folder B"]
+            };
+            string oldOutputDirectory = Path.Combine(providerNormalOutputBaseDir, table.Output_dir);
+            string oldOutputPath = Path.Combine(oldOutputDirectory, "0000.lr2folder");
+            Directory.CreateDirectory(oldOutputDirectory);
+            File.WriteAllText(oldOutputPath, "#TITLE stale normal output", Encoding.GetEncoding("shift_jis"));
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                getOperationSettings)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var viewModel = new ApplicationComposition(
+                () => new BmsLibraryOptionsSnapshot(),
+                beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
+                customFolderOutputSettingsProvider: getOperationSettings).CreateMainWindowViewModel();
+            typeof(MainWindowViewModel)
+                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, playlist);
+
+            viewModel.ApplyPlaylistSummaryOutputBase(
+                [new PlaylistSummaryRow { TableRef = table }],
+                "ProviderAdditionalCustomFolder");
+
+            string newOutputDirectory = Path.Combine(providerAdditionalOutputBaseDir, table.Output_dir);
+            Assert.AreEqual(1, providerCallCount);
+            Assert.AreEqual("ProviderAdditionalCustomFolder", table.custom_folder_output_base_name);
+            Assert.IsFalse(File.Exists(oldOutputPath));
+            Assert.IsTrue(File.Exists(Path.Combine(newOutputDirectory, "0001.lr2folder")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(globalNormalOutputBaseDir, table.Output_dir)));
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ApplyPlaylistSummaryCustomFolderOutputTypes_AppliesLastPlaySortWhenSchemaUnavailable()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
