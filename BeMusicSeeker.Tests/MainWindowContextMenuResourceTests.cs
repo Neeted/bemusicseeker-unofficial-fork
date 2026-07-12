@@ -1806,7 +1806,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2SongDbSyncAsync(\"setting_dialog_manual_resync\", force: true);");
         StringAssert.Contains(manualResyncClickHandler, "HideThisOverlay();");
         StringAssert.Contains(manualResyncClickHandler, "await Dispatcher.Yield(DispatcherPriority.Background);");
-        StringAssert.Contains(playlistCode, "RepairMissingCustomFolderOutputsAfterHydration(reason, verifyRootOutputDirectoryRows)");
+        StringAssert.Contains(playlistCode, "RepairMissingCustomFolderOutputsAfterHydrationCore(reason, verifyRootOutputDirectoryRows, settings)");
         StringAssert.Contains(playlistCode, "Lr2FolderFileDbSyncResult syncResult = SyncCustomFolderRowsBatch(");
         StringAssert.Contains(playlistCode, "materialization.DirectoryRowGenerationScopeDirectories");
         Assert.IsFalse(

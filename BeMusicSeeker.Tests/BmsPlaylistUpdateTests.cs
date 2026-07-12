@@ -3053,8 +3053,23 @@ public sealed class BmsPlaylistUpdateTests
             string outputBaseDir = Path.Combine(bmsRoot, "#BeMusicSeeker");
             Directory.CreateDirectory(bmsRoot);
             Settings.Default.LR2RootPath = lr2RootPath;
-            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.OperationModeLR2DB = false;
             Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            CustomFolderOutputSettingsSnapshot repairSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2RootPath = lr2RootPath,
+                LR2CustomFolderOutputBaseDir = outputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "RootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]",
+                EnableDownloadLr2IrScoreAndDetectUnsent = Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent
+            };
+            int providerCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getRepairSettings = () =>
+            {
+                providerCallCount++;
+                return repairSettings;
+            };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
             using (var db = new LR2SongDBExtended(songDbPath))
@@ -3085,7 +3100,15 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder B"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                () => CreateLr2Config(lr2RootPath, bmsRoot),
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                getRepairSettings)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { firstTable, secondTable }),
@@ -3097,6 +3120,7 @@ public sealed class BmsPlaylistUpdateTests
             int repairedCount = InvokeRepairMissingCustomFolderOutputsAfterHydration(playlist, "test");
 
             Assert.AreEqual(2, repairedCount);
+            Assert.AreEqual(1, providerCallCount);
             CollectionAssert.AreEqual(new[] { "playlist_lr2folder_batch_sync" }, operations);
             Assert.IsTrue(File.Exists(Path.Combine(outputBaseDir, "MissingOne", "0000.lr2folder")));
             Assert.IsTrue(File.Exists(Path.Combine(outputBaseDir, "MissingTwo", "0000.lr2folder")));

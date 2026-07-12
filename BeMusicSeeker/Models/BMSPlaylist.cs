@@ -1268,7 +1268,8 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
-        if (!Settings.Default.OperationModeLR2DB)
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (!settings.OperationModeLR2DB)
         {
             return;
         }
@@ -1280,7 +1281,7 @@ public partial class BMSPlaylist : NotificationObject
                 LogPlaylistPerformance("custom_folder_repair_after_hydration skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
                 return Task.CompletedTask;
             }
-            RepairMissingCustomFolderOutputsAfterHydration(reason, verifyRootOutputDirectoryRows);
+            RepairMissingCustomFolderOutputsAfterHydrationCore(reason, verifyRootOutputDirectoryRows, settings);
             return Task.CompletedTask;
         }
 
@@ -4101,7 +4102,20 @@ public partial class BMSPlaylist : NotificationObject
 
     private int RepairMissingCustomFolderOutputsAfterHydration(string reason, bool verifyRootOutputDirectoryRows = false)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        return RepairMissingCustomFolderOutputsAfterHydrationCore(reason, verifyRootOutputDirectoryRows, settings);
+    }
+
+    private int RepairMissingCustomFolderOutputsAfterHydrationCore(
+        string reason,
+        bool verifyRootOutputDirectoryRows,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        if (settings == null)
+        {
+            throw new InvalidOperationException("Custom-folder output settings snapshot was not provided.");
+        }
+        if (!settings.OperationModeLR2DB)
         {
             return 0;
         }
@@ -4119,7 +4133,7 @@ public partial class BMSPlaylist : NotificationObject
             + " reason=" + (reason ?? "unknown")
             + " tableCount=" + tableSnapshot.Count
             + " verifyRootOutputDirectoryRows=" + verifyRootOutputDirectoryRows.ToString().ToLowerInvariant());
-        List<CustomFolderOutputPlan> targets = CreateCustomFolderOutputRepairPlans(tableSnapshot, reason, verifyRootOutputDirectoryRows);
+        List<CustomFolderOutputPlan> targets = CreateCustomFolderOutputRepairPlans(tableSnapshot, reason, verifyRootOutputDirectoryRows, settings);
         targetStopwatch.Stop();
         if (targets.Count == 0)
         {
@@ -4139,7 +4153,8 @@ public partial class BMSPlaylist : NotificationObject
             reason,
             "playlist_custom_folder_output_repair",
             buildPreparedDataSurface: false,
-            yieldBetweenTables: false)
+            yieldBetweenTables: false,
+            settings: settings)
             .GetAwaiter()
             .GetResult();
         stopwatch.Stop();
@@ -4154,8 +4169,13 @@ public partial class BMSPlaylist : NotificationObject
         return result.ReOutputCount;
     }
 
-    private List<CustomFolderOutputPlan> CreateCustomFolderOutputRepairPlans(IReadOnlyList<BMSTable> tablesSnapshot, string reason, bool verifyRootOutputDirectoryRows)
+    private List<CustomFolderOutputPlan> CreateCustomFolderOutputRepairPlans(
+        IReadOnlyList<BMSTable> tablesSnapshot,
+        string reason,
+        bool verifyRootOutputDirectoryRows,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         var statusStopwatch = Stopwatch.StartNew();
         Dictionary<int, CustomFolderOutputStatusRow> statusRows = ReadCustomFolderOutputStatusRows();
         statusStopwatch.Stop();
@@ -4176,7 +4196,7 @@ public partial class BMSPlaylist : NotificationObject
 
             try
             {
-                string outputDirectory = ResolveCustomFolderOutputDirectory(table);
+                string outputDirectory = ResolveCustomFolderOutputDirectory(table, settings);
                 if (string.IsNullOrWhiteSpace(outputDirectory))
                 {
                     continue;
@@ -4210,7 +4230,7 @@ public partial class BMSPlaylist : NotificationObject
             int? playlistId = candidate?.Table?.playlist_id;
             if (playlistId.HasValue
                 && statusRows.TryGetValue(playlistId.Value, out CustomFolderOutputStatusRow status)
-                && IsCustomFolderOutputStatusConfigCurrent(candidate.Table, candidate.OutputDirectory, status))
+                && IsCustomFolderOutputStatusConfigCurrent(candidate.Table, candidate.OutputDirectory, status, settings))
             {
                 configCurrentCount++;
                 physicalCheckCandidates.Add(candidate);
@@ -4292,7 +4312,7 @@ public partial class BMSPlaylist : NotificationObject
         if (rootDirectoryRowCheckCandidates.Count > 0)
         {
             IReadOnlyCollection<CustomFolderOutputRepairCandidate> rootDirectoryRowRepairCandidates =
-                FindRootOutputDirectoryRowRepairCandidates(rootDirectoryRowCheckCandidates, reason);
+                FindRootOutputDirectoryRowRepairCandidates(rootDirectoryRowCheckCandidates, reason, settings);
             rootDirectoryRowRepairCount = rootDirectoryRowRepairCandidates.Count;
             foreach (CustomFolderOutputRepairCandidate candidate in rootDirectoryRowRepairCandidates)
             {
@@ -4323,7 +4343,7 @@ public partial class BMSPlaylist : NotificationObject
                 EnsurePlaylistEntriesLoaded(candidate.Table, "CustomFolderOutputRepairPlan");
                 using (candidate.Table.ReaderWriterLock.GetReaderGuard())
                 {
-                    pendingProjections.Add(CreateCustomFolderOutputLayoutProjection(candidate.Table, candidate.OutputDirectory));
+                    pendingProjections.Add(CreateCustomFolderOutputLayoutProjection(candidate.Table, candidate.OutputDirectory, settings: settings));
                 }
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
@@ -4344,7 +4364,7 @@ public partial class BMSPlaylist : NotificationObject
         }
 
         var rowLookupStopwatch = Stopwatch.StartNew();
-        AssignCustomFolderProtectedOutputDirectories(pendingProjections);
+        AssignCustomFolderProtectedOutputDirectories(pendingProjections, settings);
         IReadOnlyDictionary<string, LR2SongDB.folder> rowsByPath = ReadCustomFolderOutputRows(pendingProjections, out bool rowLookupSucceeded, layoutOnly: true);
         rowLookupStopwatch.Stop();
         LogPlaylistPerformance("playlist_custom_folder_output_repair row_lookup_done"
@@ -4388,7 +4408,7 @@ public partial class BMSPlaylist : NotificationObject
             {
                 using (projection.Table.ReaderWriterLock.GetReaderGuard())
                 {
-                    fullProjection = CreateCustomFolderOutputProjection(projection.Table, includeText: true);
+                    fullProjection = CreateCustomFolderOutputProjection(projection.Table, includeText: true, settings: settings);
                 }
             }
             catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ArgumentException || ex is NotSupportedException || ex is PathTooLongException || ex is SQLiteException)
@@ -4427,8 +4447,10 @@ public partial class BMSPlaylist : NotificationObject
 
     private IReadOnlyCollection<CustomFolderOutputRepairCandidate> FindRootOutputDirectoryRowRepairCandidates(
         IReadOnlyCollection<CustomFolderOutputRepairCandidate> candidates,
-        string reason)
+        string reason,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
+        settings ??= GetCustomFolderOutputSettings();
         List<CustomFolderOutputRepairCandidate> checkCandidates = [.. (candidates ?? [])
             .Where(candidate => candidate?.Table?.is_root_folder == true
                 && !string.IsNullOrWhiteSpace(candidate.OutputDirectory))];
@@ -4442,7 +4464,7 @@ public partial class BMSPlaylist : NotificationObject
         foreach (CustomFolderOutputRepairCandidate candidate in checkCandidates)
         {
             string rowPath = Lr2FolderPath.ToFolderPath(candidate.OutputDirectory);
-            rowPath = ResolveCustomFolderDatabasePath(candidate.Table, rowPath ?? candidate.OutputDirectory);
+            rowPath = ResolveCustomFolderDatabasePath(candidate.Table, rowPath ?? candidate.OutputDirectory, settings);
             string normalizedRowPath = NormalizeCustomFolderRowPath(rowPath);
             if (string.IsNullOrWhiteSpace(normalizedRowPath))
             {
