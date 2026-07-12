@@ -1567,23 +1567,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    internal static LR2SongDBExtended.chart_info ResolveChartInfoForPlaylistEntry(BMSTableEntry entry, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoByMd5, IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> chartInfoBySha256)
-    {
-        if (entry == null)
-        {
-            return null;
-        }
-        if (!string.IsNullOrWhiteSpace(entry.sha256) && chartInfoBySha256 != null && chartInfoBySha256.TryGetValue(entry.sha256, out LR2SongDBExtended.chart_info resolvedBySha256))
-        {
-            return resolvedBySha256;
-        }
-        if (!string.IsNullOrWhiteSpace(entry.md5) && chartInfoByMd5 != null && chartInfoByMd5.TryGetValue(entry.md5, out LR2SongDBExtended.chart_info resolvedByMd5))
-        {
-            return resolvedByMd5;
-        }
-        return null;
-    }
-
     private static ChartFile ResolvePlaylistChartSnapshot(LibraryChartRef chartRef, IDictionary<LibraryChartRef, ChartFile> cache)
     {
         if (chartRef == null)

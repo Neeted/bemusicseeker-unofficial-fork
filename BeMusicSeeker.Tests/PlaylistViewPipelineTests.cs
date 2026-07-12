@@ -3596,30 +3596,6 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ResolveChartInfoForPlaylistEntry_PrefersSha256ThenFallsBackToMd5()
-    {
-        var entry = new TestablePlaylistEntry();
-        entry.SetMd5("abababababababababababababababab");
-        entry.SetSha256(new string('c', 64));
-        LR2SongDBExtended.chart_info shaMatch = CreateChartInfo(entry.sha256, "ffffffffffffffffffffffffffffffff", level: 12);
-        LR2SongDBExtended.chart_info md5Match = CreateChartInfo(new string('d', 64), entry.md5, level: 3);
-        var bySha256 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
-        {
-            [shaMatch.sha256] = shaMatch
-        };
-        var byMd5 = new Dictionary<string, LR2SongDBExtended.chart_info>(StringComparer.OrdinalIgnoreCase)
-        {
-            [md5Match.md5] = md5Match
-        };
-
-        Assert.AreSame(shaMatch, MainWindowViewModel.ResolveChartInfoForPlaylistEntry(entry, byMd5, bySha256));
-
-        var md5OnlyEntry = new TestablePlaylistEntry();
-        md5OnlyEntry.SetMd5(md5Match.md5);
-        Assert.AreSame(md5Match, MainWindowViewModel.ResolveChartInfoForPlaylistEntry(md5OnlyEntry, byMd5, bySha256));
-    }
-
-    [TestMethod]
     public void PlaylistDetailPresentationService_MissingChartInfoParticipatesInKeywordAndNumericSort()
     {
         LR2SongDBExtended.chart_info highNotesInfo = CreateChartInfo(new string('e', 64), "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", level: 12, notes: 2500, total: 500);

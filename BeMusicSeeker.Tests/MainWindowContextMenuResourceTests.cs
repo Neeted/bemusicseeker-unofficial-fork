@@ -240,6 +240,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("private void ApplyPlayHistorySortedRows("));
         Assert.IsFalse(rootViewModelCode.Contains("new PlayHistoryTerminalRequest"));
         Assert.IsFalse(rootViewModelCode.Contains("ApplyPlaylistViewFromSource("));
+        Assert.IsFalse(rootViewModelCode.Contains("ResolveChartInfoForPlaylistEntry("));
         Assert.IsFalse(rootViewModelCode.Contains("MainChartList.ColumnsSettings = Settings.Default.StandardCustomTableColumnSettings"));
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.PublishTerminalShellState("));
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.PublishTerminalShellStateAfterTablePublishFailure("));
