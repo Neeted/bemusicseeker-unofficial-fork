@@ -8,7 +8,6 @@ using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
 using System.Threading;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views;
 using Livet;
 using System.Windows;
@@ -25,6 +24,8 @@ public sealed class MainChartListViewModel : ViewModel
     private readonly Action<Action> dispatchPresentationAction;
 
     private readonly Action<string> log;
+
+    private readonly IMainChartColumnSettingsStore columnSettingsStore;
 
     internal MainChartRowProjectionOwner RowProjection { get; } = new();
 
@@ -53,15 +54,20 @@ public sealed class MainChartListViewModel : ViewModel
     private MainChartListCellEditContext activeCellEditContext;
 
     internal MainChartListViewModel()
-        : this(action => action(), _ => { })
+        : this(action => action(), _ => { }, new SettingsMainChartColumnSettingsStore())
     {
     }
 
-    internal MainChartListViewModel(Action<Action> dispatchPresentationAction, Action<string> log = null)
+    internal MainChartListViewModel(
+        Action<Action> dispatchPresentationAction,
+        Action<string> log = null,
+        IMainChartColumnSettingsStore columnSettingsStore = null)
     {
         this.dispatchPresentationAction = dispatchPresentationAction
             ?? throw new ArgumentNullException(nameof(dispatchPresentationAction));
         this.log = log ?? (_ => { });
+        this.columnSettingsStore = columnSettingsStore
+            ?? new SettingsMainChartColumnSettingsStore();
     }
 
     internal MainChartListCompletion LastCompletion
@@ -110,10 +116,12 @@ public sealed class MainChartListViewModel : ViewModel
     {
         var stopwatch = Stopwatch.StartNew();
         MainViewUpdateMode resolvedMode = ChartListRefreshCoordinator.ResolveMainColumnSettingMode(mode, currentTreeMode);
+        PlaylistSummaryColumnSettings playlistSummaryColumnsSettings =
+            columnSettingsStore.GetPlaylistSummary(ensureCompatibility: false);
         if (CanReuseColumnSetting(
             resolvedMode,
             IsColumnSettingTargetReady(resolvedMode),
-            Settings.Default.PlaylistSummaryColumnsSettings != null,
+            playlistSummaryColumnsSettings != null,
             isInit: false))
         {
             return new MainChartListColumnSelection(
@@ -122,7 +130,7 @@ public sealed class MainChartListViewModel : ViewModel
                 stopwatch.ElapsedMilliseconds,
                 appliedMode: null,
                 ResolvePlaylistColumnSettingsVisibility(resolvedMode),
-                Settings.Default.PlaylistSummaryColumnsSettings);
+                playlistSummaryColumnsSettings);
         }
         return LoadColumnSetting(resolvedMode, currentTreeMode);
     }
@@ -150,73 +158,48 @@ public sealed class MainChartListViewModel : ViewModel
             case MainViewUpdateMode.PlaylistFilterSelected:
             case MainViewUpdateMode.PlaylistNotOwnedFilterSelected:
                 caseLabel = "playlist";
-                if (isInit || Settings.Default.PlaylistCustomTableColumnSettings == null)
-                {
-                    Settings.Default.PlaylistCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAYLIST);
-                }
-                columns = Settings.Default.PlaylistCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.PLAYLIST, isInit);
                 visibility = Visibility.Visible;
                 break;
             case MainViewUpdateMode.FolderFilterSelected:
                 caseLabel = "standard";
-                if (isInit || Settings.Default.StandardCustomTableColumnSettings == null)
-                {
-                    Settings.Default.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
-                }
-                columns = Settings.Default.StandardCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.STANDARD, isInit);
                 break;
             case MainViewUpdateMode.UnregisteredFilterSelected:
                 caseLabel = "unregistered";
-                if (isInit || Settings.Default.UnregisteredCustomTableColumnSettings == null)
-                    Settings.Default.UnregisteredCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.UNREGISTERED);
-                columns = Settings.Default.UnregisteredCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.UNREGISTERED, isInit);
                 break;
             case MainViewUpdateMode.ZeroNoteFilterSelected:
                 caseLabel = "zero-note";
-                if (isInit || Settings.Default.ZeroNoteCustomTableColumnSettings == null)
-                    Settings.Default.ZeroNoteCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ZERO_NOTE);
-                columns = Settings.Default.ZeroNoteCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.ZERO_NOTE, isInit);
                 break;
             case MainViewUpdateMode.ChartInfoParseErrorFilterSelected:
                 caseLabel = "chart-info-parse-error";
-                if (isInit || Settings.Default.ChartInfoParseErrorCustomTableColumnSettings == null)
-                    Settings.Default.ChartInfoParseErrorCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR);
-                columns = Settings.Default.ChartInfoParseErrorCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR, isInit);
                 break;
             case MainViewUpdateMode.FileMissingFilterSelected:
             case MainViewUpdateMode.FileMissingIgnoredFilterSelected:
             case MainViewUpdateMode.FullScanAllChartsFilterSelected:
             case MainViewUpdateMode.NewlyInstalledFolderSelected:
                 caseLabel = "fullscan";
-                if (isInit || Settings.Default.FullScanCustomTableColumnSettings == null)
-                    Settings.Default.FullScanCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.FULLSCAN);
-                columns = Settings.Default.FullScanCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.FULLSCAN, isInit);
                 break;
             case MainViewUpdateMode.DuplicateFilterSelected:
                 caseLabel = "duplicate";
-                if (isInit || Settings.Default.DuplicateCustomTableColumnSettings == null)
-                    Settings.Default.DuplicateCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.DUPLICATE);
-                columns = Settings.Default.DuplicateCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.DUPLICATE, isInit);
                 break;
             case MainViewUpdateMode.GarbledFilterSelected:
             case MainViewUpdateMode.GarbleFixedFilterSelected:
                 caseLabel = "encoding";
-                if (isInit || Settings.Default.EncodingCustomTableColumnSettings == null)
-                    Settings.Default.EncodingCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.ENCODING);
-                columns = Settings.Default.EncodingCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.ENCODING, isInit);
                 break;
             case MainViewUpdateMode.PendingInstallFolderSelected:
                 caseLabel = "install";
-                if (isInit || Settings.Default.InstallCustomTableColumnSettings == null)
-                    Settings.Default.InstallCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.INSTALL);
-                columns = Settings.Default.InstallCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.INSTALL, isInit);
                 break;
             case MainViewUpdateMode.PlayHistorySelected:
                 caseLabel = "play-history";
-                if (isInit || Settings.Default.PlayHistoryCustomTableColumnSettings == null)
-                    Settings.Default.PlayHistoryCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.PLAY_HISTORY);
-                Settings.Default.PlayHistoryCustomTableColumnSettings.EnsurePlayHistoryColumnDefaults();
-                columns = Settings.Default.PlayHistoryCustomTableColumnSettings;
+                columns = columnSettingsStore.GetMain(CustomTableColumnSettings.ViewKind.PLAY_HISTORY, isInit);
                 break;
             default:
                 handled = false;
@@ -225,8 +208,7 @@ public sealed class MainChartListViewModel : ViewModel
         long caseEnsureAssignMs = stopwatch.ElapsedMilliseconds - stageStartMs;
 
         stageStartMs = stopwatch.ElapsedMilliseconds;
-        Settings.Default.PlaylistSummaryColumnsSettings ??= new PlaylistSummaryColumnSettings();
-        Settings.Default.PlaylistSummaryColumnsSettings.EnsureCompatibility();
+        PlaylistSummaryColumnSettings playlistSummaryColumnsSettings = columnSettingsStore.GetPlaylistSummary(ensureCompatibility: true);
         long playlistSummaryEnsureMs = stopwatch.ElapsedMilliseconds - stageStartMs;
         long elapsedMs = stopwatch.ElapsedMilliseconds;
         if (elapsedMs >= ColumnSettingSlowLogThresholdMs)
@@ -246,7 +228,7 @@ public sealed class MainChartListViewModel : ViewModel
             elapsedMs,
             handled ? mode : null,
             visibility,
-            Settings.Default.PlaylistSummaryColumnsSettings);
+            playlistSummaryColumnsSettings);
     }
 
     private bool CanReuseColumnSetting(
@@ -268,23 +250,45 @@ public sealed class MainChartListViewModel : ViewModel
             : Visibility.Collapsed;
     }
 
-    private static bool IsColumnSettingTargetReady(MainViewUpdateMode mode)
+    private bool IsColumnSettingTargetReady(MainViewUpdateMode mode)
     {
-        Settings settings = Settings.Default;
-        return mode switch
+        return TryResolveColumnViewKind(mode, out CustomTableColumnSettings.ViewKind viewKind)
+            && columnSettingsStore.IsMainReady(viewKind);
+    }
+
+    private static bool TryResolveColumnViewKind(
+        MainViewUpdateMode mode,
+        out CustomTableColumnSettings.ViewKind viewKind)
+    {
+        viewKind = mode switch
         {
-            MainViewUpdateMode.PlaylistFilterSelected or MainViewUpdateMode.PlaylistNotOwnedFilterSelected => settings.PlaylistCustomTableColumnSettings != null,
-            MainViewUpdateMode.FolderFilterSelected => settings.StandardCustomTableColumnSettings != null,
-            MainViewUpdateMode.UnregisteredFilterSelected => settings.UnregisteredCustomTableColumnSettings != null,
-            MainViewUpdateMode.ZeroNoteFilterSelected => settings.ZeroNoteCustomTableColumnSettings != null,
-            MainViewUpdateMode.ChartInfoParseErrorFilterSelected => settings.ChartInfoParseErrorCustomTableColumnSettings != null,
-            MainViewUpdateMode.FileMissingFilterSelected or MainViewUpdateMode.FileMissingIgnoredFilterSelected or MainViewUpdateMode.FullScanAllChartsFilterSelected or MainViewUpdateMode.NewlyInstalledFolderSelected => settings.FullScanCustomTableColumnSettings != null,
-            MainViewUpdateMode.DuplicateFilterSelected => settings.DuplicateCustomTableColumnSettings != null,
-            MainViewUpdateMode.GarbledFilterSelected or MainViewUpdateMode.GarbleFixedFilterSelected => settings.EncodingCustomTableColumnSettings != null,
-            MainViewUpdateMode.PendingInstallFolderSelected => settings.InstallCustomTableColumnSettings != null,
-            MainViewUpdateMode.PlayHistorySelected => settings.PlayHistoryCustomTableColumnSettings != null,
-            _ => false
+            MainViewUpdateMode.PlaylistFilterSelected or MainViewUpdateMode.PlaylistNotOwnedFilterSelected => CustomTableColumnSettings.ViewKind.PLAYLIST,
+            MainViewUpdateMode.FolderFilterSelected => CustomTableColumnSettings.ViewKind.STANDARD,
+            MainViewUpdateMode.UnregisteredFilterSelected => CustomTableColumnSettings.ViewKind.UNREGISTERED,
+            MainViewUpdateMode.ZeroNoteFilterSelected => CustomTableColumnSettings.ViewKind.ZERO_NOTE,
+            MainViewUpdateMode.ChartInfoParseErrorFilterSelected => CustomTableColumnSettings.ViewKind.CHART_INFO_PARSE_ERROR,
+            MainViewUpdateMode.FileMissingFilterSelected or MainViewUpdateMode.FileMissingIgnoredFilterSelected or MainViewUpdateMode.FullScanAllChartsFilterSelected or MainViewUpdateMode.NewlyInstalledFolderSelected => CustomTableColumnSettings.ViewKind.FULLSCAN,
+            MainViewUpdateMode.DuplicateFilterSelected => CustomTableColumnSettings.ViewKind.DUPLICATE,
+            MainViewUpdateMode.GarbledFilterSelected or MainViewUpdateMode.GarbleFixedFilterSelected => CustomTableColumnSettings.ViewKind.ENCODING,
+            MainViewUpdateMode.PendingInstallFolderSelected => CustomTableColumnSettings.ViewKind.INSTALL,
+            MainViewUpdateMode.PlayHistorySelected => CustomTableColumnSettings.ViewKind.PLAY_HISTORY,
+            _ => default
         };
+        return mode is MainViewUpdateMode.PlaylistFilterSelected
+            or MainViewUpdateMode.PlaylistNotOwnedFilterSelected
+            or MainViewUpdateMode.FolderFilterSelected
+            or MainViewUpdateMode.UnregisteredFilterSelected
+            or MainViewUpdateMode.ZeroNoteFilterSelected
+            or MainViewUpdateMode.ChartInfoParseErrorFilterSelected
+            or MainViewUpdateMode.FileMissingFilterSelected
+            or MainViewUpdateMode.FileMissingIgnoredFilterSelected
+            or MainViewUpdateMode.FullScanAllChartsFilterSelected
+            or MainViewUpdateMode.NewlyInstalledFolderSelected
+            or MainViewUpdateMode.DuplicateFilterSelected
+            or MainViewUpdateMode.GarbledFilterSelected
+            or MainViewUpdateMode.GarbleFixedFilterSelected
+            or MainViewUpdateMode.PendingInstallFolderSelected
+            or MainViewUpdateMode.PlayHistorySelected;
     }
 
     internal void CommitCompletion(MainChartListCompletion completion)

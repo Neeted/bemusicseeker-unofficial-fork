@@ -151,6 +151,29 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void MainChartColumnSettings_AreOwnedByInjectedStore()
+    {
+        string root = FindRepositoryRoot();
+        string mainChartSource = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainChartListViewModel.cs"));
+        string coordinatorSource = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistSummaryColumnSettingsCoordinator.cs"));
+
+        StringAssert.Contains(mainChartSource, "IMainChartColumnSettingsStore");
+        StringAssert.Contains(coordinatorSource, "IMainChartColumnSettingsStore");
+        Assert.IsFalse(mainChartSource.Contains("Settings.Default."));
+        Assert.IsFalse(coordinatorSource.Contains("Settings.Default."));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

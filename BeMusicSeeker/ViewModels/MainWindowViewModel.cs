@@ -6212,7 +6212,10 @@ public partial class MainWindowViewModel : ViewModel
             () => lr2config,
             () => bmsPlayer,
             () => DispatcherHelper.UIDispatcher);
-        MainChartList = new MainChartListViewModel(DispatchMainChartListPresentationAction, LogMainViewBuild);
+        MainChartList = new MainChartListViewModel(
+            DispatchMainChartListPresentationAction,
+            LogMainViewBuild,
+            composition.MainChartColumnSettingsStore);
         PlaylistWorkspace = new PlaylistWorkspaceViewModel(
             DispatchMainChartListAction,
             MainChartList,
@@ -6259,7 +6262,9 @@ public partial class MainWindowViewModel : ViewModel
             advanceRevision: false);
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => PlayHistory.QueueKeywordFilterRefresh(
             NormalizePlaylistKeywordFilter(ChartFilters.KeywordFilter));
-        PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(PlaylistWorkspace);
+        PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(
+            PlaylistWorkspace,
+            composition.MainChartColumnSettingsStore);
         PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
             () => tables,
             () => BMSTables,
