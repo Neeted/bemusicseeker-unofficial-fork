@@ -22,13 +22,19 @@ internal sealed class ApplicationComposition
 
     private readonly IMainChartColumnSettingsStore mainChartColumnSettingsStore;
 
+    private readonly Func<bool> firstStartupProvider;
+
+    private readonly Action completeFirstStartup;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider = null,
-        IMainChartColumnSettingsStore mainChartColumnSettingsStore = null)
+        IMainChartColumnSettingsStore mainChartColumnSettingsStore = null,
+        Func<bool> firstStartupProvider = null,
+        Action completeFirstStartup = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
         this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
@@ -37,6 +43,10 @@ internal sealed class ApplicationComposition
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
         this.mainChartColumnSettingsStore = mainChartColumnSettingsStore
             ?? new SettingsMainChartColumnSettingsStore();
+        this.firstStartupProvider = firstStartupProvider
+            ?? (() => GetApplication().firstStartup);
+        this.completeFirstStartup = completeFirstStartup
+            ?? (() => GetApplication().firstStartup = false);
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;
@@ -50,6 +60,15 @@ internal sealed class ApplicationComposition
     internal Func<CustomFolderOutputSettingsSnapshot> CustomFolderOutputSettingsProvider => customFolderOutputSettingsProvider;
 
     internal IMainChartColumnSettingsStore MainChartColumnSettingsStore => mainChartColumnSettingsStore;
+
+    internal Func<bool> FirstStartupProvider => firstStartupProvider;
+
+    internal Action CompleteFirstStartup => completeFirstStartup;
+
+    private static App GetApplication()
+    {
+        return (App)System.Windows.Application.Current;
+    }
 
     internal static ApplicationComposition CreateDefault()
     {

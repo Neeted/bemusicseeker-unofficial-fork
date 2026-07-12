@@ -461,6 +461,8 @@ public partial class MainWindowViewModel : ViewModel
 
     public bool HasActiveLibraryProfile => hasActiveLibraryProfile;
 
+    internal bool IsFirstStartup => firstStartupProvider();
+
     /// <summary>
     /// 設定画面から LR2 `song` / `folder` 派生データの手動再同期を要求できる状態かどうかを返します。
     /// この再同期は現在の所持譜面とプレイリストを入力にするため、初回設定中のように
@@ -492,6 +494,10 @@ public partial class MainWindowViewModel : ViewModel
     private readonly Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
+
+    private readonly Func<bool> firstStartupProvider;
+
+    private readonly Action completeFirstStartup;
 
     private StartupSettingsSnapshot GetStartupSettingsSnapshot()
     {
@@ -6203,6 +6209,8 @@ public partial class MainWindowViewModel : ViewModel
         playlistUrlCompletionOptionsProvider = composition.PlaylistUrlCompletionOptionsProvider;
         beatorajaBmtOptionsProvider = composition.BeatorajaBmtOptionsProvider;
         customFolderOutputSettingsProvider = composition.CustomFolderOutputSettingsProvider;
+        firstStartupProvider = composition.FirstStartupProvider;
+        completeFirstStartup = composition.CompleteFirstStartup;
         ChartFilters = new ChartListFilterViewModel();
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
@@ -7661,7 +7669,7 @@ public partial class MainWindowViewModel : ViewModel
         if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))
         {
             NLogWrapper.FileLogger?.Warn("startup_setting_validation_failed " + (startupValidationErrorMessage ?? string.Empty).Replace(Environment.NewLine, " | "));
-            if (((App)System.Windows.Application.Current).firstStartup)
+            if (firstStartupProvider())
             {
                 _semaphore.Release();
                 SetStartupUiInteractionBlocked(false);
@@ -8243,9 +8251,9 @@ public partial class MainWindowViewModel : ViewModel
             EndUiUpdateSuppression();
             LogInitStage("ui_suppress_end_called", "Initialize");
         }
-        if (((App)System.Windows.Application.Current).firstStartup)
+        if (firstStartupProvider())
         {
-            ((App)System.Windows.Application.Current).firstStartup = false;
+            completeFirstStartup();
             initialSetupCompletionMessagePending = true;
         }
         initializationCompleted = true;

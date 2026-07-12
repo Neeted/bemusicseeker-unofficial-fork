@@ -2538,7 +2538,7 @@ public sealed class MainWindowContextMenuResourceTests
         string fileInitializeBlock = ExtractBetween(
             viewModelCode,
             "startupReadyDataReached = false;",
-            "if (((App)System.Windows.Application.Current).firstStartup)");
+            "if (firstStartupProvider())");
 
         StringAssert.Contains(fileInitializeBlock, "files.InitializeStartup");
         StringAssert.Contains(fileInitializeBlock, "FailStartupProgressOperation(ex.Message);");

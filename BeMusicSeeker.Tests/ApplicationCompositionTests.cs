@@ -85,6 +85,26 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionKeepsTheConfiguredFirstStartupLifecycleBoundary()
+    {
+        bool firstStartup = true;
+        bool completed = false;
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            firstStartupProvider: () => firstStartup,
+            completeFirstStartup: () =>
+            {
+                firstStartup = false;
+                completed = true;
+            });
+
+        Assert.IsTrue(composition.FirstStartupProvider());
+        composition.CompleteFirstStartup();
+        Assert.IsFalse(composition.FirstStartupProvider());
+        Assert.IsTrue(completed);
+    }
+
+    [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));

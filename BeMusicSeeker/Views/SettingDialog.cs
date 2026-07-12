@@ -401,7 +401,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                     await settingDialogViewModel.SaveSettingsForInitialInitialize();
                     saveMs = saveStopwatch.ElapsedMilliseconds;
                     HideThisOverlay();
-                    if (((App)Application.Current).firstStartup)
+                    if (viewModel.IsFirstStartup)
                     {
                         totalStopwatch.Stop();
                         UiDialogRoute.ShowMessageBox(BeMusicSeeker.Properties.Resources.Msg_initsetting_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
