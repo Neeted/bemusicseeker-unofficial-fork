@@ -7586,14 +7586,15 @@ public partial class MainWindowViewModel : ViewModel
 
     }
 
-    private void RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad()
+    private void RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(
+        CustomFolderOutputSettingsSnapshot startupCustomFolderSettings)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        if (startupCustomFolderSettings?.OperationModeLR2DB != true)
         {
             return;
         }
 
-        if (settingDialog.SyncRootCustomFolderOutputSearchRootsAfterSettingsChange())
+        if (settingDialog.SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupCustomFolderSettings))
         {
             LogInitStage("custom_folder_root_output_search_root_repair", "Initialize");
         }
@@ -7631,9 +7632,15 @@ public partial class MainWindowViewModel : ViewModel
         string text = Assembly.GetEntryAssembly().GetName().Version.ToString();
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
         StartupSettingsSnapshot startupSettings;
+        CustomFolderOutputSettingsSnapshot startupCustomFolderSettings = null;
         try
         {
             startupSettings = GetStartupSettingsSnapshot();
+            if (startupSettings.OperationModeLR2DB)
+            {
+                startupCustomFolderSettings = customFolderOutputSettingsProvider()
+                    ?? throw new InvalidOperationException("Custom-folder output settings provider returned null during startup.");
+            }
             RepairCustomFolderOutputSearchRootsBeforeStartupValidation(startupSettings);
         }
         catch (Exception ex)
@@ -8210,7 +8217,7 @@ public partial class MainWindowViewModel : ViewModel
                 files.InitializeStartup([taskAdd1, taskAdd2], semaphore);
             }).Logging("Initialize");
             PublishLatestLr2PlayHistorySchemaCheckResultFromLibrary();
-            RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad();
+            RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);
             LogInitStage("files_initialize_done", "Initialize");
             TryLogStartupReadyData();
         }

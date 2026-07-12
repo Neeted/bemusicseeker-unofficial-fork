@@ -138,6 +138,19 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void StartupRootCustomFolderRepair_UsesStartupSettingsSnapshot()
+    {
+        string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        StringAssert.Contains(source, "CustomFolderOutputSettingsSnapshot startupCustomFolderSettings = null;");
+        StringAssert.Contains(source, "startupCustomFolderSettings = customFolderOutputSettingsProvider()");
+        StringAssert.Contains(source, "RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad(startupCustomFolderSettings);");
+        StringAssert.Contains(source, "settingDialog.SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(startupCustomFolderSettings)");
+        Assert.IsFalse(
+            source.Contains("private void RepairRootCustomFolderOutputSearchRootsAfterStartupPlaylistLoad()"),
+            "Startup root repair must not reacquire settings through an unscoped provider call.");
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
