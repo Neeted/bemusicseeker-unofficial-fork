@@ -60,30 +60,39 @@ internal sealed class StartupSettingsSnapshot
 
     public static StartupSettingsSnapshot CreateCurrent()
     {
+        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
+    }
+
+    internal static StartupSettingsSnapshot CreateCurrent(Settings settings)
+    {
+        if (settings == null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
         return new StartupSettingsSnapshot
         {
-            OperationModeLR2DB = Settings.Default.OperationModeLR2DB,
-            LR2ConfigXmlPath = Settings.Default.LR2ConfigXmlPath,
-            LR2SongDBPath = Settings.Default.LR2SongDBPath,
-            LR2RootPath = Settings.Default.LR2RootPath,
-            LR2CustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
-            LR2CustomFolderAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
+            OperationModeLR2DB = settings.OperationModeLR2DB,
+            LR2ConfigXmlPath = settings.LR2ConfigXmlPath,
+            LR2SongDBPath = settings.LR2SongDBPath,
+            LR2RootPath = settings.LR2RootPath,
+            LR2CustomFolderOutputBaseDir = settings.LR2CustomFolderOutputBaseDir,
+            LR2CustomFolderAdditionalOutputBaseDirs = settings.LR2CustomFolderAdditionalOutputBaseDirs,
             StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Deserialize(
-                Settings.Default.StandaloneBmsRootPaths,
-                Settings.Default.BMSRootPath),
-            UsePlayeruBMplay = Settings.Default.UsePlayeruBMplay,
-            uBMplayPath = Settings.Default.uBMplayPath,
-            UsePlayerBMIIDXView = Settings.Default.UsePlayerBMIIDXView,
-            BMIIDXViewPath = Settings.Default.BMIIDXViewPath,
-            UsePlayerLR2body = Settings.Default.UsePlayerLR2body,
-            LR2bodyPath = ResolveLr2bodyPath(Settings.Default.LR2RootPath, Settings.Default.LR2ConfigXmlPath),
-            IsLR2BackupEnabled = Settings.Default.IsLR2BackupEnabled,
-            LR2BackupTarget = Settings.Default.LR2BackupTarget,
-            LR2BackupPath = Settings.Default.LR2BackupPath,
-            LR2BackupSpan = Settings.Default.LR2BackupSpan,
-            LR2BackupNum = Settings.Default.LR2BackupNum,
-            SkipInitPlaylistLoad = Settings.Default.SkipInitPlaylistLoad,
-            TableListURL = Settings.Default.TableListURL
+                settings.StandaloneBmsRootPaths,
+                settings.BMSRootPath),
+            UsePlayeruBMplay = settings.UsePlayeruBMplay,
+            uBMplayPath = settings.uBMplayPath,
+            UsePlayerBMIIDXView = settings.UsePlayerBMIIDXView,
+            BMIIDXViewPath = settings.BMIIDXViewPath,
+            UsePlayerLR2body = settings.UsePlayerLR2body,
+            LR2bodyPath = ResolveLr2bodyPath(settings.LR2RootPath, settings.LR2ConfigXmlPath),
+            IsLR2BackupEnabled = settings.IsLR2BackupEnabled,
+            LR2BackupTarget = settings.LR2BackupTarget,
+            LR2BackupPath = settings.LR2BackupPath,
+            LR2BackupSpan = settings.LR2BackupSpan,
+            LR2BackupNum = settings.LR2BackupNum,
+            SkipInitPlaylistLoad = settings.SkipInitPlaylistLoad,
+            TableListURL = settings.TableListURL
         };
     }
 

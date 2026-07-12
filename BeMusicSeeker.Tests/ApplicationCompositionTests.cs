@@ -279,6 +279,25 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionDefaultStartupSettingsProviderUsesInjectedEditSessionValues()
+    {
+        var values = new BeMusicSeeker.Properties.Settings
+        {
+            OperationModeLR2DB = false,
+            LR2RootPath = "injected-lr2-root"
+        };
+        var session = new FakeSettingsEditSession { Values = values };
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            settingsEditSession: session);
+
+        StartupSettingsSnapshot snapshot = composition.StartupSettingsProvider();
+
+        Assert.IsFalse(snapshot.OperationModeLR2DB);
+        Assert.AreEqual("injected-lr2-root", snapshot.LR2RootPath);
+    }
+
+    [TestMethod]
     public void MainWindowKeywordSearchHistoryUsesCompositionSettingsStore()
     {
         var store = new FakeKeywordSearchHistorySettingsStore
@@ -370,7 +389,7 @@ public sealed class ApplicationCompositionTests
 
     private sealed class FakeSettingsEditSession : ISettingsEditSession
     {
-        public BeMusicSeeker.Properties.Settings Values => BeMusicSeeker.Properties.Settings.Default;
+        public BeMusicSeeker.Properties.Settings Values { get; set; } = BeMusicSeeker.Properties.Settings.Default;
 
         public int ReloadCount { get; private set; }
 

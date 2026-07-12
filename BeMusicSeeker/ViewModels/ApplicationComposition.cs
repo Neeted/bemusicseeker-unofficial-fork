@@ -56,14 +56,15 @@ internal sealed class ApplicationComposition
         ISettingsEditSession settingsEditSession = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
-        this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
+        this.settingsEditSession = settingsEditSession
+            ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
+        this.startupSettingsProvider = startupSettingsProvider
+            ?? (() => StartupSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
         this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
         this.mainChartColumnSettingsStore = mainChartColumnSettingsStore
             ?? new SettingsMainChartColumnSettingsStore();
-        this.settingsEditSession = settingsEditSession
-            ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
         this.firstStartupProvider = firstStartupProvider
             ?? (() => GetApplication().firstStartup);
         this.completeFirstStartup = completeFirstStartup
@@ -250,11 +251,10 @@ internal sealed class ApplicationComposition
     {
         return new ApplicationComposition(
             BmsLibraryOptionsSnapshot.CreateCurrent,
-            StartupSettingsSnapshot.CreateCurrent,
-            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
-            BeatorajaBmtOptionsSnapshot.CreateCurrent,
-            CustomFolderOutputSettingsSnapshot.CreateCurrent,
-            new SettingsMainChartColumnSettingsStore());
+            playlistUrlCompletionOptionsProvider: PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
+            beatorajaBmtOptionsProvider: BeatorajaBmtOptionsSnapshot.CreateCurrent,
+            customFolderOutputSettingsProvider: CustomFolderOutputSettingsSnapshot.CreateCurrent,
+            mainChartColumnSettingsStore: new SettingsMainChartColumnSettingsStore());
     }
 
     internal MainWindowViewModel CreateMainWindowViewModel()

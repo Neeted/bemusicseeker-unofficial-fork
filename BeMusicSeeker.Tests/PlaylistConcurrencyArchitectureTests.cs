@@ -184,7 +184,12 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "StartupSettingsSnapshot.cs"));
 
         StringAssert.Contains(snapshotSource, "StandaloneBmsRootPathSettings.Deserialize(");
+        StringAssert.Contains(snapshotSource, "CreateCurrent(Settings settings)");
+        Assert.IsFalse(snapshotSource.Contains("Settings.Default."));
         Assert.IsFalse(snapshotSource.Contains("SettingDialogViewModel"));
+
+        string compositionSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"));
+        StringAssert.Contains(compositionSource, "StartupSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values)");
     }
 
     [TestMethod]
