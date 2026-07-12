@@ -1206,7 +1206,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(xaml, "SelectedItem=\"{Binding settingDialog.SelectedBmsSearchRootPath, Mode=TwoWay}\"");
         StringAssert.Contains(xaml, "Command=\"{Binding settingDialog.RemoveDirCommand}\"");
         Assert.IsFalse(xaml.Contains("ToolTip=\"未実装\""));
-        StringAssert.Contains(viewModelCode, "Settings.Default.StandaloneBmsRootPaths");
+        StringAssert.Contains(viewModelCode, "ApplicationSettings.StandaloneBmsRootPaths");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidStandaloneBmsRootPaths");
         StringAssert.Contains(viewModelCode, "ownerViewModel.files?.HasOwnedChartUnderRealPath(dir) == true");
         Assert.IsFalse(viewModelCode.Contains("ownerViewModel.BMSFiles != null && ownerViewModel.BMSFiles.Any"));
@@ -1298,13 +1298,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialize, "else if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))");
         StringAssert.Contains(initialize, "new LR2body(startupSettings.LR2bodyPath, CreateLR2PlayerConfig(startupSettings))");
         Assert.IsFalse(initialize.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
-        StringAssert.Contains(saveFollowup, "else if (!forceInternalPlayerForStandaloneModeChange && Settings.Default.UsePlayerLR2body)");
-        StringAssert.Contains(saveFollowup, "ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(Settings.Default.LR2ConfigXmlPath));");
+        StringAssert.Contains(saveFollowup, "else if (!forceInternalPlayerForStandaloneModeChange && ApplicationSettings.UsePlayerLR2body)");
+        StringAssert.Contains(saveFollowup, "ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(ApplicationSettings.LR2ConfigXmlPath));");
         Assert.IsFalse(saveFollowup.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
         StringAssert.Contains(viewModelCode, "private LR2Config CreateLR2PlayerConfig(StartupSettingsSnapshot startupSettings)");
         StringAssert.Contains(viewModelCode, "private bool IsLR2PlayerRootPathValid(string value)");
         Assert.IsFalse(lr2RootPathGetter.Contains("Settings.Default.LR2RootPath = null"));
-        StringAssert.Contains(lr2RootPathGetter, "return Settings.Default.LR2RootPath;");
+        StringAssert.Contains(lr2RootPathGetter, "return ApplicationSettings.LR2RootPath;");
     }
 
     [TestMethod]
@@ -1544,7 +1544,7 @@ public sealed class MainWindowContextMenuResourceTests
             < saveCore.IndexOf("if (runPostSaveActions)", StringComparison.Ordinal),
             "LR2 config persistence, including autoreload normalization, must not be hidden behind runtime post-save actions.");
         StringAssert.Contains(restartSaveMethod, "reloadSettings();");
-        StringAssert.Contains(restartSaveMethod, "Settings.Default.OperationModeLR2DB = operationMode;");
+        StringAssert.Contains(restartSaveMethod, "ApplicationSettings.OperationModeLR2DB = operationMode;");
         StringAssert.Contains(restartSaveMethod, "string playHistorySelectedDisplayTargetIdentity = playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity;");
         StringAssert.Contains(restartSaveMethod, "playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = playHistorySelectedDisplayTargetIdentity;");
         StringAssert.Contains(restartSaveMethod, "saveSettings();");
@@ -1583,9 +1583,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(lr2CustomFolderGetter.Contains("Settings.Default.LR2CustomFolderOutputBaseDir = null"));
         Assert.IsFalse(bmsInstallDirGetter.Contains("Settings.Default.BMSInstallDir = null"));
         Assert.IsFalse(lr2CustomFolderRootGetter.Contains("Settings.Default.LR2CustomFolderOutputBaseDirRootType = null"));
-        StringAssert.Contains(lr2CustomFolderGetter, "return Settings.Default.LR2CustomFolderOutputBaseDir;");
-        StringAssert.Contains(bmsInstallDirGetter, "return Settings.Default.BMSInstallDir;");
-        StringAssert.Contains(lr2CustomFolderRootGetter, "return Settings.Default.LR2CustomFolderOutputBaseDirRootType;");
+        StringAssert.Contains(lr2CustomFolderGetter, "return ApplicationSettings.LR2CustomFolderOutputBaseDir;");
+        StringAssert.Contains(bmsInstallDirGetter, "return ApplicationSettings.BMSInstallDir;");
+        StringAssert.Contains(lr2CustomFolderRootGetter, "return ApplicationSettings.LR2CustomFolderOutputBaseDirRootType;");
     }
 
     [TestMethod]
@@ -1650,7 +1650,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(playerDriverGetter.Contains("Settings.Default.PlayerDriver ="));
         Assert.IsFalse(playerDeviceGetter.Contains("Settings.Default.PlayerDevice ="));
         Assert.IsFalse(playerDeviceGetter.Contains("Settings.Default.PlayerDeviceName ="));
-        StringAssert.Contains(playerDeviceGetter, "return ResolvePlayerDeviceDescriptor().Driver ?? Settings.Default.PlayerDevice;");
+        StringAssert.Contains(playerDeviceGetter, "return ResolvePlayerDeviceDescriptor().Driver ?? ApplicationSettings.PlayerDevice;");
         StringAssert.Contains(resetSettings, "if (playerDeviceNames != null)");
         Assert.IsFalse(saveFollowup.Contains("AudioPlayerInitTest(playSound: false)"));
         Assert.IsFalse(tableListUrlGetter.Contains("Settings.Default.TableListURL ="));
@@ -1734,7 +1734,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(pendingDecision.Contains("isBMSDirectoryAdded"));
         Assert.IsFalse(pendingDecision.Contains("isBMSDirectoryRemoved"));
         StringAssert.Contains(saveCore, "searchRootsChanged = HasSearchRootSettingsChanged();");
-        StringAssert.Contains(viewModelCode, "HasPathSettingValueChanged(tempLR2RootPath, Settings.Default.LR2RootPath");
+        StringAssert.Contains(viewModelCode, "HasPathSettingValueChanged(tempLR2RootPath, ApplicationSettings.LR2RootPath");
         StringAssert.Contains(viewModelCode, "SerializeBmsRootPathsForChangeTracking(lr2config.GetBMSSearchDirectoriesForChangeTracking())");
         Assert.IsFalse(restartDecision.Contains("CheckValidation()"));
         StringAssert.Contains(restartDecision, "scoreSourceChanged");
@@ -1784,7 +1784,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private sealed class CustomFolderOutputProjection");
 
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];");
-        StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. GetStandaloneBmsRootPathsFromSettings()];");
+        StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. GetStandaloneBmsRootPathsForCurrentSession()];");
         StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
         Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
@@ -1833,7 +1833,7 @@ public sealed class MainWindowContextMenuResourceTests
             manualResyncClickHandler.IndexOf("if (!viewModel.CanRequestLr2SongDbSyncDataResync)", StringComparison.Ordinal)
             < manualResyncClickHandler.IndexOf("Msg_confirm_lr2_song_db_sync_data_resync", StringComparison.Ordinal),
             "Manual LR2 generated-data sync must reject invalid profile/operation state before showing the destructive confirmation.");
-        StringAssert.Contains(buildPostSaveImpact, "tempOperationModeLR2DB != Settings.Default.OperationModeLR2DB");
+        StringAssert.Contains(buildPostSaveImpact, "tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB");
         StringAssert.Contains(viewModelCode, "private enum SettingsPostSaveImpact");
         StringAssert.Contains(viewModelCode, "BuildSettingsPostSaveImpact(bool customFolderSearchRootSyncNeeded)");
         StringAssert.Contains(viewModelCode, "SettingsPostSaveImpact.Lr2CoreSync");
@@ -1843,9 +1843,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(postSaveSteps, "\"settings_post_save\"");
         Assert.IsFalse(postSaveSteps.Contains("tempEnableLR2SongDbSync"));
         Assert.IsFalse(buildPostSaveImpact.Contains("tempEnableLR2SongDbSync"));
-        StringAssert.Contains(buildPostSaveImpact, "tempLR2RootPath, Settings.Default.LR2RootPath");
-        StringAssert.Contains(buildPostSaveImpact, "tempLR2CustomFolderOutputDir, Settings.Default.LR2CustomFolderOutputBaseDir");
-        StringAssert.Contains(buildPostSaveImpact, "tempLR2CustomFolderAsRootOutputDir, Settings.Default.LR2CustomFolderOutputBaseDirRootType");
+        StringAssert.Contains(buildPostSaveImpact, "tempLR2RootPath, ApplicationSettings.LR2RootPath");
+        StringAssert.Contains(buildPostSaveImpact, "tempLR2CustomFolderOutputDir, ApplicationSettings.LR2CustomFolderOutputBaseDir");
+        StringAssert.Contains(buildPostSaveImpact, "tempLR2CustomFolderAsRootOutputDir, ApplicationSettings.LR2CustomFolderOutputBaseDirRootType");
         StringAssert.Contains(reloadFileDiff, "files.QueueLr2SongDbSync(");
         StringAssert.Contains(reloadFileDiff, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"ReloadFileDiff\")");
         StringAssert.Contains(viewModelCode, "prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(\"status_bar_cleanup_retry\")");

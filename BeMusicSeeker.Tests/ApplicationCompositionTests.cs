@@ -181,6 +181,37 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void MainWindowSettingDialogUsesInjectedEditSessionForOpenAndRestartSave()
+    {
+        bool operationMode = BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB;
+        var session = new FakeSettingsEditSession();
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            firstStartupProvider: () => false,
+            completeFirstStartup: () =>
+            {
+            },
+            settingsEditSession: session);
+
+        try
+        {
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+
+            Assert.AreSame(session, composition.SettingsEditSession);
+            Assert.AreEqual(1, session.ReloadCount);
+
+            viewModel.settingDialog.SaveOperationModeForRestart(operationMode);
+
+            Assert.AreEqual(2, session.ReloadCount);
+            Assert.AreEqual(1, session.SaveCount);
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = operationMode;
+        }
+    }
+
+    [TestMethod]
     public void MainWindowKeywordSearchHistoryUsesCompositionSettingsStore()
     {
         var store = new FakeKeywordSearchHistorySettingsStore
@@ -268,6 +299,25 @@ public sealed class ApplicationCompositionTests
         public string SelectedDisplayTargetIdentity { get; set; } = string.Empty;
 
         public string DisplayTargetSetsJson { get; set; } = string.Empty;
+    }
+
+    private sealed class FakeSettingsEditSession : ISettingsEditSession
+    {
+        public BeMusicSeeker.Properties.Settings Values => BeMusicSeeker.Properties.Settings.Default;
+
+        public int ReloadCount { get; private set; }
+
+        public int SaveCount { get; private set; }
+
+        public void Reload()
+        {
+            ReloadCount++;
+        }
+
+        public void Save()
+        {
+            SaveCount++;
+        }
     }
 
     [TestMethod]

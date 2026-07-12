@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Windows.Markup;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
-using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -36,6 +35,8 @@ internal sealed class ApplicationComposition
 
     private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
 
+    private readonly ISettingsEditSession settingsEditSession;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -48,7 +49,8 @@ internal sealed class ApplicationComposition
         Action reloadSettings = null,
         Action saveSettings = null,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore = null,
-        IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null)
+        IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
+        ISettingsEditSession settingsEditSession = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
         this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
@@ -57,14 +59,16 @@ internal sealed class ApplicationComposition
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
         this.mainChartColumnSettingsStore = mainChartColumnSettingsStore
             ?? new SettingsMainChartColumnSettingsStore();
+        this.settingsEditSession = settingsEditSession
+            ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
         this.firstStartupProvider = firstStartupProvider
             ?? (() => GetApplication().firstStartup);
         this.completeFirstStartup = completeFirstStartup
             ?? (() => GetApplication().firstStartup = false);
         this.reloadSettings = reloadSettings
-            ?? (() => Settings.Default.Reload());
+            ?? this.settingsEditSession.Reload;
         this.saveSettings = saveSettings
-            ?? (() => Settings.Default.Save());
+            ?? this.settingsEditSession.Save;
         this.keywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
             ?? new SettingsKeywordSearchHistorySettingsStore();
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
@@ -94,6 +98,8 @@ internal sealed class ApplicationComposition
     internal IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore => keywordSearchHistorySettingsStore;
 
     internal IPlayHistoryDisplaySettingsStore PlayHistoryDisplaySettingsStore => playHistoryDisplaySettingsStore;
+
+    internal ISettingsEditSession SettingsEditSession => settingsEditSession;
 
     private static App GetApplication()
     {
@@ -125,6 +131,19 @@ internal sealed class ApplicationComposition
             playlistViewState,
             detailViewLog,
             detailRetentionLog);
+    }
+
+    internal MainWindowViewModel.SettingDialogViewModel CreateSettingDialogViewModel(MainWindowViewModel owner)
+    {
+        if (owner == null)
+        {
+            throw new ArgumentNullException(nameof(owner));
+        }
+        return new MainWindowViewModel.SettingDialogViewModel(
+            owner,
+            reloadSettings,
+            saveSettings,
+            settingsEditSession);
     }
 
     internal BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)

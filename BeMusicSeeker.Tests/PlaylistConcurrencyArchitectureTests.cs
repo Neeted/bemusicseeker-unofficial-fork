@@ -226,6 +226,38 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void SettingDialogSettingsValues_UseInjectedEditSession()
+    {
+        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainWindowViewModel.SettingDialogViewModel.cs");
+        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+        string compositionSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "ApplicationComposition.cs");
+        int outerHelperIndex = settingDialogSource.IndexOf(
+            "internal static IReadOnlyList<PlaylistCustomFolderOutputBaseOption> CreatePlaylistCustomFolderOutputBaseOptions",
+            StringComparison.Ordinal);
+        string settingDialogOwnerSource = outerHelperIndex >= 0
+            ? settingDialogSource.Substring(0, outerHelperIndex)
+            : settingDialogSource;
+
+        StringAssert.Contains(settingDialogSource, "private readonly ISettingsEditSession settingsEditSession;");
+        StringAssert.Contains(settingDialogSource, "private Settings ApplicationSettings => settingsEditSession.Values;");
+        Assert.IsFalse(settingDialogOwnerSource.Contains("Settings.Default."));
+        StringAssert.Contains(mainWindowSource, "applicationComposition.CreateSettingDialogViewModel(this)");
+        Assert.IsFalse(mainWindowSource.Contains("new SettingDialogViewModel(this)"));
+        StringAssert.Contains(compositionSource, "ISettingsEditSession settingsEditSession = null");
+        StringAssert.Contains(compositionSource, "settingsEditSession);");
+    }
+
+    [TestMethod]
     public void ShutdownSettingsPersistence_UsesCompositionBoundary()
     {
         string viewModelSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
