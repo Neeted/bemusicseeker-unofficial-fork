@@ -174,6 +174,20 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void StartupSettingsSnapshot_DoesNotDependOnNestedSettingDialogParser()
+    {
+        string root = FindRepositoryRoot();
+        string snapshotSource = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "StartupSettingsSnapshot.cs"));
+
+        StringAssert.Contains(snapshotSource, "StandaloneBmsRootPathSettings.Deserialize(");
+        Assert.IsFalse(snapshotSource.Contains("SettingDialogViewModel"));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

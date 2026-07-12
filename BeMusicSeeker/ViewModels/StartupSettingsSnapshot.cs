@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 
@@ -67,7 +68,9 @@ internal sealed class StartupSettingsSnapshot
             LR2RootPath = Settings.Default.LR2RootPath,
             LR2CustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
             LR2CustomFolderAdditionalOutputBaseDirs = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
-            StandaloneBmsRootPaths = MainWindowViewModel.SettingDialogViewModel.GetStandaloneBmsRootPathsFromSettings(),
+            StandaloneBmsRootPaths = StandaloneBmsRootPathSettings.Deserialize(
+                Settings.Default.StandaloneBmsRootPaths,
+                Settings.Default.BMSRootPath),
             UsePlayeruBMplay = Settings.Default.UsePlayeruBMplay,
             uBMplayPath = Settings.Default.uBMplayPath,
             UsePlayerBMIIDXView = Settings.Default.UsePlayerBMIIDXView,

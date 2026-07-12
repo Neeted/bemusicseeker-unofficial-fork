@@ -3202,70 +3202,29 @@ public partial class MainWindowViewModel
 
         public static IReadOnlyList<string> GetStandaloneBmsRootPathsFromSettings()
         {
-            return DeserializeStandaloneBmsRootPaths(Settings.Default.StandaloneBmsRootPaths, Settings.Default.BMSRootPath);
+            return StandaloneBmsRootPathSettings.Deserialize(
+                Settings.Default.StandaloneBmsRootPaths,
+                Settings.Default.BMSRootPath);
         }
 
         public static IReadOnlyList<string> DeserializeStandaloneBmsRootPaths(string serializedPaths, string legacyBmsRootPath = null)
         {
-            List<string> paths = [];
-            if (!string.IsNullOrWhiteSpace(serializedPaths))
-            {
-                paths.AddRange(serializedPaths.Split(["\r\n", "\n", "\r"], StringSplitOptions.RemoveEmptyEntries));
-            }
-            if (paths.Count == 0
-                && !string.IsNullOrWhiteSpace(legacyBmsRootPath)
-                && LongPathFileSystem.DirectoryExists(legacyBmsRootPath))
-            {
-                paths.Add(legacyBmsRootPath);
-            }
-            return NormalizeStandaloneBmsRootPaths(paths);
+            return StandaloneBmsRootPathSettings.Deserialize(serializedPaths, legacyBmsRootPath);
         }
 
         public static IReadOnlyList<string> NormalizeStandaloneBmsRootPaths(IEnumerable<string> paths)
         {
-            return NormalizeExistingStandaloneBmsRootPaths(paths);
+            return StandaloneBmsRootPathSettings.Normalize(paths);
         }
 
         private static IReadOnlyList<string> NormalizeExistingStandaloneBmsRootPaths(IEnumerable<string> paths)
         {
-            if (paths == null)
-            {
-                return [];
-            }
-
-            List<string> normalized = [];
-            foreach (string path in paths)
-            {
-                if (string.IsNullOrWhiteSpace(path))
-                {
-                    continue;
-                }
-                string fullPath;
-                try
-                {
-                    fullPath = LongPathFileSystem.NormalizePathForStorage(path.Trim());
-                }
-                catch
-                {
-                    continue;
-                }
-                fullPath = LongPathFileSystem.TrimTrailingDirectorySeparators(fullPath);
-                if (!LongPathFileSystem.DirectoryExists(fullPath))
-                {
-                    continue;
-                }
-                if (!normalized.Contains(fullPath, StringComparer.OrdinalIgnoreCase))
-                {
-                    normalized.Add(fullPath);
-                }
-            }
-
-            return normalized;
+            return StandaloneBmsRootPathSettings.Normalize(paths);
         }
 
         private static IReadOnlyList<string> NormalizeExistingStandaloneBmsRootPathsWithoutLr2Compatibility(IEnumerable<string> paths)
         {
-            return NormalizeExistingStandaloneBmsRootPaths(paths);
+            return StandaloneBmsRootPathSettings.Normalize(paths);
         }
 
         private static List<string> GetLr2IncompatibleStandaloneBmsRootPaths(IEnumerable<string> paths)
@@ -3287,7 +3246,7 @@ public partial class MainWindowViewModel
 
         public static string SerializeStandaloneBmsRootPaths(IEnumerable<string> paths)
         {
-            return string.Join(Environment.NewLine, NormalizeStandaloneBmsRootPaths(paths));
+            return StandaloneBmsRootPathSettings.Serialize(paths);
         }
 
         private static string SerializeBmsRootPathsForChangeTracking(IEnumerable<string> paths)

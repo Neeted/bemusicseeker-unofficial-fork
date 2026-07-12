@@ -1,4 +1,6 @@
 using System;
+using System.IO;
+using System.Linq;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -50,6 +52,33 @@ public sealed class StartupSettingsSnapshotTests
             Settings.Default.LR2BackupSpan = previousBackupSpan;
             Settings.Default.LR2BackupNum = previousBackupNum;
             Settings.Default.SkipInitPlaylistLoad = previousSkipInitPlaylistLoad;
+        }
+    }
+
+    [TestMethod]
+    public void CreateCurrentReadsStandaloneRootsThroughSettingsAdapter()
+    {
+        string previousStandaloneRoots = Settings.Default.StandaloneBmsRootPaths;
+        string previousLegacyRoot = Settings.Default.BMSRootPath;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "StartupSettingsSnapshotTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            Settings.Default.StandaloneBmsRootPaths = tempDirectory;
+            Settings.Default.BMSRootPath = null;
+
+            StartupSettingsSnapshot snapshot = StartupSettingsSnapshot.CreateCurrent();
+
+            Assert.IsTrue(snapshot.StandaloneBmsRootPaths.Contains(tempDirectory, StringComparer.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            Settings.Default.StandaloneBmsRootPaths = previousStandaloneRoots;
+            Settings.Default.BMSRootPath = previousLegacyRoot;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
         }
     }
 }
