@@ -3994,7 +3994,8 @@ public partial class BMSPlaylist : NotificationObject
         string outputBaseDirBefore = null,
         bool inferOutputBaseDirBeforeWhenMissing = true)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (!settings.OperationModeLR2DB)
         {
             throw new InvalidOperationException("Properties.Settings.Default.OperationModeLR2DB is not true");
         }
@@ -4008,8 +4009,10 @@ public partial class BMSPlaylist : NotificationObject
         }
         if (string.IsNullOrWhiteSpace(outputDirPathAfter))
         {
-            outputDirPathAfter = ResolveCustomFolderOutputDirectory(bmsTable);
+            outputDirPathAfter = ResolveCustomFolderOutputDirectory(bmsTable, settings);
         }
+        IReadOnlyCollection<string> protectedOutputDirectories =
+            CreateCustomFolderMigrationProtectedOutputDirectories([outputDirPathAfter], settings, [outputDirPathBefore]);
         EnsurePlaylistEntriesLoaded(bmsTable, "MigrateCustomFolderOutputDirectory");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
@@ -4022,7 +4025,9 @@ public partial class BMSPlaylist : NotificationObject
                     wasRootFolderBefore ?? bmsTable.is_root_folder,
                     rootOutputBaseDirBefore,
                     outputBaseDirBefore,
-                    inferOutputBaseDirBeforeWhenMissing);
+                    inferOutputBaseDirBeforeWhenMissing,
+                    settings: settings,
+                    protectedOutputDirectories: protectedOutputDirectories);
             }
         }
     }
@@ -6256,6 +6261,117 @@ public partial class BMSPlaylist : NotificationObject
         return [.. directories];
     }
 
+    private IReadOnlyCollection<string> CreateCustomFolderMigrationProtectedOutputDirectories(
+        IEnumerable<string> additionalDirectories,
+        CustomFolderOutputSettingsSnapshot settings,
+        IEnumerable<string> excludedDirectories = null)
+    {
+        var excluded = new HashSet<string>(
+            (excludedDirectories ?? [])
+                .Select(directory => Lr2FolderPath.NormalizeDirectoryPath(directory))
+                .Where(directory => !string.IsNullOrWhiteSpace(directory)),
+            StringComparer.OrdinalIgnoreCase);
+        var directories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string directory in CreateKnownCustomFolderOutputDirectories([], settings)
+            .Concat(additionalDirectories ?? []))
+        {
+            if (excluded.Contains(Lr2FolderPath.NormalizeDirectoryPath(directory)))
+            {
+                continue;
+            }
+            AddCustomFolderOutputDirectory(directories, directory);
+        }
+        return [.. directories];
+    }
+
+    private static IReadOnlyCollection<string> CreateCustomFolderPruneExcludedDirectories(
+        IEnumerable<string> protectedOutputDirectories,
+        IEnumerable<string> protectedScopeDirectories = null,
+        IEnumerable<BMSTable> classificationTables = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
+    {
+        var excludedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string directory in protectedOutputDirectories ?? [])
+        {
+            if (protectedScopeDirectories != null
+                && !protectedScopeDirectories.Any(scopeDirectory =>
+                    !string.IsNullOrWhiteSpace(scopeDirectory)
+                    && Lr2FolderPath.IsSameOrDescendant(
+                        Lr2FolderPath.NormalizeDirectoryPath(directory),
+                        Lr2FolderPath.NormalizeDirectoryPath(scopeDirectory))))
+            {
+                continue;
+            }
+            AddCustomFolderPruneExcludedVariants(excludedDirectories, directory, classificationTables, settings);
+        }
+        return [.. excludedDirectories];
+    }
+
+    private static IReadOnlyCollection<string> CreateCustomFolderPruneExcludedPaths(
+        IEnumerable<string> protectedOutputDirectories,
+        IEnumerable<string> directoryRowScopeDirectories,
+        IEnumerable<BMSTable> classificationTables = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
+    {
+        var excludedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (string scopeDirectory in directoryRowScopeDirectories ?? [])
+        {
+            string normalizedScope = Lr2FolderPath.NormalizeDirectoryPath(scopeDirectory);
+            if (string.IsNullOrWhiteSpace(normalizedScope))
+            {
+                continue;
+            }
+
+            foreach (string protectedDirectory in protectedOutputDirectories ?? [])
+            {
+                string normalizedProtected = Lr2FolderPath.NormalizeDirectoryPath(protectedDirectory);
+                if (string.IsNullOrWhiteSpace(normalizedProtected)
+                    || string.Equals(normalizedProtected, normalizedScope, StringComparison.OrdinalIgnoreCase)
+                    || !Lr2FolderPath.IsSameOrDescendant(normalizedProtected, normalizedScope))
+                {
+                    continue;
+                }
+
+                string current = normalizedProtected;
+                while (!string.IsNullOrWhiteSpace(current)
+                    && Lr2FolderPath.IsSameOrDescendant(current, normalizedScope))
+                {
+                    AddCustomFolderPruneExcludedVariants(excludedPaths, current, classificationTables, settings);
+                    if (string.Equals(current, normalizedScope, StringComparison.OrdinalIgnoreCase))
+                    {
+                        break;
+                    }
+                    current = Lr2FolderPath.SafeGetDirectoryName(current);
+                }
+            }
+        }
+        return [.. excludedPaths];
+    }
+
+    private static void AddCustomFolderPruneExcludedPath(ISet<string> paths, string path)
+    {
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            paths?.Add(path);
+        }
+    }
+
+    private static void AddCustomFolderPruneExcludedVariants(
+        ISet<string> paths,
+        string directory,
+        IEnumerable<BMSTable> classificationTables,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        AddCustomFolderPruneExcludedPath(paths, directory);
+        string rowPath = Lr2FolderPath.ToFolderPath(directory);
+        AddCustomFolderPruneExcludedPath(paths, rowPath);
+        foreach (BMSTable table in classificationTables ?? [])
+        {
+            string databasePath = ResolveCustomFolderDatabasePath(table, rowPath ?? directory, settings);
+            AddCustomFolderPruneExcludedPath(paths, databasePath);
+        }
+    }
+
     private static void AddCustomFolderOutputDirectory(ISet<string> directories, string directory)
     {
         string normalized = Lr2FolderPath.NormalizeDirectoryPath(directory);
@@ -6725,7 +6841,8 @@ public partial class BMSPlaylist : NotificationObject
         string rootOutputBaseDirBefore = null,
         string outputBaseDirBefore = null,
         bool inferOutputBaseDirBeforeWhenMissing = true,
-        CustomFolderOutputSettingsSnapshot settings = null)
+        CustomFolderOutputSettingsSnapshot settings = null,
+        IReadOnlyCollection<string> protectedOutputDirectories = null)
     {
         settings ??= GetCustomFolderOutputSettings();
         bool sameDirectory = IsSameCustomFolderDirectory(outputDirPathBefore, outputDirPathAfter);
@@ -6748,7 +6865,7 @@ public partial class BMSPlaylist : NotificationObject
             outputBaseDirBefore,
             inferOutputBaseDirBeforeWhenMissing,
             settings);
-        if (!DeleteCustomFolderOutputDirectoryTree(outputDirPathBefore, deleteBaseDirectories))
+        if (!DeleteCustomFolderOutputDirectoryTree(outputDirPathBefore, deleteBaseDirectories, protectedOutputDirectories))
         {
             return;
         }
@@ -6757,7 +6874,21 @@ public partial class BMSPlaylist : NotificationObject
         {
             try
             {
-                SyncCustomFolderRowsByPaths([], CreateCustomFolderDirectoryPruneScopes(outputDirPathBefore, wasRootFolderBefore, rootOutputBaseDirBefore, settings));
+                IReadOnlyCollection<string> directoryRowScopeDirectories =
+                    CreateCustomFolderDirectoryPruneScopes(outputDirPathBefore, wasRootFolderBefore, rootOutputBaseDirBefore, settings);
+                SyncCustomFolderRowsByPaths(
+                    [],
+                    directoryRowScopeDirectories,
+                    CreateCustomFolderPruneExcludedDirectories(
+                        protectedOutputDirectories,
+                        [outputDirPathBefore],
+                        [bmsTable],
+                        settings),
+                    CreateCustomFolderPruneExcludedPaths(
+                        protectedOutputDirectories,
+                        [outputDirPathBefore],
+                        [bmsTable],
+                        settings));
             }
             catch
             {
@@ -7295,7 +7426,9 @@ public partial class BMSPlaylist : NotificationObject
 
     private void SyncCustomFolderRowsByPaths(
         IReadOnlyCollection<string> filePaths,
-        IReadOnlyCollection<string> directoryRowScopeDirectories = null)
+        IReadOnlyCollection<string> directoryRowScopeDirectories = null,
+        IReadOnlyCollection<string> pruneExcludedDirectories = null,
+        IReadOnlyCollection<string> pruneExcludedPaths = null)
     {
         if ((filePaths == null || filePaths.Count == 0)
             && (directoryRowScopeDirectories == null || directoryRowScopeDirectories.Count == 0))
@@ -7315,6 +7448,8 @@ public partial class BMSPlaylist : NotificationObject
             {
                 ScopePaths = filePaths,
                 DirectoryRowScopeDirectories = directoryRowScopeDirectories ?? [],
+                PruneExcludedDirectories = pruneExcludedDirectories ?? [],
+                PruneExcludedPaths = pruneExcludedPaths ?? [],
                 AllowPrune = true
             });
         });
@@ -7411,7 +7546,8 @@ public partial class BMSPlaylist : NotificationObject
 
     private static bool DeleteCustomFolderOutputDirectoryTree(
         string targetDir,
-        IReadOnlyCollection<string> managedOutputBaseDirectories)
+        IReadOnlyCollection<string> managedOutputBaseDirectories,
+        IReadOnlyCollection<string> protectedOutputDirectories = null)
     {
         if (!IsSafeManagedCustomFolderOutputDirectory(targetDir, managedOutputBaseDirectories))
         {
@@ -7424,7 +7560,54 @@ public partial class BMSPlaylist : NotificationObject
 
         try
         {
-            LongPathFileSystem.DeleteDirectory(targetDir, recursive: true);
+            string normalizedTarget = Lr2FolderPath.NormalizeDirectoryPath(targetDir);
+            IReadOnlyCollection<string> normalizedProtectedDirectories = [.. (protectedOutputDirectories ?? [])
+                .Select(directory => Lr2FolderPath.NormalizeDirectoryPath(directory))
+                .Where(directory => !string.IsNullOrWhiteSpace(directory))
+                .Distinct(StringComparer.OrdinalIgnoreCase)];
+            if (normalizedProtectedDirectories.Any(directory => string.Equals(directory, normalizedTarget, StringComparison.OrdinalIgnoreCase)))
+            {
+                return false;
+            }
+
+            IReadOnlyCollection<string> protectedDescendantDirectories = [.. normalizedProtectedDirectories
+                .Where(directory => Lr2FolderPath.IsSameOrDescendant(directory, normalizedTarget)
+                    && !string.Equals(directory, normalizedTarget, StringComparison.OrdinalIgnoreCase))];
+            if (protectedDescendantDirectories.Count == 0)
+            {
+                LongPathFileSystem.DeleteDirectory(targetDir, recursive: true);
+                return true;
+            }
+
+            foreach (string filePath in LongPathFileSystem.EnumerateFiles(targetDir, "*", System.IO.SearchOption.AllDirectories)
+                .OrderByDescending(path => path.Length))
+            {
+                if (!IsPathUnderAnyCustomFolderDirectory(filePath, protectedDescendantDirectories))
+                {
+                    LongPathFileSystem.DeleteFile(filePath);
+                }
+            }
+            foreach (string directoryPath in LongPathFileSystem.EnumerateDirectories(targetDir, "*", System.IO.SearchOption.AllDirectories)
+                .OrderByDescending(path => path.Length))
+            {
+                if (IsPathUnderAnyCustomFolderDirectory(directoryPath, protectedDescendantDirectories)
+                    || LongPathFileSystem.EnumerateFileSystemEntries(directoryPath).Any())
+                {
+                    continue;
+                }
+                LongPathFileSystem.DeleteDirectory(directoryPath, recursive: false);
+            }
+
+            IReadOnlyList<string> remainingEntries = [.. LongPathFileSystem.EnumerateFileSystemEntries(targetDir)];
+            if (remainingEntries.Count == 0)
+            {
+                LongPathFileSystem.DeleteDirectory(targetDir, recursive: false);
+                return true;
+            }
+            if (remainingEntries.Any(path => !IsPathUnderAnyCustomFolderDirectory(path, protectedDescendantDirectories)))
+            {
+                return false;
+            }
             return true;
         }
         catch
@@ -8522,6 +8705,8 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+
         LogPlaylistPerformance(operation + " prepare_start"
             + " reason=" + (reason ?? "unknown")
             + " tableCount=" + tableList.Count);
@@ -8532,7 +8717,7 @@ public partial class BMSPlaylist : NotificationObject
             + " reason=" + (reason ?? "unknown")
             + " tableCount=" + tableList.Count
             + " elapsedMs=" + headerCommitStopwatch.ElapsedMilliseconds);
-        if (!Settings.Default.OperationModeLR2DB)
+        if (!settings.OperationModeLR2DB)
         {
             prepareStopwatch.Stop();
             LogPlaylistPerformance(operation + " skipped"
@@ -8554,7 +8739,7 @@ public partial class BMSPlaylist : NotificationObject
                 continue;
             }
 
-            string afterDirectory = ResolveCustomFolderOutputDirectory(table);
+            string afterDirectory = ResolveCustomFolderOutputDirectory(table, settings);
             if (string.IsNullOrWhiteSpace(afterDirectory)
                 || IsSameCustomFolderDirectory(beforeDirectory, afterDirectory))
             {
@@ -8587,6 +8772,12 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
+        IReadOnlyCollection<string> protectedOutputDirectories =
+            CreateCustomFolderMigrationProtectedOutputDirectories(
+                migrationPlans.Select(plan => plan.OutputDirectoryAfter),
+                settings,
+                migrationPlans.Select(plan => plan.OutputDirectoryBefore));
+
         prepareStopwatch.Stop();
         LogPlaylistPerformance(operation + " prepare_done"
             + " reason=" + (reason ?? "unknown")
@@ -8601,10 +8792,16 @@ public partial class BMSPlaylist : NotificationObject
             throwOnProjectionFailure: true,
             buildPreparedDataSurface: false,
             yieldBetweenTables: false,
-            progressCallback)
+            progressCallback,
+            settings)
             .GetAwaiter()
             .GetResult();
-        CleanupMigratedCustomFolderOutputDirectories(migrationPlans, reason, progressCallback);
+        CleanupMigratedCustomFolderOutputDirectories(
+            migrationPlans,
+            reason,
+            progressCallback,
+            settings,
+            protectedOutputDirectories);
     }
 
     private sealed class CustomFolderOutputDirectoryMigrationPlan
@@ -8627,12 +8824,19 @@ public partial class BMSPlaylist : NotificationObject
     private void CleanupMigratedCustomFolderOutputDirectories(
         IReadOnlyCollection<CustomFolderOutputDirectoryMigrationPlan> migrationPlans,
         string reason,
-        Action<int, int, string> progressCallback = null)
+        Action<int, int, string> progressCallback = null,
+        CustomFolderOutputSettingsSnapshot settings = null,
+        IReadOnlyCollection<string> protectedOutputDirectories = null)
     {
         if (migrationPlans == null || migrationPlans.Count == 0)
         {
             return;
         }
+        settings ??= GetCustomFolderOutputSettings();
+        protectedOutputDirectories ??= CreateCustomFolderMigrationProtectedOutputDirectories(
+            migrationPlans.Select(plan => plan.OutputDirectoryAfter),
+            settings,
+            migrationPlans.Select(plan => plan.OutputDirectoryBefore));
 
         const string operation = "playlist_custom_folder_output_migrate_bulk";
         var stopwatch = Stopwatch.StartNew();
@@ -8669,7 +8873,9 @@ public partial class BMSPlaylist : NotificationObject
                     plan.WasRootFolderBefore,
                     plan.RootOutputBaseDirBefore,
                     plan.OutputBaseDirectoryBefore,
-                    plan.InferOutputBaseDirectoryBeforeWhenMissing)))
+                    plan.InferOutputBaseDirectoryBeforeWhenMissing,
+                    settings),
+                protectedOutputDirectories))
             {
                 failedCount++;
                 deleteStopwatch.Stop();
@@ -8687,7 +8893,8 @@ public partial class BMSPlaylist : NotificationObject
             directoryRowScopeDirectories.AddRange(CreateCustomFolderDirectoryPruneScopes(
                 plan.OutputDirectoryBefore,
                 plan.WasRootFolderBefore,
-                plan.RootOutputBaseDirBefore));
+                plan.RootOutputBaseDirBefore,
+                settings: settings));
             progressCallback?.Invoke(index, migrationPlans.Count, plan.Table?.name ?? string.Empty);
             LogPlaylistPerformance(operation + " old_output_cleanup_delete_done"
                 + " reason=" + (reason ?? "unknown")
@@ -8703,7 +8910,19 @@ public partial class BMSPlaylist : NotificationObject
         LogPlaylistPerformance(operation + " old_output_cleanup_prune_start"
             + " reason=" + (reason ?? "unknown")
             + " directoryRowScopeCount=" + directoryRowScopeDirectories.Count);
-        SyncCustomFolderRowsByPaths([], directoryRowScopeDirectories);
+        SyncCustomFolderRowsByPaths(
+            [],
+            directoryRowScopeDirectories,
+            CreateCustomFolderPruneExcludedDirectories(
+                protectedOutputDirectories,
+                migrationPlans.Select(plan => plan.OutputDirectoryBefore),
+                migrationPlans.Select(plan => plan.Table),
+                settings),
+            CreateCustomFolderPruneExcludedPaths(
+                protectedOutputDirectories,
+                migrationPlans.Select(plan => plan.OutputDirectoryBefore),
+                migrationPlans.Select(plan => plan.Table),
+                settings));
         stopwatch.Stop();
         LogPlaylistPerformance(operation + " old_output_cleanup_done"
             + " reason=" + (reason ?? "unknown")
@@ -8737,18 +8956,22 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException(nameof(bmsTable));
         }
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (settings.OperationModeLR2DB && string.IsNullOrWhiteSpace(outputDirPathAfter))
+        {
+            outputDirPathAfter = ResolveCustomFolderOutputDirectory(bmsTable, settings);
+        }
+        IReadOnlyCollection<string> protectedOutputDirectories = settings.OperationModeLR2DB
+            ? CreateCustomFolderMigrationProtectedOutputDirectories([outputDirPathAfter], settings, [outputDirPathBefore])
+            : [];
         EnsurePlaylistEntriesLoaded(bmsTable, "MigrateCustomFolderOutputDirectoryAndCommitToDB");
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
             {
                 CommitBMSTable(bmsTable);
-                if (Settings.Default.OperationModeLR2DB)
+                if (settings.OperationModeLR2DB)
                 {
-                    if (string.IsNullOrWhiteSpace(outputDirPathAfter))
-                    {
-                        outputDirPathAfter = ResolveCustomFolderOutputDirectory(bmsTable);
-                    }
                     migrateCustomFolderOutputDirectoryFiles(
                         bmsTable,
                         outputDirPathBefore,
@@ -8756,7 +8979,9 @@ public partial class BMSPlaylist : NotificationObject
                         wasRootFolderBefore ?? bmsTable.is_root_folder,
                         rootOutputBaseDirBefore,
                         outputBaseDirBefore,
-                        inferOutputBaseDirBeforeWhenMissing);
+                        inferOutputBaseDirBeforeWhenMissing,
+                        settings: settings,
+                        protectedOutputDirectories: protectedOutputDirectories);
                 }
             }
         }
