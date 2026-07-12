@@ -166,6 +166,7 @@ internal sealed class ApplicationComposition
         Func<BMSPlaylist> tablesProvider,
         Func<IBMSPlayer> bmsPlayerFactory,
         Func<Dispatcher> uiDispatcherProvider,
+        ChartFileOperationSynchronizer chartFileOperations,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
@@ -182,6 +183,8 @@ internal sealed class ApplicationComposition
             tablesProvider,
             bmsPlayerFactory,
             uiDispatcherProvider,
+            settingsEditSession,
+            chartFileOperations,
             mainViewLog,
             dispatchMainChartListAction,
             mainViewLogWarning,
@@ -282,6 +285,8 @@ internal sealed class MainWindowChildComposition
         Func<BMSPlaylist> tablesProvider,
         Func<IBMSPlayer> bmsPlayerFactory,
         Func<Dispatcher> uiDispatcherProvider,
+        ISettingsEditSession settingsEditSession,
+        ChartFileOperationSynchronizer chartFileOperations,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
@@ -300,7 +305,10 @@ internal sealed class MainWindowChildComposition
         }
         PlaybackPanel = new PlaybackPanelViewModel(
             bmsPlayerFactory() ?? throw new InvalidOperationException("Playback player factory returned null."),
-            uiDispatcherProvider);
+            uiDispatcherProvider,
+            MainChartList,
+            settingsEditSession,
+            chartFileOperations);
         ChartFilters = new ChartListFilterViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(

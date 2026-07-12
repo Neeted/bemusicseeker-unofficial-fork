@@ -118,7 +118,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         StringAssert.Contains(source, "RunChartPackageMutation(action");
         StringAssert.Contains(runMethod, "BeginOperationDialogScope()");
         StringAssert.Contains(runMethod, "BeginChartPackageMutation()");
-        StringAssert.Contains(runMethod, "lock (lockCopyFile)");
+        StringAssert.Contains(runMethod, "using (chartFileOperations.Enter())");
         StringAssert.Contains(runMethod, "EndUiUpdateSuppression()");
         StringAssert.Contains(runMethod, "dialogScope?.Flush()");
         StringAssert.Contains(autoInstallMethod, "RunChartPackageMutation");

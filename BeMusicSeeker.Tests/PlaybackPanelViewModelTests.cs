@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -35,7 +36,7 @@ public sealed class PlaybackPanelViewModelTests
             Measure = 16,
             LastMeasure = 64
         };
-        var panel = new PlaybackPanelViewModel(player, () => Dispatcher.CurrentDispatcher);
+        PlaybackPanelViewModel panel = CreatePanel(player);
 
         Assert.AreEqual(player.Duration, panel.CurrentlyPlayingDuration);
         Assert.AreEqual(player.StopTime, panel.CurrentlyPlayingStopTime);
@@ -113,7 +114,7 @@ public sealed class PlaybackPanelViewModelTests
     {
         var first = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(10) };
         var second = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(20) };
-        var panel = new PlaybackPanelViewModel(first, () => Dispatcher.CurrentDispatcher);
+        PlaybackPanelViewModel panel = CreatePanel(first);
         panel.AttachParentHandle(new IntPtr(42));
 
         panel.ReplacePlayer(second);
@@ -134,7 +135,7 @@ public sealed class PlaybackPanelViewModelTests
     public void PlaybackPanel_OwnsSessionStateAndIgnoresStaleExitCallbacks()
     {
         var player = new FakeBmsPlayer();
-        var panel = new PlaybackPanelViewModel(player, () => Dispatcher.CurrentDispatcher);
+        PlaybackPanelViewModel panel = CreatePanel(player);
         var first = new BMSFile();
         var second = new BMSFile();
         int exitCount = 0;
@@ -177,7 +178,7 @@ public sealed class PlaybackPanelViewModelTests
     {
         var firstPlayer = new FakeBmsPlayer();
         var replacementPlayer = new FakeBmsPlayer();
-        var panel = new PlaybackPanelViewModel(firstPlayer, () => Dispatcher.CurrentDispatcher);
+        PlaybackPanelViewModel panel = CreatePanel(firstPlayer);
 
         long stoppedGeneration = panel.BeginPlayback(new BMSFile(), 1);
         panel.StopPlayback();
@@ -198,6 +199,83 @@ public sealed class PlaybackPanelViewModelTests
 
         Assert.AreEqual(0, exitCount);
         Assert.AreEqual(1, replacementPlayer.CloseProcessCount);
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_StopsAfterAllRepeatCandidatesAreUnavailable()
+    {
+        bool originalRepeat = Settings.Default.RepeatPlayMode;
+        var chartList = new MainChartListViewModel
+        {
+            Rows = Enumerable.Range(0, 10000).Select(_ => (object)new BMSFile()).ToList(),
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            new FakeBmsPlayer(),
+            () => Dispatcher.CurrentDispatcher,
+            chartList,
+            SettingsEditSession.CreateDefault(),
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            Settings.Default.RepeatPlayMode = true;
+
+            panel.Start();
+
+            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+        }
+        finally
+        {
+            Settings.Default.RepeatPlayMode = originalRepeat;
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_StopsAfterManyInvalidChartsWithoutRecursiveAdvance()
+    {
+        string chartPath = Path.GetTempFileName();
+        bool originalRepeat = Settings.Default.RepeatPlayMode;
+        bool originalFolderSkip = Settings.Default.FolderSkipPlayMode;
+        var player = new FakeBmsPlayer { PlayStartException = new InvalidDataException("invalid chart") };
+        var chartList = new MainChartListViewModel
+        {
+            Rows = Enumerable.Range(0, 4096).Select(_ => (object)new TestBmsFile(chartPath)).ToList(),
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            () => Dispatcher.CurrentDispatcher,
+            chartList,
+            SettingsEditSession.CreateDefault(),
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            Settings.Default.RepeatPlayMode = false;
+            Settings.Default.FolderSkipPlayMode = false;
+
+            panel.Start();
+
+            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+            Assert.AreEqual(4096, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            Settings.Default.RepeatPlayMode = originalRepeat;
+            Settings.Default.FolderSkipPlayMode = originalFolderSkip;
+            File.Delete(chartPath);
+        }
+    }
+
+    private static PlaybackPanelViewModel CreatePanel(IBMSPlayer player)
+    {
+        return new PlaybackPanelViewModel(
+            player,
+            () => Dispatcher.CurrentDispatcher,
+            new MainChartListViewModel(),
+            SettingsEditSession.CreateDefault(),
+            new ChartFileOperationSynchronizer());
     }
 
     private sealed class FakeBmsPlayer : IBMSPlayer
@@ -244,6 +322,8 @@ public sealed class PlaybackPanelViewModelTests
 
         public int CloseProcessCount { get; private set; }
 
+        public Exception? PlayStartException { get; set; }
+
         public Action<object, EventArgs>? ExitHandler { get; private set; }
 
         public System.Collections.Generic.List<string> Commands { get; } = [];
@@ -263,6 +343,10 @@ public sealed class PlaybackPanelViewModelTests
         {
             Commands.Add("PlayStart:" + bmsFilePath);
             ExitHandler = onExitEventHandler;
+            if (PlayStartException != null)
+            {
+                throw PlayStartException;
+            }
         }
 
         public void RestartPlayingBMSfile() => Commands.Add("Restart");
@@ -288,5 +372,13 @@ public sealed class PlaybackPanelViewModelTests
         public void DecreaseHighSpeed() => Commands.Add("DecreaseHighSpeed");
 
         public void VolumeChanged() => Commands.Add("VolumeChanged");
+    }
+
+    private sealed class TestBmsFile : BMSFile
+    {
+        internal TestBmsFile(string filePath)
+        {
+            path = filePath;
+        }
     }
 }

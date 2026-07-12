@@ -1440,7 +1440,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         await Task.Run(delegate
         {
-            viewModel.PlayStartBMSfile();
+            viewModel.PlaybackPanel.Start();
         }).Logging("customTableView_RowActivated");
     }
 
@@ -9478,7 +9478,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.PlayNextBMSfile();
+                viewModel.PlaybackPanel.Next();
             }).Logging("gridBMSPlayerControlsNextButtonClicked");
         }
     }
@@ -9500,7 +9500,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
             await Task.Run(delegate
             {
-                viewModel.PlayPreviousBMSfile();
+                viewModel.PlaybackPanel.Previous();
             }).Logging("gridBMSPlayerControlsPreviousButtonClicked");
         }
         else
@@ -9536,7 +9536,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }
             await Task.Run(delegate
             {
-                viewModel.PlayStartBMSfile(forceNewPlay: false);
+                viewModel.PlaybackPanel.Start(forceNewPlay: false);
             }).Logging("gridBMSPlayerControlsPlayStartButtonClicked");
         }
     }
@@ -9637,7 +9637,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 await Task.Run(delegate
                 {
-                    viewModel.uBMplayShowInfo();
+                    viewModel.PlaybackPanel.ShowInfo();
                 }).Logging("gridBMSPlayerControlsShowInfoButtonClicked");
             }
         }
@@ -9653,7 +9653,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.uBMplayShowEffect();
+                viewModel.PlaybackPanel.ShowEffect();
             }).Logging("gridBMSPlayerControlsShowEffectButtonClicked");
         }
     }
@@ -9664,7 +9664,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.uBMplayChangePlayside();
+                viewModel.PlaybackPanel.ChangePlayside();
             }).Logging("gridBMSPlayerControlsChangePlaysideButtonClicked");
         }
     }
@@ -9676,7 +9676,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             await Task.Run(delegate
             {
-                viewModel.uBMplayIncreaseHighSpeed();
+                viewModel.PlaybackPanel.IncreaseHighSpeed();
             }).Logging("gridBMSPlayerControlsIncreaseHighSpeedButtonClicked");
         }
     }
@@ -9688,7 +9688,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             await Task.Run(delegate
             {
-                viewModel.uBMplayDecreaseHighSpeed();
+                viewModel.PlaybackPanel.DecreaseHighSpeed();
             }).Logging("gridBMSPlayerControlsDecreaseHighSpeedButtonClicked");
         }
     }
@@ -10045,7 +10045,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.PlayStartBMSfile(forceNewPlay: false);
+                viewModel.PlaybackPanel.Start(forceNewPlay: false);
             }).Logging("sliderPlayerMouseMove");
         }
     }
@@ -10060,7 +10060,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.PlayStartBMSfile(forceNewPlay: false);
+                viewModel.PlaybackPanel.Start(forceNewPlay: false);
             }).Logging("sliderPlayerMouseLeftButtonUp");
         }
     }
@@ -10079,7 +10079,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.PlayStartBMSfile(forceNewPlay: false);
+                viewModel.PlaybackPanel.Start(forceNewPlay: false);
             }).Logging("sliderPlayerMouseLeave");
         }
     }

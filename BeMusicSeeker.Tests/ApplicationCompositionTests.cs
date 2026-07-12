@@ -184,6 +184,7 @@ public sealed class ApplicationCompositionTests
             () => null,
             () => new InternalBMSAutoPlayerSoundOnly(),
             () => null,
+            new ChartFileOperationSynchronizer(),
             _ =>
             {
             },

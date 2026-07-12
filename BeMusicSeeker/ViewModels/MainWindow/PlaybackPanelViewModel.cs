@@ -1,10 +1,17 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
+using System.Linq;
+using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
+using BeMusicSeeker.Views.Dialogs;
 using Livet;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -15,7 +22,15 @@ public sealed class PlaybackPanelViewModel : ViewModel
 {
     private readonly Func<Dispatcher> uiDispatcherProvider;
 
+    private readonly MainChartListViewModel mainChartList;
+
+    private readonly ISettingsEditSession settingsEditSession;
+
+    private readonly ChartFileOperationSynchronizer chartFileOperations;
+
     private readonly object sessionGate = new();
+
+    private readonly object workflowGate = new();
 
     private IBMSPlayer bmsPlayer;
 
@@ -26,6 +41,8 @@ public sealed class PlaybackPanelViewModel : ViewModel
     private BMSFile displayedBmsPlayerFile;
 
     private int nowPlayingRowIndex = -1;
+
+    private BMSLibrary library;
 
     private IntPtr? parentHandle;
 
@@ -73,10 +90,33 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     private string moviePlayerHeaderArtist = string.Empty;
 
-    internal PlaybackPanelViewModel(IBMSPlayer player, Func<Dispatcher> uiDispatcherProvider)
+    internal PlaybackPanelViewModel(
+        IBMSPlayer player,
+        Func<Dispatcher> uiDispatcherProvider,
+        MainChartListViewModel mainChartList,
+        ISettingsEditSession settingsEditSession,
+        ChartFileOperationSynchronizer chartFileOperations)
     {
         this.uiDispatcherProvider = uiDispatcherProvider ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
+        this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
+        this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
+        this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         ReplacePlayer(player);
+    }
+
+    private Settings ApplicationSettings => settingsEditSession.Values;
+
+    internal void AttachLibrary(BMSLibrary library)
+    {
+        if (library == null)
+        {
+            throw new ArgumentNullException(nameof(library));
+        }
+        if (this.library != null && !ReferenceEquals(this.library, library))
+        {
+            throw new InvalidOperationException("Playback library is already attached.");
+        }
+        this.library = library;
     }
 
     internal event EventHandler PlaybackStarting;
@@ -365,6 +405,480 @@ public sealed class PlaybackPanelViewModel : ViewModel
         }
     }
 
+    internal void Start(bool forceNewPlay = true)
+    {
+        lock (workflowGate)
+        {
+            if (!forceNewPlay && NowPlayingBmsFile != null)
+            {
+                TogglePause();
+                return;
+            }
+
+            StopPlayback();
+            if (mainChartList.SelectedIndex >= 0 && mainChartList.SelectedIndex < mainChartList.Rows.Count)
+            {
+                StartAtIndex(mainChartList.SelectedIndex);
+            }
+        }
+    }
+
+    internal void Next(object sender = null, EventArgs e = null)
+    {
+        lock (workflowGate)
+        {
+            int index = NowPlayingRowIndex;
+            if (index < 0 || index >= mainChartList.Rows.Count)
+            {
+                StopPlayback();
+                return;
+            }
+            if (sender != null && ApplicationSettings.SinglePlayMode)
+            {
+                if (!ApplicationSettings.RepeatPlayMode)
+                {
+                    StopPlayback();
+                    return;
+                }
+            }
+            else
+            {
+                string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
+                index++;
+                if (ApplicationSettings.RepeatPlayMode && index == mainChartList.Rows.Count)
+                {
+                    index = 0;
+                }
+                while (ApplicationSettings.FolderSkipPlayMode && index != mainChartList.Rows.Count)
+                {
+                    GridRowResolver.TryGetBmsPlayerFile(mainChartList.Rows[index], out BMSFile candidate);
+                    if (index == NowPlayingRowIndex)
+                    {
+                        break;
+                    }
+                    string candidateFolder = GetPlaybackFolderIdentity(candidate, index);
+                    if (!string.IsNullOrWhiteSpace(candidateFolder) && currentFolder != candidateFolder)
+                    {
+                        break;
+                    }
+                    currentFolder = candidateFolder;
+                    index++;
+                    if (ApplicationSettings.RepeatPlayMode && index == mainChartList.Rows.Count)
+                    {
+                        index = 0;
+                    }
+                }
+            }
+            if (index < mainChartList.Rows.Count)
+            {
+                StopPlayback();
+                StartAtIndex(index);
+            }
+            else if (sender != null)
+            {
+                StopPlayback();
+            }
+        }
+    }
+
+    internal void Previous(object sender = null, EventArgs e = null)
+    {
+        lock (workflowGate)
+        {
+            int index = NowPlayingRowIndex;
+            if (index < 0 || index >= mainChartList.Rows.Count)
+            {
+                StopPlayback();
+                return;
+            }
+            if (sender != null && ApplicationSettings.SinglePlayMode)
+            {
+                if (!ApplicationSettings.RepeatPlayMode)
+                {
+                    StopPlayback();
+                    return;
+                }
+            }
+            else
+            {
+                string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
+                index--;
+                if (ApplicationSettings.RepeatPlayMode && index == -1)
+                {
+                    index = mainChartList.Rows.Count - 1;
+                }
+                while (ApplicationSettings.FolderSkipPlayMode && index != -1)
+                {
+                    GridRowResolver.TryGetBmsPlayerFile(mainChartList.Rows[index], out BMSFile candidate);
+                    if (index == NowPlayingRowIndex)
+                    {
+                        break;
+                    }
+                    string candidateFolder = GetPlaybackFolderIdentity(candidate, index);
+                    if (!string.IsNullOrWhiteSpace(candidateFolder) && currentFolder != candidateFolder)
+                    {
+                        break;
+                    }
+                    currentFolder = candidateFolder;
+                    index--;
+                    if (ApplicationSettings.RepeatPlayMode && index == -1)
+                    {
+                        index = mainChartList.Rows.Count - 1;
+                    }
+                }
+            }
+            if (index >= 0)
+            {
+                StopPlayback();
+                StartAtIndex(index);
+            }
+            else if (sender != null)
+            {
+                StopPlayback();
+            }
+        }
+    }
+
+    private static string GetPlaybackFolderIdentity(BMSFile file, int fallbackIndex)
+    {
+        return !string.IsNullOrWhiteSpace(file?.path) && LongPathFileSystem.FileExists(file.path)
+            ? Path.GetDirectoryName(file.path)
+            : fallbackIndex.ToString();
+    }
+
+    private int FindNextPlaybackIndex()
+    {
+        int index = NowPlayingRowIndex;
+        string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
+        index++;
+        if (ApplicationSettings.RepeatPlayMode && index == mainChartList.Rows.Count)
+        {
+            index = 0;
+        }
+        while (ApplicationSettings.FolderSkipPlayMode && index != mainChartList.Rows.Count)
+        {
+            GridRowResolver.TryGetBmsPlayerFile(mainChartList.Rows[index], out BMSFile candidate);
+            if (index == NowPlayingRowIndex)
+            {
+                break;
+            }
+            string candidateFolder = GetPlaybackFolderIdentity(candidate, index);
+            if (!string.IsNullOrWhiteSpace(candidateFolder) && currentFolder != candidateFolder)
+            {
+                break;
+            }
+            currentFolder = candidateFolder;
+            index++;
+            if (ApplicationSettings.RepeatPlayMode && index == mainChartList.Rows.Count)
+            {
+                index = 0;
+            }
+        }
+        return index;
+    }
+
+    internal void StartAtIndex(int index)
+    {
+        BMSFile bmsFile = null;
+        ChartFile playbackChart = null;
+        int remainingCandidates = mainChartList.Rows.Count;
+    ResolveCandidate:
+        while (remainingCandidates > 0)
+        {
+            object row;
+            try
+            {
+                row = mainChartList.Rows[index];
+                playbackChart = null;
+                bmsFile = null;
+                GridRowResolver.TryGetChartFile(row, out playbackChart);
+                GridRowResolver.TryGetBmsPlayerFile(row, out bmsFile);
+            }
+            catch
+            {
+                return;
+            }
+            if (bmsFile != null
+                && !string.IsNullOrWhiteSpace(bmsFile.path)
+                && LongPathFileSystem.FileExists(bmsFile.path))
+            {
+                break;
+            }
+
+            SkipUnavailablePlaybackCandidate(index);
+            remainingCandidates--;
+            index++;
+            if (index >= mainChartList.Rows.Count)
+            {
+                if (ApplicationSettings.RepeatPlayMode)
+                {
+                    index = 0;
+                }
+                else
+                {
+                    StopPlayback();
+                    return;
+                }
+            }
+            if (remainingCandidates == 0)
+            {
+                StopPlayback();
+                return;
+            }
+        }
+
+        long generation = BeginPlayback(bmsFile, index);
+        mainChartList.SelectedIndex = index;
+        playbackChart ??= ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false);
+        string installDestination = playbackChart?.InstallDestination;
+        if (!string.IsNullOrWhiteSpace(installDestination) && LongPathFileSystem.DirectoryExists(installDestination))
+        {
+            StartTemporarilyInstalledChart(playbackChart, bmsFile, generation, installDestination);
+            return;
+        }
+
+        try
+        {
+            if (!TryPlayStart(generation, bmsFile.path, Next))
+            {
+                return;
+            }
+        }
+        catch (InvalidDataException value)
+        {
+            NLogWrapper.TraceLogger?.Warn(value);
+            if (ApplicationSettings.RepeatPlayMode && (ApplicationSettings.SinglePlayMode || index == 0))
+            {
+                StopPlayback();
+                return;
+            }
+            remainingCandidates--;
+            if (remainingCandidates <= 0)
+            {
+                StopPlayback();
+                return;
+            }
+            int nextIndex = FindNextPlaybackIndex();
+            if (nextIndex < 0 || nextIndex >= mainChartList.Rows.Count)
+            {
+                StopPlayback();
+                return;
+            }
+            index = nextIndex;
+            goto ResolveCandidate;
+        }
+        catch (Exception ex)
+        {
+            ShowPlaybackFailure(ex);
+            StopPlayback();
+            return;
+        }
+        NotifyPlaybackStarted(generation);
+    }
+
+    private void StartTemporarilyInstalledChart(
+        ChartFile playbackChart,
+        BMSFile bmsFile,
+        long generation,
+        string installDestination)
+    {
+        if (library == null)
+        {
+            throw new InvalidOperationException("Playback library must be attached before temporary-install playback.");
+        }
+
+        ChartPackage chartPackage = library.ChartPackagesPending
+            .FirstOrDefault(package => ContainsChartTarget(package, playbackChart));
+        if (chartPackage == null)
+        {
+            if (ApplicationSettings.UsePlayerLR2body
+                && ApplicationSettings.OperationModeLR2DB
+                && !ShowTemporaryInstallConfirmation())
+            {
+                return;
+            }
+            chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
+            chartPackage.delete_parent = false;
+        }
+
+        string originalPath = bmsFile.path;
+        bool playbackStartAccepted = true;
+        try
+        {
+            while (LongPathFileSystem.EntryExists(Path.Combine(installDestination, Path.GetFileName(bmsFile.path))))
+            {
+                string temporaryName = Path.GetFileNameWithoutExtension(bmsFile.path) + "_" + Path.GetExtension(bmsFile.path);
+                LongPathFileSystem.MoveFile(
+                    bmsFile.path,
+                    Path.Combine(Path.GetDirectoryName(bmsFile.path), temporaryName),
+                    overwrite: false);
+                bmsFile.path = Path.Combine(Path.GetDirectoryName(bmsFile.path), temporaryName);
+            }
+
+            List<string> sourceFiles = [];
+            if (LongPathFileSystem.DirectoryExists(chartPackage.path))
+            {
+                string[] permittedExtensions =
+                [
+                    .. ChartFileKindResolver.BmsExtensions,
+                    .. ChartResourceExtensions.AudioExtensions,
+                    .. ChartResourceExtensions.ImageExtensions,
+                ];
+                sourceFiles = [.. LongPathFileSystem.EnumerateFiles(chartPackage.path, "*", SearchOption.TopDirectoryOnly)
+                    .Where(file => permittedExtensions.Any(extension => file.EndsWith(extension, StringComparison.OrdinalIgnoreCase)))];
+            }
+            else
+            {
+                sourceFiles.Add(bmsFile.path);
+            }
+
+            using (chartFileOperations.Enter())
+            {
+                using (new temporarilyCopyFiles(sourceFiles, installDestination, 2000))
+                {
+                    string playbackPath = Path.Combine(installDestination, Path.GetFileName(bmsFile.path));
+                    try
+                    {
+                        playbackStartAccepted = TryPlayStart(generation, playbackPath, Next);
+                    }
+                    catch (Exception ex)
+                    {
+                        ShowPlaybackFailure(ex);
+                        StopPlayback();
+                        return;
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (!string.Equals(originalPath, bmsFile.path, StringComparison.OrdinalIgnoreCase))
+            {
+                LongPathFileSystem.MoveFile(
+                    bmsFile.path,
+                    originalPath,
+                    overwrite: false);
+                bmsFile.path = originalPath;
+            }
+        }
+        if (playbackStartAccepted)
+        {
+            NotifyPlaybackStarted(generation);
+        }
+    }
+
+    private static bool ContainsChartTarget(ChartPackage chartPackage, ChartFile chart)
+    {
+        return chartPackage != null
+            && chart != null
+            && (chartPackage.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(chart) == true);
+    }
+
+    private static bool ShowTemporaryInstallConfirmation()
+    {
+        UiDialogResult result = new UiDialogCoordinator()
+            .ConfirmAsync(new UiConfirmationRequest(
+                Resources.Msg_warn_play_temp_install,
+                Resources.Warning,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.None))
+            .GetAwaiter()
+            .GetResult();
+        if (result.Status is UiDialogStatus.Accepted)
+        {
+            return true;
+        }
+        if (result.Status is UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return false;
+        }
+        throw result.Exception ?? new InvalidOperationException("Temporary install playback confirmation was not shown: " + result.Status);
+    }
+
+    private static void ShowPlaybackFailure(Exception exception)
+    {
+        UiDialogResult result = new UiDialogCoordinator()
+            .ShowMessageAsync(new UiMessageRequest(
+                Resources.Msg_failed_play + Environment.NewLine + exception.Message,
+                Resources.Error,
+                MessageBoxButton.OK,
+                MessageBoxImage.Hand,
+                MessageBoxResult.OK))
+            .GetAwaiter()
+            .GetResult();
+        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
+        {
+            return;
+        }
+        else
+        {
+            throw result.Exception ?? new InvalidOperationException("Playback failure notification was not shown: " + result.Status);
+        }
+    }
+
+    internal void StopIfPlayingCharts(IEnumerable<ChartFile> charts)
+    {
+        if (!string.IsNullOrWhiteSpace(NowPlayingBmsFile?.path))
+        {
+            string playingDirectory = Path.GetDirectoryName(NowPlayingBmsFile.path);
+            if ((charts ?? []).Any(chart => IsChartDirectorySameOrUnder(playingDirectory, chart?.Path)))
+            {
+                StopPlayback(closeProcess: true);
+            }
+        }
+    }
+
+    internal void StopIfPlayingLibraryCharts(IEnumerable<LibraryChartRef> charts)
+    {
+        if (!string.IsNullOrWhiteSpace(NowPlayingBmsFile?.path))
+        {
+            string playingDirectory = Path.GetDirectoryName(NowPlayingBmsFile.path);
+            if ((charts ?? []).Any(chart => IsChartDirectorySameOrUnder(playingDirectory, chart?.Path)))
+            {
+                StopPlayback(closeProcess: true);
+            }
+        }
+    }
+
+    internal void StopIfPlayingChartDirectories(IEnumerable<string> directories)
+    {
+        if (!string.IsNullOrWhiteSpace(NowPlayingBmsFile?.path)
+            && (directories ?? []).Any(directory => IsChartDirectorySameOrUnder(directory, NowPlayingBmsFile.path)))
+        {
+            StopPlayback(closeProcess: true);
+        }
+    }
+
+    private static bool IsChartDirectorySameOrUnder(string parentDirectory, string chartPath)
+    {
+        if (string.IsNullOrWhiteSpace(parentDirectory) || string.IsNullOrWhiteSpace(chartPath))
+        {
+            return false;
+        }
+        string chartDirectory = Path.GetDirectoryName(chartPath);
+        if (string.IsNullOrWhiteSpace(chartDirectory))
+        {
+            return false;
+        }
+        string normalizedParent = NormalizeDirectoryForPrefixCheck(parentDirectory);
+        string normalizedChartDirectory = NormalizeDirectoryForPrefixCheck(chartDirectory);
+        return string.Equals(normalizedParent, normalizedChartDirectory, StringComparison.OrdinalIgnoreCase)
+            || normalizedParent.StartsWith(normalizedChartDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeDirectoryForPrefixCheck(string directoryPath)
+    {
+        try
+        {
+            return Path.GetFullPath(directoryPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+        catch
+        {
+            return directoryPath.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        }
+    }
+
     internal long BeginPlayback(BMSFile bmsFile, int rowIndex)
     {
         if (bmsFile == null)
@@ -589,12 +1103,12 @@ public sealed class PlaybackPanelViewModel : ViewModel
     /// </summary>
     public int PlayerVolume
     {
-        get => Settings.Default.uBMplayVolume;
+        get => ApplicationSettings.uBMplayVolume;
         set
         {
-            if (Settings.Default.uBMplayVolume != value)
+            if (ApplicationSettings.uBMplayVolume != value)
             {
-                Settings.Default.uBMplayVolume = value;
+                ApplicationSettings.uBMplayVolume = value;
                 RaisePropertyChanged(nameof(PlayerVolume));
                 bmsPlayer?.VolumeChanged();
             }
@@ -602,7 +1116,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
     }
 
     private bool IsMoviePlayerHeaderActive =>
-        Settings.Default.PlayerPanelState == MainWindowViewModel.PanelState.MOVIE_PLAYER
+        ApplicationSettings.PlayerPanelState == MainWindowViewModel.PanelState.MOVIE_PLAYER
         && (!string.IsNullOrWhiteSpace(moviePlayerHeaderTitle)
             || !string.IsNullOrWhiteSpace(moviePlayerHeaderSubtitle)
             || !string.IsNullOrWhiteSpace(moviePlayerHeaderArtist));

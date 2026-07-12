@@ -230,7 +230,7 @@ public sealed class ChartListVirtualViewTests
     }
 
     [TestMethod]
-    public void PlayStartBmsFile_UsesChartInstallDestinationWhenTemporaryRenameChangesPath()
+    public void PlaybackPanel_StartAtIndexUsesChartInstallDestinationWhenTemporaryRenameChangesPath()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         bool originalUsePlayerLR2body = BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body;
@@ -256,6 +256,7 @@ public sealed class ChartListVirtualViewTests
             File.WriteAllBytes(songDbPath, []);
             var library = new BMSLibrary(songDbPath);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
+            viewModel.PlaybackPanel.AttachLibrary(library);
             var file = new TestableBmsFile();
             file.Apply(sourceChartPath, "Playable", "Source");
             ChartFile playableChart = ChartFileProjection.FromBmsFile(file);
@@ -275,9 +276,7 @@ public sealed class ChartListVirtualViewTests
                 viewRow
             };
 
-            typeof(MainWindowViewModel)
-                .GetMethod("PlayStartBmsFile", BindingFlags.Instance | BindingFlags.NonPublic)!
-                .Invoke(viewModel, [0]);
+            viewModel.PlaybackPanel.StartAtIndex(0);
 
             Assert.AreEqual(Path.Combine(destinationDirectoryPath, temporaryChartName), player.LastPlayedPath);
             Assert.AreEqual(sourceChartPath, file.path);
