@@ -16183,14 +16183,19 @@ public partial class MainWindowViewModel : ViewModel
         using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
         try
         {
-            if (Settings.Default.OperationModeLR2DB && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+            CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+            if (settings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
             {
-                tables.RemoveCustomFolder(bmsTable);
+                tables.RemoveCustomFolder(bmsTable, settings);
             }
             tables.RemoveBMSTable(bmsTable);
-            if (Settings.Default.OperationModeLR2DB && bmsTable.is_root_folder && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+            if (settings.OperationModeLR2DB && bmsTable.is_root_folder && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
             {
-                string customFolderOutputDirectory = ResolveCustomFolderOutputDirectoryWithNotification(bmsTable, "playlist remove custom folder output directory notification");
+                string customFolderOutputDirectory = ResolveCustomFolderOutputDirectoryWithNotification(
+                    bmsTable,
+                    "playlist remove custom folder output directory notification",
+                    settings);
                 lr2config.RemoveBMSSearchDirectories([customFolderOutputDirectory]);
                 lr2config.Save();
             }

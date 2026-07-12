@@ -6995,7 +6995,12 @@ public partial class BMSPlaylist : NotificationObject
     /// <exception cref="ArgumentException">出力先に必要な情報が不足している場合。</exception>
     public void RemoveCustomFolder(BMSTable bmsTable)
     {
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        RemoveCustomFolder(bmsTable, null);
+    }
+
+    internal void RemoveCustomFolder(BMSTable bmsTable, CustomFolderOutputSettingsSnapshot settings)
+    {
+        settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
             throw new InvalidOperationException("Custom-folder output operation mode is not enabled.");
