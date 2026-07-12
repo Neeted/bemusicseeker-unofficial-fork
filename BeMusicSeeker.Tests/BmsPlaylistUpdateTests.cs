@@ -3950,9 +3950,23 @@ public sealed class BmsPlaylistUpdateTests
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.OperationModeLR2DB = true;
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            string providerOutputBaseDir = Path.Combine(tempDirectory, "ProviderCustomFolder");
+            string globalOutputBaseDir = Path.Combine(tempDirectory, "GlobalCustomFolder");
+            Settings.Default.OperationModeLR2DB = false;
+            Settings.Default.LR2CustomFolderOutputBaseDir = globalOutputBaseDir;
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = providerOutputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootCustomFolder"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            int providerCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
+            {
+                providerCallCount++;
+                return outputSettings;
+            };
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
             BMSTableEntry entry = CreateEntryWithLevel("cccccccccccccccccccccccccccccccc", 1);
@@ -3971,19 +3985,31 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                getOutputSettings)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
                     Dispatcher.CurrentDispatcher)
             };
             playlist.ReOutputCustomFolderAndCommitToDB(table);
+            providerCallCount = 0;
             entry.level = 12;
 
             playlist.CommitBMSTableEntry(entry);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             List<LR2SongDB.folder> folders = verify.Table<LR2SongDB.folder>().ToList();
+            Assert.AreEqual(1, providerCallCount);
+            Assert.IsTrue(Directory.Exists(Path.Combine(providerOutputBaseDir, table.Output_dir)));
+            Assert.IsFalse(Directory.Exists(Path.Combine(globalOutputBaseDir, table.Output_dir)));
             Assert.AreEqual(0, folders.Count(row => row.title == "LEVEL 1"));
             LR2SongDB.folder levelFolder = folders.Single(row => row.title == "LEVEL 12");
             Assert.AreEqual(2, levelFolder.type);

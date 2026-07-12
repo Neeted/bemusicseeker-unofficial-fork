@@ -9948,6 +9948,10 @@ public partial class BMSPlaylist : NotificationObject
                 owningTable.last_update = GetNextPlaylistLastUpdate(owningTable.last_update);
             }
         }
+        CustomFolderOutputSettingsSnapshot outputSettings = owningTable != null
+            && !string.IsNullOrWhiteSpace(owningTable.Output_dir)
+                ? GetCustomFolderOutputSettings()
+                : null;
         try
         {
             using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
@@ -9967,14 +9971,14 @@ public partial class BMSPlaylist : NotificationObject
         }
         if (owningTable != null)
         {
-            if (Settings.Default.OperationModeLR2DB && !string.IsNullOrWhiteSpace(owningTable.Output_dir))
+            if (outputSettings?.OperationModeLR2DB == true)
             {
                 EnsurePlaylistEntriesLoaded(owningTable, "CommitBMSTableEntry");
                 using (owningTable.ReaderWriterLock.GetWriterGuard())
                 {
                     if (BMSTables.Contains(owningTable))
                     {
-                        reOutputCustomFolderFiles(owningTable);
+                        reOutputCustomFolderFiles(owningTable, outputSettings);
                     }
                 }
             }
