@@ -346,6 +346,20 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void StartupPlayerServices_AreConstructedByApplicationComposition()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+
+        StringAssert.Contains(source, "applicationComposition.CreateBmsPlayer(");
+        Assert.IsFalse(source.Contains("new uBMplay("));
+        Assert.IsFalse(source.Contains("new BMIIDXView2015("));
+        Assert.IsFalse(source.Contains("new LR2body("));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Windows.Markup;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -144,6 +146,33 @@ internal sealed class ApplicationComposition
             reloadSettings,
             saveSettings,
             settingsEditSession);
+    }
+
+    internal IBMSPlayer CreateBmsPlayer(
+        StartupSettingsSnapshot startupSettings,
+        Func<LR2Config> createLr2PlayerConfig)
+    {
+        if (startupSettings == null)
+        {
+            throw new ArgumentNullException(nameof(startupSettings));
+        }
+        if (startupSettings.UsePlayeruBMplay)
+        {
+            return new uBMplay(startupSettings.uBMplayPath);
+        }
+        if (startupSettings.UsePlayerBMIIDXView)
+        {
+            return new BMIIDXView2015(startupSettings.BMIIDXViewPath);
+        }
+        if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))
+        {
+            if (createLr2PlayerConfig == null)
+            {
+                throw new ArgumentNullException(nameof(createLr2PlayerConfig));
+            }
+            return new LR2body(startupSettings.LR2bodyPath, createLr2PlayerConfig());
+        }
+        return null;
     }
 
     internal BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)

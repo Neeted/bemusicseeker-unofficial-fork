@@ -1265,6 +1265,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string compositionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string lr2PlaybackXaml = ExtractBetween(
             xaml,
@@ -1295,8 +1296,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(checkValidation, "else if (UsePlayerLR2body)");
         StringAssert.Contains(checkValidation, "if (!IsLR2PlayerRootPathValid())");
         Assert.IsFalse(checkValidation.Contains("OperationModeLR2DB && UsePlayerLR2body"));
-        StringAssert.Contains(initialize, "else if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))");
-        StringAssert.Contains(initialize, "new LR2body(startupSettings.LR2bodyPath, CreateLR2PlayerConfig(startupSettings))");
+        StringAssert.Contains(initialize, "applicationComposition.CreateBmsPlayer(");
+        StringAssert.Contains(compositionCode, "if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))");
+        StringAssert.Contains(compositionCode, "new LR2body(startupSettings.LR2bodyPath, createLr2PlayerConfig())");
         Assert.IsFalse(initialize.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
         StringAssert.Contains(saveFollowup, "else if (!forceInternalPlayerForStandaloneModeChange && ApplicationSettings.UsePlayerLR2body)");
         StringAssert.Contains(saveFollowup, "ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(ApplicationSettings.LR2ConfigXmlPath));");

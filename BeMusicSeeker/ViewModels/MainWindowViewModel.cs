@@ -7733,17 +7733,12 @@ public partial class MainWindowViewModel : ViewModel
             {
                 files.SearchTargets.AddRange(libraryProfile.SearchRoots);
             }
-            if (startupSettings.UsePlayeruBMplay)
+            IBMSPlayer configuredBmsPlayer = applicationComposition.CreateBmsPlayer(
+                startupSettings,
+                () => CreateLR2PlayerConfig(startupSettings));
+            if (configuredBmsPlayer != null)
             {
-                bmsPlayer = new uBMplay(startupSettings.uBMplayPath);
-            }
-            else if (startupSettings.UsePlayerBMIIDXView)
-            {
-                bmsPlayer = new BMIIDXView2015(startupSettings.BMIIDXViewPath);
-            }
-            else if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))
-            {
-                bmsPlayer = new LR2body(startupSettings.LR2bodyPath, CreateLR2PlayerConfig(startupSettings));
+                bmsPlayer = configuredBmsPlayer;
             }
             operationToken = StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         }
