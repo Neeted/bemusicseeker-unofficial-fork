@@ -1,0 +1,63 @@
+using System;
+using System.IO;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.ViewModels;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class ApplicationCompositionTests
+{
+    [TestMethod]
+    public void CompositionKeepsTheConfiguredLibraryOptionsProvider()
+    {
+        var snapshot = new BmsLibraryOptionsSnapshot
+        {
+            OperationModeLR2DB = false,
+            PendingInstallEstimateMaxParallelPackages = 7
+        };
+        var composition = new ApplicationComposition(() => snapshot);
+
+        Assert.AreSame(snapshot, composition.BmsLibraryOptionsProvider());
+    }
+
+    [TestMethod]
+    public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string songDbPath = Path.Combine(tempDirectory, "song.db");
+        using (var initialize = new LR2SongDBExtended(songDbPath))
+        {
+        }
+        BmsLibraryOptionsSnapshot current = new()
+        {
+            PendingInstallEstimateMaxParallelPackages = 3
+        };
+        try
+        {
+            var library = new BMSLibrary(
+                songDbPath,
+                null,
+                null,
+                startupRequiredFileScanReason: null,
+                optionsSnapshotProvider: () => current);
+            Assert.AreEqual(3, library.ResolvePendingInstallEstimateParallelPackageDegree());
+            current = new BmsLibraryOptionsSnapshot
+            {
+                PendingInstallEstimateMaxParallelPackages = 5
+            };
+            Assert.AreEqual(5, library.ResolvePendingInstallEstimateParallelPackageDegree());
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+}

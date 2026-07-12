@@ -10,7 +10,7 @@
   </UIElement.CommandBindings>
   <FrameworkElement.Resources>
     <ResourceDictionary>
-      <vm:MainWindowViewModel x:Key="vm" />
+      <vm:MainWindowViewModelResourceExtension x:Key="vm" />
       <v:WindowStateToCaptionVisibilityConverter x:Key="WindowStateToCaptionVisibilityConverter" />
       <v:windowsFormsHostVisibilitiesConverter x:Key="windowsFormsHostVisibilitiesConverter" />
       <v:windowsFormsHostIsEnabledConverter x:Key="windowsFormsHostIsEnabledConverter" />

@@ -76,3 +76,10 @@ UI-01 の完了境界は main table presentation、regular chart workflow、play
 ## Active outcome blockers
 
 なし。
+
+## APP-01 implementation progress
+
+- 完了した縦切り: `ApplicationComposition` を XAML の `vm` resource に接続し、`BmsLibraryOptionsSnapshot` を immutable な用途別 snapshot として構築する provider を `MainWindowViewModel` から `BMSLibrary` production constructor へ渡す経路を追加した。
+- `BMSLibrary` 本体と package-move host に残っていた設定・追加 custom output directory の直接取得を provider 経由へ移し、provider は operation ごとに評価する。public constructor の既存 fallback、設定キー、serialized value、保存タイミングは維持する。
+- この縦切りの検証: Full build、全テスト（2523 passed / 13 skipped）、Roslynator 0 diagnostics、format / diff check、サブエージェント静的レビューで P0/P1 なし。
+- APP-01 の残作業: `BMSPlaylist` と `MainWindowViewModel` / `SettingDialogViewModel` の global settings 取得、App の upgrade / migration / theme / culture lifecycle、startup library/player profile の snapshot 化、settings dialog の open/edit/save/reload/shutdown behavior test。これらを一つの巨大 facade にせず、production 経路へ接続する用途別縦切りで継続する。

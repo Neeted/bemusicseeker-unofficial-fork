@@ -483,6 +483,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private BMSPlaylist tables;
 
+    private readonly Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider;
+
     private LR2Config lr2config;
 
     private IBMSPlayer bmsPlayer = new InternalBMSAutoPlayerSoundOnly();
@@ -6172,7 +6174,17 @@ public partial class MainWindowViewModel : ViewModel
     /// 設定情報に基づくプレースホルダーの初期状態設定や、内包される <see cref="SettingDialogViewModel"/> の生成を行います。
     /// </summary>
     public MainWindowViewModel()
+        : this(ApplicationComposition.CreateDefault())
     {
+    }
+
+    internal MainWindowViewModel(ApplicationComposition composition)
+    {
+        if (composition == null)
+        {
+            throw new ArgumentNullException(nameof(composition));
+        }
+        bmsLibraryOptionsProvider = composition.BmsLibraryOptionsProvider;
         ChartFilters = new ChartListFilterViewModel();
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
@@ -7655,7 +7667,12 @@ public partial class MainWindowViewModel : ViewModel
         {
             InvalidatePlayHistoryReadCache("initialize");
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup();
-            files = new BMSLibrary(libraryProfile.SongDbPath, libraryProfile.Lr2ConfigProvider, libraryProfile.Lr2ScoreDbPath, startupRequiredFileScanReason: libraryProfile.StartupRequiredFileScanReason);
+            files = new BMSLibrary(
+                libraryProfile.SongDbPath,
+                libraryProfile.Lr2ConfigProvider,
+                libraryProfile.Lr2ScoreDbPath,
+                startupRequiredFileScanReason: libraryProfile.StartupRequiredFileScanReason,
+                optionsSnapshotProvider: bmsLibraryOptionsProvider);
             tables = new BMSPlaylist(
                 libraryProfile.SongDbPath,
                 libraryProfile.Lr2ConfigProvider,

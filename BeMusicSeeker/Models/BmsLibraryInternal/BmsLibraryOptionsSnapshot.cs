@@ -1,49 +1,59 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal sealed class BmsLibraryOptionsSnapshot
 {
-    public bool OperationModeLR2DB { get; set; }
+    public bool OperationModeLR2DB { get; init; }
 
-    public string LR2RootPath { get; set; }
+    public string LR2RootPath { get; init; }
 
-    public string LR2CustomFolderOutputBaseDir { get; set; }
+    public string LR2CustomFolderOutputBaseDir { get; init; }
 
-    public IReadOnlyList<string> LR2CustomFolderAdditionalOutputBaseDirs { get; set; } = [];
+    private IReadOnlyList<string> lr2CustomFolderAdditionalOutputBaseDirs = Array.AsReadOnly(Array.Empty<string>());
 
-    public string LR2CustomFolderOutputBaseDirRootType { get; set; }
+    public IReadOnlyList<string> LR2CustomFolderAdditionalOutputBaseDirs
+    {
+        get => lr2CustomFolderAdditionalOutputBaseDirs;
+        init => lr2CustomFolderAdditionalOutputBaseDirs = Array.AsReadOnly(value?.ToArray() ?? Array.Empty<string>());
+    }
 
-    public bool EnableSmartComponentOverwrite { get; set; }
+    public string LR2CustomFolderOutputBaseDirRootType { get; init; }
 
-    public bool KeepSmartOverwriteProtectedFilesByRenaming { get; set; }
+    public bool EnableSmartComponentOverwrite { get; init; }
 
-    public bool DeletePendingPackageSourceAfterInstall { get; set; }
+    public bool KeepSmartOverwriteProtectedFilesByRenaming { get; init; }
 
-    public bool KeepInstallablePackagesPending { get; set; }
+    public bool DeletePendingPackageSourceAfterInstall { get; init; }
 
-    public bool AutoApplyAmbiguousInstallDestination { get; set; }
+    public bool KeepInstallablePackagesPending { get; init; }
 
-    public bool EstimateOfflineScoreRanking { get; set; }
+    public bool AutoApplyAmbiguousInstallDestination { get; init; }
 
-    public bool UpdateLr2IrRankingCacheOnStartup { get; set; }
+    public bool EstimateOfflineScoreRanking { get; init; }
 
-    public bool EnableDownloadLr2IrScoreAndDetectUnsent { get; set; }
+    public bool UpdateLr2IrRankingCacheOnStartup { get; init; }
 
-    public bool UseBeatorajaScoreDb { get; set; }
+    public bool EnableDownloadLr2IrScoreAndDetectUnsent { get; init; }
 
-    public string BeatorajaScoreDbPath { get; set; }
+    public bool UseBeatorajaScoreDb { get; init; }
 
-    public bool EnableReadOptimizedPragmas { get; set; }
+    public string BeatorajaScoreDbPath { get; init; }
 
-    public bool ScanBmsFilesOnStartup { get; set; }
+    public bool EnableReadOptimizedPragmas { get; init; }
 
-    public string FolderNameFormat { get; set; }
+    public bool ScanBmsFilesOnStartup { get; init; }
 
-    public bool UseOnlyShiftJISChars { get; set; }
+    public string FolderNameFormat { get; init; }
 
-    public string BMSInstallDir { get; set; }
+    public bool UseOnlyShiftJISChars { get; init; }
+
+    public string BMSInstallDir { get; init; }
+
+    public int PendingInstallEstimateMaxParallelPackages { get; init; }
 
     public static BmsLibraryOptionsSnapshot CreateCurrent()
     {
@@ -70,7 +80,8 @@ internal sealed class BmsLibraryOptionsSnapshot
             ScanBmsFilesOnStartup = Settings.Default.ScanBmsFilesOnStartup,
             FolderNameFormat = Settings.Default.FolderNameFormat,
             UseOnlyShiftJISChars = Settings.Default.UseOnlyShiftJISChars,
-            BMSInstallDir = Settings.Default.BMSInstallDir
+            BMSInstallDir = Settings.Default.BMSInstallDir,
+            PendingInstallEstimateMaxParallelPackages = Settings.Default.PendingInstallEstimateMaxParallelPackages
         };
     }
 }

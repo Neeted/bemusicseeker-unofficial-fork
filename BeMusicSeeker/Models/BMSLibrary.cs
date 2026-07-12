@@ -2530,7 +2530,10 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly string startupRequiredFileScanReason;
 
-    private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => BmsLibraryOptionsSnapshot.CreateCurrent();
+    private readonly Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider;
+
+    private BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => optionsSnapshotProvider()
+        ?? throw new InvalidOperationException("BMS library options snapshot provider returned null.");
 
     private BmsLibraryInstallEstimationService CreateInstallEstimationService()
     {
@@ -2806,7 +2809,7 @@ public partial class BMSLibrary : NotificationObject
     /// <exception cref="ArgumentNullException">song.db パスが null の場合に送出されます。</exception>
     /// <exception cref="ArgumentException">指定された DB ファイルが存在しない場合に送出されます。</exception>
     public BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config = null, string _lr2ScoreDB = null, string startupRequiredFileScanReason = null)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, null)
     {
     }
 
@@ -2820,16 +2823,33 @@ public partial class BMSLibrary : NotificationObject
     /// <exception cref="ArgumentNullException">song.db パスが null の場合に送出されます。</exception>
     /// <exception cref="ArgumentException">指定された DB ファイルが存在しない場合に送出されます。</exception>
     internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, fileMutationService, null)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, fileMutationService, null, null, null)
     {
     }
 
     internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService, IBmsLibraryDialogService dialogService)
-        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, fileMutationService, dialogService, null, null)
     {
     }
 
-    internal BMSLibrary(string _lr2SongDB, Func<LR2Config> getLR2Config, string _lr2ScoreDB, IFileMutationService fileMutationService, IBmsLibraryDialogService dialogService, string startupRequiredFileScanReason)
+    internal BMSLibrary(
+        string _lr2SongDB,
+        Func<LR2Config> getLR2Config,
+        string _lr2ScoreDB,
+        string startupRequiredFileScanReason,
+        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
+        : this(_lr2SongDB, getLR2Config, _lr2ScoreDB, null, null, startupRequiredFileScanReason, optionsSnapshotProvider)
+    {
+    }
+
+    internal BMSLibrary(
+        string _lr2SongDB,
+        Func<LR2Config> getLR2Config,
+        string _lr2ScoreDB,
+        IFileMutationService fileMutationService,
+        IBmsLibraryDialogService dialogService,
+        string startupRequiredFileScanReason,
+        Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider)
     {
         if (_lr2SongDB == null)
         {
@@ -2846,6 +2866,7 @@ public partial class BMSLibrary : NotificationObject
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
         this.startupRequiredFileScanReason = startupRequiredFileScanReason;
+        this.optionsSnapshotProvider = optionsSnapshotProvider ?? BmsLibraryOptionsSnapshot.CreateCurrent;
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new ScopedOperationDialogService(this);
@@ -3231,9 +3252,9 @@ public partial class BMSLibrary : NotificationObject
         return Math.Max(1, resolved);
     }
 
-    private int ResolvePendingInstallEstimateParallelPackageDegree()
+    internal int ResolvePendingInstallEstimateParallelPackageDegree()
     {
-        return ResolvePendingInstallEstimateParallelPackageDegree(Settings.Default.PendingInstallEstimateMaxParallelPackages);
+        return ResolvePendingInstallEstimateParallelPackageDegree(CurrentOptionsSnapshot.PendingInstallEstimateMaxParallelPackages);
     }
 
     private sealed class InstallEstimationExecutionPolicy
@@ -4595,7 +4616,7 @@ public partial class BMSLibrary : NotificationObject
         long setZeroNoteMs = 0L;
         long installTblCheckMs = 0L;
         int lr2IdAfterScoreLoad = 0;
-        var options = BmsLibraryOptionsSnapshot.CreateCurrent();
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         bool scoreOnlyLoad = !songTblLoad && scoreTblrLoad && !songTblFileCheck && !setMainteInfo && !installTblCheck;
         bool logRootNormalizationForFileScan = songTblFileCheck;
         List<string> bMSDirectories = getBMSDirectories(out BmsSearchRootNormalizationSnapshot rootNormalization);
@@ -5481,6 +5502,7 @@ completeFileEnumerationOnce,
             return null;
         }
 
+        BmsLibraryOptionsSnapshot currentSettings = CurrentOptionsSnapshot;
         var stopwatchPrepare = Stopwatch.StartNew();
         var stopwatchStage = Stopwatch.StartNew();
         List<string> roots = [.. (rootDirectories ?? [])
@@ -5489,7 +5511,7 @@ completeFileEnumerationOnce,
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
         long rootsMs = RestartElapsed(stopwatchStage);
-        List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories();
+        List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(currentSettings);
         long builtinSourceMs = RestartElapsed(stopwatchStage);
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
         long appManagedScopeMs = RestartElapsed(stopwatchStage);
@@ -5512,7 +5534,7 @@ completeFileEnumerationOnce,
                 appManagedCandidateCount = 0;
                 fileDiffCandidates = Lr2FolderFileDiscoveryService.CreateFileCandidates(
                     fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
-                    Settings.Default.LR2RootPath,
+                    currentSettings.LR2RootPath,
                     CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
                     LogEverythingScan,
                     appManagedOutputScope.Directories);
@@ -5551,7 +5573,8 @@ completeFileEnumerationOnce,
             Lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
             Lr2FolderPruneDirectories = CreateLr2SongDbSyncLr2FolderPruneDirectories(
                 roots,
-                builtinSourceDirectories),
+                builtinSourceDirectories,
+                options: currentSettings),
             Lr2FolderFilePaths = fileDiffCandidates.Paths,
             Lr2FolderFileEntries = fileDiffCandidates.EntriesByPath,
             FolderInfoFilePaths = fileCheckResult.Lr2ScanFolderInfoFilePaths,
@@ -5561,10 +5584,10 @@ completeFileEnumerationOnce,
                 fileCheckResult.Lr2ScanDirectoryEntries,
                 fileCheckResult.Lr2ScanNormalFolderDirectoryEntries),
             Lr2FolderFileDiscoveryComplete = fileDiffCandidates.DiscoveryComplete,
-            Lr2RootPath = Settings.Default.LR2RootPath,
-            Lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
-            Lr2AdditionalNormalCustomFolderOutputBaseDirs = CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories(),
-            Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+            Lr2RootPath = currentSettings.LR2RootPath,
+            Lr2NormalCustomFolderOutputBaseDir = currentSettings.LR2CustomFolderOutputBaseDir,
+            Lr2AdditionalNormalCustomFolderOutputBaseDirs = currentSettings.LR2CustomFolderAdditionalOutputBaseDirs,
+            Lr2RootCustomFolderOutputBaseDir = currentSettings.LR2CustomFolderOutputBaseDirRootType,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
         PrepareLr2FolderParentDirectoryEntrySurface(request);
@@ -5613,11 +5636,11 @@ completeFileEnumerationOnce,
             return Lr2SongDbSyncPreparedDataSurface.Empty;
         }
 
-        List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories();
+        List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
         Lr2FolderFileCandidateSnapshot candidates = builtinSourceDirectories.Count > 0
             ? CreateLr2SongDbSyncLr2FolderFileCandidates(
                 builtinSourceDirectories,
-                Settings.Default.LR2RootPath,
+                options.LR2RootPath,
                 CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow))
             : new Lr2FolderFileCandidateSnapshot(
                 [],
@@ -5631,10 +5654,10 @@ completeFileEnumerationOnce,
             Lr2FolderFilePaths = candidates.Paths,
             Lr2FolderFileEntries = candidates.EntriesByPath,
             Lr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete,
-            Lr2RootPath = Settings.Default.LR2RootPath,
-            Lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
-            Lr2AdditionalNormalCustomFolderOutputBaseDirs = CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories(),
-            Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+            Lr2RootPath = options.LR2RootPath,
+            Lr2NormalCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDir,
+            Lr2AdditionalNormalCustomFolderOutputBaseDirs = options.LR2CustomFolderAdditionalOutputBaseDirs,
+            Lr2RootCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDirRootType,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
         PrepareLr2FolderParentDirectoryEntrySurface(request);
@@ -5664,8 +5687,8 @@ completeFileEnumerationOnce,
 
         var stopwatch = Stopwatch.StartNew();
         List<string> roots = getBMSDirectories();
-        List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories();
-        List<string> discoveryDirectories = NormalizeDistinctDirectories(CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots));
+        List<string> builtinSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
+        List<string> discoveryDirectories = NormalizeDistinctDirectories(CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots, options));
         Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
         if (!appManagedOutputScope.IsComplete)
         {
@@ -5679,7 +5702,7 @@ completeFileEnumerationOnce,
         Lr2FolderFileCandidateSnapshot candidates = discoveryDirectories.Count > 0
             ? CreateLr2SongDbSyncLr2FolderFileCandidates(
                 discoveryDirectories,
-                Settings.Default.LR2RootPath,
+                options.LR2RootPath,
                 CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
                 appManagedOutputScope.Directories)
             : new Lr2FolderFileCandidateSnapshot(
@@ -5695,7 +5718,7 @@ completeFileEnumerationOnce,
             appManagedOutputScope.Directories);
 
         List<string> pruneDirectories = NormalizeDistinctDirectories(
-            CreateLr2SongDbSyncLr2FolderPruneDirectories(roots, builtinSourceDirectories));
+            CreateLr2SongDbSyncLr2FolderPruneDirectories(roots, builtinSourceDirectories, options: options));
         var request = new Lr2SongDbSyncRequest
         {
             RootDirectories = roots,
@@ -5704,10 +5727,10 @@ completeFileEnumerationOnce,
             Lr2FolderFilePaths = candidates.Paths,
             Lr2FolderFileEntries = candidates.EntriesByPath,
             Lr2FolderFileDiscoveryComplete = candidates.DiscoveryComplete,
-            Lr2RootPath = Settings.Default.LR2RootPath,
-            Lr2NormalCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir,
-            Lr2AdditionalNormalCustomFolderOutputBaseDirs = CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories(),
-            Lr2RootCustomFolderOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+            Lr2RootPath = options.LR2RootPath,
+            Lr2NormalCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDir,
+            Lr2AdditionalNormalCustomFolderOutputBaseDirs = options.LR2CustomFolderAdditionalOutputBaseDirs,
+            Lr2RootCustomFolderOutputBaseDir = options.LR2CustomFolderOutputBaseDirRootType,
             Lr2BuiltinFolderSourceDirectories = builtinSourceDirectories
         };
         PrepareLr2FolderParentDirectoryEntrySurface(request);
@@ -6178,6 +6201,7 @@ completeFileEnumerationOnce,
         long textFileDirsMs = 0;
         string mergeResult = "unknown";
         preparedSurface ??= Lr2SongDbSyncPreparedDataSurface.Empty;
+        BmsLibraryOptionsSnapshot currentSettings = CurrentOptionsSnapshot;
         Lr2SongDbSyncScanSurfaceSnapshot snapshot = null;
         lock (lockLr2SongDbSyncScanSurface)
         {
@@ -6201,7 +6225,7 @@ completeFileEnumerationOnce,
                 var discoveryRootsStopwatch = Stopwatch.StartNew();
                 bool discoveryRootsCurrent = ArePathSetsEqual(
                     snapshot.Lr2FolderDiscoveryDirectories,
-                    CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(snapshot.RootDirectories));
+                    CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(snapshot.RootDirectories, currentSettings));
                 discoveryRootsStopwatch.Stop();
                 discoveryRootsMs = discoveryRootsStopwatch.ElapsedMilliseconds;
                 if (!discoveryRootsCurrent)
@@ -6973,11 +6997,12 @@ completeFileEnumerationOnce,
     {
         DateTime capturedAtUtc = DateTime.UtcNow;
         List<string> rootDirectories = getBMSDirectories();
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         return new Lr2SongDbSyncInputRootSnapshot(
             capturedAtUtc,
             rootDirectories,
-            CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(rootDirectories),
-            Settings.Default.LR2RootPath);
+            CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(rootDirectories, options),
+            options.LR2RootPath);
     }
 
     private Lr2SongDbSyncInputSettingsSnapshot CreateLr2SongDbSyncInputSettingsSnapshot(
@@ -6985,16 +7010,18 @@ completeFileEnumerationOnce,
         DateTime nowUtc,
         IEnumerable<string> rootDirectories)
     {
-        List<string> lr2BuiltinFolderSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories();
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        List<string> lr2BuiltinFolderSourceDirectories = CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
         return new Lr2SongDbSyncInputSettingsSnapshot(
             CreateLr2BuiltinCustomFolderSettings(songRows, nowUtc),
             lr2BuiltinFolderSourceDirectories,
-            Settings.Default.LR2CustomFolderOutputBaseDir,
-            CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories(),
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+            options.LR2CustomFolderOutputBaseDir,
+            options.LR2CustomFolderAdditionalOutputBaseDirs,
+            options.LR2CustomFolderOutputBaseDirRootType,
             CreateLr2SongDbSyncLr2FolderPruneDirectories(
                 rootDirectories,
-                lr2BuiltinFolderSourceDirectories));
+                lr2BuiltinFolderSourceDirectories,
+                options: options));
     }
 
     private Lr2SongDbSyncPreparedSurfaceSelection CreateLr2SongDbSyncPreparedSurfaceSelection(
@@ -7032,7 +7059,8 @@ completeFileEnumerationOnce,
             return false;
         }
 
-        List<string> lr2FolderDiscoveryDirectories = CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots);
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        List<string> lr2FolderDiscoveryDirectories = CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots, options);
         if (!ArePathSetsEqual(input.Lr2FolderDiscoveryDirectories, lr2FolderDiscoveryDirectories))
         {
             return false;
@@ -7048,11 +7076,11 @@ completeFileEnumerationOnce,
         {
             return false;
         }
-        if (!string.Equals(SafeFullPathOrOriginal(input.Lr2RootPath), SafeFullPathOrOriginal(Settings.Default.LR2RootPath), StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(SafeFullPathOrOriginal(input.Lr2NormalCustomFolderOutputBaseDir), SafeFullPathOrOriginal(Settings.Default.LR2CustomFolderOutputBaseDir), StringComparison.OrdinalIgnoreCase)
-            || !ArePathSetsEqual(input.Lr2AdditionalNormalCustomFolderOutputBaseDirs, CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories())
-            || !string.Equals(SafeFullPathOrOriginal(input.Lr2RootCustomFolderOutputBaseDir), SafeFullPathOrOriginal(Settings.Default.LR2CustomFolderOutputBaseDirRootType), StringComparison.OrdinalIgnoreCase)
-            || !ArePathSetsEqual(input.Lr2BuiltinFolderSourceDirectories, CreateLr2SongDbSyncBuiltinFolderSourceDirectories()))
+        if (!string.Equals(SafeFullPathOrOriginal(input.Lr2RootPath), SafeFullPathOrOriginal(options.LR2RootPath), StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(SafeFullPathOrOriginal(input.Lr2NormalCustomFolderOutputBaseDir), SafeFullPathOrOriginal(options.LR2CustomFolderOutputBaseDir), StringComparison.OrdinalIgnoreCase)
+            || !ArePathSetsEqual(input.Lr2AdditionalNormalCustomFolderOutputBaseDirs, options.LR2CustomFolderAdditionalOutputBaseDirs)
+            || !string.Equals(SafeFullPathOrOriginal(input.Lr2RootCustomFolderOutputBaseDir), SafeFullPathOrOriginal(options.LR2CustomFolderOutputBaseDirRootType), StringComparison.OrdinalIgnoreCase)
+            || !ArePathSetsEqual(input.Lr2BuiltinFolderSourceDirectories, CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options)))
         {
             return false;
         }
@@ -7794,13 +7822,16 @@ completeFileEnumerationOnce,
             + " message=" + displayedMessage);
     }
 
-    private static List<string> CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(IEnumerable<string> rootDirectories)
+    private List<string> CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(
+        IEnumerable<string> rootDirectories,
+        BmsLibraryOptionsSnapshot options = null)
     {
+        options ??= CurrentOptionsSnapshot;
         return Lr2FolderFileDiscoveryService.CreateDiscoveryDirectories(
             rootDirectories,
-            CreateNormalCustomFolderOutputBaseDirectories(),
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType,
-            CreateLr2SongDbSyncBuiltinFolderSourceDirectories());
+            CreateNormalCustomFolderOutputBaseDirectories(options),
+            options.LR2CustomFolderOutputBaseDirRootType,
+            CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options));
     }
 
     private static Lr2FolderFileCandidateSnapshot CreateLr2SongDbSyncLr2FolderFileCandidates(
@@ -7832,23 +7863,26 @@ completeFileEnumerationOnce,
             discoveryComplete: false);
     }
 
-    private static List<string> CreateLr2SongDbSyncLr2FolderPruneDirectories(
+    private List<string> CreateLr2SongDbSyncLr2FolderPruneDirectories(
         IEnumerable<string> rootDirectories,
         IEnumerable<string> builtinSourceDirectories,
-        bool includeAppManagedOutputDirectories = true)
+        bool includeAppManagedOutputDirectories = true,
+        BmsLibraryOptionsSnapshot options = null)
     {
+        options ??= CurrentOptionsSnapshot;
         return Lr2FolderFileDiscoveryService.CreatePruneDirectories(
             rootDirectories,
-            CreateNormalCustomFolderOutputBaseDirectories(),
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType,
+            CreateNormalCustomFolderOutputBaseDirectories(options),
+            options.LR2CustomFolderOutputBaseDirRootType,
             builtinSourceDirectories,
             includeAppManagedOutputDirectories);
     }
 
-    private static IReadOnlyList<string> CreateNormalCustomFolderOutputBaseDirectories()
+    private IReadOnlyList<string> CreateNormalCustomFolderOutputBaseDirectories(BmsLibraryOptionsSnapshot options = null)
     {
-        return [.. new[] { Settings.Default.LR2CustomFolderOutputBaseDir }
-            .Concat(CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories())
+        options ??= CurrentOptionsSnapshot;
+        return [.. new[] { options.LR2CustomFolderOutputBaseDir }
+            .Concat(options.LR2CustomFolderAdditionalOutputBaseDirs)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
@@ -7935,9 +7969,10 @@ completeFileEnumerationOnce,
         return Lr2FolderFileDiscoveryService.CreateBuiltinCustomFolderPruneDirectories();
     }
 
-    private static List<string> CreateLr2SongDbSyncBuiltinFolderSourceDirectories()
+    private List<string> CreateLr2SongDbSyncBuiltinFolderSourceDirectories(BmsLibraryOptionsSnapshot options = null)
     {
-        return Lr2FolderFileDiscoveryService.CreateBuiltinFolderSourceDirectories(Settings.Default.LR2RootPath);
+        options ??= CurrentOptionsSnapshot;
+        return Lr2FolderFileDiscoveryService.CreateBuiltinFolderSourceDirectories(options.LR2RootPath);
     }
 
     /// <summary>
@@ -10097,7 +10132,7 @@ completeFileEnumerationOnce,
             RootCount = roots?.Count ?? 0
         };
         int lr2FolderDiscoveryRootCount = options?.OperationModeLR2DB == true
-                ? CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots ?? []).Count
+                ? CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(roots ?? [], options).Count
                 : 0;
         LogInstallPerformance("bms_search_root_normalization"
             + " reason=" + (reason ?? "unknown")
@@ -10125,15 +10160,16 @@ completeFileEnumerationOnce,
     private HashSet<string> BuildExcludedCustomOutputSearchRootDirectories()
     {
         var excluded = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        if (!Settings.Default.OperationModeLR2DB)
+        BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
+        if (!options.OperationModeLR2DB)
         {
             return excluded;
         }
-        foreach (string additionalOutputBase in CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories())
+        foreach (string additionalOutputBase in options.LR2CustomFolderAdditionalOutputBaseDirs)
         {
             AddNormalizedDirectory(excluded, additionalOutputBase);
         }
-        AddNormalizedDirectory(excluded, Settings.Default.LR2CustomFolderOutputBaseDirRootType);
+        AddNormalizedDirectory(excluded, options.LR2CustomFolderOutputBaseDirRootType);
         return excluded;
     }
 

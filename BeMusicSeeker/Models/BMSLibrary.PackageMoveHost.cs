@@ -9,7 +9,7 @@ public partial class BMSLibrary : IPackageMoveHost
 {
     BmsLibraryOptionsSnapshot IPackageMoveHost.CreateCurrentOptionsSnapshot()
     {
-        return BmsLibraryOptionsSnapshot.CreateCurrent();
+        return CurrentOptionsSnapshot;
     }
 
     string IPackageMoveHost.CreateChartFolderPathFromCharts(IEnumerable<ChartFile> chartFiles, string parentDir)
