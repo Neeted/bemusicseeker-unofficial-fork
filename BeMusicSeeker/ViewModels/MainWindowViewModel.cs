@@ -7716,7 +7716,7 @@ public partial class MainWindowViewModel : ViewModel
             RaiseInitializationExceptionRequested();
             return;
         }
-        MainChartList.ColumnsSettings = Settings.Default.StandardCustomTableColumnSettings;
+        LoadColumnSetting();
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
         listenerForBMSPlaylist = new PropertyChangedEventListener(tables);
         listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
