@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
@@ -42,6 +43,20 @@ internal sealed class StartupSettingsSnapshot
 
     public string LR2bodyPath { get; init; }
 
+    public bool IsLR2BackupEnabled { get; init; }
+
+    public Backup.Target LR2BackupTarget { get; init; }
+
+    public string LR2BackupPath { get; init; }
+
+    public int LR2BackupSpan { get; init; }
+
+    public int LR2BackupNum { get; init; }
+
+    public bool SkipInitPlaylistLoad { get; init; }
+
+    public Uri TableListURL { get; init; }
+
     public static StartupSettingsSnapshot CreateCurrent()
     {
         return new StartupSettingsSnapshot
@@ -58,7 +73,14 @@ internal sealed class StartupSettingsSnapshot
             UsePlayerBMIIDXView = Settings.Default.UsePlayerBMIIDXView,
             BMIIDXViewPath = Settings.Default.BMIIDXViewPath,
             UsePlayerLR2body = Settings.Default.UsePlayerLR2body,
-            LR2bodyPath = ResolveLr2bodyPath(Settings.Default.LR2RootPath, Settings.Default.LR2ConfigXmlPath)
+            LR2bodyPath = ResolveLr2bodyPath(Settings.Default.LR2RootPath, Settings.Default.LR2ConfigXmlPath),
+            IsLR2BackupEnabled = Settings.Default.IsLR2BackupEnabled,
+            LR2BackupTarget = Settings.Default.LR2BackupTarget,
+            LR2BackupPath = Settings.Default.LR2BackupPath,
+            LR2BackupSpan = Settings.Default.LR2BackupSpan,
+            LR2BackupNum = Settings.Default.LR2BackupNum,
+            SkipInitPlaylistLoad = Settings.Default.SkipInitPlaylistLoad,
+            TableListURL = Settings.Default.TableListURL
         };
     }
 

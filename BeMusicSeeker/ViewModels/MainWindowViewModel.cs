@@ -8070,22 +8070,22 @@ public partial class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => IsPlaylistUpdating);
         });
         RaiseInitializationSucceeded();
-        if (Settings.Default.OperationModeLR2DB && Settings.Default.IsLR2BackupEnabled)
+        if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)
         {
-            Backup.Target lR2BackupTarget = Settings.Default.LR2BackupTarget;
+            Backup.Target lR2BackupTarget = startupSettings.LR2BackupTarget;
             List<string> bkPaths = [];
             string songDBPath = null;
             List<string> scoreDBPaths = [];
-            if (lR2BackupTarget.HasFlag(Backup.Target.Config) && LongPathFileSystem.FileExists(Settings.Default.LR2ConfigXmlPath))
+            if (lR2BackupTarget.HasFlag(Backup.Target.Config) && LongPathFileSystem.FileExists(startupSettings.LR2ConfigXmlPath))
             {
-                bkPaths.Add(Settings.Default.LR2ConfigXmlPath);
+                bkPaths.Add(startupSettings.LR2ConfigXmlPath);
             }
-            if (lR2BackupTarget.HasFlag(Backup.Target.SongDB) && LongPathFileSystem.FileExists(Settings.Default.LR2SongDBPath))
+            if (lR2BackupTarget.HasFlag(Backup.Target.SongDB) && LongPathFileSystem.FileExists(startupSettings.LR2SongDBPath))
             {
-                songDBPath = Settings.Default.LR2SongDBPath;
-                bkPaths.Add(Settings.Default.LR2SongDBPath);
+                songDBPath = startupSettings.LR2SongDBPath;
+                bkPaths.Add(startupSettings.LR2SongDBPath);
             }
-            string scoreDirectoryPath = Path.Combine(Settings.Default.LR2RootPath, "LR2files", "Database", "Score");
+            string scoreDirectoryPath = Path.Combine(startupSettings.LR2RootPath, "LR2files", "Database", "Score");
             if (lR2BackupTarget.HasFlag(Backup.Target.ScoreDB) && LongPathFileSystem.DirectoryExists(scoreDirectoryPath))
             {
                 bkPaths.Add(scoreDirectoryPath);
@@ -8105,7 +8105,7 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     try
                     {
-                        Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(Settings.Default.LR2BackupPath, new TimeSpan(Settings.Default.LR2BackupSpan, 0, 0, 0), Settings.Default.LR2BackupNum, bkPaths);
+                        Backup.BackupSaveResult result = Backup.SaveBackupsWithResult(startupSettings.LR2BackupPath, new TimeSpan(startupSettings.LR2BackupSpan, 0, 0, 0), startupSettings.LR2BackupNum, bkPaths);
                         if (result.Saved)
                         {
                             try
@@ -8139,14 +8139,14 @@ public partial class MainWindowViewModel : ViewModel
         var semaphore = new SemaphoreSlim(1, 1);
         void taskAdd1()
         {
-            tables.Initialize(reloadExtPlaylist: false, null, semaphore, queueBeatorajaBmtExportAfterHydration: Settings.Default.SkipInitPlaylistLoad);
+            tables.Initialize(reloadExtPlaylist: false, null, semaphore, queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad);
         }
         void taskAdd2()
         {
             try
             {
                 IsLoadingExternalCollectionBMSTables = true;
-                List<BMSTableSimple> bMSTableInfo = BMSPlaylist.GetBMSTableInfo(Settings.Default.TableListURL);
+                List<BMSTableSimple> bMSTableInfo = BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL);
                 var bMSTableSimpleCategorized = new BMSTableSimpleCategorized();
                 IEnumerable<string> source = bMSTableInfo.Select(bMSTableSimple => bMSTableSimple.tag1).Distinct();
                 bMSTableSimpleCategorized.Children = [.. source.Select(name => new BMSTableSimpleCategorized
@@ -8232,7 +8232,7 @@ public partial class MainWindowViewModel : ViewModel
         SchedulePlaylistLibraryIndexPrewarm(GetPlaylistLibraryIndexVersion(), "initialize_completed");
         _semaphore.Release();
         LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");
-        if (!Settings.Default.SkipInitPlaylistLoad)
+        if (!startupSettings.SkipInitPlaylistLoad)
         {
             StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken);
         }

@@ -1460,7 +1460,17 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
         Assert.IsTrue(initialize.IndexOf("files = new BMSLibrary", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken)");
-        StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: Settings.Default.SkipInitPlaylistLoad");
+        StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
+        StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)");
+        StringAssert.Contains(initialize, "if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)");
+        StringAssert.Contains(initialize, "Backup.SaveBackupsWithResult(startupSettings.LR2BackupPath, new TimeSpan(startupSettings.LR2BackupSpan, 0, 0, 0), startupSettings.LR2BackupNum, bkPaths)");
+        StringAssert.Contains(initialize, "if (!startupSettings.SkipInitPlaylistLoad)");
+        Assert.IsFalse(initialize.Contains("Settings.Default.IsLR2BackupEnabled"));
+        Assert.IsFalse(initialize.Contains("Settings.Default.LR2BackupTarget"));
+        Assert.IsFalse(initialize.Contains("Settings.Default.LR2BackupPath"));
+        Assert.IsFalse(initialize.Contains("Settings.Default.LR2BackupSpan"));
+        Assert.IsFalse(initialize.Contains("Settings.Default.LR2BackupNum"));
+        Assert.IsFalse(initialize.Contains("Settings.Default.TableListURL"));
         StringAssert.Contains(deferredExternalSync, "tables.QueueBeatorajaBmtExportAll(\"DeferredExternalSync:\" + reason)");
         StringAssert.Contains(initialize, "initialSetupCompletionMessagePending = true;");
         Assert.IsFalse(initialize.Contains("Resources.Msg_init_completed"));
