@@ -326,7 +326,7 @@ public sealed class MainWindowContextMenuResourceTests
             < workflowOwnerCode.IndexOf("PlayHistoryReadPresentationBuildResult presentation = BuildReadPresentation", StringComparison.Ordinal));
         StringAssert.Contains(workflowOwnerCode, "library.CreateBeatorajaPlayHistoryProjectionIndex");
         StringAssert.Contains(workflowOwnerCode, "PlayHistoryRow.ProjectBeatorajaRows(readResult, projectionIndex)");
-        StringAssert.Contains(providerSelection, "Settings.Default.UseBeatorajaScoreDb");
+        StringAssert.Contains(providerSelection, "ApplicationSettings.UseBeatorajaScoreDb");
         StringAssert.Contains(providerSelection, "GetActiveScoreSourceForDiagnostics() == ActiveScoreSource.Beatoraja");
         Assert.IsFalse(providerSelection.Contains("GetScoreSnapshotForDiagnostics"));
         StringAssert.Contains(rowCode, "safeIndex.ResolveChartByMd5(string.Empty, sha256)");

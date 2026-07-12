@@ -487,6 +487,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly ApplicationComposition applicationComposition;
 
+    private Settings ApplicationSettings => applicationComposition.SettingsEditSession.Values;
+
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
@@ -815,7 +817,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private int _CurrentlyPlayingLastMeasure;
 
-    private MainViewUpdateMode treeViewFilterTypeSelected = Settings.Default.StartupSelectInstallPending ? MainViewUpdateMode.PendingInstallFolderSelected : MainViewUpdateMode.FolderFilterSelected;
+    private MainViewUpdateMode treeViewFilterTypeSelected;
 
     private object treeViewFilterParameterSelected;
 
@@ -6211,6 +6213,9 @@ public partial class MainWindowViewModel : ViewModel
             throw new ArgumentNullException(nameof(composition));
         }
         applicationComposition = composition;
+        treeViewFilterTypeSelected = ApplicationSettings.StartupSelectInstallPending
+            ? MainViewUpdateMode.PendingInstallFolderSelected
+            : MainViewUpdateMode.FolderFilterSelected;
         startupSettingsProvider = composition.StartupSettingsProvider;
         customFolderOutputSettingsProvider = composition.CustomFolderOutputSettingsProvider;
         firstStartupProvider = composition.FirstStartupProvider;
@@ -8487,7 +8492,7 @@ public partial class MainWindowViewModel : ViewModel
             ChartPackage chartPackage = ChartPackagesPending.Where(pkg => ContainsChartTarget(pkg, playbackChart)).FirstOrDefault();
             if (chartPackage == null)
             {
-                if (Settings.Default.UsePlayerLR2body && Settings.Default.OperationModeLR2DB)
+                if (ApplicationSettings.UsePlayerLR2body && ApplicationSettings.OperationModeLR2DB)
                 {
                     if (!ShowUiConfirmation(BeMusicSeeker.Properties.Resources.Msg_warn_play_temp_install, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation, MessageBoxButton.YesNo, "Temporary install playback confirmation"))
                     {
@@ -8577,7 +8582,7 @@ public partial class MainWindowViewModel : ViewModel
             catch (InvalidDataException value)
             {
                 NLogWrapper.TraceLogger?.Warn(value);
-                if (Settings.Default.RepeatPlayMode && (Settings.Default.SinglePlayMode || indexChartRowsView == 0))
+                if (ApplicationSettings.RepeatPlayMode && (ApplicationSettings.SinglePlayMode || indexChartRowsView == 0))
                 {
                     PlayEndBMSFile();
                     return;
@@ -8646,9 +8651,9 @@ public partial class MainWindowViewModel : ViewModel
                 PlayEndBMSFile();
                 return;
             }
-            if (sender != null && Settings.Default.SinglePlayMode)
+            if (sender != null && ApplicationSettings.SinglePlayMode)
             {
-                if (!Settings.Default.RepeatPlayMode)
+                if (!ApplicationSettings.RepeatPlayMode)
                 {
                     PlayEndBMSFile();
                     return;
@@ -8658,11 +8663,11 @@ public partial class MainWindowViewModel : ViewModel
             {
                 string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && LongPathFileSystem.FileExists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
                 num++;
-                if (Settings.Default.RepeatPlayMode && num == MainChartList.Rows.Count)
+                if (ApplicationSettings.RepeatPlayMode && num == MainChartList.Rows.Count)
                 {
                     num = 0;
                 }
-                while (Settings.Default.FolderSkipPlayMode && num != MainChartList.Rows.Count)
+                while (ApplicationSettings.FolderSkipPlayMode && num != MainChartList.Rows.Count)
                 {
                     object candidateRow = MainChartList.Rows[num];
                     GridRowResolver.TryGetBmsPlayerFile(candidateRow, out BeMusicSeeker.Models.BMSFile bMSFile);
@@ -8677,7 +8682,7 @@ public partial class MainWindowViewModel : ViewModel
                     }
                     text = text2;
                     num++;
-                    if (Settings.Default.RepeatPlayMode && num == MainChartList.Rows.Count)
+                    if (ApplicationSettings.RepeatPlayMode && num == MainChartList.Rows.Count)
                     {
                         num = 0;
                     }
@@ -8709,9 +8714,9 @@ public partial class MainWindowViewModel : ViewModel
                 PlayEndBMSFile();
                 return;
             }
-            if (sender != null && Settings.Default.SinglePlayMode)
+            if (sender != null && ApplicationSettings.SinglePlayMode)
             {
-                if (!Settings.Default.RepeatPlayMode)
+                if (!ApplicationSettings.RepeatPlayMode)
                 {
                     PlayEndBMSFile();
                     return;
@@ -8721,11 +8726,11 @@ public partial class MainWindowViewModel : ViewModel
             {
                 string text = (!string.IsNullOrWhiteSpace(NowPlayingBMS?.path) && LongPathFileSystem.FileExists(NowPlayingBMS.path)) ? Path.GetDirectoryName(NowPlayingBMS.path) : num.ToString();
                 num--;
-                if (Settings.Default.RepeatPlayMode && num == -1)
+                if (ApplicationSettings.RepeatPlayMode && num == -1)
                 {
                     num = MainChartList.Rows.Count - 1;
                 }
-                while (Settings.Default.FolderSkipPlayMode && num != -1)
+                while (ApplicationSettings.FolderSkipPlayMode && num != -1)
                 {
                     object candidateRow = MainChartList.Rows[num];
                     GridRowResolver.TryGetBmsPlayerFile(candidateRow, out BeMusicSeeker.Models.BMSFile bMSFile);
@@ -8740,7 +8745,7 @@ public partial class MainWindowViewModel : ViewModel
                     }
                     text = text2;
                     num--;
-                    if (Settings.Default.RepeatPlayMode && num == -1)
+                    if (ApplicationSettings.RepeatPlayMode && num == -1)
                     {
                         num = MainChartList.Rows.Count - 1;
                     }
@@ -9973,7 +9978,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void ApplyLr2PlayHistorySchemaCheckResultFromRead(Lr2PlayHistorySchemaCheckResult result)
     {
-        if (result == null || !Settings.Default.OperationModeLR2DB)
+        if (result == null || !ApplicationSettings.OperationModeLR2DB)
         {
             return;
         }
@@ -10111,23 +10116,23 @@ public partial class MainWindowViewModel : ViewModel
 
     private string ResolveMainViewLr2PlayHistoryScoreDbPath()
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB)
         {
             return null;
         }
         if (lr2config == null
-            && !string.IsNullOrWhiteSpace(Settings.Default.LR2ConfigXmlPath)
-            && File.Exists(Settings.Default.LR2ConfigXmlPath))
+            && !string.IsNullOrWhiteSpace(ApplicationSettings.LR2ConfigXmlPath)
+            && File.Exists(ApplicationSettings.LR2ConfigXmlPath))
         {
-            lr2config = new LR2Config(Settings.Default.LR2ConfigXmlPath);
+            lr2config = new LR2Config(ApplicationSettings.LR2ConfigXmlPath);
         }
-        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(Settings.Default.LR2RootPath, () => lr2config?.GetPlayerId());
+        return Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(ApplicationSettings.LR2RootPath, () => lr2config?.GetPlayerId());
     }
 
     private bool ShouldUseBeatorajaPlayHistoryProvider()
     {
         string scoreDbPath = ResolveMainViewBeatorajaPlayHistoryScoreDbPath();
-        return Settings.Default.UseBeatorajaScoreDb
+        return ApplicationSettings.UseBeatorajaScoreDb
             && files?.GetActiveScoreSourceForDiagnostics() == ActiveScoreSource.Beatoraja
             && !string.IsNullOrWhiteSpace(scoreDbPath)
             && File.Exists(scoreDbPath);
@@ -10135,11 +10140,11 @@ public partial class MainWindowViewModel : ViewModel
 
     private string ResolveMainViewBeatorajaPlayHistoryScoreDbPath()
     {
-        if (BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath))
+        if (BeatorajaConfigService.IsBeatorajaRootPathValid(ApplicationSettings.BeatorajaRootPath))
         {
-            return BeatorajaConfigService.GetScoreDbPath(Settings.Default.BeatorajaRootPath, Settings.Default.BeatorajaPlayerId);
+            return BeatorajaConfigService.GetScoreDbPath(ApplicationSettings.BeatorajaRootPath, ApplicationSettings.BeatorajaPlayerId);
         }
-        return Settings.Default.BeatorajaScoreDbPath;
+        return ApplicationSettings.BeatorajaScoreDbPath;
     }
 
     private BeatorajaPlayHistoryScoreContext ResolveBeatorajaPlayHistoryScoreContext()
@@ -10162,7 +10167,7 @@ public partial class MainWindowViewModel : ViewModel
                 ResolveBeatorajaPlayHistoryScoreContext())
             : PlayHistoryReadSourceContext.Lr2(
                 ResolveMainViewLr2PlayHistoryScoreDbPath(),
-                Settings.Default.OperationModeLR2DB);
+                ApplicationSettings.OperationModeLR2DB);
     }
 
     internal long BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest request)
@@ -12147,7 +12152,7 @@ public partial class MainWindowViewModel : ViewModel
 
     public void RequestLr2SongDbSync(string reason, bool force)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB)
         {
             return;
         }
@@ -12162,7 +12167,7 @@ public partial class MainWindowViewModel : ViewModel
 
     public async Task RequestLr2SongDbSyncAsync(string reason, bool force)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB)
         {
             return;
         }
@@ -12179,7 +12184,7 @@ public partial class MainWindowViewModel : ViewModel
 
     public void SyncLr2SongDbSyncFolderDataAfterSettingsChange(string reason)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB)
         {
             return;
         }
@@ -12201,7 +12206,7 @@ public partial class MainWindowViewModel : ViewModel
 
     public void SyncExternalLr2FolderRowsAfterCustomFolderOutputBaseSettingsChange(string reason)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        if (!ApplicationSettings.OperationModeLR2DB)
         {
             return;
         }
@@ -16314,7 +16319,7 @@ public partial class MainWindowViewModel : ViewModel
 
     internal void UninstallAllData()
     {
-        if (string.IsNullOrWhiteSpace(Settings.Default.LR2SongDBPath) || !File.Exists(Settings.Default.LR2SongDBPath))
+        if (string.IsNullOrWhiteSpace(ApplicationSettings.LR2SongDBPath) || !File.Exists(ApplicationSettings.LR2SongDBPath))
         {
             return;
         }
@@ -16325,7 +16330,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         try
         {
-            using var lR2SongDBExtended = new LR2SongDBExtended(Settings.Default.LR2SongDBPath);
+            using var lR2SongDBExtended = new LR2SongDBExtended(ApplicationSettings.LR2SongDBPath);
             string savepoint = lR2SongDBExtended.SaveTransactionPoint();
             try
             {
@@ -17142,9 +17147,9 @@ public partial class MainWindowViewModel : ViewModel
         }
         bmsFiles = bmsFiles.Materialize();
         PlayEndBMSFile(closeProcess: true);
-        BassAudioPlayer.Frequency = Settings.Default.EncoderSampleRate;
-        BassAudioPlayer.Format = Settings.Default.EncoderFormat;
-        BassAudioWriter.EncoderDirectory = Settings.Default.EncoderExeDir;
+        BassAudioPlayer.Frequency = ApplicationSettings.EncoderSampleRate;
+        BassAudioPlayer.Format = ApplicationSettings.EncoderFormat;
+        BassAudioWriter.EncoderDirectory = ApplicationSettings.EncoderExeDir;
         BassAudioWriter.Initialize();
         int num = 0;
         foreach (BeMusicSeeker.Models.BMSFile bmsFile in bmsFiles)
@@ -17182,7 +17187,7 @@ public partial class MainWindowViewModel : ViewModel
                         Path.GetFileName(bmsFile.path)
                     },
                     { "%HASH%", bMSFile.Md5 }
-                }.Aggregate(Settings.Default.EncodeFileNameFormat, (i, r) => i.Replace(r.Key, r.Value)).NaturalNormalizationForFileName().ReplaceInvalidFileNameCharsByWide()
+                }.Aggregate(ApplicationSettings.EncodeFileNameFormat, (i, r) => i.Replace(r.Key, r.Value)).NaturalNormalizationForFileName().ReplaceInvalidFileNameCharsByWide()
                     .RemoveInvalidFileNameChars()
                     .Trim();
                 if (string.IsNullOrWhiteSpace(text))
@@ -17196,12 +17201,12 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 string filePathWithoutExtension = Path.Combine(saveDir, text);
                 bMSAutoPlayWriter = new BMSAutoPlayWriter(bMSFile);
-                if (!BassAudioWriter.IsEncoderAvailable(Settings.Default.Encoder))
+                if (!BassAudioWriter.IsEncoderAvailable(ApplicationSettings.Encoder))
                 {
-                    Settings.Default.Encoder = EncoderType.WAVE;
+                    ApplicationSettings.Encoder = EncoderType.WAVE;
                 }
                 bMSAutoPlayWriter.LoadResources();
-                bMSAutoPlayWriter.Write(Settings.Default.Encoder, Settings.Default.EncoderQuality, filePathWithoutExtension, Settings.Default.EncoderNormalization, Settings.Default.EncoderAmplifier);
+                bMSAutoPlayWriter.Write(ApplicationSettings.Encoder, ApplicationSettings.EncoderQuality, filePathWithoutExtension, ApplicationSettings.EncoderNormalization, ApplicationSettings.EncoderAmplifier);
             }
             catch (Exception ex)
             {
