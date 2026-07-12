@@ -6521,6 +6521,18 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
+    internal IReadOnlyList<PlaylistCustomFolderOutputBaseOption> CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings(
+        bool includeNoChange = false)
+    {
+        CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+        return CreatePlaylistCustomFolderOutputBaseOptions(
+            settings.LR2CustomFolderOutputBaseDir,
+            CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs),
+            includeNoChange,
+            useCurrentSettingsWhenMissing: false);
+    }
+
     private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
         string propertyName = e?.PropertyName;

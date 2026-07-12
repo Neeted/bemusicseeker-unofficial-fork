@@ -138,7 +138,8 @@ internal sealed class ApplicationComposition
             playlistDetailBuildState,
             playlistViewState,
             detailViewLog,
-            detailRetentionLog);
+            detailRetentionLog,
+            customFolderOutputSettingsProvider);
     }
 
     internal MainWindowViewModel.SettingDialogViewModel CreateSettingDialogViewModel(MainWindowViewModel owner)

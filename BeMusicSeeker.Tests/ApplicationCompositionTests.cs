@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
@@ -381,6 +383,25 @@ public sealed class ApplicationCompositionTests
 
         Assert.AreEqual("updated-keyword-history", values.KeywordSearchHistory);
         Assert.AreEqual("all", values.PlayHistorySelectedDisplayTargetIdentity);
+    }
+
+    [TestMethod]
+    public void MainWindowPlaylistOutputOptionsUseCompositionCustomFolderSettings()
+    {
+        var values = new BeMusicSeeker.Properties.Settings
+        {
+            LR2CustomFolderOutputBaseDir = "session-output-base",
+            LR2CustomFolderAdditionalOutputBaseDirs = "[\"session-additional\"]"
+        };
+        var composition = new ApplicationComposition(
+            settingsEditSession: new FakeSettingsEditSession { Values = values });
+        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+
+        IReadOnlyList<MainWindowViewModel.PlaylistCustomFolderOutputBaseOption> options =
+            viewModel.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings();
+
+        Assert.IsTrue(options.Any(option => option.Label == "session-output-base"));
+        Assert.IsTrue(options.Any(option => option.Label == "session-additional"));
     }
 
     [TestMethod]

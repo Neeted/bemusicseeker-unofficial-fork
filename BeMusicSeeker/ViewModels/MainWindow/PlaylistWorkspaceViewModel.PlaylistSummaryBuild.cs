@@ -204,6 +204,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             OwnedHashSnapshot = ownedHashSnapshot,
             TableCount = tablesSnapshot.Count
         };
+        CustomFolderOutputSettingsSnapshot customFolderOutputSettings = customFolderOutputSettingsProvider()
+            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
         foreach (BMSTable table in tablesSnapshot)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -245,7 +247,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 PlaylistId = table.playlist_id,
                 OutputBaseName = table.custom_folder_output_base_name ?? string.Empty,
-                OutputBaseDisplayName = CustomFolderOutputBaseRegistry.GetDisplayName(table.custom_folder_output_base_name),
+                OutputBaseDisplayName = CustomFolderOutputBaseRegistry.GetDisplayName(
+                    table.custom_folder_output_base_name,
+                    customFolderOutputSettings.LR2CustomFolderOutputBaseDir,
+                    customFolderOutputSettings.LR2CustomFolderAdditionalOutputBaseDirs),
                 Name = table.name ?? string.Empty,
                 FolderName = table.Output_dir ?? string.Empty,
                 FolderNameUndefined = IsPlaylistSummaryFolderNameUndefined(table),

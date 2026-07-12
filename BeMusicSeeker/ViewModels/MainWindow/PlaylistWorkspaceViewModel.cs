@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Windows;
+using BeMusicSeeker.Models;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
@@ -23,6 +24,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Action<string> detailViewLog;
 
+    private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
+
     internal PlaylistDetailBuildState DetailBuildState { get; }
 
     internal PlaylistDetailViewState DetailViewState { get; }
@@ -34,7 +37,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState(),
             _ => { },
-            _ => { })
+            _ => { },
+            CustomFolderOutputSettingsSnapshot.CreateCurrent)
     {
     }
 
@@ -44,7 +48,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         PlaylistDetailBuildState buildState,
         PlaylistDetailViewState viewState,
         Action<string> detailViewLog,
-        Action<string> detailRetentionLog)
+        Action<string> detailRetentionLog,
+        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider = null)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -52,6 +57,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         DetailViewState = viewState ?? throw new ArgumentNullException(nameof(viewState));
         this.detailViewLog = detailViewLog ?? throw new ArgumentNullException(nameof(detailViewLog));
         this.detailRetentionLog = detailRetentionLog ?? throw new ArgumentNullException(nameof(detailRetentionLog));
+        this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
+            ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
     }
 
     private ChartListSortParameters playlistSummarySortParameters;

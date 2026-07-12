@@ -181,6 +181,23 @@ public sealed class PlaylistConcurrencyArchitectureTests
 
         StringAssert.Contains(compositionSource, "new SettingsKeywordSearchHistorySettingsStore(() => this.settingsEditSession.Values)");
         StringAssert.Contains(compositionSource, "new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values)");
+        StringAssert.Contains(compositionSource, "customFolderOutputSettingsProvider);");
+
+        string bulkDialogSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel.cs");
+        StringAssert.Contains(bulkDialogSource, "ownerViewModel.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings");
+        Assert.IsFalse(bulkDialogSource.Contains("CreatePlaylistCustomFolderOutputBaseOptions(includeNoChange"));
+
+        string summaryBuildSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.PlaylistSummaryBuild.cs");
+        StringAssert.Contains(summaryBuildSource, "customFolderOutputSettingsProvider()");
+        Assert.IsFalse(summaryBuildSource.Contains("GetDisplayName(table.custom_folder_output_base_name)"));
     }
 
     [TestMethod]

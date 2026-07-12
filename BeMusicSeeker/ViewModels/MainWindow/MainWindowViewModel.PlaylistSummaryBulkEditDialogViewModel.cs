@@ -132,7 +132,7 @@ public partial class MainWindowViewModel
             _rootFolderOption = NoChangeOption;
             _externalSyncOption = NoChangeOption;
             _bmtOutputOption = NoChangeOption;
-            OutputBaseOptions = MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions(includeNoChange: true);
+            OutputBaseOptions = ownerViewModel.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings(includeNoChange: true);
             _outputBaseOption = OutputBaseOptions.FirstOrDefault(option => option.IsNoChange) ?? OutputBaseOptions.FirstOrDefault();
             ReloadCustomFolderOutputStates();
         }

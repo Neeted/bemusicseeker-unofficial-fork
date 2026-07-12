@@ -3795,7 +3795,8 @@ public partial class MainWindowViewModel
         public IReadOnlyList<PlaylistCustomFolderOutputBaseOption> PlaylistPropertyOutputBaseOptions =>
             MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions(
                 LR2CustomFolderOutputDir,
-                CustomFolderAdditionalOutputBaseDirList);
+                CustomFolderAdditionalOutputBaseDirList,
+                useCurrentSettingsWhenMissing: false);
 
         private void ApplyRuntimeSearchRootsForCurrentMode()
         {
