@@ -6982,9 +6982,10 @@ public partial class BMSPlaylist : NotificationObject
     /// <exception cref="ArgumentException">出力先に必要な情報が不足している場合。</exception>
     public void RemoveCustomFolder(BMSTable bmsTable)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (!settings.OperationModeLR2DB)
         {
-            throw new InvalidOperationException("Properties.Settings.Default.OperationModeLR2DB is not true");
+            throw new InvalidOperationException("Custom-folder output operation mode is not enabled.");
         }
         if (bmsTable == null)
         {
@@ -7000,11 +7001,12 @@ public partial class BMSPlaylist : NotificationObject
             if (BMSTables.Contains(bmsTable))
             {
                 if (removeCustomFolder(
-                    ResolveCustomFolderOutputDirectory(bmsTable),
+                    ResolveCustomFolderOutputDirectory(bmsTable, settings),
                     pruneRows: true,
                     wasRootFolder: bmsTable.is_root_folder,
-                    rootCustomFolderOutputBaseDir: Settings.Default.LR2CustomFolderOutputBaseDirRootType,
-                    outputBaseDir: CreateCustomFolderManagedOutputBase(bmsTable, bmsTable.is_root_folder)))
+                    rootCustomFolderOutputBaseDir: settings.LR2CustomFolderOutputBaseDirRootType,
+                    outputBaseDir: CreateCustomFolderManagedOutputBase(bmsTable, bmsTable.is_root_folder, settings: settings),
+                    settings: settings))
                 {
                     DeleteCustomFolderOutputStatus(bmsTable);
                 }
@@ -7519,7 +7521,8 @@ public partial class BMSPlaylist : NotificationObject
         bool pruneRows,
         bool wasRootFolder = false,
         string rootCustomFolderOutputBaseDir = null,
-        string outputBaseDir = null)
+        string outputBaseDir = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         if (!DeleteCustomFolderOutputDirectoryTree(targetDir, [outputBaseDir]))
         {
@@ -7532,7 +7535,7 @@ public partial class BMSPlaylist : NotificationObject
             {
                 SyncCustomFolderRowsByPaths(
                     [],
-                    CreateCustomFolderDirectoryPruneScopes(targetDir, wasRootFolder, rootCustomFolderOutputBaseDir));
+                    CreateCustomFolderDirectoryPruneScopes(targetDir, wasRootFolder, rootCustomFolderOutputBaseDir, settings));
             }
             catch
             {
