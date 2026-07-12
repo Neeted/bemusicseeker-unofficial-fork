@@ -2118,15 +2118,17 @@ public partial class BMSPlaylist : NotificationObject
 
     private bool SyncRootFolderOutputDirectoriesToLr2Config()
     {
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (!settings.OperationModeLR2DB)
+        {
+            return false;
+        }
+
         using (rwlockBMSTables.GetReaderGuard())
         {
-            if (!Settings.Default.OperationModeLR2DB)
-            {
-                return false;
-            }
             List<string> expectedDirectories = [.. (from t in BMSTables
                                                     where t.is_root_folder && !string.IsNullOrWhiteSpace(t.Output_dir)
-                                                    select Path.Combine(Settings.Default.LR2CustomFolderOutputBaseDirRootType, t.Output_dir))
+                                                    select Path.Combine(settings.LR2CustomFolderOutputBaseDirRootType, t.Output_dir))
                 .Where(path => !string.IsNullOrWhiteSpace(path))
                 .Distinct(StringComparer.OrdinalIgnoreCase)];
             if (expectedDirectories.Count == 0)
@@ -2137,7 +2139,8 @@ public partial class BMSPlaylist : NotificationObject
             {
                 LongPathFileSystem.CreateDirectory(expectedDirectory);
             }
-            List<string> bMSSearchDirectories = lr2config().GetBMSSearchDirectoriesForChangeTracking();
+            LR2Config config = lr2config();
+            List<string> bMSSearchDirectories = config.GetBMSSearchDirectoriesForChangeTracking();
             List<string> missingDirectories = [.. expectedDirectories
                 .Where(path => !bMSSearchDirectories.Contains(path, StringComparer.OrdinalIgnoreCase))];
             if (missingDirectories.Count == 0)
@@ -2145,8 +2148,8 @@ public partial class BMSPlaylist : NotificationObject
                 return false;
             }
 
-            lr2config().SetBMSSearchDirectories(bMSSearchDirectories.Concat(expectedDirectories).Distinct(StringComparer.OrdinalIgnoreCase));
-            lr2config().Save();
+            config.SetBMSSearchDirectories(bMSSearchDirectories.Concat(expectedDirectories).Distinct(StringComparer.OrdinalIgnoreCase));
+            config.Save();
             return true;
         }
     }
@@ -2162,7 +2165,8 @@ public partial class BMSPlaylist : NotificationObject
         string previousRootOutputBaseDirectory,
         LR2Config configOverride = null)
     {
-        if (!Settings.Default.OperationModeLR2DB)
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        if (!settings.OperationModeLR2DB)
         {
             return false;
         }
@@ -2173,7 +2177,6 @@ public partial class BMSPlaylist : NotificationObject
             return false;
         }
 
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
         using (rwlockBMSTables.GetReaderGuard())
         {
             IReadOnlyList<string> previousRootDirectories = CreateRootCustomFolderOutputDirectories(previousRootOutputBaseDirectory);
