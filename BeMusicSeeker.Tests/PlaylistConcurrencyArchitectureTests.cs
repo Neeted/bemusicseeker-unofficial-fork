@@ -178,6 +178,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "ApplicationComposition.cs");
         StringAssert.Contains(compositionSource, "new SettingsMainChartColumnSettingsStore(() => this.settingsEditSession.Values)");
         Assert.IsFalse(compositionSource.Contains("mainChartColumnSettingsStore: new SettingsMainChartColumnSettingsStore()"));
+
+        StringAssert.Contains(compositionSource, "new SettingsKeywordSearchHistorySettingsStore(() => this.settingsEditSession.Values)");
+        StringAssert.Contains(compositionSource, "new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values)");
     }
 
     [TestMethod]

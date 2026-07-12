@@ -1,3 +1,4 @@
+using System;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
@@ -17,15 +18,22 @@ internal interface IPlayHistoryDisplaySettingsStore
 /// </summary>
 internal sealed class SettingsPlayHistoryDisplaySettingsStore : IPlayHistoryDisplaySettingsStore
 {
+    private readonly Func<Settings> settingsProvider;
+
+    internal SettingsPlayHistoryDisplaySettingsStore(Func<Settings> settingsProvider = null)
+    {
+        this.settingsProvider = settingsProvider ?? (() => Settings.Default);
+    }
+
     public string SelectedDisplayTargetIdentity
     {
-        get => Settings.Default.PlayHistorySelectedDisplayTargetIdentity;
-        set => Settings.Default.PlayHistorySelectedDisplayTargetIdentity = value;
+        get => settingsProvider().PlayHistorySelectedDisplayTargetIdentity;
+        set => settingsProvider().PlayHistorySelectedDisplayTargetIdentity = value;
     }
 
     public string DisplayTargetSetsJson
     {
-        get => Settings.Default.PlayHistoryDisplayTargetSetsJson;
-        set => Settings.Default.PlayHistoryDisplayTargetSetsJson = value;
+        get => settingsProvider().PlayHistoryDisplayTargetSetsJson;
+        set => settingsProvider().PlayHistoryDisplayTargetSetsJson = value;
     }
 }

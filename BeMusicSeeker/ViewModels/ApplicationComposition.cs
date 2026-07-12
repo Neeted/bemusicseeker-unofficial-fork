@@ -78,9 +78,9 @@ internal sealed class ApplicationComposition
         this.saveSettings = saveSettings
             ?? this.settingsEditSession.Save;
         this.keywordSearchHistorySettingsStore = keywordSearchHistorySettingsStore
-            ?? new SettingsKeywordSearchHistorySettingsStore();
+            ?? new SettingsKeywordSearchHistorySettingsStore(() => this.settingsEditSession.Values);
         this.playHistoryDisplaySettingsStore = playHistoryDisplaySettingsStore
-            ?? new SettingsPlayHistoryDisplaySettingsStore();
+            ?? new SettingsPlayHistoryDisplaySettingsStore(() => this.settingsEditSession.Values);
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;

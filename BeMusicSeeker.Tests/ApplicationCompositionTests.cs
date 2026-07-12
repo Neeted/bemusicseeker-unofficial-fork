@@ -351,6 +351,31 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionDefaultSerializedSettingsStoresUseInjectedEditSessionValues()
+    {
+        var values = new BeMusicSeeker.Properties.Settings
+        {
+            KeywordSearchHistory = "keyword-history",
+            PlaylistSummaryKeywordSearchHistory = "playlist-keyword-history",
+            PlayHistorySelectedDisplayTargetIdentity = "set:session",
+            PlayHistoryDisplayTargetSetsJson = "display-target-sets"
+        };
+        var session = new FakeSettingsEditSession { Values = values };
+        var composition = new ApplicationComposition(settingsEditSession: session);
+
+        Assert.AreEqual("keyword-history", composition.KeywordSearchHistorySettingsStore.KeywordSearchHistory);
+        Assert.AreEqual("playlist-keyword-history", composition.KeywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory);
+        Assert.AreEqual("set:session", composition.PlayHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);
+        Assert.AreEqual("display-target-sets", composition.PlayHistoryDisplaySettingsStore.DisplayTargetSetsJson);
+
+        composition.KeywordSearchHistorySettingsStore.KeywordSearchHistory = "updated-keyword-history";
+        composition.PlayHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = "all";
+
+        Assert.AreEqual("updated-keyword-history", values.KeywordSearchHistory);
+        Assert.AreEqual("all", values.PlayHistorySelectedDisplayTargetIdentity);
+    }
+
+    [TestMethod]
     public void MainWindowKeywordSearchHistoryUsesCompositionSettingsStore()
     {
         var store = new FakeKeywordSearchHistorySettingsStore

@@ -1,3 +1,4 @@
+using System;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
@@ -17,15 +18,22 @@ internal interface IKeywordSearchHistorySettingsStore
 /// </summary>
 internal sealed class SettingsKeywordSearchHistorySettingsStore : IKeywordSearchHistorySettingsStore
 {
+    private readonly Func<Settings> settingsProvider;
+
+    internal SettingsKeywordSearchHistorySettingsStore(Func<Settings> settingsProvider = null)
+    {
+        this.settingsProvider = settingsProvider ?? (() => Settings.Default);
+    }
+
     public string KeywordSearchHistory
     {
-        get => Settings.Default.KeywordSearchHistory;
-        set => Settings.Default.KeywordSearchHistory = value;
+        get => settingsProvider().KeywordSearchHistory;
+        set => settingsProvider().KeywordSearchHistory = value;
     }
 
     public string PlaylistSummaryKeywordSearchHistory
     {
-        get => Settings.Default.PlaylistSummaryKeywordSearchHistory;
-        set => Settings.Default.PlaylistSummaryKeywordSearchHistory = value;
+        get => settingsProvider().PlaylistSummaryKeywordSearchHistory;
+        set => settingsProvider().PlaylistSummaryKeywordSearchHistory = value;
     }
 }
