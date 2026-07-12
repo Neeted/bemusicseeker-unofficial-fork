@@ -14061,6 +14061,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         List<BMSTable> changedTables = [];
         var previousMasks = new Dictionary<BMSTable, LR2SongDBExtended.playlist.CustomFolderType>();
+        var nextMasks = new Dictionary<BMSTable, LR2SongDBExtended.playlist.CustomFolderType>();
         foreach (BMSTable table in rows
             .Where(row => row?.TableRef != null)
             .Select(row => row.TableRef)
@@ -14072,12 +14073,18 @@ public partial class MainWindowViewModel : ViewModel
                 continue;
             }
             previousMasks[table] = table.ignore_folder_output;
-            table.ignore_folder_output = nextMask;
+            nextMasks[table] = nextMask;
             changedTables.Add(table);
         }
         if (changedTables.Count == 0)
         {
             return;
+        }
+        CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
+        foreach (KeyValuePair<BMSTable, LR2SongDBExtended.playlist.CustomFolderType> item in nextMasks)
+        {
+            item.Key.ignore_folder_output = item.Value;
         }
         using (BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope())
         {
@@ -14088,7 +14095,8 @@ public partial class MainWindowViewModel : ViewModel
                 tables.ReOutputCustomFoldersAndCommitHeadersToDB(
                     changedTables,
                     "playlist_summary_bulk_custom_folder_output_changed",
-                    UpdatePlaylistSummaryCustomFolderOutputProgress);
+                    UpdatePlaylistSummaryCustomFolderOutputProgress,
+                    settings);
             }
             catch
             {
