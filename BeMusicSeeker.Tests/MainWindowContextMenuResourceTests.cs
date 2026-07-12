@@ -777,7 +777,11 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.AreEqual("{Binding PlaybackPanel}", GetAttributeValue(compactHeader, "DataContext"));
         Assert.AreEqual(string.Empty, GetAttributeValue(slider, "DataContext"));
         Assert.AreEqual(string.Empty, GetAttributeValue(playButton, "DataContext"));
-        Assert.AreEqual("{Binding CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}", GetAttributeValue(slider, "Value"));
+        Assert.AreEqual("{Binding PlaybackPanel.CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}", GetAttributeValue(slider, "Value"));
+        Assert.IsTrue(document.Descendants().Any(element =>
+            GetAttributeValue(element, "Text").IndexOf("PlaybackPanel.PlayerVolume", StringComparison.Ordinal) >= 0));
+        Assert.IsTrue(document.Descendants().Any(element =>
+            GetAttributeValue(element, "Value").IndexOf("PlaybackPanel.PlayerVolume", StringComparison.Ordinal) >= 0));
         Assert.AreEqual("{Binding NowPlayingBMS.status, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}", GetAttributeValue(playButton, "Content"));
 
         Assert.AreEqual("{Binding PlayerHeaderArtist}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsArtist"), "Text"));
@@ -1300,8 +1304,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(compositionCode, "if (startupSettings.UsePlayerLR2body && File.Exists(startupSettings.LR2bodyPath))");
         StringAssert.Contains(compositionCode, "new LR2body(startupSettings.LR2bodyPath, createLr2PlayerConfig())");
         Assert.IsFalse(initialize.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
-        StringAssert.Contains(saveFollowup, "else if (!forceInternalPlayerForStandaloneModeChange && ApplicationSettings.UsePlayerLR2body)");
-        StringAssert.Contains(saveFollowup, "ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(ApplicationSettings.LR2ConfigXmlPath));");
+        StringAssert.Contains(saveFollowup, "ownerViewModel.CreateBmsPlayerForSettings()");
+        StringAssert.Contains(saveFollowup, "ownerViewModel.PlaybackPanel.ReplacePlayer(replacementPlayer);");
         Assert.IsFalse(saveFollowup.Contains("Settings.Default.OperationModeLR2DB && Settings.Default.UsePlayerLR2body"));
         StringAssert.Contains(viewModelCode, "private LR2Config CreateLR2PlayerConfig(StartupSettingsSnapshot startupSettings)");
         StringAssert.Contains(viewModelCode, "private bool IsLR2PlayerRootPathValid(string value)");
@@ -1390,7 +1394,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialize = ExtractBetween(
             viewModelCode,
             "public async void Initialize()",
-            "public void SetuBMplayPanel()");
+            "public void SetuBMplayPanel(Panel panel)");
         string validationFailure = ExtractBetween(
             initialize,
             "if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))",
@@ -1447,7 +1451,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialize = ExtractBetween(
             viewModelCode,
             "public async void Initialize()",
-            "public void SetuBMplayPanel()");
+            "public void SetuBMplayPanel(Panel panel)");
         string endSuppression = ExtractBetween(
             viewModelCode,
             "private void EndUiUpdateSuppression()",

@@ -249,13 +249,13 @@ public sealed class ChartListVirtualViewTests
         {
             BeMusicSeeker.Properties.Settings.Default.UsePlayerLR2body = false;
             BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = false;
-            var viewModel = new MainWindowViewModel();
+            var player = new RecordingBmsPlayer();
+            var composition = new ApplicationComposition(defaultBmsPlayerFactory: () => player);
+            var viewModel = new MainWindowViewModel(composition);
             string songDbPath = Path.Combine(tempRootPath, "song.db");
             File.WriteAllBytes(songDbPath, []);
             var library = new BMSLibrary(songDbPath);
             typeof(MainWindowViewModel).GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, library);
-            var player = new RecordingBmsPlayer();
-            typeof(MainWindowViewModel).GetField("bmsPlayer", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(viewModel, player);
             var file = new TestableBmsFile();
             file.Apply(sourceChartPath, "Playable", "Source");
             ChartFile playableChart = ChartFileProjection.FromBmsFile(file);

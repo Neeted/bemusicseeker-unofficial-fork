@@ -106,7 +106,7 @@ public partial class MainWindowViewModel : ViewModel
     public OperationProgressHubViewModel ProgressHub { get; }
 
     /// <summary>
-    /// Gets playback-panel presentation state while player operations stay on the shell ViewModel.
+    /// Gets playback adapter state and telemetry while chart-row traversal remains on the shell ViewModel.
     /// </summary>
     public PlaybackPanelViewModel PlaybackPanel { get; }
 
@@ -130,8 +130,6 @@ public partial class MainWindowViewModel : ViewModel
     internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
 
     internal PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSort { get; }
-
-    internal MainWindowRuntimeContext RuntimeContext { get; }
 
 
 
@@ -515,8 +513,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private LR2Config lr2config;
 
-    private IBMSPlayer bmsPlayer;
-
     private PropertyChangedEventListener listenerForBMSLibrary;
 
     private CollectionChangedEventListener listenerForBMSLibraryChartPackagesPendingCollection;
@@ -526,8 +522,6 @@ public partial class MainWindowViewModel : ViewModel
     private PropertyChangedEventListener listenerForBMSPlaylist;
 
     private CollectionChangedEventListener listenerForBMSPlaylistBMSTablesCollection;
-
-    private PropertyChangedEventListener listenerForBMSPlayer;
 
     private readonly object lockThis = new();
 
@@ -784,38 +778,6 @@ public partial class MainWindowViewModel : ViewModel
     private BMSTableSimpleCategorized _BMSExternalTableListExt;
 
     private bool _IsLoadingExternalCollectionBMSTables;
-
-    private TimeSpan _CurrentlyPlayingDuration;
-
-    private TimeSpan _CurrentlyPlayingStopTime;
-
-    private TimeSpan _CurrentlyPlayingBmsDuration;
-
-    private TimeSpan _CurrentlyPlayingMusicDuration;
-
-    private int _CurrentlyPlayingCurrentVoices;
-
-    private int _CurrentlyPlayingMaxVoices;
-
-    private int _CurrentlyPlayingNoteDensity;
-
-    private int _CurrentlyPlayingNoteDensityMax;
-
-    private int _CurrentlyPlayingBpm;
-
-    private int _CurrentlyPlayingMinBpm;
-
-    private int _CurrentlyPlayingMaxBpm;
-
-    private double _CurrentlyPlayingTotal;
-
-    private int _CurrentlyPlayingCombo;
-
-    private int _CurrentlyPlayingNotes;
-
-    private int _CurrentlyPlayingMeasure;
-
-    private int _CurrentlyPlayingLastMeasure;
 
     private MainViewUpdateMode treeViewFilterTypeSelected;
 
@@ -5917,286 +5879,6 @@ public partial class MainWindowViewModel : ViewModel
 
     public bool IS_WIN8OR10 => Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012);
 
-    public TimeSpan CurrentlyPlayingDuration
-    {
-        get
-        {
-            return _CurrentlyPlayingDuration;
-        }
-        set
-        {
-            if (!(_CurrentlyPlayingDuration == value))
-            {
-                _CurrentlyPlayingDuration = value;
-                RaisePropertyChanged("CurrentlyPlayingDuration");
-            }
-        }
-    }
-
-    public TimeSpan CurrentlyPlayingTime
-    {
-        get
-        {
-            return bmsPlayer?.CurrentTime ?? TimeSpan.MinValue;
-        }
-        set
-        {
-            if (bmsPlayer == null)
-            {
-                RaisePropertyChanged("CurrentlyPlayingTime");
-                return;
-            }
-            bmsPlayer.CurrentTime = value;
-            RaisePropertyChanged("CurrentlyPlayingTime");
-        }
-    }
-
-    public TimeSpan CurrentlyPlayingStopTime
-    {
-        get
-        {
-            return _CurrentlyPlayingStopTime;
-        }
-        private set
-        {
-            if (!(_CurrentlyPlayingStopTime == value))
-            {
-                _CurrentlyPlayingStopTime = value;
-                RaisePropertyChanged("CurrentlyPlayingStopTime");
-            }
-        }
-    }
-
-    public TimeSpan CurrentlyPlayingBmsDuration
-    {
-        get
-        {
-            return _CurrentlyPlayingBmsDuration;
-        }
-        private set
-        {
-            if (!(_CurrentlyPlayingBmsDuration == value))
-            {
-                _CurrentlyPlayingBmsDuration = value;
-                RaisePropertyChanged("CurrentlyPlayingBmsDuration");
-            }
-        }
-    }
-
-    public TimeSpan CurrentlyPlayingMusicDuration
-    {
-        get
-        {
-            return _CurrentlyPlayingMusicDuration;
-        }
-        private set
-        {
-            if (!(_CurrentlyPlayingMusicDuration == value))
-            {
-                _CurrentlyPlayingMusicDuration = value;
-                RaisePropertyChanged("CurrentlyPlayingMusicDuration");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingCurrentVoices
-    {
-        get
-        {
-            return _CurrentlyPlayingCurrentVoices;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingCurrentVoices != value)
-            {
-                _CurrentlyPlayingCurrentVoices = value;
-                RaisePropertyChanged("CurrentlyPlayingCurrentVoices");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingMaxVoices
-    {
-        get
-        {
-            return _CurrentlyPlayingMaxVoices;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingMaxVoices != value)
-            {
-                _CurrentlyPlayingMaxVoices = value;
-                RaisePropertyChanged("CurrentlyPlayingMaxVoices");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingNoteDensity
-    {
-        get
-        {
-            return _CurrentlyPlayingNoteDensity;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingNoteDensity != value)
-            {
-                _CurrentlyPlayingNoteDensity = value;
-                RaisePropertyChanged("CurrentlyPlayingNoteDensity");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingNoteDensityMax
-    {
-        get
-        {
-            return _CurrentlyPlayingNoteDensityMax;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingNoteDensityMax != value)
-            {
-                _CurrentlyPlayingNoteDensityMax = value;
-                RaisePropertyChanged("CurrentlyPlayingNoteDensityMax");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingBpm
-    {
-        get
-        {
-            return _CurrentlyPlayingBpm;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingBpm != value)
-            {
-                _CurrentlyPlayingBpm = value;
-                RaisePropertyChanged("CurrentlyPlayingBpm");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingMinBpm
-    {
-        get
-        {
-            return _CurrentlyPlayingMinBpm;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingMinBpm != value)
-            {
-                _CurrentlyPlayingMinBpm = value;
-                RaisePropertyChanged("CurrentlyPlayingMinBpm");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingMaxBpm
-    {
-        get
-        {
-            return _CurrentlyPlayingMaxBpm;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingMaxBpm != value)
-            {
-                _CurrentlyPlayingMaxBpm = value;
-                RaisePropertyChanged("CurrentlyPlayingMaxBpm");
-            }
-        }
-    }
-
-    public double CurrentlyPlayingTotal
-    {
-        get
-        {
-            return _CurrentlyPlayingTotal;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingTotal != value)
-            {
-                _CurrentlyPlayingTotal = value;
-                RaisePropertyChanged("CurrentlyPlayingTotal");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingCombo
-    {
-        get
-        {
-            return _CurrentlyPlayingCombo;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingCombo != value)
-            {
-                _CurrentlyPlayingCombo = value;
-                RaisePropertyChanged("CurrentlyPlayingCombo");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingNotes
-    {
-        get
-        {
-            return _CurrentlyPlayingNotes;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingNotes != value)
-            {
-                _CurrentlyPlayingNotes = value;
-                RaisePropertyChanged("CurrentlyPlayingNotes");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingMeasure
-    {
-        get
-        {
-            return _CurrentlyPlayingMeasure;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingMeasure != value)
-            {
-                _CurrentlyPlayingMeasure = value;
-                RaisePropertyChanged("CurrentlyPlayingMeasure");
-            }
-        }
-    }
-
-    public int CurrentlyPlayingLastMeasure
-    {
-        get
-        {
-            return _CurrentlyPlayingLastMeasure;
-        }
-        private set
-        {
-            if (_CurrentlyPlayingLastMeasure != value)
-            {
-                _CurrentlyPlayingLastMeasure = value;
-                RaisePropertyChanged("CurrentlyPlayingLastMeasure");
-            }
-        }
-    }
-
-    public int PlayerVolume
-    {
-        get => PlaybackPanel.PlayerVolume;
-        set => PlaybackPanel.PlayerVolume = value;
-    }
-
     /// <summary>
     /// <see cref="MainWindowViewModel"/> クラスの新しいインスタンスを初期化します。
     /// 設定情報に基づくプレースホルダーの初期状態設定や、内包される <see cref="SettingDialogViewModel"/> の生成を行います。
@@ -6213,7 +5895,6 @@ public partial class MainWindowViewModel : ViewModel
             throw new ArgumentNullException(nameof(composition));
         }
         applicationComposition = composition;
-        bmsPlayer = applicationComposition.CreateDefaultBmsPlayer();
         treeViewFilterTypeSelected = ApplicationSettings.StartupSelectInstallPending
             ? MainViewUpdateMode.PendingInstallFolderSelected
             : MainViewUpdateMode.FolderFilterSelected;
@@ -6240,10 +5921,8 @@ public partial class MainWindowViewModel : ViewModel
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
-            () => files,
             () => tables,
-            () => lr2config,
-            () => bmsPlayer,
+            applicationComposition.CreateDefaultBmsPlayer,
             () => DispatcherHelper.UIDispatcher,
             LogMainViewBuild,
             DispatchMainChartListAction,
@@ -6258,7 +5937,6 @@ public partial class MainWindowViewModel : ViewModel
         ChartFilters = childComposition.ChartFilters;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
-        RuntimeContext = childComposition.RuntimeContext;
         PlayHistory = childComposition.PlayHistory;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
@@ -6299,8 +5977,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistSummaryColumns = childComposition.PlaylistSummaryColumns;
         PlaylistSummaryBmtSort = childComposition.PlaylistSummaryBmtSort;
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
-        PlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
-        PlaybackPanel.PlayerVolumeChanged += PlaybackPanelPlayerVolumeChanged;
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
         PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;
@@ -6530,25 +6206,6 @@ public partial class MainWindowViewModel : ViewModel
             settings.LR2CustomFolderOutputBaseDir,
             CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs),
             includeNoChange);
-    }
-
-    private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
-    {
-        string propertyName = e?.PropertyName;
-        if (string.IsNullOrWhiteSpace(propertyName))
-        {
-            return;
-        }
-
-        RaisePropertyChanged(propertyName);
-    }
-
-    private void PlaybackPanelPlayerVolumeChanged(object sender, EventArgs e)
-    {
-        Task.Run(delegate
-        {
-            uBMplayVolumeChanged();
-        }).Logging("PlayerVolume");
     }
 
     private void ProgressHubPropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -7661,6 +7318,28 @@ public partial class MainWindowViewModel : ViewModel
         return new LR2Config(startupSettings.LR2ConfigXmlPath);
     }
 
+    internal IBMSPlayer CreateDefaultBmsPlayer()
+    {
+        return applicationComposition.CreateDefaultBmsPlayer();
+    }
+
+    internal IBMSPlayer CreateBmsPlayerForSettings()
+    {
+        StartupSettingsSnapshot settings = StartupSettingsSnapshot.CreateCurrent(ApplicationSettings);
+        IBMSPlayer player = applicationComposition.CreateBmsPlayer(
+            settings,
+            () => new LR2Config(settings.LR2ConfigXmlPath));
+        if (player != null)
+        {
+            return player;
+        }
+        if (settings.UsePlayerLR2body)
+        {
+            throw new InvalidOperationException("Configured LR2 playback player could not be created.");
+        }
+        return applicationComposition.CreateDefaultBmsPlayer();
+    }
+
     public async void Initialize()
     {
         await _semaphore.WaitAsync();
@@ -7758,7 +7437,7 @@ public partial class MainWindowViewModel : ViewModel
                 () => CreateLR2PlayerConfig(startupSettings));
             if (configuredBmsPlayer != null)
             {
-                bmsPlayer = configuredBmsPlayer;
+                PlaybackPanel.ReplacePlayer(configuredBmsPlayer);
             }
             operationToken = StartStartupProgressOperation(StartupProgressOperationKind.Startup);
         }
@@ -8296,87 +7975,14 @@ public partial class MainWindowViewModel : ViewModel
             StartupProgressPhase.InstallableMaintenanceDeferredDone);
     }
 
-    public void SetuBMplayPanel()
-    {
-        listenerForBMSPlayer?.Dispose();
-        listenerForBMSPlayer = new PropertyChangedEventListener(bmsPlayer);
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.Duration, delegate
-        {
-            CurrentlyPlayingDuration = bmsPlayer.Duration;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.CurrentTime, delegate
-        {
-            RaisePropertyChanged(() => CurrentlyPlayingTime);
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.StopTime, delegate
-        {
-            CurrentlyPlayingStopTime = bmsPlayer.StopTime;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.BmsDuration, delegate
-        {
-            CurrentlyPlayingBmsDuration = bmsPlayer.BmsDuration;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.MusicDuration, delegate
-        {
-            CurrentlyPlayingMusicDuration = bmsPlayer.MusicDuration;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.CurrentVoices, delegate
-        {
-            CurrentlyPlayingCurrentVoices = bmsPlayer.CurrentVoices;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.MaxVoices, delegate
-        {
-            CurrentlyPlayingMaxVoices = bmsPlayer.MaxVoices;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.NoteDensity, delegate
-        {
-            CurrentlyPlayingNoteDensity = bmsPlayer.NoteDensity;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.NoteDensityMax, delegate
-        {
-            CurrentlyPlayingNoteDensityMax = bmsPlayer.NoteDensityMax;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.Bpm, delegate
-        {
-            CurrentlyPlayingBpm = bmsPlayer.Bpm;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.MinBpm, delegate
-        {
-            CurrentlyPlayingMinBpm = bmsPlayer.MinBpm;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.MaxBpm, delegate
-        {
-            CurrentlyPlayingMaxBpm = bmsPlayer.MaxBpm;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.Total, delegate
-        {
-            CurrentlyPlayingTotal = bmsPlayer.Total;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.Combo, delegate
-        {
-            CurrentlyPlayingCombo = bmsPlayer.Combo;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.Notes, delegate
-        {
-            CurrentlyPlayingNotes = bmsPlayer.Notes;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.Measure, delegate
-        {
-            CurrentlyPlayingMeasure = bmsPlayer.Measure;
-        });
-        listenerForBMSPlayer.RegisterHandler(() => bmsPlayer.LastMeasure, delegate
-        {
-            CurrentlyPlayingLastMeasure = bmsPlayer.LastMeasure;
-        });
-    }
-
     public void SetuBMplayPanel(Panel panel)
     {
-        if (bmsPlayer != null)
+        if (panel == null)
         {
-            bmsPlayer.ParentHandle = panel.Handle;
+            throw new ArgumentNullException(nameof(panel));
         }
-        SetuBMplayPanel();
+
+        PlaybackPanel.AttachParentHandle(panel.Handle);
     }
 
     public void CloseProcess()
@@ -8396,7 +8002,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         try
         {
-            bmsPlayer?.CloseProcess();
+            PlaybackPanel.CloseProcess();
         }
         catch (Exception ex)
         {
@@ -8557,7 +8163,7 @@ public partial class MainWindowViewModel : ViewModel
                     bmsFile.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.LOADING;
                     try
                     {
-                        bmsPlayer.PlayStart(bmsFilePath, PlayNextBMSfile);
+                        PlaybackPanel.PlayStart(bmsFilePath, PlayNextBMSfile);
                         bmsFile.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.LOADING;
                         bmsFile.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY;
                     }
@@ -8587,7 +8193,7 @@ public partial class MainWindowViewModel : ViewModel
             bmsFile.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.LOADING;
             try
             {
-                bmsPlayer.PlayStart(bmsFile.path, PlayNextBMSfile);
+                PlaybackPanel.PlayStart(bmsFile.path, PlayNextBMSfile);
                 bmsFile.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.LOADING;
                 bmsFile.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY;
             }
@@ -8620,10 +8226,6 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            if (bmsPlayer == null)
-            {
-                return;
-            }
             if (!forceNewPlay && NowPlayingBMS != null)
             {
                 if (NowPlayingBMS.status.HasFlag(BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY))
@@ -8636,7 +8238,7 @@ public partial class MainWindowViewModel : ViewModel
                     NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAYALL;
                     NowPlayingBMS.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.PLAY;
                 }
-                bmsPlayer.PausePlayingBMSfileToggle();
+                PlaybackPanel.PausePlayingBmsFileToggle();
             }
             else
             {
@@ -8653,10 +8255,6 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            if (bmsPlayer == null)
-            {
-                return;
-            }
             int num = nowPlayingChartRowsViewIndex;
             if (num < 0 || num >= MainChartList.Rows.Count)
             {
@@ -8716,10 +8314,6 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            if (bmsPlayer == null)
-            {
-                return;
-            }
             int num = nowPlayingChartRowsViewIndex;
             if (num < 0 || num >= MainChartList.Rows.Count)
             {
@@ -8779,9 +8373,9 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            if (closeProcess && bmsPlayer != null)
+            if (closeProcess)
             {
-                bmsPlayer.CloseProcess();
+                PlaybackPanel.CloseProcess();
             }
             if (NowPlayingBMS != null)
             {
@@ -8873,86 +8467,69 @@ public partial class MainWindowViewModel : ViewModel
     {
         lock (lockThis)
         {
-            bmsPlayer?.RestartPlayingBMSfile();
+            PlaybackPanel.RestartPlayingBmsFile();
         }
     }
 
     internal void FastForwardPlayingBMSfileStart()
     {
-        if (bmsPlayer != null)
+        if (NowPlayingBMS != null)
         {
-            if (NowPlayingBMS != null)
-            {
-                NowPlayingBMS.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.FORWARD;
-            }
-            bmsPlayer.FastForwardPlayingBMSfileStart();
+            NowPlayingBMS.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.FORWARD;
         }
+        PlaybackPanel.FastForwardStart();
     }
 
     internal void FastForwardPlayingBMSfileEnd()
     {
-        if (bmsPlayer != null)
+        if (NowPlayingBMS != null)
         {
-            if (NowPlayingBMS != null)
-            {
-                NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.FORWARD;
-            }
-            bmsPlayer.FastForwardPlayingBMSfileEnd();
+            NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.FORWARD;
         }
+        PlaybackPanel.FastForwardEnd();
     }
 
     internal void FastBackwardPlayingBMSfileStart()
     {
-        if (bmsPlayer != null)
+        if (NowPlayingBMS != null)
         {
-            if (NowPlayingBMS != null)
-            {
-                NowPlayingBMS.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.BACKWARD;
-            }
-            bmsPlayer.FastBackwardPlayingBMSfileStart();
+            NowPlayingBMS.status |= BeMusicSeeker.Models.BMSFile.BMSFileStatus.BACKWARD;
         }
+        PlaybackPanel.FastBackwardStart();
     }
 
     internal void FastBackwardPlayingBMSfileEnd()
     {
-        if (bmsPlayer != null)
+        if (NowPlayingBMS != null)
         {
-            if (NowPlayingBMS != null)
-            {
-                NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.BACKWARD;
-            }
-            bmsPlayer.FastBackwardPlayingBMSfileEnd();
+            NowPlayingBMS.status &= ~BeMusicSeeker.Models.BMSFile.BMSFileStatus.BACKWARD;
         }
+        PlaybackPanel.FastBackwardEnd();
     }
 
     internal void uBMplayShowInfo()
     {
-        bmsPlayer?.ShowInfo();
+        PlaybackPanel.ShowInfo();
     }
 
     internal void uBMplayShowEffect()
     {
-        bmsPlayer?.ShowEffect();
+        PlaybackPanel.ShowEffect();
     }
 
     internal void uBMplayChangePlayside()
     {
-        bmsPlayer?.ChangePlayside();
+        PlaybackPanel.ChangePlayside();
     }
 
     internal void uBMplayIncreaseHighSpeed()
     {
-        bmsPlayer?.IncreaseHighSpeed();
+        PlaybackPanel.IncreaseHighSpeed();
     }
 
     internal void uBMplayDecreaseHighSpeed()
     {
-        bmsPlayer?.DecreaseHighSpeed();
-    }
-
-    internal void uBMplayVolumeChanged()
-    {
-        bmsPlayer?.VolumeChanged();
+        PlaybackPanel.DecreaseHighSpeed();
     }
 
     /// <summary>

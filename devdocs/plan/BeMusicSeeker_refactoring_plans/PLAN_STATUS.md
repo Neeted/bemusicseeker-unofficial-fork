@@ -14,7 +14,7 @@
 
 ### `UI-02 Playback ownership`
 
-状態: ready
+状態: in progress
 
 目的:
 

@@ -40,6 +40,8 @@ internal sealed class ApplicationComposition
 
     private readonly ISettingsEditSession settingsEditSession;
 
+    private readonly Func<IBMSPlayer> defaultBmsPlayerFactory;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -53,10 +55,13 @@ internal sealed class ApplicationComposition
         Action saveSettings = null,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore = null,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
-        ISettingsEditSession settingsEditSession = null)
+        ISettingsEditSession settingsEditSession = null,
+        Func<IBMSPlayer> defaultBmsPlayerFactory = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
+        this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
+            ?? (() => new InternalBMSAutoPlayerSoundOnly());
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
             ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.startupSettingsProvider = startupSettingsProvider
@@ -158,10 +163,8 @@ internal sealed class ApplicationComposition
     internal MainWindowChildComposition CreateMainWindowChildComposition(
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
-        Func<BMSLibrary> filesProvider,
         Func<BMSPlaylist> tablesProvider,
-        Func<LR2Config> lr2ConfigProvider,
-        Func<IBMSPlayer> bmsPlayerProvider,
+        Func<IBMSPlayer> bmsPlayerFactory,
         Func<Dispatcher> uiDispatcherProvider,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
@@ -176,10 +179,8 @@ internal sealed class ApplicationComposition
             mainChartList,
             playlistWorkspace,
             mainChartColumnSettingsStore,
-            filesProvider,
             tablesProvider,
-            lr2ConfigProvider,
-            bmsPlayerProvider,
+            bmsPlayerFactory,
             uiDispatcherProvider,
             mainViewLog,
             dispatchMainChartListAction,
@@ -220,7 +221,8 @@ internal sealed class ApplicationComposition
 
     internal IBMSPlayer CreateDefaultBmsPlayer()
     {
-        return new InternalBMSAutoPlayerSoundOnly();
+        return defaultBmsPlayerFactory()
+            ?? throw new InvalidOperationException("Default playback player factory returned null.");
     }
 
     internal BMSLibrary CreateBmsLibrary(LibraryProfile libraryProfile)
@@ -277,10 +279,8 @@ internal sealed class MainWindowChildComposition
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
         IMainChartColumnSettingsStore mainChartColumnSettingsStore,
-        Func<BMSLibrary> filesProvider,
         Func<BMSPlaylist> tablesProvider,
-        Func<LR2Config> lr2ConfigProvider,
-        Func<IBMSPlayer> bmsPlayerProvider,
+        Func<IBMSPlayer> bmsPlayerFactory,
         Func<Dispatcher> uiDispatcherProvider,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
@@ -294,14 +294,14 @@ internal sealed class MainWindowChildComposition
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
         ProgressHub = new OperationProgressHubViewModel();
-        PlaybackPanel = new PlaybackPanelViewModel();
-        ChartFilters = new ChartListFilterViewModel();
-        RuntimeContext = new MainWindowRuntimeContext(
-            filesProvider,
-            tablesProvider,
-            lr2ConfigProvider,
-            bmsPlayerProvider,
+        if (bmsPlayerFactory == null)
+        {
+            throw new ArgumentNullException(nameof(bmsPlayerFactory));
+        }
+        PlaybackPanel = new PlaybackPanelViewModel(
+            bmsPlayerFactory() ?? throw new InvalidOperationException("Playback player factory returned null."),
             uiDispatcherProvider);
+        ChartFilters = new ChartListFilterViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(
             PlaylistWorkspace,
@@ -331,8 +331,6 @@ internal sealed class MainWindowChildComposition
     internal PlaybackPanelViewModel PlaybackPanel { get; }
 
     internal ChartListFilterViewModel ChartFilters { get; }
-
-    internal MainWindowRuntimeContext RuntimeContext { get; }
 
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
 

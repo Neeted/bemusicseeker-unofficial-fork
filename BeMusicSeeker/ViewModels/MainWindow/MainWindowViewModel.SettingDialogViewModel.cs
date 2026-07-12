@@ -5292,10 +5292,18 @@ public partial class MainWindowViewModel
             bool playerSelectionChanged = tempUsePlayeruBMplay != ApplicationSettings.UsePlayeruBMplay
                 || tempUsePlayerLR2body != ApplicationSettings.UsePlayerLR2body
                 || tempUsePlayerBMIIDXView != ApplicationSettings.UsePlayerBMIIDXView;
+            bool playerRuntimePathChanged =
+                (ApplicationSettings.UsePlayeruBMplay
+                    && HasPathSettingValueChanged(tempuBMplayPath, ApplicationSettings.uBMplayPath, value => true))
+                || (ApplicationSettings.UsePlayerBMIIDXView
+                    && HasPathSettingValueChanged(tempBMIIDXViewPath, ApplicationSettings.BMIIDXViewPath, value => true))
+                || (ApplicationSettings.UsePlayerLR2body
+                    && (HasPathSettingValueChanged(tempLR2RootPath, ApplicationSettings.LR2RootPath, value => true)
+                        || HasPathSettingValueChanged(tempLR2ConfigXmlPath, ApplicationSettings.LR2ConfigXmlPath, value => true)));
             bool forceInternalPlayerForStandaloneModeChange =
                 !ApplicationSettings.OperationModeLR2DB
                 && tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB;
-            if (playerSelectionChanged || forceInternalPlayerForStandaloneModeChange)
+            if (playerSelectionChanged || playerRuntimePathChanged || forceInternalPlayerForStandaloneModeChange)
             {
                 impact |= SettingsPostSaveImpact.PlayerRuntime;
             }
@@ -5440,23 +5448,11 @@ public partial class MainWindowViewModel
                     && tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB;
                 if (impact.HasFlag(SettingsPostSaveImpact.PlayerRuntime))
                 {
-                    ownerViewModel.PlayEndBMSFile(closeProcess: true);
-                    if (!forceInternalPlayerForStandaloneModeChange && ApplicationSettings.UsePlayeruBMplay)
-                    {
-                        ownerViewModel.bmsPlayer = new uBMplay(uBMplayPath);
-                    }
-                    else if (!forceInternalPlayerForStandaloneModeChange && ApplicationSettings.UsePlayerLR2body)
-                    {
-                        ownerViewModel.bmsPlayer = new LR2body(LR2bodyPath, new LR2Config(ApplicationSettings.LR2ConfigXmlPath));
-                    }
-                    else if (!forceInternalPlayerForStandaloneModeChange && ApplicationSettings.UsePlayerBMIIDXView)
-                    {
-                        ownerViewModel.bmsPlayer = new BMIIDXView2015(BMIIDXViewPath);
-                    }
-                    else
-                    {
-                        ownerViewModel.bmsPlayer = new InternalBMSAutoPlayerSoundOnly();
-                    }
+                    IBMSPlayer replacementPlayer = forceInternalPlayerForStandaloneModeChange
+                        ? ownerViewModel.CreateDefaultBmsPlayer()
+                        : ownerViewModel.CreateBmsPlayerForSettings();
+                    ownerViewModel.PlayEndBMSFile(closeProcess: false);
+                    ownerViewModel.PlaybackPanel.ReplacePlayer(replacementPlayer);
                     ownerViewModel.RaiseInitializationSucceeded();
                 }
                 playerRuntimeMs = playerRuntimeStopwatch.ElapsedMilliseconds;

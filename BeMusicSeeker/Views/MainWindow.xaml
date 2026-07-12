@@ -1412,7 +1412,7 @@
                   </WebBrowser>
                 </Grid>
                 <Grid Name="gridPlayngBmsInfo" HorizontalAlignment="Right" Width="220" Margin="0" Visibility="Hidden">
-                  <TextBlock Margin="0,0,0,-11" VerticalAlignment="Center" FontFamily="{StaticResource Commodore}" FontSize="13" Background="#33000000" Padding="5" Visibility="{qc:Binding $P &gt; TimeSpan.Zero ? Visibility.Visible : Visibility.Hidden, P={Binding CurrentlyPlayingDuration, Source={StaticResource vm}}}">
+                  <TextBlock Margin="0,0,0,-11" VerticalAlignment="Center" FontFamily="{StaticResource Commodore}" FontSize="13" Background="#33000000" Padding="5" Visibility="{qc:Binding $P &gt; TimeSpan.Zero ? Visibility.Visible : Visibility.Hidden, P={Binding PlaybackPanel.CurrentlyPlayingDuration, Source={StaticResource vm}}}">
                     <UIElement.Effect>
                       <DropShadowEffect ShadowDepth="2" BlurRadius="1" />
                     </UIElement.Effect>
@@ -1424,21 +1424,21 @@
                     </TextBlock.Foreground>
                     <TextBlock.Text>
                       <MultiBinding Converter="{StaticResource playingBmsInfoConverter}" Mode="OneWay">
-                        <Binding Path="CurrentlyPlayingBmsDuration" />
-                        <Binding Path="CurrentlyPlayingMusicDuration" />
-                        <Binding Path="CurrentlyPlayingStopTime" />
-                        <Binding Path="CurrentlyPlayingCurrentVoices" />
-                        <Binding Path="CurrentlyPlayingMaxVoices" />
-                        <Binding Path="CurrentlyPlayingNoteDensity" />
-                        <Binding Path="CurrentlyPlayingNoteDensityMax" />
-                        <Binding Path="CurrentlyPlayingBpm" />
-                        <Binding Path="CurrentlyPlayingMinBpm" />
-                        <Binding Path="CurrentlyPlayingMaxBpm" />
-                        <Binding Path="CurrentlyPlayingTotal" />
-                        <Binding Path="CurrentlyPlayingCombo" />
-                        <Binding Path="CurrentlyPlayingNotes" />
-                        <Binding Path="CurrentlyPlayingMeasure" />
-                        <Binding Path="CurrentlyPlayingLastMeasure" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingBmsDuration" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingMusicDuration" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingStopTime" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingCurrentVoices" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingMaxVoices" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingNoteDensity" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingNoteDensityMax" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingBpm" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingMinBpm" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingMaxBpm" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingTotal" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingCombo" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingNotes" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingMeasure" />
+                        <Binding Path="PlaybackPanel.CurrentlyPlayingLastMeasure" />
                       </MultiBinding>
                     </TextBlock.Text>
                   </TextBlock>
@@ -1543,7 +1543,7 @@
                     <GradientStop Color="#ff21262c" Offset="1" />
                   </LinearGradientBrush>
                 </Panel.Background>
-                <Slider Name="sliderPlayer" DockPanel.Dock="Top" Margin="0,-10,0,-8" Height="18" VerticalAlignment="Top" Style="{DynamicResource SliderStylePlayer}" IsMoveToPointEnabled="True" LargeChange="0.1" Maximum="{Binding CurrentlyPlayingDuration, Converter={StaticResource timeSpanToDoubleSecConverter}}" Value="{Binding CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}" Visibility="{qc:Binding $P &gt; TimeSpan.Zero ? Visibility.Visible : Visibility.Hidden, P={Binding CurrentlyPlayingDuration, Source={StaticResource vm}}}" MouseMove="sliderPlayerMouseMove" MouseLeave="sliderPlayerMouseLeave" PreviewMouseLeftButtonUp="sliderPlayerMouseLeftButtonUp" />
+                <Slider Name="sliderPlayer" DockPanel.Dock="Top" Margin="0,-10,0,-8" Height="18" VerticalAlignment="Top" Style="{DynamicResource SliderStylePlayer}" IsMoveToPointEnabled="True" LargeChange="0.1" Maximum="{Binding PlaybackPanel.CurrentlyPlayingDuration, Converter={StaticResource timeSpanToDoubleSecConverter}}" Value="{Binding PlaybackPanel.CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}" Visibility="{qc:Binding $P &gt; TimeSpan.Zero ? Visibility.Visible : Visibility.Hidden, P={Binding PlaybackPanel.CurrentlyPlayingDuration, Source={StaticResource vm}}}" MouseMove="sliderPlayerMouseMove" MouseLeave="sliderPlayerMouseLeave" PreviewMouseLeftButtonUp="sliderPlayerMouseLeftButtonUp" />
                 <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" Margin="5,0,0,0">
                   <FrameworkElement.Style>
                     <Style TargetType="{x:Type StackPanel}">
@@ -1637,8 +1637,8 @@
                         <MenuItem>
                           <HeaderedItemsControl.Header>
                             <DockPanel Width="150">
-                              <TextBlock DockPanel.Dock="Right" Margin="5,0,0,0" HorizontalAlignment="Right" Text="{Binding PlayerVolume, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" />
-                              <Slider Style="{DynamicResource SimpleSlider}" DockPanel.Dock="Left" VerticalAlignment="Bottom" Margin="0" AutoToolTipPlacement="TopLeft" Maximum="100" LargeChange="10" SmallChange="1" Height="15" RenderTransformOrigin="0.5,0.5" Background="#FF4492F0" Value="{Binding PlayerVolume, Mode=TwoWay}" />
+                              <TextBlock DockPanel.Dock="Right" Margin="5,0,0,0" HorizontalAlignment="Right" Text="{Binding PlaybackPanel.PlayerVolume, Source={StaticResource vm}, Converter={StaticResource addStringToEndConverter}, ConverterParameter=%|}" />
+                              <Slider Style="{DynamicResource SimpleSlider}" DockPanel.Dock="Left" VerticalAlignment="Bottom" Margin="0" AutoToolTipPlacement="TopLeft" Maximum="100" LargeChange="10" SmallChange="1" Height="15" RenderTransformOrigin="0.5,0.5" Background="#FF4492F0" Value="{Binding PlaybackPanel.PlayerVolume, Source={StaticResource vm}, Mode=TwoWay}" />
                             </DockPanel>
                           </HeaderedItemsControl.Header>
                         </MenuItem>
@@ -1650,7 +1650,7 @@
                     </v:DropDownMenuButton.DropDownContextMenu>
                   </v:DropDownMenuButton>
                 </StackPanel>
-                <TextBlock HorizontalAlignment="Right" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11" Margin="0,3,5,0" Visibility="{qc:Binding $P &gt; TimeSpan.Zero ? Visibility.Visible : Visibility.Hidden, P={Binding CurrentlyPlayingDuration, Source={StaticResource vm}}}">
+                <TextBlock HorizontalAlignment="Right" DockPanel.Dock="Right" VerticalAlignment="Center" FontSize="11" Margin="0,3,5,0" Visibility="{qc:Binding $P &gt; TimeSpan.Zero ? Visibility.Visible : Visibility.Hidden, P={Binding PlaybackPanel.CurrentlyPlayingDuration, Source={StaticResource vm}}}">
                   <TextBlock.Foreground>
                     <LinearGradientBrush EndPoint="0,0.5" StartPoint="0,0" SpreadMethod="Reflect">
                       <GradientStop Color="#ffe6e5e5" Offset="0.4" />
@@ -1659,8 +1659,8 @@
                   </TextBlock.Foreground>
                   <TextBlock.Text>
                     <MultiBinding Converter="{StaticResource currentTimeConverter}" Mode="OneWay">
-                      <Binding Path="CurrentlyPlayingDuration" />
-                      <Binding Path="CurrentlyPlayingTime" />
+                      <Binding Path="PlaybackPanel.CurrentlyPlayingDuration" />
+                      <Binding Path="PlaybackPanel.CurrentlyPlayingTime" />
                     </MultiBinding>
                   </TextBlock.Text>
                 </TextBlock>

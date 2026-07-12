@@ -436,7 +436,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "BeMusicSeeker",
             "ViewModels",
             "ApplicationComposition.cs");
-        StringAssert.Contains(compositionSource, "return new InternalBMSAutoPlayerSoundOnly();");
+        StringAssert.Contains(compositionSource, "defaultBmsPlayerFactory");
+        StringAssert.Contains(compositionSource, "new InternalBMSAutoPlayerSoundOnly()");
     }
 
     [TestMethod]

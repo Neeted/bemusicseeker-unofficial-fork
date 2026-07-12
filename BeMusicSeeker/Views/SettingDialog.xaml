@@ -411,9 +411,9 @@
                           <Slider Maximum="100" LargeChange="2" DockPanel.Dock="Right" IsSnapToTickEnabled="True" SmallChange="1" VerticalAlignment="Center" Value="{Binding settingDialog.PlayerBufferSize, Mode=TwoWay}" />
                         </DockPanel>
                         <DockPanel Width="315">
-                          <TextBlock DockPanel.Dock="Right" Width="35" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlayerVolume, Mode=OneWay, StringFormat={}{0}%}" />
+                          <TextBlock DockPanel.Dock="Right" Width="35" TextAlignment="Right" VerticalAlignment="Center" Text="{Binding PlaybackPanel.PlayerVolume, Mode=OneWay, StringFormat={}{0}%}" />
                           <Label DockPanel.Dock="Left" Width="80" HorizontalAlignment="Right" VerticalAlignment="Center" HorizontalContentAlignment="Right" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_volume, Mode=OneWay}" />
-                          <Slider Maximum="100" LargeChange="2" DockPanel.Dock="Right" IsSnapToTickEnabled="True" SmallChange="1" VerticalAlignment="Center" Value="{Binding PlayerVolume, Mode=TwoWay}" />
+                          <Slider Maximum="100" LargeChange="2" DockPanel.Dock="Right" IsSnapToTickEnabled="True" SmallChange="1" VerticalAlignment="Center" Value="{Binding PlaybackPanel.PlayerVolume, Mode=TwoWay}" />
                         </DockPanel>
                       </StackPanel>
                       <GroupBox Margin="20,0" DockPanel.Dock="Right" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Device_setting_latency, Mode=OneWay}">

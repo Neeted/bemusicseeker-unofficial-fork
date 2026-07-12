@@ -1,0 +1,218 @@
+using System;
+using System.ComponentModel;
+using System.Linq;
+using System.Windows.Threading;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Properties;
+using BeMusicSeeker.ViewModels;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+[DoNotParallelize]
+public sealed class PlaybackPanelViewModelTests
+{
+    [TestMethod]
+    public void PlaybackPanel_TracksTelemetryAndDelegatesPlayerCommands()
+    {
+        var player = new FakeBmsPlayer
+        {
+            Duration = TimeSpan.FromSeconds(120),
+            StopTime = TimeSpan.FromSeconds(115),
+            BmsDuration = TimeSpan.FromSeconds(100),
+            MusicDuration = TimeSpan.FromSeconds(110),
+            CurrentVoices = 2,
+            MaxVoices = 8,
+            NoteDensity = 3,
+            NoteDensityMax = 9,
+            Bpm = 180,
+            MinBpm = 120,
+            MaxBpm = 240,
+            Total = 75.5,
+            Combo = 12,
+            Notes = 345,
+            Measure = 16,
+            LastMeasure = 64
+        };
+        var panel = new PlaybackPanelViewModel(player, () => Dispatcher.CurrentDispatcher);
+
+        Assert.AreEqual(player.Duration, panel.CurrentlyPlayingDuration);
+        Assert.AreEqual(player.StopTime, panel.CurrentlyPlayingStopTime);
+        Assert.AreEqual(player.BmsDuration, panel.CurrentlyPlayingBmsDuration);
+        Assert.AreEqual(player.MusicDuration, panel.CurrentlyPlayingMusicDuration);
+        Assert.AreEqual(player.CurrentVoices, panel.CurrentlyPlayingCurrentVoices);
+        Assert.AreEqual(player.MaxVoices, panel.CurrentlyPlayingMaxVoices);
+        Assert.AreEqual(player.NoteDensity, panel.CurrentlyPlayingNoteDensity);
+        Assert.AreEqual(player.NoteDensityMax, panel.CurrentlyPlayingNoteDensityMax);
+        Assert.AreEqual(player.Bpm, panel.CurrentlyPlayingBpm);
+        Assert.AreEqual(player.MinBpm, panel.CurrentlyPlayingMinBpm);
+        Assert.AreEqual(player.MaxBpm, panel.CurrentlyPlayingMaxBpm);
+        Assert.AreEqual(player.Total, panel.CurrentlyPlayingTotal);
+        Assert.AreEqual(player.Combo, panel.CurrentlyPlayingCombo);
+        Assert.AreEqual(player.Notes, panel.CurrentlyPlayingNotes);
+        Assert.AreEqual(player.Measure, panel.CurrentlyPlayingMeasure);
+        Assert.AreEqual(player.LastMeasure, panel.CurrentlyPlayingLastMeasure);
+
+        player.Duration = TimeSpan.FromSeconds(200);
+        player.CurrentTime = TimeSpan.FromSeconds(5);
+        player.Raise(nameof(IBMSPlayer.Duration));
+        player.Raise(nameof(IBMSPlayer.CurrentTime));
+        Assert.AreEqual(player.Duration, panel.CurrentlyPlayingDuration);
+        Assert.AreEqual(player.CurrentTime, panel.CurrentlyPlayingTime);
+
+        panel.CurrentlyPlayingTime = TimeSpan.FromSeconds(15);
+        Assert.AreEqual(TimeSpan.FromSeconds(15), player.CurrentTime);
+
+        panel.PlayStart("chart.bms", null);
+        panel.PausePlayingBmsFileToggle();
+        panel.RestartPlayingBmsFile();
+        panel.FastForwardStart();
+        panel.FastForwardEnd();
+        panel.FastBackwardStart();
+        panel.FastBackwardEnd();
+        panel.ShowInfo();
+        panel.ShowEffect();
+        panel.ChangePlayside();
+        panel.IncreaseHighSpeed();
+        panel.DecreaseHighSpeed();
+        int originalVolume = Settings.Default.uBMplayVolume;
+        try
+        {
+            panel.PlayerVolume = originalVolume == 100 ? 99 : originalVolume + 1;
+            Assert.IsTrue(player.Commands.Contains("VolumeChanged"));
+        }
+        finally
+        {
+            Settings.Default.uBMplayVolume = originalVolume;
+        }
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                "PlayStart:chart.bms",
+                "Pause",
+                "Restart",
+                "FastForwardStart",
+                "FastForwardEnd",
+                "FastBackwardStart",
+                "FastBackwardEnd",
+                "ShowInfo",
+                "ShowEffect",
+                "ChangePlayside",
+                "IncreaseHighSpeed",
+                "DecreaseHighSpeed",
+                "VolumeChanged"
+            },
+            player.Commands.ToArray());
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_ReplacementClosesOldPlayerDetachesEventsAndKeepsHostHandle()
+    {
+        var first = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(10) };
+        var second = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(20) };
+        var panel = new PlaybackPanelViewModel(first, () => Dispatcher.CurrentDispatcher);
+        panel.AttachParentHandle(new IntPtr(42));
+
+        panel.ReplacePlayer(second);
+
+        Assert.AreEqual(1, first.CloseProcessCount);
+        Assert.AreEqual(new IntPtr(42), second.ParentHandle);
+        Assert.AreEqual(second.Duration, panel.CurrentlyPlayingDuration);
+
+        first.Duration = TimeSpan.FromSeconds(99);
+        first.Raise(nameof(IBMSPlayer.Duration));
+        Assert.AreEqual(second.Duration, panel.CurrentlyPlayingDuration);
+
+        panel.CloseProcess();
+        Assert.AreEqual(1, second.CloseProcessCount);
+    }
+
+    private sealed class FakeBmsPlayer : IBMSPlayer
+    {
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        public string ExePath { get; set; } = string.Empty;
+
+        public IntPtr ParentHandle { get; set; }
+
+        public TimeSpan Duration { get; set; }
+
+        public TimeSpan CurrentTime { get; set; }
+
+        public TimeSpan StopTime { get; set; }
+
+        public TimeSpan BmsDuration { get; set; }
+
+        public TimeSpan MusicDuration { get; set; }
+
+        public int CurrentVoices { get; set; }
+
+        public int MaxVoices { get; set; }
+
+        public int NoteDensity { get; set; }
+
+        public int NoteDensityMax { get; set; }
+
+        public int Bpm { get; set; }
+
+        public int MinBpm { get; set; }
+
+        public int MaxBpm { get; set; }
+
+        public double Total { get; set; }
+
+        public int Combo { get; set; }
+
+        public int Notes { get; set; }
+
+        public int Measure { get; set; }
+
+        public int LastMeasure { get; set; }
+
+        public int CloseProcessCount { get; private set; }
+
+        public System.Collections.Generic.List<string> Commands { get; } = [];
+
+        public void Raise(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        public void CloseProcess()
+        {
+            CloseProcessCount++;
+            Commands.Add("Close");
+        }
+
+        public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
+        {
+            Commands.Add("PlayStart:" + bmsFilePath);
+        }
+
+        public void RestartPlayingBMSfile() => Commands.Add("Restart");
+
+        public void PausePlayingBMSfileToggle() => Commands.Add("Pause");
+
+        public void FastForwardPlayingBMSfileStart() => Commands.Add("FastForwardStart");
+
+        public void FastForwardPlayingBMSfileEnd() => Commands.Add("FastForwardEnd");
+
+        public void FastBackwardPlayingBMSfileStart() => Commands.Add("FastBackwardStart");
+
+        public void FastBackwardPlayingBMSfileEnd() => Commands.Add("FastBackwardEnd");
+
+        public void ShowInfo() => Commands.Add("ShowInfo");
+
+        public void ShowEffect() => Commands.Add("ShowEffect");
+
+        public void ChangePlayside() => Commands.Add("ChangePlayside");
+
+        public void IncreaseHighSpeed() => Commands.Add("IncreaseHighSpeed");
+
+        public void DecreaseHighSpeed() => Commands.Add("DecreaseHighSpeed");
+
+        public void VolumeChanged() => Commands.Add("VolumeChanged");
+    }
+}

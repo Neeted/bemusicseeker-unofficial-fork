@@ -182,9 +182,7 @@ public sealed class ApplicationCompositionTests
             mainChartList,
             playlistWorkspace,
             () => null,
-            () => null,
-            () => null,
-            () => null,
+            () => new InternalBMSAutoPlayerSoundOnly(),
             () => null,
             _ =>
             {
@@ -212,7 +210,6 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.ProgressHub);
             Assert.IsNotNull(childComposition.PlaybackPanel);
             Assert.IsNotNull(childComposition.ChartFilters);
-            Assert.IsNotNull(childComposition.RuntimeContext);
             Assert.IsNotNull(childComposition.PlayHistory);
             Assert.IsNotNull(childComposition.PlaylistSummaryColumns);
             Assert.IsNotNull(childComposition.PlaylistSummaryBmtSort);
