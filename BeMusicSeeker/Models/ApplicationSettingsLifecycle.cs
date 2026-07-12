@@ -36,14 +36,18 @@ internal sealed class ApplicationSettingsLifecycle
 
     private readonly Action saveSettings;
 
+    private readonly IApplicationSettingsStore settingsStore;
+
     internal ApplicationSettingsLifecycle(
         Action<ISet<string>, string> legacyMigration = null,
         Action upgradeSettings = null,
-        Action saveSettings = null)
+        Action saveSettings = null,
+        IApplicationSettingsStore settingsStore = null)
     {
         this.legacyMigration = legacyMigration ?? LegacyUserConfigMigrator.MigrateIfNeeded;
-        this.upgradeSettings = upgradeSettings ?? (() => Settings.Default.Upgrade());
-        this.saveSettings = saveSettings ?? (() => Settings.Default.Save());
+        this.settingsStore = settingsStore ?? new SettingsApplicationSettingsStore();
+        this.upgradeSettings = upgradeSettings ?? this.settingsStore.Upgrade;
+        this.saveSettings = saveSettings ?? this.settingsStore.Save;
     }
 
     internal ApplicationSettingsInitializationResult Initialize(
@@ -69,12 +73,12 @@ internal sealed class ApplicationSettingsLifecycle
             {
                 throw new InvalidOperationException("Serializable version factory returned null.");
             }
-            firstStartup = Settings.Default.AssemblyVersion == null;
+            firstStartup = settingsStore.AssemblyVersion == null;
             firstStartupObserver?.Invoke(firstStartup);
-            if (Settings.Default.AssemblyVersion == null || Settings.Default.AssemblyVersion != serializableVersion)
+            if (settingsStore.AssemblyVersion == null || settingsStore.AssemblyVersion != serializableVersion)
             {
                 upgradeSettings();
-                Settings.Default.AssemblyVersion = serializableVersion;
+                settingsStore.AssemblyVersion = serializableVersion;
                 saveSettings();
             }
         }
@@ -83,13 +87,13 @@ internal sealed class ApplicationSettingsLifecycle
             NLogWrapper.TraceLogger?.Warn(ex, "Settings upgrade/migration failed");
         }
 
-        if (!availableCultures.Contains(Settings.Default.Lang))
+        if (!availableCultures.Contains(settingsStore.Language))
         {
-            Settings.Default.Lang = "ja-JP";
+            settingsStore.Language = "ja-JP";
         }
-        string appearanceTheme = AppThemeService.NormalizeTheme(Settings.Default.AppearanceTheme);
-        Settings.Default.AppearanceTheme = appearanceTheme;
-        CultureInfo culture = CultureInfo.GetCultureInfo(Settings.Default.Lang);
+        string appearanceTheme = AppThemeService.NormalizeTheme(settingsStore.AppearanceTheme);
+        settingsStore.AppearanceTheme = appearanceTheme;
+        CultureInfo culture = CultureInfo.GetCultureInfo(settingsStore.Language);
         Resources.Culture = culture;
         return new ApplicationSettingsInitializationResult(firstStartup, appearanceTheme, culture);
     }
@@ -106,6 +110,6 @@ internal sealed class ApplicationSettingsLifecycle
 
     internal string GetCurrentAppearanceTheme()
     {
-        return Settings.Default.AppearanceTheme;
+        return settingsStore.AppearanceTheme;
     }
 }

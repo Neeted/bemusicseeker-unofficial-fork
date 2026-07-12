@@ -119,4 +119,52 @@ public sealed class ApplicationSettingsLifecycleTests
             Resources.Culture = previousCulture;
         }
     }
+
+    [TestMethod]
+    public void InitializeUsesInjectedSettingsStoreForVersionLanguageAndThemeLifecycle()
+    {
+        var store = new FakeApplicationSettingsStore
+        {
+            AssemblyVersion = null!,
+            Language = "invalid-language",
+            AppearanceTheme = "invalid-theme"
+        };
+        var lifecycle = new ApplicationSettingsLifecycle(settingsStore: store);
+
+        ApplicationSettingsInitializationResult result = lifecycle.Initialize(
+            ["ja-JP", "en-US"],
+            () => new SerializableVersion(1, 2, 3, 4));
+
+        Assert.IsTrue(result.FirstStartup);
+        Assert.AreEqual(1, store.UpgradeCount);
+        Assert.AreEqual(1, store.SaveCount);
+        Assert.AreEqual(new SerializableVersion(1, 2, 3, 4), store.AssemblyVersion);
+        Assert.AreEqual("ja-JP", store.Language);
+        Assert.AreEqual(AppThemeService.Light, store.AppearanceTheme);
+        Assert.AreEqual(AppThemeService.Light, result.AppearanceTheme);
+        Assert.AreEqual(AppThemeService.Light, lifecycle.GetCurrentAppearanceTheme());
+    }
+
+    private sealed class FakeApplicationSettingsStore : IApplicationSettingsStore
+    {
+        public SerializableVersion AssemblyVersion { get; set; } = null!;
+
+        public string Language { get; set; } = null!;
+
+        public string AppearanceTheme { get; set; } = null!;
+
+        public int UpgradeCount { get; private set; }
+
+        public int SaveCount { get; private set; }
+
+        public void Upgrade()
+        {
+            UpgradeCount++;
+        }
+
+        public void Save()
+        {
+            SaveCount++;
+        }
+    }
 }

@@ -237,6 +237,18 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void ApplicationSettingsLifecycle_UsesSettingsStoreBoundary()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Models",
+            "ApplicationSettingsLifecycle.cs");
+
+        StringAssert.Contains(source, "IApplicationSettingsStore");
+        Assert.IsFalse(source.Contains("Settings.Default"));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
