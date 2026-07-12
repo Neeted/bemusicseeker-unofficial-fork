@@ -920,7 +920,6 @@ public sealed class ChartListVirtualViewTests
     public void PlayHistoryWorkflowOwner_ApplySortedRowsBuildsPresentationAndCommitsTerminalState()
     {
         var workflowOwner = new PlayHistoryWorkflowOwner();
-        workflowOwner.ConfigureTerminalShellPublish(_ => { });
         PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
@@ -949,9 +948,7 @@ public sealed class ChartListVirtualViewTests
             applyRequest,
             Stopwatch.StartNew(),
             table,
-            workspace,
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState());
+            workspace);
 
         Assert.AreEqual(PlayHistorySortedRowsApplyStatus.Applied, result.Status);
         Assert.AreEqual(0, result.ViewCount);
@@ -968,7 +965,6 @@ public sealed class ChartListVirtualViewTests
     public void PlayHistoryWorkflowOwner_ApplySortedRowsResortsWhenSortSnapshotBecomesStale()
     {
         var workflowOwner = new PlayHistoryWorkflowOwner();
-        workflowOwner.ConfigureTerminalShellPublish(_ => { });
         PlayHistoryViewRequest activeRequest = workflowOwner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
@@ -997,9 +993,7 @@ public sealed class ChartListVirtualViewTests
                 archivePeriodTree: null),
             Stopwatch.StartNew(),
             table,
-            workspace,
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState());
+            workspace);
 
         Assert.AreEqual(PlayHistorySortedRowsApplyStatus.Applied, result.Status);
         Assert.AreEqual(1L, workflowOwner.PresentationState.CurrentView.SortSnapshot.Revision);
@@ -1036,9 +1030,7 @@ public sealed class ChartListVirtualViewTests
                 archivePeriodTree: null),
             Stopwatch.StartNew(),
             table,
-            workspace,
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState());
+            workspace);
 
         Assert.AreEqual(PlayHistorySortedRowsApplyStatus.DisplayTargetStale, result.Status);
         Assert.IsTrue(result.QueueRefresh);
@@ -1082,13 +1074,31 @@ public sealed class ChartListVirtualViewTests
                     archivePeriodTree: null),
                 Stopwatch.StartNew(),
                 table,
-                workspace,
-                new PlaylistDetailBuildState(),
-                new PlaylistDetailViewState()));
+                workspace));
 
         Assert.IsTrue(exception.OwnershipTransferred);
         Assert.IsInstanceOfType<PlayHistoryVirtualView>(table.Rows);
         Assert.AreSame(state, workflowOwner.PresentationState.CurrentView);
+    }
+
+    [TestMethod]
+    public void PlayHistoryWorkflowOwner_CommitFailureRetainsSourceClearRecoveryState()
+    {
+        PlayHistoryTerminalHarness owner = CreatePlayHistoryTerminalHarness(
+            out PlayHistoryPresentationState state,
+            out MainChartListViewModel table);
+        state.RequestGeneration = 1;
+        table.AppliedColumnModeCommitted += _ => throw new InvalidOperationException("column mode commit failed");
+
+        PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
+            () => owner.TryApply(CreatePlayHistoryTerminalRequest(
+                new List<object> { new object() },
+                "committed",
+                requestId: 1)));
+
+        Assert.IsTrue(exception.OwnershipTransferred);
+        Assert.IsNotNull(exception.TerminalCommitResult);
+        Assert.IsNotNull(exception.TerminalCommitResult.PlaylistSourceClear);
     }
 
     [TestMethod]
@@ -1420,20 +1430,22 @@ public sealed class ChartListVirtualViewTests
         PlayHistoryPresentationState state = workflowOwner.PresentationState;
         state.RequestGeneration = 1;
         var table = new MainChartListViewModel { Rows = new List<object>() };
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
         var buildCancellation = new System.Threading.CancellationTokenSource();
         buildCancellation.Token.Register(() => throw new InvalidOperationException("cancel callback failed"));
         var buildState = new PlaylistDetailBuildState { CurrentBuildCancellation = buildCancellation };
         var viewState = new PlaylistDetailViewState();
         bool retentionLogged = false;
-        var owner = new PlayHistoryTerminalHarness(
-            workflowOwner,
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
             table,
-            workspace,
             buildState,
             viewState,
             _ => { },
             _ => retentionLogged = true);
+        var owner = new PlayHistoryTerminalHarness(
+            workflowOwner,
+            table,
+            workspace);
 
         PlayHistoryTerminalPublishException exception = Assert.ThrowsException<PlayHistoryTerminalPublishException>(
             () => owner.TryApply(CreatePlayHistoryTerminalRequest(new List<object> { new object() }, "committed", requestId: 1)));
@@ -1529,11 +1541,16 @@ public sealed class ChartListVirtualViewTests
         PlayHistoryPresentationState state = workflowOwner.PresentationState;
         state.RequestGeneration = 1;
         var table = new MainChartListViewModel { Rows = new List<object>() };
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
         var buildState = new PlaylistDetailBuildState();
         var viewState = new PlaylistDetailViewState();
         bool retentionLogged = false;
-        workflowOwner.ConfigureTerminalShellPublish(_ => retentionLogged = true);
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            table,
+            buildState,
+            viewState,
+            _ => { },
+            _ => retentionLogged = true);
         var sourceClear = new PlaylistSourceClearCommitResult(
             [],
             new List<object>(),
@@ -1549,7 +1566,7 @@ public sealed class ChartListVirtualViewTests
             ownershipTransferred: true,
             result);
 
-        workflowOwner.PublishTerminalShellStateAfterTablePublishFailure(exception, buildState);
+        workflowOwner.PublishTerminalShellStateAfterTablePublishFailure(exception, workspace);
 
         Assert.IsTrue(exception.OwnershipTransferred);
         Assert.IsFalse(exception.TerminalCommitResult.Applied);
@@ -3991,16 +4008,20 @@ public sealed class ChartListVirtualViewTests
         workflowOwner.PropertyChanged += (_, e) => publishPropertyChanged(e.PropertyName);
         state = workflowOwner.PresentationState;
         table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var playlistBuildState = new PlaylistDetailBuildState();
+        var playlistViewState = new PlaylistDetailViewState();
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            table,
+            playlistBuildState,
+            playlistViewState,
+            _ => { },
+            _ => { });
         configureWorkspace(workspace);
         return new PlayHistoryTerminalHarness(
             workflowOwner,
             table,
-            workspace,
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            publishPropertyChanged,
-            _ => { });
+            workspace);
     }
 
     private sealed class PlayHistoryTerminalHarness
@@ -4008,28 +4029,14 @@ public sealed class ChartListVirtualViewTests
         private readonly PlayHistoryWorkflowOwner workflowOwner;
         private readonly MainChartListViewModel table;
         private readonly PlaylistWorkspaceViewModel workspace;
-        private readonly PlaylistDetailBuildState playlistBuildState;
-        private readonly PlaylistDetailViewState playlistViewState;
-        private readonly Action<string> publishPropertyChanged;
-        private readonly Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear;
-
         internal PlayHistoryTerminalHarness(
             PlayHistoryWorkflowOwner workflowOwner,
             MainChartListViewModel table,
-            PlaylistWorkspaceViewModel workspace,
-            PlaylistDetailBuildState playlistBuildState,
-            PlaylistDetailViewState playlistViewState,
-            Action<string> publishPropertyChanged,
-            Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear)
+            PlaylistWorkspaceViewModel workspace)
         {
             this.workflowOwner = workflowOwner;
             this.table = table;
             this.workspace = workspace;
-            this.playlistBuildState = playlistBuildState;
-            this.playlistViewState = playlistViewState;
-            this.publishPropertyChanged = publishPropertyChanged;
-            this.logPlaylistSourceClear = logPlaylistSourceClear;
-            workflowOwner.ConfigureTerminalShellPublish(logPlaylistSourceClear);
         }
 
         internal PlayHistoryTerminalCommitResult TryApply(PlayHistoryTerminalRequest request)
@@ -4037,9 +4044,7 @@ public sealed class ChartListVirtualViewTests
             return workflowOwner.ApplyTerminal(
                 request,
                 table,
-                workspace,
-                playlistBuildState,
-                playlistViewState);
+                workspace);
         }
     }
 

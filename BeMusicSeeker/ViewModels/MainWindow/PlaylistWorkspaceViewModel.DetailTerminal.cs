@@ -189,9 +189,43 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    internal PlaylistSourceClearCommitResult CommitPlayHistorySourceClear()
+    {
+        return DetailBuildState.CommitSourceClear(DetailViewState);
+    }
+
     internal void ClearDetailSourceForRegularView()
     {
         PlaylistSourceClearCommitResult commit = DetailBuildState.CommitSourceClear(DetailViewState);
+        PublishSourceClear(commit);
+    }
+
+    internal void PublishPlayHistorySourceClear(PlaylistSourceClearCommitResult commit)
+    {
+        DetailBuildState.PublishSourceClear(commit);
+    }
+
+    internal void LogPlayHistorySourceClear(PlaylistSourceClearCommitResult commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
+        LogDetailWeakReferenceStatus("before_source_clear");
+        detailRetentionLog("playlist_source_replace action=clear generationId="
+            + commit.PreviousGenerationId
+            + " sourceCount=0 disposedCount="
+            + (commit.SourceRows?.Count ?? 0)
+            + " playlistSourceRowCount=0 playlistViewRowCount="
+            + CountDetailRows(commit.ViewRows));
+    }
+
+    private void PublishSourceClear(PlaylistSourceClearCommitResult commit)
+    {
+        if (commit == null)
+        {
+            throw new ArgumentNullException(nameof(commit));
+        }
         DetailBuildState.PublishSourceClear(commit);
         LogDetailWeakReferenceStatus("before_source_clear");
         detailRetentionLog("playlist_source_replace action=clear generationId="

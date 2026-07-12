@@ -5,44 +5,28 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlayHistoryWorkflowOwner
 {
-    private Action<PlaylistSourceClearCommitResult> logPlaylistSourceClear;
-
-    internal void ConfigureTerminalShellPublish(Action<PlaylistSourceClearCommitResult> logSourceClear)
-    {
-        logPlaylistSourceClear = logSourceClear
-            ?? throw new ArgumentNullException(nameof(logSourceClear));
-    }
-
     internal void PublishTerminalShellState(
         PlayHistoryTerminalCommitResult terminalCommit,
-        PlaylistDetailBuildState playlistDetailBuildState)
+        PlaylistWorkspaceViewModel playlistWorkspace)
     {
         if (terminalCommit == null)
         {
             throw new ArgumentNullException(nameof(terminalCommit));
         }
-        if (playlistDetailBuildState == null)
+        if (playlistWorkspace == null)
         {
-            throw new ArgumentNullException(nameof(playlistDetailBuildState));
+            throw new ArgumentNullException(nameof(playlistWorkspace));
         }
         if (terminalCommit.PlaylistSourceClear == null)
         {
             return;
         }
-        if (logPlaylistSourceClear == null)
-        {
-            throw new PlayHistoryTerminalPublishException(
-                new InvalidOperationException("Play-history terminal shell publishing must be configured before a source clear is published."),
-                ownershipTransferred: true,
-                terminalCommit);
-        }
-
         List<Exception> publishExceptions = [];
         TryPublish(
-            () => playlistDetailBuildState.PublishSourceClear(terminalCommit.PlaylistSourceClear),
+            () => playlistWorkspace.PublishPlayHistorySourceClear(terminalCommit.PlaylistSourceClear),
             publishExceptions);
         TryPublish(
-            () => logPlaylistSourceClear(terminalCommit.PlaylistSourceClear),
+            () => playlistWorkspace.LogPlayHistorySourceClear(terminalCommit.PlaylistSourceClear),
             publishExceptions);
         if (publishExceptions.Count > 0)
         {
@@ -55,7 +39,7 @@ public sealed partial class PlayHistoryWorkflowOwner
 
     internal void PublishTerminalShellStateAfterTablePublishFailure(
         PlayHistoryTerminalPublishException tablePublishException,
-        PlaylistDetailBuildState playlistDetailBuildState)
+        PlaylistWorkspaceViewModel playlistWorkspace)
     {
         if (tablePublishException?.TerminalCommitResult?.PlaylistSourceClear == null)
         {
@@ -64,7 +48,7 @@ public sealed partial class PlayHistoryWorkflowOwner
 
         try
         {
-            PublishTerminalShellState(tablePublishException.TerminalCommitResult, playlistDetailBuildState);
+            PublishTerminalShellState(tablePublishException.TerminalCommitResult, playlistWorkspace);
         }
         catch (PlayHistoryTerminalPublishException shellPublishException)
         {

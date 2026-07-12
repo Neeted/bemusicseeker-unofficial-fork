@@ -4553,25 +4553,6 @@ public partial class MainWindowViewModel : ViewModel
             .Where(chart => chart != null)];
     }
 
-    private void LogPlaylistSourceClear(PlaylistSourceClearCommitResult commit)
-    {
-        if (commit == null)
-        {
-            throw new ArgumentNullException(nameof(commit));
-        }
-        LogPlaylistWeakReferenceStatus("before_source_clear");
-        LogPlaylistRetention("playlist_source_replace action=clear generationId=" + commit.PreviousGenerationId + " sourceCount=0 disposedCount=" + CountPlaylistSourceRows(commit.SourceRows) + " playlistSourceRowCount=0 playlistViewRowCount=" + CountPlaylistDetailRows(commit.ViewRows));
-    }
-
-    /// <summary>
-    /// playlist 表示用 snapshot の仮想行を破棄します。
-    /// </summary>
-    /// <param name="viewRows">破棄する表示用 snapshot。</param>
-    private static void DisposePlaylistViewRows(IEnumerable viewRows)
-    {
-        MainChartListViewModel.DisposeRows(viewRows);
-    }
-
     public cSortParameters SortParameters =>
         ToCompatibilitySortParameters(regularChartListOwner?.CaptureSortParameters());
 
@@ -6259,10 +6240,7 @@ public partial class MainWindowViewModel : ViewModel
                 treeViewFilterParameterSelected = request;
             },
             MainChartList,
-            PlaylistWorkspace,
-            playlistDetailBuildState,
-            playlistViewState));
-        PlayHistory.ConfigureTerminalShellPublish(LogPlaylistSourceClear);
+            PlaylistWorkspace));
         PlayHistory.DisplayTargetRefreshRequested += (_, _) => PlayHistory.QueueDisplayTargetRefresh(
             PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty,
             advanceRevision: false);

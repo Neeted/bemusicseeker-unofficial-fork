@@ -193,6 +193,7 @@ public sealed class MainWindowContextMenuResourceTests
         string playHistoryWorkflowCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
         string displayTargetOwnerCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
         string terminalShellOwnerCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.TerminalShell.cs");
+        string playlistDetailTerminalCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailTerminal.cs");
         string viewExecutionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.ViewExecution.cs");
         string presentationStateCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
         string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
@@ -239,8 +240,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelCode.Contains("new PlayHistoryTerminalRequest"));
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.PublishTerminalShellState("));
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.PublishTerminalShellStateAfterTablePublishFailure("));
+        Assert.IsFalse(rootViewModelCode.Contains("ConfigureTerminalShellPublish("));
         StringAssert.Contains(playHistoryWorkflowCode, "PublishTerminalShellState(");
         StringAssert.Contains(playHistoryWorkflowCode, "PublishTerminalShellStateAfterTablePublishFailure(");
+        StringAssert.Contains(playlistDetailTerminalCode, "CommitPlayHistorySourceClear(");
+        StringAssert.Contains(playlistDetailTerminalCode, "PublishPlayHistorySourceClear(");
+        StringAssert.Contains(playlistDetailTerminalCode, "LogPlayHistorySourceClear(");
         StringAssert.Contains(terminalShellOwnerCode, "ownershipTransferred: true");
         StringAssert.Contains(terminalShellOwnerCode, "new AggregateException(tablePublishException, shellPublishException)");
         Assert.IsFalse(rootViewModelCode.Contains("CreatePlayHistoryViewDiagnostics"));

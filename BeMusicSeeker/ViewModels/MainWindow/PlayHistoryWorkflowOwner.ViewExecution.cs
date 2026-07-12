@@ -234,9 +234,7 @@ public sealed partial class PlayHistoryWorkflowOwner
                     archivePeriodTree),
                 request.Stopwatch,
                 dependencies.MainChartList,
-                dependencies.PlaylistWorkspace,
-                dependencies.PlaylistDetailBuildState,
-                dependencies.PlaylistDetailViewState);
+                dependencies.PlaylistWorkspace);
         });
         if (!invoked)
         {
@@ -319,9 +317,7 @@ internal sealed class PlayHistoryViewExecutionDependencies
         Func<MainViewUpdateMode> resolveColumnFilterMode,
         Action<PlayHistoryViewRequest> activateRequest,
         MainChartListViewModel mainChartList,
-        PlaylistWorkspaceViewModel playlistWorkspace,
-        PlaylistDetailBuildState playlistDetailBuildState,
-        PlaylistDetailViewState playlistDetailViewState)
+        PlaylistWorkspaceViewModel playlistWorkspace)
     {
         LibraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         PlaylistProvider = playlistProvider ?? throw new ArgumentNullException(nameof(playlistProvider));
@@ -332,8 +328,6 @@ internal sealed class PlayHistoryViewExecutionDependencies
         ActivateRequest = activateRequest ?? throw new ArgumentNullException(nameof(activateRequest));
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
-        PlaylistDetailBuildState = playlistDetailBuildState ?? throw new ArgumentNullException(nameof(playlistDetailBuildState));
-        PlaylistDetailViewState = playlistDetailViewState ?? throw new ArgumentNullException(nameof(playlistDetailViewState));
     }
 
     internal Func<BMSLibrary> LibraryProvider { get; }
@@ -345,8 +339,6 @@ internal sealed class PlayHistoryViewExecutionDependencies
     internal Action<PlayHistoryViewRequest> ActivateRequest { get; }
     internal MainChartListViewModel MainChartList { get; }
     internal PlaylistWorkspaceViewModel PlaylistWorkspace { get; }
-    internal PlaylistDetailBuildState PlaylistDetailBuildState { get; }
-    internal PlaylistDetailViewState PlaylistDetailViewState { get; }
 }
 
 internal sealed class PlayHistoryViewExecutionRequest

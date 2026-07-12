@@ -643,9 +643,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
     internal PlayHistoryTerminalCommitResult ApplyTerminal(
         PlayHistoryTerminalRequest request,
         MainChartListViewModel mainChartList,
-        PlaylistWorkspaceViewModel playlistWorkspace,
-        PlaylistDetailBuildState playlistDetailBuildState,
-        PlaylistDetailViewState playlistDetailViewState)
+        PlaylistWorkspaceViewModel playlistWorkspace)
     {
         if (request?.ViewState == null || request.MainRowsRequest?.Rows == null)
         {
@@ -653,8 +651,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         }
         if (mainChartList == null) throw new ArgumentNullException(nameof(mainChartList));
         if (playlistWorkspace == null) throw new ArgumentNullException(nameof(playlistWorkspace));
-        if (playlistDetailBuildState == null) throw new ArgumentNullException(nameof(playlistDetailBuildState));
-        if (playlistDetailViewState == null) throw new ArgumentNullException(nameof(playlistDetailViewState));
 
         var result = new PlayHistoryTerminalCommitResult();
         bool CommitPlayHistoryPresentation(Action commitRows)
@@ -665,7 +661,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
                 commitRows,
                 () =>
                 {
-                    result.PlaylistSourceClear = playlistDetailBuildState.CommitSourceClear(playlistDetailViewState);
+                    result.PlaylistSourceClear = playlistWorkspace.CommitPlayHistorySourceClear();
                     result.MainTablePresentation = playlistWorkspace.CommitMainTablePresentationWithoutNotification(
                         request.ColumnSelection,
                         playlistDetailActive: false,
@@ -701,7 +697,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
                 ex.InnerException ?? ex,
                 ownershipTransferred: true,
                 result);
-            PublishTerminalShellStateAfterTablePublishFailure(tablePublishException, playlistDetailBuildState);
+            PublishTerminalShellStateAfterTablePublishFailure(tablePublishException, playlistWorkspace);
             throw tablePublishException;
         }
         if (!applied.WasApplied)
@@ -709,7 +705,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
             return result;
         }
         result.MainRowsApply = applied.RowsApply;
-        PublishTerminalShellState(result, playlistDetailBuildState);
+        PublishTerminalShellState(result, playlistWorkspace);
         return result;
     }
 
@@ -717,9 +713,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         PlayHistorySortedRowsApplyRequest request,
         Stopwatch stopwatch,
         MainChartListViewModel mainChartList,
-        PlaylistWorkspaceViewModel playlistWorkspace,
-        PlaylistDetailBuildState playlistDetailBuildState,
-        PlaylistDetailViewState playlistDetailViewState)
+        PlaylistWorkspaceViewModel playlistWorkspace)
     {
         if (request?.State == null || request.SortedRows == null)
         {
@@ -839,9 +833,7 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
                     }
                 },
                 mainChartList,
-                playlistWorkspace,
-                playlistDetailBuildState,
-                playlistDetailViewState);
+                playlistWorkspace);
             if (!terminalCommit.Applied)
             {
                 if (ownsCandidateRows)
