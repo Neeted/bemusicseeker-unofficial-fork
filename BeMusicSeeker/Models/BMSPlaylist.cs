@@ -3900,8 +3900,9 @@ public partial class BMSPlaylist : NotificationObject
         string additionalOutputBaseDirsBefore = null,
         string additionalOutputBaseDirsAfter = null)
     {
-        additionalOutputBaseDirsBefore ??= Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
-        additionalOutputBaseDirsAfter ??= Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        additionalOutputBaseDirsBefore ??= settings.LR2CustomFolderAdditionalOutputBaseDirs;
+        additionalOutputBaseDirsAfter ??= settings.LR2CustomFolderAdditionalOutputBaseDirs;
         var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
         using (rwlockBMSTables.GetReaderGuard())
@@ -3937,7 +3938,8 @@ public partial class BMSPlaylist : NotificationObject
             outputDirPathBeforeByTable,
             "setting_custom_folder_output_base_dir_changed",
             wasRootFolderBeforeByTable: outputDirPathBeforeByTable.Keys.ToDictionary(table => table, _ => false),
-            outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
+            outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
+            settings: settings);
     }
 
     private sealed class BeatorajaBmtTableProjectionInput
@@ -8708,7 +8710,8 @@ public partial class BMSPlaylist : NotificationObject
         Action<int, int, string> progressCallback = null,
         IReadOnlyDictionary<BMSTable, bool> wasRootFolderBeforeByTable = null,
         string rootOutputBaseDirBefore = null,
-        IReadOnlyDictionary<BMSTable, string> outputBaseDirPathBeforeByTable = null)
+        IReadOnlyDictionary<BMSTable, string> outputBaseDirPathBeforeByTable = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         if (bmsTables == null)
         {
@@ -8731,7 +8734,7 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        settings ??= GetCustomFolderOutputSettings();
 
         LogPlaylistPerformance(operation + " prepare_start"
             + " reason=" + (reason ?? "unknown")
