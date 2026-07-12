@@ -7698,6 +7698,7 @@ public partial class BMSPlaylist : NotificationObject
             throw new ArgumentNullException(nameof(bMSTable));
         }
         cancellationToken.ThrowIfCancellationRequested();
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
         bool migrateCustomFolderOutput = false;
         string customFolderOutputDirectory = null;
         using (rwlockBMSTablesInitializeMin.GetReaderGuard())
@@ -7722,10 +7723,10 @@ public partial class BMSPlaylist : NotificationObject
                 }
                 bMSTable.bmt_sort = ResolveNextBeatorajaBmtSort(BMSTables);
                 bMSTable.is_bmt_output = true;
-                if (Settings.Default.OperationModeLR2DB)
+                if (settings.OperationModeLR2DB)
                 {
                     migrateCustomFolderOutput = true;
-                    customFolderOutputDirectory = ResolveCustomFolderOutputDirectory(bMSTable);
+                    customFolderOutputDirectory = ResolveCustomFolderOutputDirectory(bMSTable, settings);
                 }
             }
         }
@@ -7733,7 +7734,12 @@ public partial class BMSPlaylist : NotificationObject
         await AddCommittedBMSTableToVisibleCollectionAsync(bMSTable).ConfigureAwait(false);
         if (migrateCustomFolderOutput)
         {
-            migrateCustomFolderOutputDirectoryFiles(bMSTable, customFolderOutputDirectory, customFolderOutputDirectory, bMSTable.is_root_folder);
+            migrateCustomFolderOutputDirectoryFiles(
+                bMSTable,
+                customFolderOutputDirectory,
+                customFolderOutputDirectory,
+                bMSTable.is_root_folder,
+                settings: settings);
         }
         QueueBeatorajaBmtExport(bMSTable, reason ?? "RegistrateExternalTableAsync");
         ApplyCachedPlaylistUrlCompletionToTable(bMSTable, reason ?? "RegistrateExternalTableAsync");
@@ -7749,6 +7755,7 @@ public partial class BMSPlaylist : NotificationObject
             return new RegisteredExternalTableBatchResult();
         }
         cancellationToken.ThrowIfCancellationRequested();
+        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
         string operationReason = reason ?? "RegistrateExternalTablesAsync";
         List<BMSTable> migrateCustomFolderOutputTables = [];
         List<CustomFolderOutputMigrationTarget> customFolderOutputTargets = [];
@@ -7786,13 +7793,13 @@ public partial class BMSPlaylist : NotificationObject
                     }
                     bMSTable.bmt_sort = nextBmtSort++;
                     bMSTable.is_bmt_output = true;
-                    if (Settings.Default.OperationModeLR2DB)
+                    if (settings.OperationModeLR2DB)
                     {
                         migrateCustomFolderOutputTables.Add(bMSTable);
                         customFolderOutputTargets.Add(new CustomFolderOutputMigrationTarget
                         {
                             Table = bMSTable,
-                            Directory = ResolveCustomFolderOutputDirectory(bMSTable)
+                            Directory = ResolveCustomFolderOutputDirectory(bMSTable, settings)
                         });
                     }
                 }
@@ -7804,7 +7811,12 @@ public partial class BMSPlaylist : NotificationObject
         {
             try
             {
-                migrateCustomFolderOutputDirectoryFiles(target.Table, target.Directory, target.Directory, target.Table.is_root_folder);
+                migrateCustomFolderOutputDirectoryFiles(
+                    target.Table,
+                    target.Directory,
+                    target.Directory,
+                    target.Table.is_root_folder,
+                    settings: settings);
             }
             catch (Exception ex)
             {

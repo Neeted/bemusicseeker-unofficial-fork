@@ -5580,6 +5580,111 @@ public sealed class BmsPlaylistUpdateTests
         Assert.AreEqual(0L, CountCustomFolderCommandMatches(db, easyCommand, AssistNullHistoryHash));
     }
 
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ExternalTableRegistration_UsesOneCustomFolderSettingsSnapshotPerOperation()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string providerOutputBaseDir = Path.Combine(tempDirectory, "ProviderOutput");
+            string globalOutputBaseDir = Path.Combine(tempDirectory, "GlobalOutput");
+            Settings.Default.OperationModeLR2DB = false;
+            Settings.Default.LR2CustomFolderOutputBaseDir = globalOutputBaseDir;
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = providerOutputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootOutput"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]"
+            };
+            int providerCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
+            {
+                providerCallCount++;
+                return outputSettings;
+            };
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot(),
+                getOutputSettings)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            BMSTable singleTable = new()
+            {
+                playlist_id = 7801,
+                name = "ProviderSingle",
+                symbol = "PSS",
+                Output_dir = "ProviderSingle",
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
+                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Single Folder")],
+                Folder_order = ["Single Folder"]
+            };
+
+            await playlist.RegistrateExternalTableAsync(singleTable, false, "test_external_single");
+
+            BMSTable batchTableA = new()
+            {
+                playlist_id = 7802,
+                name = "ProviderBatchA",
+                symbol = "PBA",
+                Output_dir = "ProviderBatchA",
+                ignore_folder_output = singleTable.ignore_folder_output,
+                entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Batch Folder A")],
+                Folder_order = ["Batch Folder A"]
+            };
+            BMSTable batchTableB = new()
+            {
+                playlist_id = 7803,
+                name = "ProviderBatchB",
+                symbol = "PBB",
+                Output_dir = "ProviderBatchB",
+                ignore_folder_output = singleTable.ignore_folder_output,
+                entries = [CreateEntry("cccccccccccccccccccccccccccccccc", "Batch Folder B")],
+                Folder_order = ["Batch Folder B"]
+            };
+
+            var batchResult = await playlist.RegistrateExternalTablesAsync(
+                [batchTableA, batchTableB],
+                false,
+                "test_external_batch");
+
+            Assert.AreEqual(2, providerCallCount);
+            Assert.AreEqual(2, batchResult.RegisteredTables.Count);
+            foreach (BMSTable table in new[] { singleTable, batchTableA, batchTableB })
+            {
+                string outputDirectory = Path.Combine(providerOutputBaseDir, table.Output_dir);
+                Assert.IsTrue(Directory.Exists(outputDirectory));
+                Assert.IsTrue(Directory.EnumerateFiles(outputDirectory, "*.lr2folder").Any());
+                Assert.IsFalse(Directory.Exists(Path.Combine(globalOutputBaseDir, table.Output_dir)));
+            }
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     private static void InsertCustomFolderClassificationRow(LR2SongDBExtended db, string hash, int clear, int rank, int? opHistory)
     {
         db.Execute("INSERT OR REPLACE INTO song(hash, title, path) VALUES (?, ?, ?);", hash, hash, hash + ".bms");
