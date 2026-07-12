@@ -76,6 +76,20 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void PlaylistUrlCompletionSettings_UseDedicatedProviderBoundary()
+    {
+        string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string urlCompletionSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.UrlCompletion.cs"));
+
+        Assert.IsFalse(playlistSource.Contains("Settings.Default.EnablePlaylistUrlCompletion"));
+        Assert.IsFalse(urlCompletionSource.Contains("Settings.Default."));
+        StringAssert.Contains(playlistSource, "IsPlaylistUrlCompletionEnabled()");
+        StringAssert.Contains(urlCompletionSource, "GetPlaylistUrlCompletionOptions()");
+        StringAssert.Contains(urlCompletionSource, "tsvResult.Snapshot.Candidates");
+        StringAssert.Contains(urlCompletionSource, "stellaResult.Snapshot.Candidates");
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

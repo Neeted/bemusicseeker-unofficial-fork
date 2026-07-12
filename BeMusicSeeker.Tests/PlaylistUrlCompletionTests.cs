@@ -331,6 +331,55 @@ public sealed class PlaylistUrlCompletionTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public async Task BMSPlaylist_UrlCompletionUsesInjectedOptionsProvider()
+    {
+        string tempDbPath = CreateEmptySongDbPath();
+        Func<Uri, CancellationToken, Task<string>> previousTsvFetcher = BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests;
+        try
+        {
+            PlaylistUrlCompletionOptionsSnapshot options = new()
+            {
+                EnablePlaylistUrlCompletion = false,
+                PlaylistMd5UrlMappingTsvUri = "https://example.com/injected.tsv",
+                OverwritePlaylistUrlsWithCompletion = true
+            };
+            int fetchCount = 0;
+            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = (uri, cancellationToken) =>
+            {
+                fetchCount++;
+                return Task.FromResult("md5\turl_diff\turl\r\naaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\t\thttps://example.com/injected");
+            };
+            var playlist = new BMSPlaylist(tempDbPath, null, null, null, null, () => options);
+            BMSTable table = CreateTable(5003, "InjectedOptionsTable");
+            BMSTableEntry entry = CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "InjectedOptionsSong");
+            table.entries = [entry];
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+
+            await playlist.RefreshPlaylistUrlCompletionForTestsAsync("disabled");
+
+            Assert.AreEqual(0, fetchCount);
+            Assert.IsNull(entry.RuntimeUrlCompletion);
+
+            options = new PlaylistUrlCompletionOptionsSnapshot
+            {
+                EnablePlaylistUrlCompletion = true,
+                PlaylistMd5UrlMappingTsvUri = "https://example.com/injected.tsv",
+                OverwritePlaylistUrlsWithCompletion = true
+            };
+            await playlist.RefreshPlaylistUrlCompletionForTestsAsync("enabled");
+
+            Assert.AreEqual(1, fetchCount);
+            Assert.AreEqual(new Uri("https://example.com/injected"), entry.RuntimeUrlCompletion);
+        }
+        finally
+        {
+            BMSPlaylist.PlaylistUrlCompletionTsvContentFetcherForTests = previousTsvFetcher;
+            DeleteTempSongDbDirectory(tempDbPath);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void PlaylistDetailSourceRow_UsesEffectiveUrlForDisplay()
     {
         var file = new TestableBmsFile();

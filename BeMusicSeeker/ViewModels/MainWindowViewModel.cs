@@ -487,6 +487,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
 
+    private readonly Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider;
+
     private StartupSettingsSnapshot GetStartupSettingsSnapshot()
     {
         return startupSettingsProvider()
@@ -6194,6 +6196,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         bmsLibraryOptionsProvider = composition.BmsLibraryOptionsProvider;
         startupSettingsProvider = composition.StartupSettingsProvider;
+        playlistUrlCompletionOptionsProvider = composition.PlaylistUrlCompletionOptionsProvider;
         ChartFilters = new ChartListFilterViewModel();
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
@@ -7692,7 +7695,8 @@ public partial class MainWindowViewModel : ViewModel
                 libraryProfile.Lr2ConfigProvider,
                 libraryProfile.Lr2ScoreDbPath,
                 () => files.GetBMSScores(),
-                () => files.CreateBeatorajaBmtSongHashResolver());
+                () => files.CreateBeatorajaBmtSongHashResolver(),
+                playlistUrlCompletionOptionsProvider);
             tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2SongDbSyncMutationBlockedForPlaylist(operation);
             tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
             tables.CustomFolderOutputPhysicalSurfaceProvider = () => files.GetCurrentAppManagedCustomFolderOutputPhysicalSurface();

@@ -40,6 +40,21 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionKeepsTheConfiguredPlaylistUrlCompletionOptionsProvider()
+    {
+        var snapshot = new PlaylistUrlCompletionOptionsSnapshot
+        {
+            EnablePlaylistUrlCompletion = true,
+            PlaylistMd5UrlMappingTsvUri = "https://example.invalid/playlist.tsv"
+        };
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            playlistUrlCompletionOptionsProvider: () => snapshot);
+
+        Assert.AreSame(snapshot, composition.PlaylistUrlCompletionOptionsProvider());
+    }
+
+    [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));

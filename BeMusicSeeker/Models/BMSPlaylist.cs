@@ -393,6 +393,8 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     private readonly Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> beatorajaBmtSongHashResolverFactory;
 
+    private readonly Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider;
+
     /// <summary>
     /// 初期化処理の連携用に一時保持するセマフォです。
     /// </summary>
@@ -1011,6 +1013,23 @@ public partial class BMSPlaylist : NotificationObject
         string _lr2ScoreDB = null,
         Func<List<BMSScore>> getBMSScores = null,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver = null)
+        : this(
+            _lr2SongDB,
+            getLR2Config,
+            _lr2ScoreDB,
+            getBMSScores,
+            getBeatorajaBmtSongHashResolver,
+            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent)
+    {
+    }
+
+    internal BMSPlaylist(
+        string _lr2SongDB,
+        Func<LR2Config> getLR2Config,
+        string _lr2ScoreDB,
+        Func<List<BMSScore>> getBMSScores,
+        Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
+        Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider)
     {
         if (_lr2SongDB == null)
         {
@@ -1029,6 +1048,7 @@ public partial class BMSPlaylist : NotificationObject
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         bmsScores = (getBMSScores ?? (Func<List<BMSScore>>)(() => (List<BMSScore>)null));
         beatorajaBmtSongHashResolverFactory = getBeatorajaBmtSongHashResolver;
+        this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
         listenerForRwlockBMSTables = new PropertyChangedEventListener(rwlockBMSTables);
@@ -7479,7 +7499,7 @@ public partial class BMSPlaylist : NotificationObject
                 CurrentTableName = string.Empty,
                 CurrentUri = null
             });
-            if (targetSnapshot.Count > 0 && Settings.Default.EnablePlaylistUrlCompletion)
+            if (targetSnapshot.Count > 0 && IsPlaylistUrlCompletionEnabled())
             {
                 SchedulePlaylistUrlCompletionRefresh(reason);
             }
@@ -7567,7 +7587,7 @@ public partial class BMSPlaylist : NotificationObject
             CurrentTableName = string.Empty,
             CurrentUri = null
         });
-        if (schedulePlaylistUrlCompletionRefresh && targetSnapshot.Count > 0 && Settings.Default.EnablePlaylistUrlCompletion)
+        if (schedulePlaylistUrlCompletionRefresh && targetSnapshot.Count > 0 && IsPlaylistUrlCompletionEnabled())
         {
             SchedulePlaylistUrlCompletionRefresh(reason);
         }
@@ -7863,7 +7883,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw result.Exception;
         }
-        if (Settings.Default.EnablePlaylistUrlCompletion)
+        if (IsPlaylistUrlCompletionEnabled())
         {
             SchedulePlaylistUrlCompletionRefresh("ResetBMSTableAsync");
         }

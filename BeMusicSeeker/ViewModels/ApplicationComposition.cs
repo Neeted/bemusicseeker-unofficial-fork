@@ -1,5 +1,6 @@
 using System;
 using System.Windows.Markup;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
@@ -13,23 +14,30 @@ internal sealed class ApplicationComposition
 
     private readonly Func<StartupSettingsSnapshot> startupSettingsProvider;
 
+    private readonly Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
-        Func<StartupSettingsSnapshot> startupSettingsProvider = null)
+        Func<StartupSettingsSnapshot> startupSettingsProvider = null,
+        Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
         this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
+        this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;
 
     internal Func<StartupSettingsSnapshot> StartupSettingsProvider => startupSettingsProvider;
 
+    internal Func<PlaylistUrlCompletionOptionsSnapshot> PlaylistUrlCompletionOptionsProvider => playlistUrlCompletionOptionsProvider;
+
     internal static ApplicationComposition CreateDefault()
     {
         return new ApplicationComposition(
             BmsLibraryOptionsSnapshot.CreateCurrent,
-            StartupSettingsSnapshot.CreateCurrent);
+            StartupSettingsSnapshot.CreateCurrent,
+            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent);
     }
 
     internal MainWindowViewModel CreateMainWindowViewModel()

@@ -1462,6 +1462,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken)");
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
         StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)");
+        StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver(),");
+        StringAssert.Contains(initialize, "playlistUrlCompletionOptionsProvider);");
         StringAssert.Contains(initialize, "if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)");
         StringAssert.Contains(initialize, "Backup.SaveBackupsWithResult(startupSettings.LR2BackupPath, new TimeSpan(startupSettings.LR2BackupSpan, 0, 0, 0), startupSettings.LR2BackupNum, bkPaths)");
         StringAssert.Contains(initialize, "if (!startupSettings.SkipInitPlaylistLoad)");
