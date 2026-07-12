@@ -395,6 +395,8 @@ public partial class BMSPlaylist : NotificationObject
 
     private readonly Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider;
 
+    private readonly Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider;
+
     /// <summary>
     /// 初期化処理の連携用に一時保持するセマフォです。
     /// </summary>
@@ -1019,7 +1021,8 @@ public partial class BMSPlaylist : NotificationObject
             _lr2ScoreDB,
             getBMSScores,
             getBeatorajaBmtSongHashResolver,
-            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent)
+            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
+            BeatorajaBmtOptionsSnapshot.CreateCurrent)
     {
     }
 
@@ -1029,7 +1032,8 @@ public partial class BMSPlaylist : NotificationObject
         string _lr2ScoreDB,
         Func<List<BMSScore>> getBMSScores,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
-        Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider)
+        Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
+        Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider)
     {
         if (_lr2SongDB == null)
         {
@@ -1049,6 +1053,7 @@ public partial class BMSPlaylist : NotificationObject
         bmsScores = (getBMSScores ?? (Func<List<BMSScore>>)(() => (List<BMSScore>)null));
         beatorajaBmtSongHashResolverFactory = getBeatorajaBmtSongHashResolver;
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
+        this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
         listenerForRwlockBMSTables = new PropertyChangedEventListener(rwlockBMSTables);
@@ -1293,7 +1298,19 @@ public partial class BMSPlaylist : NotificationObject
 
     private bool IsBeatorajaBmtOutputEnabled()
     {
-        return Settings.Default.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(GetBeatorajaBmtTablePath());
+        BeatorajaBmtOptionsSnapshot options = GetBeatorajaBmtOptions();
+        return IsBeatorajaBmtOutputEnabled(options);
+    }
+
+    private static bool IsBeatorajaBmtOutputEnabled(BeatorajaBmtOptionsSnapshot options)
+    {
+        return options.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(GetBeatorajaBmtTablePath(options));
+    }
+
+    private BeatorajaBmtOptionsSnapshot GetBeatorajaBmtOptions()
+    {
+        return beatorajaBmtOptionsProvider()
+            ?? throw new InvalidOperationException("beatoraja BMT options provider returned null.");
     }
 
     private void ReportBeatorajaBmtExportProgress(long operationId, bool isActive, int totalCount, int completedCount, string currentTableName)
@@ -1316,9 +1333,10 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
-        string outputPath = GetBeatorajaBmtTablePath();
-        bool enabled = IsBeatorajaBmtOutputEnabled();
-        bool keepFilesWhenDisabled = Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled;
+        BeatorajaBmtOptionsSnapshot options = GetBeatorajaBmtOptions();
+        string outputPath = GetBeatorajaBmtTablePath(options);
+        bool enabled = IsBeatorajaBmtOutputEnabled(options);
+        bool keepFilesWhenDisabled = options.KeepBeatorajaBmtFilesWhenOutputDisabled;
         long fullExportGeneration = Interlocked.Increment(ref beatorajaBmtFullExportGeneration);
         Interlocked.Increment(ref beatorajaBmtUrlSyncGeneration);
         async Task work()
@@ -1504,7 +1522,8 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
-        if (!IsBeatorajaBmtOutputEnabled())
+        BeatorajaBmtOptionsSnapshot options = GetBeatorajaBmtOptions();
+        if (!IsBeatorajaBmtOutputEnabled(options))
         {
             return;
         }
@@ -1707,10 +1726,48 @@ public partial class BMSPlaylist : NotificationObject
         LogPlaylistPerformance("beatoraja_bmt_export skipped reason=" + (shutdownReason ?? "shutdown_requested") + " requestReason=" + FormatTextForLog(reason));
     }
 
+    private void ClearPendingBeatorajaBmtExportQueue()
+    {
+        lock (beatorajaBmtExportQueueLock)
+        {
+            pendingBeatorajaBmtExportPlaylistIds.Clear();
+        }
+    }
+
     private void ProcessBeatorajaBmtExportQueue(string reason)
     {
-        while (!IsShutdownRequested && IsBeatorajaBmtOutputEnabled())
+        BeatorajaBmtOptionsSnapshot options;
+        try
         {
+            options = GetBeatorajaBmtOptions();
+        }
+        catch
+        {
+            ClearPendingBeatorajaBmtExportQueue();
+            throw;
+        }
+        if (!IsBeatorajaBmtOutputEnabled(options))
+        {
+            ClearPendingBeatorajaBmtExportQueue();
+            return;
+        }
+        while (!IsShutdownRequested)
+        {
+            bool outputEnabled;
+            try
+            {
+                outputEnabled = IsBeatorajaBmtOutputEnabled();
+            }
+            catch
+            {
+                ClearPendingBeatorajaBmtExportQueue();
+                throw;
+            }
+            if (!outputEnabled)
+            {
+                ClearPendingBeatorajaBmtExportQueue();
+                return;
+            }
             List<int> playlistIds;
             lock (beatorajaBmtExportQueueLock)
             {
@@ -1729,8 +1786,20 @@ public partial class BMSPlaylist : NotificationObject
                 JObject tableData = BuildBeatorajaBmtTableDataSnapshot(table, reason);
                 lock (beatorajaBmtFileMutationLock)
                 {
-                    if (!IsBeatorajaBmtOutputEnabled()
-                        || !string.Equals(tablePath, GetBeatorajaBmtTablePath(), StringComparison.OrdinalIgnoreCase))
+                    bool currentOutputEnabled;
+                    string currentTablePath;
+                    try
+                    {
+                        currentOutputEnabled = IsBeatorajaBmtOutputEnabled();
+                        currentTablePath = GetBeatorajaBmtTablePath();
+                    }
+                    catch
+                    {
+                        ClearPendingBeatorajaBmtExportQueue();
+                        throw;
+                    }
+                    if (!currentOutputEnabled
+                        || !string.Equals(tablePath, currentTablePath, StringComparison.OrdinalIgnoreCase))
                     {
                         continue;
                     }
@@ -1789,20 +1858,30 @@ public partial class BMSPlaylist : NotificationObject
 
     private string GetBeatorajaBmtTablePath()
     {
-        if (!string.IsNullOrWhiteSpace(Settings.Default.BeatorajaRootPath) && BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath))
-        {
-            return BeatorajaConfigService.GetTablePath(Settings.Default.BeatorajaRootPath);
-        }
-        return Settings.Default.BeatorajaBmtTablePath;
+        return GetBeatorajaBmtTablePath(GetBeatorajaBmtOptions());
     }
 
-    private void SyncBeatorajaManagedTableUrls(string tablePath, IEnumerable<BmtTableExportService.ManagedTableUrlEntry> previousManagedTables, IEnumerable<BmtTableExportService.ManagedTableUrlEntry> currentManagedTables, long? urlSyncGeneration = null)
+    private static string GetBeatorajaBmtTablePath(BeatorajaBmtOptionsSnapshot options)
     {
-        if (string.IsNullOrWhiteSpace(Settings.Default.BeatorajaRootPath) || !BeatorajaConfigService.IsBeatorajaRootPathValid(Settings.Default.BeatorajaRootPath))
+        if (!string.IsNullOrWhiteSpace(options.BeatorajaRootPath) && BeatorajaConfigService.IsBeatorajaRootPathValid(options.BeatorajaRootPath))
+        {
+            return BeatorajaConfigService.GetTablePath(options.BeatorajaRootPath);
+        }
+        return options.BeatorajaBmtTablePath;
+    }
+
+    private void SyncBeatorajaManagedTableUrls(
+        string tablePath,
+        IEnumerable<BmtTableExportService.ManagedTableUrlEntry> previousManagedTables,
+        IEnumerable<BmtTableExportService.ManagedTableUrlEntry> currentManagedTables,
+        long? urlSyncGeneration = null)
+    {
+        BeatorajaBmtOptionsSnapshot options = GetBeatorajaBmtOptions();
+        if (string.IsNullOrWhiteSpace(options.BeatorajaRootPath) || !BeatorajaConfigService.IsBeatorajaRootPathValid(options.BeatorajaRootPath))
         {
             return;
         }
-        string configuredTablePath = BeatorajaConfigService.GetTablePath(Settings.Default.BeatorajaRootPath);
+        string configuredTablePath = BeatorajaConfigService.GetTablePath(options.BeatorajaRootPath);
         if (!string.IsNullOrWhiteSpace(tablePath) && !IsSameBeatorajaTablePath(tablePath, configuredTablePath))
         {
             return;
@@ -1811,13 +1890,13 @@ public partial class BMSPlaylist : NotificationObject
             .Select(entry => entry?.Url)
             .Where(url => !string.IsNullOrWhiteSpace(url))];
         IReadOnlyDictionary<string, BeatorajaBmtTableUrlSortKey> sortKeys = CreateBeatorajaBmtTableUrlSortKeysSnapshot();
-        List<string> currentUrls = Settings.Default.RegisterBeatorajaBmtUrls
+        List<string> currentUrls = options.RegisterBeatorajaBmtUrls
             ? BuildBeatorajaManagedTableUrlsForConfigSync(currentManagedTables, sortKeys)
             : [];
         try
         {
             BeatorajaConfigService.SyncTableUrls(
-                Settings.Default.BeatorajaRootPath,
+                options.BeatorajaRootPath,
                 currentUrls,
                 previousUrls,
                 urlSyncGeneration.HasValue
@@ -2014,9 +2093,9 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private static BeatorajaBmtHashOutputMode GetBeatorajaBmtHashOutputMode()
+    private BeatorajaBmtHashOutputMode GetBeatorajaBmtHashOutputMode()
     {
-        return BmtTableExportService.NormalizeHashOutputMode(Settings.Default.BeatorajaBmtHashOutputMode);
+        return BmtTableExportService.NormalizeHashOutputMode(GetBeatorajaBmtOptions().BeatorajaBmtHashOutputMode);
     }
 
     private sealed class BeatorajaBmtSongHashResolver(Func<BmtSongHashResolveRequest, Tuple<string, string>> resolve)

@@ -55,6 +55,22 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionKeepsTheConfiguredBeatorajaBmtOptionsProvider()
+    {
+        var snapshot = new BeatorajaBmtOptionsSnapshot
+        {
+            EnableBeatorajaBmtOutput = true,
+            BeatorajaBmtTablePath = "table.json",
+            BeatorajaBmtHashOutputMode = "FillMissingMd5Sha256"
+        };
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            beatorajaBmtOptionsProvider: () => snapshot);
+
+        Assert.AreSame(snapshot, composition.BeatorajaBmtOptionsProvider());
+    }
+
+    [TestMethod]
     public void LibraryEvaluatesTheInjectedOptionsProviderForEachOperation()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BeMusicSeekerOptionsProvider_" + Guid.NewGuid().ToString("N"));

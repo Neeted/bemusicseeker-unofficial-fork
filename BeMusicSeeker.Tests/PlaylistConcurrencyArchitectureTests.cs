@@ -90,6 +90,20 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void BeatorajaBmtSettings_UseDedicatedProviderBoundary()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+
+        Assert.IsFalse(source.Contains("Settings.Default.EnableBeatorajaBmtOutput"));
+        Assert.IsFalse(source.Contains("Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled"));
+        Assert.IsFalse(source.Contains("Settings.Default.BeatorajaRootPath"));
+        Assert.IsFalse(source.Contains("Settings.Default.BeatorajaBmtTablePath"));
+        Assert.IsFalse(source.Contains("Settings.Default.RegisterBeatorajaBmtUrls"));
+        Assert.IsFalse(source.Contains("Settings.Default.BeatorajaBmtHashOutputMode"));
+        StringAssert.Contains(source, "GetBeatorajaBmtOptions()");
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

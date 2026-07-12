@@ -16,14 +16,18 @@ internal sealed class ApplicationComposition
 
     private readonly Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider;
 
+    private readonly Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
-        Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null)
+        Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
+        Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null)
     {
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider ?? throw new ArgumentNullException(nameof(bmsLibraryOptionsProvider));
         this.startupSettingsProvider = startupSettingsProvider ?? StartupSettingsSnapshot.CreateCurrent;
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
+        this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
     }
 
     internal Func<BmsLibraryOptionsSnapshot> BmsLibraryOptionsProvider => bmsLibraryOptionsProvider;
@@ -32,12 +36,15 @@ internal sealed class ApplicationComposition
 
     internal Func<PlaylistUrlCompletionOptionsSnapshot> PlaylistUrlCompletionOptionsProvider => playlistUrlCompletionOptionsProvider;
 
+    internal Func<BeatorajaBmtOptionsSnapshot> BeatorajaBmtOptionsProvider => beatorajaBmtOptionsProvider;
+
     internal static ApplicationComposition CreateDefault()
     {
         return new ApplicationComposition(
             BmsLibraryOptionsSnapshot.CreateCurrent,
             StartupSettingsSnapshot.CreateCurrent,
-            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent);
+            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
+            BeatorajaBmtOptionsSnapshot.CreateCurrent);
     }
 
     internal MainWindowViewModel CreateMainWindowViewModel()
