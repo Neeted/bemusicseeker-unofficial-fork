@@ -3795,8 +3795,7 @@ public partial class MainWindowViewModel
         public IReadOnlyList<PlaylistCustomFolderOutputBaseOption> PlaylistPropertyOutputBaseOptions =>
             MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions(
                 LR2CustomFolderOutputDir,
-                CustomFolderAdditionalOutputBaseDirList,
-                useCurrentSettingsWhenMissing: false);
+                CustomFolderAdditionalOutputBaseDirList);
 
         private void ApplyRuntimeSearchRootsForCurrentMode()
         {
@@ -6570,8 +6569,7 @@ public partial class MainWindowViewModel
     internal static IReadOnlyList<PlaylistCustomFolderOutputBaseOption> CreatePlaylistCustomFolderOutputBaseOptions(
         string defaultOutputBaseDirectory = null,
         IEnumerable<string> additionalOutputBaseDirectories = null,
-        bool includeNoChange = false,
-        bool useCurrentSettingsWhenMissing = true)
+        bool includeNoChange = false)
     {
         List<PlaylistCustomFolderOutputBaseOption> options = [];
         if (includeNoChange)
@@ -6582,19 +6580,14 @@ public partial class MainWindowViewModel
                 isNoChange: true));
         }
 
-        string defaultBase = useCurrentSettingsWhenMissing && string.IsNullOrWhiteSpace(defaultOutputBaseDirectory)
-            ? Settings.Default.LR2CustomFolderOutputBaseDir
-            : defaultOutputBaseDirectory;
+        string defaultBase = defaultOutputBaseDirectory;
         string defaultLabel = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(defaultBase);
         options.Add(new PlaylistCustomFolderOutputBaseOption(
             string.IsNullOrWhiteSpace(defaultLabel) ? BeMusicSeeker.Properties.Resources.Playlist_output?.TrimEnd(':', ' ') : defaultLabel,
             null));
 
         foreach (CustomFolderOutputBaseEntry entry in CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
-            additionalOutputBaseDirectories
-                ?? (useCurrentSettingsWhenMissing
-                    ? CustomFolderOutputBaseRegistry.ReadAdditionalBaseDirectories()
-                    : [])))
+            additionalOutputBaseDirectories ?? []))
         {
             if (!options.Any(option =>
                     !option.IsNoChange

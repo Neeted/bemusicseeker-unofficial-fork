@@ -6529,8 +6529,7 @@ public partial class MainWindowViewModel : ViewModel
         return CreatePlaylistCustomFolderOutputBaseOptions(
             settings.LR2CustomFolderOutputBaseDir,
             CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs),
-            includeNoChange,
-            useCurrentSettingsWhenMissing: false);
+            includeNoChange);
     }
 
     private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)

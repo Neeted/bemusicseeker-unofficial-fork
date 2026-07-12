@@ -191,6 +191,14 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(bulkDialogSource, "ownerViewModel.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings");
         Assert.IsFalse(bulkDialogSource.Contains("CreatePlaylistCustomFolderOutputBaseOptions(includeNoChange"));
 
+        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainWindowViewModel.SettingDialogViewModel.cs");
+        Assert.IsFalse(settingDialogSource.Contains("useCurrentSettingsWhenMissing"));
+        Assert.IsFalse(settingDialogSource.Contains("Settings.Default."));
+
         string summaryBuildSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",

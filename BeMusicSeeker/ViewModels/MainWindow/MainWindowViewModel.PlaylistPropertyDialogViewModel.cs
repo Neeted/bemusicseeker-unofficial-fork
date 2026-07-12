@@ -118,8 +118,7 @@ public partial class MainWindowViewModel
         public IReadOnlyList<PlaylistCustomFolderOutputBaseOption> OutputBaseOptions =>
             _outputBaseOptions ??= MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions(
                 temp_custom_folder_output_settings?.LR2CustomFolderOutputBaseDir,
-                CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(temp_custom_folder_output_settings?.LR2CustomFolderAdditionalOutputBaseDirs),
-                useCurrentSettingsWhenMissing: false);
+                CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(temp_custom_folder_output_settings?.LR2CustomFolderAdditionalOutputBaseDirs));
 
         public DispatcherCollection<string> folder_order
         {
@@ -732,8 +731,7 @@ public partial class MainWindowViewModel
             RaisePropertyChanged(() => output_dir);
             _outputBaseOptions = MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions(
                 temp_custom_folder_output_settings?.LR2CustomFolderOutputBaseDir,
-                CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(temp_custom_folder_output_settings?.LR2CustomFolderAdditionalOutputBaseDirs),
-                useCurrentSettingsWhenMissing: false);
+                CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(temp_custom_folder_output_settings?.LR2CustomFolderAdditionalOutputBaseDirs));
             _custom_folder_output_base_option = ResolveOutputBaseOption(bmsTable.custom_folder_output_base_name);
             RaisePropertyChanged(() => OutputBaseOptions);
             RaisePropertyChanged(() => custom_folder_output_base_option);
