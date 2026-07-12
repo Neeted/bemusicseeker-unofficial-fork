@@ -6234,11 +6234,10 @@ public partial class MainWindowViewModel : ViewModel
             () => lr2config,
             () => bmsPlayer,
             () => DispatcherHelper.UIDispatcher);
-        MainChartList = new MainChartListViewModel(
+        MainChartList = composition.CreateMainChartListViewModel(
             DispatchMainChartListPresentationAction,
-            LogMainViewBuild,
-            composition.MainChartColumnSettingsStore);
-        PlaylistWorkspace = new PlaylistWorkspaceViewModel(
+            LogMainViewBuild);
+        PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
             DispatchMainChartListAction,
             MainChartList,
             playlistDetailBuildState,

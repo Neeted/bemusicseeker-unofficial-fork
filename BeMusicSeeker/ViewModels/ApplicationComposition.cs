@@ -99,6 +99,33 @@ internal sealed class ApplicationComposition
         return (App)System.Windows.Application.Current;
     }
 
+    internal MainChartListViewModel CreateMainChartListViewModel(
+        Action<Action> dispatchPresentationAction,
+        Action<string> log)
+    {
+        return new MainChartListViewModel(
+            dispatchPresentationAction,
+            log,
+            mainChartColumnSettingsStore);
+    }
+
+    internal PlaylistWorkspaceViewModel CreatePlaylistWorkspaceViewModel(
+        Action<Action> dispatchPresentationAction,
+        MainChartListViewModel mainChartList,
+        PlaylistDetailBuildState playlistDetailBuildState,
+        PlaylistDetailViewState playlistViewState,
+        Action<string> detailViewLog,
+        Action<string> detailRetentionLog)
+    {
+        return new PlaylistWorkspaceViewModel(
+            dispatchPresentationAction,
+            mainChartList,
+            playlistDetailBuildState,
+            playlistViewState,
+            detailViewLog,
+            detailRetentionLog);
+    }
+
     internal static ApplicationComposition CreateDefault()
     {
         return new ApplicationComposition(

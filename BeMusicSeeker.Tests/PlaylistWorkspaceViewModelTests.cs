@@ -83,7 +83,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishColumnPresentation(", StringComparison.Ordinal));
         Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishBindingMode(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace = new PlaylistWorkspaceViewModel(");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(");
         StringAssert.Contains(logicalSource, "playlistDetailBuildState,");
         StringAssert.Contains(logicalSource, "playlistViewState,");
         StringAssert.Contains(logicalSource, "LogPlaylistRetention);");

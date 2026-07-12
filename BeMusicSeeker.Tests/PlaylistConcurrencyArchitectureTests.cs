@@ -286,6 +286,20 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void MainTableOwners_AreConstructedByApplicationComposition()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+
+        StringAssert.Contains(source, "composition.CreateMainChartListViewModel(");
+        StringAssert.Contains(source, "composition.CreatePlaylistWorkspaceViewModel(");
+        Assert.IsFalse(source.Contains("new MainChartListViewModel("));
+        Assert.IsFalse(source.Contains("new PlaylistWorkspaceViewModel("));
+    }
+
+    [TestMethod]
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

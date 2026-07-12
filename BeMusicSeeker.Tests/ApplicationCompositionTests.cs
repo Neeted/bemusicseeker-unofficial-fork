@@ -122,6 +122,32 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionCreatesMainTableOwnersFromOneBoundary()
+    {
+        var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+        MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(
+            action => action(),
+            _ =>
+            {
+            });
+
+        PlaylistWorkspaceViewModel playlistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
+            action => action(),
+            mainChartList,
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ =>
+            {
+            },
+            _ =>
+            {
+            });
+
+        Assert.IsNotNull(mainChartList);
+        Assert.IsNotNull(playlistWorkspace);
+    }
+
+    [TestMethod]
     public void MainWindowSettingDialogUsesCompositionSettingsPersistenceDelegates()
     {
         int reloadCount = 0;
