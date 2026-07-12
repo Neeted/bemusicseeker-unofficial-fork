@@ -1,3 +1,4 @@
+using System;
 using BeMusicSeeker.Properties;
 
 namespace BeMusicSeeker.ViewModels;
@@ -15,9 +16,16 @@ internal interface IMainChartColumnSettingsStore
 
 internal sealed class SettingsMainChartColumnSettingsStore : IMainChartColumnSettingsStore
 {
+    private readonly Func<Settings> settingsProvider;
+
+    internal SettingsMainChartColumnSettingsStore(Func<Settings> settingsProvider = null)
+    {
+        this.settingsProvider = settingsProvider ?? (() => Settings.Default);
+    }
+
     public CustomTableColumnSettings GetMain(CustomTableColumnSettings.ViewKind viewKind, bool reset)
     {
-        Settings settings = Settings.Default;
+        Settings settings = settingsProvider();
         CustomTableColumnSettings columns = GetMain(settings, viewKind);
         if (reset || columns == null)
         {
@@ -33,12 +41,12 @@ internal sealed class SettingsMainChartColumnSettingsStore : IMainChartColumnSet
 
     public bool IsMainReady(CustomTableColumnSettings.ViewKind viewKind)
     {
-        return GetMain(Settings.Default, viewKind) != null;
+        return GetMain(settingsProvider(), viewKind) != null;
     }
 
     public PlaylistSummaryColumnSettings GetPlaylistSummary(bool ensureCompatibility)
     {
-        Settings settings = Settings.Default;
+        Settings settings = settingsProvider();
         if (ensureCompatibility)
         {
             settings.PlaylistSummaryColumnsSettings ??= new PlaylistSummaryColumnSettings();
@@ -49,7 +57,7 @@ internal sealed class SettingsMainChartColumnSettingsStore : IMainChartColumnSet
 
     public PlaylistSummaryColumnSettings ResetPlaylistSummary()
     {
-        Settings settings = Settings.Default;
+        Settings settings = settingsProvider();
         settings.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
         settings.PlaylistSummaryColumnsSettings.EnsureCompatibility();
         return settings.PlaylistSummaryColumnsSettings;

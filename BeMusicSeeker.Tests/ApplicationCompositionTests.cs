@@ -330,6 +330,27 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionDefaultColumnSettingsStoreUsesInjectedEditSessionValues()
+    {
+        var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
+        var summaryColumns = new PlaylistSummaryColumnSettings();
+        var values = new BeMusicSeeker.Properties.Settings
+        {
+            StandardCustomTableColumnSettings = columns,
+            PlaylistSummaryColumnsSettings = summaryColumns
+        };
+        var session = new FakeSettingsEditSession { Values = values };
+        var composition = new ApplicationComposition(settingsEditSession: session);
+
+        Assert.AreSame(
+            columns,
+            composition.MainChartColumnSettingsStore.GetMain(
+                CustomTableColumnSettings.ViewKind.STANDARD,
+                reset: false));
+        Assert.AreSame(summaryColumns, composition.MainChartColumnSettingsStore.GetPlaylistSummary(ensureCompatibility: false));
+    }
+
+    [TestMethod]
     public void MainWindowKeywordSearchHistoryUsesCompositionSettingsStore()
     {
         var store = new FakeKeywordSearchHistorySettingsStore

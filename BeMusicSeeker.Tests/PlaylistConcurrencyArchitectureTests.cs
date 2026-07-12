@@ -171,6 +171,13 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(coordinatorSource, "IMainChartColumnSettingsStore");
         Assert.IsFalse(mainChartSource.Contains("Settings.Default."));
         Assert.IsFalse(coordinatorSource.Contains("Settings.Default."));
+
+        string compositionSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "ApplicationComposition.cs");
+        StringAssert.Contains(compositionSource, "new SettingsMainChartColumnSettingsStore(() => this.settingsEditSession.Values)");
+        Assert.IsFalse(compositionSource.Contains("mainChartColumnSettingsStore: new SettingsMainChartColumnSettingsStore()"));
     }
 
     [TestMethod]

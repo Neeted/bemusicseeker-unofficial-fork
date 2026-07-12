@@ -68,7 +68,7 @@ internal sealed class ApplicationComposition
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
             ?? (() => CustomFolderOutputSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.mainChartColumnSettingsStore = mainChartColumnSettingsStore
-            ?? new SettingsMainChartColumnSettingsStore();
+            ?? new SettingsMainChartColumnSettingsStore(() => this.settingsEditSession.Values);
         this.firstStartupProvider = firstStartupProvider
             ?? (() => GetApplication().firstStartup);
         this.completeFirstStartup = completeFirstStartup
@@ -253,8 +253,7 @@ internal sealed class ApplicationComposition
 
     internal static ApplicationComposition CreateDefault()
     {
-        return new ApplicationComposition(
-            mainChartColumnSettingsStore: new SettingsMainChartColumnSettingsStore());
+        return new ApplicationComposition();
     }
 
     internal MainWindowViewModel CreateMainWindowViewModel()
