@@ -386,6 +386,45 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionSettingsLifecycleSharesSessionAcrossOpenEditReloadRedisplayAndShutdown()
+    {
+        var values = new BeMusicSeeker.Properties.Settings
+        {
+            OperationModeLR2DB = true,
+            PlayHistorySelectedDisplayTargetIdentity = "all"
+        };
+        var session = new FakeSettingsEditSession { Values = values };
+        var composition = new ApplicationComposition(
+            firstStartupProvider: () => false,
+            completeFirstStartup: () =>
+            {
+            },
+            settingsEditSession: session);
+
+        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+
+        Assert.AreEqual(1, session.ReloadCount);
+        Assert.AreSame(values, composition.SettingsEditSession.Values);
+
+        viewModel.settingDialog.SaveOperationModeForRestart(operationMode: false);
+
+        Assert.IsFalse(values.OperationModeLR2DB);
+        Assert.AreEqual(2, session.ReloadCount);
+        Assert.AreEqual(1, session.SaveCount);
+
+        MainWindowViewModel.SettingDialogViewModel redisplayed = composition.CreateSettingDialogViewModel(viewModel);
+        Assert.IsFalse(redisplayed.OperationModeLR2DB);
+        Assert.AreEqual(3, session.ReloadCount);
+
+        viewModel.SaveSettingsForShutdown();
+
+        Assert.AreEqual(2, session.SaveCount);
+        CollectionAssert.AreEqual(
+            new[] { "reload", "reload", "save", "reload", "save" },
+            session.Calls);
+    }
+
+    [TestMethod]
     public void MainWindowPlaylistOutputOptionsUseCompositionCustomFolderSettings()
     {
         var values = new BeMusicSeeker.Properties.Settings
@@ -498,6 +537,8 @@ public sealed class ApplicationCompositionTests
     {
         public BeMusicSeeker.Properties.Settings Values { get; set; } = BeMusicSeeker.Properties.Settings.Default;
 
+        public List<string> Calls { get; } = [];
+
         public int ReloadCount { get; private set; }
 
         public int SaveCount { get; private set; }
@@ -505,11 +546,13 @@ public sealed class ApplicationCompositionTests
         public void Reload()
         {
             ReloadCount++;
+            Calls.Add("reload");
         }
 
         public void Save()
         {
             SaveCount++;
+            Calls.Add("save");
         }
     }
 
