@@ -106,7 +106,10 @@ internal class temporarilyCopyFiles : IDisposable
                         }
                         LongPathFileSystem.CopyDirectory(srcFile, text, overwrite: false);
                     }
-                    temporarilyCopyFiles2.copiedFilesDst.Add(text);
+                    lock (temporarilyCopyFiles2.copiedFilesDst)
+                    {
+                        temporarilyCopyFiles2.copiedFilesDst.Add(text);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -119,6 +122,7 @@ internal class temporarilyCopyFiles : IDisposable
         {
             Dispose();
             copiedFilesDst = [];
+            throw;
         }
     }
 

@@ -268,6 +268,31 @@ public sealed class PlaybackPanelViewModelTests
         }
     }
 
+    [TestMethod]
+    public void PlaybackPanel_StopsWhenMutatedDirectoryContainsPlayingChart()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackContainment", Guid.NewGuid().ToString("N"));
+        string parent = Path.Combine(root, "Parent");
+        string chartPath = Path.Combine(parent, "Child", "chart.bms");
+        var player = new FakeBmsPlayer();
+        PlaybackPanelViewModel panel = CreatePanel(player);
+        panel.BeginPlayback(new TestBmsFile(chartPath), 0);
+
+        panel.StopIfPlayingChartDirectories(new[] { parent });
+
+        Assert.IsNull(panel.NowPlayingBmsFile);
+        Assert.AreEqual(1, player.CloseProcessCount);
+    }
+
+    [TestMethod]
+    public void BmiIdxView_RegistersSuppliedExitHandlerForAutoAdvance()
+    {
+        string source = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Models", "BMIIDXView2015.cs");
+
+        StringAssert.Contains(source, "onExitEventHandlerRegstered = onExitEventHandler;");
+        StringAssert.Contains(source, "BMIIDXView2015Process.Exited += onExitEventHandlerRegstered;");
+    }
+
     private static PlaybackPanelViewModel CreatePanel(IBMSPlayer player)
     {
         return new PlaybackPanelViewModel(

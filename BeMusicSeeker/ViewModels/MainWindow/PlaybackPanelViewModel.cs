@@ -633,7 +633,15 @@ public sealed class PlaybackPanelViewModel : ViewModel
         string installDestination = playbackChart?.InstallDestination;
         if (!string.IsNullOrWhiteSpace(installDestination) && LongPathFileSystem.DirectoryExists(installDestination))
         {
-            StartTemporarilyInstalledChart(playbackChart, bmsFile, generation, installDestination);
+            try
+            {
+                StartTemporarilyInstalledChart(playbackChart, bmsFile, generation, installDestination);
+            }
+            catch
+            {
+                StopPlayback(closeProcess: true);
+                throw;
+            }
             return;
         }
 
@@ -695,6 +703,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
                 && ApplicationSettings.OperationModeLR2DB
                 && !ShowTemporaryInstallConfirmation())
             {
+                StopPlayback(closeProcess: true);
                 return;
             }
             chartPackage = ChartPackage.FromChartEntries([PackageChartEntry.FromChart(playbackChart)]);
@@ -864,7 +873,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
         string normalizedParent = NormalizeDirectoryForPrefixCheck(parentDirectory);
         string normalizedChartDirectory = NormalizeDirectoryForPrefixCheck(chartDirectory);
         return string.Equals(normalizedParent, normalizedChartDirectory, StringComparison.OrdinalIgnoreCase)
-            || normalizedParent.StartsWith(normalizedChartDirectory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
+            || normalizedChartDirectory.StartsWith(normalizedParent + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
     }
 
     private static string NormalizeDirectoryForPrefixCheck(string directoryPath)

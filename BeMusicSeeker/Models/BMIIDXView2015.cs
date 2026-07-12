@@ -246,7 +246,12 @@ public class BMIIDXView2015 : NotificationObject, IBMSPlayer, INotifyPropertyCha
                 EnableRaisingEvents = true
             };
             BMIIDXView2015Process.Exited += onExitEventHandlerDefault;
-            if (onExitEventHandler == null)
+            if (onExitEventHandler != null)
+            {
+                onExitEventHandlerRegstered = onExitEventHandler;
+                BMIIDXView2015Process.Exited += onExitEventHandlerRegstered;
+            }
+            else
             {
                 onExitEventHandlerRegstered = null;
             }
