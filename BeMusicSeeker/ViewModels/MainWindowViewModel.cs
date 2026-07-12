@@ -13659,6 +13659,8 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
+        CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+            ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
 
         const string reason = "playlist_summary_external_property_initialization";
         BeginPlaylistSyncProgressOperation();
@@ -13737,7 +13739,8 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
 
-            List<PlaylistSummaryExternalPropertyInitializationChange> acceptedChanges = FilterPlaylistSummaryExternalPropertyInitializationOutputConflicts(pendingChanges);
+            List<PlaylistSummaryExternalPropertyInitializationChange> acceptedChanges =
+                FilterPlaylistSummaryExternalPropertyInitializationOutputConflicts(pendingChanges, settings);
             if (acceptedChanges.Count == 0)
             {
                 return;
@@ -13761,7 +13764,13 @@ public partial class MainWindowViewModel : ViewModel
                 bool outputDirChanged = !string.Equals(beforeEffectiveOutputDir ?? string.Empty, afterEffectiveOutputDir ?? string.Empty, StringComparison.OrdinalIgnoreCase);
                 if (outputDirChanged)
                 {
-                    CapturePlaylistSummaryOutputDirectoryBefore(table, beforeEffectiveOutputDir, outputDirPathBeforeByTable, outputBaseDirPathBeforeByTable, wasRootFolderBeforeByTable);
+                    CapturePlaylistSummaryOutputDirectoryBefore(
+                        table,
+                        beforeEffectiveOutputDir,
+                        outputDirPathBeforeByTable,
+                        outputBaseDirPathBeforeByTable,
+                        wasRootFolderBeforeByTable,
+                        settings);
                 }
 
                 bool entryFolderProjectionChanged = false;
@@ -13829,17 +13838,21 @@ public partial class MainWindowViewModel : ViewModel
                         reason,
                         UpdatePlaylistSummaryCustomFolderOutputProgress,
                         wasRootFolderBeforeByTable,
-                        outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable);
+                        outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
+                        settings: settings);
                 }
                 finally
                 {
                     EndPlaylistSyncProgressOperation();
                     FlushPlaylistOperationNotifications(notificationScope, "playlist summary custom folder migration notification");
                 }
-                UpdatePlaylistSummaryRootOutputDirectoriesAfterExternalInitialization(outputChangedTables, outputDirPathBeforeByTable);
+                UpdatePlaylistSummaryRootOutputDirectoriesAfterExternalInitialization(
+                    outputChangedTables,
+                    outputDirPathBeforeByTable,
+                    settings);
             }
             List<BMSTable> sameOutputReOutputTableList = [.. sameOutputReOutputTables.Distinct()];
-            bool sameOutputReOutputCommitted = sameOutputReOutputTableList.Count > 0 && Settings.Default.OperationModeLR2DB;
+            bool sameOutputReOutputCommitted = sameOutputReOutputTableList.Count > 0 && settings.OperationModeLR2DB;
             if (sameOutputReOutputCommitted)
             {
                 using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
@@ -13850,7 +13863,8 @@ public partial class MainWindowViewModel : ViewModel
                     tables.ReOutputCustomFoldersAndCommitHeadersToDB(
                         sameOutputReOutputTableList,
                         reason,
-                        UpdatePlaylistSummaryCustomFolderOutputProgress);
+                        UpdatePlaylistSummaryCustomFolderOutputProgress,
+                        settings);
                 }
                 finally
                 {
@@ -13902,13 +13916,15 @@ public partial class MainWindowViewModel : ViewModel
         });
     }
 
-    private List<PlaylistSummaryExternalPropertyInitializationChange> FilterPlaylistSummaryExternalPropertyInitializationOutputConflicts(IReadOnlyList<PlaylistSummaryExternalPropertyInitializationChange> pendingChanges)
+    private List<PlaylistSummaryExternalPropertyInitializationChange> FilterPlaylistSummaryExternalPropertyInitializationOutputConflicts(
+        IReadOnlyList<PlaylistSummaryExternalPropertyInitializationChange> pendingChanges,
+        CustomFolderOutputSettingsSnapshot settings)
     {
         if (pendingChanges == null || pendingChanges.Count == 0)
         {
             return [];
         }
-        if (!Settings.Default.OperationModeLR2DB)
+        if (settings?.OperationModeLR2DB != true)
         {
             return [.. pendingChanges];
         }
@@ -13966,9 +13982,10 @@ public partial class MainWindowViewModel : ViewModel
         string effectiveOutputDirBefore,
         Dictionary<BMSTable, string> outputDirPathBeforeByTable,
         Dictionary<BMSTable, string> outputBaseDirPathBeforeByTable,
-        Dictionary<BMSTable, bool> wasRootFolderBeforeByTable)
+        Dictionary<BMSTable, bool> wasRootFolderBeforeByTable,
+        CustomFolderOutputSettingsSnapshot settings)
     {
-        if (!Settings.Default.OperationModeLR2DB
+        if (settings?.OperationModeLR2DB != true
             || table == null
             || string.IsNullOrWhiteSpace(effectiveOutputDirBefore))
         {
@@ -13977,18 +13994,18 @@ public partial class MainWindowViewModel : ViewModel
 
         bool beforeBaseDirectoryResolved = table.is_root_folder;
         string beforeBaseDirectory = table.is_root_folder
-            ? Settings.Default.LR2CustomFolderOutputBaseDirRootType
+            ? settings.LR2CustomFolderOutputBaseDirRootType
             : null;
         if (!table.is_root_folder)
         {
             beforeBaseDirectoryResolved = CustomFolderOutputBaseRegistry.TryResolveNormalOutputBaseDirectory(
                 table.custom_folder_output_base_name,
-                Settings.Default.LR2CustomFolderOutputBaseDir,
-                Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs,
+                settings.LR2CustomFolderOutputBaseDir,
+                settings.LR2CustomFolderAdditionalOutputBaseDirs,
                 out beforeBaseDirectory);
             if (!beforeBaseDirectoryResolved)
             {
-                beforeBaseDirectory = Settings.Default.LR2CustomFolderOutputBaseDir;
+                beforeBaseDirectory = settings.LR2CustomFolderOutputBaseDir;
                 beforeBaseDirectoryResolved = !string.IsNullOrWhiteSpace(beforeBaseDirectory);
             }
         }
@@ -14001,9 +14018,12 @@ public partial class MainWindowViewModel : ViewModel
         wasRootFolderBeforeByTable[table] = table.is_root_folder;
     }
 
-    private void UpdatePlaylistSummaryRootOutputDirectoriesAfterExternalInitialization(IEnumerable<BMSTable> outputChangedTables, IReadOnlyDictionary<BMSTable, string> outputDirPathBeforeByTable)
+    private void UpdatePlaylistSummaryRootOutputDirectoriesAfterExternalInitialization(
+        IEnumerable<BMSTable> outputChangedTables,
+        IReadOnlyDictionary<BMSTable, string> outputDirPathBeforeByTable,
+        CustomFolderOutputSettingsSnapshot settings)
     {
-        if (!Settings.Default.OperationModeLR2DB || lr2config == null)
+        if (settings?.OperationModeLR2DB != true || lr2config == null)
         {
             return;
         }
@@ -14021,7 +14041,10 @@ public partial class MainWindowViewModel : ViewModel
             .Select(item => item.Value)
             .Where(directory => !string.IsNullOrWhiteSpace(directory));
         IEnumerable<string> addDirectories = rootTables
-            .Select(table => ResolveCustomFolderOutputDirectoryWithNotification(table, "playlist summary root output directory notification"))
+            .Select(table => ResolveCustomFolderOutputDirectoryWithNotification(
+                table,
+                "playlist summary root output directory notification",
+                settings))
             .Where(directory => !string.IsNullOrWhiteSpace(directory));
         lr2config.SetBMSSearchDirectories(bmsSearchDirectories
             .Except(removeDirectories, StringComparer.OrdinalIgnoreCase)
@@ -16991,11 +17014,14 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private string ResolveCustomFolderOutputDirectoryWithNotification(BMSTable bmsTable, string routeName)
+    private string ResolveCustomFolderOutputDirectoryWithNotification(
+        BMSTable bmsTable,
+        string routeName,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         try
         {
-            CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
+            settings ??= customFolderOutputSettingsProvider()
                 ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
             return BMSPlaylist.GetCustomFolderOutputDirectory(
                 bmsTable,

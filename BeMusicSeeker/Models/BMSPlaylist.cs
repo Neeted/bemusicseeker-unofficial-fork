@@ -8653,7 +8653,11 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="reason">性能ログに残す理由。</param>
     /// <param name="progressCallback">処理済み件数、全件数、処理中プレイリスト名を通知する callback。</param>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTables"/> が <see langword="null"/> の場合。</exception>
-    internal void ReOutputCustomFoldersAndCommitHeadersToDB(IEnumerable<BMSTable> bmsTables, string reason, Action<int, int, string> progressCallback = null)
+    internal void ReOutputCustomFoldersAndCommitHeadersToDB(
+        IEnumerable<BMSTable> bmsTables,
+        string reason,
+        Action<int, int, string> progressCallback = null,
+        CustomFolderOutputSettingsSnapshot settings = null)
     {
         if (bmsTables == null)
         {
@@ -8673,7 +8677,7 @@ public partial class BMSPlaylist : NotificationObject
             return;
         }
 
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
+        settings ??= GetCustomFolderOutputSettings();
         if (!settings.OperationModeLR2DB)
         {
             CommitBMSTableHeadersToDB(tableList);

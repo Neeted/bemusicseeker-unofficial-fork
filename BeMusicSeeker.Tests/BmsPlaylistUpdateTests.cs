@@ -713,14 +713,29 @@ public sealed class BmsPlaylistUpdateTests
         string previousBeatorajaBmtTablePath = Settings.Default.BeatorajaBmtTablePath;
         string previousBeatorajaRootPath = Settings.Default.BeatorajaRootPath;
         Settings.Default.EnablePlaylistUrlCompletion = false;
-        Settings.Default.OperationModeLR2DB = true;
+        Settings.Default.OperationModeLR2DB = false;
         Settings.Default.EnableBeatorajaBmtOutput = false;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         try
         {
-            string outputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            string providerOutputBaseDir = Path.Combine(tempDirectory, "ProviderCustomFolder");
+            string globalOutputBaseDir = Path.Combine(tempDirectory, "GlobalCustomFolder");
+            Settings.Default.LR2CustomFolderOutputBaseDir = globalOutputBaseDir;
+            CustomFolderOutputSettingsSnapshot outputSettings = new()
+            {
+                OperationModeLR2DB = true,
+                LR2CustomFolderOutputBaseDir = providerOutputBaseDir,
+                LR2CustomFolderOutputBaseDirRootType = Path.Combine(tempDirectory, "ProviderRootCustomFolder"),
+                LR2CustomFolderAdditionalOutputBaseDirs = "[]",
+                EnableDownloadLr2IrScoreAndDetectUnsent = false
+            };
+            int providerCallCount = 0;
+            Func<CustomFolderOutputSettingsSnapshot> getOutputSettings = () =>
+            {
+                providerCallCount++;
+                return outputSettings;
+            };
             string headerJsonPath = Path.Combine(tempDirectory, "header.json");
             string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"ExternalName\",\r\n\"symbol\":\"EX\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
@@ -732,7 +747,15 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                BeatorajaBmtOptionsSnapshot.CreateCurrent,
+                getOutputSettings);
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9504;
             table.name = "LocalName";
@@ -751,11 +774,13 @@ public sealed class BmsPlaylistUpdateTests
                 new ObservableCollection<BMSTable>(new[] { table }),
                 Dispatcher.CurrentDispatcher);
             playlist.ReOutputCustomFolderAndCommitToDB(table);
-            string outputPath = Path.Combine(outputBaseDir, "StableOutput", "0001.lr2folder");
+            string outputPath = Path.Combine(providerOutputBaseDir, "StableOutput", "0001.lr2folder");
             string beforeText = File.ReadAllText(outputPath, Encoding.GetEncoding("shift_jis"));
             StringAssert.Contains(beforeText, "#CATEGORY LocalName");
-            var viewModel = new MainWindowViewModel();
-            Settings.Default.LR2CustomFolderOutputBaseDir = outputBaseDir;
+            providerCallCount = 0;
+            var viewModel = new ApplicationComposition(
+                BmsLibraryOptionsSnapshot.CreateCurrent,
+                customFolderOutputSettingsProvider: getOutputSettings).CreateMainWindowViewModel();
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
@@ -783,11 +808,13 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual("StableOutput", table.Output_dir);
             string afterText = string.Join(
                 Environment.NewLine,
-                Directory.GetFiles(Path.Combine(outputBaseDir, "StableOutput"), "*.lr2folder", SearchOption.AllDirectories)
+                Directory.GetFiles(Path.Combine(providerOutputBaseDir, "StableOutput"), "*.lr2folder", SearchOption.AllDirectories)
                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                     .Select(path => File.ReadAllText(path, Encoding.GetEncoding("shift_jis"))));
             StringAssert.Contains(afterText, "#CATEGORY ExternalName");
             Assert.IsFalse(afterText.Contains("#CATEGORY LocalName"));
+            Assert.AreEqual(1, providerCallCount);
+            Assert.IsFalse(Directory.Exists(Path.Combine(globalOutputBaseDir, "StableOutput")));
             CollectionAssert.DoesNotContain(queuedBmtReasons, "ReOutputCustomFolderAndCommitToDB");
             CollectionAssert.Contains(queuedBmtReasons, "playlist_summary_external_property_initialization");
         }
