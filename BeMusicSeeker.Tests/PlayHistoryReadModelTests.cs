@@ -1494,7 +1494,7 @@ public sealed class PlayHistoryReadModelTests
         viewModel.PlayHistory.PresentationState.SetSummaryCards(new[] { new PlayHistorySummaryCard(Resources.Play_history_summary_judge_count, "1") });
         viewModel.PlayHistory.PresentationState.SetDiagnosticText("diagnostic");
 
-        viewModel.SelectPlaylistSummary();
+        viewModel.PlaylistWorkspace.RequestSummarySelection();
 
         Assert.AreEqual(0, viewModel.PlayHistory.SummaryCards.Count);
         Assert.AreEqual(string.Empty, viewModel.PlayHistory.SummaryDiagnosticText);

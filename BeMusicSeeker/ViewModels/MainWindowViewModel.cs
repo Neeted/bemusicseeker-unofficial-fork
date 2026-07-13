@@ -552,8 +552,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly object lockDeferredPlaylistRef = new();
 
-    private PlaylistDetailViewState playlistViewState => PlaylistWorkspace.DetailViewState;
-
 
     private readonly object playlistLibraryIndexSync = new();
 
@@ -1008,42 +1006,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 指定行集合に含まれる playlist lightweight row 件数を返します。
-    /// </summary>
-    /// <param name="rows">判定対象行集合。</param>
-    /// <returns>playlist row 件数。</returns>
-    private static int CountPlaylistDetailRows(IEnumerable rows)
-    {
-        if (rows == null)
-        {
-            return 0;
-        }
-        if (rows is IChartListViewMetadata metadata)
-        {
-            return metadata.RowCount;
-        }
-        int count = 0;
-        foreach (object row in rows)
-        {
-            if (row is PlaylistDetailRow)
-            {
-                count++;
-            }
-        }
-        return count;
-    }
-
-    /// <summary>
-    /// 指定行集合に含まれる playlist source row 件数を返します。
-    /// </summary>
-    /// <param name="rows">判定対象行集合。</param>
-    /// <returns>source row 件数。</returns>
-    private static int CountPlaylistSourceRows(IEnumerable<PlaylistDetailSourceRow> rows)
-    {
-        return rows?.Count() ?? 0;
-    }
-
-    /// <summary>
     /// playlist 詳細表示時の一覧反映方式を更新します。
     /// </summary>
     /// <param name="playlistDetailActive">playlist 詳細表示中かどうか。</param>
@@ -1051,30 +1013,6 @@ public partial class MainWindowViewModel : ViewModel
     {
         PlaylistBindingModeCommit commit = PlaylistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive);
         PlaylistWorkspace.PublishBindingMode(commit);
-    }
-
-    /// <summary>
-    /// 直前に解放した playlist source/view がまだ生存しているかを診断ログへ出力します。
-    /// </summary>
-    /// <param name="reason">確認契機。</param>
-    private void LogPlaylistWeakReferenceStatus(string reason)
-    {
-        WeakReference<List<PlaylistDetailSourceRow>> previousSourceWeakReference;
-        WeakReference<IList> previousViewWeakReference;
-        long previousSourceGenerationId;
-        long previousViewGenerationId;
-        lock (playlistViewState.SyncRoot)
-        {
-            previousSourceWeakReference = playlistViewState.Source.PreviousRowsWeakReference;
-            previousViewWeakReference = playlistViewState.View.PreviousRowsWeakReference;
-            previousSourceGenerationId = playlistViewState.Source.PreviousGenerationId;
-            previousViewGenerationId = playlistViewState.View.PreviousGenerationId;
-        }
-        List<PlaylistDetailSourceRow> previousSourceRows = null;
-        IList previousViewRows = null;
-        bool previousSourceAlive = previousSourceWeakReference != null && previousSourceWeakReference.TryGetTarget(out previousSourceRows);
-        bool previousViewAlive = previousViewWeakReference != null && previousViewWeakReference.TryGetTarget(out previousViewRows);
-        LogPlaylistRetention("playlist_weak_reference_check reason=" + reason + " sourceGenerationId=" + previousSourceGenerationId + " sourceAlive=" + previousSourceAlive + " playlistSourceRowCount=" + (previousSourceAlive ? CountPlaylistSourceRows(previousSourceRows) : 0) + " viewGenerationId=" + previousViewGenerationId + " viewAlive=" + previousViewAlive + " playlistViewRowCount=" + (previousViewAlive ? CountPlaylistDetailRows(previousViewRows) : 0));
     }
 
     /// <summary>
@@ -1187,17 +1125,8 @@ public partial class MainWindowViewModel : ViewModel
             }
             await WaitForPlaylistReloadCleanupReadinessAsync(request).ConfigureAwait(false);
             TryGetPreviousPlaylistSummaryViewState(out bool oldSummaryAlive, out int oldSummaryRowCount);
-            WeakReference<List<PlaylistDetailSourceRow>> previousSourceWeakReference;
-            WeakReference<IList> previousViewWeakReference;
-            lock (playlistViewState.SyncRoot)
-            {
-                previousSourceWeakReference = playlistViewState.Source.PreviousRowsWeakReference;
-                previousViewWeakReference = playlistViewState.View.PreviousRowsWeakReference;
-            }
-            List<PlaylistDetailSourceRow> previousSourceRows = null;
-            IList previousViewRows = null;
-            bool oldDetailSourceAlive = previousSourceWeakReference != null && previousSourceWeakReference.TryGetTarget(out previousSourceRows);
-            bool oldDetailViewAlive = previousViewWeakReference != null && previousViewWeakReference.TryGetTarget(out previousViewRows);
+            PlaylistPreviousDetailRowsSnapshot previousDetailRows =
+                PlaylistWorkspace.CapturePreviousDetailRowsSnapshot();
             long managedMemoryBeforeBytes = GC.GetTotalMemory(forceFullCollection: false);
             bool gcInvoked = request.GcAllowed && !IsShutdownRequested;
             if (gcInvoked)
@@ -1207,7 +1136,7 @@ public partial class MainWindowViewModel : ViewModel
                 GC.Collect();
             }
             long managedMemoryAfterBytes = GC.GetTotalMemory(forceFullCollection: false);
-            LogPlaylistReload("playlist_reload_cleanup completed cleanupId=" + request.CleanupId + " operationKind=" + GetPlaylistReloadOperationKindText(request.OperationKind) + " tableCount=" + request.TableCount + " oldSummaryAlive=" + oldSummaryAlive.ToString().ToLowerInvariant() + " oldSummaryRowCount=" + oldSummaryRowCount + " oldDetailSourceAlive=" + oldDetailSourceAlive.ToString().ToLowerInvariant() + " oldDetailSourceRowCount=" + (oldDetailSourceAlive ? CountPlaylistSourceRows(previousSourceRows) : 0) + " oldDetailViewAlive=" + oldDetailViewAlive.ToString().ToLowerInvariant() + " oldDetailViewRowCount=" + (oldDetailViewAlive ? CountPlaylistDetailRows(previousViewRows) : 0) + " managedMemoryBeforeMb=" + (managedMemoryBeforeBytes / 1024L / 1024L) + " managedMemoryAfterMb=" + (managedMemoryAfterBytes / 1024L / 1024L) + " gcInvoked=" + gcInvoked.ToString().ToLowerInvariant());
+            LogPlaylistReload("playlist_reload_cleanup completed cleanupId=" + request.CleanupId + " operationKind=" + GetPlaylistReloadOperationKindText(request.OperationKind) + " tableCount=" + request.TableCount + " oldSummaryAlive=" + oldSummaryAlive.ToString().ToLowerInvariant() + " oldSummaryRowCount=" + oldSummaryRowCount + " oldDetailSourceAlive=" + previousDetailRows.SourceAlive.ToString().ToLowerInvariant() + " oldDetailSourceRowCount=" + previousDetailRows.SourceRowCount + " oldDetailViewAlive=" + previousDetailRows.ViewAlive.ToString().ToLowerInvariant() + " oldDetailViewRowCount=" + previousDetailRows.ViewRowCount + " managedMemoryBeforeMb=" + (managedMemoryBeforeBytes / 1024L / 1024L) + " managedMemoryAfterMb=" + (managedMemoryAfterBytes / 1024L / 1024L) + " gcInvoked=" + gcInvoked.ToString().ToLowerInvariant());
         }
     }
 
@@ -1713,15 +1642,17 @@ public partial class MainWindowViewModel : ViewModel
         MainViewUpdateMode requestedMode,
         object parameter)
     {
-        bool hasResolvedSelection = TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistDetailFilter filterType);
+        PlaylistDetailSelection selection = parameter as PlaylistDetailSelection
+            ?? treeViewFilterParameterSelected as PlaylistDetailSelection;
+        bool hasResolvedSelection = selection != null;
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         ChartListSortParameters sortParameters = regularChartListOwner.CaptureSortParameters();
         return new PlaylistDetailRefreshInput(
             mode,
             requestedMode,
-            bmsTable,
-            folderName,
-            filterType,
+            selection?.Table,
+            selection?.FolderName,
+            selection?.Filter ?? PlaylistDetailFilter.PlaylistFilter,
             hasResolvedSelection,
             filters.KeywordFilter,
             filters.ModeFilter,
@@ -4311,64 +4242,6 @@ public partial class MainWindowViewModel : ViewModel
 
     public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
 
-    /// <summary>
-    /// 現在採用中の playlist source 世代を返します。
-    /// </summary>
-    public long PlaylistSourceGenerationId
-    {
-        get
-        {
-            lock (playlistViewState.SyncRoot)
-            {
-                return playlistViewState.Source.GenerationId;
-            }
-        }
-    }
-
-    /// <summary>
-    /// 現在採用中の playlist view 世代を返します。
-    /// </summary>
-    public long PlaylistAdoptedViewGenerationId
-    {
-        get
-        {
-            lock (playlistViewState.SyncRoot)
-            {
-                return playlistViewState.View.GenerationId;
-            }
-        }
-    }
-
-    /// <summary>
-    /// playlist 一覧側の描画・待機完了後に retention 状態を追加計測します。
-    /// </summary>
-    /// <param name="checkpoint">計測契機名。</param>
-    /// <param name="expectedSourceGenerationId">UI で観測した source 世代。</param>
-    /// <param name="expectedViewGenerationId">UI で観測した view 世代。</param>
-    public void LogPlaylistUiRetentionCheckpoint(string checkpoint, long expectedSourceGenerationId, long expectedViewGenerationId)
-    {
-        if (!installPerformanceLoggingEnabled || !IsPlaylistDetailViewActive)
-        {
-            return;
-        }
-        long currentSourceGenerationId;
-        long currentViewGenerationId;
-        int sourceRowsAlive;
-        int currentViewRowsAlive;
-        int lastAppliedViewCount;
-        lock (playlistViewState.SyncRoot)
-        {
-            currentSourceGenerationId = playlistViewState.Source.GenerationId;
-            currentViewGenerationId = playlistViewState.View.GenerationId;
-            sourceRowsAlive = CountPlaylistSourceRows(playlistViewState.Source.Rows);
-            currentViewRowsAlive = CountPlaylistDetailRows(playlistViewState.View.Rows);
-            lastAppliedViewCount = playlistViewState.View.LastAppliedCount;
-        }
-        bool stale = currentSourceGenerationId != expectedSourceGenerationId || currentViewGenerationId != expectedViewGenerationId;
-        LogPlaylistRetention("playlist_ui_retention_checkpoint checkpoint=" + checkpoint + " expectedSourceGenerationId=" + expectedSourceGenerationId + " expectedViewGenerationId=" + expectedViewGenerationId + " currentSourceGenerationId=" + currentSourceGenerationId + " currentViewGenerationId=" + currentViewGenerationId + " stale=" + stale + " playlistSourceRowCount=" + sourceRowsAlive + " playlistViewRowCount=" + currentViewRowsAlive + " lastAppliedViewCount=" + lastAppliedViewCount);
-        LogPlaylistWeakReferenceStatus("ui_" + checkpoint);
-    }
-
     public bool IsDropInstallQueueActive
     {
         get
@@ -5434,6 +5307,7 @@ public partial class MainWindowViewModel : ViewModel
             LogPlaylistViewApply,
             LogPlaylistRetention);
         PlaylistWorkspace.ConfigureDetailEditing(() => tables);
+        PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
@@ -5608,6 +5482,24 @@ public partial class MainWindowViewModel : ViewModel
         {
             RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         }
+    }
+
+    private void PlaylistWorkspaceTreeSelectionRequested(
+        object sender,
+        PlaylistTreeSelectionRequestedEventArgs request)
+    {
+        if (request.IsSummary)
+        {
+            ApplyPlaylistSummarySelection();
+            return;
+        }
+        PlaylistDetailSelection selection = request.Detail;
+        SetPlaylistSummaryMode(enabled: false);
+        RefreshChartRowsView(
+            selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
+                ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
+                : MainViewUpdateMode.PlaylistFilterSelected,
+            selection);
     }
 
     private void RegularChartListOwnerSortChanged(object sender, MainChartListSortRequestedEventArgs request)
@@ -7593,63 +7485,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 現在のモード/パラメータからプレイリスト選択情報を解決します。
-    /// </summary>
-    /// <param name="mode">解決対象モード。</param>
-    /// <param name="parameter">更新パラメータ。</param>
-    /// <param name="bmsTable">解決されたプレイリスト。</param>
-    /// <param name="folderName">解決されたプレイリストフォルダ名。</param>
-    /// <param name="filterType">解決された filter 種別。</param>
-    /// <returns>プレイリスト選択情報を解決できた場合は <see langword="true"/>。</returns>
-    private bool TryResolvePlaylistSelection(MainViewUpdateMode mode, object parameter, out BMSTable bmsTable, out string folderName, out PlaylistDetailFilter filterType)
-    {
-        bmsTable = null;
-        folderName = null;
-        filterType = PlaylistDetailFilter.PlaylistFilter;
-        if (mode == MainViewUpdateMode.PlaylistFilterSelected)
-        {
-            if (parameter == null)
-            {
-                return true;
-            }
-            if (parameter is Tuple<BMSTable, string> tuple)
-            {
-                bmsTable = tuple.Item1;
-                folderName = tuple.Item2;
-                return true;
-            }
-            return false;
-        }
-        if (mode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected)
-        {
-            filterType = PlaylistDetailFilter.PlaylistNotOwnedFilterSelected;
-            bmsTable = parameter as BMSTable;
-            return parameter == null || bmsTable != null;
-        }
-        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected)
-        {
-            if (treeViewFilterParameterSelected == null)
-            {
-                return true;
-            }
-            if (treeViewFilterParameterSelected is Tuple<BMSTable, string> treeTuple)
-            {
-                bmsTable = treeTuple.Item1;
-                folderName = treeTuple.Item2;
-                return true;
-            }
-            return false;
-        }
-        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected)
-        {
-            filterType = PlaylistDetailFilter.PlaylistNotOwnedFilterSelected;
-            bmsTable = treeViewFilterParameterSelected as BMSTable;
-            return treeViewFilterParameterSelected == null || bmsTable != null;
-        }
-        return false;
-    }
-
-    /// <summary>
     /// 指定された更新モードとパラメータに基づいて、メインの chart row 表示用コレクションを生成・更新します。
     /// ツリーでのフォルダ選択、プレイリストや難易度表の適用、Missingファイル等の保守フィルタ、およびキーワードやキーモードでの絞り込み等を行います。<br/>
     /// このメソッドの実行には、規模に応じて時間がかかるため内部でタイマー計測し遅延を制御・ロギングする機構が含まれています。
@@ -8401,25 +8236,6 @@ public partial class MainWindowViewModel : ViewModel
         SetNormalLibraryTreeFilter(null);
     }
 
-    public void ExecPlaylistFilter(BMSTable bmsTable, string folderName = null, PlaylistFilterType type = PlaylistFilterType.PlaylistFilter)
-    {
-        ExecPlaylistFilter(bmsTable, folderName, (PlaylistDetailFilter)(int)type);
-    }
-
-    internal void ExecPlaylistFilter(BMSTable bmsTable, string folderName, PlaylistDetailFilter type)
-    {
-        SetPlaylistSummaryMode(enabled: false);
-        switch (type)
-        {
-            case PlaylistDetailFilter.PlaylistFilter:
-                RefreshChartRowsView(MainViewUpdateMode.PlaylistFilterSelected, new Tuple<BMSTable, string>(bmsTable, folderName));
-                break;
-            case PlaylistDetailFilter.PlaylistNotOwnedFilterSelected:
-                RefreshChartRowsView(MainViewUpdateMode.PlaylistNotOwnedFilterSelected, bmsTable);
-                break;
-        }
-    }
-
     internal void ExecPlayHistoryFilter(PlayHistoryPeriodRequest request)
     {
         ExecPlayHistoryFilter(request, BeginPlayHistoryFilterRequest(request));
@@ -8959,27 +8775,18 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     private void RequestPlaylistScoreSnapshotRefresh(int scoreSnapshotVersion)
     {
-        int lastBuiltScoreSnapshotVersion = 0;
-        bool deferRefresh = false;
-        lock (playlistViewState.SyncRoot)
+        PlaylistScoreRefreshDecision decision =
+            PlaylistWorkspace.EvaluateScoreSnapshotRefresh(scoreSnapshotVersion);
+        if (decision.Deferred)
         {
-            lastBuiltScoreSnapshotVersion = playlistViewState.Source.LastBuiltScoreSnapshotVersion;
-            if (scoreSnapshotVersion <= lastBuiltScoreSnapshotVersion)
-            {
-                return;
-            }
-            if (playlistViewState.Source.IsPlaylistCellEditing)
-            {
-                playlistViewState.Source.PendingScoreSnapshotRefreshVersion = Math.Max(playlistViewState.Source.PendingScoreSnapshotRefreshVersion, scoreSnapshotVersion);
-                deferRefresh = true;
-            }
-        }
-        if (deferRefresh)
-        {
-            LogPlaylistWorker("playlist_score_snapshot_refresh_deferred scoreSnapshotVersion=" + scoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + lastBuiltScoreSnapshotVersion + " reason=editing");
+            LogPlaylistWorker("playlist_score_snapshot_refresh_deferred scoreSnapshotVersion=" + scoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + decision.LastBuiltVersion + " reason=editing");
             return;
         }
-        LogPlaylistWorker("playlist_score_snapshot_refresh_requested scoreSnapshotVersion=" + scoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + lastBuiltScoreSnapshotVersion + " deferredByEdit=false");
+        if (!decision.RefreshRequired)
+        {
+            return;
+        }
+        LogPlaylistWorker("playlist_score_snapshot_refresh_requested scoreSnapshotVersion=" + scoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + decision.LastBuiltVersion + " deferredByEdit=false");
         if (TrySuppress(UiRefreshChannel.LibraryMainView))
         {
             return;
@@ -11559,7 +11366,7 @@ public partial class MainWindowViewModel : ViewModel
         QueuePlaylistSummaryPresentationRefresh();
     }
 
-    public void SelectPlaylistSummary()
+    private void ApplyPlaylistSummarySelection()
     {
         bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
         SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
@@ -14201,24 +14008,9 @@ public partial class MainWindowViewModel : ViewModel
     private void RefreshChartRowsViewForPlaylist(BMSTable bmsTableUpdated)
     {
         RefreshPlaylistSummaryIfVisible("playlist_entries_updated", invalidateTableCountCache: true);
-        BMSTable bMSTable;
-        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected)
-        {
-            if (treeViewFilterParameterSelected == null)
-            {
-                return;
-            }
-            bMSTable = ((Tuple<BMSTable, string>)treeViewFilterParameterSelected).Item1;
-        }
-        else
-        {
-            if (treeViewFilterTypeSelected != MainViewUpdateMode.PlaylistNotOwnedFilterSelected || treeViewFilterParameterSelected == null)
-            {
-                return;
-            }
-            bMSTable = treeViewFilterParameterSelected as BMSTable;
-        }
-        if (bMSTable != null && bMSTable == bmsTableUpdated)
+        if (treeViewFilterParameterSelected is PlaylistDetailSelection selection
+            && selection.Table != null
+            && selection.Table == bmsTableUpdated)
         {
             IncrementPlaylistContentRevision("playlist_updated");
             RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
@@ -14231,13 +14023,13 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistFilterSelected && treeViewFilterParameterSelected is Tuple<BMSTable, string> tuple && tuple.Item1 == oldTable)
+        if (treeViewFilterParameterSelected is PlaylistDetailSelection selection
+            && selection.Table == oldTable)
         {
-            treeViewFilterParameterSelected = new Tuple<BMSTable, string>(newTable, tuple.Item2);
-        }
-        else if (treeViewFilterTypeSelected == MainViewUpdateMode.PlaylistNotOwnedFilterSelected && treeViewFilterParameterSelected == oldTable)
-        {
-            treeViewFilterParameterSelected = newTable;
+            treeViewFilterParameterSelected = new PlaylistDetailSelection(
+                newTable,
+                selection.FolderName,
+                selection.Filter);
         }
     }
 
@@ -14247,15 +14039,21 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (treeViewFilterTypeSelected != MainViewUpdateMode.PlaylistFilterSelected || treeViewFilterParameterSelected is not Tuple<BMSTable, string> tuple || tuple.Item1 != table)
+        if (treeViewFilterTypeSelected != MainViewUpdateMode.PlaylistFilterSelected
+            || treeViewFilterParameterSelected is not PlaylistDetailSelection selection
+            || selection.Table != table)
         {
             return;
         }
-        if (string.IsNullOrWhiteSpace(tuple.Item2) || !rewrittenFolders.TryGetValue(tuple.Item2, out string rewrittenFolder))
+        if (string.IsNullOrWhiteSpace(selection.FolderName)
+            || !rewrittenFolders.TryGetValue(selection.FolderName, out string rewrittenFolder))
         {
             return;
         }
-        treeViewFilterParameterSelected = new Tuple<BMSTable, string>(table, rewrittenFolder);
+        treeViewFilterParameterSelected = new PlaylistDetailSelection(
+            table,
+            rewrittenFolder,
+            selection.Filter);
     }
 
     internal void RemoveBMSTable(BMSTable bmsTable)

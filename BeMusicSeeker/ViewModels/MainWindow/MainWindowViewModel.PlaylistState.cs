@@ -13,18 +13,6 @@ internal enum PlaylistDetailFilter
     PlaylistNotOwnedFilterSelected
 }
 
-public partial class MainWindowViewModel
-{
-    /// <summary>
-    /// Compatibility name for the former nested playlist filter.
-    /// </summary>
-    public enum PlaylistFilterType
-    {
-        PlaylistFilter = 1,
-        PlaylistNotOwnedFilterSelected
-    }
-}
-
 /// <summary>
 /// playlist source snapshot の再構築要否を判定する正規化済み snapshot です。
 /// </summary>

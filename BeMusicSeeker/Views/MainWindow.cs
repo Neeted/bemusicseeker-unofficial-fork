@@ -1044,8 +1044,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         var stateLogStopwatch = Stopwatch.StartNew();
         var viewModel = base.DataContext as MainWindowViewModel;
-        long sourceGenerationId = viewModel?.PlaylistSourceGenerationId ?? 0L;
-        long viewGenerationId = viewModel?.PlaylistAdoptedViewGenerationId ?? 0L;
+        long sourceGenerationId = viewModel?.PlaylistWorkspace.DetailSourceGenerationId ?? 0L;
+        long viewGenerationId = viewModel?.PlaylistWorkspace.DetailViewGenerationId ?? 0L;
         TableFirstVisibleTiming timing = default;
         bool hasPlaylistTiming = viewModel != null
             && viewModel.PlaylistWorkspace.TryCreateDetailOpenVisibleTiming(
@@ -2624,7 +2624,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             var viewModel = base.DataContext as MainWindowViewModel;
             Task.Run(delegate
             {
-                viewModel.SelectPlaylistSummary();
+                viewModel.PlaylistWorkspace.RequestSummarySelection();
             }).Logging("playlistRootSelect");
         }
     }
@@ -2838,40 +2838,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
 
     /// <summary>
-    /// プレイリストツリー用ノードから、一覧更新に使用するフィルタ種別を解決します。
-    /// 特殊ノードは文字列逆変換ではなく、ノード種別を直接見て分岐します。
-    /// </summary>
-    /// <param name="folderNode">判定対象のプレイリストフォルダノード。</param>
-    /// <returns>対応するプレイリストフィルタ種別。</returns>
-    private static PlaylistDetailFilter GetPlaylistFilterType(PlaylistFolderNode folderNode)
-    {
-        if (folderNode == null || !folderNode.IsSpecial)
-        {
-            return PlaylistDetailFilter.PlaylistFilter;
-        }
-        return folderNode.SpecialKind switch
-        {
-            PlaylistFolderNodeSpecialKind.NotOwned => PlaylistDetailFilter.PlaylistNotOwnedFilterSelected,
-            _ => PlaylistDetailFilter.PlaylistFilter
-        };
-    }
-
-    /// <summary>
-    /// プレイリストツリー選択時に ViewModel へ渡すフォルダ識別子を取得します。
-    /// 通常ノードは論理フォルダ名、特殊ノードは表示名を返します。
-    /// </summary>
-    /// <param name="folderNode">対象ノード。</param>
-    /// <returns>ViewModel 側で解釈するフォルダキー。</returns>
-    private static string GetPlaylistFolderSelectionKey(PlaylistFolderNode folderNode)
-    {
-        if (folderNode == null)
-        {
-            return null;
-        }
-        return folderNode.IsSpecial ? folderNode.DisplayName : folderNode.FolderName;
-    }
-
-    /// <summary>
     /// プレイリストツリー項目の <c>DataContext</c> を、
     /// <see cref="PlaylistFolderNode"/> として安全に扱えるか判定します。
     /// </summary>
@@ -2894,13 +2860,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.SelectPlaylistSummary();
+                viewModel.PlaylistWorkspace.RequestSummarySelection();
             }).Logging("ForceRefreshPlaylistTreeSelection");
             return;
         }
         BMSTable bmsTable = null;
-        string folderName = null;
-        PlaylistDetailFilter type = PlaylistDetailFilter.PlaylistFilter;
+        PlaylistFolderNode selectedFolderNode = null;
         if (selectedItem.DataContext is BMSTable bMSTable2)
         {
             bmsTable = bMSTable2;
@@ -2911,8 +2876,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 return;
             }
-            folderName = GetPlaylistFolderSelectionKey(folderNode);
-            type = GetPlaylistFilterType(folderNode);
+            selectedFolderNode = folderNode;
             TreeViewItem ancestor = FindAncestor<TreeViewItem>(VisualTreeHelper.GetParent(selectedItem));
             while (ancestor != null && ancestor.DataContext is not BMSTable)
             {
@@ -2924,7 +2888,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             Task.Run(delegate
             {
-                viewModel.ExecPlaylistFilter(bmsTable, folderName, type);
+                viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
             }).Logging("ForceRefreshPlaylistTreeSelection");
         }
     }
@@ -3041,11 +3005,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         e.Handled = true;
-        PlaylistDetailFilter type = PlaylistDetailFilter.PlaylistFilter;
-        string folderName;
+        PlaylistFolderNode selectedFolderNode;
         if (e.Source is TreeViewItem treeViewItem2)
         {
-            folderName = null;
+            selectedFolderNode = null;
         }
         else
         {
@@ -3053,13 +3016,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 return;
             }
-            folderName = GetPlaylistFolderSelectionKey(folderNode);
-            type = GetPlaylistFilterType(folderNode);
+            selectedFolderNode = folderNode;
         }
         e.Handled = true;
         Task.Run(delegate
         {
-            viewModel.ExecPlaylistFilter(bmsTable, folderName, type);
+            viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
         }).Logging("playlistTableSelected");
     }
 
@@ -4359,7 +4321,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.ExecPlaylistFilter(null);
+                viewModel.PlaylistWorkspace.RequestDetailSelection(null);
             }).Logging("treeViewPlaylistTableContextMenuItemRemoveTableClick");
         }
     }

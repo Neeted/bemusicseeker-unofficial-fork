@@ -88,6 +88,16 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishBindingMode(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;");
+        StringAssert.Contains(workspaceSource, "internal void RequestSummarySelection()");
+        StringAssert.Contains(workspaceSource, "internal void RequestDetailSelection(BMSTable table, PlaylistFolderNode folderNode = null)");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestSummarySelection();");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);");
+        Assert.AreEqual(-1, rootSource.IndexOf("ExecPlaylistFilter", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("SelectPlaylistSummary", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("playlistViewState", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("GetPlaylistFilterType", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("GetPlaylistFolderSelectionKey", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "LogPlaylistViewApply,");
         StringAssert.Contains(workspaceSource, "internal PlaylistDetailBuildState DetailBuildState { get; }");
         StringAssert.Contains(workspaceSource, "internal PlaylistDetailViewState DetailViewState { get; }");
@@ -370,6 +380,70 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsTrue(workspace.DetailBuildState.ShutdownCancellationRequested);
         Assert.IsFalse(workspace.DetailBuildState.WorkerRunning);
         Assert.IsNull(workspace.DetailBuildState.PendingRequest);
+    }
+
+    [TestMethod]
+    public void TreeSelection_NormalFolderAndNotOwnedUseCanonicalDetailSelection()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        var table = new BMSTable();
+        PlaylistTreeSelectionRequestedEventArgs? request = null;
+        workspace.TreeSelectionRequested += (_, e) => request = e;
+
+        workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Folder A"));
+
+        PlaylistTreeSelectionRequestedEventArgs folderRequest = request
+            ?? throw new AssertFailedException("Folder selection request was not raised.");
+        Assert.IsFalse(folderRequest.IsSummary);
+        Assert.AreSame(table, folderRequest.Detail.Table);
+        Assert.AreEqual("Folder A", folderRequest.Detail.FolderName);
+        Assert.AreEqual(PlaylistDetailFilter.PlaylistFilter, folderRequest.Detail.Filter);
+
+        workspace.RequestDetailSelection(
+            table,
+            PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned));
+
+        PlaylistTreeSelectionRequestedEventArgs notOwnedRequest = request
+            ?? throw new AssertFailedException("Not-owned selection request was not raised.");
+        Assert.AreSame(table, notOwnedRequest.Detail.Table);
+        Assert.IsNull(notOwnedRequest.Detail.FolderName);
+        Assert.AreEqual(PlaylistDetailFilter.PlaylistNotOwnedFilterSelected, notOwnedRequest.Detail.Filter);
+    }
+
+    [TestMethod]
+    public void TreeSelection_SummaryCanBeRequestedRepeatedly()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        int requestCount = 0;
+        workspace.TreeSelectionRequested += (_, request) =>
+        {
+            Assert.IsTrue(request.IsSummary);
+            requestCount++;
+        };
+
+        workspace.RequestSummarySelection();
+        workspace.RequestSummarySelection();
+
+        Assert.AreEqual(2, requestCount);
+    }
+
+    [TestMethod]
+    public void EvaluateScoreSnapshotRefresh_DefersDuringEditAndPreservesHighestVersion()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion = 3;
+        workspace.DetailViewState.Source.IsPlaylistCellEditing = true;
+
+        PlaylistScoreRefreshDecision first = workspace.EvaluateScoreSnapshotRefresh(5);
+        PlaylistScoreRefreshDecision second = workspace.EvaluateScoreSnapshotRefresh(4);
+
+        Assert.IsTrue(first.Deferred);
+        Assert.IsTrue(second.Deferred);
+        Assert.AreEqual(5, workspace.DetailViewState.Source.PendingScoreSnapshotRefreshVersion);
+        workspace.DetailViewState.Source.IsPlaylistCellEditing = false;
+        PlaylistScoreRefreshDecision ready = workspace.EvaluateScoreSnapshotRefresh(5);
+        Assert.IsTrue(ready.RefreshRequired);
+        Assert.AreEqual(3, ready.LastBuiltVersion);
     }
 
     [TestMethod]

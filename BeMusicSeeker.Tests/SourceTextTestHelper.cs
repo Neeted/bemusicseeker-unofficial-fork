@@ -95,7 +95,16 @@ internal static class SourceTextTestHelper
     /// <returns>The source text for <c>PlaylistWorkspaceViewModel</c>.</returns>
     internal static string ReadPlaylistWorkspaceViewModelSourceText()
     {
-        return ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.cs");
+        string directory = Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow");
+        return string.Join(
+            Environment.NewLine,
+            Directory.EnumerateFiles(directory, "PlaylistWorkspaceViewModel*.cs")
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                .Select(File.ReadAllText));
     }
 
     /// <summary>
