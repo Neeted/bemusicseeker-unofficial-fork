@@ -809,6 +809,7 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string xaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "PlaybackPanelView.xaml");
         string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
+        string mainWindowCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
         string codeBehind = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "PlaybackPanelView.xaml.cs");
         XDocument playbackDocument = LoadPlaybackPanelXamlDocument();
         XDocument mainWindowDocument = LoadMainWindowXamlDocument();
@@ -819,6 +820,12 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(mainWindowXaml, "DataContext=\"{Binding PlaybackPanel}\"");
         StringAssert.Contains(mainWindowXaml, "BrowserHtml=\"{Binding DataContext.BrowserHtml, ElementName=window}\"");
+        StringAssert.Contains(mainWindowXaml, "PlaybackStarting=\"playbackPanelViewPlaybackStarting\"");
+        StringAssert.Contains(mainWindowXaml, "PlaybackStarted=\"playbackPanelViewPlaybackStarted\"");
+        Assert.IsFalse(mainWindowCode.Contains("PlaybackPanel.PlaybackStarting +="));
+        Assert.IsFalse(mainWindowCode.Contains("PlaybackPanel.PlaybackStarted +="));
+        Assert.IsFalse(mainWindowCode.Contains("viewModel.PlaybackPanel.Start()"));
+        StringAssert.Contains(mainWindowCode, "viewModel.PlaybackPanel.ActivateSelectedCommand.Execute()");
         Assert.AreEqual("{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 + $P2 : $P0', P0={Binding ActualHeight, ElementName=playbackPanelView}, P1={Binding Visibility, ElementName=progressStatusBar}, P2={Binding Height, ElementName=progressStatusBar}}", GetAttributeValue(mainWindowDocument.Root, "MinHeight"));
         Assert.AreEqual("Auto", GetAttributeValue(playbackRow, "Height"));
         Assert.AreEqual("{Binding ActualHeight, ElementName=playbackPanelView}", GetAttributeValue(playbackRow, "MinHeight"));

@@ -94,6 +94,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
     private ViewModelCommand previousCommand;
     private ViewModelCommand restartCommand;
     private ViewModelCommand startCommand;
+    private ViewModelCommand activateSelectedCommand;
     private ViewModelCommand stopCommand;
     private ViewModelCommand fastForwardStartCommand;
     private ViewModelCommand fastForwardEndCommand;
@@ -127,6 +128,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
     public ViewModelCommand PreviousCommand => previousCommand ??= CreateBackgroundCommand(() => Previous(), "PlaybackPanel.Previous");
     public ViewModelCommand RestartCommand => restartCommand ??= CreateBackgroundCommand(RestartPlayingBmsFile, "PlaybackPanel.Restart");
     public ViewModelCommand StartCommand => startCommand ??= CreateBackgroundCommand(() => Start(forceNewPlay: false), "PlaybackPanel.Start");
+    public ViewModelCommand ActivateSelectedCommand => activateSelectedCommand ??= CreateBackgroundCommand(() => Start(), "PlaybackPanel.ActivateSelected");
     public ViewModelCommand StopCommand => stopCommand ??= CreateBackgroundCommand(() => StopPlayback(closeProcess: true), "PlaybackPanel.Stop");
     public ViewModelCommand FastForwardStartCommand => fastForwardStartCommand ??= CreateBackgroundCommand(FastForwardStart, "PlaybackPanel.FastForwardStart");
     public ViewModelCommand FastForwardEndCommand => fastForwardEndCommand ??= CreateBackgroundCommand(FastForwardEnd, "PlaybackPanel.FastForwardEnd");

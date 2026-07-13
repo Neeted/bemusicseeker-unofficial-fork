@@ -39,6 +39,8 @@ public partial class PlaybackPanelView : UserControl
     }
 
     public event RoutedEventHandler SettingsRequested;
+    public event RoutedEventHandler PlaybackStarting;
+    public event RoutedEventHandler PlaybackStarted;
     public Visibility OverlayVisibility { get => (Visibility)GetValue(OverlayVisibilityProperty); set => SetValue(OverlayVisibilityProperty, value); }
     public string BrowserHtml { get => (string)GetValue(BrowserHtmlProperty); set => SetValue(BrowserHtmlProperty, value); }
     public IntPtr PlayerHostHandle => _panel.Handle;
@@ -99,7 +101,11 @@ public partial class PlaybackPanelView : UserControl
         ApplySelectedSurface(playbackPanel?.PlayerPanelState ?? PlayerPanelState.TITLE_LARGE);
         SubscribePlaybackPanel(playbackPanel);
         ResetPanelImage();
-        gridBMSPlayerImage.Source = dataContext == null ? null : PanelImage;
+        ApplyEmptyArtwork(showDefaultImage: dataContext != null);
+        if (playbackPanel?.DisplayedBmsPlayerFile != null)
+        {
+            RefreshArtwork(playbackPanel.DisplayedBmsPlayerFile);
+        }
     }
 
     private void SubscribePlaybackPanel(PlaybackPanelViewModel playbackPanel)
@@ -111,16 +117,47 @@ public partial class PlaybackPanelView : UserControl
         if (subscribedPlaybackPanel != null)
         {
             subscribedPlaybackPanel.PropertyChanged -= PlaybackPanelPropertyChanged;
+            subscribedPlaybackPanel.PlaybackStarting -= PlaybackPanelPlaybackStarting;
+            subscribedPlaybackPanel.PlaybackStarted -= PlaybackPanelPlaybackStarted;
         }
         subscribedPlaybackPanel = playbackPanel;
         if (subscribedPlaybackPanel != null)
         {
             subscribedPlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
+            subscribedPlaybackPanel.PlaybackStarting += PlaybackPanelPlaybackStarting;
+            subscribedPlaybackPanel.PlaybackStarted += PlaybackPanelPlaybackStarted;
+        }
+    }
+
+    private void PlaybackPanelPlaybackStarting(object sender, EventArgs e)
+    {
+        if (IsLoaded && !isClosingOrClosed && ReferenceEquals(sender, subscribedPlaybackPanel))
+        {
+            PlaybackStarting?.Invoke(this, new RoutedEventArgs());
+        }
+    }
+
+    private void PlaybackPanelPlaybackStarted(object sender, EventArgs e)
+    {
+        if (IsLoaded && !isClosingOrClosed && ReferenceEquals(sender, subscribedPlaybackPanel))
+        {
+            PlaybackStarted?.Invoke(this, new RoutedEventArgs());
         }
     }
 
     private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(
+                DispatcherPriority.DataBind,
+                new Action(() => PlaybackPanelPropertyChanged(sender, e)));
+            return;
+        }
+        if (!IsLoaded || isClosingOrClosed || !ReferenceEquals(sender, subscribedPlaybackPanel))
+        {
+            return;
+        }
         if (e.PropertyName == nameof(PlaybackPanelViewModel.PlayerPanelState)
             && subscribedPlaybackPanel != null)
         {
@@ -131,6 +168,17 @@ public partial class PlaybackPanelView : UserControl
             || e.PropertyName == nameof(PlaybackPanelViewModel.StagefilePath))
         {
             ResetPanelImage();
+        }
+        if (e.PropertyName == nameof(PlaybackPanelViewModel.DisplayedBmsPlayerFile)
+            && subscribedPlaybackPanel?.DisplayedBmsPlayerFile != null)
+        {
+            RefreshArtwork(subscribedPlaybackPanel.DisplayedBmsPlayerFile);
+        }
+        if (e.PropertyName == nameof(PlaybackPanelViewModel.UsesUbMplay)
+            || e.PropertyName == nameof(PlaybackPanelViewModel.UsesLr2Body)
+            || e.PropertyName == nameof(PlaybackPanelViewModel.UsesBmiIdxView))
+        {
+            EnsureSelectedSurfaceAvailable();
         }
     }
 
@@ -169,7 +217,11 @@ public partial class PlaybackPanelView : UserControl
 
     public void RefreshArtwork(BMSFile bmsFile)
     {
-        if (bmsFile == null) return;
+        if (bmsFile == null)
+        {
+            ApplyEmptyArtwork(showDefaultImage: DataContext != null);
+            return;
+        }
         WriteableBitmap stage = null;
         try
         {
@@ -199,6 +251,13 @@ public partial class PlaybackPanelView : UserControl
             gridBMSPlayerControlsBanner.Background = stage == null ? null : new ImageBrush(stage) { Stretch = Stretch.UniformToFill };
         }
         gridBMSPlayerControlsBanner.BorderThickness = gridBMSPlayerControlsBanner.Background == null ? new Thickness(0) : new Thickness(1, 0, 1, 0);
+    }
+
+    private void ApplyEmptyArtwork(bool showDefaultImage)
+    {
+        gridBMSPlayerImage.Source = showDefaultImage ? PanelImage : null;
+        gridBMSPlayerControlsBanner.Background = null;
+        gridBMSPlayerControlsBanner.BorderThickness = new Thickness(0);
     }
     private void settingsButtonClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, e);
     private void ShowBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Visible);

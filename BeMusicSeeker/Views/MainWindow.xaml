@@ -1194,7 +1194,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
-          <v:PlaybackPanelView x:Name="playbackPanelView" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" DataContext="{Binding PlaybackPanel}" BrowserHtml="{Binding DataContext.BrowserHtml, ElementName=window}" OverlayVisibility="{Binding PlaybackOverlayVisibility, ElementName=window}" SettingsRequested="playbackPanelViewSettingsRequested" />
+          <v:PlaybackPanelView x:Name="playbackPanelView" Grid.Row="0" Grid.Column="0" Grid.ColumnSpan="2" DataContext="{Binding PlaybackPanel}" BrowserHtml="{Binding DataContext.BrowserHtml, ElementName=window}" OverlayVisibility="{Binding PlaybackOverlayVisibility, ElementName=window}" SettingsRequested="playbackPanelViewSettingsRequested" PlaybackStarting="playbackPanelViewPlaybackStarting" PlaybackStarted="playbackPanelViewPlaybackStarted" />
           <Border x:Name="mainTableToolbar" BorderThickness="0" Grid.Row="1" Grid.ColumnSpan="1" Grid.Column="1" Background="{DynamicResource App.SurfaceBrush}">
             <DockPanel>
               <Border DockPanel.Dock="Right" CornerRadius="6" BorderThickness="1" BorderBrush="{DynamicResource App.StrongBorderBrush}" Background="{DynamicResource App.ControlBackgroundBrush}" Width="Auto" Margin="0,0,2,0" VerticalAlignment="Center" FlowDirection="LeftToRight" Visibility="{Binding IsPlayHistoryViewActive, Converter={qc:QuickConverter '$P ? Visibility.Visible : Visibility.Collapsed'}}">

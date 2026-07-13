@@ -5453,7 +5453,6 @@ public partial class MainWindowViewModel
                         : ownerViewModel.applicationComposition.CreateBmsPlayerForSettings(ApplicationSettings);
                     ownerViewModel.PlaybackPanel.StopPlayback(closeProcess: false);
                     ownerViewModel.PlaybackPanel.ReplacePlayer(replacementPlayer);
-                    ownerViewModel.RaiseInitializationSucceeded();
                 }
                 ownerViewModel.PlaybackPanel.NotifySettingsChanged();
                 playerRuntimeMs = playerRuntimeStopwatch.ElapsedMilliseconds;

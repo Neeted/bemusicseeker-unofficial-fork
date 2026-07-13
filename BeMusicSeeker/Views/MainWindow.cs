@@ -465,8 +465,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.InitializationExceptionRequested += MainWindowViewModel_InitializationExceptionRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
-        viewModel.PlaybackPanel.PlaybackStarting += MainWindowViewModel_PlaybackStarting;
-        viewModel.PlaybackPanel.PlaybackStarted += MainWindowViewModel_PlaybackStarted;
     }
 
     private void UnsubscribeViewModelUiInteractions()
@@ -478,8 +476,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.InitializationExceptionRequested -= MainWindowViewModel_InitializationExceptionRequested;
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
-        subscribedViewModel.PlaybackPanel.PlaybackStarting -= MainWindowViewModel_PlaybackStarting;
-        subscribedViewModel.PlaybackPanel.PlaybackStarted -= MainWindowViewModel_PlaybackStarted;
         subscribedViewModel = null;
     }
 
@@ -502,20 +498,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         playbackPanelView.RotatePanelState();
     }
 
-    private void MainWindowViewModel_PlaybackStarting(object sender, EventArgs e)
-    {
-        if (sender is PlaybackPanelViewModel { NowPlayingBmsFile: { } bmsFile } playbackPanel)
-        {
-            playbackPanel.SetBmsPlayerHeader(bmsFile);
-            playbackPanelView.RefreshArtwork(bmsFile);
-        }
-        scrollIntoView();
-    }
+    private void playbackPanelViewPlaybackStarting(object sender, RoutedEventArgs e) => scrollIntoView();
 
-    private void MainWindowViewModel_PlaybackStarted(object sender, EventArgs e)
-    {
-        RestorePlaybackSurfaceAndFocusTable();
-    }
+    private void playbackPanelViewPlaybackStarted(object sender, RoutedEventArgs e) => RestorePlaybackSurfaceAndFocusTable();
 
     private void ApplySavedTreeViewWidth()
     {
@@ -1364,12 +1349,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (GridRowResolver.TryGetBmsPlayerFile(e.SelectedRow, out BMSFile bmsFile))
             {
                 viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
-                playbackPanelView.RefreshArtwork(bmsFile);
             }
         }
     }
 
-    private async void customTableView_RowActivated(object sender, CustomTableRowRequestedEventArgs e)
+    private void customTableView_RowActivated(object sender, CustomTableRowRequestedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("custom_table_row_activate"))
         {
@@ -1384,15 +1368,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
-        playbackPanelView.RefreshArtwork(bmsFile);
         if (viewModel.PlaybackPanel.IsStoppedOrPaused)
         {
             playbackPanelView.TrySelectBmsPlayerSurface();
         }
-        await Task.Run(delegate
-        {
-            viewModel.PlaybackPanel.Start();
-        }).Logging("customTableView_RowActivated");
+        viewModel.PlaybackPanel.ActivateSelectedCommand.Execute();
     }
 
     private void customTablePlaylistSummary_RowActivated(object sender, CustomTableRowRequestedEventArgs e)

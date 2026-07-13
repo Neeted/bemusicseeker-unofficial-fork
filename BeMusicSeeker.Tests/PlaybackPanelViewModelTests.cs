@@ -7,6 +7,8 @@ using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Media;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
@@ -610,7 +612,10 @@ public sealed class PlaybackPanelViewModelTests
             Settings.Default.FolderSkipPlayMode = false;
             Settings.Default.SinglePlayMode = false;
 
-            panel.Start();
+            panel.ActivateSelectedCommand.Execute();
+            Assert.IsTrue(SpinWait.SpinUntil(
+                () => player.Commands.Any(command => command == "PlayStart:" + secondPath),
+                3000));
             Assert.AreEqual(secondPath, panel.NowPlayingBmsFile.path);
             Assert.AreEqual(1, panel.NowPlayingRowIndex);
             Assert.AreEqual(1, chartList.SelectedIndex);
@@ -717,6 +722,10 @@ public sealed class PlaybackPanelViewModelTests
             var replacementPlayer = new FakeBmsPlayer();
             PlaybackPanelViewModel replacementPanel = CreatePanel(replacementPlayer);
             var view = new PlaybackPanelView { DataContext = panel };
+            int viewStartingCount = 0;
+            int viewStartedCount = 0;
+            view.PlaybackStarting += (_, _) => viewStartingCount++;
+            view.PlaybackStarted += (_, _) => viewStartedCount++;
             var window = new Window
             {
                 Width = 640d,
@@ -730,6 +739,11 @@ public sealed class PlaybackPanelViewModelTests
             {
                 window.Show();
                 Assert.IsTrue(view.IsLoaded);
+
+                long generation = panel.BeginPlayback(new BMSFile(), 0);
+                panel.NotifyPlaybackStarted(generation);
+                Assert.AreEqual(1, viewStartingCount);
+                Assert.AreEqual(1, viewStartedCount);
 
                 view.HandlePreviousButtonClick(1);
                 PumpDispatcherFor(TimeSpan.FromMilliseconds(700));
@@ -750,6 +764,48 @@ public sealed class PlaybackPanelViewModelTests
                 while (replacementPlayer.Commands.TryDequeue(out _))
                 {
                 }
+
+                var queuedDispatcher = new QueuedPlaybackUiDispatcher();
+                var queuedPanel = new PlaybackPanelViewModel(
+                    new FakeBmsPlayer(),
+                    queuedDispatcher,
+                    new MainChartListPlaybackQueue(new MainChartListViewModel()),
+                    new SettingsPlaybackSettingsStore(() => Settings.Default),
+                    new FakePlaybackDialogService(),
+                    _ => { },
+                    new ChartFileOperationSynchronizer());
+                view.DataContext = queuedPanel;
+                long queuedGeneration = queuedPanel.BeginPlayback(new BMSFile(), 0);
+                queuedPanel.NotifyPlaybackStarted(queuedGeneration);
+                view.DataContext = replacementPanel;
+                queuedDispatcher.RunAll();
+                Assert.AreEqual(1, viewStartingCount);
+                Assert.AreEqual(1, viewStartedCount);
+
+                var banner = (Border)view.FindName("gridBMSPlayerControlsBanner");
+                banner.Background = Brushes.Red;
+                banner.BorderThickness = new Thickness(1);
+                view.DataContext = CreatePanel(new FakeBmsPlayer());
+                Assert.IsNull(banner.Background);
+                Assert.AreEqual(new Thickness(0), banner.BorderThickness);
+                view.DataContext = replacementPanel;
+
+                Exception? backgroundException = null;
+                var backgroundThread = new Thread(() =>
+                {
+                    try
+                    {
+                        replacementPanel.SetBmsPlayerHeader(new BMSFile());
+                    }
+                    catch (Exception ex)
+                    {
+                        backgroundException = ex;
+                    }
+                });
+                backgroundThread.Start();
+                backgroundThread.Join();
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(50));
+                Assert.IsNull(backgroundException);
 
                 view.HandlePreviousButtonClick(1);
                 window.Content = null;
