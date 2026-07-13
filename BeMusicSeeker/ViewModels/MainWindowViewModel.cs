@@ -5306,6 +5306,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
         PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;
+        PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += PlaylistWorkspacePlaylistSummaryDataRefreshRequested;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
@@ -5519,6 +5520,13 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspaceEntriesChangedEventArgs request)
     {
         ApplyPlaylistEntriesChanged(request.Table, refreshSummaryIfVisible: true);
+    }
+
+    private void PlaylistWorkspacePlaylistSummaryDataRefreshRequested(
+        object sender,
+        PlaylistSummaryDataRefreshRequestedEventArgs request)
+    {
+        RefreshPlaylistSummaryIfVisible(request.Reason, request.InvalidateTableCountCache);
     }
 
     private void ApplyPlaylistEntriesChanged(BMSTable table, bool refreshSummaryIfVisible)
@@ -12195,30 +12203,6 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         RefreshPlaylistSummaryIfVisible("playlist_properties_bulk_changed", invalidateTableCountCache: true);
-    }
-
-    public void ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput)
-    {
-        if (rows == null || tables == null)
-        {
-            return;
-        }
-        List<BMSTable> changedTables = [.. rows
-            .Where(row => row?.TableRef != null)
-            .Select(row => row.TableRef)
-            .Distinct()
-            .Where(table => (table.is_bmt_output != false) != isBmtOutput)];
-        if (changedTables.Count == 0)
-        {
-            return;
-        }
-        foreach (BMSTable table in changedTables)
-        {
-            table.is_bmt_output = isBmtOutput;
-        }
-        tables.CommitBMSTableHeadersToDB(changedTables);
-        tables.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bmt_output_changed");
-        RefreshPlaylistSummaryIfVisible("playlist_summary_bmt_output_changed", invalidateTableCountCache: false);
     }
 
     public void ApplyPlaylistSummaryOutputBase(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName)

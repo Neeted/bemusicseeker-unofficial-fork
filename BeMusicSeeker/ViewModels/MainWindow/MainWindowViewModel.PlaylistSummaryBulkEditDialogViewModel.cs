@@ -374,7 +374,7 @@ public partial class MainWindowViewModel
         {
             if (BmtOutputOption?.Value is bool value)
             {
-                ownerViewModel.ApplyPlaylistSummaryBmtOutput(targetRows, value);
+                ownerViewModel.PlaylistWorkspace.ApplyPlaylistSummaryBmtOutput(targetRows, value);
             }
         }
 

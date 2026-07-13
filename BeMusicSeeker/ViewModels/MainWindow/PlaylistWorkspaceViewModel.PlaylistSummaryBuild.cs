@@ -19,6 +19,42 @@ namespace BeMusicSeeker.ViewModels;
 public sealed partial class PlaylistWorkspaceViewModel
 {
     /// <summary>
+    /// Applies the playlist-summary BMT output selection and persists the changed playlist headers.
+    /// </summary>
+    /// <param name="rows">Summary rows whose referenced playlists should be updated.</param>
+    /// <param name="isBmtOutput">The requested persisted BMT output state.</param>
+    internal void ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput)
+    {
+        if (rows == null)
+        {
+            return;
+        }
+
+        List<BMSTable> changedTables = [.. rows
+            .Where(row => row?.TableRef != null)
+            .Select(row => row.TableRef)
+            .Distinct()
+            .Where(table => (table.is_bmt_output != false) != isBmtOutput)];
+        if (changedTables.Count == 0)
+        {
+            return;
+        }
+
+        BMSPlaylist playlists = GetPlaylistStore();
+        foreach (BMSTable table in changedTables)
+        {
+            table.is_bmt_output = isBmtOutput;
+        }
+        playlists.CommitBMSTableHeadersToDB(changedTables);
+        playlists.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bmt_output_changed");
+        PlaylistSummaryDataRefreshRequested?.Invoke(
+            this,
+            new PlaylistSummaryDataRefreshRequestedEventArgs(
+                "playlist_summary_bmt_output_changed",
+                invalidateTableCountCache: false));
+    }
+
+    /// <summary>
     /// Builds raw summary rows and publishes the fresh filtered and sorted result owned by this workspace.
     /// </summary>
     /// <param name="library">The library that supplies the owned-chart digest snapshot.</param>

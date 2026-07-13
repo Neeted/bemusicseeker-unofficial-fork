@@ -229,6 +229,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     internal event EventHandler PlaylistSummaryFilterChanged;
 
     /// <summary>
+    /// Raised after a playlist-summary data mutation requires the shell to schedule a fresh summary build.
+    /// </summary>
+    internal event EventHandler<PlaylistSummaryDataRefreshRequestedEventArgs> PlaylistSummaryDataRefreshRequested;
+
+    /// <summary>
     /// Gets or sets the current playlist summary sort parameters.
     /// </summary>
     public ChartListSortParameters PlaylistSummarySortParameters
@@ -1158,6 +1163,19 @@ internal sealed class PlaylistSummaryViewAppliedEventArgs : EventArgs
     }
 
     internal long DataRebuildGeneration { get; }
+}
+
+internal sealed class PlaylistSummaryDataRefreshRequestedEventArgs : EventArgs
+{
+    internal PlaylistSummaryDataRefreshRequestedEventArgs(string reason, bool invalidateTableCountCache)
+    {
+        Reason = reason ?? throw new ArgumentNullException(nameof(reason));
+        InvalidateTableCountCache = invalidateTableCountCache;
+    }
+
+    internal string Reason { get; }
+
+    internal bool InvalidateTableCountCache { get; }
 }
 
 [Serializable]

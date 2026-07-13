@@ -34,6 +34,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
         string playHistoryOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
+        string bulkEditSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel.cs");
 
         foreach (string rootField in new[]
         {
@@ -91,6 +93,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += PlaylistWorkspacePlaylistSummaryDataRefreshRequested;");
         StringAssert.Contains(logicalSource, "ApplyPlaylistEntriesChanged(request.Table, refreshSummaryIfVisible: true);");
         StringAssert.Contains(workspaceSource, "private void PublishEntriesChanged(BMSTable table)");
         StringAssert.Contains(workspaceSource, "EntriesChanged?.Invoke(this, new PlaylistWorkspaceEntriesChangedEventArgs(table));");
@@ -100,6 +103,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal void RequestDetailSelection(BMSTable table, PlaylistFolderNode folderNode = null)");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestSummarySelection();");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ApplyPlaylistSummaryBmtOutput(");
+        StringAssert.Contains(bulkEditSource, "ownerViewModel.PlaylistWorkspace.ApplyPlaylistSummaryBmtOutput(");
+        StringAssert.Contains(workspaceSource, "internal void ApplyPlaylistSummaryBmtOutput(");
+        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistSummaryBmtOutput(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("ExecPlaylistFilter", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("SelectPlaylistSummary", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("playlistViewState", StringComparison.Ordinal));

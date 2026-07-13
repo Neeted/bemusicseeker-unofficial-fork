@@ -3490,7 +3490,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.ApplyPlaylistSummaryBmtOutput(selectedPlaylistSummaryRows, flag);
+                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryBmtOutput(selectedPlaylistSummaryRows, flag);
             });
         }
     }

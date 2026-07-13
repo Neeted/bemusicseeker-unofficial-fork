@@ -441,6 +441,88 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void PlaylistWorkspaceBmtOutputTogglePersistsDistinctChangedHeadersAndRequestsSummaryRefresh()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var first = new BMSTable { playlist_id = 11, name = "First", is_bmt_output = null };
+            var second = new BMSTable { playlist_id = 12, name = "Second", is_bmt_output = false };
+            var third = new BMSTable { playlist_id = 13, name = "Third", is_bmt_output = true };
+            string bmtPath = Path.Combine(tempDirectory, "beatoraja", "table.json");
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                null,
+                null,
+                null,
+                null,
+                () => new PlaylistUrlCompletionOptionsSnapshot(),
+                () => new BeatorajaBmtOptionsSnapshot
+                {
+                    EnableBeatorajaBmtOutput = true,
+                    BeatorajaBmtTablePath = bmtPath
+                },
+                () => new CustomFolderOutputSettingsSnapshot())
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([first, second, third]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            playlist.CommitBMSTableHeadersToDB([first, second, third]);
+            var workspace = new PlaylistWorkspaceViewModel(action => action());
+            workspace.ConfigureDetailEditing(() => playlist);
+            var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
+            workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
+            var queuedReasons = new List<string>();
+            playlist.StartupBackgroundTaskScheduler = (_, reason, _, _) =>
+            {
+                queuedReasons.Add(reason);
+                return true;
+            };
+
+            workspace.ApplyPlaylistSummaryBmtOutput(
+                [
+                    new PlaylistSummaryRow { TableRef = first },
+                    new PlaylistSummaryRow { TableRef = second },
+                    new PlaylistSummaryRow { TableRef = second },
+                    new PlaylistSummaryRow { TableRef = third }
+                ],
+                isBmtOutput: true);
+
+            Assert.IsNull(first.is_bmt_output);
+            Assert.AreEqual(true, second.is_bmt_output);
+            Assert.AreEqual(true, third.is_bmt_output);
+            Assert.AreEqual(1, refreshRequests.Count);
+            Assert.AreEqual("playlist_summary_bmt_output_changed", refreshRequests[0].Reason);
+            Assert.IsFalse(refreshRequests[0].InvalidateTableCountCache);
+            CollectionAssert.AreEqual(new[] { "playlist_summary_bmt_output_changed" }, queuedReasons);
+            workspace.ApplyPlaylistSummaryBmtOutput([new PlaylistSummaryRow { TableRef = third }], isBmtOutput: true);
+            Assert.AreEqual(1, refreshRequests.Count);
+
+            using var verify = new LR2SongDBExtended(songDbPath);
+            LR2SongDBExtended.playlist persistedFirst = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == first.playlist_id);
+            LR2SongDBExtended.playlist persistedSecond = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == second.playlist_id);
+            LR2SongDBExtended.playlist persistedThird = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == third.playlist_id);
+            Assert.IsNull(persistedFirst.is_bmt_output);
+            Assert.AreEqual(true, persistedSecond.is_bmt_output);
+            Assert.AreEqual(true, persistedThird.is_bmt_output);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void MainWindowSettingDialogUsesCompositionSettingsPersistenceDelegates()
     {
         int reloadCount = 0;
