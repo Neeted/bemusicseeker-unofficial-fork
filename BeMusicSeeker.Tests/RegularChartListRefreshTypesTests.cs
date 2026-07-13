@@ -67,6 +67,7 @@ public sealed class RegularChartListRefreshTypesTests
     public void RefreshChartRowsView_DispatchesRegularProductionEntry()
     {
         string refreshChartRowsView = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void RefreshChartRowsView(");
+        string detailRefreshInput = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private PlaylistDetailRefreshInput CreatePlaylistDetailRefreshInput(");
         string root = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
         StringAssert.Contains(refreshChartRowsView, "ChartListRefreshCoordinator.ResolveRoute");
@@ -75,6 +76,8 @@ public sealed class RegularChartListRefreshTypesTests
         StringAssert.Contains(refreshChartRowsView, "CreatePlaylistDetailRefreshInput(route.Mode, route.RequestedMode, parameter)");
         StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyMainLibraryView(");
         StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
+        StringAssert.Contains(detailRefreshInput, "PlaylistWorkspace.CapturePlaylistDetailSortParameters()");
+        Assert.IsFalse(detailRefreshInput.Contains("regularChartListOwner.CaptureSortParameters()"));
         Assert.IsTrue(
             refreshChartRowsView.IndexOf("UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)", StringComparison.Ordinal)
             < refreshChartRowsView.IndexOf("PlaylistWorkspace.RequestDetailRefresh(", StringComparison.Ordinal));

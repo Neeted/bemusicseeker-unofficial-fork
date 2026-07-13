@@ -170,6 +170,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(mainChartListSource, "internal event EventHandler DisplayRefreshRequested;");
         StringAssert.Contains(mainChartListSource, "internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummarySort(");
+        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailSort(");
+        StringAssert.Contains(workspaceSource, "internal ChartListSortParameters CapturePlaylistDetailSortParameters()");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.InitializePlaylistDetailSort(regularChartListOwner.CaptureSortParameters());");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailSort(request.ColumnName, request.Direction);");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.CapturePlaylistDetailSortParameters()");
         Assert.IsFalse(mainWindowSource.Contains("MainChartList.DisplayRefreshRequested"));
         string customTableSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "CustomTableView.cs");
         StringAssert.Contains(customTableSource, "subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;");
@@ -722,6 +728,76 @@ public sealed class PlaylistWorkspaceViewModelTests
             System.ComponentModel.ListSortDirection.Descending);
 
         Assert.AreEqual(1, raisedCount);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceDetailSortRequestCommitsOwnerStateBeforeEvent()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
+        int raisedCount = 0;
+        MainChartListSortRequestedEventArgs? observedRequest = null;
+        workspace.PlaylistDetailSortChanged += (_, request) =>
+        {
+            raisedCount++;
+            observedRequest = request;
+            Assert.AreEqual(nameof(PlaylistDetailRow.Level), workspace.PlaylistDetailSortParameters.ColumnsName);
+            Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistDetailSortParameters.Direction);
+        };
+
+        workspace.RequestPlaylistDetailSort(
+            nameof(PlaylistDetailRow.Level),
+            System.ComponentModel.ListSortDirection.Descending);
+
+        Assert.AreEqual(1, raisedCount);
+        Assert.IsNotNull(observedRequest);
+        Assert.AreEqual(MainChartListSortTarget.Regular, observedRequest.Target);
+        Assert.AreEqual(1L, observedRequest.OwnerRevision);
+
+        workspace.RequestPlaylistDetailSort(
+            nameof(PlaylistDetailRow.Level),
+            System.ComponentModel.ListSortDirection.Descending);
+
+        Assert.AreEqual(1, raisedCount);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceDetailSortInitializationUsesFallbackOnlyOnce()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
+        var initialSort = new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlaylistDetailRow.Level),
+            Direction = System.ComponentModel.ListSortDirection.Descending
+        };
+
+        workspace.InitializePlaylistDetailSort(initialSort);
+
+        Assert.AreEqual(nameof(PlaylistDetailRow.Level), workspace.PlaylistDetailSortParameters.ColumnsName);
+        Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistDetailSortParameters.Direction);
+        Assert.AreNotSame(initialSort, workspace.PlaylistDetailSortParameters);
+
+        workspace.InitializePlaylistDetailSort(new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlaylistDetailRow.Title),
+            Direction = System.ComponentModel.ListSortDirection.Ascending
+        });
+
+        Assert.AreEqual(nameof(PlaylistDetailRow.Level), workspace.PlaylistDetailSortParameters.ColumnsName);
+        Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistDetailSortParameters.Direction);
     }
 
     [TestMethod]

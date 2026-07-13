@@ -1100,7 +1100,7 @@ internal sealed class MainChartListCellEditEndedEventArgs : EventArgs
 internal enum MainChartListSortTarget
 {
     /// <summary>
-    /// The normal library or playlist-detail workflow.
+    /// The normal library or playlist-detail table presentation workflow.
     /// </summary>
     Regular,
 
