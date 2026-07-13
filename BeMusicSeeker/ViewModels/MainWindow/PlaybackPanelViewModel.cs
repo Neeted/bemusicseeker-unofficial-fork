@@ -11,6 +11,7 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
+using Livet.Commands;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
@@ -90,6 +91,21 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     private string moviePlayerHeaderArtist = string.Empty;
 
+    private ViewModelCommand nextCommand;
+    private ViewModelCommand previousCommand;
+    private ViewModelCommand restartCommand;
+    private ViewModelCommand startCommand;
+    private ViewModelCommand stopCommand;
+    private ViewModelCommand fastForwardStartCommand;
+    private ViewModelCommand fastForwardEndCommand;
+    private ViewModelCommand fastBackwardStartCommand;
+    private ViewModelCommand fastBackwardEndCommand;
+    private ViewModelCommand showInfoCommand;
+    private ViewModelCommand showEffectCommand;
+    private ViewModelCommand changePlaysideCommand;
+    private ViewModelCommand increaseHighSpeedCommand;
+    private ViewModelCommand decreaseHighSpeedCommand;
+
     internal PlaybackPanelViewModel(
         IBMSPlayer player,
         Func<Dispatcher> uiDispatcherProvider,
@@ -105,6 +121,26 @@ public sealed class PlaybackPanelViewModel : ViewModel
     }
 
     private Settings ApplicationSettings => settingsEditSession.Values;
+
+    public ViewModelCommand NextCommand => nextCommand ??= CreateBackgroundCommand(() => Next(), "PlaybackPanel.Next");
+    public ViewModelCommand PreviousCommand => previousCommand ??= CreateBackgroundCommand(() => Previous(), "PlaybackPanel.Previous");
+    public ViewModelCommand RestartCommand => restartCommand ??= CreateBackgroundCommand(RestartPlayingBmsFile, "PlaybackPanel.Restart");
+    public ViewModelCommand StartCommand => startCommand ??= CreateBackgroundCommand(() => Start(forceNewPlay: false), "PlaybackPanel.Start");
+    public ViewModelCommand StopCommand => stopCommand ??= CreateBackgroundCommand(() => StopPlayback(closeProcess: true), "PlaybackPanel.Stop");
+    public ViewModelCommand FastForwardStartCommand => fastForwardStartCommand ??= CreateBackgroundCommand(FastForwardStart, "PlaybackPanel.FastForwardStart");
+    public ViewModelCommand FastForwardEndCommand => fastForwardEndCommand ??= CreateBackgroundCommand(FastForwardEnd, "PlaybackPanel.FastForwardEnd");
+    public ViewModelCommand FastBackwardStartCommand => fastBackwardStartCommand ??= CreateBackgroundCommand(FastBackwardStart, "PlaybackPanel.FastBackwardStart");
+    public ViewModelCommand FastBackwardEndCommand => fastBackwardEndCommand ??= CreateBackgroundCommand(FastBackwardEnd, "PlaybackPanel.FastBackwardEnd");
+    public ViewModelCommand ShowInfoCommand => showInfoCommand ??= CreateBackgroundCommand(ShowInfo, "PlaybackPanel.ShowInfo");
+    public ViewModelCommand ShowEffectCommand => showEffectCommand ??= CreateBackgroundCommand(ShowEffect, "PlaybackPanel.ShowEffect");
+    public ViewModelCommand ChangePlaysideCommand => changePlaysideCommand ??= CreateBackgroundCommand(ChangePlayside, "PlaybackPanel.ChangePlayside");
+    public ViewModelCommand IncreaseHighSpeedCommand => increaseHighSpeedCommand ??= CreateBackgroundCommand(IncreaseHighSpeed, "PlaybackPanel.IncreaseHighSpeed");
+    public ViewModelCommand DecreaseHighSpeedCommand => decreaseHighSpeedCommand ??= CreateBackgroundCommand(DecreaseHighSpeed, "PlaybackPanel.DecreaseHighSpeed");
+
+    private static ViewModelCommand CreateBackgroundCommand(Action action, string routeName)
+    {
+        return new ViewModelCommand(async () => await System.Threading.Tasks.Task.Run(action).Logging(routeName));
+    }
 
     internal void AttachLibrary(BMSLibrary library)
     {

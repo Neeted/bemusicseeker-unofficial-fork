@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
@@ -15,6 +17,28 @@ namespace BeMusicSeeker.Tests;
 [DoNotParallelize]
 public sealed class PlaybackPanelViewModelTests
 {
+    [TestMethod]
+    public void PlaybackCommands_ExecuteThroughPlaybackOwner()
+    {
+        var player = new FakeBmsPlayer();
+        PlaybackPanelViewModel panel = CreatePanel(player);
+
+        panel.StopCommand.Execute();
+        Assert.IsTrue(SpinWait.SpinUntil(() => player.CloseProcessCount == 1, 3000));
+        panel.FastForwardStartCommand.Execute();
+        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("FastForwardStart"), 3000));
+        panel.FastForwardEndCommand.Execute();
+        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("FastForwardEnd"), 3000));
+        panel.ShowEffectCommand.Execute();
+        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("ShowEffect"), 3000));
+        panel.ChangePlaysideCommand.Execute();
+        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("ChangePlayside"), 3000));
+        panel.IncreaseHighSpeedCommand.Execute();
+        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("IncreaseHighSpeed"), 3000));
+        panel.DecreaseHighSpeedCommand.Execute();
+        Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("DecreaseHighSpeed"), 3000));
+    }
+
     [TestMethod]
     public void PlaybackPanel_TracksTelemetryAndDelegatesPlayerCommands()
     {
@@ -423,7 +447,7 @@ public sealed class PlaybackPanelViewModelTests
 
         public Action<object, EventArgs>? ExitHandler { get; private set; }
 
-        public System.Collections.Generic.List<string> Commands { get; } = [];
+        public ConcurrentQueue<string> Commands { get; } = new();
 
         public void Raise(string propertyName)
         {
@@ -433,12 +457,12 @@ public sealed class PlaybackPanelViewModelTests
         public void CloseProcess()
         {
             CloseProcessCount++;
-            Commands.Add("Close");
+            Commands.Enqueue("Close");
         }
 
         public void PlayStart(string bmsFilePath, Action<object, EventArgs>? onExitEventHandler = null)
         {
-            Commands.Add("PlayStart:" + bmsFilePath);
+            Commands.Enqueue("PlayStart:" + bmsFilePath);
             ExitHandler = onExitEventHandler;
             if (PlayStartException != null)
             {
@@ -446,29 +470,29 @@ public sealed class PlaybackPanelViewModelTests
             }
         }
 
-        public void RestartPlayingBMSfile() => Commands.Add("Restart");
+        public void RestartPlayingBMSfile() => Commands.Enqueue("Restart");
 
-        public void PausePlayingBMSfileToggle() => Commands.Add("Pause");
+        public void PausePlayingBMSfileToggle() => Commands.Enqueue("Pause");
 
-        public void FastForwardPlayingBMSfileStart() => Commands.Add("FastForwardStart");
+        public void FastForwardPlayingBMSfileStart() => Commands.Enqueue("FastForwardStart");
 
-        public void FastForwardPlayingBMSfileEnd() => Commands.Add("FastForwardEnd");
+        public void FastForwardPlayingBMSfileEnd() => Commands.Enqueue("FastForwardEnd");
 
-        public void FastBackwardPlayingBMSfileStart() => Commands.Add("FastBackwardStart");
+        public void FastBackwardPlayingBMSfileStart() => Commands.Enqueue("FastBackwardStart");
 
-        public void FastBackwardPlayingBMSfileEnd() => Commands.Add("FastBackwardEnd");
+        public void FastBackwardPlayingBMSfileEnd() => Commands.Enqueue("FastBackwardEnd");
 
-        public void ShowInfo() => Commands.Add("ShowInfo");
+        public void ShowInfo() => Commands.Enqueue("ShowInfo");
 
-        public void ShowEffect() => Commands.Add("ShowEffect");
+        public void ShowEffect() => Commands.Enqueue("ShowEffect");
 
-        public void ChangePlayside() => Commands.Add("ChangePlayside");
+        public void ChangePlayside() => Commands.Enqueue("ChangePlayside");
 
-        public void IncreaseHighSpeed() => Commands.Add("IncreaseHighSpeed");
+        public void IncreaseHighSpeed() => Commands.Enqueue("IncreaseHighSpeed");
 
-        public void DecreaseHighSpeed() => Commands.Add("DecreaseHighSpeed");
+        public void DecreaseHighSpeed() => Commands.Enqueue("DecreaseHighSpeed");
 
-        public void VolumeChanged() => Commands.Add("VolumeChanged");
+        public void VolumeChanged() => Commands.Enqueue("VolumeChanged");
     }
 
     private sealed class TestBmsFile : BMSFile

@@ -1,7 +1,6 @@
 using System;
 using System.IO;
 using System.Reflection;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -15,7 +14,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Livet.EventListeners;
-using Ribbit.Logging;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Views;
@@ -23,6 +21,7 @@ namespace BeMusicSeeker.Views;
 public partial class PlaybackPanelView : UserControl
 {
     public static readonly DependencyProperty OverlayVisibilityProperty = DependencyProperty.Register(nameof(OverlayVisibility), typeof(Visibility), typeof(PlaybackPanelView), new PropertyMetadata(Visibility.Collapsed));
+    public static readonly DependencyProperty BrowserHtmlProperty = DependencyProperty.Register(nameof(BrowserHtml), typeof(string), typeof(PlaybackPanelView), new PropertyMetadata(null));
     private DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
     private readonly PropertyChangedEventListener settingsDefaultEventListener;
     private BitmapSource _panelImage;
@@ -41,9 +40,9 @@ public partial class PlaybackPanelView : UserControl
 
     public event RoutedEventHandler SettingsRequested;
     public Visibility OverlayVisibility { get => (Visibility)GetValue(OverlayVisibilityProperty); set => SetValue(OverlayVisibilityProperty, value); }
+    public string BrowserHtml { get => (string)GetValue(BrowserHtmlProperty); set => SetValue(BrowserHtmlProperty, value); }
     public IntPtr PlayerHostHandle => _panel.Handle;
-    private MainWindowViewModel ViewModel => DataContext as MainWindowViewModel ?? throw new InvalidOperationException("Playback panel DataContext is unavailable.");
-    private PlaybackPanelViewModel PlaybackPanel => ViewModel.PlaybackPanel;
+    private PlaybackPanelViewModel PlaybackPanel => DataContext as PlaybackPanelViewModel ?? throw new InvalidOperationException("Playback panel DataContext is unavailable.");
 
     public PlayerPanelState PanelState
     {
@@ -144,7 +143,7 @@ public partial class PlaybackPanelView : UserControl
             if (PlaybackPanel.UsesLr2Body) return false;
             return PlaybackPanel.UsesBmiIdxView;
         }
-        return !state.HasFlag(PlayerPanelState.MOVIE_PLAYER) || (webBrowser != null && webBrowser.IsEnabled && ViewModel.BrowserHtml != null);
+        return !state.HasFlag(PlayerPanelState.MOVIE_PLAYER) || (webBrowser != null && webBrowser.IsEnabled && BrowserHtml != null);
     }
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked(object sender = null, RoutedEventArgs e = null)
     {
@@ -159,24 +158,22 @@ public partial class PlaybackPanelView : UserControl
     private static void forbidNavigating(object sender, NavigatingCancelEventArgs e) => e.Cancel = true;
     private void webBrowserLoadCompleted(object sender, NavigationEventArgs e) { webBrowser.Navigating += forbidNavigating; PanelState = PlayerPanelState.MOVIE_PLAYER; }
 
-    private async void gridBMSPlayerControlsNextButtonClicked(object sender, MouseButtonEventArgs e)
+    private void gridBMSPlayerControlsNextButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Next();
-            }).Logging("gridBMSPlayerControlsNextButtonClicked");
+            viewModel.NextCommand.Execute();
         }
     }
+
 
     /// <summary>
     /// 内蔵プレーヤーの「前の曲へ (Previous)」ボタンがクリックされた際のイベントハンドラ。
     /// ダブルクリック時は前の曲へ移動し、シングルクリック時は現在の曲を最初から再生し直します。
     /// </summary>
-    private async void gridBMSPlayerControlsPreviousButtonClicked(object sender, MouseButtonEventArgs e)
+    private void gridBMSPlayerControlsPreviousButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        if (DataContext is not PlaybackPanelViewModel viewModel)
         {
             return;
         }
@@ -185,10 +182,7 @@ public partial class PlaybackPanelView : UserControl
         if (e.ClickCount >= 2)
         {
             gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Previous();
-            }).Logging("gridBMSPlayerControlsPreviousButtonClicked");
+            viewModel.PreviousCommand.Execute();
         }
         else
         {
@@ -196,15 +190,12 @@ public partial class PlaybackPanelView : UserControl
         }
     }
 
-    private async void gridBMSPlayerControlsPreviousButtonSingleClicked(object sender, EventArgs e)
+    private void gridBMSPlayerControlsPreviousButtonSingleClicked(object sender, EventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel viewModel)
         {
             gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.RestartPlayingBmsFile();
-            }).Logging("gridBMSPlayerControlsPreviousButtonSingleClicked");
+            viewModel.RestartCommand.Execute();
         }
     }
 
@@ -212,118 +203,87 @@ public partial class PlaybackPanelView : UserControl
     /// 内蔵プレーヤーの「再生 (Play)」ボタンがクリックされた際のイベントハンドラ。
     /// 現在の再生状態が停止・一時停止であれば再生を再開または開始します。
     /// </summary>
-    private async void gridBMSPlayerControlsPlayStartButtonClicked(object sender, MouseButtonEventArgs e)
+    private void gridBMSPlayerControlsPlayStartButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel viewModel)
         {
             e.Handled = true;
-            if (viewModel.PlaybackPanel.IsStoppedOrPaused && IsPanelStateValid(PlayerPanelState.BMS_PLAYER))
+            if (viewModel.IsStoppedOrPaused && IsPanelStateValid(PlayerPanelState.BMS_PLAYER))
             {
                 PanelState = PlayerPanelState.BMS_PLAYER;
             }
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Start(forceNewPlay: false);
-            }).Logging("gridBMSPlayerControlsPlayStartButtonClicked");
+            viewModel.StartCommand.Execute();
         }
     }
 
-    /// <summary>
-    /// 内蔵プレーヤーの「停止 (Stop)」ボタンがクリックされた際のイベントハンドラ。
-    /// 実行中の再生プロセスを終了し、再生状態をクリアします。
-    /// </summary>
-    private async void gridBMSPlayerControlsPlayStopButtonClicked(object sender, MouseButtonEventArgs e)
+    private void gridBMSPlayerControlsPlayStopButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
+        e.Handled = true;
+        if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.StopPlayback(closeProcess: true);
-            }).Logging("gridBMSPlayerControlsPlayStopButtonClicked");
+            viewModel.StopCommand.Execute();
         }
     }
 
-    private async void gridBMSPlayerControlsFastForwardButtonClicked(object sender, MouseButtonEventArgs e)
+    private void gridBMSPlayerControlsFastForwardButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastForwardStart();
-            }).Logging("gridBMSPlayerControlsFastForwardButtonClicked");
+            viewModel.FastForwardStartCommand.Execute();
         }
     }
 
-    private async void gridBMSPlayerControlsFastForwardButtonReleased(object sender, MouseButtonEventArgs e)
+    private void gridBMSPlayerControlsFastForwardButtonReleased(object sender, MouseButtonEventArgs e)
     {
-        var viewModel = base.DataContext as MainWindowViewModel;
-        await Task.Run(delegate
-        {
-            viewModel.PlaybackPanel.FastForwardEnd();
-        }).Logging("gridBMSPlayerControlsFastForwardButtonReleased");
+        var viewModel = DataContext as PlaybackPanelViewModel;
+        viewModel?.FastForwardEndCommand.Execute();
     }
 
-    private async void gridBMSPlayerControlsFastForwardButtonReleased(object sender, MouseEventArgs e)
+    private void gridBMSPlayerControlsFastForwardButtonReleased(object sender, MouseEventArgs e)
     {
         if (e.LeftButton == MouseButtonState.Released)
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastForwardEnd();
-            }).Logging("gridBMSPlayerControlsFastForwardButtonReleased");
+            viewModel.FastForwardEndCommand.Execute();
         }
     }
 
-    private async void gridBMSPlayerControlsFastBackwardButtonClicked(object sender, MouseButtonEventArgs e)
+    private void gridBMSPlayerControlsFastBackwardButtonClicked(object sender, MouseButtonEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastBackwardStart();
-            }).Logging("gridBMSPlayerControlsFastBackwardButtonClicked");
+            viewModel.FastBackwardStartCommand.Execute();
         }
     }
 
-    private async void gridBMSPlayerControlsFastBackwardButtonReleased(object sender, MouseButtonEventArgs e)
+    private void gridBMSPlayerControlsFastBackwardButtonReleased(object sender, MouseButtonEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastBackwardEnd();
-            }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased");
+            viewModel.FastBackwardEndCommand.Execute();
         }
     }
 
-    private async void gridBMSPlayerControlsFastBackwardButtonReleased(object sender, MouseEventArgs e)
+    private void gridBMSPlayerControlsFastBackwardButtonReleased(object sender, MouseEventArgs e)
     {
         if (e.LeftButton == MouseButtonState.Released)
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel viewModel)
+        if (DataContext is PlaybackPanelViewModel viewModel)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastBackwardEnd();
-            }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased");
+            viewModel.FastBackwardEndCommand.Execute();
         }
     }
 
-    private async void gridBMSPlayerControlsShowInfoButtonClicked(object sender, RoutedEventArgs e)
+    private void gridBMSPlayerControlsShowInfoButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel && viewModel.PlaybackPanel.UsesUbMplay)
+        if (DataContext is PlaybackPanelViewModel viewModel && viewModel.UsesUbMplay)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.ShowInfo();
-            }).Logging("gridBMSPlayerControlsShowInfoButtonClicked");
+            viewModel.ShowInfoCommand.Execute();
         }
         else
         {
@@ -331,53 +291,11 @@ public partial class PlaybackPanelView : UserControl
         }
     }
 
-    private async void gridBMSPlayerControlsShowEffectButtonClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.ShowEffect();
-            }).Logging("gridBMSPlayerControlsShowEffectButtonClicked");
-        }
-    }
 
-    private async void gridBMSPlayerControlsChangePlaysideButtonClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.ChangePlayside();
-            }).Logging("gridBMSPlayerControlsChangePlaysideButtonClicked");
-        }
-    }
 
-    private async void gridBMSPlayerControlsIncreaseHighSpeedButtonClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.IncreaseHighSpeed();
-            }).Logging("gridBMSPlayerControlsIncreaseHighSpeedButtonClicked");
-        }
-    }
 
-    private async void gridBMSPlayerControlsDecreaseHighSpeedButtonClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.DecreaseHighSpeed();
-            }).Logging("gridBMSPlayerControlsDecreaseHighSpeedButtonClicked");
-        }
-    }
 
-    private async void sliderPlayerMouseMove(object sender, MouseEventArgs e)
+    private void sliderPlayerMouseMove(object sender, MouseEventArgs e)
     {
         if (e.LeftButton != MouseButtonState.Pressed)
         {
@@ -387,50 +305,41 @@ public partial class PlaybackPanelView : UserControl
         Point position = e.GetPosition(slider);
         double value = slider.Maximum * Math.Max(0.0, Math.Min(1.0, (position.X - 5.0) / (slider.ActualWidth - 10.0)));
         slider.Value = value;
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        if (DataContext is not PlaybackPanelViewModel viewModel)
         {
             return;
         }
-        if (viewModel.PlaybackPanel.IsPlaying)
+        if (viewModel.IsPlaying)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Start(forceNewPlay: false);
-            }).Logging("sliderPlayerMouseMove");
+            viewModel.StartCommand.Execute();
         }
     }
 
-    private async void sliderPlayerMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    private void sliderPlayerMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        if (DataContext is not PlaybackPanelViewModel viewModel)
         {
             return;
         }
-        if (viewModel.PlaybackPanel.IsPaused)
+        if (viewModel.IsPaused)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Start(forceNewPlay: false);
-            }).Logging("sliderPlayerMouseLeftButtonUp");
+            viewModel.StartCommand.Execute();
         }
     }
 
-    private async void sliderPlayerMouseLeave(object sender, MouseEventArgs e)
+    private void sliderPlayerMouseLeave(object sender, MouseEventArgs e)
     {
         if (e.LeftButton == MouseButtonState.Released)
         {
             return;
         }
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        if (DataContext is not PlaybackPanelViewModel viewModel)
         {
             return;
         }
-        if (viewModel.PlaybackPanel.IsPaused)
+        if (viewModel.IsPaused)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Start(forceNewPlay: false);
-            }).Logging("sliderPlayerMouseLeave");
+            viewModel.StartCommand.Execute();
         }
     }
 

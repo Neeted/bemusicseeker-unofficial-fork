@@ -765,7 +765,7 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void PlaybackHeaderTextBlocks_BindThroughPlaybackPanelDataContext()
+    public void PlaybackHeaderTextBlocks_InheritPlaybackPanelDataContext()
     {
         XDocument document = LoadPlaybackPanelXamlDocument();
         XElement header = FindElementByAttribute(document, "Name", "gridPlayerTitle");
@@ -773,16 +773,16 @@ public sealed class MainWindowContextMenuResourceTests
         XElement slider = FindElementByAttribute(document, "Name", "sliderPlayer");
         XElement playButton = FindElementByAttribute(document, "Name", "buttonBMSPlayerControlsPlayAndPauseButton");
 
-        Assert.AreEqual("{Binding PlaybackPanel}", GetAttributeValue(header, "DataContext"));
-        Assert.AreEqual("{Binding PlaybackPanel}", GetAttributeValue(compactHeader, "DataContext"));
+        Assert.AreEqual(string.Empty, GetAttributeValue(header, "DataContext"));
+        Assert.AreEqual(string.Empty, GetAttributeValue(compactHeader, "DataContext"));
         Assert.AreEqual(string.Empty, GetAttributeValue(slider, "DataContext"));
         Assert.AreEqual(string.Empty, GetAttributeValue(playButton, "DataContext"));
-        Assert.AreEqual("{Binding PlaybackPanel.CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}", GetAttributeValue(slider, "Value"));
+        Assert.AreEqual("{Binding CurrentlyPlayingTime, Mode=TwoWay, Converter={StaticResource timeSpanToDoubleSecConverter}}", GetAttributeValue(slider, "Value"));
         Assert.IsTrue(document.Descendants().Any(element =>
-            GetAttributeValue(element, "Text").IndexOf("PlaybackPanel.PlayerVolume", StringComparison.Ordinal) >= 0));
+            GetAttributeValue(element, "Text").IndexOf("PlayerVolume", StringComparison.Ordinal) >= 0));
         Assert.IsTrue(document.Descendants().Any(element =>
-            GetAttributeValue(element, "Value").IndexOf("PlaybackPanel.PlayerVolume", StringComparison.Ordinal) >= 0));
-        Assert.AreEqual("{Binding PlaybackPanel.NowPlayingBmsFile.status, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}", GetAttributeValue(playButton, "Content"));
+            GetAttributeValue(element, "Value").IndexOf("PlayerVolume", StringComparison.Ordinal) >= 0));
+        Assert.AreEqual("{Binding NowPlayingBmsFile.status, Converter={StaticResource nowPlayingBMStoPlayButtonStringComverter}, FallbackValue=play}", GetAttributeValue(playButton, "Content"));
 
         Assert.AreEqual("{Binding PlayerHeaderArtist}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsArtist"), "Text"));
         Assert.AreEqual("{Binding PlayerHeaderTitle}", GetAttributeValue(FindElementByAttribute(header, "Name", "gridBMSPlayerControlsTitle"), "Text"));
@@ -808,8 +808,10 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string xaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "PlaybackPanelView.xaml");
         string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
+        string codeBehind = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "PlaybackPanelView.xaml.cs");
 
-        StringAssert.Contains(mainWindowXaml, "<v:PlaybackPanelView");
+        StringAssert.Contains(mainWindowXaml, "DataContext=\"{Binding PlaybackPanel}\"");
+        StringAssert.Contains(mainWindowXaml, "BrowserHtml=\"{Binding DataContext.BrowserHtml, ElementName=window}\"");
         Assert.IsFalse(mainWindowXaml.Contains("Name=\"gridBMSPlayer\""));
         Assert.IsFalse(xaml.Contains("ElementName=\"settingDialog\""));
         Assert.IsFalse(xaml.Contains("ElementName=\"playlistPropertyDialog\""));
@@ -824,9 +826,18 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(xaml.Contains("UsePlayeruBMplay, Source={x:Static prop:Settings.Default}"));
         Assert.IsFalse(xaml.Contains("UsePlayerLR2body, Source={x:Static prop:Settings.Default}"));
         Assert.IsFalse(xaml.Contains("UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}"));
-        StringAssert.Contains(xaml, "{Binding PlaybackPanel.CanSeek}");
-        StringAssert.Contains(xaml, "{Binding PlaybackPanel.CanChangeHighSpeed}");
-        StringAssert.Contains(xaml, "{Binding PlaybackPanel.RepeatPlayMode, Mode=TwoWay}");
+        Assert.IsFalse(codeBehind.Contains("MainWindowViewModel"));
+        StringAssert.Contains(xaml, "{Binding CanSeek}");
+        StringAssert.Contains(xaml, "{Binding CanChangeHighSpeed}");
+        StringAssert.Contains(xaml, "{Binding RepeatPlayMode, Mode=TwoWay}");
+        StringAssert.Contains(xaml, "PreviewMouseLeftButtonDown=\"gridBMSPlayerControlsNextButtonClicked\"");
+        StringAssert.Contains(xaml, "PreviewMouseLeftButtonDown=\"gridBMSPlayerControlsPlayStopButtonClicked\"");
+        StringAssert.Contains(codeBehind, "viewModel.NextCommand.Execute()");
+        StringAssert.Contains(codeBehind, "viewModel.StopCommand.Execute()");
+        string nextHandler = ExtractBetween(codeBehind, "private void gridBMSPlayerControlsNextButtonClicked", "private void gridBMSPlayerControlsPreviousButtonClicked");
+        string stopHandler = ExtractBetween(codeBehind, "private void gridBMSPlayerControlsPlayStopButtonClicked", "private void gridBMSPlayerControlsFastForwardButtonClicked");
+        Assert.IsFalse(nextHandler.Contains("e.Handled = true"));
+        StringAssert.Contains(stopHandler, "e.Handled = true");
     }
 
     [TestMethod]
