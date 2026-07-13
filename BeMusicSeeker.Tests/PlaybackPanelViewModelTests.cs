@@ -243,6 +243,7 @@ public sealed class PlaybackPanelViewModelTests
             () => Dispatcher.CurrentDispatcher,
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new FakePlaybackDialogService(),
             new ChartFileOperationSynchronizer());
         try
         {
@@ -276,6 +277,7 @@ public sealed class PlaybackPanelViewModelTests
             () => Dispatcher.CurrentDispatcher,
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new FakePlaybackDialogService(),
             new ChartFileOperationSynchronizer());
         try
         {
@@ -293,6 +295,188 @@ public sealed class PlaybackPanelViewModelTests
             Settings.Default.RepeatPlayMode = originalRepeat;
             Settings.Default.FolderSkipPlayMode = originalFolderSkip;
             File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_NotifiesAndStopsAfterPlayerStartFailure()
+    {
+        string chartPath = Path.GetTempFileName();
+        var failure = new IOException("player start failed");
+        var player = new FakeBmsPlayer { PlayStartException = failure };
+        var dialogs = new FakePlaybackDialogService();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(chartPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            () => Dispatcher.CurrentDispatcher,
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            new ChartFileOperationSynchronizer());
+        dialogs.BeforePlaybackFailureNotification = () =>
+        {
+            Assert.IsNotNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(0, panel.NowPlayingRowIndex);
+        };
+        try
+        {
+            panel.Start();
+
+            Assert.AreSame(failure, dialogs.LastPlaybackFailure);
+            Assert.AreEqual(1, dialogs.PlaybackFailureNotificationCount);
+            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+        }
+        finally
+        {
+            File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_DoesNotHideNotificationFailureOrRunFollowingStop()
+    {
+        string chartPath = Path.GetTempFileName();
+        var playerFailure = new IOException("player start failed");
+        var notificationFailure = new InvalidOperationException("notification failed");
+        var player = new FakeBmsPlayer { PlayStartException = playerFailure };
+        var dialogs = new FakePlaybackDialogService { PlaybackFailureException = notificationFailure };
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(chartPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            () => Dispatcher.CurrentDispatcher,
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            Assert.AreSame(notificationFailure, Assert.ThrowsException<InvalidOperationException>(() => panel.Start()));
+            Assert.AreSame(playerFailure, dialogs.LastPlaybackFailure);
+            Assert.IsNotNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(0, panel.NowPlayingRowIndex);
+        }
+        finally
+        {
+            File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_TemporaryInstallConfirmationControlsPlaybackWorkflow()
+    {
+        bool originalLr2Body = Settings.Default.UsePlayerLR2body;
+        bool originalLr2Database = Settings.Default.OperationModeLR2DB;
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackDialog_" + Guid.NewGuid().ToString("N"));
+        string sourceDirectory = Path.Combine(root, "Source");
+        string installDirectory = Path.Combine(root, "Install");
+        string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+        string songDbPath = Path.Combine(root, "song.db");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(installDirectory);
+        File.WriteAllText(chartPath, "#TITLE test");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            Settings.Default.UsePlayerLR2body = true;
+            Settings.Default.OperationModeLR2DB = true;
+
+            var acceptedPlayer = new FakeBmsPlayer();
+            var acceptedDialogs = new FakePlaybackDialogService { TemporaryInstallConfirmationResult = true };
+            PlaybackPanelViewModel acceptedPanel = CreateTemporaryInstallPanel(
+                chartPath,
+                installDirectory,
+                songDbPath,
+                acceptedPlayer,
+                acceptedDialogs);
+            int startedCount = 0;
+            acceptedPanel.PlaybackStarted += (_, _) => startedCount++;
+
+            acceptedPanel.Start();
+
+            Assert.AreEqual(1, acceptedDialogs.TemporaryInstallConfirmationCount);
+            Assert.IsTrue(acceptedPlayer.Commands.Contains("PlayStart:" + Path.Combine(installDirectory, Path.GetFileName(chartPath))));
+            Assert.AreEqual(1, startedCount);
+            Assert.IsNotNull(acceptedPanel.NowPlayingBmsFile);
+
+            var rejectedPlayer = new FakeBmsPlayer();
+            var rejectedDialogs = new FakePlaybackDialogService { TemporaryInstallConfirmationResult = false };
+            PlaybackPanelViewModel rejectedPanel = CreateTemporaryInstallPanel(
+                chartPath,
+                installDirectory,
+                songDbPath,
+                rejectedPlayer,
+                rejectedDialogs);
+
+            rejectedPanel.Start();
+
+            Assert.AreEqual(1, rejectedDialogs.TemporaryInstallConfirmationCount);
+            Assert.IsFalse(rejectedPlayer.Commands.Any(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+            Assert.AreEqual(1, rejectedPlayer.CloseProcessCount);
+            Assert.IsNull(rejectedPanel.NowPlayingBmsFile);
+            Assert.AreEqual(-1, rejectedPanel.NowPlayingRowIndex);
+        }
+        finally
+        {
+            Settings.Default.UsePlayerLR2body = originalLr2Body;
+            Settings.Default.OperationModeLR2DB = originalLr2Database;
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_TemporaryInstallDialogFailureStopsAndPropagates()
+    {
+        bool originalLr2Body = Settings.Default.UsePlayerLR2body;
+        bool originalLr2Database = Settings.Default.OperationModeLR2DB;
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlaybackDialogFailure_" + Guid.NewGuid().ToString("N"));
+        string sourceDirectory = Path.Combine(root, "Source");
+        string installDirectory = Path.Combine(root, "Install");
+        string chartPath = Path.Combine(sourceDirectory, "chart.bms");
+        string songDbPath = Path.Combine(root, "song.db");
+        Directory.CreateDirectory(sourceDirectory);
+        Directory.CreateDirectory(installDirectory);
+        File.WriteAllText(chartPath, "#TITLE test");
+        File.WriteAllBytes(songDbPath, []);
+        var failure = new InvalidOperationException("confirmation failed");
+        var player = new FakeBmsPlayer();
+        var dialogs = new FakePlaybackDialogService { TemporaryInstallConfirmationException = failure };
+        try
+        {
+            Settings.Default.UsePlayerLR2body = true;
+            Settings.Default.OperationModeLR2DB = true;
+            PlaybackPanelViewModel panel = CreateTemporaryInstallPanel(
+                chartPath,
+                installDirectory,
+                songDbPath,
+                player,
+                dialogs);
+
+            Assert.AreSame(failure, Assert.ThrowsException<InvalidOperationException>(() => panel.Start()));
+            Assert.AreEqual(1, dialogs.TemporaryInstallConfirmationCount);
+            Assert.AreEqual(1, player.CloseProcessCount);
+            Assert.IsNull(panel.NowPlayingBmsFile);
+            Assert.AreEqual(-1, panel.NowPlayingRowIndex);
+        }
+        finally
+        {
+            Settings.Default.UsePlayerLR2body = originalLr2Body;
+            Settings.Default.OperationModeLR2DB = originalLr2Database;
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
         }
     }
 
@@ -344,6 +528,7 @@ public sealed class PlaybackPanelViewModelTests
             () => Dispatcher.CurrentDispatcher,
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new FakePlaybackDialogService(),
             new ChartFileOperationSynchronizer());
         try
         {
@@ -601,7 +786,35 @@ public sealed class PlaybackPanelViewModelTests
             () => Dispatcher.CurrentDispatcher,
             new MainChartListPlaybackQueue(new MainChartListViewModel()),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new FakePlaybackDialogService(),
             new ChartFileOperationSynchronizer());
+    }
+
+    private static PlaybackPanelViewModel CreateTemporaryInstallPanel(
+        string chartPath,
+        string installDirectory,
+        string songDbPath,
+        IBMSPlayer player,
+        IPlaybackDialogService dialogs)
+    {
+        var bmsFile = new TestBmsFile(chartPath);
+        ChartFile chart = ChartPackageTestExtensions
+            .CreateEntryWithInstallDestination(bmsFile, installDirectory)
+            .Chart;
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { LibraryChartRow.FromChartFile(chart) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            () => Dispatcher.CurrentDispatcher,
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            dialogs,
+            new ChartFileOperationSynchronizer());
+        panel.AttachLibrary(new BMSLibrary(songDbPath));
+        return panel;
     }
 
     private static void PumpDispatcherFor(TimeSpan duration)
@@ -737,6 +950,44 @@ public sealed class PlaybackPanelViewModelTests
         public void DecreaseHighSpeed() => Commands.Enqueue("DecreaseHighSpeed");
 
         public void VolumeChanged() => Commands.Enqueue("VolumeChanged");
+    }
+
+    private sealed class FakePlaybackDialogService : IPlaybackDialogService
+    {
+        internal bool TemporaryInstallConfirmationResult { get; set; } = true;
+
+        internal Exception? TemporaryInstallConfirmationException { get; set; }
+
+        internal int TemporaryInstallConfirmationCount { get; private set; }
+
+        internal Exception? LastPlaybackFailure { get; private set; }
+
+        internal int PlaybackFailureNotificationCount { get; private set; }
+
+        internal Action? BeforePlaybackFailureNotification { get; set; }
+
+        internal Exception? PlaybackFailureException { get; set; }
+
+        public bool ConfirmTemporaryInstallPlayback()
+        {
+            TemporaryInstallConfirmationCount++;
+            if (TemporaryInstallConfirmationException != null)
+            {
+                throw TemporaryInstallConfirmationException;
+            }
+            return TemporaryInstallConfirmationResult;
+        }
+
+        public void NotifyPlaybackFailure(Exception exception)
+        {
+            BeforePlaybackFailureNotification?.Invoke();
+            LastPlaybackFailure = exception;
+            PlaybackFailureNotificationCount++;
+            if (PlaybackFailureException != null)
+            {
+                throw PlaybackFailureException;
+            }
+        }
     }
 
     private sealed class TestBmsFile : BMSFile

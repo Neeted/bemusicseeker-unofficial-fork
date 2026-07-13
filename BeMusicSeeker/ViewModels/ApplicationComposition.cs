@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -332,6 +333,7 @@ internal sealed class MainWindowChildComposition
             uiDispatcherProvider,
             new MainChartListPlaybackQueue(MainChartList),
             playbackSettingsStore,
+            new WpfPlaybackDialogService(new UiDialogCoordinator()),
             chartFileOperations);
         ChartFilters = new ChartListFilterViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();

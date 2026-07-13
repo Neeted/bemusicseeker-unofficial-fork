@@ -3,13 +3,10 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
-using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using Livet.Commands;
 using Ribbit.Logging;
@@ -26,6 +23,8 @@ public sealed class PlaybackPanelViewModel : ViewModel
     private readonly IPlaybackChartQueue playbackQueue;
 
     private readonly IPlaybackSettingsStore playbackSettings;
+
+    private readonly IPlaybackDialogService playbackDialogs;
 
     private readonly ChartFileOperationSynchronizer chartFileOperations;
 
@@ -111,11 +110,13 @@ public sealed class PlaybackPanelViewModel : ViewModel
         Func<Dispatcher> uiDispatcherProvider,
         IPlaybackChartQueue playbackQueue,
         IPlaybackSettingsStore playbackSettings,
+        IPlaybackDialogService playbackDialogs,
         ChartFileOperationSynchronizer chartFileOperations)
     {
         this.uiDispatcherProvider = uiDispatcherProvider ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
         this.playbackQueue = playbackQueue ?? throw new ArgumentNullException(nameof(playbackQueue));
         this.playbackSettings = playbackSettings ?? throw new ArgumentNullException(nameof(playbackSettings));
+        this.playbackDialogs = playbackDialogs ?? throw new ArgumentNullException(nameof(playbackDialogs));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         ReplacePlayer(player);
     }
@@ -816,7 +817,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
         }
         catch (Exception ex)
         {
-            ShowPlaybackFailure(ex);
+            playbackDialogs.NotifyPlaybackFailure(ex);
             StopPlayback();
             return;
         }
@@ -840,7 +841,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
         {
             if (playbackSettings.UsesLr2Body
                 && playbackSettings.UsesLr2Database
-                && !ShowTemporaryInstallConfirmation())
+                && !playbackDialogs.ConfirmTemporaryInstallPlayback())
             {
                 StopPlayback(closeProcess: true);
                 return;
@@ -891,7 +892,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
                     }
                     catch (Exception ex)
                     {
-                        ShowPlaybackFailure(ex);
+                        playbackDialogs.NotifyPlaybackFailure(ex);
                         StopPlayback();
                         return;
                     }
@@ -920,49 +921,6 @@ public sealed class PlaybackPanelViewModel : ViewModel
         return chartPackage != null
             && chart != null
             && (chartPackage.ChartEntries ?? []).Any(entry => entry?.IsSameChartTarget(chart) == true);
-    }
-
-    private static bool ShowTemporaryInstallConfirmation()
-    {
-        UiDialogResult result = new UiDialogCoordinator()
-            .ConfirmAsync(new UiConfirmationRequest(
-                Resources.Msg_warn_play_temp_install,
-                Resources.Warning,
-                MessageBoxButton.YesNo,
-                MessageBoxImage.Exclamation,
-                MessageBoxResult.None))
-            .GetAwaiter()
-            .GetResult();
-        if (result.Status is UiDialogStatus.Accepted)
-        {
-            return true;
-        }
-        if (result.Status is UiDialogStatus.Rejected or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
-        {
-            return false;
-        }
-        throw result.Exception ?? new InvalidOperationException("Temporary install playback confirmation was not shown: " + result.Status);
-    }
-
-    private static void ShowPlaybackFailure(Exception exception)
-    {
-        UiDialogResult result = new UiDialogCoordinator()
-            .ShowMessageAsync(new UiMessageRequest(
-                Resources.Msg_failed_play + Environment.NewLine + exception.Message,
-                Resources.Error,
-                MessageBoxButton.OK,
-                MessageBoxImage.Hand,
-                MessageBoxResult.OK))
-            .GetAwaiter()
-            .GetResult();
-        if (result.Status is UiDialogStatus.Accepted or UiDialogStatus.CancelledByUser or UiDialogStatus.ClosedByUser)
-        {
-            return;
-        }
-        else
-        {
-            throw result.Exception ?? new InvalidOperationException("Playback failure notification was not shown: " + result.Status);
-        }
     }
 
     internal void StopIfPlayingCharts(IEnumerable<ChartFile> charts)
