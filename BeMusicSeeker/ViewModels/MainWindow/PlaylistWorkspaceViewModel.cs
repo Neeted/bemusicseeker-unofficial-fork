@@ -576,6 +576,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             {
                 playlistSummaryKeywordFilter = next;
                 RaisePropertyChanged(nameof(PlaylistSummaryKeywordFilter));
+                UpdatePlaylistSummaryKeywordSearchPresentation();
                 PlaylistSummaryFilterChanged?.Invoke(this, EventArgs.Empty);
             }
         }
@@ -1050,29 +1051,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         alive = previousPlaylistSummaryViewWeakReference != null && previousPlaylistSummaryViewWeakReference.TryGetTarget(out previousSummaryRows);
         rowCount = alive ? previousSummaryRows.Count : 0;
         return previousPlaylistSummaryViewWeakReference != null;
-    }
-
-    internal void SetPlaylistSummaryKeywordSearchWarningText(string value)
-    {
-        string next = value ?? string.Empty;
-        if (playlistSummaryKeywordSearchWarningText == next)
-        {
-            return;
-        }
-
-        playlistSummaryKeywordSearchWarningText = next;
-        RaisePropertyChanged(nameof(PlaylistSummaryKeywordSearchWarningText));
-        RaisePropertyChanged(nameof(HasPlaylistSummaryKeywordSearchWarning));
-    }
-
-    internal void SetPlaylistSummaryKeywordSearchSuggestionHeaderText(string value)
-    {
-        string next = value ?? string.Empty;
-        if (playlistSummaryKeywordSearchSuggestionHeaderText != next)
-        {
-            playlistSummaryKeywordSearchSuggestionHeaderText = next;
-            RaisePropertyChanged(nameof(PlaylistSummaryKeywordSearchSuggestionHeaderText));
-        }
     }
 
 }

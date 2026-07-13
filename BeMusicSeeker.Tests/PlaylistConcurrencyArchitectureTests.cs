@@ -353,17 +353,24 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
-    public void MainWindowKeywordSearchHistory_UsesSettingsStoreBoundary()
+    public void KeywordSearchHistory_UsesSettingsStoreBoundary()
     {
-        string source = SourceTextTestHelper.ReadProductionSourceText(
+        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "ViewModels",
             "MainWindowViewModel.cs");
+        string playlistWorkspaceKeywordSearchSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.KeywordSearch.cs");
 
-        StringAssert.Contains(source, "keywordSearchHistorySettingsStore.KeywordSearchHistory");
-        StringAssert.Contains(source, "keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory");
-        Assert.IsFalse(source.Contains("Settings.Default.KeywordSearchHistory"));
-        Assert.IsFalse(source.Contains("Settings.Default.PlaylistSummaryKeywordSearchHistory"));
+        StringAssert.Contains(mainWindowSource, "keywordSearchHistorySettingsStore.KeywordSearchHistory");
+        StringAssert.Contains(playlistWorkspaceKeywordSearchSource, "settingsStore.PlaylistSummaryKeywordSearchHistory");
+        Assert.IsFalse(mainWindowSource.Contains("Settings.Default.KeywordSearchHistory"));
+        Assert.IsFalse(mainWindowSource.Contains("Settings.Default.PlaylistSummaryKeywordSearchHistory"));
+        Assert.IsFalse(playlistWorkspaceKeywordSearchSource.Contains("Settings.Default.KeywordSearchHistory"));
+        Assert.IsFalse(playlistWorkspaceKeywordSearchSource.Contains("Settings.Default.PlaylistSummaryKeywordSearchHistory"));
     }
 
     [TestMethod]

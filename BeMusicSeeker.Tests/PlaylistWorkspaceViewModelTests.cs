@@ -104,6 +104,17 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal Task DeleteEntriesAsync(");
         StringAssert.Contains(workspaceSource, "internal Task RemoveTableAsync(");
         StringAssert.Contains(workspaceSource, "internal Task RemoveTablesAsync(");
+        StringAssert.Contains(workspaceSource, "internal void RefreshPlaylistSummaryKeywordSearchSuggestions(");
+        StringAssert.Contains(workspaceSource, "internal void CommitPlaylistSummaryKeywordSearchHistory(");
+        StringAssert.Contains(workspaceSource, "internal void ConfigureKeywordSearchHistory(");
+        Assert.AreEqual(-1, rootSource.IndexOf("playlistSummaryKeywordSearchHistory", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("RefreshPlaylistSummaryKeywordSearchSuggestions", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("CommitPlaylistSummaryKeywordSearchHistory", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("ClosePlaylistSummaryKeywordSearchSuggestions", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("UpdatePlaylistSummaryKeywordSearchPresentation", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RefreshPlaylistSummaryKeywordSearchSuggestions(");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.CommitPlaylistSummaryKeywordSearchHistory(");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ClosePlaylistSummaryKeywordSearchSuggestions();");
         StringAssert.Contains(workspaceSource, "RequestPlaylistSummaryRefresh(\n            \"playlist_table_removed\"");
         StringAssert.Contains(workspaceSource, "rebuildAsync: false");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;");
@@ -727,9 +738,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         var propertyNames = new List<string>();
         workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
-        workspace.SetPlaylistSummaryKeywordSearchWarningText("warning");
+        workspace.PlaylistSummaryKeywordFilter = "memo:warning";
 
-        Assert.AreEqual("warning", workspace.PlaylistSummaryKeywordSearchWarningText);
+        StringAssert.Contains(workspace.PlaylistSummaryKeywordSearchWarningText, "memo");
         Assert.IsTrue(workspace.HasPlaylistSummaryKeywordSearchWarning);
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryKeywordSearchWarningText));
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.HasPlaylistSummaryKeywordSearchWarning));

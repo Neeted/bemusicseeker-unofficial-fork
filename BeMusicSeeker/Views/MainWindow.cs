@@ -2327,7 +2327,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (IsPlaylistSummaryKeywordSearchBox(textBox))
         {
-            viewModel.RefreshPlaylistSummaryKeywordSearchSuggestions(textBox.Text, textBox.CaretIndex, forceHistory);
+            viewModel.PlaylistWorkspace.RefreshPlaylistSummaryKeywordSearchSuggestions(
+                textBox.Text,
+                textBox.CaretIndex,
+                forceHistory);
         }
         else
         {
@@ -2343,7 +2346,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (IsPlaylistSummaryKeywordSearchBox(textBox))
         {
-            viewModel.CommitPlaylistSummaryKeywordSearchHistory(textBox.Text);
+            viewModel.PlaylistWorkspace.CommitPlaylistSummaryKeywordSearchHistory(textBox.Text);
         }
         else
         {
@@ -2447,7 +2450,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (isPlaylistSummary)
         {
-            viewModel.ClosePlaylistSummaryKeywordSearchSuggestions();
+            viewModel.PlaylistWorkspace.ClosePlaylistSummaryKeywordSearchSuggestions();
         }
         else
         {

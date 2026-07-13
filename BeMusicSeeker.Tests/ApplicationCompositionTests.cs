@@ -799,9 +799,49 @@ public sealed class ApplicationCompositionTests
 
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
         viewModel.CommitKeywordSearchHistory("new");
-        viewModel.CommitPlaylistSummaryKeywordSearchHistory("summary-new");
+        viewModel.PlaylistWorkspace.CommitPlaylistSummaryKeywordSearchHistory("summary-new");
 
         Assert.AreEqual("new", KeywordSearchHistoryStore.Deserialize(store.KeywordSearchHistory)[0]);
+        Assert.AreEqual("summary-new", KeywordSearchHistoryStore.Deserialize(store.PlaylistSummaryKeywordSearchHistory)[0]);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceOwnsSummaryKeywordSearchSuggestionsAndHistory()
+    {
+        var store = new FakeKeywordSearchHistorySettingsStore
+        {
+            PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(["summary-old"])
+        };
+        var composition = new ApplicationComposition(
+            () => new BmsLibraryOptionsSnapshot(),
+            firstStartupProvider: () => false,
+            completeFirstStartup: () =>
+            {
+            },
+            reloadSettings: () =>
+            {
+            },
+            saveSettings: () =>
+            {
+            },
+            keywordSearchHistorySettingsStore: store);
+
+        MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+        PlaylistWorkspaceViewModel workspace = viewModel.PlaylistWorkspace;
+        workspace.RefreshPlaylistSummaryKeywordSearchSuggestions(string.Empty, 0, forceHistory: true);
+
+        Assert.IsTrue(workspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen);
+        Assert.IsFalse(string.IsNullOrWhiteSpace(workspace.PlaylistSummaryKeywordSearchSuggestionHeaderText));
+        Assert.AreEqual(1, workspace.PlaylistSummaryKeywordSearchSuggestions.Count);
+        Assert.AreEqual("summary-old", workspace.PlaylistSummaryKeywordSearchSuggestions[0].DisplayText);
+
+        workspace.ClosePlaylistSummaryKeywordSearchSuggestions();
+        Assert.IsFalse(workspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen);
+
+        workspace.PlaylistSummaryKeywordFilter = "memo:alpha";
+        StringAssert.Contains(workspace.PlaylistSummaryKeywordSearchWarningText, "memo");
+
+        workspace.CommitPlaylistSummaryKeywordSearchHistory("summary-new");
         Assert.AreEqual("summary-new", KeywordSearchHistoryStore.Deserialize(store.PlaylistSummaryKeywordSearchHistory)[0]);
     }
 

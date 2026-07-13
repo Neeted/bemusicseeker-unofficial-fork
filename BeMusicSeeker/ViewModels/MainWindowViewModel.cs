@@ -727,8 +727,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly List<string> keywordSearchHistory = [];
 
-    private readonly List<string> playlistSummaryKeywordSearchHistory = [];
-
     private bool _IsKeywordSearchSuggestionPopupOpen;
 
     private string _KeywordSearchSuggestionHeaderText = string.Empty;
@@ -4855,26 +4853,7 @@ public partial class MainWindowViewModel : ViewModel
             keywordSearchHistory,
             keywordFilter,
             caretIndex,
-            forceHistory,
-            isPlaylistSummary: false);
-    }
-
-    /// <summary>
-    /// プレイリスト一覧検索欄の補完・履歴候補を更新します。
-    /// </summary>
-    /// <param name="keywordFilter">検索欄の現在値。</param>
-    /// <param name="caretIndex">現在の caret 位置。</param>
-    /// <param name="forceHistory">field 補完が無い時に履歴を表示するか。</param>
-    internal void RefreshPlaylistSummaryKeywordSearchSuggestions(string keywordFilter, int caretIndex, bool forceHistory)
-    {
-        RefreshKeywordSearchSuggestions(
-            PlaylistWorkspace.PlaylistSummaryKeywordSearchSuggestions,
-            GridKeywordSearchContext.PlaylistSummary,
-            playlistSummaryKeywordSearchHistory,
-            keywordFilter,
-            caretIndex,
-            forceHistory,
-            isPlaylistSummary: true);
+            forceHistory);
     }
 
     /// <summary>
@@ -4886,14 +4865,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// プレイリスト一覧検索欄の候補 popup を閉じます。
-    /// </summary>
-    internal void ClosePlaylistSummaryKeywordSearchSuggestions()
-    {
-        PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = false;
-    }
-
-    /// <summary>
     /// 通常検索欄の検索履歴へ現在値を追加します。
     /// </summary>
     /// <param name="keywordFilter">保存する検索文字列。</param>
@@ -4901,16 +4872,6 @@ public partial class MainWindowViewModel : ViewModel
     {
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.AddEntry(keywordSearchHistory, keywordFilter));
         keywordSearchHistorySettingsStore.KeywordSearchHistory = KeywordSearchHistoryStore.Serialize(keywordSearchHistory);
-    }
-
-    /// <summary>
-    /// プレイリスト一覧検索欄の検索履歴へ現在値を追加します。
-    /// </summary>
-    /// <param name="keywordFilter">保存する検索文字列。</param>
-    internal void CommitPlaylistSummaryKeywordSearchHistory(string keywordFilter)
-    {
-        ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.AddEntry(playlistSummaryKeywordSearchHistory, keywordFilter));
-        keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(playlistSummaryKeywordSearchHistory);
     }
 
     private void EnsurePlayHistoryDisplayTargetSelection()
@@ -4984,18 +4945,12 @@ public partial class MainWindowViewModel : ViewModel
         RaisePropertyChanged("KeywordSearchHelpText");
     }
 
-    private void UpdatePlaylistSummaryKeywordSearchPresentation()
-    {
-        string warningText = BuildKeywordSearchWarningText(PlaylistWorkspace.PlaylistSummaryKeywordFilter, GridKeywordSearchContext.PlaylistSummary);
-        PlaylistWorkspace.SetPlaylistSummaryKeywordSearchWarningText(warningText);
-    }
-
-    private void RefreshKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, GridKeywordSearchContext context, IReadOnlyList<string> history, string keywordFilter, int caretIndex, bool forceHistory, bool isPlaylistSummary)
+    private void RefreshKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, GridKeywordSearchContext context, IReadOnlyList<string> history, string keywordFilter, int caretIndex, bool forceHistory)
     {
         GridKeywordSearchCompletionResult fieldCompletion = GridKeywordSearchCompletion.CreateFieldCompletion(keywordFilter, caretIndex, context);
         if (fieldCompletion.Items.Count > 0)
         {
-            SetKeywordSearchSuggestions(targetSuggestions, fieldCompletion.Items, KeywordSearchSuggestionKind.Field, isPlaylistSummary);
+            SetKeywordSearchSuggestions(targetSuggestions, fieldCompletion.Items, KeywordSearchSuggestionKind.Field);
             return;
         }
         if (GridKeywordSearchCompletion.IsPlaylistValueCompletionContext(keywordFilter, caretIndex, context))
@@ -5003,17 +4958,17 @@ public partial class MainWindowViewModel : ViewModel
             GridKeywordSearchCompletionResult playlistValueCompletion = GridKeywordSearchCompletion.CreatePlaylistValueCompletion(keywordFilter, caretIndex, context, GetKeywordSearchPlaylistNameCandidates(context));
             if (playlistValueCompletion.Items.Count > 0)
             {
-                SetKeywordSearchSuggestions(targetSuggestions, playlistValueCompletion.Items, KeywordSearchSuggestionKind.Value, isPlaylistSummary);
+                SetKeywordSearchSuggestions(targetSuggestions, playlistValueCompletion.Items, KeywordSearchSuggestionKind.Value);
                 return;
             }
         }
         if (forceHistory)
         {
             IReadOnlyList<KeywordSearchSuggestionItem> historySuggestions = BuildKeywordSearchHistorySuggestions(history, keywordFilter);
-            SetKeywordSearchSuggestions(targetSuggestions, historySuggestions, KeywordSearchSuggestionKind.History, isPlaylistSummary);
+            SetKeywordSearchSuggestions(targetSuggestions, historySuggestions, KeywordSearchSuggestionKind.History);
             return;
         }
-        SetKeywordSearchSuggestions(targetSuggestions, [], KeywordSearchSuggestionKind.Field, isPlaylistSummary);
+        SetKeywordSearchSuggestions(targetSuggestions, [], KeywordSearchSuggestionKind.Field);
     }
 
     private IReadOnlyList<string> GetKeywordSearchPlaylistNameCandidates(GridKeywordSearchContext context)
@@ -5042,7 +4997,7 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void SetKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, IReadOnlyList<KeywordSearchSuggestionItem> suggestions, KeywordSearchSuggestionKind kind, bool isPlaylistSummary)
+    private void SetKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, IReadOnlyList<KeywordSearchSuggestionItem> suggestions, KeywordSearchSuggestionKind kind)
     {
         targetSuggestions.Clear();
         foreach (KeywordSearchSuggestionItem suggestion in suggestions ?? [])
@@ -5050,17 +5005,9 @@ public partial class MainWindowViewModel : ViewModel
             targetSuggestions.Add(suggestion);
         }
         string headerText = targetSuggestions.Count == 0 ? string.Empty : BuildKeywordSearchSuggestionHeaderText(kind);
-        if (isPlaylistSummary)
-        {
-            PlaylistWorkspace.SetPlaylistSummaryKeywordSearchSuggestionHeaderText(headerText);
-            PlaylistWorkspace.IsPlaylistSummaryKeywordSearchSuggestionPopupOpen = targetSuggestions.Count > 0;
-        }
-        else
-        {
-            _KeywordSearchSuggestionHeaderText = headerText;
-            RaisePropertyChanged("KeywordSearchSuggestionHeaderText");
-            IsKeywordSearchSuggestionPopupOpen = targetSuggestions.Count > 0;
-        }
+        _KeywordSearchSuggestionHeaderText = headerText;
+        RaisePropertyChanged("KeywordSearchSuggestionHeaderText");
+        IsKeywordSearchSuggestionPopupOpen = targetSuggestions.Count > 0;
     }
 
     private static void ReplaceKeywordSearchHistory(List<string> target, IEnumerable<string> source)
@@ -5293,6 +5240,7 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             LogPlaylistViewApply,
             LogPlaylistRetention);
+        PlaylistWorkspace.ConfigureKeywordSearchHistory(composition.KeywordSearchHistorySettingsStore);
         PlaylistWorkspace.ConfigurePropertyEditing(new PlaylistPropertySaveService(
             () => tables,
             () => files,
@@ -5403,7 +5351,6 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistory.SortChanged += PlayHistorySortChanged;
         PlayHistory.SortRefreshRequested += ChartListOwnerSortRefreshRequested;
         ReplaceKeywordSearchHistory(keywordSearchHistory, KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.KeywordSearchHistory));
-        ReplaceKeywordSearchHistory(playlistSummaryKeywordSearchHistory, KeywordSearchHistoryStore.Deserialize(keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory));
         PlayHistory.RestoreDisplayTargetIdentity(playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = applicationComposition.CreateSettingDialogViewModel(this);
@@ -5780,7 +5727,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private void PlaylistWorkspacePlaylistSummaryFilterChanged(object sender, EventArgs e)
     {
-        UpdatePlaylistSummaryKeywordSearchPresentation();
         if (PlaylistWorkspace.IsPlaylistSummaryMode)
         {
             RefreshPlaylistSummaryPresentationIfVisible();
