@@ -148,6 +148,7 @@ public sealed class PlaybackPanelViewModelTests
             new MainChartListPlaybackQueue(new MainChartListViewModel()),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
+            _ => { },
             new ChartFileOperationSynchronizer());
         int startingCount = 0;
         int startedCount = 0;
@@ -185,6 +186,7 @@ public sealed class PlaybackPanelViewModelTests
             new MainChartListPlaybackQueue(new MainChartListViewModel()),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
+            _ => { },
             new ChartFileOperationSynchronizer());
 
         first.Duration = TimeSpan.FromSeconds(20);
@@ -309,6 +311,7 @@ public sealed class PlaybackPanelViewModelTests
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
+            _ => { },
             new ChartFileOperationSynchronizer());
         try
         {
@@ -337,12 +340,14 @@ public sealed class PlaybackPanelViewModelTests
             Rows = Enumerable.Range(0, 4096).Select(_ => (object)new TestBmsFile(chartPath)).ToList(),
             SelectedIndex = 0
         };
+        int warningCount = 0;
         var panel = new PlaybackPanelViewModel(
             player,
             new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
+            _ => warningCount++,
             new ChartFileOperationSynchronizer());
         try
         {
@@ -354,6 +359,7 @@ public sealed class PlaybackPanelViewModelTests
             Assert.IsNull(panel.NowPlayingBmsFile);
             Assert.AreEqual(-1, panel.NowPlayingRowIndex);
             Assert.AreEqual(4096, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+            Assert.AreEqual(4096, warningCount);
         }
         finally
         {
@@ -381,6 +387,7 @@ public sealed class PlaybackPanelViewModelTests
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             dialogs,
+            _ => { },
             new ChartFileOperationSynchronizer());
         dialogs.BeforePlaybackFailureNotification = () =>
         {
@@ -421,6 +428,7 @@ public sealed class PlaybackPanelViewModelTests
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             dialogs,
+            _ => { },
             new ChartFileOperationSynchronizer());
         try
         {
@@ -594,6 +602,7 @@ public sealed class PlaybackPanelViewModelTests
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
+            _ => { },
             new ChartFileOperationSynchronizer());
         try
         {
@@ -852,6 +861,7 @@ public sealed class PlaybackPanelViewModelTests
             new MainChartListPlaybackQueue(new MainChartListViewModel()),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
+            _ => { },
             new ChartFileOperationSynchronizer());
     }
 
@@ -877,6 +887,7 @@ public sealed class PlaybackPanelViewModelTests
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             dialogs,
+            _ => { },
             new ChartFileOperationSynchronizer());
         panel.AttachLibrary(new BMSLibrary(songDbPath));
         return panel;

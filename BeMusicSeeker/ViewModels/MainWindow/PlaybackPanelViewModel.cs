@@ -8,7 +8,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using Livet;
 using Livet.Commands;
-using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -24,6 +23,8 @@ public sealed class PlaybackPanelViewModel : ViewModel
     private readonly IPlaybackSettingsStore playbackSettings;
 
     private readonly IPlaybackDialogService playbackDialogs;
+
+    private readonly Action<Exception> warnInvalidChart;
 
     private readonly ChartFileOperationSynchronizer chartFileOperations;
 
@@ -110,12 +111,14 @@ public sealed class PlaybackPanelViewModel : ViewModel
         IPlaybackChartQueue playbackQueue,
         IPlaybackSettingsStore playbackSettings,
         IPlaybackDialogService playbackDialogs,
+        Action<Exception> warnInvalidChart,
         ChartFileOperationSynchronizer chartFileOperations)
     {
         this.uiDispatcher = uiDispatcher ?? throw new ArgumentNullException(nameof(uiDispatcher));
         this.playbackQueue = playbackQueue ?? throw new ArgumentNullException(nameof(playbackQueue));
         this.playbackSettings = playbackSettings ?? throw new ArgumentNullException(nameof(playbackSettings));
         this.playbackDialogs = playbackDialogs ?? throw new ArgumentNullException(nameof(playbackDialogs));
+        this.warnInvalidChart = warnInvalidChart ?? throw new ArgumentNullException(nameof(warnInvalidChart));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         ReplacePlayer(player);
     }
@@ -793,7 +796,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
         }
         catch (InvalidDataException value)
         {
-            NLogWrapper.TraceLogger?.Warn(value);
+            warnInvalidChart(value);
             if (playbackSettings.RepeatPlay && (playbackSettings.SinglePlay || index == 0))
             {
                 StopPlayback();

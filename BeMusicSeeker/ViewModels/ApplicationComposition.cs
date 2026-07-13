@@ -8,6 +8,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
+using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -335,6 +336,7 @@ internal sealed class MainWindowChildComposition
             new MainChartListPlaybackQueue(MainChartList),
             playbackSettingsStore,
             new WpfPlaybackDialogService(new UiDialogCoordinator()),
+            exception => NLogWrapper.TraceLogger?.Warn(exception),
             chartFileOperations);
         ChartFilters = new ChartListFilterViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();
