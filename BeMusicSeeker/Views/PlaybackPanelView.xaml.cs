@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.IO;
 using System.Reflection;
 using System.Windows;
@@ -11,9 +12,7 @@ using System.Windows.Navigation;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.Utils;
-using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
-using Livet.EventListeners;
 using Ribbit.Util.Extensions;
 
 namespace BeMusicSeeker.Views;
@@ -23,19 +22,16 @@ public partial class PlaybackPanelView : UserControl
     public static readonly DependencyProperty OverlayVisibilityProperty = DependencyProperty.Register(nameof(OverlayVisibility), typeof(Visibility), typeof(PlaybackPanelView), new PropertyMetadata(Visibility.Collapsed));
     public static readonly DependencyProperty BrowserHtmlProperty = DependencyProperty.Register(nameof(BrowserHtml), typeof(string), typeof(PlaybackPanelView), new PropertyMetadata(null));
     private DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
-    private readonly PropertyChangedEventListener settingsDefaultEventListener;
+    private PlaybackPanelViewModel subscribedPlaybackPanel;
     private BitmapSource _panelImage;
     private bool isClosingOrClosed;
 
     public PlaybackPanelView()
     {
         InitializeComponent();
-        settingsDefaultEventListener = new PropertyChangedEventListener(Settings.Default);
-        settingsDefaultEventListener.RegisterHandler(() => Settings.Default.UseExternalPanelImage, delegate { ResetPanelImage(); });
-        settingsDefaultEventListener.RegisterHandler(() => Settings.Default.StagefilePath, delegate { ResetPanelImage(); });
-        gridBMSPlayerImage.Source = PanelImage;
-        Unloaded += (_, _) => isClosingOrClosed = true;
-        Loaded += (_, _) => isClosingOrClosed = false;
+        DataContextChanged += PlaybackPanelDataContextChanged;
+        Loaded += PlaybackPanelLoaded;
+        Unloaded += PlaybackPanelUnloaded;
     }
 
     public event RoutedEventHandler SettingsRequested;
@@ -61,11 +57,11 @@ public partial class PlaybackPanelView : UserControl
         get
         {
             if (_panelImage != null) return _panelImage;
-            if (Settings.Default.UseExternalPanelImage)
+            if (PlaybackPanel.UseExternalPanelImage)
             {
                 try
                 {
-                    using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(Settings.Default.StagefilePath));
+                    using var stream = new MemoryStream(LongPathFileSystem.ReadAllBytes(PlaybackPanel.StagefilePath));
                     return _panelImage = new WriteableBitmap(BitmapFrame.Create(stream));
                 }
                 catch { }
@@ -75,6 +71,63 @@ public partial class PlaybackPanelView : UserControl
     }
 
     private void ResetPanelImage() => _panelImage = null;
+
+    private void PlaybackPanelLoaded(object sender, RoutedEventArgs e)
+    {
+        isClosingOrClosed = false;
+        ApplyPlaybackPanelDataContext(DataContext);
+    }
+
+    private void PlaybackPanelUnloaded(object sender, RoutedEventArgs e)
+    {
+        isClosingOrClosed = true;
+        SubscribePlaybackPanel(null);
+    }
+
+    private void PlaybackPanelDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsLoaded)
+        {
+            ApplyPlaybackPanelDataContext(e.NewValue);
+        }
+    }
+
+    private void ApplyPlaybackPanelDataContext(object dataContext)
+    {
+        if (dataContext != null && dataContext is not PlaybackPanelViewModel)
+        {
+            throw new InvalidOperationException("Playback panel DataContext must be PlaybackPanelViewModel.");
+        }
+        SubscribePlaybackPanel(dataContext as PlaybackPanelViewModel);
+        ResetPanelImage();
+        gridBMSPlayerImage.Source = dataContext == null ? null : PanelImage;
+    }
+
+    private void SubscribePlaybackPanel(PlaybackPanelViewModel playbackPanel)
+    {
+        if (ReferenceEquals(subscribedPlaybackPanel, playbackPanel))
+        {
+            return;
+        }
+        if (subscribedPlaybackPanel != null)
+        {
+            subscribedPlaybackPanel.PropertyChanged -= PlaybackPanelPropertyChanged;
+        }
+        subscribedPlaybackPanel = playbackPanel;
+        if (subscribedPlaybackPanel != null)
+        {
+            subscribedPlaybackPanel.PropertyChanged += PlaybackPanelPropertyChanged;
+        }
+    }
+
+    private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(PlaybackPanelViewModel.UseExternalPanelImage)
+            || e.PropertyName == nameof(PlaybackPanelViewModel.StagefilePath))
+        {
+            ResetPanelImage();
+        }
+    }
 
     public void ConfigureBrowserHost()
     {

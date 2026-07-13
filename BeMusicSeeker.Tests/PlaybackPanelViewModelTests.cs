@@ -353,6 +353,9 @@ public sealed class PlaybackPanelViewModelTests
         bool originalUbMplay = Settings.Default.UsePlayeruBMplay;
         bool originalLr2 = Settings.Default.UsePlayerLR2body;
         bool originalBmi = Settings.Default.UsePlayerBMIIDXView;
+        bool originalExternalBrowser = Settings.Default.UseExternalWebBrowser;
+        bool originalExternalPanelImage = Settings.Default.UseExternalPanelImage;
+        string originalStagefilePath = Settings.Default.StagefilePath;
         PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer());
         var changed = new HashSet<string>(StringComparer.Ordinal);
         panel.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? string.Empty);
@@ -361,6 +364,9 @@ public sealed class PlaybackPanelViewModelTests
             Settings.Default.UsePlayeruBMplay = false;
             Settings.Default.UsePlayerLR2body = true;
             Settings.Default.UsePlayerBMIIDXView = false;
+            Settings.Default.UseExternalWebBrowser = !originalExternalBrowser;
+            Settings.Default.UseExternalPanelImage = !originalExternalPanelImage;
+            Settings.Default.StagefilePath = "playback-panel-stage.png";
             panel.NotifySettingsChanged();
 
             Assert.IsFalse(panel.CanSeek);
@@ -368,8 +374,11 @@ public sealed class PlaybackPanelViewModelTests
             Assert.IsFalse(panel.CanShowInfo);
             Assert.IsFalse(panel.CanShowEffect);
             Assert.IsFalse(panel.CanChangePlayside);
+            Assert.AreEqual(!originalExternalBrowser, panel.UseExternalWebBrowser);
+            Assert.AreEqual(!originalExternalPanelImage, panel.UseExternalPanelImage);
+            Assert.AreEqual("playback-panel-stage.png", panel.StagefilePath);
             CollectionAssert.IsSubsetOf(
-                new[] { "PlayerPanelState", "CanSeek", "CanChangeHighSpeed", "CanShowInfo", "CanShowEffect", "CanChangePlayside" },
+                new[] { "PlayerPanelState", "CanSeek", "CanChangeHighSpeed", "CanShowInfo", "CanShowEffect", "CanChangePlayside", "UseExternalWebBrowser", "UseExternalPanelImage", "StagefilePath" },
                 changed.ToArray());
 
             Settings.Default.UsePlayeruBMplay = true;
@@ -386,6 +395,9 @@ public sealed class PlaybackPanelViewModelTests
             Settings.Default.UsePlayeruBMplay = originalUbMplay;
             Settings.Default.UsePlayerLR2body = originalLr2;
             Settings.Default.UsePlayerBMIIDXView = originalBmi;
+            Settings.Default.UseExternalWebBrowser = originalExternalBrowser;
+            Settings.Default.UseExternalPanelImage = originalExternalPanelImage;
+            Settings.Default.StagefilePath = originalStagefilePath;
         }
     }
 

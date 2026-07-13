@@ -201,7 +201,7 @@
           </UIElement.Visibility>
           <wf:Panel x:Name="_panel" Location="0,0" Size="587, 256" MinimumSize="587, 256" MaximumSize="587, 256" />
         </WindowsFormsHost>
-      <WebBrowser Name="webBrowser" Height="256" MaxHeight="256" Margin="0" ClipToBounds="True" VerticalAlignment="Bottom" HorizontalAlignment="Center" v:WebBrowserUtility.Html="{Binding BrowserHtml, ElementName=playbackPanelView}" IsEnabled="{Binding UseExternalWebBrowser, Source={x:Static prop:Settings.Default}, Converter={StaticResource notOperatorBoolConverter}}" LoadCompleted="webBrowserLoadCompleted" IsEnabledChanged="windowsFormsHostIsEnabledChanged">
+      <WebBrowser Name="webBrowser" Height="256" MaxHeight="256" Margin="0" ClipToBounds="True" VerticalAlignment="Bottom" HorizontalAlignment="Center" v:WebBrowserUtility.Html="{Binding BrowserHtml, ElementName=playbackPanelView}" IsEnabled="{Binding UseExternalWebBrowser, Converter={StaticResource notOperatorBoolConverter}}" LoadCompleted="webBrowserLoadCompleted" IsEnabledChanged="windowsFormsHostIsEnabledChanged">
           <UIElement.Visibility>
             <MultiBinding Converter="{StaticResource windowsFormsHostVisibilitiesConverter}" ConverterParameter="brw">
               <Binding Path="OverlayVisibility" ElementName="playbackPanelView" />

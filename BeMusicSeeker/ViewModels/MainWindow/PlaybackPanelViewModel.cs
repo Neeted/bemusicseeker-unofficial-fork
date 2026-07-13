@@ -242,6 +242,12 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     public bool CanChangePlayside => ApplicationSettings.UsePlayeruBMplay;
 
+    public bool UseExternalWebBrowser => ApplicationSettings.UseExternalWebBrowser;
+
+    public bool UseExternalPanelImage => ApplicationSettings.UseExternalPanelImage;
+
+    public string StagefilePath => ApplicationSettings.StagefilePath;
+
     internal bool UsesUbMplay => ApplicationSettings.UsePlayeruBMplay;
 
     internal bool UsesLr2Body => ApplicationSettings.UsePlayerLR2body;
@@ -1310,6 +1316,9 @@ public sealed class PlaybackPanelViewModel : ViewModel
         RaisePropertyChanged(nameof(CanShowInfo));
         RaisePropertyChanged(nameof(CanShowEffect));
         RaisePropertyChanged(nameof(CanChangePlayside));
+        RaisePropertyChanged(nameof(UseExternalWebBrowser));
+        RaisePropertyChanged(nameof(UseExternalPanelImage));
+        RaisePropertyChanged(nameof(StagefilePath));
         RaisePropertyChanged(nameof(UsesUbMplay));
         RaisePropertyChanged(nameof(UsesLr2Body));
         RaisePropertyChanged(nameof(UsesBmiIdxView));

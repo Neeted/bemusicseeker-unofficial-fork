@@ -827,6 +827,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(xaml.Contains("UsePlayerLR2body, Source={x:Static prop:Settings.Default}"));
         Assert.IsFalse(xaml.Contains("UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}"));
         Assert.IsFalse(codeBehind.Contains("MainWindowViewModel"));
+        Assert.IsFalse(codeBehind.Contains("Settings.Default"));
+        Assert.IsFalse(xaml.Contains("prop:Settings.Default"));
         StringAssert.Contains(xaml, "{Binding CanSeek}");
         StringAssert.Contains(xaml, "{Binding CanChangeHighSpeed}");
         StringAssert.Contains(xaml, "{Binding RepeatPlayMode, Mode=TwoWay}");
