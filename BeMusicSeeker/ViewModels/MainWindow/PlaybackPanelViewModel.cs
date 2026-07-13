@@ -25,7 +25,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     private readonly MainChartListViewModel mainChartList;
 
-    private readonly ISettingsEditSession settingsEditSession;
+    private readonly IPlaybackSettingsStore playbackSettings;
 
     private readonly ChartFileOperationSynchronizer chartFileOperations;
 
@@ -110,17 +110,15 @@ public sealed class PlaybackPanelViewModel : ViewModel
         IBMSPlayer player,
         Func<Dispatcher> uiDispatcherProvider,
         MainChartListViewModel mainChartList,
-        ISettingsEditSession settingsEditSession,
+        IPlaybackSettingsStore playbackSettings,
         ChartFileOperationSynchronizer chartFileOperations)
     {
         this.uiDispatcherProvider = uiDispatcherProvider ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
         this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
-        this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
+        this.playbackSettings = playbackSettings ?? throw new ArgumentNullException(nameof(playbackSettings));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         ReplacePlayer(player);
     }
-
-    private Settings ApplicationSettings => settingsEditSession.Values;
 
     public ViewModelCommand NextCommand => nextCommand ??= CreateBackgroundCommand(() => Next(), "PlaybackPanel.Next");
     public ViewModelCommand PreviousCommand => previousCommand ??= CreateBackgroundCommand(() => Previous(), "PlaybackPanel.Previous");
@@ -202,12 +200,12 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     public PlayerPanelState PlayerPanelState
     {
-        get => ApplicationSettings.PlayerPanelState;
+        get => playbackSettings.PlayerPanelState;
         set
         {
-            if (ApplicationSettings.PlayerPanelState != value)
+            if (playbackSettings.PlayerPanelState != value)
             {
-                ApplicationSettings.PlayerPanelState = value;
+                playbackSettings.PlayerPanelState = value;
                 RaisePropertyChanged(nameof(PlayerPanelState));
                 RaisePlayerHeaderPropertiesChanged();
             }
@@ -216,43 +214,43 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     public bool RepeatPlayMode
     {
-        get => ApplicationSettings.RepeatPlayMode;
-        set => SetPlaybackSetting(ApplicationSettings.RepeatPlayMode, value, v => ApplicationSettings.RepeatPlayMode = v, nameof(RepeatPlayMode));
+        get => playbackSettings.RepeatPlay;
+        set => SetPlaybackSetting(playbackSettings.RepeatPlay, value, v => playbackSettings.RepeatPlay = v, nameof(RepeatPlayMode));
     }
 
     public bool FolderSkipPlayMode
     {
-        get => ApplicationSettings.FolderSkipPlayMode;
-        set => SetPlaybackSetting(ApplicationSettings.FolderSkipPlayMode, value, v => ApplicationSettings.FolderSkipPlayMode = v, nameof(FolderSkipPlayMode));
+        get => playbackSettings.FolderSkipPlay;
+        set => SetPlaybackSetting(playbackSettings.FolderSkipPlay, value, v => playbackSettings.FolderSkipPlay = v, nameof(FolderSkipPlayMode));
     }
 
     public bool SinglePlayMode
     {
-        get => ApplicationSettings.SinglePlayMode;
-        set => SetPlaybackSetting(ApplicationSettings.SinglePlayMode, value, v => ApplicationSettings.SinglePlayMode = v, nameof(SinglePlayMode));
+        get => playbackSettings.SinglePlay;
+        set => SetPlaybackSetting(playbackSettings.SinglePlay, value, v => playbackSettings.SinglePlay = v, nameof(SinglePlayMode));
     }
 
-    public bool CanSeek => !ApplicationSettings.UsePlayerLR2body;
+    public bool CanSeek => !playbackSettings.UsesLr2Body;
 
-    public bool CanChangeHighSpeed => ApplicationSettings.UsePlayeruBMplay || ApplicationSettings.UsePlayerBMIIDXView;
+    public bool CanChangeHighSpeed => playbackSettings.UsesUbMplay || playbackSettings.UsesBmiIdxView;
 
-    public bool CanShowInfo => !ApplicationSettings.UsePlayerLR2body && !ApplicationSettings.UsePlayerBMIIDXView;
+    public bool CanShowInfo => !playbackSettings.UsesLr2Body && !playbackSettings.UsesBmiIdxView;
 
-    public bool CanShowEffect => ApplicationSettings.UsePlayeruBMplay;
+    public bool CanShowEffect => playbackSettings.UsesUbMplay;
 
-    public bool CanChangePlayside => ApplicationSettings.UsePlayeruBMplay;
+    public bool CanChangePlayside => playbackSettings.UsesUbMplay;
 
-    public bool UseExternalWebBrowser => ApplicationSettings.UseExternalWebBrowser;
+    public bool UseExternalWebBrowser => playbackSettings.UseExternalWebBrowser;
 
-    public bool UseExternalPanelImage => ApplicationSettings.UseExternalPanelImage;
+    public bool UseExternalPanelImage => playbackSettings.UseExternalPanelImage;
 
-    public string StagefilePath => ApplicationSettings.StagefilePath;
+    public string StagefilePath => playbackSettings.StagefilePath;
 
-    internal bool UsesUbMplay => ApplicationSettings.UsePlayeruBMplay;
+    internal bool UsesUbMplay => playbackSettings.UsesUbMplay;
 
-    internal bool UsesLr2Body => ApplicationSettings.UsePlayerLR2body;
+    internal bool UsesLr2Body => playbackSettings.UsesLr2Body;
 
-    internal bool UsesBmiIdxView => ApplicationSettings.UsePlayerBMIIDXView;
+    internal bool UsesBmiIdxView => playbackSettings.UsesBmiIdxView;
 
     internal int NowPlayingRowIndex => nowPlayingRowIndex;
 
@@ -523,9 +521,9 @@ public sealed class PlaybackPanelViewModel : ViewModel
                 StopPlayback();
                 return;
             }
-            if (sender != null && ApplicationSettings.SinglePlayMode)
+            if (sender != null && playbackSettings.SinglePlay)
             {
-                if (!ApplicationSettings.RepeatPlayMode)
+                if (!playbackSettings.RepeatPlay)
                 {
                     StopPlayback();
                     return;
@@ -535,11 +533,11 @@ public sealed class PlaybackPanelViewModel : ViewModel
             {
                 string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
                 index++;
-                if (ApplicationSettings.RepeatPlayMode && index == mainChartList.Rows.Count)
+                if (playbackSettings.RepeatPlay && index == mainChartList.Rows.Count)
                 {
                     index = 0;
                 }
-                while (ApplicationSettings.FolderSkipPlayMode && index != mainChartList.Rows.Count)
+                while (playbackSettings.FolderSkipPlay && index != mainChartList.Rows.Count)
                 {
                     GridRowResolver.TryGetBmsPlayerFile(mainChartList.Rows[index], out BMSFile candidate);
                     if (index == NowPlayingRowIndex)
@@ -553,7 +551,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
                     }
                     currentFolder = candidateFolder;
                     index++;
-                    if (ApplicationSettings.RepeatPlayMode && index == mainChartList.Rows.Count)
+                    if (playbackSettings.RepeatPlay && index == mainChartList.Rows.Count)
                     {
                         index = 0;
                     }
@@ -581,9 +579,9 @@ public sealed class PlaybackPanelViewModel : ViewModel
                 StopPlayback();
                 return;
             }
-            if (sender != null && ApplicationSettings.SinglePlayMode)
+            if (sender != null && playbackSettings.SinglePlay)
             {
-                if (!ApplicationSettings.RepeatPlayMode)
+                if (!playbackSettings.RepeatPlay)
                 {
                     StopPlayback();
                     return;
@@ -593,11 +591,11 @@ public sealed class PlaybackPanelViewModel : ViewModel
             {
                 string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
                 index--;
-                if (ApplicationSettings.RepeatPlayMode && index == -1)
+                if (playbackSettings.RepeatPlay && index == -1)
                 {
                     index = mainChartList.Rows.Count - 1;
                 }
-                while (ApplicationSettings.FolderSkipPlayMode && index != -1)
+                while (playbackSettings.FolderSkipPlay && index != -1)
                 {
                     GridRowResolver.TryGetBmsPlayerFile(mainChartList.Rows[index], out BMSFile candidate);
                     if (index == NowPlayingRowIndex)
@@ -611,7 +609,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
                     }
                     currentFolder = candidateFolder;
                     index--;
-                    if (ApplicationSettings.RepeatPlayMode && index == -1)
+                    if (playbackSettings.RepeatPlay && index == -1)
                     {
                         index = mainChartList.Rows.Count - 1;
                     }
@@ -641,11 +639,11 @@ public sealed class PlaybackPanelViewModel : ViewModel
         int index = NowPlayingRowIndex;
         string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
         index++;
-        if (ApplicationSettings.RepeatPlayMode && index == mainChartList.Rows.Count)
+        if (playbackSettings.RepeatPlay && index == mainChartList.Rows.Count)
         {
             index = 0;
         }
-        while (ApplicationSettings.FolderSkipPlayMode && index != mainChartList.Rows.Count)
+        while (playbackSettings.FolderSkipPlay && index != mainChartList.Rows.Count)
         {
             GridRowResolver.TryGetBmsPlayerFile(mainChartList.Rows[index], out BMSFile candidate);
             if (index == NowPlayingRowIndex)
@@ -659,7 +657,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
             }
             currentFolder = candidateFolder;
             index++;
-            if (ApplicationSettings.RepeatPlayMode && index == mainChartList.Rows.Count)
+            if (playbackSettings.RepeatPlay && index == mainChartList.Rows.Count)
             {
                 index = 0;
             }
@@ -700,7 +698,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
             index++;
             if (index >= mainChartList.Rows.Count)
             {
-                if (ApplicationSettings.RepeatPlayMode)
+                if (playbackSettings.RepeatPlay)
                 {
                     index = 0;
                 }
@@ -745,7 +743,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
         catch (InvalidDataException value)
         {
             NLogWrapper.TraceLogger?.Warn(value);
-            if (ApplicationSettings.RepeatPlayMode && (ApplicationSettings.SinglePlayMode || index == 0))
+            if (playbackSettings.RepeatPlay && (playbackSettings.SinglePlay || index == 0))
             {
                 StopPlayback();
                 return;
@@ -789,8 +787,8 @@ public sealed class PlaybackPanelViewModel : ViewModel
             .FirstOrDefault(package => ContainsChartTarget(package, playbackChart));
         if (chartPackage == null)
         {
-            if (ApplicationSettings.UsePlayerLR2body
-                && ApplicationSettings.OperationModeLR2DB
+            if (playbackSettings.UsesLr2Body
+                && playbackSettings.UsesLr2Database
                 && !ShowTemporaryInstallConfirmation())
             {
                 StopPlayback(closeProcess: true);
@@ -1202,12 +1200,12 @@ public sealed class PlaybackPanelViewModel : ViewModel
     /// </summary>
     public int PlayerVolume
     {
-        get => ApplicationSettings.uBMplayVolume;
+        get => playbackSettings.PlayerVolume;
         set
         {
-            if (ApplicationSettings.uBMplayVolume != value)
+            if (playbackSettings.PlayerVolume != value)
             {
-                ApplicationSettings.uBMplayVolume = value;
+                playbackSettings.PlayerVolume = value;
                 RaisePropertyChanged(nameof(PlayerVolume));
                 bmsPlayer?.VolumeChanged();
             }
@@ -1215,7 +1213,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
     }
 
     private bool IsMoviePlayerHeaderActive =>
-        ApplicationSettings.PlayerPanelState == PlayerPanelState.MOVIE_PLAYER
+        playbackSettings.PlayerPanelState == PlayerPanelState.MOVIE_PLAYER
         && (!string.IsNullOrWhiteSpace(moviePlayerHeaderTitle)
             || !string.IsNullOrWhiteSpace(moviePlayerHeaderSubtitle)
             || !string.IsNullOrWhiteSpace(moviePlayerHeaderArtist));

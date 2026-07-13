@@ -40,6 +40,8 @@ internal sealed class ApplicationComposition
 
     private readonly ISettingsEditSession settingsEditSession;
 
+    private readonly IPlaybackSettingsStore playbackSettingsStore;
+
     private readonly Func<IBMSPlayer> defaultBmsPlayerFactory;
 
     internal ApplicationComposition(
@@ -60,6 +62,7 @@ internal sealed class ApplicationComposition
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
+        playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
             ?? (() => new InternalBMSAutoPlayerSoundOnly());
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
@@ -183,7 +186,7 @@ internal sealed class ApplicationComposition
             tablesProvider,
             bmsPlayerFactory,
             uiDispatcherProvider,
-            settingsEditSession,
+            playbackSettingsStore,
             chartFileOperations,
             mainViewLog,
             dispatchMainChartListAction,
@@ -306,7 +309,7 @@ internal sealed class MainWindowChildComposition
         Func<BMSPlaylist> tablesProvider,
         Func<IBMSPlayer> bmsPlayerFactory,
         Func<Dispatcher> uiDispatcherProvider,
-        ISettingsEditSession settingsEditSession,
+        IPlaybackSettingsStore playbackSettingsStore,
         ChartFileOperationSynchronizer chartFileOperations,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
@@ -328,7 +331,7 @@ internal sealed class MainWindowChildComposition
             bmsPlayerFactory() ?? throw new InvalidOperationException("Playback player factory returned null."),
             uiDispatcherProvider,
             MainChartList,
-            settingsEditSession,
+            playbackSettingsStore,
             chartFileOperations);
         ChartFilters = new ChartListFilterViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();

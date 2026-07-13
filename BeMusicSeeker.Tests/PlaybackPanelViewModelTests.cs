@@ -239,7 +239,7 @@ public sealed class PlaybackPanelViewModelTests
             new FakeBmsPlayer(),
             () => Dispatcher.CurrentDispatcher,
             chartList,
-            SettingsEditSession.CreateDefault(),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
             new ChartFileOperationSynchronizer());
         try
         {
@@ -272,7 +272,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             () => Dispatcher.CurrentDispatcher,
             chartList,
-            SettingsEditSession.CreateDefault(),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
             new ChartFileOperationSynchronizer());
         try
         {
@@ -407,7 +407,7 @@ public sealed class PlaybackPanelViewModelTests
             player,
             () => Dispatcher.CurrentDispatcher,
             new MainChartListViewModel(),
-            SettingsEditSession.CreateDefault(),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
             new ChartFileOperationSynchronizer());
     }
 
