@@ -1384,10 +1384,7 @@
                   <WindowsFormsHost Name="windowsFormsHost" Background="#FF000000" ClipToBounds="True" VerticalAlignment="Bottom" HorizontalAlignment="Center" MinWidth="587" Height="256" MaxHeight="256" Margin="0" IsEnabledChanged="windowsFormsHostIsEnabledChanged">
                     <UIElement.Visibility>
                       <MultiBinding Converter="{StaticResource windowsFormsHostVisibilitiesConverter}" Mode="OneWay" ConverterParameter="wfh">
-                        <Binding Path="Visibility" ElementName="settingDialog" />
-                        <Binding Path="Visibility" ElementName="playlistPropertyDialog" />
-                        <Binding Path="Visibility" ElementName="playlistSummaryBulkEditDialog" />
-                        <Binding Path="Visibility" ElementName="loadPlaylistURIDialog" />
+                        <Binding Path="PlaybackOverlayVisibility" ElementName="window" />
                         <Binding Path="Visibility" ElementName="webBrowser" />
                         <Binding Path="IsEnabled" ElementName="windowsFormsHost" />
                         <Binding Path="PlaybackPanel.NowPlayingBmsFile" />
@@ -1399,10 +1396,7 @@
                   <WebBrowser Name="webBrowser" Height="256" MaxHeight="256" Margin="0" ClipToBounds="True" VerticalAlignment="Bottom" HorizontalAlignment="Center" v:WebBrowserUtility.Html="{Binding BrowserHtml}" IsEnabled="{Binding UseExternalWebBrowser, Source={x:Static prop:Settings.Default}, Converter={StaticResource notOperatorBoolConverter}}" LoadCompleted="webBrowserLoadCompleted" IsEnabledChanged="windowsFormsHostIsEnabledChanged">
                     <UIElement.Visibility>
                       <MultiBinding Converter="{StaticResource windowsFormsHostVisibilitiesConverter}" ConverterParameter="brw">
-                        <Binding Path="Visibility" ElementName="settingDialog" />
-                        <Binding Path="Visibility" ElementName="playlistPropertyDialog" />
-                        <Binding Path="Visibility" ElementName="playlistSummaryBulkEditDialog" />
-                        <Binding Path="Visibility" ElementName="loadPlaylistURIDialog" />
+                        <Binding Path="PlaybackOverlayVisibility" ElementName="window" />
                         <Binding Path="Visibility" ElementName="windowsFormsHost" />
                         <Binding Path="IsEnabled" ElementName="webBrowser" />
                         <Binding Path="BrowserHtml" />

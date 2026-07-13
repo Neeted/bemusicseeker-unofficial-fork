@@ -54,6 +54,12 @@ namespace BeMusicSeeker.Views;
 /// </summary>
 public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 {
+    public static readonly DependencyProperty PlaybackOverlayVisibilityProperty = DependencyProperty.Register(
+        nameof(PlaybackOverlayVisibility),
+        typeof(Visibility),
+        typeof(MainWindow),
+        new PropertyMetadata(Visibility.Collapsed));
+
     private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.MainWindow");
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
@@ -85,6 +91,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private FrameworkElement activeOverlayDialog;
 
     private MainWindowViewModel subscribedViewModel;
+
+    public Visibility PlaybackOverlayVisibility
+    {
+        get => (Visibility)GetValue(PlaybackOverlayVisibilityProperty);
+        private set => SetValue(PlaybackOverlayVisibilityProperty, value);
+    }
 
     private async Task RunProgressUntilTaskCompletesAsync(Task task, CancellationTokenSource cancellationTokenSource, string title, string label, Action<UiProgressContext> reportProgress)
     {
@@ -184,6 +196,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
 
         activeOverlayDialog = dialog;
+        if (HidesPlaybackSurface(dialog))
+        {
+            PlaybackOverlayVisibility = Visibility.Visible;
+        }
         dialog.Visibility = Visibility.Visible;
         dialog.Focus();
     }
@@ -199,7 +215,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (ReferenceEquals(activeOverlayDialog, dialog))
         {
             activeOverlayDialog = null;
+            if (HidesPlaybackSurface(dialog))
+            {
+                PlaybackOverlayVisibility = Visibility.Collapsed;
+            }
         }
+    }
+
+    private bool HidesPlaybackSurface(FrameworkElement dialog)
+    {
+        return ReferenceEquals(dialog, settingDialog)
+            || ReferenceEquals(dialog, playlistPropertyDialog)
+            || ReferenceEquals(dialog, playlistSummaryBulkEditDialog)
+            || ReferenceEquals(dialog, loadPlaylistURIDialog);
     }
 
     public void ShowSettingDialogOverlay()
@@ -9818,12 +9846,20 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (sender is FrameworkElement overlayDialog && (bool)e.NewValue)
         {
             activeOverlayDialog = overlayDialog;
+            if (HidesPlaybackSurface(overlayDialog))
+            {
+                PlaybackOverlayVisibility = Visibility.Visible;
+            }
         }
         if (!(bool)e.NewValue && (bool)e.OldValue)
         {
             if (ReferenceEquals(activeOverlayDialog, sender))
             {
                 activeOverlayDialog = null;
+                if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog))
+                {
+                    PlaybackOverlayVisibility = Visibility.Collapsed;
+                }
             }
             switch (NowPanelState)
             {
