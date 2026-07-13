@@ -601,7 +601,7 @@ public sealed class ApplicationCompositionTests
             settingsEditSession: new FakeSettingsEditSession { Values = values });
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
-        IReadOnlyList<MainWindowViewModel.PlaylistCustomFolderOutputBaseOption> options =
+        IReadOnlyList<PlaylistCustomFolderOutputBaseOption> options =
             viewModel.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings();
 
         Assert.IsTrue(options.Any(option => option.Label == "session-output-base"));

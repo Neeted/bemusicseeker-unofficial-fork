@@ -325,7 +325,7 @@ public sealed class DialogRouteConsolidationTests
         StringAssert.Contains(initialSetupCode, "mainWindow.ShowSettingDialogOverlay();");
         StringAssert.Contains(settingDialogCode, "HideThisOverlay()");
         StringAssert.Contains(loadPlaylistCode, "HideOverlayDialog(this)");
-        StringAssert.Contains(playlistPropertyCode, "HideOverlayDialog(playlistPropertyDialog)");
+        StringAssert.Contains(playlistPropertyCode, "ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel)");
         StringAssert.Contains(playlistBulkEditCode, "HideOverlayDialog(playlistSummaryBulkEditDialog)");
     }
 

@@ -1755,7 +1755,7 @@ public sealed class BmsPlaylistUpdateTests
         Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
-        MainWindowViewModel.PlaylistPropertyDialogViewModel? dialog = null;
+        PlaylistPropertyDialogViewModel? dialog = null;
         try
         {
             DispatcherHelper.UIDispatcher = Dispatcher.CurrentDispatcher;
@@ -1805,6 +1805,8 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
+            BMSTableEntry extraEntry = CreateEntry("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", "Folder E");
+            extraEntry.folder = "Folder E";
             var table = new BMSTable
             {
                 playlist_id = 7312,
@@ -1813,7 +1815,8 @@ public sealed class BmsPlaylistUpdateTests
                 Output_dir = "DialogSnapshotSettings",
                 entries =
                 [
-                    CreateEntry("dddddddddddddddddddddddddddddddd", "Folder D")
+                    CreateEntry("dddddddddddddddddddddddddddddddd", "Folder D"),
+                    extraEntry
                 ],
                 Folder_order = ["Folder D"]
             };
@@ -1838,19 +1841,28 @@ public sealed class BmsPlaylistUpdateTests
             var viewModel = new ApplicationComposition(
                 () => new BmsLibraryOptionsSnapshot(),
                 customFolderOutputSettingsProvider: getViewModelSettings).CreateMainWindowViewModel();
+            var library = new BMSLibrary(songDbPath);
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
             typeof(MainWindowViewModel)
+                .GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, library);
+            typeof(MainWindowViewModel)
                 .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, config);
 
-            dialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(viewModel, table);
+            dialog = viewModel.PlaylistWorkspace.OpenPropertyDialog(table);
+            Assert.IsTrue(playlist.IsWriteLockHeldBMSTables);
+            CollectionAssert.AreEquivalent(
+                new[] { "Folder D", "Folder E" },
+                dialog.folder_order.ToArray());
             currentSettings = changedSettings;
             dialog.is_root_folder = true;
             Assert.IsTrue(dialog.SaveProperties());
-            MainWindowViewModel.PlaylistPropertyDialogViewModel savedDialog = dialog;
+            PlaylistPropertyDialogViewModel savedDialog = dialog;
             savedDialog.Dispose();
+            Assert.IsFalse(playlist.IsWriteLockHeldBMSTables);
             dialog = null;
             await savedDialog.ApplyPostSaveUpdatesAsync();
 
@@ -1864,6 +1876,28 @@ public sealed class BmsPlaylistUpdateTests
             CollectionAssert.Contains(config.GetBMSSearchDirectoriesForChangeTracking(), newOutputDirectory);
             var reloadedConfig = new LR2Config(Path.Combine(tempDirectory, "LR2files", "Config", "config.xml"));
             CollectionAssert.Contains(reloadedConfig.GetBMSSearchDirectoriesForChangeTracking(), newOutputDirectory);
+
+            currentSettings = initialSettings;
+            table.Output_dir = null;
+            bool inlineSaved = await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                new PlaylistSummaryRow { TableRef = table },
+                nameof(PlaylistSummaryRow.Symbol),
+                "DSS2");
+            Assert.IsTrue(inlineSaved);
+            Assert.AreEqual("DSS2", table.symbol);
+            Assert.IsNull(table.output_dir);
+
+            currentSettings = new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false };
+            table.entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder;
+            table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
+            dialog = viewModel.PlaylistWorkspace.OpenPropertyDialog(table);
+            dialog.symbol = "DSS3";
+            Assert.IsTrue(dialog.SaveProperties());
+            dialog.Dispose();
+            dialog = null;
+            Assert.AreEqual(
+                LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+                table.ignore_folder_output);
         }
         finally
         {

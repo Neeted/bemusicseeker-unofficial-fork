@@ -434,8 +434,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private const string StartupUiSuppressFlushReason = "startup_ui_suppress_flush";
 
-    private PlaylistPropertyDialogViewModel _playlistPropertyDialog;
-
     private PlaylistSummaryBulkEditDialogViewModel _playlistSummaryBulkEditDialog;
 
     private bool initializationCompleted;
@@ -469,6 +467,8 @@ public partial class MainWindowViewModel : ViewModel
     private BMSLibrary files;
 
     private BMSPlaylist tables;
+
+    private readonly PlaylistPropertySaveService playlistPropertySaveService;
 
     private readonly ApplicationComposition applicationComposition;
 
@@ -3341,22 +3341,6 @@ public partial class MainWindowViewModel : ViewModel
         LogDeferredExternalSync("deferred_external_sync skipped reason=" + (shutdownReason ?? "shutdown_requested") + " requestReason=" + FormatTextForLog(reason) + " version=" + version);
     }
 
-    public PlaylistPropertyDialogViewModel playlistPropertyDialog
-    {
-        get
-        {
-            return _playlistPropertyDialog;
-        }
-        set
-        {
-            if (_playlistPropertyDialog != value)
-            {
-                _playlistPropertyDialog = value;
-                RaisePropertyChanged("playlistPropertyDialog");
-            }
-        }
-    }
-
     public PlaylistSummaryBulkEditDialogViewModel playlistSummaryBulkEditDialog
     {
         get
@@ -5306,6 +5290,18 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             LogPlaylistViewApply,
             LogPlaylistRetention);
+        playlistPropertySaveService = new PlaylistPropertySaveService(
+            () => tables,
+            () => files,
+            () => lr2config,
+            customFolderOutputSettingsProvider,
+            this,
+            () => ShowUiMessage(
+                BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
+                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
+                MessageBoxImage.Exclamation,
+                "playlist property output directory notification"));
+        PlaylistWorkspace.ConfigurePropertyEditing(playlistPropertySaveService);
         PlaylistWorkspace.ConfigureDetailEditing(() => tables);
         PlaylistWorkspace.ConfigureMutations(() => files, RunPlaylistOperationWithNotifications);
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
@@ -5653,7 +5649,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
-        return CreatePlaylistCustomFolderOutputBaseOptions(
+        return PlaylistCustomFolderOutputBaseOptions.Create(
             settings.LR2CustomFolderOutputBaseDir,
             CustomFolderOutputBaseRegistry.DeserializeBaseDirectories(settings.LR2CustomFolderAdditionalOutputBaseDirs),
             includeNoChange);
@@ -12202,74 +12198,6 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         RefreshPlaylistSummaryIfVisible("playlist_properties_bulk_changed", invalidateTableCountCache: true);
-    }
-
-    /// <summary>
-    /// Playlist Summary のセル編集を、プロパティダイアログの OK と同じ保存経路で適用します。
-    /// </summary>
-    /// <param name="row">編集対象行。</param>
-    /// <param name="editPropertyName">編集対象プロパティ名。</param>
-    /// <param name="text">編集後の文字列。</param>
-    /// <returns>保存と後処理が完了した場合は true。</returns>
-    internal async Task<bool> ApplyPlaylistSummaryPropertyEditAsync(PlaylistSummaryRow row, string editPropertyName, string text)
-    {
-        if (row?.TableRef == null || string.IsNullOrWhiteSpace(editPropertyName) || !ContainsActivePlaylistTable(row.TableRef))
-        {
-            return false;
-        }
-
-        var propertyDialogViewModel = new PlaylistPropertyDialogViewModel(this, row.TableRef);
-        bool outputDirEdited = false;
-        string expectedOutputDir = null;
-        try
-        {
-            switch (editPropertyName)
-            {
-                case nameof(PlaylistSummaryRow.Name):
-                    propertyDialogViewModel.name = text ?? string.Empty;
-                    break;
-                case nameof(PlaylistSummaryRow.FolderName):
-                    outputDirEdited = true;
-                    expectedOutputDir = NormalizeStoredPlaylistSummaryOutputDirectoryName(row.TableRef.name, text);
-                    propertyDialogViewModel.output_dir = text ?? string.Empty;
-                    break;
-                case nameof(PlaylistSummaryRow.CompatPrefix):
-                    propertyDialogViewModel.compat_prefix = text ?? string.Empty;
-                    break;
-                case nameof(PlaylistSummaryRow.Symbol):
-                    propertyDialogViewModel.symbol = text ?? string.Empty;
-                    break;
-                default:
-                    return false;
-            }
-
-            if (!propertyDialogViewModel.SaveProperties())
-            {
-                return false;
-            }
-            if (outputDirEdited
-                && !string.Equals(BMSTable.NormalizeOutputDirectoryName(row.TableRef.output_dir), expectedOutputDir, StringComparison.Ordinal))
-            {
-                return false;
-            }
-        }
-        finally
-        {
-            propertyDialogViewModel.Dispose();
-        }
-
-        await propertyDialogViewModel.ApplyPostSaveUpdatesAsync();
-        return true;
-    }
-
-    private static string NormalizeStoredPlaylistSummaryOutputDirectoryName(string playlistName, string outputDirectoryName)
-    {
-        string normalized = BMSTable.NormalizeOutputDirectoryName(outputDirectoryName);
-        string defaultOutputDirectoryName = BMSTable.CreateDefaultOutputDirectoryName(playlistName);
-        return !string.IsNullOrWhiteSpace(normalized)
-            && !string.Equals(defaultOutputDirectoryName, normalized, StringComparison.Ordinal)
-            ? normalized
-            : null;
     }
 
     public void ApplyPlaylistSummaryBmtOutput(IEnumerable<PlaylistSummaryRow> rows, bool isBmtOutput)

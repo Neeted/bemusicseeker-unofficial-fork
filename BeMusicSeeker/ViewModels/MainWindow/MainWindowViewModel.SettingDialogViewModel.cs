@@ -3794,7 +3794,7 @@ public partial class MainWindowViewModel
         }
 
         public IReadOnlyList<PlaylistCustomFolderOutputBaseOption> PlaylistPropertyOutputBaseOptions =>
-            MainWindowViewModel.CreatePlaylistCustomFolderOutputBaseOptions(
+            PlaylistCustomFolderOutputBaseOptions.Create(
                 LR2CustomFolderOutputDir,
                 CustomFolderAdditionalOutputBaseDirList);
 
@@ -6563,40 +6563,6 @@ public partial class MainWindowViewModel
         }
     }
 
-    internal static IReadOnlyList<PlaylistCustomFolderOutputBaseOption> CreatePlaylistCustomFolderOutputBaseOptions(
-        string defaultOutputBaseDirectory = null,
-        IEnumerable<string> additionalOutputBaseDirectories = null,
-        bool includeNoChange = false)
-    {
-        List<PlaylistCustomFolderOutputBaseOption> options = [];
-        if (includeNoChange)
-        {
-            options.Add(new PlaylistCustomFolderOutputBaseOption(
-                BeMusicSeeker.Properties.Resources.Playlist_summary_bulk_no_change,
-                null,
-                isNoChange: true));
-        }
-
-        string defaultBase = defaultOutputBaseDirectory;
-        string defaultLabel = CustomFolderOutputBaseRegistry.GetDirectoryDisplayName(defaultBase);
-        options.Add(new PlaylistCustomFolderOutputBaseOption(
-            string.IsNullOrWhiteSpace(defaultLabel) ? BeMusicSeeker.Properties.Resources.Playlist_output?.TrimEnd(':', ' ') : defaultLabel,
-            null));
-
-        foreach (CustomFolderOutputBaseEntry entry in CustomFolderOutputBaseRegistry.CreateAdditionalEntries(
-            additionalOutputBaseDirectories ?? []))
-        {
-            if (!options.Any(option =>
-                    !option.IsNoChange
-                    && string.Equals(option.Label, entry.Name, StringComparison.OrdinalIgnoreCase)))
-            {
-                options.Add(new PlaylistCustomFolderOutputBaseOption(entry.Name, entry.Name));
-            }
-        }
-
-        return options;
-    }
-
     public sealed class PlaylistSummaryBulkBooleanOption
     {
         public PlaylistSummaryBulkBooleanOption(string label, bool? value)
@@ -6608,22 +6574,6 @@ public partial class MainWindowViewModel
         public string Label { get; }
 
         public bool? Value { get; }
-    }
-
-    public sealed class PlaylistCustomFolderOutputBaseOption
-    {
-        public PlaylistCustomFolderOutputBaseOption(string label, string baseName, bool isNoChange = false)
-        {
-            Label = label ?? string.Empty;
-            BaseName = string.IsNullOrWhiteSpace(baseName) ? null : baseName;
-            IsNoChange = isNoChange;
-        }
-
-        public string Label { get; }
-
-        public string BaseName { get; }
-
-        public bool IsNoChange { get; }
     }
 
     public sealed class PlaylistSummaryCustomFolderOutputPatch

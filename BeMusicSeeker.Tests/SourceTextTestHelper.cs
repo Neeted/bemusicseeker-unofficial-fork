@@ -55,8 +55,7 @@ internal static class SourceTextTestHelper
         string[] nestedSourcePaths =
         [
             Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.SettingDialogViewModel.cs"),
-            Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel.cs"),
-            Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.PlaylistPropertyDialogViewModel.cs")
+            Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel.cs")
         ];
         string logicalMainWindowViewModelSource = InsertSourceAfterMarker(
             File.ReadAllText(mainWindowViewModelPath),
@@ -69,6 +68,10 @@ internal static class SourceTextTestHelper
             .Concat(EnumerateDirectoryFiles(mainWindowViewModelSplitDirectory))
             .Where(path => !string.Equals(path, mainWindowViewModelPath, StringComparison.OrdinalIgnoreCase))
             .Where(path => !nestedSourcePaths.Contains(path, StringComparer.OrdinalIgnoreCase))
+            .Where(path => !string.Equals(
+                Path.GetFileName(path),
+                "PlaylistPropertyDialogViewModel.cs",
+                StringComparison.OrdinalIgnoreCase))
             .Where(File.Exists)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => GetRelativePath(root, path), StringComparer.OrdinalIgnoreCase)

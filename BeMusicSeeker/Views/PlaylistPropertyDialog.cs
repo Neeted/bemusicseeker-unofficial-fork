@@ -30,12 +30,12 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
 
     private void CancelAndClose(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel { playlistPropertyDialog: { } playlistPropertyDialogViewModel })
+        if (base.DataContext is PlaylistPropertyDialogViewModel playlistPropertyDialogViewModel)
         {
             if (playlistPropertyDialogViewModel.ResetProperties())
             {
                 playlistPropertyDialogViewModel.Dispose();
-                GetDialogHost().HideOverlayDialog(playlistPropertyDialog);
+                GetDialogHost().ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel);
             }
             else
             {
@@ -46,12 +46,12 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
 
     private async void SaveAndClose(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel { playlistPropertyDialog: { } playlistPropertyDialogViewModel })
+        if (base.DataContext is PlaylistPropertyDialogViewModel playlistPropertyDialogViewModel)
         {
             if (playlistPropertyDialogViewModel.SaveProperties())
             {
                 playlistPropertyDialogViewModel.Dispose();
-                GetDialogHost().HideOverlayDialog(playlistPropertyDialog);
+                GetDialogHost().ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel);
                 await playlistPropertyDialogViewModel.ApplyPostSaveUpdatesAsync();
             }
             else
@@ -64,11 +64,11 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
     private void folderListUp(object sender, RoutedEventArgs e)
     {
         IList selectedItems = foldersListBox.SelectedItems;
-        if (base.DataContext is not MainWindowViewModel mainWindowViewModel || selectedItems == null || selectedItems.Count == 0)
+        if (base.DataContext is not PlaylistPropertyDialogViewModel viewModel || selectedItems == null || selectedItems.Count == 0)
         {
             return;
         }
-        DispatcherCollection<string> folder_order = mainWindowViewModel.playlistPropertyDialog.folder_order;
+        ObservableCollection<string> folder_order = viewModel.folder_order;
         List<int> list = [.. (from string f in selectedItems
                           select folder_order.IndexOf(f) into i
                           where i != -1
@@ -87,11 +87,11 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
     private void folderListDown(object sender, RoutedEventArgs e)
     {
         IList selectedItems = foldersListBox.SelectedItems;
-        if (base.DataContext is not MainWindowViewModel mainWindowViewModel || selectedItems == null || selectedItems.Count == 0)
+        if (base.DataContext is not PlaylistPropertyDialogViewModel viewModel || selectedItems == null || selectedItems.Count == 0)
         {
             return;
         }
-        DispatcherCollection<string> folder_order = mainWindowViewModel.playlistPropertyDialog.folder_order;
+        ObservableCollection<string> folder_order = viewModel.folder_order;
         List<int> list = [.. (from string f in selectedItems
                           select folder_order.IndexOf(f) into i
                           where i != -1
@@ -110,14 +110,14 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
 
     private void folderNaturalSort(object sender, RoutedEventArgs e)
     {
-        if (!(sender is CheckBox { IsChecked: var isChecked }) || isChecked != true || base.DataContext is not MainWindowViewModel mainWindowViewModel)
+        if (!(sender is CheckBox { IsChecked: var isChecked }) || isChecked != true || base.DataContext is not PlaylistPropertyDialogViewModel viewModel)
         {
             return;
         }
-        DispatcherCollection<string> folder_order = mainWindowViewModel.playlistPropertyDialog.folder_order;
+        ObservableCollection<string> folder_order = viewModel.folder_order;
         using var comparer = new NaturalComparer<string>();
         List<string> list = [.. folder_order];
         list.Sort(comparer);
-        mainWindowViewModel.playlistPropertyDialog.folder_order = new DispatcherCollection<string>(new ObservableCollection<string>(list), DispatcherHelper.UIDispatcher);
+        viewModel.folder_order = new ObservableCollection<string>(list);
     }
 }

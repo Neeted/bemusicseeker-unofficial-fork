@@ -1577,7 +1577,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         try
         {
-            bool applied = await viewModel.ApplyPlaylistSummaryPropertyEditAsync(playlistSummaryRow, e.EditPropertyName, e.Text);
+            bool applied = await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                playlistSummaryRow,
+                e.EditPropertyName,
+                e.Text);
             if (!applied)
             {
                 UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
@@ -3584,12 +3587,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel mainWindowViewModel && CanOpenPlaylistEditDialog(mainWindowViewModel))
         {
-            if (!mainWindowViewModel.ContainsActivePlaylistTable(playlistSummaryRow.TableRef))
-            {
-                return;
-            }
-            mainWindowViewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(mainWindowViewModel, playlistSummaryRow.TableRef);
-            ShowOverlayDialog(playlistPropertyDialog);
+            OpenPlaylistPropertyDialog(mainWindowViewModel, playlistSummaryRow.TableRef);
         }
     }
 
@@ -3599,6 +3597,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             && !viewModel.IsWriteLockHeldBMSTablesInitializeMin
             && !viewModel.IsWriteLockHeldBMSTables
             && !viewModel.IsWriteLockHeldAnyBMSTable;
+    }
+
+    private void OpenPlaylistPropertyDialog(
+        MainWindowViewModel viewModel,
+        BMSTable table,
+        bool isNewTable = false)
+    {
+        PlaylistPropertyDialogViewModel dialog = viewModel.PlaylistWorkspace.OpenPropertyDialog(table, isNewTable);
+        if (dialog == null)
+        {
+            return;
+        }
+        playlistPropertyDialog.DataContext = dialog;
+        ShowOverlayDialog(playlistPropertyDialog);
+    }
+
+    internal void ClosePlaylistPropertyDialog(PlaylistPropertyDialogViewModel dialog)
+    {
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            viewModel.PlaylistWorkspace.ClosePropertyDialog(dialog);
+        }
+        playlistPropertyDialog.DataContext = null;
+        HideOverlayDialog(playlistPropertyDialog);
     }
 
     private async void playlistSummaryContextMenuRemoveClick(object sender, RoutedEventArgs e)
@@ -3956,12 +3978,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             BMSTable bMSTable = await Task.Run(() => viewModel.CreateBMSTable()).Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
             if (bMSTable != null)
             {
-                if (!viewModel.ContainsActivePlaylistTable(bMSTable))
-                {
-                    return;
-                }
-                viewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(viewModel, bMSTable, _isForNewTable: true);
-                ShowOverlayDialog(playlistPropertyDialog);
+                OpenPlaylistPropertyDialog(viewModel, bMSTable, isNewTable: true);
             }
         }
         catch
@@ -4331,12 +4348,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (base.DataContext is MainWindowViewModel mainWindowViewModel && sender is MenuItem menuItem && menuItem.DataContext is BMSTable table && CanOpenPlaylistEditDialog(mainWindowViewModel))
         {
-            if (!mainWindowViewModel.ContainsActivePlaylistTable(table))
-            {
-                return;
-            }
-            mainWindowViewModel.playlistPropertyDialog = new MainWindowViewModel.PlaylistPropertyDialogViewModel(mainWindowViewModel, table);
-            ShowOverlayDialog(playlistPropertyDialog);
+            OpenPlaylistPropertyDialog(mainWindowViewModel, table);
         }
     }
 

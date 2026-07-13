@@ -1320,17 +1320,22 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(compositionCode, "libraryProfile.SongDbPath");
         StringAssert.Contains(viewModelCode, "files.SearchTargets.AddRange(libraryProfile.SearchRoots)");
         StringAssert.Contains(viewModelCode, "return [];");
-        StringAssert.Contains(viewModelCode, "temp_output_dir_full_path = temp_custom_folder_output_settings?.OperationModeLR2DB == true");
+        string propertySaveServiceCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistPropertySaveService.cs"));
         string saveFollowup = ExtractBetween(
-            viewModelCode,
-            "internal async Task ApplyPostSaveUpdatesAsync()",
-            "protected override void Dispose(bool disposing)");
-        int headerCommitIndex = saveFollowup.IndexOf("ownerViewModel.tables.CommitBMSTableHeaderToDB(bmsTable);", StringComparison.Ordinal);
-        int fullCommitIndex = saveFollowup.IndexOf("ownerViewModel.tables.CommitBMSTableWithEntriesToDB(bmsTable);", StringComparison.Ordinal);
-        int detailRefreshIndex = saveFollowup.IndexOf("ownerViewModel.ApplyPlaylistEntriesChanged(bmsTable, refreshSummaryIfVisible: true);", StringComparison.Ordinal);
-        int selectionReplaceIndex = saveFollowup.IndexOf("ownerViewModel.ReplaceCurrentPlaylistSelectionTable(sourceTable, bmsTable);", StringComparison.Ordinal);
-        int folderSelectionRemapIndex = saveFollowup.IndexOf("ownerViewModel.RemapCurrentPlaylistFolderSelection(bmsTable, rewrittenFolders);", StringComparison.Ordinal);
-        int lr2CustomFolderIndex = saveFollowup.IndexOf("if (temp_custom_folder_output_settings?.OperationModeLR2DB == true)", StringComparison.Ordinal);
+            propertySaveServiceCode,
+            "internal async Task ApplyPostSaveUpdatesAsync(PlaylistPropertySaveCommit commit)",
+            "private static bool IsValid(");
+        int headerCommitIndex = saveFollowup.IndexOf("store.CommitBMSTableHeaderToDB(table);", StringComparison.Ordinal);
+        int fullCommitIndex = saveFollowup.IndexOf("store.CommitBMSTableWithEntriesToDB(table);", StringComparison.Ordinal);
+        int detailRefreshIndex = saveFollowup.IndexOf("interaction.ApplyEntriesChanged(table);", StringComparison.Ordinal);
+        int selectionReplaceIndex = saveFollowup.IndexOf("interaction.ReplaceCurrentSelection(sourceTable, table);", StringComparison.Ordinal);
+        int folderSelectionRemapIndex = saveFollowup.IndexOf("interaction.RemapCurrentFolderSelection(table, rewrittenFolders);", StringComparison.Ordinal);
+        int lr2CustomFolderIndex = saveFollowup.IndexOf("if (settings.OperationModeLR2DB)", StringComparison.Ordinal);
         string externalReloadBlock = ExtractBetween(
             saveFollowup,
             "bool shouldReloadExternalPlaylist =",
@@ -1342,7 +1347,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(folderSelectionRemapIndex >= 0);
         StringAssert.Contains(saveFollowup, "if (prefixChanged && !externalResyncApplied)");
         Assert.IsFalse(
-            externalReloadBlock.Contains("temp_compat_prefix"),
+            externalReloadBlock.Contains("baseline.CompatPrefix"),
             "Changing the folder prefix is a local playlist property edit and must not trigger an external reload by itself.");
         Assert.IsTrue(lr2CustomFolderIndex > headerCommitIndex);
         Assert.IsTrue(lr2CustomFolderIndex > fullCommitIndex);
@@ -1545,7 +1550,7 @@ public sealed class MainWindowContextMenuResourceTests
         string deferredExternalSync = ExtractBetween(
             viewModelCode,
             "private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction, long operationToken)",
-            "public PlaylistPropertyDialogViewModel playlistPropertyDialog");
+            "public PlaylistSummaryBulkEditDialogViewModel playlistSummaryBulkEditDialog");
 
         StringAssert.Contains(viewModelCode, "public bool IsLibraryOperationInProgress");
         StringAssert.Contains(viewModelCode, "private long GetActiveStartupProgressOperationToken()");
@@ -1808,7 +1813,7 @@ public sealed class MainWindowContextMenuResourceTests
         string saveOrCancelDecision = ExtractBetween(
             viewModelCode,
             "public RestartMode IsNeedRestartForSaveOrCancel()",
-            "public partial class PlaylistPropertyDialogViewModel");
+            "public sealed class PlaylistSummaryBulkBooleanOption");
 
         StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);");
         StringAssert.Contains(backupSavedSettings, "tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();");
@@ -2767,11 +2772,12 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlaylistReferenceReplace_InvalidatesIndexBackedBmsonDisplay()
     {
+        string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string propertyDialogSave = ExtractBetween(
-            viewModelCode,
-            "internal async Task ApplyPostSaveUpdatesAsync()",
-            "protected override void Dispose(bool disposing)");
+            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistPropertySaveService.cs")),
+            "internal async Task ApplyPostSaveUpdatesAsync(PlaylistPropertySaveCommit commit)",
+            "private static bool IsValid(");
         string replaceCallback = ExtractBetween(
             viewModelCode,
             "private Action<BMSPlaylist.PlaylistTableUpdateContext> CreatePlaylistReferenceReplaceUpdateCallback()",
@@ -2789,7 +2795,15 @@ public sealed class MainWindowContextMenuResourceTests
         {
             replaceIndex = source.IndexOf("ownerViewModel.files.ReplaceReferenceBMSTable(", StringComparison.Ordinal);
         }
+        if (replaceIndex < 0)
+        {
+            replaceIndex = source.IndexOf("GetLibrary().ReplaceReferenceBMSTable(", StringComparison.Ordinal);
+        }
         int invalidateIndex = source.IndexOf("InvalidateNormalLibraryReferenceTableSortKeys()", StringComparison.Ordinal);
+        if (invalidateIndex < 0)
+        {
+            invalidateIndex = source.IndexOf("interaction.InvalidateNormalReferenceSort()", StringComparison.Ordinal);
+        }
 
         Assert.IsTrue(replaceIndex >= 0);
         Assert.IsTrue(invalidateIndex > replaceIndex);
