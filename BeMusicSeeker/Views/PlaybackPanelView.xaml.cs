@@ -24,6 +24,7 @@ public partial class PlaybackPanelView : UserControl
     private const double ExpandedPanelHeight = 286d;
     public static readonly DependencyProperty OverlayVisibilityProperty = DependencyProperty.Register(nameof(OverlayVisibility), typeof(Visibility), typeof(PlaybackPanelView), new PropertyMetadata(Visibility.Collapsed));
     public static readonly DependencyProperty BrowserHtmlProperty = DependencyProperty.Register(nameof(BrowserHtml), typeof(string), typeof(PlaybackPanelView), new PropertyMetadata(null));
+    private readonly PlaybackPreviousButtonGesture previousButtonGesture = new();
     private DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
     private PlaybackPanelViewModel subscribedPlaybackPanel;
     private BitmapSource _panelImage;
@@ -42,18 +43,6 @@ public partial class PlaybackPanelView : UserControl
     public string BrowserHtml { get => (string)GetValue(BrowserHtmlProperty); set => SetValue(BrowserHtmlProperty, value); }
     public IntPtr PlayerHostHandle => _panel.Handle;
     private PlaybackPanelViewModel PlaybackPanel => DataContext as PlaybackPanelViewModel ?? throw new InvalidOperationException("Playback panel DataContext is unavailable.");
-
-    public PlayerPanelState PanelState
-    {
-        get => PlaybackPanel.PlayerPanelState;
-        set
-        {
-            if (PlaybackPanel.PlayerPanelState == value) return;
-            if (value.HasFlag(PlayerPanelState.BMS_PLAYER)) ShowBmsPlayer(); else CollapseBmsPlayer();
-            if (value.HasFlag(PlayerPanelState.MOVIE_PLAYER)) ShowBrowser(); else CollapseBrowser();
-            PlaybackPanel.PlayerPanelState = value;
-        }
-    }
 
     private BitmapSource PanelImage
     {
@@ -78,12 +67,14 @@ public partial class PlaybackPanelView : UserControl
     private void PlaybackPanelLoaded(object sender, RoutedEventArgs e)
     {
         isClosingOrClosed = false;
+        previousButtonGesture.Activate();
         ApplyPlaybackPanelDataContext(DataContext);
     }
 
     private void PlaybackPanelUnloaded(object sender, RoutedEventArgs e)
     {
         isClosingOrClosed = true;
+        CancelPreviousButtonGesture();
         SubscribePlaybackPanel(null);
     }
 
@@ -91,6 +82,8 @@ public partial class PlaybackPanelView : UserControl
     {
         if (IsLoaded)
         {
+            CancelPreviousButtonGesture();
+            previousButtonGesture.Activate();
             ApplyPlaybackPanelDataContext(e.NewValue);
         }
     }
@@ -103,6 +96,7 @@ public partial class PlaybackPanelView : UserControl
         }
         var playbackPanel = dataContext as PlaybackPanelViewModel;
         ApplyPlaybackPanelHeight(playbackPanel?.PlayerPanelState ?? PlayerPanelState.TITLE_LARGE, false);
+        ApplySelectedSurface(playbackPanel?.PlayerPanelState ?? PlayerPanelState.TITLE_LARGE);
         SubscribePlaybackPanel(playbackPanel);
         ResetPanelImage();
         gridBMSPlayerImage.Source = dataContext == null ? null : PanelImage;
@@ -131,6 +125,7 @@ public partial class PlaybackPanelView : UserControl
             && subscribedPlaybackPanel != null)
         {
             ApplyPlaybackPanelHeight(subscribedPlaybackPanel.PlayerPanelState, IsLoaded && !isClosingOrClosed);
+            ApplySelectedSurface(subscribedPlaybackPanel.PlayerPanelState);
         }
         if (e.PropertyName == nameof(PlaybackPanelViewModel.UseExternalPanelImage)
             || e.PropertyName == nameof(PlaybackPanelViewModel.StagefilePath))
@@ -218,33 +213,62 @@ public partial class PlaybackPanelView : UserControl
         if (binding != null) BindingOperations.SetBinding(element, UIElement.VisibilityProperty, binding);
     }
 
-    public void RestoreSelectedSurface() { if (PanelState.HasFlag(PlayerPanelState.BMS_PLAYER)) ShowBmsPlayer(); else if (PanelState.HasFlag(PlayerPanelState.MOVIE_PLAYER)) ShowBrowser(); }
+    public void RestoreSelectedSurface() => ApplySelectedSurface(PlaybackPanel.PlayerPanelState);
     public void RotatePanelState() => Dispatcher.BeginInvoke((Action)(() => gridBMSPlayerControlsRotatePanelStateButtonClicked()), DispatcherPriority.ContextIdle);
-    public bool CanSelectPanelState(PlayerPanelState state) => IsPanelStateValid(state);
-    private bool IsPanelStateValid(PlayerPanelState state)
+    public void EnsureSelectedSurfaceAvailable()
     {
-        if (state.HasFlag(PlayerPanelState.BMS_PLAYER))
+        if (!IsSelectedSurfaceAvailable())
         {
-            if (windowsFormsHost == null || !windowsFormsHost.IsEnabled) return false;
-            if (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && PlaybackPanel.UsesUbMplay) return false;
-            if (!Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && PlaybackPanel.UsesUbMplay) return true;
-            if (PlaybackPanel.UsesLr2Body) return false;
-            return PlaybackPanel.UsesBmiIdxView;
+            RotatePanelState();
         }
-        return !state.HasFlag(PlayerPanelState.MOVIE_PLAYER) || (webBrowser != null && webBrowser.IsEnabled && BrowserHtml != null);
+    }
+
+    private bool IsSelectedSurfaceAvailable() => PlaybackPanel.CanSelectPanelState(
+        PlaybackPanel.PlayerPanelState,
+        IsBmsPlayerSurfaceAvailable(),
+        IsMoviePlayerSurfaceAvailable());
+
+    public bool TrySelectBmsPlayerSurface() => PlaybackPanel.TrySelectPanelState(
+        PlayerPanelState.BMS_PLAYER,
+        IsBmsPlayerSurfaceAvailable(),
+        IsMoviePlayerSurfaceAvailable());
+
+    private bool TrySelectMoviePlayerSurface() => PlaybackPanel.TrySelectPanelState(
+        PlayerPanelState.MOVIE_PLAYER,
+        IsBmsPlayerSurfaceAvailable(),
+        IsMoviePlayerSurfaceAvailable());
+
+    private bool IsBmsPlayerSurfaceAvailable()
+    {
+        if (windowsFormsHost == null || !windowsFormsHost.IsEnabled) return false;
+        if (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && PlaybackPanel.UsesUbMplay) return false;
+        if (!Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && PlaybackPanel.UsesUbMplay) return true;
+        if (PlaybackPanel.UsesLr2Body) return false;
+        return PlaybackPanel.UsesBmiIdxView;
+    }
+
+    private bool IsMoviePlayerSurfaceAvailable() => webBrowser != null && webBrowser.IsEnabled && BrowserHtml != null;
+
+    private void ApplySelectedSurface(PlayerPanelState state)
+    {
+        if (state.HasFlag(PlayerPanelState.BMS_PLAYER)) ShowBmsPlayer(); else CollapseBmsPlayer();
+        if (state.HasFlag(PlayerPanelState.MOVIE_PLAYER)) ShowBrowser(); else CollapseBrowser();
     }
     private void gridBMSPlayerControlsRotatePanelStateButtonClicked(object sender = null, RoutedEventArgs e = null)
     {
         if (isClosingOrClosed) return;
-        PlayerPanelState state = PanelState;
-        do state = state.HasFlag(PlayerPanelState.BMS_PLAYER) ? (state & ~PlayerPanelState.BMS_PLAYER) | PlayerPanelState.MOVIE_PLAYER : !state.HasFlag(PlayerPanelState.MOVIE_PLAYER) ? state | PlayerPanelState.BMS_PLAYER : state & ~PlayerPanelState.MOVIE_PLAYER;
-        while (!IsPanelStateValid(state));
-        PanelState = state;
+        PlaybackPanel.RotatePanelState(IsBmsPlayerSurfaceAvailable(), IsMoviePlayerSurfaceAvailable());
     }
-    private void gridBMSPlayerControlsRotatePanelStateButtonClicked2(object sender, RoutedEventArgs e) => PanelState ^= PlayerPanelState.TITLE_SMALL;
-    private void windowsFormsHostIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e) { if (!IsPanelStateValid(PanelState)) gridBMSPlayerControlsRotatePanelStateButtonClicked(); }
+    private void gridBMSPlayerControlsRotatePanelStateButtonClicked2(object sender, RoutedEventArgs e) => PlaybackPanel.ToggleCompactPanel();
+    private void windowsFormsHostIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (!IsSelectedSurfaceAvailable())
+        {
+            gridBMSPlayerControlsRotatePanelStateButtonClicked();
+        }
+    }
     private static void forbidNavigating(object sender, NavigatingCancelEventArgs e) => e.Cancel = true;
-    private void webBrowserLoadCompleted(object sender, NavigationEventArgs e) { webBrowser.Navigating += forbidNavigating; PanelState = PlayerPanelState.MOVIE_PLAYER; }
+    private void webBrowserLoadCompleted(object sender, NavigationEventArgs e) { webBrowser.Navigating += forbidNavigating; TrySelectMoviePlayerSurface(); }
 
     private void gridBMSPlayerControlsNextButtonClicked(object sender, MouseButtonEventArgs e)
     {
@@ -261,30 +285,66 @@ public partial class PlaybackPanelView : UserControl
     /// </summary>
     private void gridBMSPlayerControlsPreviousButtonClicked(object sender, MouseButtonEventArgs e)
     {
+        e.Handled = true;
+        HandlePreviousButtonClick(e.ClickCount);
+    }
+
+    internal void HandlePreviousButtonClick(int clickCount)
+    {
         if (DataContext is not PlaybackPanelViewModel viewModel)
         {
             return;
         }
-        gridBMSPlayerControlsPreviousButtonClickTimer ??= new DispatcherTimer(new TimeSpan(0, 0, 0, 0, 500), DispatcherPriority.Background, gridBMSPlayerControlsPreviousButtonSingleClicked, Dispatcher.CurrentDispatcher);
-        e.Handled = true;
-        if (e.ClickCount >= 2)
+        PlaybackPreviousButtonAction action = previousButtonGesture.HandleClick(clickCount);
+        if (action == PlaybackPreviousButtonAction.Previous)
         {
-            gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
+            StopPreviousButtonTimer();
             viewModel.PreviousCommand.Execute();
         }
         else
         {
+            EnsurePreviousButtonTimer();
             gridBMSPlayerControlsPreviousButtonClickTimer.Start();
         }
     }
 
     private void gridBMSPlayerControlsPreviousButtonSingleClicked(object sender, EventArgs e)
     {
-        if (DataContext is PlaybackPanelViewModel viewModel)
+        StopPreviousButtonTimer();
+        if (previousButtonGesture.HandleDelayElapsed() == PlaybackPreviousButtonAction.Restart
+            && DataContext is PlaybackPanelViewModel viewModel)
         {
-            gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
             viewModel.RestartCommand.Execute();
         }
+    }
+
+    private void EnsurePreviousButtonTimer()
+    {
+        if (gridBMSPlayerControlsPreviousButtonClickTimer != null)
+        {
+            return;
+        }
+        gridBMSPlayerControlsPreviousButtonClickTimer = new DispatcherTimer(
+            new TimeSpan(0, 0, 0, 0, 500),
+            DispatcherPriority.Background,
+            gridBMSPlayerControlsPreviousButtonSingleClicked,
+            Dispatcher);
+    }
+
+    private void StopPreviousButtonTimer()
+    {
+        gridBMSPlayerControlsPreviousButtonClickTimer?.Stop();
+    }
+
+    private void CancelPreviousButtonGesture()
+    {
+        if (gridBMSPlayerControlsPreviousButtonClickTimer != null)
+        {
+            gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
+            gridBMSPlayerControlsPreviousButtonClickTimer.Tick -= gridBMSPlayerControlsPreviousButtonSingleClicked;
+            gridBMSPlayerControlsPreviousButtonClickTimer = null;
+        }
+        previousButtonGesture.Deactivate();
     }
 
     /// <summary>
@@ -296,9 +356,9 @@ public partial class PlaybackPanelView : UserControl
         if (DataContext is PlaybackPanelViewModel viewModel)
         {
             e.Handled = true;
-            if (viewModel.IsStoppedOrPaused && IsPanelStateValid(PlayerPanelState.BMS_PLAYER))
+            if (viewModel.IsStoppedOrPaused)
             {
-                PanelState = PlayerPanelState.BMS_PLAYER;
+                TrySelectBmsPlayerSurface();
             }
             viewModel.StartCommand.Execute();
         }

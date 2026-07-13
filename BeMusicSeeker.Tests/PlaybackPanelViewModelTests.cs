@@ -4,11 +4,14 @@ using System.Collections.Concurrent;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
+using System.Windows;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -319,6 +322,112 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    public void PlaybackPanel_OwnsPanelStateTransitionsUsingViewHostAvailability()
+    {
+        PlayerPanelState originalPanelState = Settings.Default.PlayerPanelState;
+        PlaybackPanelViewModel panel = CreatePanel(new FakeBmsPlayer());
+        try
+        {
+            panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
+
+            Assert.IsTrue(panel.CanSelectPanelState(PlayerPanelState.TITLE_LARGE, false, false));
+            Assert.IsFalse(panel.CanSelectPanelState(PlayerPanelState.BMS_PLAYER, false, true));
+            Assert.IsFalse(panel.CanSelectPanelState(PlayerPanelState.MOVIE_PLAYER, true, false));
+            Assert.IsFalse(panel.TrySelectPanelState(PlayerPanelState.BMS_PLAYER, false, true));
+            Assert.AreEqual(PlayerPanelState.TITLE_LARGE, panel.PlayerPanelState);
+
+            panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL;
+            panel.RotatePanelState(bmsPlayerSurfaceAvailable: true, moviePlayerSurfaceAvailable: false);
+            Assert.AreEqual(PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER, panel.PlayerPanelState);
+
+            panel.PlayerPanelState = PlayerPanelState.TITLE_LARGE;
+            panel.RotatePanelState(bmsPlayerSurfaceAvailable: true, moviePlayerSurfaceAvailable: false);
+            Assert.AreEqual(PlayerPanelState.BMS_PLAYER, panel.PlayerPanelState);
+
+            panel.RotatePanelState(bmsPlayerSurfaceAvailable: false, moviePlayerSurfaceAvailable: true);
+            Assert.AreEqual(PlayerPanelState.MOVIE_PLAYER, panel.PlayerPanelState);
+
+            panel.RotatePanelState(bmsPlayerSurfaceAvailable: false, moviePlayerSurfaceAvailable: false);
+            Assert.AreEqual(PlayerPanelState.TITLE_LARGE, panel.PlayerPanelState);
+
+            panel.PlayerPanelState = PlayerPanelState.TITLE_SMALL | PlayerPanelState.BMS_PLAYER;
+            panel.ToggleCompactPanel();
+            Assert.AreEqual(PlayerPanelState.BMS_PLAYER, panel.PlayerPanelState);
+        }
+        finally
+        {
+            Settings.Default.PlayerPanelState = originalPanelState;
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanelView_UnloadedCancelsPendingPreviousButtonRestart()
+    {
+        RunOnSta(delegate
+        {
+            QuickConverter.EquationTokenizer.AddNamespace(typeof(object));
+            QuickConverter.EquationTokenizer.AddNamespace(typeof(Visibility));
+            QuickConverter.EquationTokenizer.AddNamespace(typeof(TimeSpan));
+            Application.ResourceAssembly ??= typeof(PlaybackPanelView).Assembly;
+            var player = new FakeBmsPlayer();
+            PlaybackPanelViewModel panel = CreatePanel(player);
+            var replacementPlayer = new FakeBmsPlayer();
+            PlaybackPanelViewModel replacementPanel = CreatePanel(replacementPlayer);
+            var view = new PlaybackPanelView { DataContext = panel };
+            var window = new Window
+            {
+                Width = 640d,
+                Height = 360d,
+                Content = view,
+                ShowInTaskbar = false,
+                WindowStyle = WindowStyle.None
+            };
+
+            try
+            {
+                window.Show();
+                Assert.IsTrue(view.IsLoaded);
+
+                view.HandlePreviousButtonClick(1);
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(700));
+                Assert.IsTrue(SpinWait.SpinUntil(() => player.Commands.Contains("Restart"), 3000));
+                while (player.Commands.TryDequeue(out _))
+                {
+                }
+
+                view.HandlePreviousButtonClick(1);
+                view.DataContext = replacementPanel;
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(700));
+                Assert.IsFalse(player.Commands.Contains("Restart"));
+                Assert.IsFalse(replacementPlayer.Commands.Contains("Restart"));
+
+                view.HandlePreviousButtonClick(1);
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(700));
+                Assert.IsTrue(SpinWait.SpinUntil(() => replacementPlayer.Commands.Contains("Restart"), 3000));
+                while (replacementPlayer.Commands.TryDequeue(out _))
+                {
+                }
+
+                view.HandlePreviousButtonClick(1);
+                window.Content = null;
+                PumpDispatcherFor(TimeSpan.FromMilliseconds(700));
+
+                Assert.IsFalse(view.IsLoaded);
+                Assert.IsFalse(replacementPlayer.Commands.Contains("Restart"));
+            }
+            finally
+            {
+                window.Content = null;
+                if (view.IsLoaded)
+                {
+                    view.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+                }
+                window.Close();
+            }
+        });
+    }
+
+    [TestMethod]
     public void PlaybackPanel_OwnsPersistedPanelAndPlaybackModeBindings()
     {
         PlayerPanelState originalPanelState = Settings.Default.PlayerPanelState;
@@ -409,6 +518,45 @@ public sealed class PlaybackPanelViewModelTests
             new MainChartListViewModel(),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new ChartFileOperationSynchronizer());
+    }
+
+    private static void PumpDispatcherFor(TimeSpan duration)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = duration
+        };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            frame.Continue = false;
+        };
+        timer.Start();
+        Dispatcher.PushFrame(frame);
+    }
+
+    private static void RunOnSta(Action action)
+    {
+        Exception? exception = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (exception != null)
+        {
+            ExceptionDispatchInfo.Capture(exception).Throw();
+        }
     }
 
     private sealed class FakeBmsPlayer : IBMSPlayer

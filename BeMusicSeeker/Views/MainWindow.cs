@@ -842,10 +842,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
-        if (!playbackPanelView.CanSelectPanelState(playbackPanelView.PanelState))
-        {
-            playbackPanelView.RotatePanelState();
-        }
+        playbackPanelView.EnsureSelectedSurfaceAvailable();
         playbackPanelView.ConfigureBrowserHost();
         try
         {
@@ -1388,9 +1385,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
         playbackPanelView.RefreshArtwork(bmsFile);
-        if (viewModel.PlaybackPanel.IsStoppedOrPaused && playbackPanelView.CanSelectPanelState(PlayerPanelState.BMS_PLAYER))
+        if (viewModel.PlaybackPanel.IsStoppedOrPaused)
         {
-            playbackPanelView.PanelState = PlayerPanelState.BMS_PLAYER;
+            playbackPanelView.TrySelectBmsPlayerSurface();
         }
         await Task.Run(delegate
         {

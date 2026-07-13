@@ -212,6 +212,57 @@ public sealed class PlaybackPanelViewModel : ViewModel
         }
     }
 
+    internal bool CanSelectPanelState(
+        PlayerPanelState state,
+        bool bmsPlayerSurfaceAvailable,
+        bool moviePlayerSurfaceAvailable)
+    {
+        if (state.HasFlag(PlayerPanelState.BMS_PLAYER) && !bmsPlayerSurfaceAvailable)
+        {
+            return false;
+        }
+        if (state.HasFlag(PlayerPanelState.MOVIE_PLAYER) && !moviePlayerSurfaceAvailable)
+        {
+            return false;
+        }
+        return true;
+    }
+
+    internal bool TrySelectPanelState(
+        PlayerPanelState state,
+        bool bmsPlayerSurfaceAvailable,
+        bool moviePlayerSurfaceAvailable)
+    {
+        if (!CanSelectPanelState(state, bmsPlayerSurfaceAvailable, moviePlayerSurfaceAvailable))
+        {
+            return false;
+        }
+
+        PlayerPanelState = state;
+        return true;
+    }
+
+    internal void RotatePanelState(bool bmsPlayerSurfaceAvailable, bool moviePlayerSurfaceAvailable)
+    {
+        PlayerPanelState state = PlayerPanelState;
+        do
+        {
+            state = state.HasFlag(PlayerPanelState.BMS_PLAYER)
+                ? (state & ~PlayerPanelState.BMS_PLAYER) | PlayerPanelState.MOVIE_PLAYER
+                : !state.HasFlag(PlayerPanelState.MOVIE_PLAYER)
+                    ? state | PlayerPanelState.BMS_PLAYER
+                    : state & ~PlayerPanelState.MOVIE_PLAYER;
+        }
+        while (!CanSelectPanelState(state, bmsPlayerSurfaceAvailable, moviePlayerSurfaceAvailable));
+
+        PlayerPanelState = state;
+    }
+
+    internal void ToggleCompactPanel()
+    {
+        PlayerPanelState ^= PlayerPanelState.TITLE_SMALL;
+    }
+
     public bool RepeatPlayMode
     {
         get => playbackSettings.RepeatPlay;
