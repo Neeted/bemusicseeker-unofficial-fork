@@ -94,6 +94,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += PlaylistWorkspacePlaylistSummaryDataRefreshRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceTableReplaced += PlaylistWorkspacePlaylistReferenceTableReplaced;");
+        StringAssert.Contains(logicalSource, "InvokeMainChartListPresentationAction(() =>");
+        StringAssert.Contains(logicalSource, "ReplaceCurrentPlaylistSelectionTable(request.OldTable, request.NewTable);");
         StringAssert.Contains(logicalSource, "ApplyPlaylistEntriesChanged(request.Table, refreshSummaryIfVisible: true);");
         StringAssert.Contains(workspaceSource, "private void PublishEntriesChanged(BMSTable table)");
         StringAssert.Contains(workspaceSource, "EntriesChanged?.Invoke(this, new PlaylistWorkspaceEntriesChangedEventArgs(table));");

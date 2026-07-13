@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -449,7 +450,7 @@ public sealed class BmsPlaylistUpdateTests
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9001;
             table.DisableExternalSync();
-            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), null!);
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
 
             List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([table], reason: "test_explicit_reload");
@@ -466,6 +467,319 @@ public sealed class BmsPlaylistUpdateTests
         finally
         {
             Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task ReloadPlaylistTargetsAsync_SkipsRemovedTargetBeforeApply()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        IDisposable? tableWriterGuard = null;
+        Task<List<BMSPlaylist.PlaylistReloadTargetResult>>? reloadTask = null;
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"RemovedTarget\",\r\n\"symbol\":\"R\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
+            BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
+            table.playlist_id = 9021;
+            table.DisableExternalSync();
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>([table]),
+                Dispatcher.CurrentDispatcher);
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                foreach (BMSTableEntry entry in table.entries ?? [])
+                {
+                    setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+            }
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
+
+            int callbackCount = 0;
+            int syncResultCount = 0;
+            tableWriterGuard = table.ReaderWriterLock.GetWriterGuard();
+            reloadTask = playlist.ReloadPlaylistTargetsAsync(
+                [table],
+                [context => callbackCount++],
+                _ => syncResultCount++,
+                reason: "test_removed_target",
+                requireCurrentTargetForApply: true);
+            bool reloadReachedMerge = SpinWait.SpinUntil(
+                () => table.ReaderWriterLock.WaitingWriteCount > 0,
+                TimeSpan.FromSeconds(10));
+            playlist.RemoveBMSTable(table);
+            tableWriterGuard.Dispose();
+            tableWriterGuard = null;
+
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await reloadTask;
+
+            Assert.IsTrue(reloadReachedMerge);
+            Assert.AreEqual(1, results.Count);
+            Assert.IsFalse(results[0].Succeeded);
+            Assert.IsFalse(results[0].Updated);
+            Assert.AreSame(table, results[0].ResultTable);
+            Assert.IsNull(results[0].UpdateContext);
+            Assert.AreEqual(0, callbackCount);
+            Assert.AreEqual(1, syncResultCount);
+            Assert.AreEqual(0, playlist.BMSTables.Count);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist WHERE playlist_id = 9021;"));
+            Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = 9021;"));
+        }
+        finally
+        {
+            tableWriterGuard?.Dispose();
+            if (reloadTask != null && !reloadTask.IsCompleted)
+            {
+                try
+                {
+                    await reloadTask;
+                }
+                catch
+                {
+                }
+            }
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistWorkspaceManualResync_UsesActiveTableAndPublishesLifecycle()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "workspace-header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "workspace-score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"WorkspaceTarget\",\r\n\"symbol\":\"W\",\r\n\"data_url\":\"./workspace-score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.playlist_id = 9011;
+            table.DisableExternalSync();
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>([table]),
+                null!);
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                foreach (BMSTableEntry entry in table.entries ?? [])
+                {
+                    setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+            }
+            var library = new BMSLibrary(songDbPath);
+            var workspace = new PlaylistWorkspaceViewModel(action => action());
+            workspace.ConfigureDetailEditing(() => playlist);
+            workspace.ConfigureMutations(() => library, (action, _) => action());
+
+            int startedCount = 0;
+            int progressCount = 0;
+            int resultCount = 0;
+            int referenceReplacementCount = 0;
+            BMSTable? referenceReplacementOldTable = null;
+            BMSTable? referenceReplacementNewTable = null;
+            bool referenceIndexChanged = false;
+            int completedCount = 0;
+            int finishedCount = 0;
+            PlaylistSummaryDataRefreshRequestedEventArgs? summaryRefresh = null;
+            PlaylistReloadCompletedEventArgs? completion = null;
+            workspace.PlaylistReloadStarted += (_, _) => startedCount++;
+            workspace.PlaylistSyncProgressChanged += (_, _) => progressCount++;
+            workspace.PlaylistSyncResultReported += (_, _) => resultCount++;
+            workspace.PlaylistReferenceTableReplaced += (_, request) =>
+            {
+                referenceReplacementCount++;
+                referenceReplacementOldTable = request.OldTable;
+                referenceReplacementNewTable = request.NewTable;
+                referenceIndexChanged = request.ReferenceIndexChanged;
+            };
+            workspace.PlaylistReloadCompleted += (_, request) =>
+            {
+                completedCount++;
+                completion = request;
+            };
+            workspace.PlaylistReloadFinished += (_, _) => finishedCount++;
+            workspace.PlaylistSummaryDataRefreshRequested += (_, request) => summaryRefresh = request;
+
+            Assert.IsTrue(workspace.ContainsActivePlaylistTable(table));
+            Assert.IsTrue(workspace.ContainsActivePlaylistSummaryRows([new PlaylistSummaryRow { TableRef = table }]));
+
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
+            await workspace.ResyncPlaylistsAsync([table]);
+
+            Assert.AreEqual(1, startedCount);
+            Assert.IsTrue(progressCount >= 3);
+            Assert.AreEqual(1, resultCount);
+            Assert.AreEqual(1, referenceReplacementCount);
+            Assert.IsTrue(referenceIndexChanged);
+            Assert.AreEqual(1, completedCount);
+            Assert.AreEqual(1, finishedCount);
+            Assert.IsNotNull(summaryRefresh);
+            Assert.AreEqual("manual_playlist_resync", summaryRefresh!.Reason);
+            Assert.IsTrue(summaryRefresh.InvalidateTableCountCache);
+            Assert.IsNotNull(completion);
+            Assert.AreEqual(1, completion!.TableCount);
+            Assert.AreEqual(1, completion.ProcessedCount);
+            Assert.IsFalse(completion.IsFullReload);
+
+            BMSTable reloadedTable = playlist.BMSTables.Single();
+            Assert.AreNotSame(table, reloadedTable);
+            Assert.AreSame(table, referenceReplacementOldTable);
+            Assert.AreSame(reloadedTable, referenceReplacementNewTable);
+            Assert.IsFalse(workspace.ContainsActivePlaylistTable(table));
+            Assert.IsFalse(workspace.ContainsActivePlaylistSummaryRows([new PlaylistSummaryRow { TableRef = table }]));
+            Assert.IsTrue(workspace.ContainsActivePlaylistTable(reloadedTable));
+            Assert.IsTrue(workspace.ContainsActivePlaylistSummaryRows([new PlaylistSummaryRow { TableRef = reloadedTable }]));
+
+            reloadedTable.header_sha256 = null;
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"WorkspaceTarget\",\r\n\"symbol\":\"W\",\r\n\"tag\":\"header-refresh\",\r\n\"data_url\":\"./workspace-score.json\",\r\n\"level_order\":[1]\r\n}"));
+            int replacementCountBeforeHeaderRefresh = referenceReplacementCount;
+            await workspace.ResyncPlaylistsAsync([reloadedTable]);
+            Assert.AreEqual(replacementCountBeforeHeaderRefresh + 1, referenceReplacementCount);
+            Assert.IsTrue(referenceIndexChanged);
+            BMSTable headerRefreshedTable = playlist.BMSTables.Single();
+            Assert.AreNotSame(reloadedTable, headerRefreshedTable);
+            Assert.IsFalse(workspace.ContainsActivePlaylistTable(reloadedTable));
+            Assert.IsTrue(workspace.ContainsActivePlaylistTable(headerRefreshedTable));
+
+            await workspace.ResyncPlaylistsAsync([table]);
+            Assert.AreEqual(2, startedCount);
+            Assert.AreEqual(2, finishedCount);
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task CommitBMSTableEntry_StaleDetailEditPreservesReloadedFields()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "stale-edit-header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "stale-edit-score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"StaleEdit\",\r\n\"symbol\":\"E\",\r\n\"data_url\":\"./stale-edit-score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath);
+            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.playlist_id = 9031;
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>([table]),
+                null!);
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                foreach (BMSTableEntry entry in table.entries ?? [])
+                {
+                    setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+            }
+
+            BMSTableEntry staleEntry = table.entries.Single();
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"9\",\"url\":\"https://external.example/song\"}]"));
+            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([table], reason: "test_stale_detail_edit");
+
+            Assert.IsTrue(results.Single().Succeeded);
+            BMSTable reloadedTable = playlist.BMSTables.Single();
+            staleEntry.comment = "user edit";
+            playlist.CommitBMSTableEntry(staleEntry, nameof(PlaylistDetailRow.comment));
+
+            BMSTableEntry activeEntry = reloadedTable.entries.Single(entry => !entry.is_removed);
+            Assert.AreEqual(9d, activeEntry.level);
+            Assert.AreEqual("user edit", activeEntry.comment);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            BMSTableEntry storedEntry = verify.Table<BMSTableEntry>().Single(entry => entry.playlist_id == 9031 && !entry.is_removed);
+            Assert.AreEqual(9d, storedEntry.level);
+            Assert.AreEqual("user edit", storedEntry.comment);
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void CommitBMSTableEntry_DoesNotResurrectRemovedPlaylist()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSTable table = new()
+            {
+                playlist_id = 9032,
+                name = "RemovedPlaylist",
+                entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Removed")]
+            };
+            BMSTableEntry entry = table.entries.Single();
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    null!)
+            };
+
+            playlist.RemoveBMSTable(table);
+
+            Assert.ThrowsException<InvalidOperationException>(() => playlist.CommitBMSTableEntry(entry));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0, verify.Table<BMSTable>().Count(row => row.playlist_id == table.playlist_id));
+            Assert.AreEqual(0, verify.Table<BMSTableEntry>().Count(row => row.playlist_id == table.playlist_id));
+        }
+        finally
+        {
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

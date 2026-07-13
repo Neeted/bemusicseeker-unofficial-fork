@@ -1481,7 +1481,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             || playlistSummaryRow.TableRef == null
             || !IsPlaylistSummaryEditableProperty(e.EditPropertyName)
             || !CanOpenPlaylistEditDialog(viewModel)
-            || !viewModel.ContainsActivePlaylistTable(playlistSummaryRow.TableRef))
+            || !viewModel.PlaylistWorkspace.ContainsActivePlaylistTable(playlistSummaryRow.TableRef))
         {
             e.Cancel = true;
         }
@@ -3505,7 +3505,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
         if (base.DataContext is MainWindowViewModel viewModel && selectedPlaylistSummaryRows.Count > 0)
         {
-            await viewModel.ResyncPlaylistsAsync(selectedPlaylistSummaryRows).Logging("playlistSummaryContextMenuResyncClick");
+            await viewModel.PlaylistWorkspace.ResyncPlaylistsAsync(selectedPlaylistSummaryRows).Logging("playlistSummaryContextMenuResyncClick");
         }
     }
 
@@ -3569,7 +3569,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel mainWindowViewModel && CanOpenPlaylistEditDialog(mainWindowViewModel))
         {
-            if (!mainWindowViewModel.ContainsActivePlaylistSummaryRows(selectedPlaylistSummaryRows))
+            if (!mainWindowViewModel.PlaylistWorkspace.ContainsActivePlaylistSummaryRows(selectedPlaylistSummaryRows))
             {
                 return;
             }
@@ -4123,7 +4123,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await viewModel.ResyncPlaylistsAsync([table]).Logging("treeViewPlaylistTableContextMenuItemReloadClick");
+        await viewModel.PlaylistWorkspace.ResyncPlaylistsAsync([table]).Logging("treeViewPlaylistTableContextMenuItemReloadClick");
         RestorePlaylistTableSelectionAfterReload(table);
     }
 

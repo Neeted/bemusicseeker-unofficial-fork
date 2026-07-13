@@ -756,17 +756,6 @@ public partial class MainWindowViewModel : ViewModel
 
     public SettingDialogViewModel settingDialog { get; private set; }
 
-    internal bool ContainsActivePlaylistTable(BMSTable table)
-    {
-        return table != null && tables?.BMSTables?.Contains(table) == true;
-    }
-
-    internal bool ContainsActivePlaylistSummaryRows(IEnumerable<PlaylistSummaryRow> rows)
-    {
-        return rows != null
-            && rows.All(row => row?.TableRef != null && ContainsActivePlaylistTable(row.TableRef));
-    }
-
     private static void LogUiSuppression(string message)
     {
         if (installPerformanceLoggingEnabled)
@@ -3183,11 +3172,40 @@ public partial class MainWindowViewModel : ViewModel
     {
         return delegate (BMSPlaylist.PlaylistTableUpdateContext updateContext)
         {
-            if (updateContext == null || (!updateContext.Updated && !updateContext.ReferenceEntriesChanged) || files == null)
+            bool objectReplaced = updateContext?.OldTable != null
+                && updateContext.NewTable != null
+                && !ReferenceEquals(updateContext.OldTable, updateContext.NewTable);
+            if (updateContext == null || files == null)
             {
                 return;
             }
-            files.ReplaceReferenceBMSTable(updateContext.OldTable, updateContext.NewTable, updateContext.OldEntriesSnapshot, updateContext.NewEntriesSnapshot);
+            bool referenceIndexChanged = updateContext.Updated
+                || updateContext.ReferenceEntriesChanged
+                || objectReplaced;
+            bool newTableIsActive = updateContext.NewTable != null
+                && tables?.ContainsBMSTable(updateContext.NewTable) == true;
+            if (!referenceIndexChanged && newTableIsActive)
+            {
+                return;
+            }
+            if (!newTableIsActive)
+            {
+                if (updateContext.OldTable != null)
+                {
+                    files.RemoveReferenceBMSTables(updateContext.OldTable);
+                }
+                return;
+            }
+            files.ReplaceReferenceBMSTable(
+                updateContext.OldTable,
+                updateContext.NewTable,
+                updateContext.OldEntriesSnapshot,
+                updateContext.NewEntriesSnapshot);
+            if (!tables.ContainsBMSTable(updateContext.NewTable))
+            {
+                files.RemoveReferenceBMSTables(updateContext.NewTable);
+                return;
+            }
             InvalidateNormalLibraryReferenceTableSortKeys();
         };
     }
@@ -5307,6 +5325,13 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
         PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;
         PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += PlaylistWorkspacePlaylistSummaryDataRefreshRequested;
+        PlaylistWorkspace.PlaylistReloadStarted += PlaylistWorkspacePlaylistReloadStarted;
+        PlaylistWorkspace.PlaylistSyncProgressChanged += PlaylistWorkspacePlaylistSyncProgressChanged;
+        PlaylistWorkspace.PlaylistSyncResultReported += PlaylistWorkspacePlaylistSyncResultReported;
+        PlaylistWorkspace.PlaylistReferenceTableReplaced += PlaylistWorkspacePlaylistReferenceTableReplaced;
+        PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
+        PlaylistWorkspace.PlaylistReloadCompleted += PlaylistWorkspacePlaylistReloadCompleted;
+        PlaylistWorkspace.PlaylistReloadFinished += PlaylistWorkspacePlaylistReloadFinished;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
@@ -5527,6 +5552,98 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistSummaryDataRefreshRequestedEventArgs request)
     {
         RefreshPlaylistSummaryIfVisible(request.Reason, request.InvalidateTableCountCache);
+    }
+
+    private void PlaylistWorkspacePlaylistReloadStarted(
+        object sender,
+        PlaylistReloadStartedEventArgs request)
+    {
+        BeginPlaylistSyncProgressOperation();
+        PlaylistReloadOperationKind operationKind = request.TableCount > 1
+            ? PlaylistReloadOperationKind.ManualFullReload
+            : PlaylistReloadOperationKind.SinglePlaylistReload;
+        LogPlaylistReload(
+            "playlist_reload_operation started operationKind="
+            + GetPlaylistReloadOperationKindText(operationKind)
+            + " reason=manual_resync tableCount="
+            + request.TableCount);
+    }
+
+    private void PlaylistWorkspacePlaylistSyncProgressChanged(
+        object sender,
+        PlaylistSyncProgressChangedEventArgs request)
+    {
+        UpdatePlaylistSyncProgressStatus(request.Snapshot);
+    }
+
+    private void PlaylistWorkspacePlaylistSyncResultReported(
+        object sender,
+        PlaylistSyncResultReportedEventArgs request)
+    {
+        PlaylistSyncAttemptResult result = request.Result;
+        if (result == null)
+        {
+            return;
+        }
+        if (!result.Succeeded)
+        {
+            NLogWrapper.FileLogger?.Warn(
+                result.Exception,
+                "playlist_manual_resync_failed table="
+                + (result.SourceTable?.name ?? string.Empty)
+                + " uri="
+                + (result.PageUri?.ToString() ?? string.Empty));
+        }
+        UpdatePlaylistSyncRuntimeStatus(result);
+    }
+
+    private void PlaylistWorkspacePlaylistReferenceTableReplaced(
+        object sender,
+        PlaylistReferenceTableReplacedEventArgs request)
+    {
+        InvokeMainChartListPresentationAction(() =>
+        {
+            ReplaceCurrentPlaylistSelectionTable(request.OldTable, request.NewTable);
+            if (request.ReferenceIndexChanged)
+            {
+                InvalidateNormalLibraryReferenceTableSortKeys();
+            }
+        });
+    }
+
+    private void PlaylistWorkspacePlaylistDetailReloadRefreshRequested(object sender, EventArgs e)
+    {
+        InvokeMainChartListPresentationAction(RefreshPlaylistDetailAfterReloadIfVisible);
+    }
+
+    private void PlaylistWorkspacePlaylistReloadCompleted(
+        object sender,
+        PlaylistReloadCompletedEventArgs request)
+    {
+        PlaylistReloadOperationKind operationKind = request.IsFullReload
+            ? PlaylistReloadOperationKind.ManualFullReload
+            : PlaylistReloadOperationKind.SinglePlaylistReload;
+        bool cleanupQueued = QueuePlaylistReloadCleanup(operationKind, request.TableCount);
+        LogPlaylistReload(
+            "playlist_reload_operation completed operationKind="
+            + GetPlaylistReloadOperationKindText(operationKind)
+            + " reason=manual_resync tableCount="
+            + request.TableCount
+            + " processedCount="
+            + request.ProcessedCount
+            + " summaryRebuildMs="
+            + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs
+            + " detailRefreshMs="
+            + PlaylistWorkspace.LastDetailBuildElapsedMs
+            + " cleanupQueued="
+            + cleanupQueued.ToString().ToLowerInvariant()
+            + " elapsedMs="
+            + request.ElapsedMilliseconds);
+    }
+
+    private void PlaylistWorkspacePlaylistReloadFinished(object sender, EventArgs e)
+    {
+        EndPlaylistSyncProgressOperation();
     }
 
     private void ApplyPlaylistEntriesChanged(BMSTable table, bool refreshSummaryIfVisible)
@@ -9223,6 +9340,19 @@ public partial class MainWindowViewModel : ViewModel
 
     private void UpdatePlaylistSyncProgressStatus(PlaylistSyncProgressSnapshot snapshot)
     {
+        if (snapshot?.IsActive != true)
+        {
+            lock (playlistSyncProgressLock)
+            {
+                // A completion snapshot from one concurrent route must not clear a
+                // still-running manual/deferred operation.  The last operation to end
+                // calls this method after decrementing the shared count.
+                if (playlistSyncProgressActiveOperationCount > 0)
+                {
+                    return;
+                }
+            }
+        }
         long uiVersion = Interlocked.Increment(ref playlistSyncProgressUiVersion);
         Action reflect = delegate
         {
@@ -12301,76 +12431,6 @@ public partial class MainWindowViewModel : ViewModel
         RefreshPlaylistSummaryIfVisible("playlist_summary_output_base_changed", invalidateTableCountCache: false);
     }
 
-    public void ResyncPlaylists(IEnumerable<PlaylistSummaryRow> rows)
-    {
-        ResyncPlaylistsAsync(rows).GetAwaiter().GetResult();
-    }
-
-    public Task ResyncPlaylistsAsync(IEnumerable<PlaylistSummaryRow> rows)
-    {
-        if (rows == null)
-        {
-            return Task.CompletedTask;
-        }
-        List<BMSTable> tablesToResync = [.. rows.Where(r => r?.TableRef != null).Select(r => r.TableRef).Distinct()];
-        return ResyncPlaylistsAsync(tablesToResync);
-    }
-
-    public void ResyncPlaylists(IEnumerable<BMSTable> tablesToResync)
-    {
-        ResyncPlaylistsAsync(tablesToResync).GetAwaiter().GetResult();
-    }
-
-    public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)
-    {
-        if (tablesToResync == null || tables == null || files == null)
-        {
-            return;
-        }
-        List<BMSTable> list = [.. tablesToResync.Where(t => t != null).Distinct().Where(delegate (BMSTable item)
-        {
-            Uri uri2 = item.Page_url ?? item.Header_url;
-            return uri2 != null && uri2.IsAbsoluteUri;
-        })];
-        if (list.Count == 0)
-        {
-            return;
-        }
-        PlaylistReloadOperationKind playlistReloadOperationKind = (list.Count > 1) ? PlaylistReloadOperationKind.ManualFullReload : PlaylistReloadOperationKind.SinglePlaylistReload;
-        var playlistReloadStopwatch = Stopwatch.StartNew();
-        BeginPlaylistSyncProgressOperation();
-        try
-        {
-            LogPlaylistReload("playlist_reload_operation started operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count);
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await tables.ReloadPlaylistTargetsAsync(
-                list,
-                [CreatePlaylistReferenceReplaceUpdateCallback()],
-                delegate (PlaylistSyncAttemptResult result)
-                {
-                    if (result == null)
-                    {
-                        return;
-                    }
-                    if (!result.Succeeded)
-                    {
-                        NLogWrapper.FileLogger?.Warn(result.Exception, "playlist_manual_resync_failed table=" + (result.SourceTable?.name ?? string.Empty) + " uri=" + (result.PageUri?.ToString() ?? string.Empty));
-                    }
-                    UpdatePlaylistSyncRuntimeStatus(result);
-                },
-                UpdatePlaylistSyncProgressStatus,
-                "manual_resync");
-            tables.QueueBeatorajaBmtExportAll("manual_resync");
-            RefreshPlaylistSummaryIfVisible("manual_playlist_resync", invalidateTableCountCache: true);
-            RefreshPlaylistDetailAfterReloadIfVisible();
-            bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, list.Count);
-            LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count + " processedCount=" + (results?.Count ?? 0) + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + PlaylistWorkspace.LastDetailBuildElapsedMs + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + playlistReloadStopwatch.ElapsedMilliseconds);
-        }
-        finally
-        {
-            EndPlaylistSyncProgressOperation();
-        }
-    }
-
     private void ManualInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
     {
         if (targets == null)
@@ -13768,13 +13828,16 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        if (treeViewFilterParameterSelected is PlaylistDetailSelection selection
-            && selection.Table == oldTable)
+        lock (playHistoryViewRequestLock)
         {
-            treeViewFilterParameterSelected = new PlaylistDetailSelection(
-                newTable,
-                selection.FolderName,
-                selection.Filter);
+            if (treeViewFilterParameterSelected is PlaylistDetailSelection selection
+                && selection.Table == oldTable)
+            {
+                treeViewFilterParameterSelected = new PlaylistDetailSelection(
+                    newTable,
+                    selection.FolderName,
+                    selection.Filter);
+            }
         }
     }
 
@@ -13812,7 +13875,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 tables.RemoveCustomFolder(bmsTable, settings);
             }
-            tables.RemoveBMSTable(bmsTable);
+            BMSTable removedTable = tables.RemoveBMSTable(bmsTable);
             if (settings.OperationModeLR2DB && bmsTable.is_root_folder && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
             {
                 string customFolderOutputDirectory = ResolveCustomFolderOutputDirectoryWithNotification(
@@ -13822,7 +13885,10 @@ public partial class MainWindowViewModel : ViewModel
                 lr2config.RemoveBMSSearchDirectories([customFolderOutputDirectory]);
                 lr2config.Save();
             }
-            files.RemoveReferenceBMSTables(bmsTable);
+            if (removedTable != null)
+            {
+                files.RemoveReferenceBMSTables(removedTable);
+            }
             InvalidateNormalLibraryReferenceTableSortKeys();
         }
         finally

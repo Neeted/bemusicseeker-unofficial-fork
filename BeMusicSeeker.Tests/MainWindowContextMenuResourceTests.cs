@@ -2739,18 +2739,23 @@ public sealed class MainWindowContextMenuResourceTests
     public void ManualPlaylistResync_UsesBatchReloadWithoutFailureDialogs()
     {
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string method = ExtractBetween(
-            viewModelCode,
-            "public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)",
-            "public void RemovePendingPackagesAll");
+        string workspaceCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.Reload.cs");
 
-        StringAssert.Contains(method, "tables.ReloadPlaylistTargetsAsync(");
-        StringAssert.Contains(method, "CreatePlaylistReferenceReplaceUpdateCallback()");
-        StringAssert.Contains(method, "tables.QueueBeatorajaBmtExportAll(\"manual_resync\")");
-        StringAssert.Contains(method, "UpdatePlaylistSyncRuntimeStatus(result)");
-        StringAssert.Contains(method, "playlist_manual_resync_failed");
-        Assert.IsFalse(method.Contains("ResetBMSTableAsync("));
-        Assert.IsFalse(method.Contains("ShowPlaylistLoadFailure("));
+        StringAssert.Contains(workspaceCode, "playlists.ReloadPlaylistTargetsAsync(");
+        StringAssert.Contains(workspaceCode, "CreateReferenceReplaceUpdateCallback(playlists, library)");
+        StringAssert.Contains(workspaceCode, "requireCurrentTargetForApply: true");
+        StringAssert.Contains(workspaceCode, "playlists.QueueBeatorajaBmtExportAll(\"manual_resync\")");
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspacePlaylistSyncResultReported");
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspacePlaylistReferenceTableReplaced");
+        StringAssert.Contains(viewModelCode, "ReplaceCurrentPlaylistSelectionTable(request.OldTable, request.NewTable)");
+        StringAssert.Contains(viewModelCode, "InvokeMainChartListPresentationAction(RefreshPlaylistDetailAfterReloadIfVisible)");
+        Assert.IsFalse(viewModelCode.Contains("public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)"));
+        Assert.IsFalse(workspaceCode.Contains("ResetBMSTableAsync("));
+        Assert.IsFalse(workspaceCode.Contains("ShowPlaylistLoadFailure("));
     }
 
     [TestMethod]

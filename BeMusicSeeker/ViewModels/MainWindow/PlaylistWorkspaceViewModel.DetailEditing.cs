@@ -52,7 +52,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
             SynchronizeSourceRow(playlistRow);
-            Task.Run(() => CommitRow(playlistRow)).Logging("playlistDetailCellEditCommit");
+            Task.Run(() => CommitRow(playlistRow, request.Context.PropertyName)).Logging("playlistDetailCellEditCommit");
         }
         finally
         {
@@ -70,7 +70,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private void CommitRow(PlaylistDetailRow playlistRow)
+    private void CommitRow(PlaylistDetailRow playlistRow, string editedPropertyName)
     {
         BMSPlaylist playlistStore = getPlaylistStore?.Invoke()
             ?? throw new InvalidOperationException("Playlist persistence is not available.");
@@ -79,7 +79,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             playlistRow.Entry.ApplyPlaylistHashesFromChart(chart);
         }
-        playlistStore.CommitBMSTableEntry(playlistRow.Entry);
+        playlistStore.CommitBMSTableEntry(playlistRow.Entry, editedPropertyName);
     }
 
     private void CompleteDetailEditSession()

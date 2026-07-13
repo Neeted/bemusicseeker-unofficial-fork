@@ -26,6 +26,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
+    private readonly SemaphoreSlim manualReloadSemaphore = new(1, 1);
+
     private PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
 
     private IPlaylistDetailDataSource detailDataSource;

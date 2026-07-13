@@ -30,7 +30,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(
             writerBlock.Contains("CommitBMSTable("),
             "External registration writer lock must not cover playlist DB persistence.");
-        StringAssert.Contains(method, "CommitBMSTable(bMSTable);");
+        StringAssert.Contains(method, "CommitBMSTable(bMSTable, requireCurrentTarget: false);");
         StringAssert.Contains(method, "await AddCommittedBMSTableToVisibleCollectionAsync(bMSTable).ConfigureAwait(false)");
     }
 
@@ -44,7 +44,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(
             writerBlock.Contains("CommitBMSTable("),
             "Batch external registration writer lock must not cover playlist DB persistence.");
-        StringAssert.Contains(method, "CommitBMSTable(tableList);");
+        StringAssert.Contains(method, "CommitBMSTable(tableList, requireCurrentTarget: false);");
         StringAssert.Contains(method, "await AddCommittedBMSTablesToVisibleCollectionAsync(tableList).ConfigureAwait(false)");
         StringAssert.Contains(method, "ApplyCachedPlaylistUrlCompletionToTables(tableList, operationReason);");
     }

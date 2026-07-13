@@ -601,6 +601,53 @@ public partial class BMSTableEntry : LR2SongDBExtended.playlist_entry
         return obj;
     }
 
+    internal BMSTableEntry CreatePlaylistReloadSnapshot()
+    {
+        var snapshot = (BMSTableEntry)MemberwiseClone();
+        snapshot.parent = null;
+        snapshot.Org_md5 = [.. Org_md5 ?? []];
+        return snapshot;
+    }
+
+    internal void ApplyPlaylistEditableStateFrom(BMSTableEntry source)
+    {
+        ApplyPlaylistEditableStateFrom(source, null);
+    }
+
+    internal void ApplyPlaylistEditableStateFrom(BMSTableEntry source, string propertyName)
+    {
+        if (source == null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+        switch (propertyName)
+        {
+            case nameof(level):
+            case "Level":
+                level = source.level;
+                break;
+            case nameof(Url):
+                Url = source.Url;
+                break;
+            case nameof(Url_diff):
+                Url_diff = source.Url_diff;
+                break;
+            case nameof(comment):
+                comment = source.comment;
+                break;
+            case nameof(memo):
+                memo = source.memo;
+                break;
+            default:
+                level = source.level;
+                Url = source.Url;
+                Url_diff = source.Url_diff;
+                comment = source.comment;
+                memo = source.memo;
+                break;
+        }
+    }
+
     public dynamic ToDynamicJson()
     {
         NormalizeForPlaylistPersistence();

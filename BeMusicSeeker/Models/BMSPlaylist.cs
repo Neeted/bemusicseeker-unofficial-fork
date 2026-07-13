@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
+using System.Runtime.Serialization;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -419,6 +420,32 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     private readonly ReaderWriterLockSlimWrapper rwlockBMSTables = new();
 
+    /// <summary>
+    /// プレイリスト再同期の DB 保存と削除を直列化するゲートです。
+    /// </summary>
+    private readonly object playlistPersistenceGate = new();
+
+    /// <summary>
+    /// 置換完了まで同一プレイリストの再同期を重ねないための予約集合です。
+    /// </summary>
+    private readonly HashSet<BMSTable> playlistReloadApplyReservations = [];
+
+    /// <summary>
+    /// 再同期による置換後に保存対象から退役したプレイリスト参照です。
+    /// </summary>
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<BMSTable, object> playlistReloadRetiredTables = new();
+
+    /// <summary>
+    /// 一覧から削除され、遅延した entry 編集の保存先にできないプレイリスト参照です。
+    /// </summary>
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<BMSTable, object> playlistRemovedTables = new();
+
+    /// <summary>
+    /// 一度でも一覧へ公開されたプレイリスト参照です。非 active parent を detached 用途と
+    /// 退役済み旧 owner に区別するために使います。
+    /// </summary>
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<BMSTable, object> playlistKnownActiveTables = new();
+
     private readonly SemaphoreSlim playlistEntriesHydrationSemaphore = new(1, 1);
 
     private int playlistEntriesHydrationQueued;
@@ -756,6 +783,7 @@ public partial class BMSPlaylist : NotificationObject
             if (_BMSTables != value)
             {
                 _BMSTables = value;
+                MarkKnownActivePlaylistTables(value);
                 RaisePropertyChanged("BMSTables");
             }
         }
@@ -994,9 +1022,34 @@ public partial class BMSPlaylist : NotificationObject
         {
             return false;
         }
+        if (rwlockBMSTables.IsWriteLockHeld)
+        {
+            bool contains = BMSTables.Contains(table);
+            if (contains)
+            {
+                playlistKnownActiveTables.GetValue(table, _ => new object());
+            }
+            return contains;
+        }
         using (rwlockBMSTables.GetReaderGuard())
         {
-            return BMSTables.Contains(table);
+            bool contains = BMSTables.Contains(table);
+            if (contains)
+            {
+                playlistKnownActiveTables.GetValue(table, _ => new object());
+            }
+            return contains;
+        }
+    }
+
+    private void MarkKnownActivePlaylistTables(IEnumerable<BMSTable> tables)
+    {
+        foreach (BMSTable table in tables ?? [])
+        {
+            if (table != null)
+            {
+                playlistKnownActiveTables.GetValue(table, _ => new object());
+            }
         }
     }
 
@@ -1135,6 +1188,7 @@ public partial class BMSPlaylist : NotificationObject
                             + " dbLockWaitMs=0"
                             + " entriesDeferred=true");
                         BMSTables.AddRange(list);
+                        MarkKnownActivePlaylistTables(list);
                     }
                 }
             }
@@ -1168,14 +1222,24 @@ public partial class BMSPlaylist : NotificationObject
         using (rwlockBMSTablesInitializeAll.GetWriterGuard())
         {
             List<BMSTable> list;
+            List<BMSTable> previousTables;
             long loadTablesMs;
             using (rwlockBMSTables.GetWriterGuard())
             {
                 using (rwlockBMSTablesInitializeMin.GetWriterGuard())
                 {
+                    previousTables = [.. BMSTables.Where(table => table != null)];
                     list = LoadPlaylistHeadersFromDatabase(out loadTablesMs);
                     BMSTables.Clear();
                     BMSTables.AddRange(list);
+                    MarkKnownActivePlaylistTables(list);
+                }
+            }
+            lock (playlistPersistenceGate)
+            {
+                foreach (BMSTable previousTable in previousTables)
+                {
+                    playlistRemovedTables.GetValue(previousTable, _ => new object());
                 }
             }
             LogPlaylistPerformance("playlist_reload_tables_header loadTablesMs=" + loadTablesMs
@@ -1842,6 +1906,10 @@ public partial class BMSPlaylist : NotificationObject
 
     private BMSTable FindBMSTableByPlaylistId(int playlistId)
     {
+        if (rwlockBMSTables.IsWriteLockHeld)
+        {
+            return BMSTables?.FirstOrDefault(candidate => candidate != null && candidate.playlist_id == playlistId);
+        }
         using (rwlockBMSTables.GetReaderGuard())
         {
             return BMSTables?.FirstOrDefault(candidate => candidate != null && candidate.playlist_id == playlistId);
@@ -2465,9 +2533,13 @@ public partial class BMSPlaylist : NotificationObject
             int activeEntryCount = source.Count - removedEntryCount;
             var stopwatchAssign = Stopwatch.StartNew();
             int assignedTableCount = 0;
-            using (rwlockBMSTables.GetWriterGuard())
+            foreach (BMSTable table in tablesSnapshot)
             {
-                foreach (BMSTable table in BMSTables.Where(table => table != null).ToList())
+                if (table == null || table.ArePlaylistEntriesLoaded)
+                {
+                    continue;
+                }
+                using (table.ReaderWriterLock.GetWriterGuard())
                 {
                     if (table.ArePlaylistEntriesLoaded)
                     {
@@ -2475,20 +2547,14 @@ public partial class BMSPlaylist : NotificationObject
                     }
                     if (table.playlist_id.HasValue && entriesByPlaylistId.TryGetValue(table.playlist_id.Value, out List<BMSTableEntry> value))
                     {
-                        using (table.ReaderWriterLock.GetWriterGuard())
-                        {
-                            table.entries = value;
-                        }
+                        table.entries = value;
                     }
                     else
                     {
-                        using (table.ReaderWriterLock.GetWriterGuard())
-                        {
-                            table.entries = [];
-                        }
+                        table.entries = [];
                     }
-                    assignedTableCount++;
                 }
+                assignedTableCount++;
             }
             stopwatchAssign.Stop();
             stopwatchTotal.Stop();
@@ -2526,11 +2592,19 @@ public partial class BMSPlaylist : NotificationObject
         }
         catch (Exception ex)
         {
+            List<BMSTable> tablesToMarkFailed;
             using (rwlockBMSTables.GetReaderGuard())
             {
-                foreach (BMSTable table in BMSTables.Where(table => table != null && !table.ArePlaylistEntriesLoaded))
+                tablesToMarkFailed = [.. BMSTables.Where(table => table != null && !table.ArePlaylistEntriesLoaded)];
+            }
+            foreach (BMSTable table in tablesToMarkFailed)
+            {
+                using (table.ReaderWriterLock.GetWriterGuard())
                 {
-                    table.MarkEntriesLoadFailed(ex.Message);
+                    if (!table.ArePlaylistEntriesLoaded)
+                    {
+                        table.MarkEntriesLoadFailed(ex.Message);
+                    }
                 }
             }
             LogPlaylistPerformance("playlist_entries_hydration failed reason=" + (reason ?? string.Empty) + " message=" + ex.Message);
@@ -7806,7 +7880,7 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         }
-        CommitBMSTable(bMSTable);
+        CommitBMSTable(bMSTable, requireCurrentTarget: false);
         await AddCommittedBMSTableToVisibleCollectionAsync(bMSTable).ConfigureAwait(false);
         if (migrateCustomFolderOutput)
         {
@@ -7881,7 +7955,7 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         }
-        CommitBMSTable(tableList);
+        CommitBMSTable(tableList, requireCurrentTarget: false);
         await AddCommittedBMSTablesToVisibleCollectionAsync(tableList).ConfigureAwait(false);
         foreach (CustomFolderOutputMigrationTarget target in customFolderOutputTargets)
         {
@@ -8002,7 +8076,8 @@ public partial class BMSPlaylist : NotificationObject
                 syncResultCallback,
                 progressCallback,
                 "UpdateBMSTablesInternalAsync",
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                requireCurrentTargetForApply: true).ConfigureAwait(false);
             if (updateCallbackActions != null)
             {
                 var reloadedTables = new HashSet<BMSTable>(results.Select(result => result.SourceTable).Where(table => table != null));
@@ -8030,7 +8105,7 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(IEnumerable<BMSTable> targets, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "ReloadPlaylistTargetsAsync", CancellationToken cancellationToken = default)
+    internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(IEnumerable<BMSTable> targets, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "ReloadPlaylistTargetsAsync", CancellationToken cancellationToken = default, bool requireCurrentTargetForApply = true)
     {
         EnterPlaylistUpdating();
         try
@@ -8070,7 +8145,7 @@ public partial class BMSPlaylist : NotificationObject
                         CurrentTableName = table.name,
                         CurrentUri = uri
                     });
-                    PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(table, uri, updateCallbackActions, syncResultCallback, reason, cancellationToken).ConfigureAwait(false);
+                    PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(table, uri, updateCallbackActions, syncResultCallback, reason, cancellationToken, requireCurrentTargetForApply).ConfigureAwait(false);
                     lock (resultLock)
                     {
                         results.Add(result);
@@ -8193,31 +8268,59 @@ public partial class BMSPlaylist : NotificationObject
         return [.. results.Where(result => result != null)];
     }
 
-    private async Task<PlaylistReloadTargetResult> ReloadPlaylistTargetCoreAsync(BMSTable table, Uri uri, List<Action<PlaylistTableUpdateContext>> updateCallbackActions, Action<PlaylistSyncAttemptResult> syncResultCallback, string reason, CancellationToken cancellationToken)
+    private async Task<PlaylistReloadTargetResult> ReloadPlaylistTargetCoreAsync(BMSTable table, Uri uri, List<Action<PlaylistTableUpdateContext>> updateCallbackActions, Action<PlaylistSyncAttemptResult> syncResultCallback, string reason, CancellationToken cancellationToken, bool requireCurrentTargetForApply = true)
     {
         BMSTable newTable = table;
         List<BMSTableEntry> oldEntriesSnapshot = null;
         List<BMSTableEntry> newEntriesSnapshot = null;
         PlaylistReloadPersistenceDecision persistenceDecision = null;
         bool updated = false;
+        bool applySkipped = false;
+        int sourceEntriesRevision = 0;
+        DateTime sourceLastUpdate = default;
+        string sourceStateFingerprint = string.Empty;
+        Uri sourceUri = null;
         Exception failure = null;
         try
         {
-            BMSTable reloadedTable = await reloadBMSTableAsync(table, uri, cancellationToken).ConfigureAwait(false);
             EnsurePlaylistEntriesLoaded(table, reason);
             using (table.ReaderWriterLock.GetWriterGuard())
             {
-                oldEntriesSnapshot = table.entries?.ToList() ?? [];
+                sourceEntriesRevision = table.PlaylistEntriesRevision;
+                sourceLastUpdate = table.last_update;
+                sourceStateFingerprint = CreatePlaylistReloadSourceFingerprint(table);
+                sourceUri = table.Page_url ?? table.Header_url;
+            }
+            if (!UriEquals(uri, sourceUri))
+            {
+                throw new PlaylistReloadApplyException(
+                    "Playlist reload request no longer matches the active playlist source URI.");
+            }
+            BMSTable reloadedTable = await reloadBMSTableAsync(table, uri, cancellationToken).ConfigureAwait(false);
+            using (table.ReaderWriterLock.GetWriterGuard())
+            {
+                if (table.PlaylistEntriesRevision != sourceEntriesRevision
+                    || table.last_update != sourceLastUpdate
+                    || !string.Equals(
+                        CreatePlaylistReloadSourceFingerprint(table),
+                        sourceStateFingerprint,
+                        StringComparison.Ordinal)
+                    || !UriEquals(uri, table.Page_url ?? table.Header_url))
+                {
+                    throw new PlaylistReloadApplyException(
+                        "Playlist reload source changed while the external snapshot was loading.");
+                }
+                oldEntriesSnapshot = [.. (table.entries ?? []).Where(entry => entry != null).Select(entry => entry.CreatePlaylistReloadSnapshot())];
                 IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(table.playlist_id);
                 newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out persistenceDecision, logLastUpdateDecision: true);
                 updated = persistenceDecision.UpdatesLastUpdate;
                 if (persistenceDecision.NeedsEntryPersistence)
                 {
-                    newEntriesSnapshot = newTable.entries?.ToList() ?? [];
+                    newEntriesSnapshot = [.. (newTable.entries ?? []).Where(entry => entry != null).Select(entry => entry.CreatePlaylistReloadSnapshot())];
                 }
                 else
                 {
-                    newEntriesSnapshot = oldEntriesSnapshot;
+                    newEntriesSnapshot = [.. oldEntriesSnapshot];
                     if (persistenceDecision.NeedsHeaderPersistence)
                     {
                         newTable.entries = [.. oldEntriesSnapshot];
@@ -8228,39 +8331,80 @@ public partial class BMSPlaylist : NotificationObject
                     }
                 }
             }
-            if (persistenceDecision?.NeedsEntryPersistence == true)
+            if (!TryApplyReloadedTable(
+                table,
+                newTable,
+                persistenceDecision,
+                sourceEntriesRevision,
+                sourceLastUpdate,
+                sourceStateFingerprint,
+                requireCurrentTargetForApply))
             {
-                CommitBMSTable(newTable);
-                ReplaceBMSTableInCollection(table, newTable);
+                failure = new PlaylistReloadApplyException(
+                    "Playlist reload result could not be applied to the active table.");
+                applySkipped = true;
+                newTable = table;
+                oldEntriesSnapshot = null;
+                newEntriesSnapshot = null;
+                persistenceDecision = null;
+                updated = false;
+                syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateFailure(table, uri, failure));
             }
-            else if (persistenceDecision?.NeedsHeaderPersistence == true)
+            else
             {
-                commitBMSTableHeaderOnly(newTable);
-                ReplaceBMSTableInCollection(table, newTable);
+                if (requireCurrentTargetForApply
+                    && System.Windows.Application.Current != null
+                    && !ContainsBMSTable(newTable))
+                {
+                    throw new PlaylistReloadApplyException(
+                        "Playlist reload result was applied to a table that is no longer active.");
+                }
+                if (persistenceDecision?.NeedsBmtExport == true)
+                {
+                    QueueBeatorajaBmtExport(newTable, reason);
+                }
+                ApplyCachedPlaylistUrlCompletionToTable(newTable, reason);
+                syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated));
             }
-            if (persistenceDecision?.NeedsBmtExport == true)
-            {
-                QueueBeatorajaBmtExport(newTable, reason);
-            }
-            ApplyCachedPlaylistUrlCompletionToTable(newTable, reason);
-            syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated));
+        }
+        catch (PlaylistReloadApplyException ex)
+        {
+            failure = ex;
+            applySkipped = true;
+            newTable = table;
+            oldEntriesSnapshot = null;
+            newEntriesSnapshot = null;
+            persistenceDecision = null;
+            updated = false;
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_reload_apply_failed reason=" + FormatTextForLog(reason) + " table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
+            syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateFailure(table, uri, ex));
         }
         catch (Exception ex)
         {
             failure = ex;
+            applySkipped = true;
+            newTable = table;
+            oldEntriesSnapshot = null;
+            newEntriesSnapshot = null;
+            persistenceDecision = null;
+            updated = false;
             Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_reload_target_failed reason=" + FormatTextForLog(reason) + " table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
             syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateFailure(table, uri, ex));
         }
-        var updateContext = new PlaylistTableUpdateContext
+        PlaylistTableUpdateContext updateContext = null;
+        if (!applySkipped)
         {
-            NewTable = newTable,
-            Updated = updated,
-            ReferenceEntriesChanged = persistenceDecision?.NeedsEntryPersistence == true,
-            OldTable = table,
-            OldEntriesSnapshot = oldEntriesSnapshot,
-            NewEntriesSnapshot = newEntriesSnapshot
-        };
-        InvokePlaylistUpdateCallbacks(updateContext, updateCallbackActions, uri);
+            updateContext = new PlaylistTableUpdateContext
+            {
+                NewTable = newTable,
+                Updated = updated,
+                ReferenceEntriesChanged = persistenceDecision?.NeedsEntryPersistence == true,
+                OldTable = table,
+                OldEntriesSnapshot = oldEntriesSnapshot,
+                NewEntriesSnapshot = newEntriesSnapshot
+            };
+            InvokePlaylistUpdateCallbacks(updateContext, updateCallbackActions, uri);
+        }
         return new PlaylistReloadTargetResult
         {
             SourceTable = table,
@@ -8270,6 +8414,218 @@ public partial class BMSPlaylist : NotificationObject
             Exception = failure,
             UpdateContext = updateContext
         };
+    }
+
+    private bool TryApplyReloadedTable(
+        BMSTable oldTable,
+        BMSTable newTable,
+        PlaylistReloadPersistenceDecision persistenceDecision,
+        int sourceEntriesRevision,
+        DateTime sourceLastUpdate,
+        string sourceStateFingerprint,
+        bool requireCurrentTargetForApply)
+    {
+        bool targetWasActiveAtReservation = !requireCurrentTargetForApply || ContainsBMSTable(oldTable);
+        lock (playlistPersistenceGate)
+        {
+            if (requireCurrentTargetForApply
+                && (!targetWasActiveAtReservation
+                    || playlistReloadRetiredTables.TryGetValue(oldTable, out _)
+                    || playlistRemovedTables.TryGetValue(oldTable, out _)))
+            {
+                return false;
+            }
+            if (!playlistReloadApplyReservations.Add(oldTable))
+            {
+                throw new PlaylistReloadApplyException(
+                    "Another playlist reload is already applying for this target.");
+            }
+        }
+
+        try
+        {
+            using (oldTable.ReaderWriterLock.GetReaderGuard())
+            {
+                lock (playlistPersistenceGate)
+                {
+                    if (oldTable.PlaylistEntriesRevision != sourceEntriesRevision
+                        || oldTable.last_update != sourceLastUpdate
+                        || !string.Equals(
+                            CreatePlaylistReloadSourceFingerprint(oldTable),
+                            sourceStateFingerprint,
+                            StringComparison.Ordinal))
+                    {
+                        throw new PlaylistReloadApplyException(
+                            "Playlist reload result was based on a stale local playlist snapshot.");
+                    }
+                    if (!playlistReloadApplyReservations.Contains(oldTable))
+                    {
+                        return false;
+                    }
+                    if (requireCurrentTargetForApply
+                        && (!targetWasActiveAtReservation
+                            || playlistReloadRetiredTables.TryGetValue(oldTable, out _)
+                            || playlistRemovedTables.TryGetValue(oldTable, out _)))
+                    {
+                        return false;
+                    }
+                    PersistReloadedTable(newTable, persistenceDecision);
+                }
+            }
+            if (persistenceDecision?.NeedsStatePersistence == true)
+            {
+                bool replacementCompleted;
+                bool replacementApplied;
+                try
+                {
+                    bool replacementBlocked;
+                    lock (playlistPersistenceGate)
+                    {
+                        replacementBlocked = requireCurrentTargetForApply
+                            && (playlistReloadRetiredTables.TryGetValue(oldTable, out _)
+                                || playlistRemovedTables.TryGetValue(oldTable, out _));
+                    }
+                    if (replacementBlocked)
+                    {
+                        replacementCompleted = true;
+                        replacementApplied = false;
+                    }
+                    else
+                    {
+                        lock (playlistPersistenceGate)
+                        {
+                            // Retire the old object before crossing the dispatcher boundary.
+                            // Entry commits then resolve to the replacement (or fail closed if
+                            // the replacement is removed) even during the small UI-queue window.
+                            playlistReloadRetiredTables.GetValue(oldTable, _ => new object());
+                        }
+                        // Do not hold playlistPersistenceGate while synchronously invoking the
+                        // UI dispatcher.  The dispatcher callback may enter a collection event
+                        // that needs the same gate (for example, a concurrent removal).
+                        replacementApplied = ReplaceBMSTableInCollection(oldTable, newTable, out replacementCompleted);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (ContainsBMSTable(oldTable))
+                    {
+                        lock (playlistPersistenceGate)
+                        {
+                            playlistReloadRetiredTables.Remove(oldTable);
+                        }
+                    }
+                    ReconcileUnappliedReload(oldTable, newTable);
+                    throw new PlaylistReloadApplyException(
+                        "Playlist table replacement failed.",
+                        ex);
+                }
+                if (!replacementCompleted || !replacementApplied)
+                {
+                    if (ContainsBMSTable(oldTable))
+                    {
+                        lock (playlistPersistenceGate)
+                        {
+                            playlistReloadRetiredTables.Remove(oldTable);
+                        }
+                    }
+                    ReconcileUnappliedReload(oldTable, newTable);
+                    if (requireCurrentTargetForApply)
+                    {
+                        throw new PlaylistReloadApplyException();
+                    }
+                    return false;
+                }
+            }
+            else if (requireCurrentTargetForApply && !ContainsBMSTable(oldTable))
+            {
+                ReconcileUnappliedReload(oldTable, newTable);
+                return false;
+            }
+            return true;
+        }
+        finally
+        {
+            lock (playlistPersistenceGate)
+            {
+                playlistReloadApplyReservations.Remove(oldTable);
+            }
+        }
+    }
+
+    private void ReconcileUnappliedReload(BMSTable oldTable, BMSTable newTable)
+    {
+        BMSTable tableToCommit = null;
+        bool deleteNewTable = false;
+        lock (playlistPersistenceGate)
+        {
+            if (ContainsBMSTable(oldTable))
+            {
+                tableToCommit = oldTable;
+            }
+            else
+            {
+                tableToCommit = newTable?.playlist_id.HasValue == true
+                    ? FindBMSTableByPlaylistId(newTable.playlist_id.Value)
+                    : null;
+                deleteNewTable = tableToCommit == null && newTable?.playlist_id.HasValue == true;
+            }
+        }
+        if (tableToCommit != null)
+        {
+            CommitBMSTable(
+                tableToCommit,
+                entriesAlreadyLoaded: tableToCommit.ArePlaylistEntriesLoaded,
+                allowReloadReservation: true);
+        }
+        else if (deleteNewTable)
+        {
+            lock (playlistPersistenceGate)
+            {
+                deleteBMSTable(newTable);
+            }
+        }
+    }
+
+    [Serializable]
+    private sealed class PlaylistReloadApplyException : InvalidOperationException
+    {
+        public PlaylistReloadApplyException()
+            : base("Playlist reload result could not be applied to the active table.")
+        {
+        }
+
+        public PlaylistReloadApplyException(string message)
+            : base(message)
+        {
+        }
+
+        public PlaylistReloadApplyException(string message, Exception innerException)
+            : base(message, innerException)
+        {
+        }
+
+        private PlaylistReloadApplyException(SerializationInfo info, StreamingContext context)
+            : base(info, context)
+        {
+        }
+    }
+
+    private void PersistReloadedTable(
+        BMSTable newTable,
+        PlaylistReloadPersistenceDecision persistenceDecision)
+    {
+        if (persistenceDecision?.NeedsEntryPersistence == true)
+        {
+            CommitBMSTable(
+                newTable,
+                entriesAlreadyLoaded: true,
+                allowReloadReservation: true,
+                requireCurrentTarget: false);
+        }
+        else if (persistenceDecision?.NeedsHeaderPersistence == true)
+        {
+            commitBMSTableHeaderOnlyCore(newTable);
+        }
     }
 
     private static void InvokePlaylistUpdateCallbacks(PlaylistTableUpdateContext updateContext, List<Action<PlaylistTableUpdateContext>> updateCallbackActions, Uri uri)
@@ -8293,7 +8649,23 @@ public partial class BMSPlaylist : NotificationObject
 
     private static System.Windows.Threading.Dispatcher GetBMSTablesDispatcher(DispatcherCollection<BMSTable> tables)
     {
-        return tables?.Dispatcher ?? DispatcherHelper.UIDispatcher ?? Application.Current?.Dispatcher;
+        if (tables == null)
+        {
+            return null;
+        }
+        if (Application.Current == null)
+        {
+            // Headless verification has no WPF application dispatcher.  Keep the collection
+            // bound to the current thread so a later continuation cannot enqueue work onto a
+            // dispatcher whose message pump is not running.
+            System.Windows.Threading.Dispatcher currentDispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            if (tables.Dispatcher == null || !tables.Dispatcher.CheckAccess())
+            {
+                tables.Dispatcher = currentDispatcher;
+            }
+            return currentDispatcher;
+        }
+        return tables.Dispatcher ?? DispatcherHelper.UIDispatcher ?? Application.Current?.Dispatcher;
     }
 
     private T InvokeBMSTablesCollectionMutation<T>(Func<T> mutation)
@@ -8350,6 +8722,7 @@ public partial class BMSPlaylist : NotificationObject
                     return false;
                 }
                 BMSTables.Add(table);
+                MarkKnownActivePlaylistTables([table]);
                 return true;
             }
         }).ConfigureAwait(false);
@@ -8390,6 +8763,7 @@ public partial class BMSPlaylist : NotificationObject
                     if (!BMSTables.Contains(table))
                     {
                         BMSTables.Add(table);
+                        MarkKnownActivePlaylistTables([table]);
                     }
                 }
                 return null;
@@ -8402,52 +8776,147 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    private void ReplaceBMSTableInCollection(BMSTable oldTable, BMSTable newTable)
+    private bool ReplaceBMSTableInCollection(BMSTable oldTable, BMSTable newTable, out bool replacementCompleted)
     {
+        replacementCompleted = false;
         DispatcherCollection<BMSTable> tables = BMSTables;
         if (tables == null)
         {
-            return;
+            return false;
         }
 
+        bool replaced = false;
+        object replacementGate = new();
+        int replacementAllowed = 1;
         void ReplaceCore()
         {
             int index = tables.IndexOf(oldTable);
             if (index >= 0)
             {
                 tables[index] = newTable;
+                playlistKnownActiveTables.GetValue(newTable, _ => new object());
+                replaced = true;
             }
         }
 
-        if (tables.Dispatcher == null || tables.Dispatcher.CheckAccess())
+        System.Windows.Threading.Dispatcher dispatcher = GetBMSTablesDispatcher(tables);
+        if (dispatcher == null && Application.Current == null && tables.Dispatcher == null)
         {
-            ReplaceCore();
-            return;
+            // DispatcherCollection permits a null dispatcher for headless tests, but its
+            // mutating indexer still expects one.  Bind the collection to this thread's
+            // dispatcher before taking the direct, same-thread path.
+            tables.Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
+            dispatcher = tables.Dispatcher;
         }
-
-        System.Windows.Threading.DispatcherOperation operation = tables.Dispatcher.BeginInvoke((Action)delegate
+        if (dispatcher == null || dispatcher.CheckAccess())
         {
-            using (rwlockBMSTables.GetWriterGuard())
+            try
             {
-                ReplaceCore();
+                lock (replacementGate)
+                {
+                    if (replacementAllowed != 0)
+                    {
+                        using (rwlockBMSTables.GetWriterGuard())
+                        {
+                            ReplaceCore();
+                        }
+                    }
+                }
+                replacementCompleted = true;
+                return replaced;
             }
-        });
+            catch (Exception ex)
+            {
+                replacementCompleted = true;
+                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_direct_failed");
+                return false;
+            }
+        }
+
+        System.Windows.Threading.DispatcherOperation operation;
+        try
+        {
+            operation = dispatcher.BeginInvoke((Action)delegate
+            {
+                lock (replacementGate)
+                {
+                    if (replacementAllowed != 0)
+                    {
+                        using (rwlockBMSTables.GetWriterGuard())
+                        {
+                            ReplaceCore();
+                        }
+                    }
+                }
+            });
+        }
+        catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
+        {
+            replacementCompleted = true;
+            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_enqueue_failed");
+            return false;
+        }
         if (Application.Current == null)
         {
-            return;
+            // A headless caller may own a different dispatcher without running its message
+            // pump.  Do not report success while the queued replacement can still mutate the
+            // collection after the database reconciliation below.  Disabling the callback
+            // first also makes an unsuccessful Abort safe if the operation is already queued.
+            lock (replacementGate)
+            {
+                replacementAllowed = 0;
+                try
+                {
+                    operation.Abort();
+                }
+                catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
+                {
+                }
+            }
+            replacementCompleted = true;
+            return replaced;
         }
         try
         {
             operation.Wait(TimeSpan.FromSeconds(5));
-            if (operation.Status != System.Windows.Threading.DispatcherOperationStatus.Completed)
+            if (operation.Status == System.Windows.Threading.DispatcherOperationStatus.Completed)
+            {
+                replacementCompleted = true;
+                return replaced;
+            }
+            lock (replacementGate)
+            {
+                replacementAllowed = 0;
+                try
+                {
+                    operation.Abort();
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
+            if (!replaced)
             {
                 Ribbit.Logging.NLogWrapper.FileLogger?.Warn("playlist_table_replace_dispatch_wait_incomplete status=" + operation.Status);
             }
         }
         catch (Exception ex) when (ex is InvalidOperationException || ex is ThreadInterruptedException)
         {
+            lock (replacementGate)
+            {
+                replacementAllowed = 0;
+                try
+                {
+                    operation.Abort();
+                }
+                catch (InvalidOperationException)
+                {
+                }
+            }
             Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_wait_failed");
         }
+        replacementCompleted = true;
+        return replaced;
     }
 
     /// <summary>
@@ -8477,7 +8946,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new InvalidOperationException("Playlist reload URI is not absolute.");
         }
-        PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(bmsTable, pageUri, null, null, "ResetBMSTableAsync", cancellationToken).ConfigureAwait(false);
+        PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(bmsTable, pageUri, null, null, "ResetBMSTableAsync", cancellationToken, requireCurrentTargetForApply: true).ConfigureAwait(false);
         if (result.Exception != null)
         {
             throw result.Exception;
@@ -8493,20 +8962,33 @@ public partial class BMSPlaylist : NotificationObject
     /// 指定プレイリストを一覧と DB から削除します。
     /// </summary>
     /// <param name="bmsTable">削除対象のプレイリスト。</param>
-    public void RemoveBMSTable(BMSTable bmsTable)
+    /// <returns>実際に削除されたプレイリスト。対象が存在しない場合は <see langword="null"/>。</returns>
+    public BMSTable RemoveBMSTable(BMSTable bmsTable)
     {
+        BMSTable tableToRemove = null;
         bool removed = InvokeBMSTablesCollectionMutation(delegate
         {
+            bool wasRemoved;
             using (rwlockBMSTables.GetWriterGuard())
             {
-                return BMSTables.Contains(bmsTable) && BMSTables.RemoveExt(bmsTable);
+                tableToRemove = BMSTables.FirstOrDefault(candidate =>
+                    ReferenceEquals(candidate, bmsTable)
+                    || (bmsTable?.playlist_id.HasValue == true
+                        && candidate?.playlist_id == bmsTable.playlist_id));
+                wasRemoved = tableToRemove != null && BMSTables.RemoveExt(tableToRemove);
             }
+            return wasRemoved;
         });
         if (removed)
         {
-            deleteBMSTable(bmsTable);
-            QueueBeatorajaBmtRemoveForTable(bmsTable, "RemoveBMSTable");
+            lock (playlistPersistenceGate)
+            {
+                playlistRemovedTables.GetValue(tableToRemove, _ => new object());
+                deleteBMSTable(tableToRemove);
+            }
+            QueueBeatorajaBmtRemoveForTable(tableToRemove, "RemoveBMSTable");
         }
+        return removed ? tableToRemove : null;
     }
 
     /// <summary>
@@ -8529,6 +9011,7 @@ public partial class BMSPlaylist : NotificationObject
                     bMSTable.bmt_sort = ResolveNextBeatorajaBmtSort(BMSTables);
                     bMSTable.is_bmt_output = true;
                     BMSTables.Add(bMSTable);
+                    MarkKnownActivePlaylistTables([bMSTable]);
                 }
             }
         });
@@ -9153,32 +9636,36 @@ public partial class BMSPlaylist : NotificationObject
                 writerGuards.Add(table.ReaderWriterLock.GetWriterGuard());
             }
 
-            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-            string savepoint = lr2Song.SaveTransactionPoint();
-            try
+            lock (playlistPersistenceGate)
             {
-                for (int index = 0; index < tableList.Count; index++)
+                EnsurePlaylistPersistenceWriteAllowed(tableList, allowReloadReservation: false, requireCurrentTarget: true);
+                using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+                string savepoint = lr2Song.SaveTransactionPoint();
+                try
                 {
-                    BMSTable bmsTable = tableList[index];
-                    if (BMSTables.Contains(bmsTable))
+                    for (int index = 0; index < tableList.Count; index++)
                     {
-                        lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
-                        ReplacePersistedCourses(lr2Song, bmsTable);
-                        lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
-                        bmsTable.entries.ForEach(delegate (BMSTableEntry e)
+                        BMSTable bmsTable = tableList[index];
+                        if (BMSTables.Contains(bmsTable))
                         {
-                            e?.NormalizeForPlaylistPersistence();
-                            lr2Song.InsertOrReplace(e, typeof(LR2SongDBExtended.playlist_entry));
-                        });
+                            lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
+                            ReplacePersistedCourses(lr2Song, bmsTable);
+                            lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                            bmsTable.entries.ForEach(delegate (BMSTableEntry e)
+                            {
+                                e?.NormalizeForPlaylistPersistence();
+                                lr2Song.InsertOrReplace(e, typeof(LR2SongDBExtended.playlist_entry));
+                            });
+                        }
+                        progressCallback?.Invoke(index + 1, tableList.Count, bmsTable.name ?? string.Empty);
                     }
-                    progressCallback?.Invoke(index + 1, tableList.Count, bmsTable.name ?? string.Empty);
+                    lr2Song.Commit();
                 }
-                lr2Song.Commit();
-            }
-            catch
-            {
-                lr2Song.RollbackTo(savepoint);
-                throw;
+                catch
+                {
+                    lr2Song.RollbackTo(savepoint);
+                    throw;
+                }
             }
         }
         finally
@@ -9201,11 +9688,21 @@ public partial class BMSPlaylist : NotificationObject
         {
             throw new ArgumentNullException("bmsTable");
         }
+        if (!ContainsBMSTable(bmsTable))
+        {
+            return;
+        }
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
-            if (BMSTables.Contains(bmsTable))
+            lock (playlistPersistenceGate)
             {
-                commitBMSTableHeaderOnly(bmsTable);
+                if (playlistReloadApplyReservations.Contains(bmsTable)
+                    || playlistReloadRetiredTables.TryGetValue(bmsTable, out _)
+                    || playlistRemovedTables.TryGetValue(bmsTable, out _))
+                {
+                    throw new InvalidOperationException("Playlist header persistence target changed while the playlist was being updated.");
+                }
+                commitBMSTableHeaderOnlyCore(bmsTable);
             }
         }
     }
@@ -9234,21 +9731,25 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
-        using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-        string savepoint = lr2Song.SaveTransactionPoint();
-        try
+        lock (playlistPersistenceGate)
         {
-            foreach (BMSTable bmsTable in tableList)
+            EnsurePlaylistPersistenceWriteAllowed(tableList, allowReloadReservation: false, requireCurrentTarget: true);
+            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+            string savepoint = lr2Song.SaveTransactionPoint();
+            try
             {
-                lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
-                ReplacePersistedCourses(lr2Song, bmsTable);
+                foreach (BMSTable bmsTable in tableList)
+                {
+                    lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
+                    ReplacePersistedCourses(lr2Song, bmsTable);
+                }
+                lr2Song.Commit();
             }
-            lr2Song.Commit();
-        }
-        catch
-        {
-            lr2Song.RollbackTo(savepoint);
-            throw;
+            catch
+            {
+                lr2Song.RollbackTo(savepoint);
+                throw;
+            }
         }
     }
 
@@ -9514,7 +10015,9 @@ public partial class BMSPlaylist : NotificationObject
             newTable.last_update = ((reloadedLastUpdate != default) ? reloadedLastUpdate : oldTable.last_update);
         }
 
-        List<BMSTableEntry> removedEntries = [.. oldTable.entries.Except(matchedOldEntries)];
+        List<BMSTableEntry> removedEntries = [.. oldTable.entries
+            .Except(matchedOldEntries)
+            .Select(entry => entry.CreatePlaylistReloadSnapshot())];
         foreach (BMSTableEntry item in removedEntries)
         {
             item.is_removed = true;
@@ -9953,50 +10456,145 @@ public partial class BMSPlaylist : NotificationObject
         return await LoadExternalTableAsync(pageUri, bmsTable, cancellationToken).ConfigureAwait(false);
     }
 
+    private static string CreatePlaylistReloadSourceFingerprint(BMSTable table)
+    {
+        var builder = new StringBuilder();
+        void Append(object value)
+        {
+            string text = Convert.ToString(value, CultureInfo.InvariantCulture) ?? string.Empty;
+            builder.Append(text.Length.ToString(CultureInfo.InvariantCulture)).Append(':').Append(text).Append('|');
+        }
+
+        Append(table?.playlist_id);
+        Append(table?.name);
+        Append(table?.symbol);
+        Append(table?.folder_sort_key);
+        Append(table?.folder_sort_ascending);
+        Append(table?.entry_type);
+        Append(table?.Page_url?.OriginalString);
+        Append(table?.Header_url?.OriginalString);
+        Append(table?.Data_url?.OriginalString);
+        Append(table?.tag);
+        Append(table?.header_sha256);
+        Append(table?.data_sha256);
+        Append(table?.compat_prefix);
+        Append(table?.last_update.Ticks);
+        Append(table?.org_name);
+        Append(table?.org_symbol);
+        Append(table?.ignore_folder_output);
+        Append(table?.is_external_sync);
+        Append(table?.Output_dir);
+        Append(table?.custom_folder_output_base_name);
+        Append(table?.is_root_folder);
+        Append(table?.bmt_sort);
+        Append(table?.is_bmt_output);
+        foreach (string folder in table?.Folder_order ?? [])
+        {
+            Append(folder);
+        }
+        foreach (LR2SongDBExtended.playlist_course course in table?.Courses ?? [])
+        {
+            Append(course?.course_order);
+            Append(course?.course_json);
+        }
+        foreach (BMSTableEntry entry in table?.entries ?? [])
+        {
+            Append(entry?.playlist_id);
+            Append(entry?.md5);
+            Append(entry?.sha256);
+            Append(entry?.level);
+            Append(entry?.title);
+            Append(entry?.artist);
+            Append(entry?.folder);
+            Append(entry?.lr2_bmsid);
+            Append(entry?.url);
+            Append(entry?.url_diff);
+            Append(entry?.name_diff);
+            Append(entry?.comment);
+            Append(entry?.memo);
+            Append(entry?.is_removed);
+            Append(entry?.adddate.Ticks);
+            Append(string.Join("\u001e", entry?.Org_md5 ?? []));
+        }
+        return builder.ToString();
+    }
+
+    private void EnsurePlaylistPersistenceWriteAllowed(
+        IEnumerable<BMSTable> tables,
+        bool allowReloadReservation,
+        bool requireCurrentTarget)
+    {
+        List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
+        if (!allowReloadReservation
+            && tableList.Any(table => playlistReloadApplyReservations.Contains(table) || playlistReloadRetiredTables.TryGetValue(table, out _)))
+        {
+            throw new InvalidOperationException("Playlist reload is applying a newer playlist snapshot.");
+        }
+        if (requireCurrentTarget && tableList.Any(table => !ContainsBMSTable(table)))
+        {
+            throw new InvalidOperationException("Playlist persistence target is no longer active.");
+        }
+    }
+
     /// <summary>
     /// 単一プレイリストを DB へ保存します。
     /// </summary>
     /// <param name="bmsTable">保存対象のプレイリスト。</param>
-    private void CommitBMSTable(BMSTable bmsTable)
+    private void CommitBMSTable(
+        BMSTable bmsTable,
+        bool entriesAlreadyLoaded = false,
+        bool allowReloadReservation = false,
+        bool requireCurrentTarget = true)
     {
-        CommitBMSTable([bmsTable]);
+        CommitBMSTable([bmsTable], entriesAlreadyLoaded, allowReloadReservation, requireCurrentTarget);
     }
 
     /// <summary>
     /// 複数プレイリストを DB へ保存し、対応するエントリも全置換します。
     /// </summary>
     /// <param name="bmsTables">保存対象のプレイリスト群。</param>
-    private void CommitBMSTable(IEnumerable<BMSTable> bmsTables)
+    private void CommitBMSTable(
+        IEnumerable<BMSTable> bmsTables,
+        bool entriesAlreadyLoaded = false,
+        bool allowReloadReservation = false,
+        bool requireCurrentTarget = true)
     {
         try
         {
             List<BMSTable> tableList = bmsTables?.Where(table => table != null).ToList() ?? [];
-            foreach (BMSTable table in tableList)
+            if (!entriesAlreadyLoaded)
             {
-                EnsurePlaylistEntriesLoaded(table, "CommitBMSTable");
-            }
-            var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-            try
-            {
-                lr2Song.BeginTransaction();
-                foreach (BMSTable bmsTable in tableList)
+                foreach (BMSTable table in tableList)
                 {
-                    lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
-                    ReplacePersistedCourses(lr2Song, bmsTable);
-                    lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
-                    bmsTable.entries.ForEach(delegate (BMSTableEntry e)
-                    {
-                        e?.NormalizeForPlaylistPersistence();
-                        lr2Song.InsertOrReplace(e, typeof(LR2SongDBExtended.playlist_entry));
-                    });
+                    EnsurePlaylistEntriesLoaded(table, "CommitBMSTable");
                 }
-                lr2Song.Commit();
             }
-            finally
+            lock (playlistPersistenceGate)
             {
-                if (lr2Song != null)
+                EnsurePlaylistPersistenceWriteAllowed(tableList, allowReloadReservation, requireCurrentTarget);
+                var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
+                try
                 {
-                    ((IDisposable)lr2Song).Dispose();
+                    lr2Song.BeginTransaction();
+                    foreach (BMSTable bmsTable in tableList)
+                    {
+                        lr2Song.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
+                        ReplacePersistedCourses(lr2Song, bmsTable);
+                        lr2Song.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                        bmsTable.entries.ForEach(delegate (BMSTableEntry e)
+                        {
+                            e?.NormalizeForPlaylistPersistence();
+                            lr2Song.InsertOrReplace(e, typeof(LR2SongDBExtended.playlist_entry));
+                        });
+                    }
+                    lr2Song.Commit();
+                }
+                finally
+                {
+                    if (lr2Song != null)
+                    {
+                        ((IDisposable)lr2Song).Dispose();
+                    }
                 }
             }
         }
@@ -10012,39 +10610,111 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="entry">保存対象のエントリ。</param>
     public void CommitBMSTableEntry(BMSTableEntry entry)
     {
+        CommitBMSTableEntry(entry, null);
+    }
+
+    internal void CommitBMSTableEntry(BMSTableEntry entry, string editedPropertyName)
+    {
         if (!entry.playlist_id.HasValue)
         {
             return;
         }
         BMSTable owningTable = ResolveOwningTableForEntry(entry);
-        if (owningTable == null || !owningTable.is_external_sync)
-        {
-            entry.MaterializeEffectiveUrlsIntoPersistedValues();
-        }
-        entry.NormalizeForPlaylistPersistence();
-        if (owningTable != null)
-        {
-            using (owningTable.ReaderWriterLock.GetWriterGuard())
-            {
-                owningTable.last_update = GetNextPlaylistLastUpdate(owningTable.last_update);
-            }
-        }
-        CustomFolderOutputSettingsSnapshot outputSettings = owningTable != null
-            && !string.IsNullOrWhiteSpace(owningTable.Output_dir)
-                ? GetCustomFolderOutputSettings()
-                : null;
+        bool hasParentReference = entry.parent != null;
+        BMSTableEntry persistedEntry = entry;
         try
         {
-            using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-            lR2SongDBExtended.BeginTransaction();
-            lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + BuildPlaylistEntryReplacementPredicate(entry) + ";");
-            lR2SongDBExtended.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
-            if (owningTable != null)
+            bool persisted = false;
+            bool hadOwningTable = owningTable != null;
+            for (int attempt = 0; attempt < 600 && !persisted; attempt++)
             {
-                lR2SongDBExtended.InsertOrReplace(owningTable, typeof(LR2SongDBExtended.playlist));
-                ReplacePersistedCourses(lR2SongDBExtended, owningTable);
+                if (attempt > 0 && hadOwningTable)
+                {
+                    owningTable = ResolveOwningTableForEntry(entry);
+                }
+                if (owningTable != null)
+                {
+                    bool retryAfterReload = false;
+                    bool currentTargetIsActive = ContainsBMSTable(owningTable);
+                    using (owningTable.ReaderWriterLock.GetWriterGuard())
+                    {
+                        lock (playlistPersistenceGate)
+                        {
+                            if (playlistReloadApplyReservations.Contains(owningTable)
+                                || playlistReloadRetiredTables.TryGetValue(owningTable, out _)
+                                || playlistRemovedTables.TryGetValue(owningTable, out _))
+                            {
+                                retryAfterReload = true;
+                            }
+                            if (!retryAfterReload)
+                            {
+                                EnsurePlaylistPersistenceWriteAllowed(
+                                    [owningTable],
+                                    allowReloadReservation: false,
+                                    requireCurrentTarget: false);
+                                if (owningTable.entries.Contains(entry))
+                                {
+                                    if (entry.is_removed)
+                                    {
+                                        throw new InvalidOperationException("Playlist entry is no longer active in the playlist.");
+                                    }
+                                    persistedEntry = entry;
+                                }
+                                else if (currentTargetIsActive)
+                                {
+                                    persistedEntry = FindCurrentPlaylistEntryForCommit(owningTable, entry)
+                                        ?? throw new InvalidOperationException("Playlist entry is no longer present in the active playlist.");
+                                    persistedEntry.ApplyPlaylistEditableStateFrom(entry, editedPropertyName);
+                                }
+                                else
+                                {
+                                    persistedEntry = entry;
+                                }
+                                if (!owningTable.is_external_sync)
+                                {
+                                    persistedEntry.MaterializeEffectiveUrlsIntoPersistedValues();
+                                }
+                                persistedEntry.NormalizeForPlaylistPersistence();
+                                owningTable.last_update = GetNextPlaylistLastUpdate(owningTable.last_update);
+                                PersistPlaylistEntryToDatabase(persistedEntry, owningTable);
+                                persisted = true;
+                            }
+                        }
+                    }
+                    if (retryAfterReload)
+                    {
+                        Thread.Sleep(10);
+                        continue;
+                    }
+                }
+                else if (hadOwningTable)
+                {
+                    Thread.Sleep(10);
+                    continue;
+                }
+                else
+                {
+                    lock (playlistPersistenceGate)
+                    {
+                        if (hasParentReference)
+                        {
+                            throw new InvalidOperationException("Playlist entry owner is no longer active in the playlist collection.");
+                        }
+                        if (!HasPersistedPlaylistHeader(entry.playlist_id.Value))
+                        {
+                            throw new InvalidOperationException("Playlist persistence target is no longer present in the database.");
+                        }
+                        entry.MaterializeEffectiveUrlsIntoPersistedValues();
+                        entry.NormalizeForPlaylistPersistence();
+                        PersistPlaylistEntryToDatabase(entry, null);
+                        persisted = true;
+                    }
+                }
             }
-            lR2SongDBExtended.Commit();
+            if (!persisted)
+            {
+                throw new InvalidOperationException("Playlist persistence target changed while the entry was being saved.");
+            }
         }
         catch
         {
@@ -10052,12 +10722,16 @@ public partial class BMSPlaylist : NotificationObject
         }
         if (owningTable != null)
         {
+            bool owningTableWasActive = ContainsBMSTable(owningTable);
+            CustomFolderOutputSettingsSnapshot outputSettings = !string.IsNullOrWhiteSpace(owningTable.Output_dir)
+                ? GetCustomFolderOutputSettings()
+                : null;
             if (outputSettings?.OperationModeLR2DB == true)
             {
                 EnsurePlaylistEntriesLoaded(owningTable, "CommitBMSTableEntry");
                 using (owningTable.ReaderWriterLock.GetWriterGuard())
                 {
-                    if (BMSTables.Contains(owningTable))
+                    if (owningTableWasActive)
                     {
                         reOutputCustomFolderFiles(owningTable, outputSettings);
                     }
@@ -10065,6 +10739,58 @@ public partial class BMSPlaylist : NotificationObject
             }
             QueueBeatorajaBmtExport(owningTable, "CommitBMSTableEntry");
         }
+    }
+
+    private void PersistPlaylistEntryToDatabase(BMSTableEntry entry, BMSTable owningTable)
+    {
+        using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+        lR2SongDBExtended.BeginTransaction();
+        lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + BuildPlaylistEntryReplacementPredicate(entry) + ";");
+        lR2SongDBExtended.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+        if (owningTable != null)
+        {
+            lR2SongDBExtended.InsertOrReplace(owningTable, typeof(LR2SongDBExtended.playlist));
+            ReplacePersistedCourses(lR2SongDBExtended, owningTable);
+        }
+        lR2SongDBExtended.Commit();
+    }
+
+    private bool HasPersistedPlaylistHeader(int playlistId)
+    {
+        using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+        return lR2SongDBExtended.Table<BMSTable>().Any(table => table?.playlist_id == playlistId);
+    }
+
+    private static BMSTableEntry FindCurrentPlaylistEntryForCommit(BMSTable table, BMSTableEntry source)
+    {
+        if (table?.entries == null || source == null)
+        {
+            return null;
+        }
+        if (table.entries.Any(candidate => ReferenceEquals(candidate, source) && !candidate.is_removed))
+        {
+            return source;
+        }
+        List<BMSTableEntry> matches = [.. table.entries.Where(candidate =>
+            candidate != null
+            && !candidate.is_removed
+            && PlaylistEntryIdentityMatches(candidate, source))];
+        return matches.Count == 1 ? matches[0] : null;
+    }
+
+    private static bool PlaylistEntryIdentityMatches(BMSTableEntry candidate, BMSTableEntry source)
+    {
+        bool sameHash = !string.IsNullOrWhiteSpace(source.md5)
+            ? string.Equals(candidate.md5, source.md5, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(source.sha256)
+                    && string.Equals(candidate.sha256, source.sha256, StringComparison.OrdinalIgnoreCase))
+            : !string.IsNullOrWhiteSpace(source.sha256)
+                && string.Equals(candidate.sha256, source.sha256, StringComparison.OrdinalIgnoreCase);
+        bool sameFolder = string.Equals(candidate.folder, source.folder, StringComparison.Ordinal);
+        bool sameLr2BmsId = string.Equals(candidate.lr2_bmsid, source.lr2_bmsid, StringComparison.Ordinal);
+        bool sameTitle = string.Equals(candidate.title, source.title, StringComparison.Ordinal);
+        return sameHash
+            && (sameFolder || sameLr2BmsId || sameTitle);
     }
 
     private static DateTime GetNextPlaylistLastUpdate(DateTime currentLastUpdate)
@@ -10087,24 +10813,27 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="bmsTables">削除対象のプレイリスト群。</param>
     private void deleteBMSTable(IEnumerable<BMSTable> bmsTables)
     {
-        try
+        lock (playlistPersistenceGate)
         {
-            using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-            lR2SongDBExtended.BeginTransaction();
-            foreach (BMSTable bmsTable in bmsTables)
+            try
             {
-                if (bmsTable.playlist_id.HasValue)
+                using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+                lR2SongDBExtended.BeginTransaction();
+                foreach (BMSTable bmsTable in bmsTables)
                 {
-                    lR2SongDBExtended.Delete<LR2SongDBExtended.playlist>(bmsTable.playlist_id);
-                    lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
-                    lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                    if (bmsTable.playlist_id.HasValue)
+                    {
+                        lR2SongDBExtended.Delete<LR2SongDBExtended.playlist>(bmsTable.playlist_id);
+                        lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                        lR2SongDBExtended.Execute("DELETE FROM " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetTableName() + " WHERE " + SQLiteTable<LR2SongDBExtended.playlist_course>.GetColumnName(e => e.playlist_id) + " = " + bmsTable.playlist_id + ";");
+                    }
                 }
+                lR2SongDBExtended.Commit();
             }
-            lR2SongDBExtended.Commit();
-        }
-        catch
-        {
-            throw;
+            catch
+            {
+                throw;
+            }
         }
     }
 
@@ -10112,20 +10841,13 @@ public partial class BMSPlaylist : NotificationObject
     /// プレイリスト本体のヘッダ情報のみを DB へ保存します。
     /// </summary>
     /// <param name="bmsTable">保存対象のプレイリスト。</param>
-    private void commitBMSTableHeaderOnly(BMSTable bmsTable)
+    private void commitBMSTableHeaderOnlyCore(BMSTable bmsTable)
     {
-        try
-        {
-            using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
-            lR2SongDBExtended.BeginTransaction();
-            lR2SongDBExtended.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
-            ReplacePersistedCourses(lR2SongDBExtended, bmsTable);
-            lR2SongDBExtended.Commit();
-        }
-        catch
-        {
-            throw;
-        }
+        using var lR2SongDBExtended = new LR2SongDBExtended(lr2SongDBPath);
+        lR2SongDBExtended.BeginTransaction();
+        lR2SongDBExtended.InsertOrReplace(bmsTable, typeof(LR2SongDBExtended.playlist));
+        ReplacePersistedCourses(lR2SongDBExtended, bmsTable);
+        lR2SongDBExtended.Commit();
     }
 
     private static void ReplacePersistedCourses(LR2SongDBExtended db, BMSTable bmsTable)
