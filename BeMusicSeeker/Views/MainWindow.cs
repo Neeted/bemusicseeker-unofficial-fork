@@ -3411,7 +3411,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, flag, null);
+                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, flag, null);
             }).Logging("playlistSummarySyncCheckBoxClick");
         }
         e.Handled = true;
@@ -3436,7 +3436,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, flag, null);
+                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, flag, null);
             });
         }
     }
@@ -3457,7 +3457,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, null, flag);
+                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, null, flag);
             }).Logging("playlistSummaryRootCheckBoxClick");
         }
         e.Handled = true;
@@ -3474,7 +3474,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             await Task.Run(delegate
             {
-                viewModel.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, null, flag);
+                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, null, flag);
             });
         }
     }
@@ -3569,11 +3569,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel mainWindowViewModel && CanOpenPlaylistEditDialog(mainWindowViewModel))
         {
-            if (!mainWindowViewModel.PlaylistWorkspace.ContainsActivePlaylistSummaryRows(selectedPlaylistSummaryRows))
+            PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel dialog =
+                mainWindowViewModel.PlaylistWorkspace.OpenSummaryBulkEditDialog(selectedPlaylistSummaryRows);
+            if (dialog == null)
             {
                 return;
             }
-            mainWindowViewModel.playlistSummaryBulkEditDialog = new MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel(mainWindowViewModel, selectedPlaylistSummaryRows);
+            playlistSummaryBulkEditDialog.DataContext = dialog;
             ShowOverlayDialog(playlistSummaryBulkEditDialog);
         }
     }

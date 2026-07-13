@@ -54,8 +54,7 @@ internal static class SourceTextTestHelper
         string mainWindowViewModelSplitDirectory = Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow");
         string[] nestedSourcePaths =
         [
-            Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.SettingDialogViewModel.cs"),
-            Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel.cs")
+            Path.Combine(mainWindowViewModelSplitDirectory, "MainWindowViewModel.SettingDialogViewModel.cs")
         ];
         string logicalMainWindowViewModelSource = InsertSourceAfterMarker(
             File.ReadAllText(mainWindowViewModelPath),

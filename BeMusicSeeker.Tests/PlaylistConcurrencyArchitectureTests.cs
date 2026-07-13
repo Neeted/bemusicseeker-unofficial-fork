@@ -187,8 +187,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "BeMusicSeeker",
             "ViewModels",
             "MainWindow",
-            "MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel.cs");
-        StringAssert.Contains(bulkDialogSource, "ownerViewModel.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings");
+            "PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit.cs");
+        StringAssert.Contains(bulkDialogSource, "ownerWorkspace.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings");
         Assert.IsFalse(bulkDialogSource.Contains("CreatePlaylistCustomFolderOutputBaseOptions(includeNoChange"));
 
         string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText(

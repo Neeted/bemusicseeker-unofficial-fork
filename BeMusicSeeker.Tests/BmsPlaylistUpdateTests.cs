@@ -918,9 +918,9 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
 
-            await viewModel.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+            await viewModel.PlaylistWorkspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = table }],
-                new MainWindowViewModel.PlaylistSummaryExternalPropertyInitializationOptions
+                new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions
                 {
                     Name = true,
                     Symbol = true,
@@ -996,9 +996,9 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
 
-            await viewModel.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+            await viewModel.PlaylistWorkspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
-                new MainWindowViewModel.PlaylistSummaryExternalPropertyInitializationOptions
+                new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions
                 {
                     Name = true,
                     Symbol = true,
@@ -1118,9 +1118,9 @@ public sealed class BmsPlaylistUpdateTests
                 return true;
             };
 
-            await viewModel.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+            await viewModel.PlaylistWorkspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = table }],
-                new MainWindowViewModel.PlaylistSummaryExternalPropertyInitializationOptions
+                new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions
                 {
                     Name = true
                 });
@@ -1766,7 +1766,7 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
 
-            viewModel.ApplyPlaylistSummaryOutputBase(
+            viewModel.PlaylistWorkspace.ApplyPlaylistSummaryOutputBase(
                 [new PlaylistSummaryRow { TableRef = table }],
                 "NewAdditional");
 
@@ -1866,7 +1866,7 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
 
-            viewModel.ApplyPlaylistSummaryOutputBase(
+            viewModel.PlaylistWorkspace.ApplyPlaylistSummaryOutputBase(
                 [new PlaylistSummaryRow { TableRef = table }],
                 "ProviderAdditionalCustomFolder");
 
@@ -1932,9 +1932,9 @@ public sealed class BmsPlaylistUpdateTests
             {
                 Status = Lr2PlayHistorySchemaStatus.NotInstalled
             });
-            viewModel.ApplyPlaylistSummaryCustomFolderOutputTypes(
+            viewModel.PlaylistWorkspace.ApplyPlaylistSummaryCustomFolderOutputTypes(
                 [new PlaylistSummaryRow { TableRef = table }],
-                new MainWindowViewModel.PlaylistSummaryCustomFolderOutputPatch
+                new PlaylistWorkspaceViewModel.PlaylistSummaryCustomFolderOutputPatch
                 {
                     LastPlaySortFolder = true
                 });
@@ -2037,9 +2037,9 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
 
-            viewModel.ApplyPlaylistSummaryCustomFolderOutputTypes(
+            viewModel.PlaylistWorkspace.ApplyPlaylistSummaryCustomFolderOutputTypes(
                 [new PlaylistSummaryRow { TableRef = table }],
-                new MainWindowViewModel.PlaylistSummaryCustomFolderOutputPatch
+                new PlaylistWorkspaceViewModel.PlaylistSummaryCustomFolderOutputPatch
                 {
                     UserFolder = false
                 });
@@ -6201,7 +6201,7 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, config);
 
-            viewModel.ApplyPlaylistSummaryRootFolder(
+            viewModel.PlaylistWorkspace.ApplyPlaylistSummaryRootFolder(
                 [new PlaylistSummaryRow { TableRef = table }],
                 isRootFolder: true);
 

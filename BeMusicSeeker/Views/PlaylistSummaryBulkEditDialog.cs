@@ -23,10 +23,11 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
 
     private void CloseDialog(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel)
+        if (base.DataContext is PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel dialogViewModel)
         {
-            mainWindowViewModel.playlistSummaryBulkEditDialog = null;
+            dialogViewModel.OwnerWorkspace.CloseSummaryBulkEditDialog(dialogViewModel);
         }
+        DataContext = null;
         GetDialogHost().HideOverlayDialog(playlistSummaryBulkEditDialog);
     }
 
@@ -82,9 +83,9 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
             "PlaylistSummaryBulkEditDialog.ApplyExternalPropertyInitialization");
     }
 
-    private async Task RunApplyAsync(Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> apply, Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
+    private async Task RunApplyAsync(Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> apply, Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
     {
-        if (base.DataContext is not MainWindowViewModel { playlistSummaryBulkEditDialog: { } bulkEditDialogViewModel })
+        if (base.DataContext is not PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel bulkEditDialogViewModel)
         {
             return;
         }
@@ -100,9 +101,9 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
         }
     }
 
-    private async Task RunApplyAsync(Func<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel, Task> apply, Action<MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
+    private async Task RunApplyAsync(Func<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel, Task> apply, Action<PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel> afterApply, string logName)
     {
-        if (base.DataContext is not MainWindowViewModel { playlistSummaryBulkEditDialog: { } bulkEditDialogViewModel })
+        if (base.DataContext is not PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel bulkEditDialogViewModel)
         {
             return;
         }
@@ -120,8 +121,7 @@ public partial class PlaylistSummaryBulkEditDialog : UserControl
 
     private bool ConfirmExternalSyncBulkApply()
     {
-        if (base.DataContext is not MainWindowViewModel mainWindowViewModel
-            || mainWindowViewModel.playlistSummaryBulkEditDialog is not { } bulkEditDialogViewModel
+        if (base.DataContext is not PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel bulkEditDialogViewModel
             || bulkEditDialogViewModel.ExternalSyncOption?.Value is not bool enabled)
         {
             return false;

@@ -17,7 +17,7 @@ public sealed class PlaylistSummaryBulkEditTests
         BMSTable first = CreateTable(LR2SongDBExtended.playlist.CustomFolderType.ClearFolder);
         BMSTable second = CreateTable(LR2SongDBExtended.playlist.CustomFolderType.AlphabetFolder);
 
-        bool? state = MainWindowViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
+        bool? state = PlaylistWorkspaceViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
             [first, second],
             LR2SongDBExtended.playlist.CustomFolderType.UserFolder);
 
@@ -30,7 +30,7 @@ public sealed class PlaylistSummaryBulkEditTests
         BMSTable enabled = CreateTable(LR2SongDBExtended.playlist.CustomFolderType.None);
         BMSTable disabled = CreateTable(LR2SongDBExtended.playlist.CustomFolderType.UserFolder);
 
-        bool? state = MainWindowViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
+        bool? state = PlaylistWorkspaceViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
             [enabled, disabled],
             LR2SongDBExtended.playlist.CustomFolderType.UserFolder);
 
@@ -41,13 +41,13 @@ public sealed class PlaylistSummaryBulkEditTests
     public void ApplyPlaylistSummaryCustomFolderOutputPatchToMask_KeepsIndeterminateValues()
     {
         BMSTable table = CreateTable(LR2SongDBExtended.playlist.CustomFolderType.UserFolder | LR2SongDBExtended.playlist.CustomFolderType.ClearFolder);
-        var patch = new MainWindowViewModel.PlaylistSummaryCustomFolderOutputPatch
+        var patch = new PlaylistWorkspaceViewModel.PlaylistSummaryCustomFolderOutputPatch
         {
             UserFolder = null,
             ClearFolder = true
         };
 
-        LR2SongDBExtended.playlist.CustomFolderType next = MainWindowViewModel.ApplyPlaylistSummaryCustomFolderOutputPatchToMask(table, table.ignore_folder_output, patch);
+        LR2SongDBExtended.playlist.CustomFolderType next = PlaylistWorkspaceViewModel.ApplyPlaylistSummaryCustomFolderOutputPatchToMask(table, table.ignore_folder_output, patch);
 
         Assert.IsFalse(LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(next, LR2SongDBExtended.playlist.CustomFolderType.UserFolder));
         Assert.IsTrue(LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(next, LR2SongDBExtended.playlist.CustomFolderType.ClearFolder));
@@ -59,12 +59,12 @@ public sealed class PlaylistSummaryBulkEditTests
         BMSTable table = CreateTable(
             LR2SongDBExtended.playlist.CustomFolderType.None,
             LR2SongDBExtended.playlist.EntryUnitType.Folder);
-        var patch = new MainWindowViewModel.PlaylistSummaryCustomFolderOutputPatch
+        var patch = new PlaylistWorkspaceViewModel.PlaylistSummaryCustomFolderOutputPatch
         {
             LevelFolder = true
         };
 
-        LR2SongDBExtended.playlist.CustomFolderType next = MainWindowViewModel.ApplyPlaylistSummaryCustomFolderOutputPatchToMask(table, table.ignore_folder_output, patch);
+        LR2SongDBExtended.playlist.CustomFolderType next = PlaylistWorkspaceViewModel.ApplyPlaylistSummaryCustomFolderOutputPatchToMask(table, table.ignore_folder_output, patch);
 
         Assert.IsFalse(LR2SongDBExtended.playlist.IsCustomFolderTypeEnabled(next, LR2SongDBExtended.playlist.CustomFolderType.LevelFolder));
     }
@@ -76,17 +76,17 @@ public sealed class PlaylistSummaryBulkEditTests
 
         Assert.AreEqual(
             true,
-            MainWindowViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
+            PlaylistWorkspaceViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
                 [table],
                 LR2SongDBExtended.playlist.CustomFolderType.LastPlaySortFolder));
         Assert.AreEqual(
             true,
-            MainWindowViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
+            PlaylistWorkspaceViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
                 [table],
                 LR2SongDBExtended.playlist.CustomFolderType.BpmSortFolder));
         Assert.AreEqual(
             true,
-            MainWindowViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
+            PlaylistWorkspaceViewModel.ResolvePlaylistSummaryCustomFolderOutputState(
                 [table],
                 LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder));
     }
@@ -99,7 +99,7 @@ public sealed class PlaylistSummaryBulkEditTests
         {
             Status = Lr2PlayHistorySchemaStatus.SkippedProfile
         });
-        var dialog = new MainWindowViewModel.PlaylistSummaryBulkEditDialogViewModel(owner, []);
+        var dialog = owner.PlaylistWorkspace.OpenSummaryBulkEditDialog([]);
 
         dialog.OutputLastPlaySortFolder = true;
 
@@ -161,7 +161,7 @@ public sealed class PlaylistSummaryBulkEditTests
     {
         BMSTable table = CreateTable(LR2SongDBExtended.playlist.CustomFolderType.None);
 
-        bool changed = MainWindowViewModel.ApplyPlaylistSummaryExternalSyncFlagForTable(table, isExternalSync: true);
+        bool changed = PlaylistWorkspaceViewModel.ApplyPlaylistSummaryExternalSyncFlagForTable(table, isExternalSync: true);
 
         Assert.IsFalse(changed);
         Assert.IsFalse(table.is_external_sync);
@@ -174,7 +174,7 @@ public sealed class PlaylistSummaryBulkEditTests
         table.Header_url = new Uri("https://example.invalid/header.json", UriKind.Absolute);
         table.Data_url = new Uri("data.json", UriKind.Relative);
 
-        bool changed = MainWindowViewModel.ApplyPlaylistSummaryExternalSyncFlagForTable(table, isExternalSync: true);
+        bool changed = PlaylistWorkspaceViewModel.ApplyPlaylistSummaryExternalSyncFlagForTable(table, isExternalSync: true);
 
         Assert.IsTrue(changed);
         Assert.IsTrue(table.is_external_sync);

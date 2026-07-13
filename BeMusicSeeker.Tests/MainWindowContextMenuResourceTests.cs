@@ -1558,7 +1558,7 @@ public sealed class MainWindowContextMenuResourceTests
         string deferredExternalSync = ExtractBetween(
             viewModelCode,
             "private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction, long operationToken)",
-            "public PlaylistSummaryBulkEditDialogViewModel playlistSummaryBulkEditDialog");
+            "public async void Initialize()");
 
         StringAssert.Contains(viewModelCode, "public bool IsLibraryOperationInProgress");
         StringAssert.Contains(viewModelCode, "private long GetActiveStartupProgressOperationToken()");
@@ -1818,10 +1818,9 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private async Task SaveSettingsCore(bool runPostSaveActions)",
             "public void SaveOperationModeForRestart");
-        string saveOrCancelDecision = ExtractBetween(
+        string saveOrCancelDecision = ExtractMethodBody(
             viewModelCode,
-            "public RestartMode IsNeedRestartForSaveOrCancel()",
-            "public sealed class PlaylistSummaryBulkBooleanOption");
+            "public RestartMode IsNeedRestartForSaveOrCancel()");
 
         StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);");
         StringAssert.Contains(backupSavedSettings, "tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();");

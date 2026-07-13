@@ -769,7 +769,7 @@ public sealed class ApplicationCompositionTests
         MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
 
         IReadOnlyList<PlaylistCustomFolderOutputBaseOption> options =
-            viewModel.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings();
+            viewModel.PlaylistWorkspace.CreatePlaylistCustomFolderOutputBaseOptionsForCurrentSettings();
 
         Assert.IsTrue(options.Any(option => option.Label == "session-output-base"));
         Assert.IsTrue(options.Any(option => option.Label == "session-additional"));
