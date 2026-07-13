@@ -5306,6 +5306,8 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
         PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;
+        PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
+        PlaylistWorkspace.PlaylistTableRemovalInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistTableRemovalInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += PlaylistWorkspacePlaylistSummaryDataRefreshRequested;
         PlaylistWorkspace.PlaylistSummaryBulkOperationStarted += PlaylistWorkspacePlaylistSummaryBulkOperationStarted;
         PlaylistWorkspace.PlaylistSummaryBulkOperationFinished += PlaylistWorkspacePlaylistSummaryBulkOperationFinished;
@@ -5546,7 +5548,10 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistSummaryDataRefreshRequestedEventArgs request)
     {
-        RefreshPlaylistSummaryIfVisible(request.Reason, request.InvalidateTableCountCache);
+        RefreshPlaylistSummaryIfVisible(
+            request.Reason,
+            request.InvalidateTableCountCache,
+            request.RebuildAsync);
     }
 
     private void PlaylistWorkspacePlaylistSummaryBulkOperationStarted(object sender, EventArgs e)
@@ -13002,39 +13007,6 @@ public partial class MainWindowViewModel : ViewModel
             selection.Filter);
     }
 
-    internal void RemoveBMSTable(BMSTable bmsTable)
-    {
-        using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
-        try
-        {
-            CustomFolderOutputSettingsSnapshot settings = customFolderOutputSettingsProvider()
-                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
-            if (settings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
-            {
-                tables.RemoveCustomFolder(bmsTable, settings);
-            }
-            BMSTable removedTable = tables.RemoveBMSTable(bmsTable);
-            if (settings.OperationModeLR2DB && bmsTable.is_root_folder && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
-            {
-                string customFolderOutputDirectory = ResolveCustomFolderOutputDirectoryWithNotification(
-                    bmsTable,
-                    "playlist remove custom folder output directory notification",
-                    settings);
-                lr2config.RemoveBMSSearchDirectories([customFolderOutputDirectory]);
-                lr2config.Save();
-            }
-            if (removedTable != null)
-            {
-                files.RemoveReferenceBMSTables(removedTable);
-            }
-            InvalidateNormalLibraryReferenceTableSortKeys();
-        }
-        finally
-        {
-            FlushPlaylistOperationNotifications(notificationScope, "playlist remove custom folder notification");
-        }
-    }
-
     internal BMSTable CreateBMSTable()
     {
         return tables.CreateBMSTable();
@@ -13843,28 +13815,6 @@ public partial class MainWindowViewModel : ViewModel
         finally
         {
             FlushPlaylistOperationNotifications(scope, routeName);
-        }
-    }
-
-    private string ResolveCustomFolderOutputDirectoryWithNotification(
-        BMSTable bmsTable,
-        string routeName,
-        CustomFolderOutputSettingsSnapshot settings = null)
-    {
-        try
-        {
-            settings ??= customFolderOutputSettingsProvider()
-                ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
-            return BMSPlaylist.GetCustomFolderOutputDirectory(
-                bmsTable,
-                settings.LR2CustomFolderOutputBaseDir,
-                settings.LR2CustomFolderOutputBaseDirRootType,
-                settings.LR2CustomFolderAdditionalOutputBaseDirs);
-        }
-        catch (ArgumentNullException)
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid, BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning, MessageBoxImage.Exclamation, routeName);
-            throw;
         }
     }
 

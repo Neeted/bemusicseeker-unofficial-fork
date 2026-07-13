@@ -124,11 +124,17 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistSyncProgressChanged?.Invoke(this, new PlaylistSyncProgressChangedEventArgs(snapshot));
     }
 
-    private void RequestPlaylistSummaryRefresh(string reason, bool invalidateTableCountCache)
+    private void RequestPlaylistSummaryRefresh(
+        string reason,
+        bool invalidateTableCountCache,
+        bool rebuildAsync = true)
     {
         PlaylistSummaryDataRefreshRequested?.Invoke(
             this,
-            new PlaylistSummaryDataRefreshRequestedEventArgs(reason, invalidateTableCountCache));
+            new PlaylistSummaryDataRefreshRequestedEventArgs(
+                reason,
+                invalidateTableCountCache,
+                rebuildAsync));
     }
 
     private void LogPlaylistSummaryBulkWarning(string message)

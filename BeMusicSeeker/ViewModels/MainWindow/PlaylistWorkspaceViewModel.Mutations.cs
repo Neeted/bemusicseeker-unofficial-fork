@@ -18,6 +18,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistWorkspaceEntriesChangedEventArgs> EntriesChanged;
 
+    internal event EventHandler PlaylistReferenceSortInvalidationRequested;
+
+    internal event EventHandler<PlaylistTableRemovalInvalidOutputDirectoryEventArgs> PlaylistTableRemovalInvalidOutputDirectoryRequested;
+
     internal void ConfigureMutations(
         Func<BMSLibrary> playlistLibrary,
         Action<Action, string> operationWithNotifications)
@@ -35,6 +39,23 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal Task RemoveFolderAsync(BMSTable table, PlaylistFolderNode folder)
     {
         return Task.Run(() => RemoveFolder(table, folder));
+    }
+
+    internal Task RemoveTableAsync(BMSTable table)
+    {
+        return Task.Run(() => RemoveTable(table));
+    }
+
+    internal Task RemoveTablesAsync(IEnumerable<BMSTable> tables)
+    {
+        if (tables == null)
+        {
+            return Task.CompletedTask;
+        }
+        List<BMSTable> requestedTables = [.. tables.Where(table => table != null)];
+        return requestedTables.Count == 0
+            ? Task.CompletedTask
+            : Task.Run(() => RemoveTables(requestedTables));
     }
 
     internal Task CreateFolderAsync(BMSTable table)
@@ -73,6 +94,107 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
         GetPlaylistStore().RemoveFolderBMSTable(table, folder.FolderName);
+    }
+
+    private void RemoveTable(BMSTable bmsTable)
+    {
+        RemoveTables([bmsTable]);
+    }
+
+    private void RemoveTables(IReadOnlyList<BMSTable> bmsTables)
+    {
+        if (bmsTables == null)
+        {
+            return;
+        }
+
+        CustomFolderOutputSettingsSnapshot settings = null;
+        bool settingsLoaded = false;
+        CustomFolderOutputSettingsSnapshot GetSettingsSnapshot()
+        {
+            if (!settingsLoaded)
+            {
+                settings = GetCustomFolderOutputSettings();
+                settingsLoaded = true;
+            }
+            return settings;
+        }
+
+        foreach (BMSTable bmsTable in bmsTables)
+        {
+            RemoveTableCore(bmsTable, GetSettingsSnapshot);
+        }
+        RequestPlaylistSummaryRefresh(
+            "playlist_table_removed",
+            invalidateTableCountCache: true,
+            rebuildAsync: false);
+    }
+
+    private void RemoveTableCore(
+        BMSTable bmsTable,
+        Func<CustomFolderOutputSettingsSnapshot> settingsProvider)
+    {
+        if (bmsTable == null)
+        {
+            throw new ArgumentNullException(nameof(bmsTable));
+        }
+
+        RunWithNotifications(
+            () =>
+            {
+                CustomFolderOutputSettingsSnapshot settings = settingsProvider();
+                BMSPlaylist playlistStore = GetPlaylistStore();
+                BMSLibrary library = GetPlaylistLibrary();
+                if (settings.OperationModeLR2DB && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+                {
+                    playlistStore.RemoveCustomFolder(bmsTable, settings);
+                }
+
+                BMSTable removedTable = playlistStore.RemoveBMSTable(bmsTable);
+                if (settings.OperationModeLR2DB
+                    && bmsTable.is_root_folder
+                    && !string.IsNullOrWhiteSpace(bmsTable.Output_dir))
+                {
+                    LR2Config lr2config = GetLr2Config()
+                        ?? throw new InvalidOperationException("LR2 config provider is not configured.");
+                    string customFolderOutputDirectory = ResolveTableRemovalCustomFolderOutputDirectory(
+                        bmsTable,
+                        "playlist remove custom folder output directory notification",
+                        settings);
+                    lr2config.RemoveBMSSearchDirectories([customFolderOutputDirectory]);
+                    lr2config.Save();
+                }
+
+                if (removedTable != null)
+                {
+                    library.RemoveReferenceBMSTables(removedTable);
+                }
+
+                PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
+            },
+            "playlist remove custom folder notification");
+    }
+
+    private string ResolveTableRemovalCustomFolderOutputDirectory(
+        BMSTable bmsTable,
+        string routeName,
+        CustomFolderOutputSettingsSnapshot settings)
+    {
+        try
+        {
+            return BMSPlaylist.GetCustomFolderOutputDirectory(
+                bmsTable,
+                settings.LR2CustomFolderOutputBaseDir,
+                settings.LR2CustomFolderOutputBaseDirRootType,
+                settings.LR2CustomFolderAdditionalOutputBaseDirs);
+        }
+        catch (ArgumentNullException)
+        {
+            PlaylistTableRemovalInvalidOutputDirectoryRequested?.Invoke(
+                this,
+                new PlaylistTableRemovalInvalidOutputDirectoryEventArgs(routeName));
+            throw;
+        }
     }
 
     private void CreateFolder(BMSTable table)
@@ -360,4 +482,14 @@ internal sealed class PlaylistWorkspaceEntriesChangedEventArgs : EventArgs
     }
 
     internal BMSTable Table { get; }
+}
+
+internal sealed class PlaylistTableRemovalInvalidOutputDirectoryEventArgs : EventArgs
+{
+    internal PlaylistTableRemovalInvalidOutputDirectoryEventArgs(string routeName)
+    {
+        RouteName = routeName ?? string.Empty;
+    }
+
+    internal string RouteName { get; }
 }

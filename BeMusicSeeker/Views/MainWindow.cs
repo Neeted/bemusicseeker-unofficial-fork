@@ -3643,17 +3643,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel viewModel)
         {
-            await Task.Run(delegate
-            {
-                foreach (PlaylistSummaryRow item in selectedPlaylistSummaryRows)
-                {
-                    if (item?.TableRef != null)
-                    {
-                        viewModel.RemoveBMSTable(item.TableRef);
-                    }
-                }
-                viewModel.RebuildPlaylistSummaryView(runAsync: false);
-            }).Logging("playlistSummaryContextMenuRemoveClick");
+            await viewModel.PlaylistWorkspace
+                .RemoveTablesAsync(selectedPlaylistSummaryRows.Select(item => item?.TableRef))
+                .Logging("playlistSummaryContextMenuRemoveClick");
         }
     }
 
@@ -4329,10 +4321,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         SelectNextSiblingOrRoot(treeViewItemPlaylist, bmsTable, "treeViewPlaylistTableContextMenuItemRemoveTableClick");
-        await Task.Run(delegate
-        {
-            viewModel.RemoveBMSTable(bmsTable);
-        }).Logging("treeViewPlaylistTableContextMenuItemRemoveTableClick");
+        await viewModel.PlaylistWorkspace.RemoveTableAsync(bmsTable).Logging("treeViewPlaylistTableContextMenuItemRemoveTableClick");
         if (treeViewItemPlaylist.IsSelected && treeViewItemPlaylist.Items.Count == 0)
         {
             await Task.Run(delegate

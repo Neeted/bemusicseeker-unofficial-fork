@@ -77,6 +77,22 @@ public partial class MainWindowViewModel
         InvalidateNormalLibraryReferenceTableSortKeys();
     }
 
+    private void PlaylistWorkspacePlaylistReferenceSortInvalidationRequested(object sender, EventArgs e)
+    {
+        InvalidateNormalLibraryReferenceTableSortKeys();
+    }
+
+    private void PlaylistWorkspacePlaylistTableRemovalInvalidOutputDirectoryRequested(
+        object sender,
+        PlaylistTableRemovalInvalidOutputDirectoryEventArgs request)
+    {
+        ShowUiMessage(
+            BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
+            BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
+            MessageBoxImage.Exclamation,
+            request.RouteName);
+    }
+
     private void PlaylistWorkspacePlaylistPropertyExternalSyncFailed(
         object sender,
         PlaylistPropertyExternalSyncFailedEventArgs request)

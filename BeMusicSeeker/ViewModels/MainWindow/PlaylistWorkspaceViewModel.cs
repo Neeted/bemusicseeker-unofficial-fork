@@ -1157,15 +1157,21 @@ internal sealed class PlaylistSummaryViewAppliedEventArgs : EventArgs
 
 internal sealed class PlaylistSummaryDataRefreshRequestedEventArgs : EventArgs
 {
-    internal PlaylistSummaryDataRefreshRequestedEventArgs(string reason, bool invalidateTableCountCache)
+    internal PlaylistSummaryDataRefreshRequestedEventArgs(
+        string reason,
+        bool invalidateTableCountCache,
+        bool rebuildAsync = true)
     {
         Reason = reason ?? throw new ArgumentNullException(nameof(reason));
         InvalidateTableCountCache = invalidateTableCountCache;
+        RebuildAsync = rebuildAsync;
     }
 
     internal string Reason { get; }
 
     internal bool InvalidateTableCountCache { get; }
+
+    internal bool RebuildAsync { get; }
 }
 
 [Serializable]

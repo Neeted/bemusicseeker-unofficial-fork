@@ -102,6 +102,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "EntriesChanged?.Invoke(this, new PlaylistWorkspaceEntriesChangedEventArgs(table));");
         StringAssert.Contains(workspaceSource, "internal Task AddRowsToFolderAsync(");
         StringAssert.Contains(workspaceSource, "internal Task DeleteEntriesAsync(");
+        StringAssert.Contains(workspaceSource, "internal Task RemoveTableAsync(");
+        StringAssert.Contains(workspaceSource, "internal Task RemoveTablesAsync(");
+        StringAssert.Contains(workspaceSource, "RequestPlaylistSummaryRefresh(\n            \"playlist_table_removed\"");
+        StringAssert.Contains(workspaceSource, "rebuildAsync: false");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RemoveTableAsync(");
         StringAssert.Contains(workspaceSource, "internal void RequestSummarySelection()");
         StringAssert.Contains(workspaceSource, "internal void RequestDetailSelection(BMSTable table, PlaylistFolderNode folderNode = null)");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestSummarySelection();");
@@ -110,6 +116,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(bulkEditSource, "ownerWorkspace.ApplyPlaylistSummaryBmtOutput(");
         StringAssert.Contains(workspaceSource, "internal void ApplyPlaylistSummaryBmtOutput(");
         Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistSummaryBmtOutput(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("RemoveBMSTable(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("ExecPlaylistFilter", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("SelectPlaylistSummary", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("playlistViewState", StringComparison.Ordinal));

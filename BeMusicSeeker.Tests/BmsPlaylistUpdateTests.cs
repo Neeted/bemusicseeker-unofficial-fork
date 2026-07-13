@@ -5936,7 +5936,7 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void MainWindowRemoveBMSTable_UsesInjectedCustomFolderSettingsSnapshot()
+    public void PlaylistWorkspaceRemoveTable_UsesInjectedCustomFolderSettingsSnapshot()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
@@ -6004,10 +6004,20 @@ public sealed class BmsPlaylistUpdateTests
             typeof(MainWindowViewModel)
                 .GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, library);
+            PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
+            viewModel.PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
+            {
+                if (request.Reason == "playlist_table_removed")
+                {
+                    removalRefresh = request;
+                }
+            };
 
-            viewModel.RemoveBMSTable(table);
+            viewModel.PlaylistWorkspace.RemoveTableAsync(table).GetAwaiter().GetResult();
 
             Assert.AreEqual(1, providerCallCount);
+            Assert.IsNotNull(removalRefresh);
+            Assert.IsFalse(removalRefresh!.RebuildAsync);
             Assert.IsFalse(playlist.ContainsBMSTable(table));
             Assert.IsFalse(Directory.Exists(targetDir));
             Assert.IsFalse(Directory.Exists(Path.Combine(globalOutputBaseDir, table.Output_dir)));
@@ -6027,7 +6037,7 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void MainWindowRemoveBMSTable_RemovesInjectedRootOutputSearchDirectory()
+    public void PlaylistWorkspaceRemoveTable_RemovesInjectedRootOutputSearchDirectory()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousRootOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
@@ -6097,7 +6107,7 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, config);
 
-            viewModel.RemoveBMSTable(table);
+            viewModel.PlaylistWorkspace.RemoveTableAsync(table).GetAwaiter().GetResult();
 
             Assert.AreEqual(1, providerCallCount);
             Assert.IsFalse(Directory.Exists(outputDirectory));
