@@ -138,19 +138,29 @@ internal sealed class ApplicationComposition
     internal PlaylistWorkspaceViewModel CreatePlaylistWorkspaceViewModel(
         Action<Action> dispatchPresentationAction,
         MainChartListViewModel mainChartList,
-        PlaylistDetailBuildState playlistDetailBuildState,
-        PlaylistDetailViewState playlistViewState,
         Action<string> detailViewLog,
         Action<string> detailRetentionLog)
     {
         return new PlaylistWorkspaceViewModel(
             dispatchPresentationAction,
             mainChartList,
-            playlistDetailBuildState,
-            playlistViewState,
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
             detailViewLog,
             detailRetentionLog,
             customFolderOutputSettingsProvider);
+    }
+
+    internal IPlaylistDetailDataSource CreatePlaylistDetailDataSource(
+        BMSLibrary library,
+        BMSPlaylist playlists,
+        MainChartListViewModel mainChartList)
+    {
+        if (mainChartList == null)
+        {
+            throw new ArgumentNullException(nameof(mainChartList));
+        }
+        return new PlaylistDetailDataSource(library, playlists, mainChartList.RowProjection);
     }
 
     internal MainWindowViewModel.SettingDialogViewModel CreateSettingDialogViewModel(MainWindowViewModel owner)

@@ -130,6 +130,8 @@ public sealed class PlaylistViewPipelineTests
         string playlistViewSnapshotStateSource = ExtractTypeBlock(playlistDetailViewStateSource, "internal sealed class PlaylistDetailViewSnapshotState");
         string playlistTerminalCoordinatorSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailTerminal.cs");
+        string playlistSourceOwner = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailSource.cs");
         string playlistTerminalApplySource = SourceTextTestHelper.ExtractMethodBody(
             playlistTerminalCoordinatorSource,
             "internal PlaylistDetailTerminalCommitResult ApplyDetailTerminal(");
@@ -162,7 +164,7 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(playlistViewStateSource, "internal readonly PlaylistDetailViewSnapshotState View = new();");
         Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal List<PlaylistDetailSourceRow> SourceRows", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistViewStateSource.IndexOf("internal IList CurrentViewRows", StringComparison.Ordinal));
-        StringAssert.Contains(rootSource, "private readonly PlaylistDetailBuildState playlistDetailBuildState = new();");
+        Assert.AreEqual(-1, rootSource.IndexOf("new PlaylistDetailBuildState()", StringComparison.Ordinal));
         StringAssert.Contains(queueCoordinatorSource, "internal static class PlaylistDetailBuildQueueCoordinator");
         StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested || isShutdownRequested");
         StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested = true;");
@@ -209,10 +211,11 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(-1, playlistTerminalApplySource.IndexOf("CommitExternalColumnMode", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("MainChartListCoordinatedPublishException", StringComparison.Ordinal));
         Assert.IsFalse(rootSource.Contains("PlaylistDetailTerminalTransition"));
-        StringAssert.Contains(rootSource, "request.RequestVersion != playlistDetailBuildState.RequestVersion");
-        StringAssert.Contains(rootSource, "ReferenceEquals(playlistViewState.Source.Rows, sourceRows)");
+        StringAssert.Contains(playlistSourceOwner, "request.RequestVersion != DetailBuildState.RequestVersion");
+        StringAssert.Contains(playlistSourceOwner, "ReferenceEquals(DetailViewState.Source.Rows, sourceRows)");
         StringAssert.Contains(sourceRowSource, "internal PlaylistDetailSourceRow WithEntryChartInfo(");
-        StringAssert.Contains(rootSource, "PlaylistSourceBuildResult sourceBuildResult = BuildPlaylistSourceRows");
+        StringAssert.Contains(playlistSourceOwner, "internal PlaylistSourceBuildResult BuildDetailSourceRows(");
+        Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSourceRows(", StringComparison.Ordinal));
         StringAssert.Contains(rootSource, "private bool RebuildPlaylistSource(");
         StringAssert.Contains(rootSource, "playlistDetailBuildState.BuildGate.Wait(cancellationToken);");
         StringAssert.Contains(rootSource, "playlistDetailBuildState.BuildGate.Release();");

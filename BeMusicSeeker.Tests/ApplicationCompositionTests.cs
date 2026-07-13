@@ -286,8 +286,6 @@ public sealed class ApplicationCompositionTests
         PlaylistWorkspaceViewModel playlistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
             action => action(),
             mainChartList,
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
             _ =>
             {
             },
@@ -297,6 +295,8 @@ public sealed class ApplicationCompositionTests
 
         Assert.IsNotNull(mainChartList);
         Assert.IsNotNull(playlistWorkspace);
+        Assert.IsNotNull(playlistWorkspace.DetailBuildState);
+        Assert.IsNotNull(playlistWorkspace.DetailViewState);
     }
 
     [TestMethod]
@@ -311,8 +311,6 @@ public sealed class ApplicationCompositionTests
         PlaylistWorkspaceViewModel playlistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
             action => action(),
             mainChartList,
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
             _ =>
             {
             },

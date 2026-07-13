@@ -2189,6 +2189,12 @@ public sealed class MainWindowContextMenuResourceTests
             "ViewModels",
             "MainWindow",
             "RegularChartListOwner.cs"));
+        string playlistDataSourceCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistDetailDataSource.cs"));
 
         Assert.IsFalse(viewModelCode.Contains("chartTransientStatesByKey"));
         Assert.IsFalse(viewModelCode.Contains("chartInfoProjectionVersionCache"));
@@ -2199,7 +2205,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(regularOwnerCode, "mainChartList.RowProjection.BuildNormalSourceRows(");
         StringAssert.Contains(regularOwnerCode, "mainChartList.RowProjection.BuildPackageSourceRows(");
         StringAssert.Contains(regularOwnerCode, "mainChartList.RowProjection.BuildStandardSourceRows(");
-        StringAssert.Contains(viewModelCode, "MainChartList.RowProjection.CreatePlaylistDetailSourceRow(");
+        Assert.IsFalse(viewModelCode.Contains("MainChartList.RowProjection.CreatePlaylistDetailSourceRow("));
+        StringAssert.Contains(playlistDataSourceCode, "rowProjection.CreatePlaylistDetailSourceRow(");
         StringAssert.Contains(projectionOwnerCode, "private readonly Dictionary<string, ChartFileTransientState> transientStatesByKey");
         Assert.IsFalse(projectionOwnerCode.Contains("MainWindowViewModel"));
         Assert.IsFalse(projectionOwnerCode.Contains("Application.Current"));

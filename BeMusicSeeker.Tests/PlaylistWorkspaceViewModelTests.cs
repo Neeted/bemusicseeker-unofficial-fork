@@ -1,7 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Threading;
 using System.Windows;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -84,8 +88,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, playHistoryOwnerSource.IndexOf("PublishBindingMode(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(");
-        StringAssert.Contains(logicalSource, "playlistDetailBuildState,");
-        StringAssert.Contains(logicalSource, "playlistViewState,");
+        StringAssert.Contains(logicalSource, "LogPlaylistViewApply,");
+        StringAssert.Contains(workspaceSource, "internal PlaylistDetailBuildState DetailBuildState { get; }");
+        StringAssert.Contains(workspaceSource, "internal PlaylistDetailViewState DetailViewState { get; }");
         StringAssert.Contains(logicalSource, "LogPlaylistRetention);");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("private void PlaylistWorkspacePropertyChanged(", StringComparison.Ordinal));
@@ -124,6 +129,286 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, mainWindowSource.IndexOf("private async void customTableView_SortRequested(", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("CaptureSortRequest", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
+    }
+
+    [TestMethod]
+    public void BuildDetailSourceRows_FiltersFolderAndRemovedEntriesInsideWorkspace()
+    {
+        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        var included = new TestablePlaylistEntry("11111111111111111111111111111111", "included") { folder = "target" };
+        var otherFolder = new TestablePlaylistEntry("22222222222222222222222222222222", "other") { folder = "other" };
+        var removed = new TestablePlaylistEntry("33333333333333333333333333333333", "removed") { folder = "target", is_removed = true };
+        var table = new BMSTable
+        {
+            entries = [included, otherFolder, removed]
+        };
+        string cancellationStage = string.Empty;
+
+        PlaylistSourceBuildResult result = workspace.BuildDetailSourceRows(
+            table,
+            "target",
+            onlyNotOwned: false,
+            new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty },
+            CancellationToken.None,
+            ref cancellationStage);
+
+        Assert.AreEqual(1, result.SourceRows.Count);
+        Assert.AreSame(included, result.SourceRows[0].Entry);
+        Assert.AreEqual(1, dataSource.EnsureEntriesLoadedCallCount);
+        Assert.AreEqual("source_row_materialize", cancellationStage);
+    }
+
+    [TestMethod]
+    public void TryPatchDetailSourceChartInfo_ReplacesCurrentGenerationWithoutMutatingOldRow()
+    {
+        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        var oldInfo = new LR2SongDBExtended.chart_info
+        {
+            sha256 = new string('a', 64),
+            parser_version = 1,
+            updated_at = new DateTime(2026, 1, 1)
+        };
+        var newInfo = new LR2SongDBExtended.chart_info
+        {
+            sha256 = oldInfo.sha256,
+            parser_version = 2,
+            updated_at = new DateTime(2026, 2, 1)
+        };
+        var entry = new TestablePlaylistEntry("44444444444444444444444444444444", "patch");
+        entry.SetSha256(oldInfo.sha256);
+        var oldRow = new PlaylistDetailSourceRow(entry, resolvedChart: null, entryChartInfo: oldInfo);
+        workspace.DetailViewState.Source.Rows = [oldRow];
+        workspace.DetailBuildState.RequestVersion = 7;
+        dataSource.ChartInfo = newInfo;
+        var request = new PlaylistBuildRequest
+        {
+            RequestVersion = 7,
+            Identity = PlaylistRequestFactory.CreateIdentity(
+                new BMSTable(),
+                null,
+                PlaylistDetailFilter.PlaylistFilter,
+                null,
+                ChartModeFilter.All,
+                null,
+                libraryIndexVersion: 1,
+                playlistRevision: 1,
+                scoreSnapshotVersion: 1,
+                chartInfoIndexVersion: 2,
+                hasResolvedSelection: true)
+        };
+
+        bool patched = workspace.TryPatchDetailSourceChartInfo(
+            request,
+            CancellationToken.None,
+            out int sourceCount,
+            out int dependencyCount,
+            out int patchedCount,
+            out _);
+
+        Assert.IsTrue(patched);
+        Assert.AreEqual(1, sourceCount);
+        Assert.AreEqual(1, dependencyCount);
+        Assert.AreEqual(1, patchedCount);
+        Assert.AreSame(oldInfo, oldRow.EntryChartInfo);
+        Assert.AreNotSame(oldRow, workspace.DetailViewState.Source.Rows[0]);
+        Assert.AreSame(newInfo, workspace.DetailViewState.Source.Rows[0].EntryChartInfo);
+        Assert.AreEqual(2, workspace.DetailViewState.Source.LastBuiltChartInfoIndexVersion);
+    }
+
+    [TestMethod]
+    public void TryPatchDetailSourceChartInfo_RejectsStaleRequestWithoutReplacingSource()
+    {
+        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        var oldInfo = new LR2SongDBExtended.chart_info
+        {
+            sha256 = new string('b', 64),
+            parser_version = 1,
+            updated_at = new DateTime(2026, 1, 1)
+        };
+        var entry = new TestablePlaylistEntry("55555555555555555555555555555555", "stale");
+        var oldRow = new PlaylistDetailSourceRow(entry, resolvedChart: null, entryChartInfo: oldInfo);
+        List<PlaylistDetailSourceRow> oldRows = [oldRow];
+        workspace.DetailViewState.Source.Rows = oldRows;
+        workspace.DetailBuildState.RequestVersion = 8;
+        dataSource.ChartInfo = new LR2SongDBExtended.chart_info
+        {
+            sha256 = oldInfo.sha256,
+            parser_version = 2,
+            updated_at = new DateTime(2026, 2, 1)
+        };
+        var staleRequest = new PlaylistBuildRequest
+        {
+            RequestVersion = 7,
+            Identity = PlaylistRequestFactory.CreateIdentity(
+                new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, null,
+                ChartModeFilter.All, null, 1, 1, 1, 2, hasResolvedSelection: true)
+        };
+
+        bool patched = workspace.TryPatchDetailSourceChartInfo(
+            staleRequest,
+            CancellationToken.None,
+            out _, out _, out _, out _);
+
+        Assert.IsFalse(patched);
+        Assert.AreSame(oldRows, workspace.DetailViewState.Source.Rows);
+        Assert.AreSame(oldInfo, oldRow.EntryChartInfo);
+    }
+
+    [TestMethod]
+    public void BuildDetailSourceRows_OnlyNotOwnedExcludesResolvedLibraryCharts()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        var owned = new TestablePlaylistEntry("66666666666666666666666666666666", "owned");
+        var missing = new TestablePlaylistEntry("77777777777777777777777777777777", "missing");
+        var table = new BMSTable { entries = [owned, missing] };
+        PlaylistLibraryResolveIndexSnapshot resolveIndex = PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(
+            [LibraryChartRef.FromPath(LibraryChartKind.Bms, @"C:\songs\owned.bms", owned.md5, null)]);
+        string cancellationStage = string.Empty;
+
+        PlaylistSourceBuildResult result = workspace.BuildDetailSourceRows(
+            table,
+            null,
+            onlyNotOwned: true,
+            new PlaylistLibraryIndexSnapshot { ResolveIndex = resolveIndex },
+            CancellationToken.None,
+            ref cancellationStage);
+
+        Assert.AreEqual(1, result.SourceRows.Count);
+        Assert.AreSame(missing, result.SourceRows[0].Entry);
+    }
+
+    [TestMethod]
+    public void BuildDetailSourceRows_CancellationIsNotHidden()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        var table = new BMSTable
+        {
+            entries = [new TestablePlaylistEntry("88888888888888888888888888888888", "cancel")]
+        };
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        string cancellationStage = string.Empty;
+
+        Assert.ThrowsException<OperationCanceledException>(() => workspace.BuildDetailSourceRows(
+            table,
+            null,
+            onlyNotOwned: false,
+            new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty },
+            cancellation.Token,
+            ref cancellationStage));
+    }
+
+    [TestMethod]
+    public void SetDetailDataSource_ReinitializeUsesReplacementSource()
+    {
+        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource firstSource);
+        var replacementSource = new FakePlaylistDetailDataSource();
+        using var activeBuildCancellation = new CancellationTokenSource();
+        PlaylistRequestIdentity identity = PlaylistRequestFactory.CreateIdentity(
+            new BMSTable(), null, PlaylistDetailFilter.PlaylistFilter, null,
+            ChartModeFilter.All, null, 1, 1, 1, 1, hasResolvedSelection: true);
+        workspace.DetailBuildState.RequestVersion = 10;
+        workspace.DetailBuildState.CurrentBuildCancellation = activeBuildCancellation;
+        workspace.DetailBuildState.CurrentBuildRequest = new PlaylistBuildRequest { Identity = identity };
+        workspace.DetailBuildState.WorkerRunning = true;
+        workspace.DetailViewState.Source.CurrentIdentity = identity.SourceIdentity;
+        workspace.SetDetailDataSource(replacementSource);
+        Assert.AreEqual(11, workspace.DetailBuildState.RequestVersion);
+        var replacementRequest = new PlaylistBuildRequest { Identity = identity };
+        PlaylistBuildQueueRegisterResult registerResult = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            workspace.DetailBuildState,
+            replacementRequest,
+            currentViewIdentity: null,
+            lastBuiltScoreSnapshotVersion: 0,
+            isShutdownRequested: false);
+        var table = new BMSTable
+        {
+            entries = [new TestablePlaylistEntry("99999999999999999999999999999999", "replacement")]
+        };
+        string cancellationStage = string.Empty;
+
+        workspace.BuildDetailSourceRows(
+            table,
+            null,
+            onlyNotOwned: false,
+            new PlaylistLibraryIndexSnapshot { ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty },
+            CancellationToken.None,
+            ref cancellationStage);
+
+        Assert.AreEqual(0, firstSource.EnsureEntriesLoadedCallCount);
+        Assert.AreEqual(1, replacementSource.EnsureEntriesLoadedCallCount);
+        Assert.AreEqual(12, workspace.DetailBuildState.RequestVersion);
+        Assert.IsTrue(activeBuildCancellation.IsCancellationRequested);
+        Assert.IsNull(workspace.DetailViewState.Source.CurrentIdentity);
+        Assert.IsTrue(registerResult.Enqueued);
+        Assert.AreSame(replacementRequest, workspace.DetailBuildState.PendingRequest);
+    }
+
+    private static PlaylistWorkspaceViewModel CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource)
+    {
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { });
+        dataSource = new FakePlaylistDetailDataSource();
+        workspace.SetDetailDataSource(dataSource);
+        return workspace;
+    }
+
+    private sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
+    {
+        internal int EnsureEntriesLoadedCallCount { get; private set; }
+
+        internal LR2SongDBExtended.chart_info ChartInfo { get; set; } = null!;
+
+        public int ChartInfoIndexVersion => 1;
+
+        public void EnsureEntriesLoaded(BMSTable table, string reason)
+        {
+            EnsureEntriesLoadedCallCount++;
+        }
+
+        public BMSLibrary.ScoreSnapshot GetScoreSnapshot()
+        {
+            return null!;
+        }
+
+        public LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)
+        {
+            return ChartInfo;
+        }
+
+        public PlaylistDetailSourceRow CreateSourceRow(
+            BMSTableEntry entry,
+            ChartFile resolvedChart,
+            BMSScore score,
+            LR2SongDBExtended.chart_info chartInfo,
+            LibraryChartRef resolvedChartRef)
+        {
+            return new PlaylistDetailSourceRow(
+                entry,
+                resolvedChart,
+                scoreSnapshot: score,
+                entryChartInfo: chartInfo,
+                resolvedChartRef: resolvedChartRef);
+        }
+    }
+
+    private sealed class TestablePlaylistEntry : BMSTableEntry
+    {
+        internal TestablePlaylistEntry(string md5Value, string titleValue)
+        {
+            md5 = md5Value;
+            title = titleValue;
+        }
+
+        internal void SetSha256(string value)
+        {
+            sha256 = value;
+        }
     }
 
     [TestMethod]

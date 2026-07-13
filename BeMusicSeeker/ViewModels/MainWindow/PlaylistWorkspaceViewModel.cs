@@ -26,9 +26,44 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
+    private IPlaylistDetailDataSource detailDataSource;
+
     internal PlaylistDetailBuildState DetailBuildState { get; }
 
     internal PlaylistDetailViewState DetailViewState { get; }
+
+    internal void SetDetailDataSource(IPlaylistDetailDataSource dataSource)
+    {
+        if (dataSource == null)
+        {
+            throw new ArgumentNullException(nameof(dataSource));
+        }
+        CancellationTokenSource activeBuildCancellation;
+        lock (DetailBuildState.SyncRoot)
+        {
+            if (ReferenceEquals(Volatile.Read(ref detailDataSource), dataSource))
+            {
+                return;
+            }
+            DetailBuildState.RequestVersion++;
+            DetailBuildState.PendingRequest = null;
+            activeBuildCancellation = DetailBuildState.CurrentBuildCancellation;
+            DetailBuildState.CurrentBuildRequest = null;
+            lock (DetailViewState.SyncRoot)
+            {
+                DetailViewState.Source.CurrentIdentity = null;
+                DetailViewState.View.CurrentIdentity = null;
+            }
+            Volatile.Write(ref detailDataSource, dataSource);
+        }
+        try
+        {
+            activeBuildCancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
 
     public PlaylistWorkspaceViewModel(Action<Action> dispatchPresentation)
         : this(
