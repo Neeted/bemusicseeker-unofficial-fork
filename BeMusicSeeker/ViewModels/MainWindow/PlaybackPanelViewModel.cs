@@ -94,7 +94,6 @@ public sealed class PlaybackPanelViewModel : ViewModel
     private ViewModelCommand previousCommand;
     private ViewModelCommand restartCommand;
     private ViewModelCommand startCommand;
-    private ViewModelCommand activateSelectedCommand;
     private ViewModelCommand stopCommand;
     private ViewModelCommand fastForwardStartCommand;
     private ViewModelCommand fastForwardEndCommand;
@@ -128,7 +127,6 @@ public sealed class PlaybackPanelViewModel : ViewModel
     public ViewModelCommand PreviousCommand => previousCommand ??= CreateBackgroundCommand(() => Previous(), "PlaybackPanel.Previous");
     public ViewModelCommand RestartCommand => restartCommand ??= CreateBackgroundCommand(RestartPlayingBmsFile, "PlaybackPanel.Restart");
     public ViewModelCommand StartCommand => startCommand ??= CreateBackgroundCommand(() => Start(forceNewPlay: false), "PlaybackPanel.Start");
-    public ViewModelCommand ActivateSelectedCommand => activateSelectedCommand ??= CreateBackgroundCommand(() => Start(), "PlaybackPanel.ActivateSelected");
     public ViewModelCommand StopCommand => stopCommand ??= CreateBackgroundCommand(() => StopPlayback(closeProcess: true), "PlaybackPanel.Stop");
     public ViewModelCommand FastForwardStartCommand => fastForwardStartCommand ??= CreateBackgroundCommand(FastForwardStart, "PlaybackPanel.FastForwardStart");
     public ViewModelCommand FastForwardEndCommand => fastForwardEndCommand ??= CreateBackgroundCommand(FastForwardEnd, "PlaybackPanel.FastForwardEnd");
@@ -161,6 +159,58 @@ public sealed class PlaybackPanelViewModel : ViewModel
     internal event EventHandler PlaybackStarting;
 
     internal event EventHandler PlaybackStarted;
+
+    internal void HandleTableSelection(object row)
+    {
+        if (NowPlayingBmsFile == null && GridRowResolver.TryGetBmsPlayerFile(row, out BMSFile bmsFile))
+        {
+            SetBmsPlayerHeader(bmsFile);
+        }
+    }
+
+    internal bool HandleTableRowActivation(int rowIndex, object row)
+    {
+        if (rowIndex < 0
+            || rowIndex >= playbackQueue.Count
+            || !GridRowResolver.TryGetBmsPlayerFile(row, out BMSFile bmsFile))
+        {
+            return false;
+        }
+
+        SetBmsPlayerHeader(bmsFile);
+        bool shouldSelectBmsPlayerSurface = IsStoppedOrPaused;
+        System.Threading.Tasks.Task.Run(() => ExecuteTableRowActivation(rowIndex, row)).Logging("PlaybackPanel.ActivateRow");
+        return shouldSelectBmsPlayerSurface;
+    }
+
+    internal void ExecuteTableRowActivation(int rowIndex, object expectedRow)
+    {
+        lock (workflowGate)
+        {
+            if (rowIndex < 0 || rowIndex >= playbackQueue.Count)
+            {
+                return;
+            }
+
+            object currentRow;
+            try
+            {
+                currentRow = playbackQueue.GetRow(rowIndex);
+            }
+            catch
+            {
+                return;
+            }
+            if (!ReferenceEquals(currentRow, expectedRow))
+            {
+                return;
+            }
+
+            playbackQueue.SelectedIndex = rowIndex;
+            StopPlayback();
+            StartAtIndex(rowIndex, currentRow, useInitialRow: true);
+        }
+    }
 
     /// <summary>
     /// Gets the chart whose playback session is active or being prepared.
@@ -723,6 +773,11 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     internal void StartAtIndex(int index)
     {
+        StartAtIndex(index, initialRow: null, useInitialRow: false);
+    }
+
+    private void StartAtIndex(int index, object initialRow, bool useInitialRow)
+    {
         BMSFile bmsFile = null;
         ChartFile playbackChart = null;
         int remainingCandidates = playbackQueue.Count;
@@ -732,7 +787,8 @@ public sealed class PlaybackPanelViewModel : ViewModel
             object row;
             try
             {
-                row = playbackQueue.GetRow(index);
+                row = useInitialRow ? initialRow : playbackQueue.GetRow(index);
+                useInitialRow = false;
                 playbackChart = null;
                 bmsFile = null;
                 GridRowResolver.TryGetChartFile(row, out playbackChart);

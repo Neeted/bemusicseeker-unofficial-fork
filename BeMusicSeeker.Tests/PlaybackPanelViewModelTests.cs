@@ -705,13 +705,18 @@ public sealed class PlaybackPanelViewModelTests
             Settings.Default.FolderSkipPlayMode = false;
             Settings.Default.SinglePlayMode = false;
 
-            panel.ActivateSelectedCommand.Execute();
+            panel.HandleTableSelection(chartList.Rows[1]);
+            Assert.AreEqual(secondPath, panel.DisplayedBmsPlayerFile.path);
+            Assert.IsTrue(panel.HandleTableRowActivation(1, chartList.Rows[1]));
             Assert.IsTrue(SpinWait.SpinUntil(
                 () => player.Commands.Any(command => command == "PlayStart:" + secondPath),
                 3000));
             Assert.AreEqual(secondPath, panel.NowPlayingBmsFile.path);
             Assert.AreEqual(1, panel.NowPlayingRowIndex);
             Assert.AreEqual(1, chartList.SelectedIndex);
+            panel.HandleTableSelection(chartList.Rows[0]);
+            Assert.AreEqual(secondPath, panel.DisplayedBmsPlayerFile.path);
+            Assert.IsFalse(panel.HandleTableRowActivation(0, new object()));
 
             panel.Next();
             Assert.AreEqual(thirdPath, panel.NowPlayingBmsFile.path);
@@ -734,6 +739,47 @@ public sealed class PlaybackPanelViewModelTests
             File.Delete(firstPath);
             File.Delete(secondPath);
             File.Delete(thirdPath);
+        }
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_RowActivationDropsRequestWhenQueueSlotChanged()
+    {
+        string expectedPath = Path.GetTempFileName();
+        string replacementPath = Path.GetTempFileName();
+        var expectedRow = new TestBmsFile(expectedPath);
+        var replacementRow = new TestBmsFile(replacementPath);
+        var player = new FakeBmsPlayer();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { replacementRow },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new FakePlaybackDialogService(),
+            _ => { },
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            panel.ExecuteTableRowActivation(0, expectedRow);
+
+            Assert.IsFalse(player.Commands.Any(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+            Assert.IsNull(panel.NowPlayingBmsFile);
+
+            chartList.Rows[0] = expectedRow;
+            panel.ExecuteTableRowActivation(0, expectedRow);
+
+            Assert.AreEqual(expectedPath, panel.NowPlayingBmsFile.path);
+            CollectionAssert.Contains(player.Commands.ToArray(), "PlayStart:" + expectedPath);
+        }
+        finally
+        {
+            File.Delete(expectedPath);
+            File.Delete(replacementPath);
         }
     }
 

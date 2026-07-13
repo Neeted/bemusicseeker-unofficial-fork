@@ -1340,16 +1340,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void customTableView_SelectionChanged(object sender, CustomTableSelectionChangedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel && viewModel.PlaybackPanel.NowPlayingBmsFile == null)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
             if (viewModel.IsPlaylistDetailViewActive)
             {
                 NLogWrapper.FileLogger?.Info("custom_table_selection_changed selectedIndex=" + e.SelectedIndex + " selectedCount=" + (e.SelectedRows?.Count ?? 0));
             }
-            if (GridRowResolver.TryGetBmsPlayerFile(e.SelectedRow, out BMSFile bmsFile))
-            {
-                viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
-            }
+            viewModel.PlaybackPanel.HandleTableSelection(e.SelectedRow);
         }
     }
 
@@ -1363,16 +1360,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!GridRowResolver.TryGetBmsPlayerFile(e.Row, out BMSFile bmsFile))
-        {
-            return;
-        }
-        viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
-        if (viewModel.PlaybackPanel.IsStoppedOrPaused)
+        if (viewModel.PlaybackPanel.HandleTableRowActivation(e.RowIndex, e.Row))
         {
             playbackPanelView.TrySelectBmsPlayerSurface();
         }
-        viewModel.PlaybackPanel.ActivateSelectedCommand.Execute();
     }
 
     private void customTablePlaylistSummary_RowActivated(object sender, CustomTableRowRequestedEventArgs e)

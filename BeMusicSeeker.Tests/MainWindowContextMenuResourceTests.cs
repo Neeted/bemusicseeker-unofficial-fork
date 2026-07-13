@@ -825,7 +825,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowCode.Contains("PlaybackPanel.PlaybackStarting +="));
         Assert.IsFalse(mainWindowCode.Contains("PlaybackPanel.PlaybackStarted +="));
         Assert.IsFalse(mainWindowCode.Contains("viewModel.PlaybackPanel.Start()"));
-        StringAssert.Contains(mainWindowCode, "viewModel.PlaybackPanel.ActivateSelectedCommand.Execute()");
+        Assert.IsFalse(mainWindowCode.Contains("GridRowResolver.TryGetBmsPlayerFile(e.Row"));
+        Assert.IsFalse(mainWindowCode.Contains("viewModel.PlaybackPanel.SetBmsPlayerHeader"));
+        StringAssert.Contains(mainWindowCode, "viewModel.PlaybackPanel.HandleTableSelection(e.SelectedRow)");
+        StringAssert.Contains(mainWindowCode, "viewModel.PlaybackPanel.HandleTableRowActivation(e.RowIndex, e.Row)");
         Assert.AreEqual("{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 + $P2 : $P0', P0={Binding ActualHeight, ElementName=playbackPanelView}, P1={Binding Visibility, ElementName=progressStatusBar}, P2={Binding Height, ElementName=progressStatusBar}}", GetAttributeValue(mainWindowDocument.Root, "MinHeight"));
         Assert.AreEqual("Auto", GetAttributeValue(playbackRow, "Height"));
         Assert.AreEqual("{Binding ActualHeight, ElementName=playbackPanelView}", GetAttributeValue(playbackRow, "MinHeight"));
