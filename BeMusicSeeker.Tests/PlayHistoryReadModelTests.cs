@@ -3425,7 +3425,14 @@ public sealed class PlayHistoryReadModelTests
             () => MainViewUpdateMode.PlayHistorySelected,
             activateRequest ?? (_ => { }),
             new MainChartListViewModel(),
-            new PlaylistWorkspaceViewModel(action => action()));
+            new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot()));
     }
 
     [TestMethod]

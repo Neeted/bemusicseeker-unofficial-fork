@@ -595,7 +595,14 @@ public sealed class BmsPlaylistUpdateTests
                 }
             }
             var library = new BMSLibrary(songDbPath);
-            var workspace = new PlaylistWorkspaceViewModel(action => action());
+            var workspace = new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot());
             workspace.ConfigureDetailEditing(() => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
 

@@ -69,18 +69,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    public PlaylistWorkspaceViewModel(Action<Action> dispatchPresentation)
-        : this(
-            dispatchPresentation,
-            new MainChartListViewModel(dispatchPresentation),
-            new PlaylistDetailBuildState(),
-            new PlaylistDetailViewState(),
-            _ => { },
-            _ => { },
-            CustomFolderOutputSettingsSnapshot.CreateCurrent)
-    {
-    }
-
     internal PlaylistWorkspaceViewModel(
         Action<Action> dispatchPresentation,
         MainChartListViewModel mainChartList,
@@ -88,7 +76,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         PlaylistDetailViewState viewState,
         Action<string> detailViewLog,
         Action<string> detailRetentionLog,
-        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider = null)
+        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -97,7 +85,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         this.detailViewLog = detailViewLog ?? throw new ArgumentNullException(nameof(detailViewLog));
         this.detailRetentionLog = detailRetentionLog ?? throw new ArgumentNullException(nameof(detailRetentionLog));
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
-            ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
+            ?? throw new ArgumentNullException(nameof(customFolderOutputSettingsProvider));
     }
 
     internal void ConfigureSummaryBmtSort(PlaylistSummaryBmtSortCoordinator coordinator)

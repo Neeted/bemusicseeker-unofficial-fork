@@ -833,7 +833,14 @@ public sealed class ChartListVirtualViewTests
             displayTargetRevision: 0,
             activateRequest: null);
         var table = new MainChartListViewModel { Rows = new List<object>() };
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         SelectSummaryFilter(workflowOwner, "exhard");
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
@@ -879,7 +886,14 @@ public sealed class ChartListVirtualViewTests
             activateRequest: null);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         var table = new MainChartListViewModel { Rows = new List<object>() };
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         workflowOwner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = nameof(PlayHistoryRow.Title),
@@ -919,7 +933,14 @@ public sealed class ChartListVirtualViewTests
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         var oldRows = new List<object>();
         var table = new MainChartListViewModel { Rows = oldRows };
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
         SelectSummaryFilter(workflowOwner, "exhard");
 
@@ -957,7 +978,14 @@ public sealed class ChartListVirtualViewTests
             activateRequest: null);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         var table = new MainChartListViewModel { Rows = new List<object>() };
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         workspace.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
@@ -1347,7 +1375,8 @@ public sealed class ChartListVirtualViewTests
             buildState,
             viewState,
             _ => { },
-            _ => retentionLogged = true);
+            _ => retentionLogged = true,
+            () => new CustomFolderOutputSettingsSnapshot());
         var owner = new PlayHistoryTerminalHarness(
             workflowOwner,
             table,
@@ -1456,7 +1485,8 @@ public sealed class ChartListVirtualViewTests
             buildState,
             viewState,
             _ => { },
-            _ => retentionLogged = true);
+            _ => retentionLogged = true,
+            () => new CustomFolderOutputSettingsSnapshot());
         var sourceClear = new PlaylistSourceClearCommitResult(
             [],
             new List<object>(),
@@ -3922,7 +3952,8 @@ public sealed class ChartListVirtualViewTests
             playlistBuildState,
             playlistViewState,
             _ => { },
-            _ => { });
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         configureWorkspace(workspace);
         return new PlayHistoryTerminalHarness(
             workflowOwner,

@@ -142,6 +142,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(buildOwnerSource, "private PlaylistSummaryRowsBuildResult BuildPlaylistSummaryRows(");
         StringAssert.Contains(buildOwnerSource, "internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(");
         Assert.AreEqual(-1, buildOwnerSource.IndexOf("DispatcherHelper.UIDispatcher", StringComparison.Ordinal));
+        Assert.AreEqual(-1, workspaceSource.IndexOf("CustomFolderOutputSettingsSnapshot.CreateCurrent", StringComparison.Ordinal));
         StringAssert.Contains(buildOwnerSource, "dispatchPresentation(Reflect);");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;");
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableDisplayRefreshRequested", StringComparison.Ordinal));
@@ -159,6 +160,19 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, mainWindowSource.IndexOf("private async void customTableView_SortRequested(", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("CaptureSortRequest", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
+    }
+
+    [TestMethod]
+    public void Constructor_RequiresExplicitCustomFolderOutputSettingsProvider()
+    {
+        Assert.ThrowsException<ArgumentNullException>(() => new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            null));
     }
 
     [TestMethod]
@@ -339,7 +353,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState(),
             _ => { },
-            logs.Add);
+            logs.Add,
+            () => new CustomFolderOutputSettingsSnapshot());
         var dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "request-entry");
@@ -520,7 +535,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailBuildState(),
             new PlaylistDetailViewState(),
             _ => { },
-            _ => { });
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         return workspace;
@@ -626,7 +642,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void MainTablePresentationCommit_CombinesWorkspaceStateBeforePublishingNotifications()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         var summaryColumns = new PlaylistSummaryColumnSettings();
         var selection = new MainChartListColumnSelection(
@@ -660,7 +683,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummarySortRequestCommitsOwnerStateBeforeEvent()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         int raisedCount = 0;
         workspace.PlaylistSummarySortRequested += (_, _) =>
         {
@@ -679,7 +709,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceKeywordWarning_IsOwnedByPlaylistWorkspace()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         var propertyNames = new List<string>();
         workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
@@ -735,7 +772,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryApplyRejectsStaleGenerationAndInactiveMode()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
@@ -789,7 +833,17 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryPublishFailureStillRaisesAppliedEvent()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot())
+        {
+            IsPlaylistSummaryMode = true
+        };
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
         var rows = new ObservableCollection<PlaylistSummaryRow> { new() };
@@ -819,7 +873,17 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryAppliedInvokesLaterSubscriberAfterEarlierFailure()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot())
+        {
+            IsPlaylistSummaryMode = true
+        };
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
         bool laterSubscriberCalled = false;
@@ -839,7 +903,17 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryDataBuildCancelsSupersededAndHiddenWork()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot())
+        {
+            IsPlaylistSummaryMode = true
+        };
 
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest first));
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest second));
@@ -860,7 +934,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceTableCountCacheReusesContentKeyAcrossDataGenerations()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         var expected = new PlaylistSummaryCountResult
         {
             ScannedEntries = 4,
@@ -885,7 +966,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceTableCountCacheRejectsResultFromBuildBeforeInvalidation()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest staleBuild));
         var staleResult = new PlaylistSummaryCountResult
@@ -908,7 +996,17 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceSummaryDataBuildCannotRestartAfterShutdownStop()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot())
+        {
+            IsPlaylistSummaryMode = true
+        };
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
 
@@ -929,7 +1027,17 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceDeferredDataRefreshCancelsBuildAndDominatesPresentation()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot())
+        {
+            IsPlaylistSummaryMode = true
+        };
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
 
@@ -950,7 +1058,17 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceDeferredRefreshIsAtomicWithExternalDataPriorityAndModeExit()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action()) { IsPlaylistSummaryMode = true };
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot())
+        {
+            IsPlaylistSummaryMode = true
+        };
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
 
         Assert.AreEqual(
@@ -969,7 +1087,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceDataRefreshRequestOwnsVisibilityAndDeferralDecision()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         long hiddenDataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
         long hiddenCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
 
@@ -996,7 +1121,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistWorkspaceDropPolicyRejectsMixedExternalAndSpecialTargets()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         var table = new BMSTable();
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder");
         var playlistRow = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
@@ -1013,7 +1145,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public async Task PlaylistWorkspaceExternalMutationRejectsBeforePersistenceAccess()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         var table = new BMSTable { is_external_sync = true };
         var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
         workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
@@ -1039,7 +1178,14 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public async Task PlaylistWorkspaceSpecialFolderMutationIsIgnoredWithoutPersistenceAccess()
     {
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         var table = new BMSTable();
         PlaylistFolderNode specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
 

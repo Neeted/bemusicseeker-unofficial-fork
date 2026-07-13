@@ -313,7 +313,14 @@ public sealed class PlaylistViewPipelineTests
             Rows = new List<object>(),
             ColumnsSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD)
         };
-        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { }, _ => { });
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            table,
+            buildState,
+            viewState,
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         table.RowsReplacementCanceled += (_, _) =>
         {
             Task lockProbe = Task.Run(() =>
@@ -343,7 +350,8 @@ public sealed class PlaylistViewPipelineTests
             buildState,
             viewState,
             _ => { },
-            _ => { });
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         PlaylistDetailTerminalRequest request = CreatePlaylistTerminalRequest(
@@ -363,7 +371,14 @@ public sealed class PlaylistViewPipelineTests
         var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { }, _ => { });
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            table,
+            buildState,
+            viewState,
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -403,7 +418,14 @@ public sealed class PlaylistViewPipelineTests
         var buildState = new PlaylistDetailBuildState { RequestVersion = 1 };
         var viewState = new PlaylistDetailViewState();
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, _ => { }, _ => { });
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            table,
+            buildState,
+            viewState,
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };
@@ -2580,7 +2602,8 @@ public sealed class PlaylistViewPipelineTests
             new PlaylistDetailBuildState(),
             state,
             _ => { },
-            _ => { });
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         workspace.ConfigureDetailEditing(() => throw new AssertFailedException("cancel must not persist"));
         PlaylistDetailEditRefreshRequestedEventArgs? refresh = null;
         workspace.PlaylistDetailEditRefreshRequested += (_, request) => refresh = request;
@@ -2619,7 +2642,8 @@ public sealed class PlaylistViewPipelineTests
             new PlaylistDetailBuildState(),
             state,
             _ => { },
-            _ => { });
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         workspace.ConfigureDetailEditing(() => throw new AssertFailedException("invalid URI must not persist"));
         var context = new MainChartListCellEditContext(
             row,

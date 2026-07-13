@@ -22,7 +22,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void NewOwner_DerivedCachesAreInvalidUntilFirstCommit()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
 
         Assert.IsFalse(owner.HasFolderRows);
         Assert.IsFalse(owner.HasKeywordRows);
@@ -46,7 +53,14 @@ public sealed class RegularChartListOwnerTests
         viewState.Source.Rows = sourceRows;
         viewState.View.Rows = viewRows;
         var logs = new List<string>();
-        var workspace = new PlaylistWorkspaceViewModel(action => action(), table, buildState, viewState, logs.Add, logs.Add);
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            table,
+            buildState,
+            viewState,
+            logs.Add,
+            logs.Add,
+            () => new CustomFolderOutputSettingsSnapshot());
         workspace.IsPlaylistDetailViewActive = true;
         workspace.UseAsyncChartRowsViewBinding = false;
         var owner = new RegularChartListOwner(
@@ -92,7 +106,14 @@ public sealed class RegularChartListOwnerTests
     public void ApplyMainLibraryView_DelegatesMainLibraryRouteToRegularPipeline()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var route = new ChartListRefreshRoute(
             ChartListRefreshRouteKind.ContinueMainLibrary,
             MainViewUpdateMode.FolderFilterSelected,
@@ -116,7 +137,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void ApplyMainLibraryView_RejectsNonMainLibraryRoute()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var route = new ChartListRefreshRoute(
             ChartListRefreshRouteKind.ApplyPlayHistoryView,
             MainViewUpdateMode.PlayHistorySelected,
@@ -138,7 +166,14 @@ public sealed class RegularChartListOwnerTests
     public void MaterializedApply_OwnsBuildAndTerminalPipeline()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         List<LibraryChartRow> rows =
         [
             LibraryChartRow.FromChartFile(CreateSourceRow("Folder A", "Beta").Chart),
@@ -186,7 +221,14 @@ public sealed class RegularChartListOwnerTests
     public void MaterializedApply_NestedNewerRequestRejectsOuterTerminal()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         List<LibraryChartRow> outerRows =
         [
             LibraryChartRow.FromChartFile(CreateSourceRow("Outer", "outer.bms").Chart)
@@ -218,7 +260,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void VirtualRowCache_ReusesAndRemovesBmsOwnerRowsThroughRegularOwner()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var file = new BMSFile
         {
             path = @"C:\Charts\Owner\chart.bms",
@@ -237,7 +286,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void SourceInvalidation_ConsumesEachPositiveOwnedCollectionVersionOnce()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
 
         Assert.IsTrue(owner.TryInvalidateSourceForOwnedCollectionVersion(0, out _));
         Assert.AreEqual(1L, owner.SourceGeneration);
@@ -250,7 +306,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void VirtualSourceRows_StaleLookupCannotRepopulateInvalidatedCache()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularVirtualSourceRowsLookup staleLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
 
@@ -273,7 +336,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void VirtualSourceRows_LibraryIdentityChangeInvalidatesDerivedOrders()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         List<ChartListSourceRow> rows = [CreateSourceRow("Folder A", "a.bms")];
@@ -305,7 +375,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void VirtualSourceRows_ConcurrentInitialLibraryMissRejectsStalePublisher()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         Assert.IsTrue(owner.TryBeginVirtualRequest(firstLibrary, out RegularChartListRequestLease firstLease));
@@ -328,7 +405,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void VirtualOrderPrewarm_LibrarySwitchCancelsRunningDifferentLibraryLease()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(firstLibrary, out RegularChartListPrewarmLease firstLease));
@@ -342,7 +426,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void VirtualOrderPrewarm_BuildsOwnedOrderAndCompletesLease()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         List<ChartListSourceRow> rows =
         [
             CreateSourceRow("Folder A", "b.bms"),
@@ -378,7 +469,14 @@ public sealed class RegularChartListOwnerTests
     public void VirtualNormalLibraryApply_OwnsSourceOrderFilterAndTerminalReuse()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         List<ChartListSourceRow> sourceRows =
         [
             CreateSourceRow("Folder A", "Alpha"),
@@ -427,7 +525,14 @@ public sealed class RegularChartListOwnerTests
     public void VirtualChartSubsetApply_OwnsProjectionOrderFilterAndTerminalReuse()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         List<ChartFile> charts =
         [
             CreateSourceRow("Folder A", "Alpha").Chart,
@@ -475,7 +580,14 @@ public sealed class RegularChartListOwnerTests
     public void RegularEntry_SelectsDefaultVirtualAndResetsUnsupportedSort()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(
             lookup,
@@ -511,7 +623,14 @@ public sealed class RegularChartListOwnerTests
     public void RegularEntry_AppliesOwnerFilterState()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(
             lookup,
@@ -528,7 +647,14 @@ public sealed class RegularChartListOwnerTests
     public void PlayHistoryColumnModeCommit_CancelsPendingRegularRequest()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularChartListRequestLease pending = owner.BeginRequest();
 
         table.CommitAppliedColumnMode(MainViewUpdateMode.PlayHistorySelected);
@@ -541,7 +667,14 @@ public sealed class RegularChartListOwnerTests
     public void RegularEntry_AppliesOwnerModeFilterState()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(
             lookup,
@@ -558,7 +691,14 @@ public sealed class RegularChartListOwnerTests
     public void RegularEntry_SelectsDuplicateSubsetFromLibraryOwner()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         ChartFile bravo = CreateSourceRow("Folder B", "Bravo").Chart;
         ChartFile alpha = CreateSourceRow("Folder A", "Alpha").Chart;
         var library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
@@ -602,7 +742,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void DependencyInvalidation_PrunesDefaultAndSubsetOrderCachesTogether()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var versions = new RegularChartListExternalVersions(score: 1, chartInfo: 0, maintenanceHydration: 0);
         ChartListOrder order = CreateOrder(CreateSourceRow("Folder A", "a.bms"));
         NormalLibrarySortCacheKey defaultKey = owner.CreateVirtualOrderKey(
@@ -636,7 +783,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void VirtualOrder_ExternalVersionChangeRejectsStalePublish()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var initialVersions = new RegularChartListExternalVersions(score: 1, chartInfo: 0, maintenanceHydration: 0);
         NormalLibrarySortCacheKey key = owner.CreateVirtualOrderKey(
             owner.SourceGeneration,
@@ -659,7 +813,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void VirtualSubsetOrder_ExternalVersionChangeRejectsStalePublish()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var initialVersions = new RegularChartListExternalVersions(score: 0, chartInfo: 1, maintenanceHydration: 0);
         VirtualChartSubsetSortCacheKey key = owner.CreateVirtualSubsetOrderKey(
             owner.SourceGeneration,
@@ -685,7 +846,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void WarningOrderCache_IsPrunedByInstallDestinationAndMaintenanceChanges()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 1);
         ChartListOrder order = CreateOrder(CreateSourceRow("Folder A", "a.bms"));
         NormalLibrarySortCacheKey installKey = owner.CreateVirtualOrderKey(
@@ -716,7 +884,14 @@ public sealed class RegularChartListOwnerTests
     public void TryCommit_RowsReplacingNestedRequest_LatestRequestWins()
     {
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease firstLease = owner.BeginRequest();
         RegularChartListBuildResult firstBuild = Build(owner, firstLease, new List<LibraryChartRow>());
@@ -751,7 +926,14 @@ public sealed class RegularChartListOwnerTests
     {
         var originalRows = new List<object>();
         var table = new MainChartListViewModel { Rows = originalRows };
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         int canceled = 0;
@@ -773,7 +955,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void TryCommit_RejectsPresentationOfDifferentKind()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
 
@@ -806,7 +995,14 @@ public sealed class RegularChartListOwnerTests
     public void PresentationResult_SnapshotsRowsApplyRequest()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
@@ -843,7 +1039,14 @@ public sealed class RegularChartListOwnerTests
     public void TryCommitVirtual_NewerRequestPreventsStaleRowsFromReplacingCurrentRows()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularChartListRequestLease staleLease = owner.BeginRequest();
         var staleRows = new List<object> { new() };
         RegularChartListRequestLease currentLease = owner.BeginRequest();
@@ -873,7 +1076,14 @@ public sealed class RegularChartListOwnerTests
         using var uiActionQueued = new ManualResetEventSlim();
         var owner = new RegularChartListOwner(
             table,
-            new PlaylistWorkspaceViewModel(action => action()),
+            new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot()),
             _ => { },
             action =>
             {
@@ -905,7 +1115,14 @@ public sealed class RegularChartListOwnerTests
         using var uiActionQueued = new ManualResetEventSlim();
         var owner = new RegularChartListOwner(
             table,
-            new PlaylistWorkspaceViewModel(action => action()),
+            new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot()),
             _ => { },
             action =>
             {
@@ -938,7 +1155,14 @@ public sealed class RegularChartListOwnerTests
     public void VirtualSummary_SameKeyRefreshSharesRunningScanWithLatestRows()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var sourceRows = new BlockingSourceRows(
             CreateSourceRow("Folder A", "a.bms"),
             CreateSourceRow("Folder B", "b.bms"));
@@ -974,7 +1198,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void Build_AfterCommittedSortCache_ReusesOwnedCache()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var source = new List<LibraryChartRow>();
         RegularChartListRequestLease firstLease = owner.BeginRequest();
         RegularChartListBuildResult first = Build(owner, firstLease, source, MainViewUpdateMode.FolderFilterSelected);
@@ -992,7 +1223,14 @@ public sealed class RegularChartListOwnerTests
     public void InvalidatePendingRequest_DisablesNormalSummaryFreshness()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         Assert.IsTrue(owner.TryCommit(lease, CreateTerminalInput(build)).WasCommitted);
@@ -1007,7 +1245,14 @@ public sealed class RegularChartListOwnerTests
     public void TryCommit_RowsNotificationObservesCommittedCompletionAndColumnMode()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         long completionAtNotification = 0L;
@@ -1031,7 +1276,14 @@ public sealed class RegularChartListOwnerTests
     public void TryCommit_RowsPublishNestedRequest_StopsRemainingOuterNotifications()
     {
         var table = new MainChartListViewModel();
-        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(table, new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularChartListRequestLease outerLease = owner.BeginRequest();
         RegularChartListBuildResult outerBuild = Build(owner, outerLease, new List<LibraryChartRow>());
         RegularChartListBuildResult nestedBuild = null!;
@@ -1066,7 +1318,14 @@ public sealed class RegularChartListOwnerTests
     public void TryCommit_WorkspacePublishNestedRequest_StopsRemainingOuterNotifications()
     {
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease outerLease = owner.BeginRequest();
         RegularChartListBuildResult outerBuild = Build(owner, outerLease, new List<LibraryChartRow>());
@@ -1111,7 +1370,14 @@ public sealed class RegularChartListOwnerTests
     public void TryCommit_NoOpNestedPresentation_DoesNotSuppressOuterNotifications()
     {
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease outerLease = owner.BeginRequest();
         RegularChartListBuildResult outerBuild = Build(owner, outerLease, new List<LibraryChartRow>());
@@ -1162,7 +1428,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void Dispose_CancelsCurrentRequestAndRejectsNewRequests()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularChartListRequestLease lease = owner.BeginRequest();
 
         owner.Dispose();
@@ -1176,7 +1449,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void VirtualOrderPrewarm_AllowsOneRunAndCompletionAllowsNextRun()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
 
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease first));
         Assert.IsTrue(owner.IsVirtualOrderPrewarmRunning);
@@ -1194,7 +1474,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public async Task StopAsync_CancelsAndDrainsVirtualOrderPrewarm()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
 
         Task stopTask = owner.StopAsync();
@@ -1210,7 +1497,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void SortKeyInvalidation_CancelsVirtualOrderPrewarm()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
 
         owner.InvalidateIdentitySortKeys(clearSourceRows: false);
@@ -1223,7 +1517,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public void ClearSortCache_CancelsPrewarmAndRejectsItsLatePublication()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 0);
         NormalLibrarySortCacheKey staleKey = owner.CreateVirtualOrderKey(
             owner.SourceGeneration,
@@ -1248,7 +1549,14 @@ public sealed class RegularChartListOwnerTests
     [TestMethod]
     public async Task StopAsync_RejectsLateVirtualCachePublication()
     {
-        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(action => action()));
+        RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot()));
         RegularVirtualSourceRowsLookup sourceLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 0);
@@ -1291,7 +1599,14 @@ public sealed class RegularChartListOwnerTests
     public void TryCommit_MainRowsPublishThrows_StillPublishesColumnPresentation()
     {
         var table = new MainChartListViewModel();
-        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
         RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
@@ -1323,7 +1638,14 @@ public sealed class RegularChartListOwnerTests
         try
         {
             var table = new MainChartListViewModel();
-            var workspace = new PlaylistWorkspaceViewModel(action => action());
+            var workspace = new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot());
             Settings.Default.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
             Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
 
@@ -1365,7 +1687,14 @@ public sealed class RegularChartListOwnerTests
         PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
         try
         {
-            var workspace = new PlaylistWorkspaceViewModel(action => action());
+            var workspace = new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot());
             var oldSettings = new PlaylistSummaryColumnSettings();
             Settings.Default.PlaylistSummaryColumnsSettings = oldSettings;
             workspace.PlaylistSummaryColumnsSettings = oldSettings;

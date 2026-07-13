@@ -475,7 +475,14 @@ public sealed class ApplicationCompositionTests
                     Dispatcher.CurrentDispatcher)
             };
             playlist.CommitBMSTableHeadersToDB([first, second, third]);
-            var workspace = new PlaylistWorkspaceViewModel(action => action());
+            var workspace = new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot());
             workspace.ConfigureDetailEditing(() => playlist);
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
