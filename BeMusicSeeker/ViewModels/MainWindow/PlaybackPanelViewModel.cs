@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Linq;
-using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
@@ -18,7 +17,7 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 public sealed class PlaybackPanelViewModel : ViewModel
 {
-    private readonly Func<Dispatcher> uiDispatcherProvider;
+    private readonly IPlaybackUiDispatcher uiDispatcher;
 
     private readonly IPlaybackChartQueue playbackQueue;
 
@@ -107,13 +106,13 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     internal PlaybackPanelViewModel(
         IBMSPlayer player,
-        Func<Dispatcher> uiDispatcherProvider,
+        IPlaybackUiDispatcher uiDispatcher,
         IPlaybackChartQueue playbackQueue,
         IPlaybackSettingsStore playbackSettings,
         IPlaybackDialogService playbackDialogs,
         ChartFileOperationSynchronizer chartFileOperations)
     {
-        this.uiDispatcherProvider = uiDispatcherProvider ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
+        this.uiDispatcher = uiDispatcher ?? throw new ArgumentNullException(nameof(uiDispatcher));
         this.playbackQueue = playbackQueue ?? throw new ArgumentNullException(nameof(playbackQueue));
         this.playbackSettings = playbackSettings ?? throw new ArgumentNullException(nameof(playbackSettings));
         this.playbackDialogs = playbackDialogs ?? throw new ArgumentNullException(nameof(playbackDialogs));
@@ -1441,19 +1440,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
 
     private void DispatchToUi(Action action)
     {
-        Dispatcher dispatcher = uiDispatcherProvider();
-        if (dispatcher == null || dispatcher.CheckAccess())
-        {
-            action();
-            return;
-        }
-
-        if (dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
-        {
-            return;
-        }
-
-        dispatcher.BeginInvoke(DispatcherPriority.DataBind, action);
+        uiDispatcher.Dispatch(action);
     }
 
     private IBMSPlayer RequirePlayer()

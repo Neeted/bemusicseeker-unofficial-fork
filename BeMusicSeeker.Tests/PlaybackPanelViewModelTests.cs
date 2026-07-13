@@ -138,6 +138,71 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    public void PlaybackPanel_DispatchesTelemetryAndSuppressesStalePlaybackEventsThroughUiBoundary()
+    {
+        var player = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(10) };
+        var dispatcher = new QueuedPlaybackUiDispatcher();
+        var panel = new PlaybackPanelViewModel(
+            player,
+            dispatcher,
+            new MainChartListPlaybackQueue(new MainChartListViewModel()),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new FakePlaybackDialogService(),
+            new ChartFileOperationSynchronizer());
+        int startingCount = 0;
+        int startedCount = 0;
+        panel.PlaybackStarting += (_, _) => startingCount++;
+        panel.PlaybackStarted += (_, _) => startedCount++;
+
+        player.Duration = TimeSpan.FromSeconds(20);
+        player.Raise(nameof(IBMSPlayer.Duration));
+        long generation = panel.BeginPlayback(new BMSFile(), 0);
+        panel.StopPlayback();
+
+        Assert.AreEqual(TimeSpan.FromSeconds(10), panel.CurrentlyPlayingDuration);
+        Assert.AreEqual(0, startingCount);
+        Assert.AreEqual(0, startedCount);
+        Assert.AreEqual(2, dispatcher.PendingCount);
+
+        dispatcher.RunAll();
+
+        Assert.AreEqual(TimeSpan.FromSeconds(20), panel.CurrentlyPlayingDuration);
+        Assert.AreEqual(0, startingCount);
+        Assert.AreEqual(0, startedCount);
+        panel.NotifyPlaybackStarted(generation);
+        dispatcher.RunAll();
+        Assert.AreEqual(0, startedCount);
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_CloseRefreshUsesUiBoundaryAndIgnoresReplacedPlayer()
+    {
+        var first = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(10) };
+        var dispatcher = new QueuedPlaybackUiDispatcher();
+        var panel = new PlaybackPanelViewModel(
+            first,
+            dispatcher,
+            new MainChartListPlaybackQueue(new MainChartListViewModel()),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new FakePlaybackDialogService(),
+            new ChartFileOperationSynchronizer());
+
+        first.Duration = TimeSpan.FromSeconds(20);
+        panel.CloseProcess();
+        Assert.AreEqual(TimeSpan.FromSeconds(10), panel.CurrentlyPlayingDuration);
+        dispatcher.RunAll();
+        Assert.AreEqual(TimeSpan.FromSeconds(20), panel.CurrentlyPlayingDuration);
+
+        first.Duration = TimeSpan.FromSeconds(30);
+        panel.CloseProcess();
+        var replacement = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(40) };
+        panel.ReplacePlayer(replacement);
+        dispatcher.RunAll();
+
+        Assert.AreEqual(TimeSpan.FromSeconds(40), panel.CurrentlyPlayingDuration);
+    }
+
+    [TestMethod]
     public void PlaybackPanel_ReplacementClosesOldPlayerDetachesEventsAndKeepsHostHandle()
     {
         var first = new FakeBmsPlayer { Duration = TimeSpan.FromSeconds(10) };
@@ -240,7 +305,7 @@ public sealed class PlaybackPanelViewModelTests
         };
         var panel = new PlaybackPanelViewModel(
             new FakeBmsPlayer(),
-            () => Dispatcher.CurrentDispatcher,
+            new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
@@ -274,7 +339,7 @@ public sealed class PlaybackPanelViewModelTests
         };
         var panel = new PlaybackPanelViewModel(
             player,
-            () => Dispatcher.CurrentDispatcher,
+            new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
@@ -312,7 +377,7 @@ public sealed class PlaybackPanelViewModelTests
         };
         var panel = new PlaybackPanelViewModel(
             player,
-            () => Dispatcher.CurrentDispatcher,
+            new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             dialogs,
@@ -352,7 +417,7 @@ public sealed class PlaybackPanelViewModelTests
         };
         var panel = new PlaybackPanelViewModel(
             player,
-            () => Dispatcher.CurrentDispatcher,
+            new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             dialogs,
@@ -525,7 +590,7 @@ public sealed class PlaybackPanelViewModelTests
         };
         var panel = new PlaybackPanelViewModel(
             player,
-            () => Dispatcher.CurrentDispatcher,
+            new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
@@ -783,7 +848,7 @@ public sealed class PlaybackPanelViewModelTests
     {
         return new PlaybackPanelViewModel(
             player,
-            () => Dispatcher.CurrentDispatcher,
+            new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(new MainChartListViewModel()),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new FakePlaybackDialogService(),
@@ -808,7 +873,7 @@ public sealed class PlaybackPanelViewModelTests
         };
         var panel = new PlaybackPanelViewModel(
             player,
-            () => Dispatcher.CurrentDispatcher,
+            new ImmediatePlaybackUiDispatcher(),
             new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             dialogs,
@@ -986,6 +1051,34 @@ public sealed class PlaybackPanelViewModelTests
             if (PlaybackFailureException != null)
             {
                 throw PlaybackFailureException;
+            }
+        }
+    }
+
+    private sealed class ImmediatePlaybackUiDispatcher : IPlaybackUiDispatcher
+    {
+        public void Dispatch(Action action)
+        {
+            action();
+        }
+    }
+
+    private sealed class QueuedPlaybackUiDispatcher : IPlaybackUiDispatcher
+    {
+        private readonly Queue<Action> actions = new();
+
+        internal int PendingCount => actions.Count;
+
+        public void Dispatch(Action action)
+        {
+            actions.Enqueue(action);
+        }
+
+        internal void RunAll()
+        {
+            while (actions.Count > 0)
+            {
+                actions.Dequeue()();
             }
         }
     }

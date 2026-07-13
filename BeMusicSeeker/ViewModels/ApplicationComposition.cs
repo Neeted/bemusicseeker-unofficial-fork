@@ -6,6 +6,7 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
@@ -330,7 +331,7 @@ internal sealed class MainWindowChildComposition
         }
         PlaybackPanel = new PlaybackPanelViewModel(
             bmsPlayerFactory() ?? throw new InvalidOperationException("Playback player factory returned null."),
-            uiDispatcherProvider,
+            new WpfPlaybackUiDispatcher(uiDispatcherProvider),
             new MainChartListPlaybackQueue(MainChartList),
             playbackSettingsStore,
             new WpfPlaybackDialogService(new UiDialogCoordinator()),
