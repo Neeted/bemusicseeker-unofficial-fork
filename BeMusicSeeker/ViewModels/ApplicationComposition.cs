@@ -330,7 +330,7 @@ internal sealed class MainWindowChildComposition
         PlaybackPanel = new PlaybackPanelViewModel(
             bmsPlayerFactory() ?? throw new InvalidOperationException("Playback player factory returned null."),
             uiDispatcherProvider,
-            MainChartList,
+            new MainChartListPlaybackQueue(MainChartList),
             playbackSettingsStore,
             chartFileOperations);
         ChartFilters = new ChartListFilterViewModel();

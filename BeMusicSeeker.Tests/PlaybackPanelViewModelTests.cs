@@ -241,7 +241,7 @@ public sealed class PlaybackPanelViewModelTests
         var panel = new PlaybackPanelViewModel(
             new FakeBmsPlayer(),
             () => Dispatcher.CurrentDispatcher,
-            chartList,
+            new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new ChartFileOperationSynchronizer());
         try
@@ -274,7 +274,7 @@ public sealed class PlaybackPanelViewModelTests
         var panel = new PlaybackPanelViewModel(
             player,
             () => Dispatcher.CurrentDispatcher,
-            chartList,
+            new MainChartListPlaybackQueue(chartList),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new ChartFileOperationSynchronizer());
         try
@@ -293,6 +293,90 @@ public sealed class PlaybackPanelViewModelTests
             Settings.Default.RepeatPlayMode = originalRepeat;
             Settings.Default.FolderSkipPlayMode = originalFolderSkip;
             File.Delete(chartPath);
+        }
+    }
+
+    [TestMethod]
+    public void MainChartListPlaybackQueue_ForwardsLiveRowsAndSelection()
+    {
+        var firstRow = new object();
+        var secondRow = new object();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { firstRow },
+            SelectedIndex = -1
+        };
+        var queue = new MainChartListPlaybackQueue(chartList);
+        var changed = new List<string>();
+        chartList.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? string.Empty);
+
+        chartList.Rows = new List<object> { secondRow, firstRow };
+        queue.SelectedIndex = 1;
+
+        Assert.AreEqual(2, queue.Count);
+        Assert.AreSame(secondRow, queue.GetRow(0));
+        Assert.AreEqual(1, chartList.SelectedIndex);
+        CollectionAssert.Contains(changed, nameof(MainChartListViewModel.SelectedIndex));
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_StartNextAndPreviousFollowLiveQueueSelection()
+    {
+        string firstPath = Path.GetTempFileName();
+        string secondPath = Path.GetTempFileName();
+        string thirdPath = Path.GetTempFileName();
+        bool originalRepeat = Settings.Default.RepeatPlayMode;
+        bool originalFolderSkip = Settings.Default.FolderSkipPlayMode;
+        bool originalSingle = Settings.Default.SinglePlayMode;
+        var player = new FakeBmsPlayer();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object>
+            {
+                new TestBmsFile(firstPath),
+                new TestBmsFile(secondPath),
+                new TestBmsFile(thirdPath)
+            },
+            SelectedIndex = 1
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            () => Dispatcher.CurrentDispatcher,
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            Settings.Default.RepeatPlayMode = false;
+            Settings.Default.FolderSkipPlayMode = false;
+            Settings.Default.SinglePlayMode = false;
+
+            panel.Start();
+            Assert.AreEqual(secondPath, panel.NowPlayingBmsFile.path);
+            Assert.AreEqual(1, panel.NowPlayingRowIndex);
+            Assert.AreEqual(1, chartList.SelectedIndex);
+
+            panel.Next();
+            Assert.AreEqual(thirdPath, panel.NowPlayingBmsFile.path);
+            Assert.AreEqual(2, panel.NowPlayingRowIndex);
+            Assert.AreEqual(2, chartList.SelectedIndex);
+
+            panel.Previous();
+            Assert.AreEqual(secondPath, panel.NowPlayingBmsFile.path);
+            Assert.AreEqual(1, panel.NowPlayingRowIndex);
+            Assert.AreEqual(1, chartList.SelectedIndex);
+            CollectionAssert.AreEqual(
+                new[] { "PlayStart:" + secondPath, "PlayStart:" + thirdPath, "PlayStart:" + secondPath },
+                player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).ToArray());
+        }
+        finally
+        {
+            Settings.Default.RepeatPlayMode = originalRepeat;
+            Settings.Default.FolderSkipPlayMode = originalFolderSkip;
+            Settings.Default.SinglePlayMode = originalSingle;
+            File.Delete(firstPath);
+            File.Delete(secondPath);
+            File.Delete(thirdPath);
         }
     }
 
@@ -515,7 +599,7 @@ public sealed class PlaybackPanelViewModelTests
         return new PlaybackPanelViewModel(
             player,
             () => Dispatcher.CurrentDispatcher,
-            new MainChartListViewModel(),
+            new MainChartListPlaybackQueue(new MainChartListViewModel()),
             new SettingsPlaybackSettingsStore(() => Settings.Default),
             new ChartFileOperationSynchronizer());
     }

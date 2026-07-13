@@ -23,7 +23,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
 {
     private readonly Func<Dispatcher> uiDispatcherProvider;
 
-    private readonly MainChartListViewModel mainChartList;
+    private readonly IPlaybackChartQueue playbackQueue;
 
     private readonly IPlaybackSettingsStore playbackSettings;
 
@@ -109,12 +109,12 @@ public sealed class PlaybackPanelViewModel : ViewModel
     internal PlaybackPanelViewModel(
         IBMSPlayer player,
         Func<Dispatcher> uiDispatcherProvider,
-        MainChartListViewModel mainChartList,
+        IPlaybackChartQueue playbackQueue,
         IPlaybackSettingsStore playbackSettings,
         ChartFileOperationSynchronizer chartFileOperations)
     {
         this.uiDispatcherProvider = uiDispatcherProvider ?? throw new ArgumentNullException(nameof(uiDispatcherProvider));
-        this.mainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
+        this.playbackQueue = playbackQueue ?? throw new ArgumentNullException(nameof(playbackQueue));
         this.playbackSettings = playbackSettings ?? throw new ArgumentNullException(nameof(playbackSettings));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
         ReplacePlayer(player);
@@ -555,9 +555,9 @@ public sealed class PlaybackPanelViewModel : ViewModel
             }
 
             StopPlayback();
-            if (mainChartList.SelectedIndex >= 0 && mainChartList.SelectedIndex < mainChartList.Rows.Count)
+            if (playbackQueue.SelectedIndex >= 0 && playbackQueue.SelectedIndex < playbackQueue.Count)
             {
-                StartAtIndex(mainChartList.SelectedIndex);
+                StartAtIndex(playbackQueue.SelectedIndex);
             }
         }
     }
@@ -567,7 +567,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
         lock (workflowGate)
         {
             int index = NowPlayingRowIndex;
-            if (index < 0 || index >= mainChartList.Rows.Count)
+            if (index < 0 || index >= playbackQueue.Count)
             {
                 StopPlayback();
                 return;
@@ -584,13 +584,13 @@ public sealed class PlaybackPanelViewModel : ViewModel
             {
                 string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
                 index++;
-                if (playbackSettings.RepeatPlay && index == mainChartList.Rows.Count)
+                if (playbackSettings.RepeatPlay && index == playbackQueue.Count)
                 {
                     index = 0;
                 }
-                while (playbackSettings.FolderSkipPlay && index != mainChartList.Rows.Count)
+                while (playbackSettings.FolderSkipPlay && index != playbackQueue.Count)
                 {
-                    GridRowResolver.TryGetBmsPlayerFile(mainChartList.Rows[index], out BMSFile candidate);
+                    GridRowResolver.TryGetBmsPlayerFile(playbackQueue.GetRow(index), out BMSFile candidate);
                     if (index == NowPlayingRowIndex)
                     {
                         break;
@@ -602,13 +602,13 @@ public sealed class PlaybackPanelViewModel : ViewModel
                     }
                     currentFolder = candidateFolder;
                     index++;
-                    if (playbackSettings.RepeatPlay && index == mainChartList.Rows.Count)
+                    if (playbackSettings.RepeatPlay && index == playbackQueue.Count)
                     {
                         index = 0;
                     }
                 }
             }
-            if (index < mainChartList.Rows.Count)
+            if (index < playbackQueue.Count)
             {
                 StopPlayback();
                 StartAtIndex(index);
@@ -625,7 +625,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
         lock (workflowGate)
         {
             int index = NowPlayingRowIndex;
-            if (index < 0 || index >= mainChartList.Rows.Count)
+            if (index < 0 || index >= playbackQueue.Count)
             {
                 StopPlayback();
                 return;
@@ -644,11 +644,11 @@ public sealed class PlaybackPanelViewModel : ViewModel
                 index--;
                 if (playbackSettings.RepeatPlay && index == -1)
                 {
-                    index = mainChartList.Rows.Count - 1;
+                    index = playbackQueue.Count - 1;
                 }
                 while (playbackSettings.FolderSkipPlay && index != -1)
                 {
-                    GridRowResolver.TryGetBmsPlayerFile(mainChartList.Rows[index], out BMSFile candidate);
+                    GridRowResolver.TryGetBmsPlayerFile(playbackQueue.GetRow(index), out BMSFile candidate);
                     if (index == NowPlayingRowIndex)
                     {
                         break;
@@ -662,7 +662,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
                     index--;
                     if (playbackSettings.RepeatPlay && index == -1)
                     {
-                        index = mainChartList.Rows.Count - 1;
+                        index = playbackQueue.Count - 1;
                     }
                 }
             }
@@ -690,13 +690,13 @@ public sealed class PlaybackPanelViewModel : ViewModel
         int index = NowPlayingRowIndex;
         string currentFolder = GetPlaybackFolderIdentity(NowPlayingBmsFile, index);
         index++;
-        if (playbackSettings.RepeatPlay && index == mainChartList.Rows.Count)
+        if (playbackSettings.RepeatPlay && index == playbackQueue.Count)
         {
             index = 0;
         }
-        while (playbackSettings.FolderSkipPlay && index != mainChartList.Rows.Count)
+        while (playbackSettings.FolderSkipPlay && index != playbackQueue.Count)
         {
-            GridRowResolver.TryGetBmsPlayerFile(mainChartList.Rows[index], out BMSFile candidate);
+            GridRowResolver.TryGetBmsPlayerFile(playbackQueue.GetRow(index), out BMSFile candidate);
             if (index == NowPlayingRowIndex)
             {
                 break;
@@ -708,7 +708,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
             }
             currentFolder = candidateFolder;
             index++;
-            if (playbackSettings.RepeatPlay && index == mainChartList.Rows.Count)
+            if (playbackSettings.RepeatPlay && index == playbackQueue.Count)
             {
                 index = 0;
             }
@@ -720,14 +720,14 @@ public sealed class PlaybackPanelViewModel : ViewModel
     {
         BMSFile bmsFile = null;
         ChartFile playbackChart = null;
-        int remainingCandidates = mainChartList.Rows.Count;
+        int remainingCandidates = playbackQueue.Count;
     ResolveCandidate:
         while (remainingCandidates > 0)
         {
             object row;
             try
             {
-                row = mainChartList.Rows[index];
+                row = playbackQueue.GetRow(index);
                 playbackChart = null;
                 bmsFile = null;
                 GridRowResolver.TryGetChartFile(row, out playbackChart);
@@ -747,7 +747,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
             SkipUnavailablePlaybackCandidate(index);
             remainingCandidates--;
             index++;
-            if (index >= mainChartList.Rows.Count)
+            if (index >= playbackQueue.Count)
             {
                 if (playbackSettings.RepeatPlay)
                 {
@@ -767,7 +767,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
         }
 
         long generation = BeginPlayback(bmsFile, index);
-        mainChartList.SelectedIndex = index;
+        playbackQueue.SelectedIndex = index;
         playbackChart ??= ChartFileProjection.FromBmsFile(bmsFile, includeResourceReferences: false);
         string installDestination = playbackChart?.InstallDestination;
         if (!string.IsNullOrWhiteSpace(installDestination) && LongPathFileSystem.DirectoryExists(installDestination))
@@ -806,7 +806,7 @@ public sealed class PlaybackPanelViewModel : ViewModel
                 return;
             }
             int nextIndex = FindNextPlaybackIndex();
-            if (nextIndex < 0 || nextIndex >= mainChartList.Rows.Count)
+            if (nextIndex < 0 || nextIndex >= playbackQueue.Count)
             {
                 StopPlayback();
                 return;
