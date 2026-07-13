@@ -11,6 +11,36 @@
 - 意味の変わる fallback を追加しない。失敗を隠すより、既存の失敗契約を維持して明示的に失敗させる。
 - C# symbol rename は text replacement ではなく semantic rename / compiler-driven edit を使う。
 
+## 実行ロール
+
+- **planner**: `unit-planner`（Sol High、read-only、approval never）。active outcome に対して exactly one vertical implementation unit を計画する。出力は Codex task 内だけに保持し、per-unit plan 文書、checkpoint、progress log を repository に作らない。
+- **implementation root**: Luna Max。唯一の writer / stager / committer とし、planner の提案を実ソースに照らして実装・検証する。サブエージェントへ書き込みを委譲しない。
+- **reviewer**: fresh `repo-static-review`（Sol High、read-only、approval never）。実装担当から独立して frozen snapshot を評価し、`/fork` は使用しない。build / test / format / analyzer は root が担当する。
+
+モデルを利用できない場合に別モデルへ黙って置き換えない。作業を開始せず、利用不能なロールと理由を報告する。
+
+## Review scope
+
+- **unit review**: unit 開始時の clean commit を `base`、review対象 snapshot の `HEAD` を `head` とし、scope は `<unit-base>..HEAD + frozen worktree` とする。untracked file を含め、同じ unit の production route、tests、削除対象を評価する。
+- **outcome review**: `PLAN_STATUS.md` の `active outcome base commit` を `base`、review対象 snapshot の `HEAD` を `head` とし、scope は `<outcome-base>..HEAD + frozen worktree` と現行 production code とする。active outcome の全 acceptance criteria と残る旧 route を評価する。
+- **gate review**: `PLAN_STATUS.md` の `code baseline commit` を `base`、review対象 snapshot の `HEAD` を `head` とし、scope は `<code-baseline>..HEAD + frozen worktree`、現行コード、全 outcome state、Gate criteria、migration blocker register とする。
+
+review依頼には review kind、absolute repo path、scope、base/head SHA、untracked file一覧を必ず含める。review開始後は root も frozen snapshot を変更しない。修正後は別 snapshot として fresh reviewを依頼する。
+
+## Outcome state 遷移
+
+- `not started` → `ready`: 先行 outcome と依存条件が満たされ、次に着手できるときだけ遷移する。
+- `ready` → `in progress`: active outcome として選択し、最初の implementation unit を開始するときに遷移する。同時に開始時の clean commit を `active outcome base commit` として記録する。
+- `ready` → `blocked`: planner が最初の unit を開始する前に、ユーザー入力または外部状態変更なしには解消できない具体的な阻害条件を確認し、`NO_SAFE_UNIT` とした場合だけ遷移する。
+- `in progress` → `blocked`: 同じ外部阻害条件が繰り返し確認され、安全な unit を作れず、ユーザー入力または外部状態変更なしに進めない場合だけ遷移する。難しい、調査が必要、変更量が大きいことは理由にしない。
+- `blocked` → `ready` または `in progress`: 阻害条件が解消し、再開可能になったときだけ遷移する。
+- `in progress` → `completed`: acceptance criteria、outcome-wide Full verification、outcome review、UI smoke check（該当時）が完了したときだけ遷移する。
+- `GATE-01 in progress` → `gate met`: 全 Gate criteria、Full verification、gate review が完了したときだけ遷移する。`gate met` は GATE-01 以外に使わない。
+
+通常 outcome の `completed` への状態更新は、最後の production code implementation unit と同じ commit に含める。最後のコード変更を先に commit し、後から docs-only completion commit を作ることを禁止する。完了条件がコード変更なしで初めて満たされたように見える場合は、完了監査が遅れていないか再確認し、安全な最後の vertical unit と一緒に閉じる。
+
+`GATE-01` は production implementation unit を持たない最終監査 outcome なので、この禁止の唯一の例外とする。全 Gate criteria、Full verification、gate review が無修正で完了した場合は、`gate met` と Release Freeze の状態だけを記録する audit/status commit を作ってよい。監査を通すための無意味な production code変更を行ってはならない。
+
 ## 互換性契約の判定
 
 - C# の `public` / `protected` 修飾子だけでは互換性契約とみなさない。
@@ -25,7 +55,7 @@
 1. [PLAN_STATUS](./PLAN_STATUS.md) の active outcome と acceptance criteria を読む。
 2. `git status --short` で既存差分を確認する。
 3. active outcome がなければ、総合計画の ordered backlog から最初の未完・非 blocked outcome を選ぶ。
-4. outcome 内の次 implementation unit を、通常経路の owner 変更と旧経路削除が一緒に終わる vertical slice として選ぶ。
+4. `unit-planner` に exactly one unit を計画させ、通常経路の owner 変更と旧経路削除が一緒に終わる vertical slice であることを root が確認する。
 5. checkpoint、decision、inventory、調査メモを新規作成せず実装へ進む。
 
 future outcome を先に詳細設計しない。active outcome に必要な範囲だけ、実ソースと behavior test を読んで判断する。
@@ -50,7 +80,7 @@ DTO、interface、result、planner、host、diagnostics API の追加だけで i
 4. サブエージェントに未コミット差分の静的レビューを依頼する。レビュー担当は編集・build・test・format・analyzer・commit を行わない。
 5. 重大指摘を修正する。
 6. 修正の影響を受ける build / test を再実行する。
-7. 重大指摘がなくなるまで同じサブエージェントまたは別のサブエージェントへ再レビューを依頼する。
+7. 重大指摘がなくなるまで、修正後の各 frozen snapshot を履歴 `/fork` なしの fresh `repo-static-review` へ再レビュー依頼する。同じ reviewer を再利用しない。
 8. この unit で outcome を閉じる場合は、開始 commit からの全変更と現行コードを対象に full test とサブエージェント静的アーキテクチャレビューを行う。指摘があれば同じ unit で修正・再テスト・再レビューする。
 9. outcome の全 acceptance criteria を満たした場合は、`PLAN_STATUS.md` で当該 outcome を `completed`、次 outcome を `ready` にする。Active outcome セクションを次 outcome の目的 / acceptance criteria / non-goals へ置き換える。この status 更新を含む最終未コミット差分を再レビューする。
 10. 最終差分に対して必要な build / test / format / analyzer / `git diff --check` を実行する。
@@ -61,7 +91,7 @@ DTO、interface、result、planner、host、diagnostics API の追加だけで i
 
 レビュー修正後の再テストを省略しない。レビュー前の test 結果を最終差分の検証結果として扱わない。
 
-root agent を唯一の writer / stager / committer とする。調査・レビューのサブエージェントは読み取り専用とし、review 依頼後は root も対象差分を変更しない。修正した場合は新しい snapshot として再レビューする。依頼には absolute repo path、scope (`worktree` または `<outcome-base>..HEAD + worktree`)、base / head SHA、untracked file 一覧を含める。
+root agent を唯一の writer / stager / committer とする。planner・調査・レビューのサブエージェントは読み取り専用とし、review 依頼後は root も対象差分を変更しない。修正した場合は新しい snapshot として fresh reviewer に再レビューさせる。
 
 ## 標準確認
 
@@ -123,6 +153,13 @@ Codex が操作可能な環境では自走して確認する。外部 player、�
 依頼文は次を基本形にする。
 
 ```text
+review kind: <unit review | outcome review | gate review>
+absolute repo path: <absolute-repo-path>
+scope: <unit-base..HEAD + frozen worktree | outcome-base..HEAD + frozen worktree | code-baseline..HEAD + frozen worktree>
+base SHA: <full-base-sha>
+head SHA: <full-head-sha>
+untracked files: <absolute path list | none>
+
 現在の未コミット差分を静的レビューしてください。
 編集、build、test、format、analyzer、commit は禁止です。
 git diff / git status / rg / Get-Content などの読み取りだけを使ってください。

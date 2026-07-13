@@ -109,6 +109,8 @@ active outcome の成立に不可欠な platform / composition contract は、pr
 
 settings の load / edit / save / upgrade、application base directory、managed / native dependency layout、P/Invoke、audio、external process、updater、WPF / WinForms host は明示した adapter / gateway が所有する。application / domain workflow は snapshot または用途別 interface を受け取る。
 
+`APP-01 Application composition and settings lifecycle boundary` の完了境界は application composition と settings の load / edit / save / upgrade lifecycle までとする。feature 内に残る `Settings.Default` や global-backed convenience path の除去は、各 feature outcome と最終的な `MIG-01` の責務であり、APP-01 の完了を取り消す理由にしない。APP-01 は再開しない。
+
 ## Refactoring Completion Gate
 
 次をすべて満たしたときだけ Gate を通過できる。
@@ -151,7 +153,7 @@ Codex は [PLAN_STATUS](./PLAN_STATUS.md) の active outcome を進める。acti
 | Order | Outcome | Exit condition |
 |---:|---|---|
 | 1 | `UI-01 Main table presentation and regular chart ownership` | main table presentation と regular chart workflow の owner が閉じ、playlist / play-history owner からの result contract が production 接続され、XAML の child binding と root relay / callback host 削除が完了する |
-| 2 | `APP-01 Composition and configuration ownership` | startup と settings load / edit / save が明示的 owner を通り、後続 feature / service が global settings を直接取得せず構築される |
+| 2 | `APP-01 Application composition and settings lifecycle boundary` | application composition と settings load / edit / save / upgrade lifecycle が明示的 owner を通る。feature 内の `Settings.Default` 除去は各 feature outcome / MIG-01 で閉じ、APP-01 は再開しない |
 | 3 | `UI-02 Playback ownership` | playback state / command / progress が child View / ViewModel と player adapter に移り、code-behind は view-host 操作だけになる |
 | 4 | `UI-03 Playlist workspace ownership` | tree、source query / cache / cancellation、detail / summary result generation、feature-local interaction、drag-drop、reload / edit workflow が workspace owner に移り、result の main-table terminal apply を除く root / code-behind の playlist workflow がなくなる |
 | 5 | `UI-04 Play history ownership` | source query / cache / cancellation、filter、result generation、selected row の feature-local action interpretation が feature owner に移り、main-table selection state / terminal apply を除く root relay と UI workflow がなくなる |
@@ -183,6 +185,11 @@ implementation unit は seam や private helper の個数ではなく、1 つの
 UI outcome の完了時は、移管済み child owner から `Application.Current`、`DispatcherHelper.UIDispatcher`、`MainWindowViewModel` の nested contract、`*ForTest` production method、root PropertyChanged relay、root callback / workflow host がなくなっていることを検索と静的レビューで確認する。例外が必要なら暗黙に残さず、当該 outcome の acceptance criteria で許可境界として説明する。
 
 完了結果の履歴は Git commit に残し、計画資料には outcome の状態だけを記録する。
+
+UI-03 の完了時は、上記に加えて次を満たす。
+
+- `PlaylistWorkspaceViewModel` の global-backed convenience constructor、optional provider fallback、暗黙の current-settings provider を production seam として残さない。production composition と tests は必要な provider / port を明示的に渡す。
+- `IPlaylistPropertySaveInteraction` のように多数の root callback を束ねる広い host を残さない。workflow state / behavior は workspace ownerへ収め、shell coordination または domain capability が必要な箇所だけを用途別の細い port に分ける。
 
 ## Gate 後
 

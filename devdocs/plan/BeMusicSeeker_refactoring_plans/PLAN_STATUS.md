@@ -16,6 +16,9 @@
 
 状態: in progress
 
+- active outcome base commit: `0ecd2c32`
+- last outcome-wide verified commit: `0ecd2c32`
+
 目的:
 
 playlist tree、source query / cache / cancellation、detail / summary result generation、feature-local interaction、drag-drop、reload / edit workflow の ownership を playlist workspace owner に集約する。main table は workspace result の terminal apply だけを担当し、root と code-behind を composition、event forwarding、view-host 操作に限定する。playlist persistence / external sync / output は後続 outcome の責務として混在させない。
@@ -26,6 +29,8 @@ Acceptance criteria:
 - source query / cache / cancellation / freshness と detail / summary result generation を workspace owner が持ち、stale result を main table または summary view へ適用しない。
 - main table presentation ownerは workspace から受け取った immutable result の terminal apply だけを担当し、playlist query / filter / sort / reload / edit workflow を持たない。
 - root ViewModel は workspace workflow を直接実装せず、明示的な composition と feature 間の最小 coordination だけを持つ。
+- `PlaylistWorkspaceViewModel` に global-backed convenience constructor、optional provider fallback、暗黙の current-settings providerを production seam として残さない。
+- `IPlaylistPropertySaveInteraction` のような広い root callback host を残さず、workspace ownership または用途別の細い shell / domain port へ整理する。
 - code-behind に残る playlist 処理は event forwarding、drag visual、focus / selection などの view-host 操作に限定され、旧 root callback / workflow host / binding relay と test-only production seam が削除される。
 - `PlaylistFilterType` を canonical feature type へ統合し、旧 repository-internal call shape のための compatibility type / wrapper を残さない。
 - generated Settings / `ISettingsEditSession`、`Application.Current`、`DispatcherHelper.UIDispatcher`、`System.Windows.Threading.Dispatcher`、`UiDialogCoordinator` / `MessageBox` 型、`NLogWrapper`、root の nested contract を feature ownerから直接取得しない。
@@ -45,7 +50,7 @@ Non-goals:
 | Outcome | State |
 |---|---|
 | UI-01 Main table presentation and regular chart ownership | completed |
-| APP-01 Composition and configuration ownership | completed |
+| APP-01 Application composition and settings lifecycle boundary | completed |
 | UI-02 Playback ownership | completed |
 | UI-03 Playlist workspace ownership | in progress |
 | UI-04 Play history ownership | not started |
@@ -75,7 +80,7 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
 | Migration readiness | not met | architecture refactor と `.NET 10` 固有作業がまだ分離し切れていない |
-| Quality | baseline met | code baseline 時点の build / test / format / analyzer は完了。各新規差分で再検証する |
+| Quality | in progress | code baseline は検証済み。UI-03 は `0ecd2c32` まで outcome-wide 検証済みで、現行 head の outcome-wide Full verification / review 待ち |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 
