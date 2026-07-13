@@ -7,6 +7,7 @@ using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Navigation;
 using System.Windows.Threading;
@@ -19,6 +20,8 @@ namespace BeMusicSeeker.Views;
 
 public partial class PlaybackPanelView : UserControl
 {
+    private const double CompactPanelHeight = 110d;
+    private const double ExpandedPanelHeight = 286d;
     public static readonly DependencyProperty OverlayVisibilityProperty = DependencyProperty.Register(nameof(OverlayVisibility), typeof(Visibility), typeof(PlaybackPanelView), new PropertyMetadata(Visibility.Collapsed));
     public static readonly DependencyProperty BrowserHtmlProperty = DependencyProperty.Register(nameof(BrowserHtml), typeof(string), typeof(PlaybackPanelView), new PropertyMetadata(null));
     private DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
@@ -98,7 +101,9 @@ public partial class PlaybackPanelView : UserControl
         {
             throw new InvalidOperationException("Playback panel DataContext must be PlaybackPanelViewModel.");
         }
-        SubscribePlaybackPanel(dataContext as PlaybackPanelViewModel);
+        var playbackPanel = dataContext as PlaybackPanelViewModel;
+        ApplyPlaybackPanelHeight(playbackPanel?.PlayerPanelState ?? PlayerPanelState.TITLE_LARGE, false);
+        SubscribePlaybackPanel(playbackPanel);
         ResetPanelImage();
         gridBMSPlayerImage.Source = dataContext == null ? null : PanelImage;
     }
@@ -122,11 +127,41 @@ public partial class PlaybackPanelView : UserControl
 
     private void PlaybackPanelPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
+        if (e.PropertyName == nameof(PlaybackPanelViewModel.PlayerPanelState)
+            && subscribedPlaybackPanel != null)
+        {
+            ApplyPlaybackPanelHeight(subscribedPlaybackPanel.PlayerPanelState, IsLoaded && !isClosingOrClosed);
+        }
         if (e.PropertyName == nameof(PlaybackPanelViewModel.UseExternalPanelImage)
             || e.PropertyName == nameof(PlaybackPanelViewModel.StagefilePath))
         {
             ResetPanelImage();
         }
+    }
+
+    private void ApplyPlaybackPanelHeight(PlayerPanelState panelState, bool animate)
+    {
+        double targetHeight = panelState.HasFlag(PlayerPanelState.TITLE_SMALL)
+            ? CompactPanelHeight
+            : ExpandedPanelHeight;
+        double currentHeight = ActualHeight;
+        BeginAnimation(HeightProperty, null);
+        if (!animate)
+        {
+            Height = targetHeight;
+            return;
+        }
+        Height = targetHeight;
+        if (Math.Abs(currentHeight - targetHeight) < 0.5d)
+        {
+            return;
+        }
+        var animation = new DoubleAnimation(currentHeight, targetHeight, TimeSpan.FromSeconds(1d))
+        {
+            EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut },
+            FillBehavior = FillBehavior.Stop
+        };
+        BeginAnimation(HeightProperty, animation, HandoffBehavior.SnapshotAndReplace);
     }
 
     public void ConfigureBrowserHost()

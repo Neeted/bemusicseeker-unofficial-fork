@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<UserControl x:Class="BeMusicSeeker.Views.PlaybackPanelView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:wf="clr-namespace:System.Windows.Forms;assembly=System.Windows.Forms" xmlns:qc="http://QuickConverter.CodePlex.com/" xmlns:prop="clr-namespace:BeMusicSeeker.Properties" x:Name="playbackPanelView">
+<UserControl x:Class="BeMusicSeeker.Views.PlaybackPanelView" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:wf="clr-namespace:System.Windows.Forms;assembly=System.Windows.Forms" xmlns:qc="http://QuickConverter.CodePlex.com/" xmlns:prop="clr-namespace:BeMusicSeeker.Properties" x:Name="playbackPanelView" Height="286" VerticalAlignment="Top">
   <UserControl.Resources>
     <FontFamily x:Key="LigatureSymbols">/BeMusicSeeker;component/resources/#LigatureSymbols</FontFamily>
     <FontFamily x:Key="Commodore">/BeMusicSeeker;component/resources/#Commodore 64 Rounded</FontFamily>
@@ -19,46 +19,11 @@
     <v:addStringToEndConverter x:Key="addStringToEndConverter" />
   </UserControl.Resources>
 <Grid Name="gridBMSPlayer" Row="0" Column="0" ColumnSpan="2" Width="{Binding Width, ElementName=gridBMSPlayerBody}">
-  <DockPanel LastChildFill="False">
-    <Grid Name="gridBMSPlayerBody" DockPanel.Dock="Top" Height="256">
-      <FrameworkElement.Style>
-        <Style TargetType="{x:Type Grid}">
-          <Style.Triggers>
-            <DataTrigger Value="True" Binding="{Binding DataContext.PlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsTitleSmallConverter}}">
-              <TriggerBase.EnterActions>
-                <BeginStoryboard Name="animationOpenBMSPlayerBody">
-                  <Storyboard FillBehavior="HoldEnd">
-                    <DoubleAnimation Storyboard.TargetProperty="Height" From="256" To="80" Duration="0:0:1">
-                      <DoubleAnimation.EasingFunction>
-                        <CubicEase EasingMode="EaseOut" />
-                      </DoubleAnimation.EasingFunction>
-                    </DoubleAnimation>
-                  </Storyboard>
-                </BeginStoryboard>
-              </TriggerBase.EnterActions>
-              <TriggerBase.ExitActions>
-                <StopStoryboard BeginStoryboardName="animationOpenBMSPlayerBody" />
-              </TriggerBase.ExitActions>
-            </DataTrigger>
-            <DataTrigger Value="False" Binding="{Binding DataContext.PlayerPanelState, ElementName=playbackPanelView, Converter={StaticResource panelStateIsTitleSmallConverter}}">
-              <TriggerBase.EnterActions>
-                <BeginStoryboard Name="animationCloseBMSPlayerBody">
-                  <Storyboard FillBehavior="HoldEnd">
-                    <DoubleAnimation Storyboard.TargetProperty="Height" From="80" To="256" Duration="0:0:1">
-                      <DoubleAnimation.EasingFunction>
-                        <CubicEase EasingMode="EaseOut" />
-                      </DoubleAnimation.EasingFunction>
-                    </DoubleAnimation>
-                  </Storyboard>
-                </BeginStoryboard>
-              </TriggerBase.EnterActions>
-              <TriggerBase.ExitActions>
-                <StopStoryboard BeginStoryboardName="animationCloseBMSPlayerBody" />
-              </TriggerBase.ExitActions>
-            </DataTrigger>
-          </Style.Triggers>
-        </Style>
-      </FrameworkElement.Style>
+  <Grid.RowDefinitions>
+    <RowDefinition Height="*" />
+    <RowDefinition Height="30" />
+  </Grid.RowDefinitions>
+    <Grid Name="gridBMSPlayerBody" Grid.Row="0">
       <Image Name="gridBMSPlayerImage" Stretch="UniformToFill" ClipToBounds="True" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="-10,-10,-10,0">
         <UIElement.Effect>
           <BlurEffect Radius="0" />
@@ -246,7 +211,7 @@
         </TextBlock>
       </Grid>
     </Grid>
-    <DockPanel Name="gridBMSPlayerControls" Margin="0" MaxHeight="30" Height="30" Dock="Bottom">
+    <DockPanel Name="gridBMSPlayerControls" Grid.Row="1" Margin="0" MaxHeight="30" Height="30">
       <FrameworkElement.Resources>
         <ResourceDictionary>
           <Style x:Key="stylePlayerButton" TargetType="{x:Type Button}">
@@ -504,6 +469,5 @@
         </FrameworkElement.Style>
       </TextBlock>
     </DockPanel>
-  </DockPanel>
 </Grid>
 </UserControl>

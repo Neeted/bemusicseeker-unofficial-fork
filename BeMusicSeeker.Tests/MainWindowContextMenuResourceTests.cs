@@ -186,8 +186,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlayHistoryMainTable_ShowsDedicatedSummaryCardsAndDiagnostics()
     {
-        string root = FindRepositoryRoot();
-        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        XDocument mainWindowDocument = LoadMainWindowXamlDocument();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string rootViewModelCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string mainChartListCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
@@ -197,7 +196,8 @@ public sealed class MainWindowContextMenuResourceTests
         string playlistDetailTerminalCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailTerminal.cs");
         string viewExecutionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.ViewExecution.cs");
         string presentationStateCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
-        string summaryRow = ExtractBetween(xaml, "<Border Grid.Row=\"2\" Grid.Column=\"1\" Background=\"{DynamicResource App.SurfaceBrush}\"", "<v:CustomTableView x:Name=\"customTableView\"");
+        string summaryRow = FindElementByAttribute(mainWindowDocument, "Name", "playHistorySummaryBar")
+            .ToString(SaveOptions.DisableFormatting);
 
         StringAssert.Contains(summaryRow, "Visibility=\"{qc:MultiBinding '($P0 &amp;&amp; !$P1) ? Visibility.Visible : Visibility.Collapsed'");
         StringAssert.Contains(summaryRow, "P0={Binding IsPlayHistoryViewActive}");
@@ -413,14 +413,15 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlayHistoryDisplayTargetDropdown_BindsToPlayHistoryViewState()
     {
-        string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        XDocument mainWindowDocument = LoadMainWindowXamlDocument();
         string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string editDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.xaml"));
         string editDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string displayTargetOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
-        string toolbar = ExtractBetween(xaml, "<Border BorderThickness=\"0\" Grid.Row=\"1\" Grid.ColumnSpan=\"1\" Grid.Column=\"1\"", "<Border DockPanel.Dock=\"Right\" CornerRadius=\"6\" BorderThickness=\"1\" BorderBrush=\"{DynamicResource App.StrongBorderBrush}\" Width=\"Auto\" Margin=\"0,0,2,0\" VerticalAlignment=\"Center\" FlowDirection=\"LeftToRight\" Visibility=\"{Binding PlaylistWorkspace.IsPlaylistSummaryMode");
+        string toolbar = FindElementByAttribute(mainWindowDocument, "Name", "mainTableToolbar")
+            .ToString(SaveOptions.DisableFormatting);
         string saveAndClose = ExtractBetween(settingDialogCode, "private async void SaveAndClose", "internal static bool ShouldResetSettingsOnCancel");
         string saveSettings = ExtractBetween(viewModelCode, "public async Task SaveSettings()", "public async Task SaveSettingsForInitialInitialize()");
         string saveSettingsCore = ExtractBetween(viewModelCode, "private async Task SaveSettingsCore", "public void SaveOperationModeForRestart");
@@ -809,9 +810,37 @@ public sealed class MainWindowContextMenuResourceTests
         string xaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "PlaybackPanelView.xaml");
         string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
         string codeBehind = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "PlaybackPanelView.xaml.cs");
+        XDocument playbackDocument = LoadPlaybackPanelXamlDocument();
+        XDocument mainWindowDocument = LoadMainWindowXamlDocument();
+        XElement playbackRoot = playbackDocument.Root;
+        XElement mainGrid = FindElementByAttribute(mainWindowDocument, "Name", "grid");
+        XElement playbackRow = DirectChild(mainGrid, "Grid.RowDefinitions").Elements().First();
+        XElement statusBar = FindElementByAttribute(mainWindowDocument, "Name", "progressStatusBar");
 
         StringAssert.Contains(mainWindowXaml, "DataContext=\"{Binding PlaybackPanel}\"");
         StringAssert.Contains(mainWindowXaml, "BrowserHtml=\"{Binding DataContext.BrowserHtml, ElementName=window}\"");
+        Assert.AreEqual("{qc:MultiBinding '$P1 == Visibility.Visible ? $P0 + $P2 : $P0', P0={Binding ActualHeight, ElementName=playbackPanelView}, P1={Binding Visibility, ElementName=progressStatusBar}, P2={Binding Height, ElementName=progressStatusBar}}", GetAttributeValue(mainWindowDocument.Root, "MinHeight"));
+        Assert.AreEqual("Auto", GetAttributeValue(playbackRow, "Height"));
+        Assert.AreEqual("{Binding ActualHeight, ElementName=playbackPanelView}", GetAttributeValue(playbackRow, "MinHeight"));
+        Assert.AreEqual("Top", GetAttributeValue(playbackRoot, "VerticalAlignment"));
+        Assert.AreEqual("286", GetAttributeValue(playbackRoot, "Height"));
+        XElement playbackGrid = FindElementByAttribute(playbackDocument, "Name", "gridBMSPlayer");
+        XElement playbackRows = DirectChild(playbackGrid, "Grid.RowDefinitions");
+        CollectionAssert.AreEqual(new[] { "*", "30" }, playbackRows.Elements().Select(row => GetAttributeValue(row, "Height")).ToArray());
+        XElement playbackBody = FindElementByAttribute(playbackDocument, "Name", "gridBMSPlayerBody");
+        Assert.AreEqual("0", GetAttributeValue(playbackBody, "Grid.Row"));
+        Assert.AreEqual(string.Empty, GetAttributeValue(playbackBody, "Height"));
+        Assert.AreEqual("1", GetAttributeValue(FindElementByAttribute(playbackDocument, "Name", "gridBMSPlayerControls"), "Grid.Row"));
+        Assert.IsFalse(playbackRoot.Elements().Any(element => element.Name.LocalName == "UserControl.Style"));
+        Assert.IsFalse(xaml.Contains("animationOpenBMSPlayerBody"));
+        Assert.IsFalse(xaml.Contains("animationCloseBMSPlayerBody"));
+        StringAssert.Contains(codeBehind, "ApplyPlaybackPanelHeight(playbackPanel?.PlayerPanelState ?? PlayerPanelState.TITLE_LARGE, false)");
+        StringAssert.Contains(codeBehind, "ApplyPlaybackPanelHeight(subscribedPlaybackPanel.PlayerPanelState, IsLoaded && !isClosingOrClosed)");
+        Assert.AreEqual("28", GetAttributeValue(statusBar, "Height"));
+        Assert.AreEqual("Bottom", GetAttributeValue(statusBar, "DockPanel.Dock"));
+        FindElementByAttribute(mainWindowDocument, "Name", "mainTableToolbar");
+        FindElementByAttribute(mainWindowDocument, "Name", "playHistorySummaryBar");
+        Assert.IsFalse(mainWindowXaml.Contains("MaxHeight=\"{Binding Height, ElementName=playbackPanelView}\""));
         Assert.IsFalse(mainWindowXaml.Contains("Name=\"gridBMSPlayer\""));
         Assert.IsFalse(xaml.Contains("ElementName=\"settingDialog\""));
         Assert.IsFalse(xaml.Contains("ElementName=\"playlistPropertyDialog\""));
