@@ -125,8 +125,6 @@ public partial class MainWindowViewModel : ViewModel
 
     internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
 
-    internal PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSort { get; }
-
 
 
 
@@ -5366,7 +5364,6 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => PlayHistory.QueueKeywordFilterRefresh(
             NormalizePlaylistKeywordFilter(ChartFilters.KeywordFilter));
         PlaylistSummaryColumns = childComposition.PlaylistSummaryColumns;
-        PlaylistSummaryBmtSort = childComposition.PlaylistSummaryBmtSort;
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
@@ -13073,7 +13070,7 @@ public partial class MainWindowViewModel : ViewModel
             }
 
             UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort);
-            PlaylistSummaryBmtSort.ApplyImportedTablesToFront(orderedImportedTables);
+            PlaylistWorkspace.ApplyImportedTablesToBmtFront(orderedImportedTables);
             postProgressCompletedCount++;
             UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);
             UpdateBeatorajaTableUrlImportProgress(progressTotalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_finish);

@@ -353,10 +353,11 @@ internal sealed class MainWindowChildComposition
         PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(
             PlaylistWorkspace,
             mainChartColumnSettingsStore);
-        PlaylistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
+        var playlistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
             tablesProvider,
             tableSnapshotProvider,
             refreshPlaylistSummary);
+        PlaylistWorkspace.ConfigureSummaryBmtSort(playlistSummaryBmtSort);
         RegularChartListOwner = new RegularChartListOwner(
             MainChartList,
             PlaylistWorkspace,
@@ -382,8 +383,6 @@ internal sealed class MainWindowChildComposition
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
 
     internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
-
-    internal PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSort { get; }
 
     internal RegularChartListOwner RegularChartListOwner { get; }
 

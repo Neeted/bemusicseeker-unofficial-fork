@@ -26,6 +26,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
+    private PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
+
     private IPlaylistDetailDataSource detailDataSource;
 
     internal PlaylistDetailBuildState DetailBuildState { get; }
@@ -94,6 +96,53 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         this.detailRetentionLog = detailRetentionLog ?? throw new ArgumentNullException(nameof(detailRetentionLog));
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
             ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
+    }
+
+    internal void ConfigureSummaryBmtSort(PlaylistSummaryBmtSortCoordinator coordinator)
+    {
+        if (coordinator == null)
+        {
+            throw new ArgumentNullException(nameof(coordinator));
+        }
+        if (playlistSummaryBmtSort != null)
+        {
+            throw new InvalidOperationException("Playlist summary BMT sort is already configured.");
+        }
+        playlistSummaryBmtSort = coordinator;
+    }
+
+    internal void ApplyCurrentVisibleBmtOrder(IEnumerable<PlaylistSummaryRow> visibleRows)
+    {
+        GetSummaryBmtSort().ApplyCurrentVisibleOrder(visibleRows);
+    }
+
+    internal void MoveSummaryRowsToBmtTop(IEnumerable<PlaylistSummaryRow> rows)
+    {
+        GetSummaryBmtSort().MoveRowsToTop(rows);
+    }
+
+    internal void MoveSummaryRowsToBmtBottom(IEnumerable<PlaylistSummaryRow> rows)
+    {
+        GetSummaryBmtSort().MoveRowsToBottom(rows);
+    }
+
+    internal long DropSummaryRowsInBmtOrder(
+        IEnumerable<PlaylistSummaryRow> visibleRows,
+        IEnumerable<PlaylistSummaryRow> draggedRows,
+        int visibleInsertIndex)
+    {
+        return GetSummaryBmtSort().DropRows(visibleRows, draggedRows, visibleInsertIndex);
+    }
+
+    internal void ApplyImportedTablesToBmtFront(IReadOnlyList<BMSTable> importedTables)
+    {
+        GetSummaryBmtSort().ApplyImportedTablesToFront(importedTables);
+    }
+
+    private PlaylistSummaryBmtSortCoordinator GetSummaryBmtSort()
+    {
+        return playlistSummaryBmtSort
+            ?? throw new InvalidOperationException("Playlist summary BMT sort is not configured.");
     }
 
     private ChartListSortParameters playlistSummarySortParameters;

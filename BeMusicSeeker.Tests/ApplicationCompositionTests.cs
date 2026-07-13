@@ -1,11 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Windows.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
+using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -352,13 +355,88 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.ChartFilters);
             Assert.IsNotNull(childComposition.PlayHistory);
             Assert.IsNotNull(childComposition.PlaylistSummaryColumns);
-            Assert.IsNotNull(childComposition.PlaylistSummaryBmtSort);
             Assert.IsNotNull(childComposition.RegularChartListOwner);
             Assert.IsNotNull(childComposition.DropInstallQueueProcessor);
         }
         finally
         {
             childComposition.RegularChartListOwner.Dispose();
+        }
+    }
+
+    [TestMethod]
+    public void ComposedPlaylistWorkspacePersistsSummaryBmtOrderAndRefreshesSummary()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
+            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([first, second]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+            MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
+            PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
+                action => action(),
+                mainChartList,
+                _ => { },
+                _ => { });
+            int refreshCount = 0;
+            MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
+                mainChartList,
+                workspace,
+                () => playlist,
+                () => new InternalBMSAutoPlayerSoundOnly(),
+                () => null,
+                new ChartFileOperationSynchronizer(),
+                _ => { },
+                action => action(),
+                _ => { },
+                () => playlist.BMSTables,
+                (_, _, _) =>
+                {
+                    refreshCount++;
+                    return 1L;
+                },
+                (_, _) => { },
+                _ => { },
+                _ => { });
+            try
+            {
+                workspace.ApplyCurrentVisibleBmtOrder(
+                [
+                    new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
+                    new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first }
+                ]);
+
+                Assert.AreEqual(2, first.bmt_sort);
+                Assert.AreEqual(1, second.bmt_sort);
+                Assert.AreEqual(1, refreshCount);
+                using var verify = new LR2SongDBExtended(songDbPath);
+                Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 1));
+                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 2));
+            }
+            finally
+            {
+                childComposition.RegularChartListOwner.Dispose();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
         }
     }
 
