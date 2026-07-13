@@ -9,9 +9,9 @@
 
 - `MainWindow` と `MainWindowViewModel` を MVVM の shell / composition / view-host 境界へ縮小する。
 - 巨大型に集中した application workflow、domain workflow、状態所有を、機能単位の owner へ移す。
-- `BMSLibrary` と `BMSPlaylist` を public compatibility facade / aggregate entry へ縮小する。
+- `BMSLibrary` と `BMSPlaylist` を application-facing facade / aggregate entry へ縮小する。
 - settings、DB、native interop、外部 process、WPF / WinForms、出力 layout を明示的な adapter / gateway 境界へ閉じる。
-- 既存の UI observable behavior、DB schema、setting key、serialized value、外部ファイル形式を、別途承認された変更なしに変えない。
+- 既存の UI observable behavior、失敗契約、DB schema / data、setting key / serialized value、外部ファイル形式、supported external contract を、別途承認された変更なしに変えない。
 
 ## Release Freeze と権限
 
@@ -25,6 +25,26 @@ Codex は、各 implementation unit の検証とサブエージェント静的�
 - Gate 通過を理由にした自動的なリリース準備。
 
 build / test のローカル artifact と、移行 blocker を解消するための release 関連コードの refactor は許可する。
+
+## 互換性契約と internal surface
+
+C# の `public` / `protected` 修飾子だけでは互換性契約とみなさない。維持対象は UI observable behavior、失敗契約、setting key / serialized value、DB schema / data、外部ファイル形式、および明示的にサポートしている SDK / plugin / CLI / IPC / COM / automation contract とする。
+
+同一リポジトリ内の production caller、test project、XAML binding、resource lookup、reflection string は内部実装 consumer である。全 consumer を同じ implementation unit で更新し、build / test / UI smoke check を通す場合は、public member、nested enum、call shape を変更してよい。test または過去の内部 call shape のためだけに旧 public member、forwarding property、`[Obsolete]` wrapper を残さない。
+
+互換性を理由に escalation する前に、具体的な supported out-of-repository consumer を特定する。特定できなければ内部リファクタリングとして進める。
+
+compatibility-only debt は一括 public cleanup にせず、production caller、XAML、tests の更新と旧 wrapper 削除までを閉じる bounded unit で整理する。最初の対象は `BMSPlaylist.GetCustomFolderOutputDirectory(BMSTable)` の test-only / `Settings.Default`-backed overload とし、tests は明示的 settings 引数を取る overload または snapshot を使う。
+
+UI-01 の完了状態は public surface の変更だけを理由に再開しない。次の候補は production / XAML consumer と supported external consumer を監査し、外部 consumer がなく tests または root 内部だけで使われる場合に `ChartListSortParameters`、`ChartModeFilter`、`ChartFilters` へ置換して削除する。
+
+- `MainWindowViewModel.cSortParameters`
+- `MainWindowViewModel.ModeFilterType`
+- `MainWindowViewModel.ModeFilter`
+- `MainWindowViewModel.KeywordFilter`
+- `ToCompatibilitySortParameters`
+
+`PlaylistFilterType` は UI-03 で canonical feature type へ統合してよく、外部互換性を理由に残さない。
 
 ## 計画単位
 
@@ -77,9 +97,9 @@ mode workflow owner は immutable な presentation result を生成し、table p
 
 ### Domain
 
-`BMSLibrary` は public compatibility API、event surface、依存の composition、複数 owner をまたぐ最小限の coordination に限定する。initialization / scan、package install、file operation、maintenance / resource health、LR2 song.db sync、playlist reference は、それぞれ状態と挙動を同じ owner が持つ。
+`BMSLibrary` は現在の production composition に必要な application-facing facade、event surface、依存の composition、複数 owner をまたぐ最小限の coordination に限定する。過去の public surface の維持を目的にしない。initialization / scan、package install、file operation、maintenance / resource health、LR2 song.db sync、playlist reference は、それぞれ状態と挙動を同じ owner が持つ。
 
-`BMSPlaylist` は public compatibility API と playlist aggregate entry に限定する。persistence / reload、external sync、custom-folder output、BMT export、recommended-table build、operation notification は独立して検証できる owner へ移す。
+`BMSPlaylist` は現在の production composition に必要な application-facing facade と playlist aggregate entry に限定し、過去の public surface の維持を目的にしない。persistence / reload、external sync、custom-folder output、BMT export、recommended-table build、operation notification は独立して検証できる owner へ移す。
 
 新しい owner は `Window`、`Control`、`MessageBox`、`Settings.Default`、`NLog`、無制御な DB connection / transaction、無制御な `Dispatcher` を直接参照しない。必要な能力は用途別の小さな contract として受け取る。
 
@@ -139,7 +159,7 @@ Codex は [PLAN_STATUS](./PLAN_STATUS.md) の active outcome を進める。acti
 | 7 | `LIB-02 Package and file-operation ownership` | package install / repair / merge / rename / delete が state owner と用途別 gateway を通り、temporary host 群と重複 orchestration が整理される |
 | 8 | `LIB-03 Maintenance and resource-health ownership` | hydration、mutation、dispatch、index rebuild の状態と挙動が一つの bounded owner に集約され、C65-C103 由来の bridge / test seam が整理される |
 | 9 | `LIB-04 LR2 sync and playlist-reference ownership` | input build、schedule、run、publish と playlist reference update が facade private state から独立する |
-| 10 | `PL-01 Playlist persistence and reload ownership` | DB transaction、hydration、diff、reload decision が repository / workflow owner に移り、互換 facade から分離される |
+| 10 | `PL-01 Playlist persistence and reload ownership` | DB transaction、hydration、diff、reload decision が repository / workflow owner に移り、application-facing facade から分離される |
 | 11 | `PL-02 Playlist external-sync and output ownership` | HTTP sync、custom-folder、BMT、recommended-table output が個別に検証できる owner へ移る |
 | 12 | `UI-05 Shell closure` | settings dialog、library refresh、package operation、残存 feature の root pass-through と code-behind workflow がなくなり、UI Gate を満たす |
 | 13 | `MIG-01 Platform boundary closure` | settings/config、native load、managed/native output、external process、updater、WPF / WinForms の残依存が migration adapter / project task に限定される |

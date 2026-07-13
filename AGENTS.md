@@ -5,8 +5,15 @@
 - リファクタリング中は `devdocs/plan/BeMusicSeeker_refactoring_plans/BeMusicSeekerリファクタリング計画.md`、`PLAN_STATUS.md`、`00_Codex共通実行ルール.md` を正本とする。
 - `PLAN_STATUS.md` の active outcome を、完了条件を満たすまで連続して進める。細かな seam、helper、DTO、調査資料を独立した成果にしない。
 - 差分の小ささではなく、state と behavior が同じ owner に収まり、旧経路を削除できる実装単位を選ぶ。
-- DB schema、setting key、serialized value、外部ファイル形式、UI observable behavior、public compatibility API の意味を変える必要がある場合だけ、実装前にユーザーへ確認する。
+- DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約、明示的にサポートする SDK / plugin / CLI / IPC / COM / automation contract の意味を変える必要がある場合だけ、実装前にユーザーへ確認する。
 - 意味の変わる fallback を追加しない。失敗を隠さず、既存の失敗契約を維持する。
+
+## 互換性契約
+
+- C# の `public` / `protected` 修飾子だけでは互換性契約とみなさない。
+- 同一リポジトリ内の production caller、test project、XAML binding、resource lookup、reflection string は内部実装 consumer とする。全 consumer を同じ implementation unit で更新し、build / test / UI smoke check を通す場合は call shape を変更してよい。
+- 旧 public member、旧 nested enum、旧 forwarding property を、test または過去の内部 call shape のためだけに残さない。`[Obsolete]` wrapper も追加しない。
+- 互換性を理由に escalation する前に、具体的な supported out-of-repository consumer を特定する。特定できなければ内部リファクタリングとして進める。
 
 ## Git と Release Freeze
 
@@ -25,6 +32,7 @@
 - 命名、XML documentation、理由コメントは、変更した責務の理解または非自明な contract / invariant の説明に必要な範囲で改善する。無関係な cleanup を同じ commit に混ぜない。
 - `NLog` を直接参照せず、既存の logging boundary を使う。INFO log は lifecycle、boundary、性能計測、異常回復に必要な場合だけ追加する。
 - 通常操作で表示する新規 UI 文言は既存の resource / localization 手順に従う。
+- 静的レビューでは public modifier の差分自体を指摘事項にせず、supported external contract、persisted data、UI observable behavior、失敗契約の破壊だけを互換性指摘として扱う。
 
 ## 検証
 

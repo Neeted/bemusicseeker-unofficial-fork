@@ -48,7 +48,9 @@ Before editing, classify the change:
 - `SymbolRename`: namespace, type, member, local, parameter, or property rename. Use semantic rename.
 - `ApiRefactor`: signature, overload, inheritance/interface, or call-shape change. Use compiler-driven edits after understanding the contract.
 - `NonSymbolArtifact`: XAML strings, resources, JSON, docs, logs, settings names, DB schema names, SQL, migrations, serialized names, external file formats, or generated outputs. Edit deliberately after the semantic change.
-- `ContractRename`: persisted setting, DB table/column, resource key, serialized field, public plugin/API surface, or user-visible compatibility name. Preserve compatibility or ask before changing.
+- `ContractRename`: persisted setting, DB table/column, serialized field, a resource key used by a persisted or explicitly supported external contract, explicitly supported SDK/plugin/CLI/IPC/COM/automation surface, or user-visible compatibility name. Preserve compatibility or ask before changing.
+
+C# `public` / `protected` visibility alone does not make a symbol an external compatibility contract. In-repository production callers, tests, XAML bindings, resource lookups, and reflection strings are internal consumers. Update them in the same compiler-verified unit instead of preserving an old public call shape.
 
 For BeMusicSeeker chart abstraction, classify every old `BMS*` name as one of:
 
@@ -67,7 +69,8 @@ Check internally before editing:
 - symbol kind
 - containing type and namespace
 - visibility
-- whether it is public API
+- whether it is merely public/protected or belongs to a concrete supported out-of-repository contract
+- the specific supported external consumer, if compatibility is claimed
 - whether production code still uses the old API, or only tests do
 - whether XAML, resources, settings, config, DB schema, migrations, serialization, generated files, logs, or docs may be involved
 - expected semantic scope and expected non-symbol follow-up files
@@ -119,8 +122,9 @@ Rules:
 - After semantic rename, inspect the diff before making follow-up edits.
 - Edit non-symbol artifacts with narrow, reviewed patches only after classifying why semantic rename cannot handle them.
 - Do not leave compatibility wrappers or old-name APIs that are used only by tests. Remove or rename tests with production code.
+- Do not add `[Obsolete]` wrappers, forwarding properties, or old nested types solely for in-repository callers, XAML, reflection strings, or historical call shapes.
 - For API/signature refactors, do not treat the work as a plain rename. Let build errors expose call sites, and be careful with overload ambiguity such as discarded `out _` arguments; make the discard type explicit when needed.
-- Do not rename persisted settings, DB tables/columns, serialized fields, or resource keys without an explicit compatibility or migration plan.
+- Do not rename persisted settings, DB tables/columns, serialized fields, or resource keys used by persisted or explicitly supported external contracts without an explicit compatibility or migration plan. Internal XAML/resource keys may change with all consumers in the same unit while preserving UI observable behavior.
 
 ## BeMusicSeeker Audit Checklist
 
@@ -149,7 +153,7 @@ For semantic refactors, also verify:
 - formatting verification through the SDK `dotnet format whitespace` command
 - Roslynator analyzer output; treat new diagnostics as part of the change impact, not as rename tooling setup
 
-Use a subagent review when available for non-trivial refactors. Ask it to review the diff for stale old names, over-rename, missed non-symbol artifacts, compatibility wrappers, and persistence/config risks.
+Use a subagent review when available for non-trivial refactors. Ask it to review the diff for stale old names, over-rename, missed non-symbol artifacts, compatibility wrappers, and persistence/config risks. A public modifier change is not itself a finding; require evidence of a supported external contract, persisted-data break, UI behavior break, or failure-contract break.
 
 Before finishing, verify no old production API remains unless it is intentionally retained. Search old symbol names, old enum/context names, adapter APIs, wrappers, and user-visible terms; justify each remaining production hit.
 
@@ -162,7 +166,7 @@ Include:
 - operation type
 - files changed
 - symbol scope
-- public API impact
+- supported external contract impact, naming the concrete out-of-repository consumer or stating that none was found
 - serialization/database/config impact
 - UI/XAML/resource impact
 - generated file impact

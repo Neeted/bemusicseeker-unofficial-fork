@@ -7,9 +7,18 @@
 - outcome 内の implementation unit は、検証とサブエージェント静的レビュー後に自発的に commit してよい。
 - unrelated な既存差分を変更、stage、commit しない。
 - Refactoring Completion Gate 前は、ユーザーから依頼されても `git push`、tag、release、publish、version 更新を行わない。Gate 後もユーザーの明示指示なしには行わない。
-- DB schema、setting key、serialized value、外部ファイル形式、UI observable behavior、public compatibility API を変更する必要が生じたら、実装前にユーザーへ確認する。
+- DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約、明示的にサポートする SDK / plugin / CLI / IPC / COM / automation contract を変更する必要が生じたら、実装前にユーザーへ確認する。
 - 意味の変わる fallback を追加しない。失敗を隠すより、既存の失敗契約を維持して明示的に失敗させる。
 - C# symbol rename は text replacement ではなく semantic rename / compiler-driven edit を使う。
+
+## 互換性契約の判定
+
+- C# の `public` / `protected` 修飾子だけでは互換性契約とみなさない。
+- 維持対象は UI observable behavior、失敗契約、setting key / serialized value、DB schema / data、外部ファイル形式、および明示的にサポートしている SDK / plugin / CLI / IPC / COM / automation contract とする。
+- 同一リポジトリ内の production caller、test project、XAML binding、resource lookup、reflection string は内部実装 consumer とする。
+- 内部 consumer と XAML を同じ implementation unit で更新し、build / test / UI smoke check を通す場合は、public member を含む call shape を変更してよい。
+- 旧 public member、旧 nested enum、旧 forwarding property を test または過去の内部 call shape のためだけに残さず、`[Obsolete]` wrapper も追加しない。
+- escalation 前に具体的な supported out-of-repository consumer を特定する。特定できなければ内部リファクタリングとして進める。
 
 ## 作業開始
 
@@ -124,6 +133,7 @@ git diff / git status / rg / Get-Content などの読み取りだけを使って
 - abstraction / host / adapter / DTO を増やしただけになっていないか
 - 旧 route、旧 binding、root relay、callback host、test-only production seam が不要に残っていないか
 - 挙動、DB schema、setting key、serialized value、外部形式、lock ordering を意図せず変えていないか
+- public modifier の差分自体を互換性問題にしていないか。supported external contract を主張する場合は具体的な out-of-repository consumer が特定されているか
 - View / global singleton / Settings / NLog / DB / Dispatcher への依存方向を悪化させていないか
 - private 実装配置を固定する brittle test を増やしていないか
 - .NET 10 migration blocker を増やしていないか
@@ -135,7 +145,7 @@ git diff / git status / rg / Get-Content などの読み取りだけを使って
 重大指摘には少なくとも次を含む。
 
 - build / test / runtime behavior を壊す可能性が高い。
-- persistence、serialization、UI observable behavior、public compatibility を意図せず変える。
+- persisted data、UI observable behavior、失敗契約、supported external contract を意図せず変える。
 - responsibility owner が増える、循環する、または root に残ったままになる。
 - production の通常経路で使わない abstraction や test 専用 seam を追加する。
 - global dependency、UI technology、DB connection、lock、Dispatcher の漏出を増やす。
@@ -162,7 +172,7 @@ active な計画資料は次の 4 ファイルに限定する。
 
 - 複数の現実的な選択肢がある。
 - outcome 完了後も判断理由を参照する必要がある。
-- public API、persistence / schema、serialization、UI observable behavior、lock / concurrency、互換性、`.NET 10` migration policy のいずれかに影響する。
+- persisted data、UI observable behavior、失敗契約、supported external contract、lock / concurrency、`.NET 10` migration policy のいずれかに影響する。
 
 「次に切る helper」「次の private reflection test」「一時的な class / interface 配置」は ADR にしない。
 
@@ -170,7 +180,7 @@ active な計画資料は次の 4 ファイルに限定する。
 
 Codex は、active outcome の範囲内で設計・実装・test・review・commit を継続する。次の場合だけユーザーへ確認する。
 
-- observable behavior、public compatibility、persisted data の意味を変える必要がある。
+- UI observable behavior、失敗契約、persisted data、supported external contract の意味を変える必要がある。supported external contract を理由にする場合は具体的な out-of-repository consumer を特定する。
 - 目標アーキテクチャまたは ordered backlog を実質的に変更する必要がある。
 - 外部資産、資格情報、手動 UI 操作など、Codex だけでは取得できない情報が必要である。
 - 安全な選択肢を調査しても、複数案の trade-off をユーザーが決める必要がある。

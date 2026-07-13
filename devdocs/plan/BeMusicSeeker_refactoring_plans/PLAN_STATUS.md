@@ -2,7 +2,7 @@
 
 [リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md) / [Codex 共通実行ルール](./00_Codex共通実行ルール.md)
 
-最終更新日: 2026-07-12
+最終更新日: 2026-07-13
 
 ## Baseline
 
@@ -27,6 +27,10 @@ Acceptance criteria:
 - code-behind に残る playback 処理は view-host 操作に限定され、旧 root callback / workflow host / binding relay と test-only production seam が削除される。
 - 内部 player、外部 player、再生状態遷移、停止・一時停止、progress 更新、失敗時の既存契約を behavior test で検証する。
 - 移管済み child owner から `Application.Current`、`DispatcherHelper.UIDispatcher`、root の nested contract を直接取得しない。
+- generated Settings / `ISettingsEditSession`、`System.Windows.Threading.Dispatcher`、`UiDialogCoordinator` / `MessageBox` 型、`NLogWrapper`、`MainChartListViewModel` 全体への広い依存を feature owner から除く。
+- View と ViewModel の panel state transition ownership を閉じ、`Unloaded` 後に previous-button timer が発火しない lifecycle を保証する。
+- setting key `PlayerPanelState`、`DefaultSettingValue("TITLE_SMALL")`、`TITLE_LARGE=0` / `TITLE_SMALL=1` / `BMS_PLAYER=2` / `MOVIE_PLAYER=4` の serialized name / numeric meaning を維持し、旧 user.config 相当の文字列値を現行型として load / save / reload できる targeted test を持つ。CLR 型名や旧 nested enum 自体は互換対象にしない。
+- `MainWindowViewModel.PanelState`、`MainWindow.NowPanelState`、`NowPlayingBMS`、`CurrentlyPlaying*`、`PlayerVolume`、`PlayStart` / `Next` / `Previous` / `End` の旧 root member、`[Obsolete]` wrapper、forwarding compatibility member を復元せず、production caller / XAML / tests を `PlaybackPanelViewModel` / `PlaybackPanelView` へ直接接続する。
 - 変更範囲に対応する UI smoke check、Full 検証、重大な指摘なしのサブエージェント静的レビューが完了する。
 
 Non-goals:
@@ -34,6 +38,7 @@ Non-goals:
 - playlist workspace、play history、library、playlist persistence / sync / output の owner 移管（UI-03、UI-04、LIB-*、PL-*）。
 - settings dialog、library refresh、package operation など playback 以外の `MainWindow.cs` workflow の thin-shell 化（UI-05）。
 - `.NET 10` TFM 変更、NuGet の一括更新、native dependency の置換。
+- public modifier の変更だけを理由にした UI-01 の再開、または過去の repository-internal call shape の復元。
 
 ## Outcome states
 
@@ -57,6 +62,8 @@ Non-goals:
 許可する状態は `not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。`completed` は個別 outcome の全 acceptance criteria を満たした場合だけ、`gate met` は `GATE-01` にだけ使う。途中段階を完了状態として記録しない。
 
 UI-01 の完了境界は main table presentation、regular chart workflow、playlist / play-history の result-to-table production contract、および main-table subtree の binding / event adapter とする。playlist source query / cache / queue、play history の feature action、playback、playlist summary、tree / dialog workflow、`MainWindow.cs` 全体の thin-shell 化は、対応する後続 outcome が active になった段階で閉じる。UI-01 はこれらを `MainChartList` に吸収しない。
+
+UI-01 は public surface の変更だけを理由に再開しない。旧 sort / filter compatibility surface の整理は総合計画の bounded cleanup 方針に従い、production / XAML consumer、tests、旧 wrapper を一つの unit で更新する。
 
 ## Gate scorecard
 
