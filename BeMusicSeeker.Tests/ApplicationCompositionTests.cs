@@ -51,6 +51,90 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void CompositionCreatesTheConfiguredUbMplayPlayer()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
+        string executablePath = Path.Combine(root, "uBMplay.exe");
+        Directory.CreateDirectory(root);
+        File.WriteAllBytes(executablePath, []);
+        try
+        {
+            var composition = new ApplicationComposition();
+            var settings = new StartupSettingsSnapshot
+            {
+                UsePlayeruBMplay = true,
+                uBMplayPath = executablePath
+            };
+
+            IBMSPlayer player = composition.CreateBmsPlayer(settings, null);
+
+            Assert.IsInstanceOfType(player, typeof(uBMplay));
+            Assert.AreEqual(executablePath, player.ExePath);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void CompositionCreatesTheConfiguredBmiIdxViewPlayer()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
+        string executablePath = Path.Combine(root, "BMIIDXView2015_64.exe");
+        Directory.CreateDirectory(root);
+        File.WriteAllBytes(executablePath, []);
+        try
+        {
+            var composition = new ApplicationComposition();
+            var settings = new StartupSettingsSnapshot
+            {
+                UsePlayerBMIIDXView = true,
+                BMIIDXViewPath = executablePath
+            };
+
+            IBMSPlayer player = composition.CreateBmsPlayer(settings, null);
+
+            Assert.IsInstanceOfType(player, typeof(BMIIDXView2015));
+            Assert.AreEqual(executablePath, player.ExePath);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public void CompositionCreatesTheConfiguredLr2Player()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_PlayerComposition", Guid.NewGuid().ToString("N"));
+        string executablePath = Path.Combine(root, "LR2body.exe");
+        string configDirectory = Path.Combine(root, "LR2files", "Config");
+        string configPath = Path.Combine(configDirectory, "config.xml");
+        Directory.CreateDirectory(configDirectory);
+        File.WriteAllBytes(executablePath, []);
+        File.WriteAllText(configPath, "<config />");
+        try
+        {
+            var composition = new ApplicationComposition();
+            var settings = new StartupSettingsSnapshot
+            {
+                UsePlayerLR2body = true,
+                LR2bodyPath = executablePath
+            };
+
+            IBMSPlayer player = composition.CreateBmsPlayer(settings, () => new LR2Config(configPath));
+
+            Assert.IsInstanceOfType(player, typeof(LR2body));
+            Assert.AreEqual(executablePath, player.ExePath);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void CompositionUsesInjectedDefaultWhenNoExternalPlayerIsSelected()
     {
         bool originalUbMplay = BeMusicSeeker.Properties.Settings.Default.UsePlayeruBMplay;

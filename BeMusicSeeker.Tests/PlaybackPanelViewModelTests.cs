@@ -271,6 +271,99 @@ public sealed class PlaybackPanelViewModelTests
     }
 
     [TestMethod]
+    public void PlaybackPanel_TogglePausePublishesPlayingAndPausedStates()
+    {
+        var player = new FakeBmsPlayer();
+        PlaybackPanelViewModel panel = CreatePanel(player);
+        var file = new BMSFile();
+        var changed = new List<string>();
+        panel.PropertyChanged += (_, e) => changed.Add(e.PropertyName ?? string.Empty);
+        long generation = panel.BeginPlayback(file, 0);
+        Assert.IsTrue(panel.TryPlayStart(generation, "chart.bms", null));
+
+        Assert.IsTrue(panel.IsPlaying);
+        Assert.IsFalse(panel.IsPaused);
+        Assert.IsFalse(panel.IsStoppedOrPaused);
+        changed.Clear();
+
+        panel.Start(forceNewPlay: false);
+
+        Assert.IsFalse(panel.IsPlaying);
+        Assert.IsTrue(panel.IsPaused);
+        Assert.IsTrue(panel.IsStoppedOrPaused);
+        CollectionAssert.IsSubsetOf(
+            new[] { nameof(panel.IsPlaying), nameof(panel.IsPaused), nameof(panel.IsStoppedOrPaused) },
+            changed);
+        changed.Clear();
+
+        panel.Start(forceNewPlay: false);
+
+        Assert.IsTrue(panel.IsPlaying);
+        Assert.IsFalse(panel.IsPaused);
+        Assert.IsFalse(panel.IsStoppedOrPaused);
+        Assert.AreEqual(2, player.Commands.Count(command => command == "Pause"));
+        CollectionAssert.IsSubsetOf(
+            new[] { nameof(panel.IsPlaying), nameof(panel.IsPaused), nameof(panel.IsStoppedOrPaused) },
+            changed);
+    }
+
+    [TestMethod]
+    public void PlaybackPanel_PlayerExitAdvancesExactlyOnceToTheNextChart()
+    {
+        string firstPath = Path.GetTempFileName();
+        string secondPath = Path.GetTempFileName();
+        bool originalRepeat = Settings.Default.RepeatPlayMode;
+        bool originalFolderSkip = Settings.Default.FolderSkipPlayMode;
+        bool originalSingle = Settings.Default.SinglePlayMode;
+        var player = new FakeBmsPlayer();
+        var chartList = new MainChartListViewModel
+        {
+            Rows = new List<object> { new TestBmsFile(firstPath), new TestBmsFile(secondPath) },
+            SelectedIndex = 0
+        };
+        var panel = new PlaybackPanelViewModel(
+            player,
+            new ImmediatePlaybackUiDispatcher(),
+            new MainChartListPlaybackQueue(chartList),
+            new SettingsPlaybackSettingsStore(() => Settings.Default),
+            new FakePlaybackDialogService(),
+            _ => { },
+            new ChartFileOperationSynchronizer());
+        try
+        {
+            Settings.Default.RepeatPlayMode = false;
+            Settings.Default.FolderSkipPlayMode = false;
+            Settings.Default.SinglePlayMode = false;
+            panel.Start();
+            Action<object, EventArgs> firstExit = player.ExitHandler!;
+
+            firstExit(player, EventArgs.Empty);
+
+            Assert.AreEqual(secondPath, panel.NowPlayingBmsFile.path);
+            Assert.AreEqual(1, panel.NowPlayingRowIndex);
+            Assert.AreEqual(1, chartList.SelectedIndex);
+            Assert.IsFalse(chartList.Rows.Cast<TestBmsFile>().ElementAt(0).status.HasFlag(BMSFile.BMSFileStatus.PLAYALL));
+            Assert.IsTrue(panel.IsPlaying);
+            CollectionAssert.AreEqual(
+                new[] { "PlayStart:" + firstPath, "PlayStart:" + secondPath },
+                player.Commands.Where(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)).ToArray());
+
+            firstExit(player, EventArgs.Empty);
+
+            Assert.AreEqual(1, panel.NowPlayingRowIndex);
+            Assert.AreEqual(2, player.Commands.Count(command => command.StartsWith("PlayStart:", StringComparison.Ordinal)));
+        }
+        finally
+        {
+            Settings.Default.RepeatPlayMode = originalRepeat;
+            Settings.Default.FolderSkipPlayMode = originalFolderSkip;
+            Settings.Default.SinglePlayMode = originalSingle;
+            File.Delete(firstPath);
+            File.Delete(secondPath);
+        }
+    }
+
+    [TestMethod]
     public void PlaybackPanel_StopReplaceAndCloseInvalidatePreparedOrRunningSessions()
     {
         var firstPlayer = new FakeBmsPlayer();
