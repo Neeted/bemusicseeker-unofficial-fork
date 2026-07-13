@@ -10,6 +10,26 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private PlaylistPropertyDialogViewModel activePropertyDialog;
 
+    internal event EventHandler<PlaylistPropertyValidationErrorEventArgs> PlaylistPropertyValidationError;
+
+    internal event EventHandler<PlaylistPropertyExternalSyncConfirmationRequestedEventArgs> PlaylistPropertyExternalSyncConfirmationRequested;
+
+    internal event EventHandler PlaylistPropertyInvalidOutputDirectoryRequested;
+
+    internal event EventHandler PlaylistPropertySyncStarted;
+
+    internal event EventHandler PlaylistPropertySyncFinished;
+
+    internal event EventHandler<PlaylistReferenceTableReplacedEventArgs> PlaylistPropertyReferenceTableReplaced;
+
+    internal event EventHandler<PlaylistPropertyFolderSelectionRemappedEventArgs> PlaylistPropertyFolderSelectionRemapped;
+
+    internal event EventHandler PlaylistPropertyReferenceSortInvalidationRequested;
+
+    internal event EventHandler<PlaylistPropertyExternalSyncFailedEventArgs> PlaylistPropertyExternalSyncFailed;
+
+    internal event EventHandler<PlaylistPropertyNotificationsFlushRequestedEventArgs> PlaylistPropertyNotificationsFlushRequested;
+
     public PlaylistPropertyDialogViewModel ActivePropertyDialog
     {
         get => activePropertyDialog;
@@ -25,7 +45,160 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal void ConfigurePropertyEditing(PlaylistPropertySaveService service)
     {
-        propertySaveService = service ?? throw new ArgumentNullException(nameof(service));
+        if (service == null)
+        {
+            throw new ArgumentNullException(nameof(service));
+        }
+        if (propertySaveService != null)
+        {
+            throw new InvalidOperationException("Playlist property editing is already configured.");
+        }
+        propertySaveService = service;
+        service.ValidationError += ForwardPlaylistPropertyValidationError;
+        service.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
+        service.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
+        service.PlaylistPropertySyncStarted += ForwardPlaylistPropertySyncStarted;
+        service.PlaylistPropertySyncProgressChanged += ForwardPlaylistSyncProgressChanged;
+        service.PlaylistPropertySyncFinished += ForwardPlaylistPropertySyncFinished;
+        service.PlaylistPropertyReferenceTableReplaced += ForwardPlaylistPropertyReferenceTableReplaced;
+        service.PlaylistPropertyFolderSelectionRemapped += ForwardPlaylistPropertyFolderSelectionRemapped;
+        service.PlaylistPropertyReferenceSortInvalidationRequested += ForwardPlaylistPropertyReferenceSortInvalidationRequested;
+        service.PlaylistPropertySyncResultReported += ForwardPlaylistSyncResultReported;
+        service.PlaylistPropertyExternalSyncFailed += ForwardPlaylistPropertyExternalSyncFailed;
+        service.PlaylistPropertySummaryDataRefreshRequested += ForwardPlaylistSummaryDataRefreshRequested;
+        service.PlaylistPropertyEntriesChanged += ForwardPlaylistEntriesChanged;
+        service.PlaylistPropertyNotificationsFlushRequested += ForwardPlaylistNotificationsFlushRequested;
+    }
+
+    private void ForwardPlaylistPropertyValidationError(
+        object sender,
+        PlaylistPropertyValidationErrorEventArgs request)
+    {
+        RaiseRequiredEvent(
+            PlaylistPropertyValidationError,
+            request,
+            nameof(PlaylistPropertyValidationError));
+    }
+
+    private void ForwardPlaylistPropertyExternalSyncConfirmationRequested(
+        object sender,
+        PlaylistPropertyExternalSyncConfirmationRequestedEventArgs request)
+    {
+        RaiseRequiredEvent(
+            PlaylistPropertyExternalSyncConfirmationRequested,
+            request,
+            nameof(PlaylistPropertyExternalSyncConfirmationRequested));
+    }
+
+    private void ForwardPlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
+    {
+        RaiseRequiredEvent(
+            PlaylistPropertyInvalidOutputDirectoryRequested,
+            EventArgs.Empty,
+            nameof(PlaylistPropertyInvalidOutputDirectoryRequested));
+    }
+
+    private void ForwardPlaylistPropertySyncStarted(object sender, EventArgs e)
+    {
+        RaiseRequiredEvent(PlaylistPropertySyncStarted, EventArgs.Empty, nameof(PlaylistPropertySyncStarted));
+    }
+
+    private void ForwardPlaylistSyncProgressChanged(
+        object sender,
+        PlaylistSyncProgressChangedEventArgs request)
+    {
+        RaiseRequiredEvent(PlaylistSyncProgressChanged, request, nameof(PlaylistSyncProgressChanged));
+    }
+
+    private void ForwardPlaylistPropertySyncFinished(object sender, EventArgs e)
+    {
+        RaiseRequiredEvent(PlaylistPropertySyncFinished, EventArgs.Empty, nameof(PlaylistPropertySyncFinished));
+    }
+
+    private void ForwardPlaylistPropertyReferenceTableReplaced(
+        object sender,
+        PlaylistReferenceTableReplacedEventArgs request)
+    {
+        RaiseRequiredEvent(
+            PlaylistPropertyReferenceTableReplaced,
+            request,
+            nameof(PlaylistPropertyReferenceTableReplaced));
+    }
+
+    private void ForwardPlaylistPropertyFolderSelectionRemapped(
+        object sender,
+        PlaylistPropertyFolderSelectionRemappedEventArgs request)
+    {
+        RaiseRequiredEvent(
+            PlaylistPropertyFolderSelectionRemapped,
+            request,
+            nameof(PlaylistPropertyFolderSelectionRemapped));
+    }
+
+    private void ForwardPlaylistPropertyReferenceSortInvalidationRequested(object sender, EventArgs e)
+    {
+        RaiseRequiredEvent(
+            PlaylistPropertyReferenceSortInvalidationRequested,
+            EventArgs.Empty,
+            nameof(PlaylistPropertyReferenceSortInvalidationRequested));
+    }
+
+    private void ForwardPlaylistSyncResultReported(
+        object sender,
+        PlaylistSyncResultReportedEventArgs request)
+    {
+        RaiseRequiredEvent(PlaylistSyncResultReported, request, nameof(PlaylistSyncResultReported));
+    }
+
+    private void ForwardPlaylistPropertyExternalSyncFailed(
+        object sender,
+        PlaylistPropertyExternalSyncFailedEventArgs request)
+    {
+        RaiseRequiredEvent(
+            PlaylistPropertyExternalSyncFailed,
+            request,
+            nameof(PlaylistPropertyExternalSyncFailed));
+    }
+
+    private void ForwardPlaylistSummaryDataRefreshRequested(
+        object sender,
+        PlaylistSummaryDataRefreshRequestedEventArgs request)
+    {
+        RaiseRequiredEvent(
+            PlaylistSummaryDataRefreshRequested,
+            request,
+            nameof(PlaylistSummaryDataRefreshRequested));
+    }
+
+    private void ForwardPlaylistEntriesChanged(
+        object sender,
+        PlaylistWorkspaceEntriesChangedEventArgs request)
+    {
+        RaiseRequiredEvent(EntriesChanged, request, nameof(EntriesChanged));
+    }
+
+    private void ForwardPlaylistNotificationsFlushRequested(
+        object sender,
+        PlaylistPropertyNotificationsFlushRequestedEventArgs request)
+    {
+        RaiseRequiredEvent(
+            PlaylistPropertyNotificationsFlushRequested,
+            request,
+            nameof(PlaylistPropertyNotificationsFlushRequested));
+    }
+
+    private void RaiseRequiredEvent(EventHandler handler, EventArgs args, string eventName)
+    {
+        (handler ?? throw new InvalidOperationException(eventName + " is not subscribed."))(this, args);
+    }
+
+    private void RaiseRequiredEvent<TEventArgs>(
+        EventHandler<TEventArgs> handler,
+        TEventArgs args,
+        string eventName)
+        where TEventArgs : EventArgs
+    {
+        (handler ?? throw new InvalidOperationException(eventName + " is not subscribed."))(this, args);
     }
 
     internal PlaylistPropertyDialogViewModel OpenPropertyDialog(BMSTable table, bool isNewTable = false)

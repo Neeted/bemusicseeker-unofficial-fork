@@ -466,8 +466,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private BMSPlaylist tables;
 
-    private readonly PlaylistPropertySaveService playlistPropertySaveService;
-
     private readonly ApplicationComposition applicationComposition;
 
     private Settings ApplicationSettings => applicationComposition.SettingsEditSession.Values;
@@ -5306,18 +5304,11 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             LogPlaylistViewApply,
             LogPlaylistRetention);
-        playlistPropertySaveService = new PlaylistPropertySaveService(
+        PlaylistWorkspace.ConfigurePropertyEditing(new PlaylistPropertySaveService(
             () => tables,
             () => files,
             () => lr2config,
-            customFolderOutputSettingsProvider,
-            this,
-            () => ShowUiMessage(
-                BeMusicSeeker.Properties.Resources.Warn_CustomFolderOutputDirInvalid,
-                BeMusicSeeker.Properties.Resources.MessageBoxTitle_Warning,
-                MessageBoxImage.Exclamation,
-                "playlist property output directory notification"));
-        PlaylistWorkspace.ConfigurePropertyEditing(playlistPropertySaveService);
+            customFolderOutputSettingsProvider));
         PlaylistWorkspace.ConfigureDetailEditing(() => tables);
         PlaylistWorkspace.ConfigureMutations(() => files, RunPlaylistOperationWithNotifications);
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
@@ -5332,6 +5323,16 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
         PlaylistWorkspace.PlaylistReloadCompleted += PlaylistWorkspacePlaylistReloadCompleted;
         PlaylistWorkspace.PlaylistReloadFinished += PlaylistWorkspacePlaylistReloadFinished;
+        PlaylistWorkspace.PlaylistPropertyValidationError += PlaylistWorkspacePlaylistPropertyValidationError;
+        PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistPropertyExternalSyncConfirmationRequested;
+        PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested;
+        PlaylistWorkspace.PlaylistPropertySyncStarted += PlaylistWorkspacePlaylistPropertySyncStarted;
+        PlaylistWorkspace.PlaylistPropertySyncFinished += PlaylistWorkspacePlaylistPropertySyncFinished;
+        PlaylistWorkspace.PlaylistPropertyReferenceTableReplaced += PlaylistWorkspacePlaylistPropertyReferenceTableReplaced;
+        PlaylistWorkspace.PlaylistPropertyFolderSelectionRemapped += PlaylistWorkspacePlaylistPropertyFolderSelectionRemapped;
+        PlaylistWorkspace.PlaylistPropertyReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistPropertyReferenceSortInvalidationRequested;
+        PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += PlaylistWorkspacePlaylistPropertyExternalSyncFailed;
+        PlaylistWorkspace.PlaylistPropertyNotificationsFlushRequested += PlaylistWorkspacePlaylistPropertyNotificationsFlushRequested;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,

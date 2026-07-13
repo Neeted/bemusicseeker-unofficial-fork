@@ -1332,9 +1332,11 @@ public sealed class MainWindowContextMenuResourceTests
             "private static bool IsValid(");
         int headerCommitIndex = saveFollowup.IndexOf("store.CommitBMSTableHeaderToDB(table);", StringComparison.Ordinal);
         int fullCommitIndex = saveFollowup.IndexOf("store.CommitBMSTableWithEntriesToDB(table);", StringComparison.Ordinal);
-        int detailRefreshIndex = saveFollowup.IndexOf("interaction.ApplyEntriesChanged(table);", StringComparison.Ordinal);
-        int selectionReplaceIndex = saveFollowup.IndexOf("interaction.ReplaceCurrentSelection(sourceTable, table);", StringComparison.Ordinal);
-        int folderSelectionRemapIndex = saveFollowup.IndexOf("interaction.RemapCurrentFolderSelection(table, rewrittenFolders);", StringComparison.Ordinal);
+        int detailRefreshIndex = saveFollowup.IndexOf("PlaylistPropertyEntriesChanged", StringComparison.Ordinal);
+        int selectionReplaceIndex = saveFollowup.IndexOf("PlaylistPropertyReferenceTableReplaced", StringComparison.Ordinal);
+        int folderSelectionRemapIndex = saveFollowup.IndexOf("PlaylistPropertyFolderSelectionRemapped", StringComparison.Ordinal);
+        int referenceSortInvalidationIndex = saveFollowup.IndexOf("PlaylistPropertyReferenceSortInvalidationRequested", StringComparison.Ordinal);
+        int syncResultIndex = saveFollowup.IndexOf("PlaylistPropertySyncResultReported", StringComparison.Ordinal);
         int lr2CustomFolderIndex = saveFollowup.IndexOf("if (settings.OperationModeLR2DB)", StringComparison.Ordinal);
         string externalReloadBlock = ExtractBetween(
             saveFollowup,
@@ -1345,6 +1347,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(detailRefreshIndex >= 0);
         Assert.IsTrue(selectionReplaceIndex >= 0);
         Assert.IsTrue(folderSelectionRemapIndex >= 0);
+        Assert.IsTrue(referenceSortInvalidationIndex >= 0);
+        Assert.IsTrue(syncResultIndex >= 0);
+        Assert.IsTrue(selectionReplaceIndex < folderSelectionRemapIndex);
+        Assert.IsTrue(folderSelectionRemapIndex < referenceSortInvalidationIndex);
+        Assert.IsTrue(referenceSortInvalidationIndex < syncResultIndex);
+        Assert.IsFalse(saveFollowup.Contains("IPlaylistPropertySaveInteraction"));
         StringAssert.Contains(saveFollowup, "if (prefixChanged && !externalResyncApplied)");
         Assert.IsFalse(
             externalReloadBlock.Contains("baseline.CompatPrefix"),
@@ -2807,7 +2815,7 @@ public sealed class MainWindowContextMenuResourceTests
         int invalidateIndex = source.IndexOf("InvalidateNormalLibraryReferenceTableSortKeys()", StringComparison.Ordinal);
         if (invalidateIndex < 0)
         {
-            invalidateIndex = source.IndexOf("interaction.InvalidateNormalReferenceSort()", StringComparison.Ordinal);
+            invalidateIndex = source.IndexOf("PlaylistPropertyReferenceSortInvalidationRequested", StringComparison.Ordinal);
         }
 
         Assert.IsTrue(replaceIndex >= 0);

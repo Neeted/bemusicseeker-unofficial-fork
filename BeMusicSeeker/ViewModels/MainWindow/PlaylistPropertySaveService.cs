@@ -19,24 +19,44 @@ internal sealed class PlaylistPropertySaveService
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> getSettings;
 
-    private readonly Action invalidOutputDirectory;
+    internal event EventHandler<PlaylistPropertyValidationErrorEventArgs> ValidationError;
 
-    private readonly IPlaylistPropertySaveInteraction interaction;
+    internal event EventHandler<PlaylistPropertyExternalSyncConfirmationRequestedEventArgs> ExternalSyncConfirmationRequested;
+
+    internal event EventHandler InvalidOutputDirectoryRequested;
+
+    internal event EventHandler PlaylistPropertySyncStarted;
+
+    internal event EventHandler<PlaylistSyncProgressChangedEventArgs> PlaylistPropertySyncProgressChanged;
+
+    internal event EventHandler PlaylistPropertySyncFinished;
+
+    internal event EventHandler<PlaylistReferenceTableReplacedEventArgs> PlaylistPropertyReferenceTableReplaced;
+
+    internal event EventHandler<PlaylistPropertyFolderSelectionRemappedEventArgs> PlaylistPropertyFolderSelectionRemapped;
+
+    internal event EventHandler PlaylistPropertyReferenceSortInvalidationRequested;
+
+    internal event EventHandler<PlaylistSyncResultReportedEventArgs> PlaylistPropertySyncResultReported;
+
+    internal event EventHandler<PlaylistPropertyExternalSyncFailedEventArgs> PlaylistPropertyExternalSyncFailed;
+
+    internal event EventHandler<PlaylistSummaryDataRefreshRequestedEventArgs> PlaylistPropertySummaryDataRefreshRequested;
+
+    internal event EventHandler<PlaylistWorkspaceEntriesChangedEventArgs> PlaylistPropertyEntriesChanged;
+
+    internal event EventHandler<PlaylistPropertyNotificationsFlushRequestedEventArgs> PlaylistPropertyNotificationsFlushRequested;
 
     internal PlaylistPropertySaveService(
         Func<BMSPlaylist> playlistStore,
         Func<BMSLibrary> library,
         Func<LR2Config> lr2Config,
-        Func<CustomFolderOutputSettingsSnapshot> settings,
-        IPlaylistPropertySaveInteraction interaction,
-        Action invalidOutputDirectory)
+        Func<CustomFolderOutputSettingsSnapshot> settings)
     {
         getPlaylistStore = playlistStore ?? throw new ArgumentNullException(nameof(playlistStore));
         getLibrary = library ?? throw new ArgumentNullException(nameof(library));
         getLr2Config = lr2Config ?? throw new ArgumentNullException(nameof(lr2Config));
         getSettings = settings ?? throw new ArgumentNullException(nameof(settings));
-        this.interaction = interaction ?? throw new ArgumentNullException(nameof(interaction));
-        this.invalidOutputDirectory = invalidOutputDirectory ?? throw new ArgumentNullException(nameof(invalidOutputDirectory));
     }
 
     internal PlaylistPropertyEditSession BeginEdit(BMSTable table, bool isNewTable = false)
@@ -61,7 +81,7 @@ internal sealed class PlaylistPropertySaveService
                 }
                 catch (ArgumentNullException)
                 {
-                    invalidOutputDirectory();
+                    RaiseInvalidOutputDirectoryRequested();
                     throw;
                 }
             }
@@ -136,12 +156,39 @@ internal sealed class PlaylistPropertySaveService
 
     internal void NotifyValidationError(PlaylistPropertyValidationError error)
     {
-        interaction.NotifyValidationError(error);
+        EventHandler<PlaylistPropertyValidationErrorEventArgs> handler = ValidationError
+            ?? throw new InvalidOperationException("Playlist property validation presentation is not configured.");
+        handler(this, new PlaylistPropertyValidationErrorEventArgs(error));
     }
 
     internal bool ConfirmExternalSyncChange(bool enable)
     {
-        return interaction.ConfirmExternalSyncChange(enable);
+        EventHandler<PlaylistPropertyExternalSyncConfirmationRequestedEventArgs> handler = ExternalSyncConfirmationRequested
+            ?? throw new InvalidOperationException("Playlist property external-sync confirmation is not configured.");
+        var request = new PlaylistPropertyExternalSyncConfirmationRequestedEventArgs(enable);
+        handler(this, request);
+        return request.Confirmed;
+    }
+
+    private void RaiseInvalidOutputDirectoryRequested()
+    {
+        EventHandler handler = InvalidOutputDirectoryRequested
+            ?? throw new InvalidOperationException("Playlist property output-directory presentation is not configured.");
+        handler(this, EventArgs.Empty);
+    }
+
+    private void RaiseRequiredEvent(EventHandler handler, EventArgs args, string contractName)
+    {
+        (handler ?? throw new InvalidOperationException(contractName + " is not configured."))(this, args);
+    }
+
+    private void RaiseRequiredEvent<TEventArgs>(
+        EventHandler<TEventArgs> handler,
+        TEventArgs args,
+        string contractName)
+        where TEventArgs : EventArgs
+    {
+        (handler ?? throw new InvalidOperationException(contractName + " is not configured."))(this, args);
     }
 
     internal bool TrySave(
@@ -257,17 +304,23 @@ internal sealed class PlaylistPropertySaveService
             {
                 DateTime lastUpdate = table.last_update;
                 BMSTable sourceTable = table;
-                interaction.BeginSyncProgress();
+                RaiseRequiredEvent(
+                    PlaylistPropertySyncStarted,
+                    EventArgs.Empty,
+                    "Playlist property sync-start presentation");
                 try
                 {
-                    interaction.ReportSyncProgress(new PlaylistSyncProgressSnapshot
-                    {
-                        IsActive = true,
-                        TotalTableCount = 1,
-                        CompletedTableCount = 0,
-                        CurrentTableName = table.name,
-                        CurrentUri = uri
-                    });
+                    RaiseRequiredEvent(
+                        PlaylistPropertySyncProgressChanged,
+                        new PlaylistSyncProgressChangedEventArgs(new PlaylistSyncProgressSnapshot
+                        {
+                            IsActive = true,
+                            TotalTableCount = 1,
+                            CompletedTableCount = 0,
+                            CurrentTableName = table.name,
+                            CurrentUri = uri
+                        }),
+                        "Playlist property sync-progress presentation");
                     List<BMSTableEntry> oldEntries;
                     store.EnsurePlaylistEntriesLoaded(table, "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync");
                     using (table.ReaderWriterLock.GetReaderGuard())
@@ -277,35 +330,69 @@ internal sealed class PlaylistPropertySaveService
                     table = await store.ResetBMSTableAsync(table, uri);
                     commit.Table = table;
                     GetLibrary().ReplaceReferenceBMSTable(sourceTable, table, oldEntries);
-                    interaction.ReplaceCurrentSelection(sourceTable, table);
-                    interaction.RemapCurrentFolderSelection(table, prefixFolderSelectionMap);
-                    interaction.InvalidateNormalReferenceSort();
-                    interaction.UpdateSyncStatus(PlaylistSyncAttemptResult.CreateSuccess(
-                        sourceTable,
-                        table,
-                        uri,
-                        table.last_update != lastUpdate));
+                    RaiseRequiredEvent(
+                        PlaylistPropertyReferenceTableReplaced,
+                        new PlaylistReferenceTableReplacedEventArgs(
+                            sourceTable,
+                            table,
+                            referenceIndexChanged: true),
+                        "Playlist property reference-table replacement");
+                    RaiseRequiredEvent(
+                        PlaylistPropertyFolderSelectionRemapped,
+                        new PlaylistPropertyFolderSelectionRemappedEventArgs(table, prefixFolderSelectionMap),
+                        "Playlist property folder-selection remap");
+                    RaiseRequiredEvent(
+                        PlaylistPropertyReferenceSortInvalidationRequested,
+                        EventArgs.Empty,
+                        "Playlist property reference-sort invalidation");
+                    RaiseRequiredEvent(
+                        PlaylistPropertySyncResultReported,
+                        new PlaylistSyncResultReportedEventArgs(PlaylistSyncAttemptResult.CreateSuccess(
+                            sourceTable,
+                            table,
+                            uri,
+                            table.last_update != lastUpdate)),
+                        "Playlist property sync-result presentation");
                     externalResyncApplied = true;
                     displayProjectionChanged = false;
                 }
                 catch (Exception ex)
                 {
-                    interaction.HandleExternalSyncFailure(sourceTable, uri, ex);
+                    RaiseRequiredEvent(
+                        PlaylistPropertyExternalSyncFailed,
+                        new PlaylistPropertyExternalSyncFailedEventArgs(sourceTable, uri, ex),
+                        "Playlist property sync-failure presentation");
                 }
                 finally
                 {
-                    interaction.ReportSyncProgress(new PlaylistSyncProgressSnapshot
-                    {
-                        IsActive = true,
-                        TotalTableCount = 1,
-                        CompletedTableCount = 1,
-                        CurrentTableName = table.name,
-                        CurrentUri = uri
-                    });
-                    interaction.EndSyncProgress();
-                    interaction.FlushNotifications(notificationScope, "playlist property external sync notification");
+                    RaiseRequiredEvent(
+                        PlaylistPropertySyncProgressChanged,
+                        new PlaylistSyncProgressChangedEventArgs(new PlaylistSyncProgressSnapshot
+                        {
+                            IsActive = true,
+                            TotalTableCount = 1,
+                            CompletedTableCount = 1,
+                            CurrentTableName = table.name,
+                            CurrentUri = uri
+                        }),
+                        "Playlist property sync-progress presentation");
+                    RaiseRequiredEvent(
+                        PlaylistPropertySyncFinished,
+                        EventArgs.Empty,
+                        "Playlist property sync-finish presentation");
+                    RaiseRequiredEvent(
+                        PlaylistPropertyNotificationsFlushRequested,
+                        new PlaylistPropertyNotificationsFlushRequestedEventArgs(
+                            notificationScope,
+                            "playlist property external sync notification"),
+                        "Playlist property notification flushing");
                 }
-                interaction.RefreshSummary("playlist_property_resync", invalidateTableCountCache: true);
+                RaiseRequiredEvent(
+                    PlaylistPropertySummaryDataRefreshRequested,
+                    new PlaylistSummaryDataRefreshRequestedEventArgs(
+                        "playlist_property_resync",
+                        invalidateTableCountCache: true),
+                    "Playlist property summary refresh");
             }
         }
 
@@ -322,7 +409,10 @@ internal sealed class PlaylistPropertySaveService
             }
             if (entryFolderProjectionChanged)
             {
-                interaction.RemapCurrentFolderSelection(table, rewrittenFolders);
+                RaiseRequiredEvent(
+                    PlaylistPropertyFolderSelectionRemapped,
+                    new PlaylistPropertyFolderSelectionRemappedEventArgs(table, rewrittenFolders),
+                    "Playlist property folder-selection remap");
                 displayProjectionChanged = true;
             }
         }
@@ -330,19 +420,33 @@ internal sealed class PlaylistPropertySaveService
         if (displayProjectionChanged)
         {
             GetLibrary().RefreshReferenceDisplayForTable(table);
-            interaction.InvalidateNormalReferenceSort();
+            RaiseRequiredEvent(
+                PlaylistPropertyReferenceSortInvalidationRequested,
+                EventArgs.Empty,
+                "Playlist property reference-sort invalidation");
             if (entryFolderProjectionChanged)
             {
-                interaction.ApplyEntriesChanged(table);
+                RaiseRequiredEvent(
+                    PlaylistPropertyEntriesChanged,
+                    new PlaylistWorkspaceEntriesChangedEventArgs(table),
+                    "Playlist property entries-changed publication");
             }
             else
             {
-                interaction.RefreshSummary("playlist_property_changed", invalidateTableCountCache: true);
+                RaiseRequiredEvent(
+                    PlaylistPropertySummaryDataRefreshRequested,
+                    new PlaylistSummaryDataRefreshRequestedEventArgs(
+                        "playlist_property_changed",
+                        invalidateTableCountCache: true),
+                    "Playlist property summary refresh");
             }
         }
         else if (externalResyncApplied)
         {
-            interaction.ApplyEntriesChanged(table);
+            RaiseRequiredEvent(
+                PlaylistPropertyEntriesChanged,
+                new PlaylistWorkspaceEntriesChangedEventArgs(table),
+                "Playlist property entries-changed publication");
         }
 
         if (entryFolderProjectionChanged)
@@ -363,7 +467,7 @@ internal sealed class PlaylistPropertySaveService
             }
             catch (ArgumentNullException)
             {
-                invalidOutputDirectory();
+                RaiseInvalidOutputDirectoryRequested();
                 throw;
             }
             bool outputBaseDirectoryBeforeResolved = baseline.IsRootFolder;
@@ -392,7 +496,12 @@ internal sealed class PlaylistPropertySaveService
             }
             finally
             {
-                interaction.FlushNotifications(notificationScope, "playlist property custom folder notification");
+                RaiseRequiredEvent(
+                    PlaylistPropertyNotificationsFlushRequested,
+                    new PlaylistPropertyNotificationsFlushRequestedEventArgs(
+                        notificationScope,
+                        "playlist property custom folder notification"),
+                    "Playlist property notification flushing");
             }
             LR2Config config = getLr2Config()
                 ?? throw new InvalidOperationException("LR2 configuration is not available.");
@@ -424,7 +533,12 @@ internal sealed class PlaylistPropertySaveService
 
         if (outputBaseNameChanged || outputDirectoryChanged)
         {
-            interaction.RefreshSummary("playlist_property_output_changed", invalidateTableCountCache: false);
+            RaiseRequiredEvent(
+                PlaylistPropertySummaryDataRefreshRequested,
+                new PlaylistSummaryDataRefreshRequestedEventArgs(
+                    "playlist_property_output_changed",
+                    invalidateTableCountCache: false),
+                "Playlist property summary refresh");
         }
         bool bmtProjectionChanged = displayProjectionChanged
             || prefixChanged
@@ -734,35 +848,6 @@ internal sealed class PlaylistPropertySaveCommit
     internal CustomFolderOutputSettingsSnapshot Settings { get; }
 }
 
-internal interface IPlaylistPropertySaveInteraction
-{
-    void NotifyValidationError(PlaylistPropertyValidationError error);
-
-    bool ConfirmExternalSyncChange(bool enable);
-
-    void BeginSyncProgress();
-
-    void ReportSyncProgress(PlaylistSyncProgressSnapshot snapshot);
-
-    void EndSyncProgress();
-
-    void ReplaceCurrentSelection(BMSTable oldTable, BMSTable newTable);
-
-    void RemapCurrentFolderSelection(BMSTable table, IReadOnlyDictionary<string, string> rewrittenFolders);
-
-    void InvalidateNormalReferenceSort();
-
-    void UpdateSyncStatus(PlaylistSyncAttemptResult result);
-
-    void HandleExternalSyncFailure(BMSTable table, Uri uri, Exception exception);
-
-    void RefreshSummary(string reason, bool invalidateTableCountCache);
-
-    void ApplyEntriesChanged(BMSTable table);
-
-    void FlushNotifications(BMSPlaylist.OperationNotificationScope scope, string routeName);
-}
-
 internal enum PlaylistPropertyValidationError
 {
     OutputDirectoryChangedByPlaylistName,
@@ -771,4 +856,72 @@ internal enum PlaylistPropertyValidationError
     InvalidHeaderUri,
     InvalidDataUri,
     InvalidExternalSyncUris
+}
+
+internal sealed class PlaylistPropertyValidationErrorEventArgs : EventArgs
+{
+    internal PlaylistPropertyValidationErrorEventArgs(PlaylistPropertyValidationError error)
+    {
+        Error = error;
+    }
+
+    internal PlaylistPropertyValidationError Error { get; }
+}
+
+internal sealed class PlaylistPropertyExternalSyncConfirmationRequestedEventArgs : EventArgs
+{
+    internal PlaylistPropertyExternalSyncConfirmationRequestedEventArgs(bool enable)
+    {
+        Enable = enable;
+    }
+
+    internal bool Enable { get; }
+
+    internal bool Confirmed { get; set; }
+}
+
+internal sealed class PlaylistPropertyFolderSelectionRemappedEventArgs : EventArgs
+{
+    internal PlaylistPropertyFolderSelectionRemappedEventArgs(
+        BMSTable table,
+        IReadOnlyDictionary<string, string> rewrittenFolders)
+    {
+        Table = table;
+        RewrittenFolders = rewrittenFolders;
+    }
+
+    internal BMSTable Table { get; }
+
+    internal IReadOnlyDictionary<string, string> RewrittenFolders { get; }
+}
+
+internal sealed class PlaylistPropertyExternalSyncFailedEventArgs : EventArgs
+{
+    internal PlaylistPropertyExternalSyncFailedEventArgs(BMSTable table, Uri uri, Exception exception)
+    {
+        Table = table;
+        Uri = uri;
+        Exception = exception;
+    }
+
+    internal BMSTable Table { get; }
+
+    internal Uri Uri { get; }
+
+    internal Exception Exception { get; }
+}
+
+internal sealed class PlaylistPropertyNotificationsFlushRequestedEventArgs : EventArgs
+{
+    internal PlaylistPropertyNotificationsFlushRequestedEventArgs(
+        BMSPlaylist.OperationNotificationScope scope,
+        string routeName)
+    {
+        Scope = scope;
+        RouteName = routeName;
+    }
+
+    internal BMSPlaylist.OperationNotificationScope Scope { get; }
+
+    internal string RouteName { get; }
 }
