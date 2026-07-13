@@ -25,9 +25,7 @@ using System.Windows.Interop;
 using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using System.Windows.Media.Imaging;
 using System.Windows.Media.Media3D;
-using System.Windows.Navigation;
 using System.Windows.Threading;
 using BeMusicSeeker.Diagnostics;
 using BeMusicSeeker.Models;
@@ -37,7 +35,6 @@ using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
-using Livet.EventListeners;
 using NLog;
 using Parago.Windows;
 using Ribbit.Logging;
@@ -245,6 +242,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ShowSettingDialogOverlay();
     }
 
+    private void playbackPanelViewSettingsRequested(object sender, RoutedEventArgs e)
+    {
+        ShowSettingDialogOverlay();
+    }
+
     private void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
@@ -310,7 +312,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
 
-    private readonly PropertyChangedEventListener settingsDefaultEventListnener;
 
     private static readonly string clearlampUri = "http://xyzzz.net/bms/clearlamp";
 
@@ -328,9 +329,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private readonly Storyboard treeViewItemInstantStoryBoardPlaylistTable = new();
 
-    private static DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
-
-    private BitmapSource _panelImage;
 
     // マージ後に自動選択するDuplicateGroupのHeader（曲名）をキャッシュ
     private string _pendingDuplicateGroupHeader;
@@ -346,66 +344,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private int? pendingPlaylistSummaryCurrentPlaylistId;
     private long pendingPlaylistSummarySelectionMinDataGeneration;
     private long lastPlaylistSummaryAppliedDataGeneration;
-
-    private BitmapSource panelImage
-    {
-        get
-        {
-            if (_panelImage == null)
-            {
-                if (Settings.Default.UseExternalPanelImage)
-                {
-                    try
-                    {
-                        var memoryStream = new MemoryStream(LongPathFileSystem.ReadAllBytes(Settings.Default.StagefilePath));
-                        _panelImage = new WriteableBitmap(BitmapFrame.Create(memoryStream));
-                        memoryStream.Close();
-                        return _panelImage;
-                    }
-                    catch
-                    {
-                    }
-                }
-                _panelImage = new BitmapImage(new Uri("pack://application:,,,/resources/default_image.jpg"));
-            }
-            return _panelImage;
-        }
-    }
-
-    public PlayerPanelState NowPanelState
-    {
-        get
-        {
-            return RequirePlaybackPanel().PlayerPanelState;
-        }
-        set
-        {
-            PlaybackPanelViewModel playbackPanel = RequirePlaybackPanel();
-            if (playbackPanel.PlayerPanelState != value)
-            {
-                switch (value)
-                {
-                    case PlayerPanelState.BMS_PLAYER:
-                        showBMSPlayerPanel();
-                        break;
-                    case PlayerPanelState.MOVIE_PLAYER:
-                        showBrowserPanel();
-                        break;
-                    default:
-                        collapseBMSPlayerPanel();
-                        collapseBrowserPanel();
-                        break;
-                }
-                playbackPanel.PlayerPanelState = value;
-            }
-        }
-    }
-
-    private PlaybackPanelViewModel RequirePlaybackPanel()
-    {
-        return (base.DataContext as MainWindowViewModel)?.PlaybackPanel
-            ?? throw new InvalidOperationException("MainWindow playback panel is unavailable before DataContext composition.");
-    }
 
     /// <summary>
     /// <see cref="MainWindow"/> クラスの新しいインスタンスを初期化します。
@@ -432,17 +370,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
         gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
-
-        settingsDefaultEventListnener = new PropertyChangedEventListener(Settings.Default);
-        settingsDefaultEventListnener.RegisterHandler(() => Settings.Default.UseExternalPanelImage, delegate
-        {
-            _panelImage = null;
-        });
-        settingsDefaultEventListnener.RegisterHandler(() => Settings.Default.StagefilePath, delegate
-        {
-            _panelImage = null;
-        });
-        gridBMSPlayerImage.Source = panelImage;
 
         // Start async update check
         Task.Run(async () => await CheckForUpdatesAsync());
@@ -570,20 +497,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (sender is MainWindowViewModel viewModel)
         {
-            viewModel.PlaybackPanel.AttachParentHandle(_panel.Handle);
+            viewModel.PlaybackPanel.AttachParentHandle(playbackPanelView.PlayerHostHandle);
         }
-        gridBMSPlayerControlsRotatePanelStateButtonClicked();
+        playbackPanelView.RotatePanelState();
     }
 
     private void MainWindowViewModel_PlaybackStarting(object sender, EventArgs e)
     {
-        _renewBMSPlayerControlInfo();
+        if (sender is PlaybackPanelViewModel { NowPlayingBmsFile: { } bmsFile } playbackPanel)
+        {
+            playbackPanel.SetBmsPlayerHeader(bmsFile);
+            playbackPanelView.RefreshArtwork(bmsFile);
+        }
         scrollIntoView();
     }
 
     private void MainWindowViewModel_PlaybackStarted(object sender, EventArgs e)
     {
-        tryShowBMSPlayerPanel();
+        RestorePlaybackSurfaceAndFocusTable();
     }
 
     private void ApplySavedTreeViewWidth()
@@ -911,16 +842,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     protected override void OnSourceInitialized(EventArgs e)
     {
         base.OnSourceInitialized(e);
-        if (!isPanelStateValid(NowPanelState))
+        if (!playbackPanelView.CanSelectPanelState(playbackPanelView.PanelState))
         {
-            gridBMSPlayerControlsRotatePanelStateButtonClicked();
+            playbackPanelView.RotatePanelState();
         }
-        if (webBrowser != null)
-        {
-            object value = typeof(WebBrowser).GetProperty("AxIWebBrowser2", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(webBrowser, null);
-            value.GetType().InvokeMember("Silent", BindingFlags.SetProperty, null, value, [true]);
-            value.GetType().InvokeMember("RegisterAsDropTarget", BindingFlags.SetProperty, null, value, [false]);
-        }
+        playbackPanelView.ConfigureBrowserHost();
         try
         {
             Win32API.WINDOWPLACEMENT lpwndpl = Settings.Default.WindowPlacement;
@@ -1441,7 +1367,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             if (GridRowResolver.TryGetBmsPlayerFile(e.SelectedRow, out BMSFile bmsFile))
             {
                 viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
-                _renewBMSPlayerControlInfo(bmsFile);
+                playbackPanelView.RefreshArtwork(bmsFile);
             }
         }
     }
@@ -1461,10 +1387,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         viewModel.PlaybackPanel.SetBmsPlayerHeader(bmsFile);
-        _renewBMSPlayerControlInfo(bmsFile);
-        if (viewModel.PlaybackPanel.IsStoppedOrPaused && isPanelStateValid(PlayerPanelState.BMS_PLAYER))
+        playbackPanelView.RefreshArtwork(bmsFile);
+        if (viewModel.PlaybackPanel.IsStoppedOrPaused && playbackPanelView.CanSelectPanelState(PlayerPanelState.BMS_PLAYER))
         {
-            NowPanelState = PlayerPanelState.BMS_PLAYER;
+            playbackPanelView.PanelState = PlayerPanelState.BMS_PLAYER;
         }
         await Task.Run(delegate
         {
@@ -1801,19 +1727,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     public void scrollIntoView()
     {
         customTableView?.ScrollSelectedRowIntoView();
-    }
-
-    /// <summary>
-    /// 現在 ViewModel で再生対象になっている BMS ファイルの情報で、プレイヤー UI を更新します。
-    /// LivetCallMethodAction から引数なしで呼ばれる entrypoint です。
-    /// </summary>
-    public void _renewBMSPlayerControlInfo()
-    {
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel && mainWindowViewModel.PlaybackPanel.NowPlayingBmsFile != null)
-        {
-            mainWindowViewModel.PlaybackPanel.SetBmsPlayerHeader(mainWindowViewModel.PlaybackPanel.NowPlayingBmsFile);
-            _renewBMSPlayerControlInfo(mainWindowViewModel.PlaybackPanel.NowPlayingBmsFile);
-        }
     }
 
     private void ClearMainGridSelection()
@@ -2296,78 +2209,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         contextMenu = foundContextMenu;
         NLogWrapper.FileLogger?.Info(logPrefix + " rowType=" + row?.GetType().FullName + " missing=" + usePlaylistMissingContextMenu + " resourceKey=" + resourceKey);
         return true;
-    }
-    /// <summary>
-    /// 指定された確定的 BMSFile インスタンス情報を用いて、
-    /// BMSPlayerコントロールの画像表示（stagefile と banner）を同期します。
-    /// </summary>
-    /// <param name="bmsFile">更新対象となる BMS ファイル要素。</param>
-    private void _renewBMSPlayerControlInfo(BMSFile bmsFile)
-    {
-        if (bmsFile == null)
-        {
-            return;
-        }
-        WriteableBitmap writeableBitmap = null;
-        try
-        {
-            string text = ((string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.stagefile)) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.stagefile));
-            if (!string.IsNullOrWhiteSpace(text) && LongPathFileSystem.FileExists(text))
-            {
-                var memoryStream = new MemoryStream(LongPathFileSystem.ReadAllBytes(text));
-                writeableBitmap = new WriteableBitmap(BitmapFrame.Create(memoryStream));
-                memoryStream.Close();
-                gridBMSPlayerImage.Source = writeableBitmap;
-            }
-            else
-            {
-                gridBMSPlayerImage.Source = panelImage;
-            }
-        }
-        catch
-        {
-            gridBMSPlayerImage.Source = panelImage;
-        }
-        try
-        {
-            string text2 = ((string.IsNullOrWhiteSpace(bmsFile.path) || string.IsNullOrWhiteSpace(bmsFile.banner)) ? string.Empty : Path.Combine(DirectoryExt.GetDirectoryNameSimple(bmsFile.path), bmsFile.banner));
-            if (!string.IsNullOrWhiteSpace(text2) && LongPathFileSystem.FileExists(text2))
-            {
-                var imageBrush = new ImageBrush();
-                var memoryStream2 = new MemoryStream(LongPathFileSystem.ReadAllBytes(text2));
-                var imageSource = new WriteableBitmap(BitmapFrame.Create(memoryStream2));
-                memoryStream2.Close();
-                imageBrush.ImageSource = imageSource;
-                imageBrush.Stretch = Stretch.Fill;
-                gridBMSPlayerControlsBanner.Background = imageBrush;
-            }
-            else if (writeableBitmap == null)
-            {
-                gridBMSPlayerControlsBanner.Background = null;
-            }
-            else
-            {
-                gridBMSPlayerControlsBanner.Background = new ImageBrush(writeableBitmap)
-                {
-                    Stretch = Stretch.UniformToFill
-                };
-            }
-        }
-        catch
-        {
-            if (writeableBitmap == null)
-            {
-                gridBMSPlayerControlsBanner.Background = null;
-            }
-            else
-            {
-                gridBMSPlayerControlsBanner.Background = new ImageBrush(writeableBitmap)
-                {
-                    Stretch = Stretch.UniformToFill
-                };
-            }
-        }
-        gridBMSPlayerControlsBanner.BorderThickness = ((gridBMSPlayerControlsBanner.Background == null) ? new Thickness(0.0) : new Thickness(1.0, 0.0, 1.0, 0.0));
     }
     private void keywordSearchBoxTextChanged(object sender, TextChangedEventArgs e)
     {
@@ -9496,349 +9337,29 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    /// <summary>
-    /// 内蔵プレーヤーの「次の曲へ (Next)」ボタンがクリックされた際のイベントハンドラ。
-    /// リスト内で現在選択されている曲の次の曲を非同期で再生開始します。
-    /// </summary>
-    private async void gridBMSPlayerControlsNextButtonClicked(object sender, MouseButtonEventArgs e)
+    private void RestorePlaybackSurfaceAndFocusTable()
     {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Next();
-            }).Logging("gridBMSPlayerControlsNextButtonClicked");
-        }
-    }
-
-    /// <summary>
-    /// 内蔵プレーヤーの「前の曲へ (Previous)」ボタンがクリックされた際のイベントハンドラ。
-    /// ダブルクリック時は前の曲へ移動し、シングルクリック時は現在の曲を最初から再生し直します。
-    /// </summary>
-    private async void gridBMSPlayerControlsPreviousButtonClicked(object sender, MouseButtonEventArgs e)
-    {
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        gridBMSPlayerControlsPreviousButtonClickTimer ??= new DispatcherTimer(new TimeSpan(0, 0, 0, 0, 500), DispatcherPriority.Background, gridBMSPlayerControlsPreviousButtonSingleClicked, Dispatcher.CurrentDispatcher);
-        e.Handled = true;
-        if (e.ClickCount >= 2)
-        {
-            gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Previous();
-            }).Logging("gridBMSPlayerControlsPreviousButtonClicked");
-        }
-        else
-        {
-            gridBMSPlayerControlsPreviousButtonClickTimer.Start();
-        }
-    }
-
-    private async void gridBMSPlayerControlsPreviousButtonSingleClicked(object sender, EventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            gridBMSPlayerControlsPreviousButtonClickTimer.Stop();
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.RestartPlayingBmsFile();
-            }).Logging("gridBMSPlayerControlsPreviousButtonSingleClicked");
-        }
-    }
-
-    /// <summary>
-    /// 内蔵プレーヤーの「再生 (Play)」ボタンがクリックされた際のイベントハンドラ。
-    /// 現在の再生状態が停止・一時停止であれば再生を再開または開始します。
-    /// </summary>
-    private async void gridBMSPlayerControlsPlayStartButtonClicked(object sender, MouseButtonEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            e.Handled = true;
-            if (viewModel.PlaybackPanel.IsStoppedOrPaused && isPanelStateValid(PlayerPanelState.BMS_PLAYER))
-            {
-                NowPanelState = PlayerPanelState.BMS_PLAYER;
-            }
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Start(forceNewPlay: false);
-            }).Logging("gridBMSPlayerControlsPlayStartButtonClicked");
-        }
-    }
-
-    /// <summary>
-    /// 内蔵プレーヤーの「停止 (Stop)」ボタンがクリックされた際のイベントハンドラ。
-    /// 実行中の再生プロセスを終了し、再生状態をクリアします。
-    /// </summary>
-    private async void gridBMSPlayerControlsPlayStopButtonClicked(object sender, MouseButtonEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.StopPlayback(closeProcess: true);
-            }).Logging("gridBMSPlayerControlsPlayStopButtonClicked");
-        }
-    }
-
-    private async void gridBMSPlayerControlsFastForwardButtonClicked(object sender, MouseButtonEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastForwardStart();
-            }).Logging("gridBMSPlayerControlsFastForwardButtonClicked");
-        }
-    }
-
-    private async void gridBMSPlayerControlsFastForwardButtonReleased(object sender, MouseButtonEventArgs e)
-    {
-        var viewModel = base.DataContext as MainWindowViewModel;
-        await Task.Run(delegate
-        {
-            viewModel.PlaybackPanel.FastForwardEnd();
-        }).Logging("gridBMSPlayerControlsFastForwardButtonReleased");
-    }
-
-    private async void gridBMSPlayerControlsFastForwardButtonReleased(object sender, MouseEventArgs e)
-    {
-        if (e.LeftButton == MouseButtonState.Released)
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastForwardEnd();
-            }).Logging("gridBMSPlayerControlsFastForwardButtonReleased");
-        }
-    }
-
-    private async void gridBMSPlayerControlsFastBackwardButtonClicked(object sender, MouseButtonEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastBackwardStart();
-            }).Logging("gridBMSPlayerControlsFastBackwardButtonClicked");
-        }
-    }
-
-    private async void gridBMSPlayerControlsFastBackwardButtonReleased(object sender, MouseButtonEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastBackwardEnd();
-            }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased");
-        }
-    }
-
-    private async void gridBMSPlayerControlsFastBackwardButtonReleased(object sender, MouseEventArgs e)
-    {
-        if (e.LeftButton == MouseButtonState.Released)
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.FastBackwardEnd();
-            }).Logging("gridBMSPlayerControlsFastBackwardButtonReleased");
-        }
-    }
-
-    private async void gridBMSPlayerControlsShowInfoButtonClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel && viewModel.PlaybackPanel.UsesUbMplay)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.ShowInfo();
-            }).Logging("gridBMSPlayerControlsShowInfoButtonClicked");
-        }
-        else
-        {
-            gridPlayngBmsInfo.Visibility = ((gridPlayngBmsInfo.Visibility != Visibility.Hidden) ? Visibility.Hidden : Visibility.Visible);
-        }
-    }
-
-    private async void gridBMSPlayerControlsShowEffectButtonClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.ShowEffect();
-            }).Logging("gridBMSPlayerControlsShowEffectButtonClicked");
-        }
-    }
-
-    private async void gridBMSPlayerControlsChangePlaysideButtonClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.ChangePlayside();
-            }).Logging("gridBMSPlayerControlsChangePlaysideButtonClicked");
-        }
-    }
-
-    private async void gridBMSPlayerControlsIncreaseHighSpeedButtonClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.IncreaseHighSpeed();
-            }).Logging("gridBMSPlayerControlsIncreaseHighSpeedButtonClicked");
-        }
-    }
-
-    private async void gridBMSPlayerControlsDecreaseHighSpeedButtonClicked(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.DecreaseHighSpeed();
-            }).Logging("gridBMSPlayerControlsDecreaseHighSpeedButtonClicked");
-        }
-    }
-
-    private void showBMSPlayerPanel()
-    {
-        if (_isClosingOrClosed)
-        {
-            return;
-        }
-        if (windowsFormsHost != null)
-        {
-            MultiBinding parentMultiBinding = BindingOperations.GetMultiBindingExpression(windowsFormsHost, UIElement.VisibilityProperty).ParentMultiBinding;
-            windowsFormsHost.Visibility = Visibility.Visible;
-            windowsFormsHost.SetBinding(UIElement.VisibilityProperty, parentMultiBinding);
-        }
-    }
-
-    public void tryShowBMSPlayerPanel()
-    {
-        if (_isClosingOrClosed)
-        {
-            return;
-        }
-        if (NowPanelState == PlayerPanelState.BMS_PLAYER)
-        {
-            showBMSPlayerPanel();
-        }
+        if (_isClosingOrClosed) return;
+        playbackPanelView.RestoreSelectedSurface();
         IntPtr handle;
-        try
+        try { handle = new WindowInteropHelper(this).Handle; }
+        catch { return; }
+        if (handle != Win32API.GetForegroundWindow()) return;
+        Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)async delegate
         {
-            handle = new WindowInteropHelper(this).Handle;
-        }
-        catch
-        {
-            return;
-        }
-        if (!(handle == Win32API.GetForegroundWindow()))
-        {
-            return;
-        }
-        base.Dispatcher.BeginInvoke(DispatcherPriority.Input, (Action)async delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
+            if (_isClosingOrClosed) return;
             for (int i = 1; i <= 10; i++)
             {
-                if (_isClosingOrClosed)
-                {
-                    break;
-                }
+                if (_isClosingOrClosed) break;
                 NLogWrapper.DebuggerLogger?.Trace("try to set focus on custom table");
                 IntPtr currentHandle;
-                try
-                {
-                    currentHandle = new WindowInteropHelper(this).Handle;
-                }
-                catch
-                {
-                    break;
-                }
-                if (!(currentHandle == Win32API.GetForegroundWindow()))
-                {
-                    break;
-                }
+                try { currentHandle = new WindowInteropHelper(this).Handle; }
+                catch { break; }
+                if (currentHandle != Win32API.GetForegroundWindow()) break;
                 Keyboard.Focus(customTableView);
                 await Task.Delay(100);
             }
         });
-    }
-
-    private void showBrowserPanel()
-    {
-        if (_isClosingOrClosed)
-        {
-            return;
-        }
-        if (webBrowser != null)
-        {
-            MultiBinding parentMultiBinding = BindingOperations.GetMultiBindingExpression(webBrowser, UIElement.VisibilityProperty).ParentMultiBinding;
-            webBrowser.Visibility = Visibility.Visible;
-            webBrowser.SetBinding(UIElement.VisibilityProperty, parentMultiBinding);
-        }
-    }
-
-    public void tryShowBrowserPanel()
-    {
-        if (_isClosingOrClosed)
-        {
-            return;
-        }
-        if (NowPanelState == PlayerPanelState.MOVIE_PLAYER)
-        {
-            showBrowserPanel();
-        }
-    }
-
-    private void collapseBMSPlayerPanel()
-    {
-        if (_isClosingOrClosed)
-        {
-            return;
-        }
-        if (windowsFormsHost != null)
-        {
-            MultiBinding parentMultiBinding = BindingOperations.GetMultiBindingExpression(windowsFormsHost, UIElement.VisibilityProperty).ParentMultiBinding;
-            windowsFormsHost.Visibility = Visibility.Collapsed;
-            windowsFormsHost.SetBinding(UIElement.VisibilityProperty, parentMultiBinding);
-        }
-    }
-
-    private void collapseBrowserPanel()
-    {
-        if (_isClosingOrClosed)
-        {
-            return;
-        }
-        if (webBrowser != null)
-        {
-            MultiBinding parentMultiBinding = BindingOperations.GetMultiBindingExpression(webBrowser, UIElement.VisibilityProperty).ParentMultiBinding;
-            webBrowser.Visibility = Visibility.Collapsed;
-            webBrowser.SetBinding(UIElement.VisibilityProperty, parentMultiBinding);
-        }
     }
 
     private void dialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -9846,120 +9367,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (sender is FrameworkElement overlayDialog && (bool)e.NewValue)
         {
             activeOverlayDialog = overlayDialog;
-            if (HidesPlaybackSurface(overlayDialog))
-            {
-                PlaybackOverlayVisibility = Visibility.Visible;
-            }
+            if (HidesPlaybackSurface(overlayDialog)) PlaybackOverlayVisibility = Visibility.Visible;
         }
         if (!(bool)e.NewValue && (bool)e.OldValue)
         {
             if (ReferenceEquals(activeOverlayDialog, sender))
             {
                 activeOverlayDialog = null;
-                if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog))
-                {
-                    PlaybackOverlayVisibility = Visibility.Collapsed;
-                }
+                if (sender is FrameworkElement hiddenDialog && HidesPlaybackSurface(hiddenDialog)) PlaybackOverlayVisibility = Visibility.Collapsed;
             }
-            switch (NowPanelState)
-            {
-                case PlayerPanelState.BMS_PLAYER:
-                    showBMSPlayerPanel();
-                    break;
-                case PlayerPanelState.MOVIE_PLAYER:
-                    showBrowserPanel();
-                    break;
-            }
+            playbackPanelView.RestoreSelectedSurface();
             if (sender is PlaylistPropertyDialog)
             {
                 BindingOperations.GetMultiBindingExpression(gridBMSPlayerControlsFolderPath, TextBlock.TextProperty).UpdateTarget();
             }
         }
-    }
-
-    public void gridBMSPlayerControlsRotatePanelStateButtonClicked()
-    {
-        base.Dispatcher.BeginInvoke((Action)delegate
-        {
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            gridBMSPlayerControlsRotatePanelStateButtonClicked(null, null);
-        }, DispatcherPriority.ContextIdle);
-    }
-
-    private void gridBMSPlayerControlsRotatePanelStateButtonClicked(object sender = null, RoutedEventArgs e = null)
-    {
-        if (_isClosingOrClosed)
-        {
-            return;
-        }
-        PlayerPanelState panelState = NowPanelState;
-        do
-        {
-            panelState = (panelState.HasFlag(PlayerPanelState.BMS_PLAYER) ? ((panelState & ~PlayerPanelState.BMS_PLAYER) | PlayerPanelState.MOVIE_PLAYER) : ((!panelState.HasFlag(PlayerPanelState.MOVIE_PLAYER)) ? (panelState | PlayerPanelState.BMS_PLAYER) : (panelState & ~PlayerPanelState.MOVIE_PLAYER)));
-        }
-        while (!isPanelStateValid(panelState));
-        NowPanelState = panelState;
-    }
-
-    private void gridBMSPlayerControlsRotatePanelStateButtonClicked2(object sender = null, RoutedEventArgs e = null)
-    {
-        NowPanelState ^= PlayerPanelState.TITLE_SMALL;
-    }
-
-    private bool isPanelStateValid(PlayerPanelState state)
-    {
-        if (state.HasFlag(PlayerPanelState.BMS_PLAYER))
-        {
-            if (windowsFormsHost == null || !windowsFormsHost.IsEnabled)
-            {
-                return false;
-            }
-            PlaybackPanelViewModel playbackPanel = RequirePlaybackPanel();
-            if (Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay)
-            {
-                return false;
-            }
-            if (!Environment.OSVersion.IsLaterOrEqual(OperatingSystemExt.WindowsProductName.WindowsServer2012) && playbackPanel.UsesUbMplay)
-            {
-                return true;
-            }
-            if (playbackPanel.UsesLr2Body)
-            {
-                return false;
-            }
-            if (playbackPanel.UsesBmiIdxView)
-            {
-                return true;
-            }
-            return false;
-        }
-        if (state.HasFlag(PlayerPanelState.MOVIE_PLAYER) && (webBrowser == null || !webBrowser.IsEnabled || ((MainWindowViewModel)base.DataContext).BrowserHtml == null))
-        {
-            return false;
-        }
-        return true;
-    }
-
-    private void windowsFormsHostIsEnabledChanged(object sender, DependencyPropertyChangedEventArgs e)
-    {
-        if (!isPanelStateValid(NowPanelState))
-        {
-            gridBMSPlayerControlsRotatePanelStateButtonClicked();
-        }
-    }
-
-    private static void forbidNavigating(object s, NavigatingCancelEventArgs e)
-    {
-        e.Cancel = true;
-    }
-
-    private void webBrowserLoadCompleted(object sender, NavigationEventArgs e)
-    {
-        webBrowser.Navigating += forbidNavigating;
-        NowPanelState = PlayerPanelState.MOVIE_PLAYER;
     }
 
     private TreeViewItem _lastSelectedTreeViewItem;
@@ -10061,62 +9483,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return false;
     }
 
-    private async void sliderPlayerMouseMove(object sender, MouseEventArgs e)
-    {
-        if (e.LeftButton != MouseButtonState.Pressed)
-        {
-            return;
-        }
-        var slider = (Slider)sender;
-        Point position = e.GetPosition(slider);
-        double value = slider.Maximum * Math.Max(0.0, Math.Min(1.0, (position.X - 5.0) / (slider.ActualWidth - 10.0)));
-        slider.Value = value;
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        if (viewModel.PlaybackPanel.IsPlaying)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Start(forceNewPlay: false);
-            }).Logging("sliderPlayerMouseMove");
-        }
-    }
-
-    private async void sliderPlayerMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
-    {
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        if (viewModel.PlaybackPanel.IsPaused)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Start(forceNewPlay: false);
-            }).Logging("sliderPlayerMouseLeftButtonUp");
-        }
-    }
-
-    private async void sliderPlayerMouseLeave(object sender, MouseEventArgs e)
-    {
-        if (e.LeftButton == MouseButtonState.Released)
-        {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel)
-        {
-            return;
-        }
-        if (viewModel.PlaybackPanel.IsPaused)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaybackPanel.Start(forceNewPlay: false);
-            }).Logging("sliderPlayerMouseLeave");
-        }
-    }
 
 
 

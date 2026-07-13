@@ -767,7 +767,7 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlaybackHeaderTextBlocks_BindThroughPlaybackPanelDataContext()
     {
-        XDocument document = LoadMainWindowXamlDocument();
+        XDocument document = LoadPlaybackPanelXamlDocument();
         XElement header = FindElementByAttribute(document, "Name", "gridPlayerTitle");
         XElement compactHeader = FindElementByAttribute(document, "Name", "gridBMSPlayerControlsTitle2");
         XElement slider = FindElementByAttribute(document, "Name", "sliderPlayer");
@@ -806,15 +806,27 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlaybackControls_BindPanelStateAndCapabilitiesThroughPlaybackOwner()
     {
-        string xaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
+        string xaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "PlaybackPanelView.xaml");
+        string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
 
+        StringAssert.Contains(mainWindowXaml, "<v:PlaybackPanelView");
+        Assert.IsFalse(mainWindowXaml.Contains("Name=\"gridBMSPlayer\""));
+        Assert.IsFalse(xaml.Contains("ElementName=\"settingDialog\""));
+        Assert.IsFalse(xaml.Contains("ElementName=\"playlistPropertyDialog\""));
+        Assert.IsFalse(xaml.Contains("ElementName=\"playlistSummaryBulkEditDialog\""));
+        Assert.IsFalse(xaml.Contains("ElementName=\"loadPlaylistURIDialog\""));
+        Assert.IsFalse(xaml.Contains("MainWindowViewModelResourceExtension"));
+        Assert.IsFalse(xaml.Contains("Source={StaticResource vm}"));
+        StringAssert.Contains(xaml, "<FontFamily x:Key=\"LigatureSymbols\">");
+        StringAssert.Contains(xaml, "<FontFamily x:Key=\"Commodore\">");
+        StringAssert.Contains(xaml, "PlacementTarget.DataContext");
         Assert.IsFalse(xaml.Contains("Path=\"PlayerPanelState\" Source=\"{x:Static prop:Settings.Default}\""));
         Assert.IsFalse(xaml.Contains("UsePlayeruBMplay, Source={x:Static prop:Settings.Default}"));
         Assert.IsFalse(xaml.Contains("UsePlayerLR2body, Source={x:Static prop:Settings.Default}"));
         Assert.IsFalse(xaml.Contains("UsePlayerBMIIDXView, Source={x:Static prop:Settings.Default}"));
         StringAssert.Contains(xaml, "{Binding PlaybackPanel.CanSeek}");
-        StringAssert.Contains(xaml, "{Binding PlaybackPanel.CanChangeHighSpeed, Source={StaticResource vm}}");
-        StringAssert.Contains(xaml, "{Binding PlaybackPanel.RepeatPlayMode, Source={StaticResource vm}, Mode=TwoWay}");
+        StringAssert.Contains(xaml, "{Binding PlaybackPanel.CanChangeHighSpeed}");
+        StringAssert.Contains(xaml, "{Binding PlaybackPanel.RepeatPlayMode, Mode=TwoWay}");
     }
 
     [TestMethod]
@@ -2299,7 +2311,7 @@ public sealed class MainWindowContextMenuResourceTests
         string contextMenuResource = ExtractBetween(
             mainWindowCode,
             "private bool TryGetTableContextMenuResource",
-            "private void _renewBMSPlayerControlInfo");
+            "private void keywordSearchBoxTextChanged");
         string renameInvalidExtensionClick = ExtractBetween(
             mainWindowCode,
             "private void tableContextMenuItemRenameBMSFileClick",
@@ -4183,6 +4195,11 @@ public sealed class MainWindowContextMenuResourceTests
     private static XDocument LoadMainWindowXamlDocument()
     {
         return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"), LoadOptions.PreserveWhitespace);
+    }
+
+    private static XDocument LoadPlaybackPanelXamlDocument()
+    {
+        return XDocument.Load(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlaybackPanelView.xaml"), LoadOptions.PreserveWhitespace);
     }
 
     private static XElement FindElementByAttribute(XContainer container, string attributeLocalName, string value)
