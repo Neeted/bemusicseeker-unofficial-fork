@@ -30,6 +30,12 @@ public sealed class MainWindowContextMenuResourceTests
         string xaml = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "Views", "MainWindow.xaml"));
         string viewModel = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string regularOwner = File.ReadAllText(Path.Combine(repositoryRoot, "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs"));
+        string playlistRequestOwner = File.ReadAllText(Path.Combine(
+            repositoryRoot,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.DetailRequests.cs"));
 
         StringAssert.Contains(xaml, "{Binding ChartFilters.ModeFilter");
         Assert.AreEqual(5, CountOccurrences(xaml, "{Binding ChartFilters.ModeFilter, Source={StaticResource vm}"));
@@ -39,7 +45,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModel, "public string KeywordFilter");
         Assert.IsFalse(viewModel.Contains("private ModeFilterType _ModeFilter"));
         Assert.IsFalse(viewModel.Contains("private string _KeywordFilter"));
-        StringAssert.Contains(viewModel, "SortParameters = CloneSortParameters(request.SortParameters)");
+        StringAssert.Contains(viewModel, "CreatePlaylistDetailRefreshInput(route.Mode, route.RequestedMode, parameter)");
+        StringAssert.Contains(playlistRequestOwner, "SortParameters = sortParameters");
+        StringAssert.Contains(playlistRequestOwner, "Filters = new ChartListFilterSnapshot(input.KeywordFilter, input.ModeFilter)");
         Assert.IsFalse(regularOwner.Contains("RegularChartModeFilter"));
         Assert.IsFalse(regularOwner.Contains("SetFilters("));
         StringAssert.Contains(regularOwner, "ChartListFilterSnapshot Filters");

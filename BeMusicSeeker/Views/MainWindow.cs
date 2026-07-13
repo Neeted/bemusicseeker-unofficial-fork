@@ -1047,7 +1047,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         long sourceGenerationId = viewModel?.PlaylistSourceGenerationId ?? 0L;
         long viewGenerationId = viewModel?.PlaylistAdoptedViewGenerationId ?? 0L;
         TableFirstVisibleTiming timing = default;
-        bool hasPlaylistTiming = viewModel != null && viewModel.TryCreatePlaylistOpenVisibleTiming(sourceGenerationId, viewGenerationId, out timing);
+        bool hasPlaylistTiming = viewModel != null
+            && viewModel.PlaylistWorkspace.TryCreateDetailOpenVisibleTiming(
+                sourceGenerationId,
+                viewGenerationId,
+                out timing);
         if (!hasPlaylistTiming)
         {
             timing = new TableFirstVisibleTiming(-1, -1L, -1L, e.FirstRenderMs, -1L, e.RowCount);
@@ -1071,7 +1075,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         installPerformanceLogger.Info(TableFirstVisibleLogFormatter.Format(metrics));
         if (hasPlaylistTiming && !(e.IsPreparationRender && timing.ViewCount > 0))
         {
-            viewModel.TryLogPlaylistOpenVisibleCompleted("custom_onrender", sourceGenerationId, viewGenerationId);
+            viewModel.PlaylistWorkspace.TryLogDetailOpenVisibleCompleted(
+                "custom_onrender",
+                sourceGenerationId,
+                viewGenerationId);
         }
     }
 

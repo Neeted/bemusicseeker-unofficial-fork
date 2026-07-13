@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -13,9 +14,18 @@ internal interface IPlaylistDetailDataSource
 {
     int ChartInfoIndexVersion { get; }
 
+    int ScoreSnapshotVersion { get; }
+
+    long OwnedChartCollectionVersion { get; }
+
     void EnsureEntriesLoaded(BMSTable table, string reason);
 
     BMSLibrary.ScoreSnapshot GetScoreSnapshot();
+
+    PlaylistLibraryResolveIndexSnapshot GetResolveIndexSnapshot(
+        CancellationToken cancellationToken,
+        out bool cacheHit,
+        out int staleRetryCount);
 
     LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5);
 
@@ -47,6 +57,10 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
 
     public int ChartInfoIndexVersion => library.ChartInfoIndexVersion;
 
+    public int ScoreSnapshotVersion => library.GetScoreRuntimeStateForDiagnostics().SnapshotVersion;
+
+    public long OwnedChartCollectionVersion => library.OwnedChartCollectionVersion;
+
     public void EnsureEntriesLoaded(BMSTable table, string reason)
     {
         playlists.EnsurePlaylistEntriesLoaded(table, reason);
@@ -55,6 +69,17 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
     public BMSLibrary.ScoreSnapshot GetScoreSnapshot()
     {
         return library.GetScoreSnapshotForDiagnostics();
+    }
+
+    public PlaylistLibraryResolveIndexSnapshot GetResolveIndexSnapshot(
+        CancellationToken cancellationToken,
+        out bool cacheHit,
+        out int staleRetryCount)
+    {
+        return library.GetPlaylistLibraryResolveIndexSnapshot(
+            cancellationToken,
+            out cacheHit,
+            out staleRetryCount);
     }
 
     public LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)

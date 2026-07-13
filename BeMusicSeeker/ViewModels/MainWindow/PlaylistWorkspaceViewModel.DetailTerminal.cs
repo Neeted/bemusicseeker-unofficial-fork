@@ -1,6 +1,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Threading;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -295,6 +297,12 @@ public sealed partial class PlaylistWorkspaceViewModel
                             request.ColumnSelection.PlaylistSummaryColumnsSettings);
                         result.AppliedColumnMode = request.ColumnSelection.AppliedMode;
                         detailMainChartList.CommitAppliedColumnMode(request.ColumnSelection.AppliedMode);
+                        detailMainChartList.CommitCompletion(new MainChartListCompletion(
+                            request.BuildRequest.MainViewBuildRequestId,
+                            Stopwatch.GetTimestamp(),
+                            Thread.CurrentThread.ManagedThreadId,
+                            request.BuildRequest.Mode,
+                            request.MainRowsRequest.Stopwatch.ElapsedMilliseconds));
                     });
                 return true;
             }

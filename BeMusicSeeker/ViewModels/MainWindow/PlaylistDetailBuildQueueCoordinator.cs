@@ -69,7 +69,9 @@ internal static class PlaylistDetailBuildQueueCoordinator
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "pending", ignoredReason: null, lastBuiltScoreSnapshotVersion);
             }
 
-            if (state.CurrentBuildRequest != null && state.CurrentBuildRequest.Identity == request.Identity)
+            if (state.PendingRequest == null
+                && state.CurrentBuildRequest != null
+                && state.CurrentBuildRequest.Identity == request.Identity)
             {
                 return new PlaylistBuildQueueRegisterResult(null, startWorker: false, "running", ignoredReason: null, lastBuiltScoreSnapshotVersion);
             }
@@ -110,23 +112,15 @@ internal static class PlaylistDetailBuildQueueCoordinator
         }
     }
 
-    internal static PlaylistBuildRequest DequeuePendingRequest(PlaylistDetailBuildState state)
+    internal static bool TryTakeNextRequestOrStopWorker(
+        PlaylistDetailBuildState state,
+        out PlaylistBuildRequest request)
     {
         lock (state.SyncRoot)
         {
-            PlaylistBuildRequest request = state.PendingRequest;
-            state.PendingRequest = null;
-            state.CurrentBuildRequest = request;
-            return request;
-        }
-    }
-
-    internal static bool TryTakePendingRequestAfterEmptyDequeue(PlaylistDetailBuildState state, out PlaylistBuildRequest request)
-    {
-        lock (state.SyncRoot)
-        {
-            if (state.PendingRequest == null)
+            if (state.ShutdownCancellationRequested || state.PendingRequest == null)
             {
+                StopWorkerUnsafe(state);
                 request = null;
                 return false;
             }
@@ -136,6 +130,30 @@ internal static class PlaylistDetailBuildQueueCoordinator
             state.CurrentBuildRequest = request;
             return true;
         }
+    }
+
+    internal static bool FinishWorkerAfterFailure(PlaylistDetailBuildState state)
+    {
+        lock (state.SyncRoot)
+        {
+            StopWorkerUnsafe(state);
+            if (state.ShutdownCancellationRequested || state.PendingRequest == null)
+            {
+                return false;
+            }
+
+            state.WorkerRunning = true;
+            return true;
+        }
+    }
+
+    private static void StopWorkerUnsafe(PlaylistDetailBuildState state)
+    {
+        state.WorkerRunning = false;
+        state.CurrentBuildCancellation?.Dispose();
+        state.CurrentBuildCancellation = null;
+        state.CurrentBuildRequest = null;
+        state.Cancellation = new CancellationTokenSource();
     }
 
     internal static PlaylistBuildQueueCoalesceResult CoalescePendingRequest(PlaylistDetailBuildState state, PlaylistBuildRequest request, int coalescingWindowMs)
@@ -181,22 +199,6 @@ internal static class PlaylistDetailBuildQueueCoordinator
         return new PlaylistBuildQueueCoalesceResult(request, coalescedCount, stopwatch.ElapsedMilliseconds, cancelledForShutdown);
     }
 
-    internal static void StopWorkerAfterCancellation(PlaylistDetailBuildState state, bool isShutdownRequested)
-    {
-        lock (state.SyncRoot)
-        {
-            state.WorkerRunning = false;
-            state.CurrentBuildCancellation?.Dispose();
-            state.CurrentBuildCancellation = null;
-            state.CurrentBuildRequest = null;
-            state.Cancellation = new CancellationTokenSource();
-            if (!isShutdownRequested)
-            {
-                state.ShutdownCancellationRequested = false;
-            }
-        }
-    }
-
     internal static bool TryBeginIteration(PlaylistDetailBuildState state, PlaylistBuildRequest request, CancellationTokenSource buildCancellation, bool isShutdownRequested)
     {
         lock (state.SyncRoot)
@@ -236,9 +238,20 @@ internal static class PlaylistDetailBuildQueueCoordinator
         {
             state.PendingRequest = null;
             state.ShutdownCancellationRequested = true;
-            state.CurrentBuildCancellation?.Cancel();
-            state.Cancellation?.Cancel();
+            TryCancel(state.CurrentBuildCancellation);
+            TryCancel(state.Cancellation);
             Monitor.PulseAll(state.SyncRoot);
+        }
+    }
+
+    private static void TryCancel(CancellationTokenSource cancellation)
+    {
+        try
+        {
+            cancellation?.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
         }
     }
 

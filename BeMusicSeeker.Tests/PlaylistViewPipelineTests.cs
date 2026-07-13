@@ -132,6 +132,8 @@ public sealed class PlaylistViewPipelineTests
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailTerminal.cs");
         string playlistSourceOwner = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailSource.cs");
+        string playlistRequestOwner = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailRequests.cs");
         string playlistTerminalApplySource = SourceTextTestHelper.ExtractMethodBody(
             playlistTerminalCoordinatorSource,
             "internal PlaylistDetailTerminalCommitResult ApplyDetailTerminal(");
@@ -169,24 +171,21 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested || isShutdownRequested");
         StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested = true;");
         StringAssert.Contains(queueCoordinatorSource, "lock (state.SyncRoot)");
-        StringAssert.Contains(rootSource, "CreatePlaylistBuildRequestViewSnapshotUnsafe");
-        StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
-        StringAssert.Contains(rootSource, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
+        StringAssert.Contains(playlistRequestOwner, "internal int RequestDetailRefresh(PlaylistDetailRefreshInput input)");
+        StringAssert.Contains(playlistRequestOwner, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
+        StringAssert.Contains(playlistRequestOwner, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailBuildQueueCoordinator.", StringComparison.Ordinal));
         StringAssert.Contains(buildStateSource, "RequestVersion++;");
         StringAssert.Contains(buildStateSource, "PendingRequest = null;");
         StringAssert.Contains(buildStateSource, "commit.BuildCancellation?.Cancel();");
         Assert.AreEqual(-1, rootSource.IndexOf("CommitPlaylistSourceClearWithoutCallbacks", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PublishPlaylistSourceClear", StringComparison.Ordinal));
-        StringAssert.Contains(rootSource, "PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot)");
+        StringAssert.Contains(playlistRequestOwner, "PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot)");
         Assert.AreEqual(-1, rootSource.IndexOf("TryCommitPlaylistDetailTerminal(", StringComparison.Ordinal));
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildResult");
-        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistSourceBuildStageResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistViewApplyResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistMainViewApplyResult");
-        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistDetailBuildCompletionResult");
-        StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistRebuildExecutionResult");
         StringAssert.Contains(sourceBuildResultSource, "internal sealed class PlaylistScoreProbeMetrics");
-        StringAssert.Contains(rootSource, "private PlaylistSourceBuildStageResult BuildPlaylistSourceForRequest(");
         Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistViewFromCurrentSource(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistViewFromRebuiltSource(", StringComparison.Ordinal));
         StringAssert.Contains(playlistTerminalCoordinatorSource, "internal PlaylistDetailTerminalApplyResult ApplyDetailFromCurrentSource(");
@@ -216,21 +215,18 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(sourceRowSource, "internal PlaylistDetailSourceRow WithEntryChartInfo(");
         StringAssert.Contains(playlistSourceOwner, "internal PlaylistSourceBuildResult BuildDetailSourceRows(");
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSourceRows(", StringComparison.Ordinal));
-        StringAssert.Contains(rootSource, "private bool RebuildPlaylistSource(");
-        StringAssert.Contains(rootSource, "playlistDetailBuildState.BuildGate.Wait(cancellationToken);");
-        StringAssert.Contains(rootSource, "playlistDetailBuildState.BuildGate.Release();");
-        StringAssert.Contains(rootSource, "PlaylistSourceBuildStageResult sourceBuildStageResult = BuildPlaylistSourceForRequest(");
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.ApplyDetailFromRebuiltSource(");
-        StringAssert.Contains(rootSource, "private bool ApplyPlaylistViewWithoutSourceRebuild(");
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.ApplyDetailFromCurrentSource(");
-        StringAssert.Contains(rootSource, "private void FinalizeRebuiltPlaylistDetailBuild(");
-        StringAssert.Contains(rootSource, "private void FinalizeViewOnlyPlaylistDetailBuild(");
-        StringAssert.Contains(rootSource, "private void FinalizePlaylistDetailBuild(");
+        StringAssert.Contains(playlistRequestOwner, "private bool RebuildDetailSource(");
+        StringAssert.Contains(playlistRequestOwner, "DetailBuildState.BuildGate.Wait(cancellationToken);");
+        StringAssert.Contains(playlistRequestOwner, "DetailBuildState.BuildGate.Release();");
+        StringAssert.Contains(playlistRequestOwner, "ApplyDetailFromRebuiltSource(");
+        StringAssert.Contains(playlistRequestOwner, "private bool ApplyDetailViewWithoutSourceRebuild(");
+        StringAssert.Contains(playlistRequestOwner, "ApplyDetailFromCurrentSource(");
+        Assert.AreEqual(-1, rootSource.IndexOf("RebuildPlaylistSource", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistViewWithoutSourceRebuild", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("IPlaylistDetailBuildWorkflowHost", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailBuildWorkflowCoordinator", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("out int scoreUpdateTargetCount", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("out long columnStageMs", StringComparison.Ordinal));
-        StringAssert.Contains(rootSource, "new PlaylistDetailBuildCompletionResult");
         Assert.AreEqual(-1, playlistStateSource.IndexOf("private sealed class PlaylistScoreProbeMetrics", StringComparison.Ordinal));
     }
 
@@ -1031,8 +1027,64 @@ public sealed class PlaylistViewPipelineTests
         Assert.AreEqual(1, request.RequestVersion);
         Assert.AreEqual(5, result.LastBuiltScoreSnapshotVersion);
         Assert.IsTrue(state.WorkerRunning);
-        Assert.AreSame(request, PlaylistDetailBuildQueueCoordinator.DequeuePendingRequest(state));
+        Assert.IsTrue(PlaylistDetailBuildQueueCoordinator.TryTakeNextRequestOrStopWorker(state, out PlaylistBuildRequest dequeued));
+        Assert.AreSame(request, dequeued);
         Assert.AreSame(request, state.CurrentBuildRequest);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildQueue_WhenNoPendingRequest_StopsAtomicallyAndNextRegisterStartsWorker()
+    {
+        var state = new PlaylistDetailBuildState { WorkerRunning = true };
+
+        Assert.IsFalse(PlaylistDetailBuildQueueCoordinator.TryTakeNextRequestOrStopWorker(state, out _));
+        Assert.IsFalse(state.WorkerRunning);
+
+        PlaylistBuildQueueRegisterResult result = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state,
+            CreatePlaylistBuildRequest(CreatePlaylistIdentity("next")),
+            currentViewIdentity: null,
+            lastBuiltScoreSnapshotVersion: 0,
+            isShutdownRequested: false);
+
+        Assert.IsTrue(result.Enqueued);
+        Assert.IsTrue(result.StartWorker);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildQueue_StopAfterShutdown_DoesNotReopenQueue()
+    {
+        var state = new PlaylistDetailBuildState { WorkerRunning = true };
+        PlaylistDetailBuildQueueCoordinator.CancelForShutdown(state);
+
+        Assert.IsFalse(PlaylistDetailBuildQueueCoordinator.TryTakeNextRequestOrStopWorker(state, out _));
+        PlaylistBuildQueueRegisterResult result = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state,
+            CreatePlaylistBuildRequest(CreatePlaylistIdentity("late")),
+            currentViewIdentity: null,
+            lastBuiltScoreSnapshotVersion: 0,
+            isShutdownRequested: false);
+
+        Assert.IsTrue(state.ShutdownCancellationRequested);
+        Assert.IsFalse(result.Enqueued);
+        Assert.AreEqual("shutdown", result.DeduplicatedTarget);
+        Assert.IsFalse(state.WorkerRunning);
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildQueue_FailureWithPendingRequest_TransfersWorkerOwnership()
+    {
+        var state = new PlaylistDetailBuildState
+        {
+            WorkerRunning = true,
+            PendingRequest = CreatePlaylistBuildRequest(CreatePlaylistIdentity("pending"))
+        };
+
+        bool restart = PlaylistDetailBuildQueueCoordinator.FinishWorkerAfterFailure(state);
+
+        Assert.IsTrue(restart);
+        Assert.IsTrue(state.WorkerRunning);
+        Assert.IsNotNull(state.PendingRequest);
     }
 
     [TestMethod]
@@ -1057,6 +1109,48 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
+    public void PlaylistDetailBuildQueueRegister_WhenLatestIntentReturnsToRunningIdentity_ReplacesPendingRequest()
+    {
+        var state = new PlaylistDetailBuildState();
+        PlaylistBuildRequest runningX = CreatePlaylistBuildRequest(CreatePlaylistIdentity("X"));
+        PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state,
+            runningX,
+            currentViewIdentity: null,
+            lastBuiltScoreSnapshotVersion: 0,
+            isShutdownRequested: false);
+        Assert.IsTrue(PlaylistDetailBuildQueueCoordinator.TryTakeNextRequestOrStopWorker(state, out _));
+        using var runningCancellation = new CancellationTokenSource();
+        Assert.IsTrue(PlaylistDetailBuildQueueCoordinator.TryBeginIteration(
+            state,
+            runningX,
+            runningCancellation,
+            isShutdownRequested: false));
+        PlaylistBuildRequest pendingY = CreatePlaylistBuildRequest(CreatePlaylistIdentity("Y"));
+        PlaylistBuildQueueRegisterResult pendingResult = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state,
+            pendingY,
+            currentViewIdentity: null,
+            lastBuiltScoreSnapshotVersion: 0,
+            isShutdownRequested: false);
+        pendingResult.PreviousCancellation?.Cancel();
+        PlaylistBuildRequest latestX = CreatePlaylistBuildRequest(runningX.Identity);
+
+        PlaylistBuildQueueRegisterResult result = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+            state,
+            latestX,
+            currentViewIdentity: null,
+            lastBuiltScoreSnapshotVersion: 0,
+            isShutdownRequested: false);
+        result.PreviousCancellation?.Cancel();
+
+        Assert.IsTrue(result.Enqueued);
+        Assert.AreSame(latestX, state.PendingRequest);
+        Assert.AreNotSame(pendingY, state.PendingRequest);
+        Assert.IsTrue(runningCancellation.IsCancellationRequested);
+    }
+
+    [TestMethod]
     public void PlaylistDetailBuildQueueCancelForShutdown_ClearsPendingAndCancelsTokens()
     {
         var state = new PlaylistDetailBuildState();
@@ -1078,6 +1172,20 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsTrue(activeCancellation.IsCancellationRequested);
         Assert.IsTrue(state.Cancellation.IsCancellationRequested);
         activeCancellation.Dispose();
+    }
+
+    [TestMethod]
+    public void PlaylistDetailBuildQueueCancelForShutdown_ToleratesAlreadyDetachedDisposalRace()
+    {
+        var state = new PlaylistDetailBuildState { WorkerRunning = true };
+        var disposedCancellation = new CancellationTokenSource();
+        state.CurrentBuildCancellation = disposedCancellation;
+        state.Cancellation = disposedCancellation;
+        disposedCancellation.Dispose();
+
+        PlaylistDetailBuildQueueCoordinator.CancelForShutdown(state);
+
+        Assert.IsTrue(state.ShutdownCancellationRequested);
     }
 
     [TestMethod]

@@ -299,6 +299,80 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void RequestDetailRefresh_OwnsRequestThroughRebuildAndTerminalApply()
+    {
+        var logs = new List<string>();
+        var mainChartList = new MainChartListViewModel(action => action());
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            mainChartList,
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            logs.Add);
+        var dataSource = new FakePlaylistDetailDataSource();
+        workspace.SetDetailDataSource(dataSource);
+        var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "request-entry");
+        var table = new BMSTable { entries = [entry] };
+        var input = new PlaylistDetailRefreshInput(
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            table,
+            folderName: null,
+            PlaylistDetailFilter.PlaylistFilter,
+            hasResolvedSelection: true,
+            keywordFilter: "request",
+            ChartModeFilter.All,
+            sortColumnName: "TITLE",
+            System.ComponentModel.ListSortDirection.Ascending,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            useCoalescingWindow: false,
+            openReadiness: default);
+
+        int requestVersion = workspace.RequestDetailRefresh(input);
+
+        Assert.IsTrue(SpinWait.SpinUntil(() => workspace.IsDetailBuildIdle, 5000));
+        Assert.AreEqual(requestVersion, workspace.DetailBuildState.RequestVersion);
+        Assert.AreSame(table, workspace.DetailViewState.Source.CurrentTable);
+        Assert.AreEqual(1, workspace.DetailViewState.Source.Rows.Count);
+        Assert.AreSame(entry, workspace.DetailViewState.Source.Rows[0].Entry);
+        Assert.AreEqual(1, dataSource.EnsureEntriesLoadedCallCount);
+        Assert.AreEqual("REQUEST", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
+        Assert.IsTrue(mainChartList.LastCompletion.RequestId > 0L);
+        Assert.AreEqual(MainViewUpdateMode.PlaylistFilterSelected, mainChartList.LastCompletion.Mode);
+        Assert.IsTrue(logs.Exists(log => log.Contains("main_view_build mode=PlaylistFilterSelected")
+            && log.Contains("isPlaylistDetailView=true")));
+    }
+
+    [TestMethod]
+    public void RequestDetailRefresh_AfterShutdownIsIgnoredWithoutStartingWorker()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        workspace.CancelDetailBuilds();
+        var input = new PlaylistDetailRefreshInput(
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            new BMSTable(),
+            folderName: null,
+            PlaylistDetailFilter.PlaylistFilter,
+            hasResolvedSelection: true,
+            keywordFilter: string.Empty,
+            ChartModeFilter.All,
+            sortColumnName: string.Empty,
+            System.ComponentModel.ListSortDirection.Ascending,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            useCoalescingWindow: false,
+            openReadiness: default);
+
+        workspace.RequestDetailRefresh(input);
+
+        Assert.IsTrue(workspace.IsDetailBuildIdle);
+        Assert.IsTrue(workspace.DetailBuildState.ShutdownCancellationRequested);
+        Assert.IsFalse(workspace.DetailBuildState.WorkerRunning);
+        Assert.IsNull(workspace.DetailBuildState.PendingRequest);
+    }
+
+    [TestMethod]
     public void SetDetailDataSource_ReinitializeUsesReplacementSource()
     {
         var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource firstSource);
@@ -366,6 +440,10 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         public int ChartInfoIndexVersion => 1;
 
+        public int ScoreSnapshotVersion => 1;
+
+        public long OwnedChartCollectionVersion => 1;
+
         public void EnsureEntriesLoaded(BMSTable table, string reason)
         {
             EnsureEntriesLoadedCallCount++;
@@ -374,6 +452,16 @@ public sealed class PlaylistWorkspaceViewModelTests
         public BMSLibrary.ScoreSnapshot GetScoreSnapshot()
         {
             return null!;
+        }
+
+        public PlaylistLibraryResolveIndexSnapshot GetResolveIndexSnapshot(
+            CancellationToken cancellationToken,
+            out bool cacheHit,
+            out int staleRetryCount)
+        {
+            cacheHit = true;
+            staleRetryCount = 0;
+            return PlaylistLibraryResolveIndexSnapshot.Empty;
         }
 
         public LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)

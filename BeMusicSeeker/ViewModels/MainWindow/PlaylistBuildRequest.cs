@@ -7,15 +7,19 @@ internal sealed class PlaylistBuildRequest
 {
     internal int RequestVersion;
 
+    internal long MainViewBuildRequestId;
+
     internal MainViewUpdateMode Mode;
 
     internal MainViewUpdateMode RequestedMode;
 
-    internal object Parameter;
-
     internal ChartListFilterSnapshot Filters;
 
     internal ChartListSortParameters SortParameters;
+
+    internal MainViewUpdateMode CurrentTreeMode;
+
+    internal PlaylistOpenReadinessSnapshot OpenReadiness;
 
     internal PlaylistRequestIdentity Identity;
 

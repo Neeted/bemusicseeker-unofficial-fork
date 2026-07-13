@@ -554,8 +554,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private PlaylistDetailViewState playlistViewState => PlaylistWorkspace.DetailViewState;
 
-    private PlaylistDetailBuildState playlistDetailBuildState => PlaylistWorkspace.DetailBuildState;
-
 
     private readonly object playlistLibraryIndexSync = new();
 
@@ -652,12 +650,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private int normalLibraryRefreshHandledNotificationVersion;
 
-    private const int PlaylistBuildCoalescingWindowMs = 50;
-
-    private const long PlaylistOpenSlowLogThresholdMs = 1000L;
-
-    private const long PlaylistScoreProbeSlowLogThresholdMs = 500L;
-
     private long lastMainViewBuildRequestId;
 
     private long lastMainViewBuildEndTimestamp;
@@ -665,10 +657,6 @@ public partial class MainWindowViewModel : ViewModel
     private int lastMainViewBuildThreadId;
 
     private int lastMainViewBuildMode;
-
-    private long lastPlaylistDetailBuildCompletedTimestamp;
-
-    private long lastPlaylistDetailBuildElapsedMs;
 
     private readonly DropInstallQueueProcessor dropInstallQueueProcessor;
 
@@ -876,15 +864,6 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     /// <param name="message">出力するログ本文。</param>
     private static void LogPlaylistWorker(string message)
-    {
-        LogMainViewBuild(message);
-    }
-
-    /// <summary>
-    /// playlist open interaction の summary/slow ログを出力します。
-    /// </summary>
-    /// <param name="message">出力するログ本文。</param>
-    private static void LogPlaylistOpen(string message)
     {
         LogMainViewBuild(message);
     }
@@ -1256,7 +1235,7 @@ public partial class MainWindowViewModel : ViewModel
         if (request.WaitForDetailRefresh)
         {
             var detailWaitStopwatch = Stopwatch.StartNew();
-            while (Interlocked.Read(ref lastPlaylistDetailBuildCompletedTimestamp) < request.RequestedAtTimestamp && detailWaitStopwatch.ElapsedMilliseconds < 10000)
+            while (PlaylistWorkspace.LastDetailBuildCompletedTimestamp < request.RequestedAtTimestamp && detailWaitStopwatch.ElapsedMilliseconds < 10000)
             {
                 await Task.Delay(50).ConfigureAwait(false);
             }
@@ -1717,174 +1696,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist root / empty-folder 表記をログ向け文字列へ変換します。
-    /// </summary>
-    private static string FormatPlaylistFolderNameForLog(string folderName)
-    {
-        if (folderName == null)
-        {
-            return "(root)";
-        }
-        if (folderName.Length == 0)
-        {
-            return "(empty)";
-        }
-        return folderName;
-    }
-
-    /// <summary>
-    /// playlist 名をログ向け文字列へ変換します。
-    /// </summary>
-    private static string FormatPlaylistTableNameForLog(BMSTable table)
-    {
-        return string.IsNullOrWhiteSpace(table?.name) ? "(null)" : table.name;
-    }
-
-    /// <summary>
-    /// playlist 選択そのものを表す request かどうかを返します。
-    /// </summary>
-    private static bool IsPlaylistOpenInteractionRequest(MainViewUpdateMode requestedMode)
-    {
-        return requestedMode == MainViewUpdateMode.PlaylistFilterSelected || requestedMode == MainViewUpdateMode.PlaylistNotOwnedFilterSelected;
-    }
-
-    /// <summary>
-    /// playlist open interaction の request と readiness を記録します。
-    /// </summary>
-    private void TrackPlaylistOpenRequest(PlaylistBuildRequest request)
-    {
-        if (request == null || !IsPlaylistOpenInteractionRequest(request.RequestedMode))
-        {
-            return;
-        }
-        PlaylistOpenReadinessSnapshot readiness = CapturePlaylistOpenReadinessSnapshot();
-        var interaction = new PlaylistOpenInteractionState
-        {
-            RequestVersion = request.RequestVersion,
-            Identity = request.Identity,
-            RequestedAtUtc = DateTime.UtcNow,
-            Readiness = readiness
-        };
-        lock (playlistViewState.SyncRoot)
-        {
-            playlistViewState.CurrentOpenInteraction = interaction;
-        }
-        LogPlaylistOpen("playlist_open_request requestVersion=" + request.RequestVersion + " requestedMode=" + request.RequestedMode + " mode=" + request.Mode + " table=" + FormatPlaylistTableNameForLog(request.Identity.Table) + " folder=" + FormatPlaylistFolderNameForLog(request.Identity.FolderName) + " filterType=" + request.Identity.FilterType);
-        LogPlaylistOpen("playlist_open_ready_state requestVersion=" + request.RequestVersion + " startupReadyDataReached=" + readiness.StartupReadyDataReached.ToString().ToLowerInvariant() + " startupReadyUiReached=" + readiness.StartupReadyUiReached.ToString().ToLowerInvariant() + " startupReadyOperableReached=" + readiness.StartupReadyOperableReached.ToString().ToLowerInvariant() + " playlistRefDeferredRunning=" + readiness.PlaylistRefDeferredRunning.ToString().ToLowerInvariant() + " playlistRefDeferredLastCompletedVersion=" + readiness.PlaylistRefDeferredLastCompletedVersion + " maintenanceHydrationRunning=" + readiness.MaintenanceHydrationRunning.ToString().ToLowerInvariant() + " maintenanceHydrationLastCompletedVersion=" + readiness.MaintenanceHydrationLastCompletedVersion + " playlistLibraryIndexState=" + readiness.PlaylistLibraryIndexState + " playlistLibraryIndexBuildMs=" + readiness.PlaylistLibraryIndexBuildMs + " scoreSnapshotReady=" + readiness.ScoreSnapshotReady.ToString().ToLowerInvariant() + " scoreSnapshotVersion=" + readiness.ScoreSnapshotVersion + " scoreHydrationRunning=" + readiness.ScoreHydrationRunning.ToString().ToLowerInvariant() + " scoreHydrationCompletedVersion=" + readiness.ScoreHydrationCompletedVersion + " rankingRefreshRunning=" + readiness.RankingRefreshRunning.ToString().ToLowerInvariant() + " rankingRefreshCompletedVersion=" + readiness.RankingRefreshCompletedVersion);
-    }
-
-    /// <summary>
-    /// playlist open interaction の build 開始時刻を記録します。
-    /// </summary>
-    private void TryMarkPlaylistOpenBuildStarted(PlaylistBuildRequest request)
-    {
-        if (request == null || !IsPlaylistOpenInteractionRequest(request.RequestedMode))
-        {
-            return;
-        }
-        lock (playlistViewState.SyncRoot)
-        {
-            if (playlistViewState.CurrentOpenInteraction != null && playlistViewState.CurrentOpenInteraction.RequestVersion == request.RequestVersion && !playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc.HasValue)
-            {
-                playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc = DateTime.UtcNow;
-            }
-        }
-    }
-
-    /// <summary>
-    /// playlist open interaction の build 完了時刻と採用世代を記録します。
-    /// </summary>
-    private void TryMarkPlaylistOpenBuildCompleted(PlaylistBuildRequest request, int viewCount)
-    {
-        if (request == null || !IsPlaylistOpenInteractionRequest(request.RequestedMode))
-        {
-            return;
-        }
-        DateTime completedAtUtc = DateTime.UtcNow;
-        lock (playlistViewState.SyncRoot)
-        {
-            if (playlistViewState.CurrentOpenInteraction != null && playlistViewState.CurrentOpenInteraction.RequestVersion == request.RequestVersion)
-            {
-                if (!playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc.HasValue)
-                {
-                    playlistViewState.CurrentOpenInteraction.BuildStartedAtUtc = completedAtUtc;
-                }
-                playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc = completedAtUtc;
-                playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId = playlistViewState.Source.GenerationId;
-                playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId = playlistViewState.View.GenerationId;
-                playlistViewState.CurrentOpenInteraction.ViewCount = viewCount;
-                playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged = false;
-            }
-        }
-    }
-
-    /// <summary>
-    /// playlist open interaction の描画完了をログへ出力します。
-    /// </summary>
-    /// <param name="checkpoint">UI 側チェックポイント名。</param>
-    /// <param name="expectedSourceGenerationId">UI が観測した source 世代。</param>
-    /// <param name="expectedViewGenerationId">UI が観測した view 世代。</param>
-    public void TryLogPlaylistOpenVisibleCompleted(string checkpoint, long expectedSourceGenerationId, long expectedViewGenerationId)
-    {
-        if (!installPerformanceLoggingEnabled)
-        {
-            return;
-        }
-        PlaylistOpenInteractionState interaction = null;
-        lock (playlistViewState.SyncRoot)
-        {
-            if (playlistViewState.CurrentOpenInteraction == null || playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged || !playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc.HasValue)
-            {
-                return;
-            }
-            if (playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
-            {
-                return;
-            }
-            playlistViewState.CurrentOpenInteraction.VisibleCompletedLogged = true;
-            interaction = playlistViewState.CurrentOpenInteraction;
-        }
-        long requestToBuildStartMs = interaction.BuildStartedAtUtc.HasValue ? (long)(interaction.BuildStartedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds : -1L;
-        long requestToBuildCompleteMs = (long)(interaction.BuildCompletedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds;
-        long requestToVisibleRenderMs = (long)(DateTime.UtcNow - interaction.RequestedAtUtc).TotalMilliseconds;
-        long buildToVisibleRenderMs = (long)(DateTime.UtcNow - interaction.BuildCompletedAtUtc.Value).TotalMilliseconds;
-        LogPlaylistOpen("playlist_open_visible completed requestVersion=" + interaction.RequestVersion + " checkpoint=" + checkpoint + " requestToBuildStartMs=" + requestToBuildStartMs + " requestToBuildCompleteMs=" + requestToBuildCompleteMs + " requestToVisibleRenderMs=" + requestToVisibleRenderMs + " buildToVisibleRenderMs=" + buildToVisibleRenderMs + " viewCount=" + interaction.ViewCount);
-        if (requestToVisibleRenderMs >= PlaylistOpenSlowLogThresholdMs)
-        {
-            LogPlaylistOpen("playlist_open_stage_detail requestVersion=" + interaction.RequestVersion + " checkpoint=" + checkpoint + " requestToBuildStartMs=" + requestToBuildStartMs + " requestToBuildCompleteMs=" + requestToBuildCompleteMs + " requestToVisibleRenderMs=" + requestToVisibleRenderMs + " buildToVisibleRenderMs=" + buildToVisibleRenderMs + " thresholdMs=" + PlaylistOpenSlowLogThresholdMs);
-        }
-    }
-
-    internal bool TryCreatePlaylistOpenVisibleTiming(long expectedSourceGenerationId, long expectedViewGenerationId, out TableFirstVisibleTiming timing)
-    {
-        timing = default;
-        if (!installPerformanceLoggingEnabled)
-        {
-            return false;
-        }
-        PlaylistOpenInteractionState interaction = null;
-        lock (playlistViewState.SyncRoot)
-        {
-            if (playlistViewState.CurrentOpenInteraction == null || !playlistViewState.CurrentOpenInteraction.BuildCompletedAtUtc.HasValue)
-            {
-                return false;
-            }
-            if (playlistViewState.CurrentOpenInteraction.ExpectedSourceGenerationId != expectedSourceGenerationId || playlistViewState.CurrentOpenInteraction.ExpectedViewGenerationId != expectedViewGenerationId)
-            {
-                return false;
-            }
-            interaction = playlistViewState.CurrentOpenInteraction;
-        }
-        long requestToBuildStartMs = interaction.BuildStartedAtUtc.HasValue ? (long)(interaction.BuildStartedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds : -1L;
-        long requestToBuildCompleteMs = (long)(interaction.BuildCompletedAtUtc.Value - interaction.RequestedAtUtc).TotalMilliseconds;
-        DateTime visibleAtUtc = DateTime.UtcNow;
-        long requestToVisibleRenderMs = (long)(visibleAtUtc - interaction.RequestedAtUtc).TotalMilliseconds;
-        long buildToVisibleRenderMs = (long)(visibleAtUtc - interaction.BuildCompletedAtUtc.Value).TotalMilliseconds;
-        timing = new TableFirstVisibleTiming(interaction.RequestVersion, requestToBuildStartMs, requestToBuildCompleteMs, requestToVisibleRenderMs, buildToVisibleRenderMs, interaction.ViewCount);
-        return true;
-    }
-
-    /// <summary>
     /// 現在の playlist 内容更新版数を返します。
     /// </summary>
     /// <summary>
@@ -1894,213 +1705,31 @@ public partial class MainWindowViewModel : ViewModel
     /// <returns>更新後の版数。</returns>
     private long IncrementPlaylistContentRevision(string reason)
     {
-        long nextRevision;
-        lock (playlistViewState.SyncRoot)
-        {
-            playlistViewState.Source.PlaylistContentRevision++;
-            nextRevision = playlistViewState.Source.PlaylistContentRevision;
-        }
-        LogPlaylistWorker("playlist_revision incremented revision=" + nextRevision + " reason=" + reason);
-        return nextRevision;
+        return PlaylistWorkspace.IncrementDetailContentRevision(reason);
     }
 
-    /// <summary>
-    /// build request 採番時に必要な view-owned state を同一 lock 内で読み取ります。
-    /// </summary>
-    private PlaylistBuildRequestViewSnapshot CreatePlaylistBuildRequestViewSnapshotUnsafe()
-    {
-        return new PlaylistBuildRequestViewSnapshot(
-            playlistViewState.Source.PlaylistContentRevision,
-            playlistViewState.Source.LastBuiltScoreSnapshotVersion,
-            playlistViewState.View.CurrentIdentity);
-    }
-
-    /// <summary>
-    /// 現在の UI 条件から playlist build request を生成します。
-    /// </summary>
-    private PlaylistBuildRequest CreatePlaylistBuildRequest(int requestVersion, MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter, PlaylistBuildRequestViewSnapshot viewSnapshot)
+    private PlaylistDetailRefreshInput CreatePlaylistDetailRefreshInput(
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
+        object parameter)
     {
         bool hasResolvedSelection = TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistDetailFilter filterType);
-        long libraryIndexVersion = GetPlaylistLibraryIndexVersion();
-        int scoreSnapshotVersion = GetPlaylistScoreSnapshotVersion();
-        int chartInfoIndexVersion = files?.ChartInfoIndexVersion ?? 0;
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         ChartListSortParameters sortParameters = regularChartListOwner.CaptureSortParameters();
-        return new PlaylistBuildRequest
-        {
-            RequestVersion = requestVersion,
-            Mode = mode,
-            RequestedMode = requestedMode,
-            Parameter = parameter,
-            Filters = filters,
-            SortParameters = CloneSortParameters(sortParameters),
-            Identity = CreatePlaylistRequestIdentity(bmsTable, folderName, filterType, filters.KeywordFilter, filters.ModeFilter, sortParameters, libraryIndexVersion, viewSnapshot.PlaylistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection),
-            UseCoalescingWindow = ShouldUsePlaylistBuildCoalescingWindow(mode, requestedMode)
-        };
-    }
-
-    /// <summary>
-    /// worker が build 前に待つ quiet window 中に pending request を畳み込みます。
-    /// </summary>
-    /// <param name="request">最初に取得した要求。</param>
-    /// <returns>quiet window 終了時点の最新要求。</returns>
-    private PlaylistBuildRequest CoalescePlaylistBuildRequest(PlaylistBuildRequest request)
-    {
-        if (request == null || !request.UseCoalescingWindow || PlaylistBuildCoalescingWindowMs <= 0)
-        {
-            return request;
-        }
-        LogPlaylistWorker("playlist_request_coalescing_wait started version=" + request.RequestVersion + " durationMs=" + PlaylistBuildCoalescingWindowMs);
-        PlaylistBuildQueueCoalesceResult coalesceResult = PlaylistDetailBuildQueueCoordinator.CoalescePendingRequest(playlistDetailBuildState, request, PlaylistBuildCoalescingWindowMs);
-        if (coalesceResult.CancelledForShutdown || coalesceResult.Request == null)
-        {
-            LogPlaylistWorker("playlist_request_coalescing_wait cancelled reason=shutdown");
-            return null;
-        }
-        request = coalesceResult.Request;
-        LogPlaylistWorker("playlist_request_coalescing_wait completed version=" + request.RequestVersion + " durationMs=" + coalesceResult.ElapsedMs);
-        if (coalesceResult.CoalescedCount > 0)
-        {
-            LogPlaylistWorker("playlist_request_coalesced count=" + coalesceResult.CoalescedCount + " finalVersion=" + request.RequestVersion + " mode=" + request.Mode + " requestedMode=" + request.RequestedMode);
-        }
-        return request;
-    }
-
-    /// <summary>
-    /// 最新の playlist build 要求として pending request を上書きし、worker を起動します。
-    /// </summary>
-    /// <param name="mode">実行モード。</param>
-    /// <param name="requestedMode">要求元モード。</param>
-    /// <param name="parameter">追加パラメータ。</param>
-    /// <returns>採番された要求バージョン。</returns>
-    private int RegisterPlaylistSourceBuildRequest(MainViewUpdateMode mode, MainViewUpdateMode requestedMode, object parameter)
-    {
-        PlaylistBuildRequest request;
-        PlaylistBuildQueueRegisterResult registerResult;
-        lock (playlistDetailBuildState.SyncRoot)
-        {
-            PlaylistBuildRequestViewSnapshot viewSnapshot;
-            lock (playlistViewState.SyncRoot)
-            {
-                viewSnapshot = CreatePlaylistBuildRequestViewSnapshotUnsafe();
-            }
-            request = CreatePlaylistBuildRequest(0, mode, requestedMode, parameter, viewSnapshot);
-            registerResult = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
-                playlistDetailBuildState,
-                request,
-                viewSnapshot.CurrentViewIdentity,
-                viewSnapshot.LastBuiltScoreSnapshotVersion,
-                IsShutdownRequested);
-        }
-        LogPlaylistSourceBuild("requested version=" + request.RequestVersion + " mode=" + mode + " parameterType=" + (parameter?.GetType().Name ?? "(null)") + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + registerResult.LastBuiltScoreSnapshotVersion);
-        if (registerResult.DeduplicatedTarget != null)
-        {
-            LogPlaylistWorker("playlist_request_deduplicated target=" + registerResult.DeduplicatedTarget + " version=" + request.RequestVersion + " mode=" + mode + " requestedMode=" + requestedMode);
-            if (registerResult.IgnoredReason != null)
-            {
-                LogPlaylistWorker("playlist_request_ignored reason=" + registerResult.IgnoredReason + " version=" + request.RequestVersion + " mode=" + mode + " requestedMode=" + requestedMode);
-            }
-            return request.RequestVersion;
-        }
-        TrackPlaylistOpenRequest(request);
-        try
-        {
-            registerResult.PreviousCancellation?.Cancel();
-        }
-        catch (ObjectDisposedException)
-        {
-        }
-        LogPlaylistWorker("playlist_request_enqueued version=" + request.RequestVersion + " mode=" + mode + " requestedMode=" + requestedMode);
-        if (registerResult.StartWorker)
-        {
-            LogPlaylistWorker("playlist_worker_started version=" + request.RequestVersion + " mode=" + mode + " requestedMode=" + requestedMode);
-        }
-        if (registerResult.StartWorker)
-        {
-            Task.Run(ProcessPendingPlaylistBuildRequests).Logging("ProcessPendingPlaylistBuildRequests");
-        }
-        return request.RequestVersion;
-    }
-
-    /// <summary>
-    /// 現在処理中の source build 要求が最新かどうかを判定します。
-    /// </summary>
-    /// <param name="requestVersion">判定対象の要求バージョン。</param>
-    /// <returns>最新要求であれば <see langword="true"/>。</returns>
-    private bool IsLatestPlaylistSourceBuildRequest(int requestVersion)
-    {
-        return PlaylistDetailBuildQueueCoordinator.IsLatestRequest(playlistDetailBuildState, requestVersion);
-    }
-
-    /// <summary>
-    /// 現在 pending 中の playlist build 要求を 1 件取得します。
-    /// </summary>
-    /// <returns>pending request。無い場合は null。</returns>
-    private PlaylistBuildRequest DequeuePendingPlaylistBuildRequest()
-    {
-        return PlaylistDetailBuildQueueCoordinator.DequeuePendingRequest(playlistDetailBuildState);
-    }
-
-    private void StopPlaylistBuildWorkerAfterCancellation()
-    {
-        PlaylistDetailBuildQueueCoordinator.StopWorkerAfterCancellation(playlistDetailBuildState, IsShutdownRequested);
-        LogPlaylistWorker("playlist_worker_stopped");
-    }
-
-    /// <summary>
-    /// playlist build worker ループです。
-    /// 常に最新要求だけを処理し、中間要求は pending 上書きで捨てます。
-    /// </summary>
-    private void ProcessPendingPlaylistBuildRequests()
-    {
-        while (true)
-        {
-            PlaylistBuildRequest request = DequeuePendingPlaylistBuildRequest();
-            if (request == null)
-            {
-                if (!PlaylistDetailBuildQueueCoordinator.TryTakePendingRequestAfterEmptyDequeue(playlistDetailBuildState, out request))
-                {
-                    StopPlaylistBuildWorkerAfterCancellation();
-                    return;
-                }
-            }
-            request = CoalescePlaylistBuildRequest(request);
-            if (request == null)
-            {
-                StopPlaylistBuildWorkerAfterCancellation();
-                return;
-            }
-            var buildCancellation = new CancellationTokenSource();
-            if (!PlaylistDetailBuildQueueCoordinator.TryBeginIteration(playlistDetailBuildState, request, buildCancellation, IsShutdownRequested))
-            {
-                buildCancellation.Dispose();
-                StopPlaylistBuildWorkerAfterCancellation();
-                return;
-            }
-            LogPlaylistWorker("playlist_worker_iteration_started version=" + request.RequestVersion + " mode=" + request.Mode + " requestedMode=" + request.RequestedMode);
-            try
-            {
-                TryMarkPlaylistOpenBuildStarted(request);
-                TryBuildPlaylistViewAndApply(request, buildCancellation.Token);
-                if (buildCancellation.IsCancellationRequested)
-                {
-                    LogPlaylistWorker("playlist_worker_iteration_cancelled version=" + request.RequestVersion + " mode=" + request.Mode);
-                }
-                else
-                {
-                    LogPlaylistWorker("playlist_worker_iteration_completed version=" + request.RequestVersion + " mode=" + request.Mode);
-                }
-            }
-            catch (OperationCanceledException)
-            {
-                LogPlaylistWorker("playlist_worker_iteration_cancelled version=" + request.RequestVersion + " mode=" + request.Mode + " stage=exception");
-            }
-            finally
-            {
-                buildCancellation.Dispose();
-                PlaylistDetailBuildQueueCoordinator.CompleteIteration(playlistDetailBuildState, buildCancellation, request);
-            }
-        }
+        return new PlaylistDetailRefreshInput(
+            mode,
+            requestedMode,
+            bmsTable,
+            folderName,
+            filterType,
+            hasResolvedSelection,
+            filters.KeywordFilter,
+            filters.ModeFilter,
+            NormalizePlaylistSortColumnName(sortParameters),
+            NormalizePlaylistSortDirection(sortParameters),
+            treeViewFilterTypeSelected,
+            ShouldUsePlaylistBuildCoalescingWindow(mode, requestedMode),
+            CapturePlaylistOpenReadinessSnapshot());
     }
 
     private static bool IsSameReferenceSequence<T>(List<T> left, List<T> right) where T : class
@@ -3718,7 +3347,7 @@ public partial class MainWindowViewModel : ViewModel
                     }
                     RefreshPlaylistSummaryIfVisible("deferred_external_sync", invalidateTableCountCache: true);
                     bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, num);
-                    LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
+                    LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + PlaylistWorkspace.LastDetailBuildElapsedMs + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
                     LogDeferredExternalSync("deferred_external_sync done reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " updatedCount=" + num);
                     if (IsStartupProgressOperationTokenCurrent(operationToken))
                     {
@@ -6321,7 +5950,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private void CancelPlaylistBuildRequestsForShutdown()
     {
-        PlaylistDetailBuildQueueCoordinator.CancelForShutdown(playlistDetailBuildState);
+        PlaylistWorkspace.CancelDetailBuilds();
     }
 
     private void CancelPlayHistoryRequestsForShutdown()
@@ -6391,7 +6020,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool IsPlaylistBuildIdle()
     {
-        return PlaylistDetailBuildQueueCoordinator.IsIdle(playlistDetailBuildState);
+        return PlaylistWorkspace.IsDetailBuildIdle;
     }
 
     private async Task WaitForStartupBackgroundTasksIdleAsync(ShutdownWaitTracker tracker)
@@ -6610,7 +6239,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private string DescribePlaylistBuildWaitState()
     {
-        return PlaylistDetailBuildQueueCoordinator.FormatDiagnostics(playlistDetailBuildState, FormatBool);
+        return PlaylistWorkspace.DescribeDetailBuildState(FormatBool);
     }
 
     private string DescribeStartupBackgroundTaskWaitState()
@@ -7960,45 +7589,7 @@ public partial class MainWindowViewModel : ViewModel
         Interlocked.Exchange(ref lastMainViewBuildEndTimestamp, mainViewBuildEndTimestamp);
         Volatile.Write(ref lastMainViewBuildThreadId, Thread.CurrentThread.ManagedThreadId);
         Volatile.Write(ref lastMainViewBuildMode, (int)mode);
-        if (isPlaylistDetailForLog)
-        {
-            Interlocked.Exchange(ref lastPlaylistDetailBuildCompletedTimestamp, mainViewBuildEndTimestamp);
-            Interlocked.Exchange(ref lastPlaylistDetailBuildElapsedMs, viewBuildStopwatch.ElapsedMilliseconds);
-        }
         LogMainViewBuild("main_view_build mode=" + mode + " requestedMode=" + requestedMode + " parameterType=" + parameterType + " folderMs=" + folderStageMs + " keywordMs=" + keywordStageMs + " modeMs=" + modeStageMs + " sortMs=" + sortStageMs + " sortReuse=" + sortReuse + " sortProfile=" + sortProfile + " sortEngine=fast fastSortEnabled=" + fastSortEnabled + " isPlaylistDetailView=" + isPlaylistDetailForLog + " columnMs=" + columnStageMs + " callbackMs=" + callbackStageMs + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds + " folderCount=" + folderCount + " keywordCount=" + keywordCount + " modeCount=" + modeCount + " viewCount=" + viewCount + " sortColumn=" + sortColumn + " sortDirection=" + sortDirection);
-    }
-
-    private PlaylistSourceBuildStageResult BuildPlaylistSourceForRequest(
-        PlaylistBuildRequest request,
-        BMSTable bmsTable,
-        string folderName,
-        bool onlyNotOwned,
-        Stopwatch viewBuildStopwatch,
-        CancellationToken cancellationToken,
-        ref string cancellationStage)
-    {
-        int requestVersion = request.RequestVersion;
-        cancellationStage = "hash_index";
-        long stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        PlaylistLibraryIndexSnapshot libraryIndexSnapshot = GetOrCreatePlaylistLibraryIndexSnapshot(cancellationToken, out string libraryIndexAccess, out long libraryIndexBuildMs);
-        long libraryIndexMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        stageStartMs = viewBuildStopwatch.ElapsedMilliseconds;
-        PlaylistSourceBuildResult sourceBuildResult = PlaylistWorkspace.BuildDetailSourceRows(
-            bmsTable,
-            folderName,
-            onlyNotOwned,
-            libraryIndexSnapshot,
-            cancellationToken,
-            ref cancellationStage);
-        long folderStageMs = viewBuildStopwatch.ElapsedMilliseconds - stageStartMs;
-        PlaylistScoreProbeMetrics scoreProbeMetrics = sourceBuildResult.ScoreProbeMetrics;
-        LogPlaylistWorker("playlist_score_probe_summary requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs);
-        if (scoreProbeMetrics.TotalMs >= PlaylistScoreProbeSlowLogThresholdMs)
-        {
-            LogPlaylistWorker("playlist_score_probe_detail requestVersion=" + requestVersion + " targetCount=" + scoreProbeMetrics.TargetCount + " matchedScoreCount=" + scoreProbeMetrics.MatchedScoreCount + " totalMs=" + scoreProbeMetrics.TotalMs + " thresholdMs=" + PlaylistScoreProbeSlowLogThresholdMs);
-        }
-
-        return new PlaylistSourceBuildStageResult(sourceBuildResult, folderStageMs, libraryIndexMs, libraryIndexAccess, libraryIndexBuildMs);
     }
 
     /// <summary>
@@ -8056,328 +7647,6 @@ public partial class MainWindowViewModel : ViewModel
             return treeViewFilterParameterSelected == null || bmsTable != null;
         }
         return false;
-    }
-
-    /// <summary>
-    /// プレイリスト詳細ビューを source rebuild または source 再利用で更新します。
-    /// </summary>
-    private bool TryBuildPlaylistViewAndApply(PlaylistBuildRequest request, CancellationToken cancellationToken)
-    {
-        if (request == null)
-        {
-            return false;
-        }
-        List<PlaylistDetailSourceRow> sourceRows;
-        PlaylistDetailBuildStateSnapshot stateSnapshot;
-        lock (playlistViewState.SyncRoot)
-        {
-            sourceRows = playlistViewState.Source.Rows;
-            stateSnapshot = new PlaylistDetailBuildStateSnapshot(
-                hasSourceRows: sourceRows != null,
-                sourceRowCount: sourceRows?.Count ?? 0,
-                playlistViewState.Source.CurrentTable,
-                playlistViewState.Source.CurrentFolderName,
-                playlistViewState.Source.CurrentFilterType,
-                playlistViewState.Source.LastBuiltLibraryIndexVersion,
-                playlistViewState.Source.LastBuiltPlaylistRevision,
-                playlistViewState.Source.LastBuiltScoreSnapshotVersion,
-                playlistViewState.Source.LastBuiltChartInfoIndexVersion,
-                playlistViewState.Source.CurrentIdentity,
-                playlistViewState.View.CurrentIdentity);
-        }
-        PlaylistDetailBuildDecision decision = PlaylistDetailBuildDecisionService.Decide(request, stateSnapshot);
-        if (decision.Action == PlaylistDetailBuildAction.PatchChartInfoThenApplyView
-            && PlaylistWorkspace.TryPatchDetailSourceChartInfo(
-                request,
-                cancellationToken,
-                out int patchedSourceCount,
-                out int chartInfoDependencyCount,
-                out int chartInfoPatchedCount,
-                out long chartInfoPatchMs))
-        {
-            LogPlaylistViewApply("chart_info_patch requestVersion=" + request.RequestVersion
-                + " sourceCount=" + patchedSourceCount
-                + " dependencyCount=" + chartInfoDependencyCount
-                + " patchedCount=" + chartInfoPatchedCount
-                + " chartInfoIndexVersion=" + request.Identity.ChartInfoIndexVersion
-                + " elapsedMs=" + chartInfoPatchMs);
-            return ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
-        }
-        if (decision.Action == PlaylistDetailBuildAction.RebuildSource)
-        {
-            request.LastBuiltScoreSnapshotVersion = decision.LastBuiltScoreSnapshotVersion;
-            request.SourceInvalidationReason = decision.SourceInvalidationReason;
-            return RebuildPlaylistSource(request, cancellationToken);
-        }
-
-        LogPlaylistViewApply("source_reuse requestVersion=" + request.RequestVersion
-            + " presentationChanged=" + decision.PresentationIdentityChanged
-            + " sourceIdentityChanged=false keyword=\"" + (request.Identity.KeywordFilter ?? string.Empty).Replace("\"", "\"\"")
-            + "\" modeFilter=" + request.Identity.ModeFilter
-            + " sortColumn=" + (request.Identity.SortColumnName ?? string.Empty)
-            + " sortDirection=" + request.Identity.SortDirection);
-        return ApplyPlaylistViewWithoutSourceRebuild(request, cancellationToken);
-    }
-
-    private bool ApplyPlaylistViewWithoutSourceRebuild(
-        PlaylistBuildRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (request == null)
-        {
-            return false;
-        }
-
-        MainViewUpdateMode mode = request.Mode;
-        MainViewUpdateMode requestedMode = request.RequestedMode;
-        object parameter = request.Parameter;
-        ChartListFilterSnapshot filters = request.Filters ?? ChartListFilterSnapshot.Default;
-        var viewBuildStopwatch = Stopwatch.StartNew();
-        cancellationToken.ThrowIfCancellationRequested();
-        PlaylistDetailTerminalApplyResult terminalApplyResult = PlaylistWorkspace.ApplyDetailFromCurrentSource(
-            new PlaylistDetailPresentationRequest
-            {
-                BuildRequest = request,
-                Mode = mode,
-                KeywordFilter = filters.KeywordFilter,
-                ModeFilter = filters.ModeFilter,
-                SortParameters = CloneSortParameters(request.SortParameters),
-                ColumnSettingMode = ResolvePlaylistColumnSettingMode(request.Identity.FilterType),
-                CurrentTreeMode = treeViewFilterTypeSelected,
-                Stopwatch = viewBuildStopwatch,
-                CancellationToken = cancellationToken
-            });
-        if (!terminalApplyResult.Applied)
-        {
-            return true;
-        }
-        PlaylistViewApplyResult viewApplyResult = terminalApplyResult.ViewApply;
-        TryMarkPlaylistOpenBuildCompleted(request, viewApplyResult.ViewCount);
-
-        FinalizeViewOnlyPlaylistDetailBuild(
-            viewBuildStopwatch,
-            treeViewFilterTypeSelected,
-            requestedMode,
-            parameter,
-            viewApplyResult,
-            terminalApplyResult.MainViewApply);
-        return true;
-    }
-
-    private bool RebuildPlaylistSource(PlaylistBuildRequest request, CancellationToken cancellationToken)
-    {
-        if (request == null)
-        {
-            return false;
-        }
-
-        int requestVersion = request.RequestVersion;
-        MainViewUpdateMode mode = request.Mode;
-        MainViewUpdateMode requestedMode = request.RequestedMode;
-        object parameter = request.Parameter;
-        ChartListFilterSnapshot filters = request.Filters ?? ChartListFilterSnapshot.Default;
-        var viewBuildStopwatch = Stopwatch.StartNew();
-        int sourceCount = 0;
-        List<PlaylistDetailSourceRow> sourceRows = null;
-        bool gateEntered = false;
-        string cancellationStage = "before_start";
-        try
-        {
-            playlistDetailBuildState.BuildGate.Wait(cancellationToken);
-            gateEntered = true;
-            if (!IsLatestPlaylistSourceBuildRequest(requestVersion))
-            {
-                LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=stale_before_start mode=" + mode
-                    + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion
-                    + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion
-                    + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "stale_before_start"));
-                return true;
-            }
-            if (!TryResolvePlaylistSelection(mode, parameter, out BMSTable bmsTable, out string folderName, out PlaylistDetailFilter filterType))
-            {
-                return false;
-            }
-
-            bool onlyNotOwned = filterType == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected;
-            LogPlaylistSourceBuild("started version=" + requestVersion + " mode=" + mode
-                + " parameterType=" + (parameter?.GetType().Name ?? "(null)")
-                + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion
-                + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion
-                + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
-            PlaylistSourceBuildStageResult sourceBuildStageResult = BuildPlaylistSourceForRequest(
-                request,
-                bmsTable,
-                folderName,
-                onlyNotOwned,
-                viewBuildStopwatch,
-                cancellationToken,
-                ref cancellationStage);
-            sourceRows = sourceBuildStageResult.SourceBuild.SourceRows;
-            sourceCount = sourceBuildStageResult.SourceBuild.SourceCount;
-            if (cancellationToken.IsCancellationRequested || !IsLatestPlaylistSourceBuildRequest(requestVersion))
-            {
-                LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=after_build mode=" + mode
-                    + " sourceCount=" + sourceCount
-                    + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion
-                    + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion
-                    + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
-                return true;
-            }
-
-            cancellationStage = "ui_apply";
-            PlaylistDetailTerminalApplyResult terminalApplyResult;
-            try
-            {
-                terminalApplyResult = PlaylistWorkspace.ApplyDetailFromRebuiltSource(
-                    new PlaylistDetailRebuiltPresentationRequest
-                    {
-                        BuildRequest = request,
-                        Mode = mode,
-                        KeywordFilter = filters.KeywordFilter,
-                        ModeFilter = filters.ModeFilter,
-                        SortParameters = CloneSortParameters(request.SortParameters),
-                        ColumnSettingMode = ResolvePlaylistColumnSettingMode(filterType),
-                        CurrentTreeMode = treeViewFilterTypeSelected,
-                        Stopwatch = viewBuildStopwatch,
-                        CancellationToken = cancellationToken,
-                        SourceRows = sourceRows,
-                        CurrentTable = bmsTable,
-                        CurrentFolderName = folderName,
-                        CurrentFilterType = filterType
-                    });
-            }
-            catch (PlaylistDetailTerminalPublishException)
-            {
-                sourceRows = null;
-                throw;
-            }
-            PlaylistViewApplyResult viewApplyResult = terminalApplyResult.ViewApply;
-            var executionResult = new PlaylistRebuildExecutionResult(sourceBuildStageResult, viewApplyResult);
-            int viewCount = executionResult.ViewCount;
-            if (!terminalApplyResult.Applied)
-            {
-                LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=stale_terminal_commit mode=" + mode
-                    + " sourceCount=" + sourceCount + " viewCount=" + viewCount);
-                return true;
-            }
-
-            sourceRows = null;
-            TryMarkPlaylistOpenBuildCompleted(request, viewCount);
-            FinalizeRebuiltPlaylistDetailBuild(
-                viewBuildStopwatch,
-                mode,
-                requestedMode,
-                parameter,
-                executionResult,
-                terminalApplyResult.MainViewApply);
-            LogPlaylistSourceBuild("completed version=" + requestVersion + " mode=" + mode
-                + " sourceCount=" + sourceCount
-                + " viewCount=" + viewCount
-                + " disposedSourceRows=" + terminalApplyResult.PreviousSourceCount
-                + " scoreTargets=" + executionResult.ScoreUpdateTargetCount
-                + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion
-                + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion
-                + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown")
-                + " libraryIndexMs=" + executionResult.LibraryIndexMs
-                + " libraryIndexAccess=" + executionResult.LibraryIndexAccess
-                + " libraryIndexBuildMs=" + executionResult.LibraryIndexBuildMs
-                + " entryResolveMs=" + executionResult.EntryResolveMs
-                + " scoreProbeMs=" + executionResult.ScoreProbeMs
-                + " scoreProbeMatchedScoreCount=" + executionResult.ScoreProbeMetrics.MatchedScoreCount
-                + " sourceMaterializeMs=" + executionResult.SourceMaterializeMs
-                + " viewMaterializeMs=" + executionResult.ViewMaterializeMs
-                + " totalMs=" + viewBuildStopwatch.ElapsedMilliseconds);
-            return true;
-        }
-        catch (OperationCanceledException)
-        {
-            LogPlaylistSourceBuild("cancelled version=" + requestVersion + " stage=" + cancellationStage + " mode=" + mode
-                + " sourceCount=" + sourceCount
-                + " scoreSnapshotVersion=" + request.Identity.ScoreSnapshotVersion
-                + " lastBuiltScoreSnapshotVersion=" + request.LastBuiltScoreSnapshotVersion
-                + " sourceInvalidatedReason=" + (request.SourceInvalidationReason ?? "unknown"));
-            return true;
-        }
-        finally
-        {
-            try
-            {
-                if (sourceRows != null)
-                {
-                    LogPlaylistSourceBuild("discarded version=" + requestVersion + " mode=" + mode + " discardedRows=" + sourceCount);
-                }
-            }
-            finally
-            {
-                if (gateEntered)
-                {
-                    playlistDetailBuildState.BuildGate.Release();
-                }
-            }
-        }
-    }
-
-    private void FinalizeRebuiltPlaylistDetailBuild(
-        Stopwatch viewBuildStopwatch,
-        MainViewUpdateMode mode,
-        MainViewUpdateMode requestedMode,
-        object parameter,
-        PlaylistRebuildExecutionResult executionResult,
-        PlaylistMainViewApplyResult mainViewApplyResult)
-    {
-        FinalizePlaylistDetailBuild(
-            viewBuildStopwatch,
-            new PlaylistDetailBuildCompletionResult(
-                mode,
-                requestedMode,
-                parameter,
-                executionResult.FolderStageMs,
-                executionResult.ViewApply,
-                mainViewApplyResult));
-    }
-
-    private void FinalizeViewOnlyPlaylistDetailBuild(
-        Stopwatch viewBuildStopwatch,
-        MainViewUpdateMode mode,
-        MainViewUpdateMode requestedMode,
-        object parameter,
-        PlaylistViewApplyResult viewApplyResult,
-        PlaylistMainViewApplyResult mainViewApplyResult)
-    {
-        FinalizePlaylistDetailBuild(
-            viewBuildStopwatch,
-            new PlaylistDetailBuildCompletionResult(
-                mode,
-                requestedMode,
-                parameter,
-                folderStageMs: 0L,
-                viewApplyResult,
-                mainViewApplyResult));
-    }
-
-    private void FinalizePlaylistDetailBuild(
-        Stopwatch viewBuildStopwatch,
-        PlaylistDetailBuildCompletionResult completionResult)
-    {
-        PlaylistViewApplyResult viewApplyResult = completionResult.ViewApply;
-        PlaylistMainViewApplyResult mainViewApplyResult = completionResult.MainViewApply;
-        FinalizeMainViewBuild(
-            viewBuildStopwatch,
-            completionResult.Mode,
-            completionResult.RequestedMode,
-            completionResult.Parameter,
-            completionResult.FolderStageMs,
-            viewApplyResult.KeywordStageMs,
-            viewApplyResult.ModeStageMs,
-            viewApplyResult.SortStageMs,
-            completionResult.SortReuse,
-            viewApplyResult.SortProfile,
-            viewApplyResult.SourceCount,
-            viewApplyResult.KeywordCount,
-            viewApplyResult.ModeCount,
-            viewApplyResult.ViewCount,
-            mainViewApplyResult.ColumnStageMs,
-            mainViewApplyResult.CallbackStageMs);
     }
 
     /// <summary>
@@ -8486,7 +7755,8 @@ public partial class MainWindowViewModel : ViewModel
         if (route.Kind == ChartListRefreshRouteKind.RegisterPlaylistSourceBuild)
         {
             UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive);
-            RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter);
+            PlaylistWorkspace.RequestDetailRefresh(
+                CreatePlaylistDetailRefreshInput(route.Mode, route.RequestedMode, parameter));
             return;
         }
         RegularChartListEntryResult regularResult = regularChartListOwner.ApplyMainLibraryView(
@@ -13336,7 +12606,7 @@ public partial class MainWindowViewModel : ViewModel
             RefreshPlaylistSummaryIfVisible("manual_playlist_resync", invalidateTableCountCache: true);
             RefreshPlaylistDetailAfterReloadIfVisible();
             bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, list.Count);
-            LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count + " processedCount=" + (results?.Count ?? 0) + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + Interlocked.Read(ref lastPlaylistDetailBuildElapsedMs) + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + playlistReloadStopwatch.ElapsedMilliseconds);
+            LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=manual_resync tableCount=" + list.Count + " processedCount=" + (results?.Count ?? 0) + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + PlaylistWorkspace.LastDetailBuildElapsedMs + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + playlistReloadStopwatch.ElapsedMilliseconds);
         }
         finally
         {

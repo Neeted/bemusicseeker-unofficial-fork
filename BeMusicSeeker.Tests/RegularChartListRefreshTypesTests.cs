@@ -71,12 +71,15 @@ public sealed class RegularChartListRefreshTypesTests
 
         StringAssert.Contains(refreshChartRowsView, "ChartListRefreshCoordinator.ResolveRoute");
         StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.PrepareForMainViewRefresh();");
-        StringAssert.Contains(refreshChartRowsView, "RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter)");
+        StringAssert.Contains(refreshChartRowsView, "PlaylistWorkspace.RequestDetailRefresh(");
+        StringAssert.Contains(refreshChartRowsView, "CreatePlaylistDetailRefreshInput(route.Mode, route.RequestedMode, parameter)");
         StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyMainLibraryView(");
         StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
         Assert.IsTrue(
             refreshChartRowsView.IndexOf("UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)", StringComparison.Ordinal)
-            < refreshChartRowsView.IndexOf("RegisterPlaylistSourceBuildRequest(route.Mode, route.RequestedMode, parameter)", StringComparison.Ordinal));
+            < refreshChartRowsView.IndexOf("PlaylistWorkspace.RequestDetailRefresh(", StringComparison.Ordinal));
+        Assert.IsFalse(root.Contains("RegisterPlaylistSourceBuildRequest"));
+        Assert.IsFalse(root.Contains("ProcessPendingPlaylistBuildRequests"));
         Assert.IsFalse(root.Contains("ApplyMainLibraryChartListView"));
         Assert.IsFalse(root.Contains("TryApplyVirtualDefaultNormalLibraryView"));
         Assert.IsFalse(root.Contains("TryApplyVirtualChartSubsetLibraryView"));
