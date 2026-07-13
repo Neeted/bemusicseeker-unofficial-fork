@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -89,6 +90,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "public PlaylistWorkspaceViewModel PlaylistWorkspace { get; }");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;");
+        StringAssert.Contains(logicalSource, "ApplyPlaylistEntriesChanged(request.Table, refreshSummaryIfVisible: true);");
+        StringAssert.Contains(workspaceSource, "private void PublishEntriesChanged(BMSTable table)");
+        StringAssert.Contains(workspaceSource, "EntriesChanged?.Invoke(this, new PlaylistWorkspaceEntriesChangedEventArgs(table));");
+        StringAssert.Contains(workspaceSource, "internal Task AddRowsToFolderAsync(");
+        StringAssert.Contains(workspaceSource, "internal Task DeleteEntriesAsync(");
         StringAssert.Contains(workspaceSource, "internal void RequestSummarySelection()");
         StringAssert.Contains(workspaceSource, "internal void RequestDetailSelection(BMSTable table, PlaylistFolderNode folderNode = null)");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestSummarySelection();");
@@ -96,6 +103,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("ExecPlaylistFilter", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("SelectPlaylistSummary", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("playlistViewState", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("AddChartRowsToFolderBMSTable", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("DeleteBMSTableEntries", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("ArePlaylistDropCandidateRows", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainWindowSource.IndexOf("GetPlaylistFilterType", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainWindowSource.IndexOf("GetPlaylistFolderSelectionKey", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "LogPlaylistViewApply,");
@@ -971,5 +981,60 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(
             PlaylistSummaryDeferredRefreshKind.Data,
             workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceDropPolicyRejectsMixedExternalAndSpecialTargets()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var table = new BMSTable();
+        var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder");
+        var playlistRow = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
+        var specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
+
+        Assert.IsTrue(workspace.CanAcceptDrop([playlistRow], table, PlaylistFolderNode.CreateFolder("Folder")));
+        Assert.IsFalse(workspace.CanAcceptDrop([playlistRow, new PlaylistSummaryRow()], table));
+        Assert.IsFalse(workspace.CanAcceptDrop([playlistRow], table, specialFolder));
+
+        table.is_external_sync = true;
+        Assert.IsFalse(workspace.CanAcceptDrop([playlistRow], table));
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceExternalMutationRejectsBeforePersistenceAccess()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var table = new BMSTable { is_external_sync = true };
+        var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
+        workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
+
+        await workspace.CreateFolderAsync(table);
+        await workspace.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"));
+        await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"), "Renamed");
+        await workspace.AddRowsToFolderAsync([], table);
+        await workspace.DeleteEntriesAsync([], table);
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                PlaylistWorkspaceMutationKind.CreateFolder,
+                PlaylistWorkspaceMutationKind.RemoveFolder,
+                PlaylistWorkspaceMutationKind.RenameFolder,
+                PlaylistWorkspaceMutationKind.AddEntries,
+                PlaylistWorkspaceMutationKind.RemoveEntries
+            },
+            rejectedKinds);
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceSpecialFolderMutationIsIgnoredWithoutPersistenceAccess()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(action => action());
+        var table = new BMSTable();
+        PlaylistFolderNode specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
+
+        await workspace.RenameFolderAsync(table, specialFolder, "Renamed");
+        await workspace.RemoveFolderAsync(table, specialFolder);
+        await workspace.AddRowsToFolderAsync([], table, specialFolder);
     }
 }

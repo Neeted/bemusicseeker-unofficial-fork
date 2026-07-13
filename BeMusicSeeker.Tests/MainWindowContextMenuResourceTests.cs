@@ -1327,7 +1327,7 @@ public sealed class MainWindowContextMenuResourceTests
             "protected override void Dispose(bool disposing)");
         int headerCommitIndex = saveFollowup.IndexOf("ownerViewModel.tables.CommitBMSTableHeaderToDB(bmsTable);", StringComparison.Ordinal);
         int fullCommitIndex = saveFollowup.IndexOf("ownerViewModel.tables.CommitBMSTableWithEntriesToDB(bmsTable);", StringComparison.Ordinal);
-        int detailRefreshIndex = saveFollowup.IndexOf("ownerViewModel.RefreshChartRowsViewForPlaylist(bmsTable);", StringComparison.Ordinal);
+        int detailRefreshIndex = saveFollowup.IndexOf("ownerViewModel.ApplyPlaylistEntriesChanged(bmsTable, refreshSummaryIfVisible: true);", StringComparison.Ordinal);
         int selectionReplaceIndex = saveFollowup.IndexOf("ownerViewModel.ReplaceCurrentPlaylistSelectionTable(sourceTable, bmsTable);", StringComparison.Ordinal);
         int folderSelectionRemapIndex = saveFollowup.IndexOf("ownerViewModel.RemapCurrentPlaylistFolderSelection(bmsTable, rewrittenFolders);", StringComparison.Ordinal);
         int lr2CustomFolderIndex = saveFollowup.IndexOf("if (temp_custom_folder_output_settings?.OperationModeLR2DB == true)", StringComparison.Ordinal);
@@ -2510,11 +2510,11 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlaylistDropReferenceRefreshUsesChartTargets()
     {
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
         string addChartRows = ExtractBetween(
             viewModelCode,
-            "internal void AddChartRowsToFolderBMSTable",
-            "internal static bool ShouldPreservePlaylistEntryForRootFolderDrop");
+            "private void AddRowsToFolder",
+            "private void DeleteEntries");
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string addReferenceCharts = ExtractBetween(
             libraryCode,
@@ -2525,8 +2525,8 @@ public sealed class MainWindowContextMenuResourceTests
             "internal static void AddReferenceBMSTablesToCharts(IPlaylistReferenceApplyHost host, BMSTable table, IEnumerable<ChartFile> charts)");
 
         StringAssert.Contains(addChartRows, "List<ChartFile> resolvedCharts");
-        StringAssert.Contains(addChartRows, "files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts)");
-        Assert.IsTrue(addChartRows.IndexOf("files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts)", StringComparison.Ordinal) < addChartRows.IndexOf("RefreshChartRowsViewForPlaylist(bmsTable)", StringComparison.Ordinal));
+        StringAssert.Contains(addChartRows, "library.AddReferenceBMSTablesToCharts(table, resolvedCharts)");
+        Assert.IsTrue(addChartRows.IndexOf("library.AddReferenceBMSTablesToCharts(table, resolvedCharts)", StringComparison.Ordinal) < addChartRows.IndexOf("PublishEntriesChanged(table)", StringComparison.Ordinal));
         Assert.IsFalse(addChartRows.Contains("resolvedBmsFiles"));
         StringAssert.Contains(addReferenceCharts, "PlaylistReferenceApplyCoordinator.AddReferenceBMSTablesToCharts(this, table, charts)");
         StringAssert.Contains(addReferenceChartsCoordinator, "host.ReplacePlaylistReferenceIndexTable(table)");

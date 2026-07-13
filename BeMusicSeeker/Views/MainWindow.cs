@@ -2984,12 +2984,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 return;
             }
-            string nameBefore = folderNode.FolderName;
             string nameAfter = editableTextBlock.Text;
-            Task.Run(delegate
-            {
-                viewModel.RenameFolderBMSTable(bmsTable, nameBefore, nameAfter);
-            }).Logging("playlistTableFolderNameChanged");
+            viewModel.PlaylistWorkspace
+                .RenameFolderAsync(bmsTable, folderNode, nameAfter)
+                .Logging("playlistTableFolderNameChanged");
         }
     }
 
@@ -4208,7 +4206,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// テーブル階層コンテキストメニュー「フォルダを作成」実行時の処理。
     /// 選択中のプレイリスト配下に新しいサブフォルダ用BMSTable要素を非同期で追加します（自作プレイリスト用）。
     /// </summary>
-    private async void treeViewPlaylistTableContextMenuItemCreateNewFolderClick(object sender, RoutedEventArgs e)
+    private void treeViewPlaylistTableContextMenuItemCreateNewFolderClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem menuItem)
         {
@@ -4216,10 +4214,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem.DataContext is BMSTable bmsTable && !bmsTable.is_external_sync)
         {
-            await Task.Run(delegate
-            {
-                viewModel.CreateNewFolderBMSTable(bmsTable);
-            }).Logging("treeViewPlaylistTableContextMenuItemCreateNewFolderClick");
+            viewModel.PlaylistWorkspace
+                .CreateFolderAsync(bmsTable)
+                .Logging("treeViewPlaylistTableContextMenuItemCreateNewFolderClick");
         }
     }
 
@@ -4465,7 +4462,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// プレイリストフォルダ階層コンテキストメニュー「フォルダを削除」実行時の処理。
     /// 指定されたカスタムフォルダ名を持つ仮想要素を、所属するプレイリスト (BMSTable) 内から抹消します。
     /// </summary>
-    private async void treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick(object sender, RoutedEventArgs e)
+    private void treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel viewModel)
         {
@@ -4481,13 +4478,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        string folderNameDelete = folderNode.FolderName;
         if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
-            await Task.Run(delegate
-            {
-                viewModel.RemoveFolderBMSTable(bmsTable, folderNameDelete);
-            }).Logging("treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick");
+            viewModel.PlaylistWorkspace
+                .RemoveFolderAsync(bmsTable, folderNode)
+                .Logging("treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick");
         }
     }
 
@@ -8560,14 +8555,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        foreach (IGrouping<BMSTable, BMSTableEntry> enGrp in from en in list2
-                                                             group en by en.parent)
-        {
-            Task.Run(delegate
-            {
-                viewModel.DeleteBMSTableEntries(enGrp.AsEnumerable(), enGrp.Key);
-            }).Logging("tableContextMenuItemDeleteEntryClick");
-        }
+        Task[] deleteTasks = [.. (from entry in list2
+                                  group entry by entry.parent)
+            .Select(group => viewModel.PlaylistWorkspace.DeleteEntriesAsync(group.AsEnumerable(), group.Key))];
+        Task.WhenAll(deleteTasks).Logging("tableContextMenuItemDeleteEntryClick");
     }
 
     private void tableContextMenuItemForceFileScanCheckAllCharts(object sender, RoutedEventArgs e)
@@ -9144,8 +9135,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         treeViewItemInstantStoryBoardPlaylistTable.Stop(this);
         treeViewItemInstantStoryBoardPlaylistTable.Children.Clear();
         var viewModel = base.DataContext as MainWindowViewModel;
-        if (!IsPlaylistDropCandidateDrag(e.Data, out List<object> selectedRows)
-            || !MainWindowViewModel.ArePlaylistDropCandidateRows(selectedRows))
+        if (!IsPlaylistDropCandidateDrag(e.Data, out List<object> selectedRows))
         {
             return;
         }
@@ -9163,10 +9153,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         treeViewItem2.Background = Brushes.Transparent;
-        string folderName;
+        PlaylistFolderNode targetFolder;
         if (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode))
         {
-            folderName = null;
+            targetFolder = null;
         }
         else
         {
@@ -9174,13 +9164,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 return;
             }
-            folderName = folderNode.FolderName;
+            targetFolder = folderNode;
+        }
+        if (!viewModel.PlaylistWorkspace.CanAcceptDrop(selectedRows, table, targetFolder))
+        {
+            return;
         }
         e.Effects = DragDropEffects.Copy;
-        Task.Run(delegate
-        {
-            viewModel.AddChartRowsToFolderBMSTable(selectedRows, table, folderName);
-        }).Logging("playlistTableDrop");
+        viewModel.PlaylistWorkspace
+            .AddRowsToFolderAsync(selectedRows, table, targetFolder)
+            .Logging("playlistTableDrop");
     }
 
     private void playlistTableDragOver(object sender, DragEventArgs e)
@@ -9191,13 +9184,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         e.Effects = DragDropEffects.None;
         e.Handled = true;
-        if (!MainWindowViewModel.ArePlaylistDropCandidateRows(selectedRows)
-            || sender is not TreeViewItem { DataContext: BMSTable { is_external_sync: false } })
+        if (sender is not TreeViewItem { DataContext: BMSTable table })
         {
             return;
         }
         TreeViewItem treeViewItem2 = WPFUtil.FindVisualParent<TreeViewItem>((FrameworkElement)e.OriginalSource);
-        if (treeViewItem2 != null && (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsSpecial))
+        PlaylistFolderNode targetFolder = null;
+        if (treeViewItem2 != null
+            && (!TryGetPlaylistFolderNode(treeViewItem2.DataContext, out targetFolder) || !targetFolder.IsSpecial)
+            && (base.DataContext as MainWindowViewModel)?.PlaylistWorkspace.CanAcceptDrop(selectedRows, table, targetFolder) == true)
         {
             e.Effects = DragDropEffects.Copy;
         }
@@ -9211,10 +9206,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         e.Effects = DragDropEffects.None;
         e.Handled = true;
-        if (!MainWindowViewModel.ArePlaylistDropCandidateRows(selectedRows))
-        {
-            return;
-        }
         if (sender is not TreeViewItem tviTable)
         {
             return;
@@ -9224,7 +9215,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!bMSTable.is_external_sync && (!TryGetPlaylistFolderNode(treeViewItem.DataContext, out PlaylistFolderNode folderNode) || !folderNode.IsSpecial))
+        PlaylistFolderNode targetFolder = null;
+        if ((!TryGetPlaylistFolderNode(treeViewItem.DataContext, out targetFolder) || !targetFolder.IsSpecial)
+            && (base.DataContext as MainWindowViewModel)?.PlaylistWorkspace.CanAcceptDrop(selectedRows, bMSTable, targetFolder) == true)
         {
             e.Effects = DragDropEffects.Copy;
             treeViewItem.Background = SystemColors.HighlightBrush;

@@ -2418,7 +2418,7 @@ public sealed class PlaylistViewPipelineTests
     }
 
     [TestMethod]
-    public void ResolvePlaylistDropChart_LibraryBmsonRowCreatesPlaylistEntryWithBothHashes()
+    public void WorkspaceDropChartResolution_LibraryBmsonRowCreatesPlaylistEntryWithBothHashes()
     {
         var bmson = new LR2SongDBExtended.bmson_song
         {
@@ -2432,7 +2432,7 @@ public sealed class PlaylistViewPipelineTests
         };
         var row = LibraryChartRow.FromBmsonSong(bmson);
 
-        ChartFile chart = MainWindowViewModel.ResolvePlaylistDropChart(row);
+        ChartFile chart = PlaylistWorkspaceViewModel.ResolveDropChart(row);
         var entry = BMSTableEntry.CreateForPlaylistDrop(chart);
 
         Assert.IsNotNull(chart);
@@ -3219,11 +3219,11 @@ public sealed class PlaylistViewPipelineTests
         missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
         PlaylistDetailRow missingRow = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null).CreateViewRow();
 
-        Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsRow));
-        Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsonRow));
-        Assert.IsTrue(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(missingRow));
-        Assert.AreEqual(ChartFileKind.Bmson, MainWindowViewModel.ResolvePlaylistDropChart(ownedBmsonRow).Kind);
-        Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChart(missingRow));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldPreserveEntryForRootFolderDrop(ownedBmsRow));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldPreserveEntryForRootFolderDrop(ownedBmsonRow));
+        Assert.IsTrue(PlaylistWorkspaceViewModel.ShouldPreserveEntryForRootFolderDrop(missingRow));
+        Assert.AreEqual(ChartFileKind.Bmson, PlaylistWorkspaceViewModel.ResolveDropChart(ownedBmsonRow).Kind);
+        Assert.IsNull(PlaylistWorkspaceViewModel.ResolveDropChart(missingRow));
     }
 
     [TestMethod]
@@ -3246,10 +3246,10 @@ public sealed class PlaylistViewPipelineTests
         missingEntry.SetMd5("cccccccccccccccccccccccccccccccc");
         var missingSourceRow = new PlaylistDetailSourceRow(missingEntry, resolvedChart: null);
 
-        Assert.IsFalse(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(ownedBmsonSourceRow));
-        Assert.IsTrue(MainWindowViewModel.ShouldPreservePlaylistEntryForRootFolderDrop(missingSourceRow));
-        Assert.AreEqual(ChartFileKind.Bmson, MainWindowViewModel.ResolvePlaylistDropChart(ownedBmsonSourceRow).Kind);
-        Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChart(missingSourceRow));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldPreserveEntryForRootFolderDrop(ownedBmsonSourceRow));
+        Assert.IsTrue(PlaylistWorkspaceViewModel.ShouldPreserveEntryForRootFolderDrop(missingSourceRow));
+        Assert.AreEqual(ChartFileKind.Bmson, PlaylistWorkspaceViewModel.ResolveDropChart(ownedBmsonSourceRow).Kind);
+        Assert.IsNull(PlaylistWorkspaceViewModel.ResolveDropChart(missingSourceRow));
     }
 
     [TestMethod]
@@ -3261,8 +3261,8 @@ public sealed class PlaylistViewPipelineTests
             TableRef = new BMSTable()
         };
 
-        Assert.IsFalse(MainWindowViewModel.IsPlaylistDropCandidateRow(summaryRow));
-        Assert.IsFalse(MainWindowViewModel.ArePlaylistDropCandidateRows([summaryRow]));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.IsDropCandidateRow(summaryRow));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.AreDropCandidateRows([summaryRow]));
     }
 
     [TestMethod]
@@ -3273,10 +3273,10 @@ public sealed class PlaylistViewPipelineTests
         LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(bms);
         PlaylistDetailRow playlistRow = new PlaylistDetailSourceRow(new TestablePlaylistEntry(bms), ChartFileProjection.FromBmsFile(bms)).CreateViewRow();
 
-        Assert.IsTrue(MainWindowViewModel.IsPlaylistDropCandidateRow(libraryRow));
-        Assert.IsTrue(MainWindowViewModel.IsPlaylistDropCandidateRow(playlistRow));
-        Assert.IsTrue(MainWindowViewModel.ArePlaylistDropCandidateRows([libraryRow, playlistRow]));
-        Assert.IsFalse(MainWindowViewModel.ArePlaylistDropCandidateRows([libraryRow, new PlaylistSummaryRow()]));
+        Assert.IsTrue(PlaylistWorkspaceViewModel.IsDropCandidateRow(libraryRow));
+        Assert.IsTrue(PlaylistWorkspaceViewModel.IsDropCandidateRow(playlistRow));
+        Assert.IsTrue(PlaylistWorkspaceViewModel.AreDropCandidateRows([libraryRow, playlistRow]));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.AreDropCandidateRows([libraryRow, new PlaylistSummaryRow()]));
     }
 
     [TestMethod]
@@ -3287,12 +3287,12 @@ public sealed class PlaylistViewPipelineTests
 
         Assert.IsNotNull(resolvedRow.ResolvedChart);
         Assert.IsNull(unresolvedRow.ResolvedChart);
-        Assert.IsTrue(MainWindowViewModel.IsPlaylistDropCandidateRow(resolvedRow));
-        Assert.IsFalse(MainWindowViewModel.IsPlaylistDropCandidateRow(unresolvedRow));
-        Assert.IsTrue(MainWindowViewModel.ArePlaylistDropCandidateRows([resolvedRow]));
-        Assert.IsFalse(MainWindowViewModel.ArePlaylistDropCandidateRows([resolvedRow, unresolvedRow]));
-        Assert.AreSame(resolvedRow.ResolvedChart, MainWindowViewModel.ResolvePlaylistDropChart(resolvedRow));
-        Assert.IsNull(MainWindowViewModel.ResolvePlaylistDropChart(unresolvedRow));
+        Assert.IsTrue(PlaylistWorkspaceViewModel.IsDropCandidateRow(resolvedRow));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.IsDropCandidateRow(unresolvedRow));
+        Assert.IsTrue(PlaylistWorkspaceViewModel.AreDropCandidateRows([resolvedRow]));
+        Assert.IsFalse(PlaylistWorkspaceViewModel.AreDropCandidateRows([resolvedRow, unresolvedRow]));
+        Assert.AreSame(resolvedRow.ResolvedChart, PlaylistWorkspaceViewModel.ResolveDropChart(resolvedRow));
+        Assert.IsNull(PlaylistWorkspaceViewModel.ResolveDropChart(unresolvedRow));
         Assert.IsFalse(GridRowResolver.IsPlaylistRow(resolvedRow));
         Assert.IsNull(GridRowResolver.GetPlaylistEntry(resolvedRow));
         Assert.IsFalse(GridRowResolver.TryGetBmsPlayerFile(resolvedRow, out _));

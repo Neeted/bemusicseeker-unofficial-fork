@@ -5307,8 +5307,11 @@ public partial class MainWindowViewModel : ViewModel
             LogPlaylistViewApply,
             LogPlaylistRetention);
         PlaylistWorkspace.ConfigureDetailEditing(() => tables);
+        PlaylistWorkspace.ConfigureMutations(() => files, RunPlaylistOperationWithNotifications);
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
+        PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
+        PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
@@ -5500,6 +5503,44 @@ public partial class MainWindowViewModel : ViewModel
                 ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
                 : MainViewUpdateMode.PlaylistFilterSelected,
             selection);
+    }
+
+    private static void PlaylistWorkspaceMutationRejected(
+        object sender,
+        PlaylistWorkspaceMutationRejectedEventArgs request)
+    {
+        string message = request.Kind switch
+        {
+            PlaylistWorkspaceMutationKind.RenameFolder => BeMusicSeeker.Properties.Resources.Msg_failed_rename_playlist_folder,
+            PlaylistWorkspaceMutationKind.RemoveFolder => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder,
+            PlaylistWorkspaceMutationKind.CreateFolder => BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder,
+            PlaylistWorkspaceMutationKind.AddEntries => BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry,
+            PlaylistWorkspaceMutationKind.RemoveEntries => BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry,
+            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
+        };
+        ShowUiMessage(message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
+    }
+
+    private void PlaylistWorkspaceEntriesChanged(
+        object sender,
+        PlaylistWorkspaceEntriesChangedEventArgs request)
+    {
+        ApplyPlaylistEntriesChanged(request.Table, refreshSummaryIfVisible: true);
+    }
+
+    private void ApplyPlaylistEntriesChanged(BMSTable table, bool refreshSummaryIfVisible)
+    {
+        if (refreshSummaryIfVisible)
+        {
+            RefreshPlaylistSummaryIfVisible("playlist_entries_updated", invalidateTableCountCache: true);
+        }
+        if (treeViewFilterParameterSelected is PlaylistDetailSelection selection
+            && selection.Table == table)
+        {
+            IncrementPlaylistContentRevision("playlist_updated");
+            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
+        }
+        InvalidateNormalLibraryReferenceTableSortKeys();
     }
 
     private void RegularChartListOwnerSortChanged(object sender, MainChartListSortRequestedEventArgs request)
@@ -13769,42 +13810,6 @@ public partial class MainWindowViewModel : ViewModel
         return null;
     }
 
-    internal void RenameFolderBMSTable(BMSTable bmsTable, string foldeNameBefore, string folderNameAfter)
-    {
-        if (bmsTable.is_external_sync)
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_rename_playlist_folder, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-        }
-        else
-        {
-            tables.RenameFolderBMSTable(bmsTable, foldeNameBefore, folderNameAfter);
-        }
-    }
-
-    internal void RemoveFolderBMSTable(BMSTable bmsTable, string folderNameDelete)
-    {
-        if (bmsTable.is_external_sync)
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_folder, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-        }
-        else
-        {
-            tables.RemoveFolderBMSTable(bmsTable, folderNameDelete);
-        }
-    }
-
-    internal void CreateNewFolderBMSTable(BMSTable bmsTable)
-    {
-        if (bmsTable.is_external_sync)
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_create_playlist_folder, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-        }
-        else
-        {
-            tables.CreateNewFolderBMSTable(bmsTable);
-        }
-    }
-
     internal void ExportBMSTable(BMSTable bmsTable, string fileNameHeader, string fileNameData)
     {
         if (bmsTable == null)
@@ -13845,175 +13850,6 @@ public partial class MainWindowViewModel : ViewModel
             {
                 bmsTable.Data_url = data_url;
             }
-        }
-    }
-
-    internal void AddChartRowsToFolderBMSTable(IEnumerable<object> rows, BMSTable bmsTable, string folderName = "")
-    {
-        folderName ??= string.Empty;
-        if (rows == null)
-        {
-            throw new ArgumentNullException(nameof(rows));
-        }
-        if (bmsTable.is_external_sync)
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_add_playlist_entry, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-            return;
-        }
-        List<object> sourceRows = [.. rows.Where(row => row != null)];
-        if (sourceRows.Count == 0)
-        {
-            return;
-        }
-        if (!ArePlaylistDropCandidateRows(sourceRows))
-        {
-            return;
-        }
-        tables.EnsurePlaylistEntriesLoaded(bmsTable, "MainWindowViewModel.AddChartRowsToFolderBMSTable");
-        if (sourceRows.All(GridRowResolver.IsPlaylistRow))
-        {
-            List<BMSTableEntry> list = [.. sourceRows.Select(GridRowResolver.GetPlaylistEntry).Where(entry => entry != null && entry.parent == bmsTable)];
-            List<BMSTableEntry> second = [.. list.Where(entry => string.Equals(entry.folder ?? string.Empty, folderName, StringComparison.Ordinal))];
-            if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
-            {
-                tables.RemoveEntriesBMSTable(list, bmsTable, commitFlag: false);
-            }
-            else
-            {
-                sourceRows = [.. sourceRows.Where(row => !second.Contains(GridRowResolver.GetPlaylistEntry(row)))];
-                if (sourceRows.Count == 0)
-                {
-                    return;
-                }
-                tables.RemoveEntriesBMSTable(list.Except(second), bmsTable, commitFlag: false);
-            }
-        }
-        List<ChartFile> resolvedCharts = [.. sourceRows.Select(ResolvePlaylistDropChart).Where(chart => chart != null)];
-        if (bmsTable.entry_type == LR2SongDBExtended.playlist.EntryUnitType.Folder && string.IsNullOrWhiteSpace(folderName))
-        {
-            List<object> playlistEntryRows = [.. sourceRows.Where(ShouldPreservePlaylistEntryForRootFolderDrop)];
-            List<ChartFile> source = [.. sourceRows.Except(playlistEntryRows).Select(ResolvePlaylistDropChart).Where(chart => chart != null)];
-            tables.AddPlaylistEntriesToFolderBMSTable(playlistEntryRows.Select(row => GridRowResolver.GetPlaylistEntry(row)?.Duplicate()).Where(entry => entry != null), bmsTable, folderName, commitFlag: false);
-            if (files == null)
-            {
-                return;
-            }
-            foreach (IGrouping<string, ChartFile> item in source.GroupBy(chart => DirectoryExt.GetDirectoryNameSimple(chart.Path), StringComparer.OrdinalIgnoreCase).ToList())
-            {
-                List<string> md5sInTheSameDir = files.GetPlaylistFolderOrgMd5sForCharts(item);
-                string text = null;
-                if (md5sInTheSameDir.Count > 0)
-                {
-                    text = bmsTable.folder_list.Where(folder => !string.IsNullOrWhiteSpace(folder)).FirstOrDefault(folder => (from e in bmsTable.entries
-                                                                                                                              where e.folder == folder
-                                                                                                                              select e.md5).ToList().Intersect(md5sInTheSameDir, StringComparer.OrdinalIgnoreCase).Any());
-                }
-                if (string.IsNullOrWhiteSpace(text))
-                {
-                    text = BMSLibrary.GetLongestCommonChartInfo(item.Select(chart => chart.Title));
-                    text = tables.CreateNewFolderBMSTable(bmsTable, text, commitFlag: false);
-                }
-                tables.AddPlaylistEntriesToFolderBMSTable(item.Select(chart => BMSTableEntry.CreateForPlaylistDrop(chart, md5sInTheSameDir)), bmsTable, text, commitFlag: false);
-            }
-        }
-        else
-        {
-            ParallelQuery<BMSTableEntry> bmsEntries = from row in sourceRows.AsParallel()
-                                                      let entry = GridRowResolver.GetPlaylistEntry(row)
-                                                      let chart = ResolvePlaylistDropChart(row)
-                                                      where entry != null || chart != null
-                                                      select (entry != null) ? entry.Duplicate() : BMSTableEntry.CreateForPlaylistDrop(chart, GetPlaylistDropOrgMd5(chart));
-            tables.AddPlaylistEntriesToFolderBMSTable(bmsEntries, bmsTable, folderName, commitFlag: false);
-        }
-        RunPlaylistOperationWithNotifications(
-            () => tables.ReOutputCustomFolderAndCommitToDB(bmsTable),
-            "playlist drop custom folder output notification");
-        tables.AcquireReaderLockBMSTables();
-        files.AddReferenceBMSTablesToCharts(bmsTable, resolvedCharts);
-        tables.FreeReaderLockBMSTables();
-        RefreshChartRowsViewForPlaylist(bmsTable);
-        InvalidateNormalLibraryReferenceTableSortKeys();
-    }
-
-    /// <summary>
-    /// playlist tree への drop で、すべての行を playlist entry 追加へ変換できるかどうかを返します。
-    /// summary 行など、見た目は同じ CustomTableView の行でも playlist entry として解釈できない payload を拒否するための境界です。
-    /// </summary>
-    /// <param name="rows">CustomTableView の drag payload から取り出した行群。</param>
-    /// <returns>1 行以上あり、すべて playlist entry 追加へ変換できる場合は <see langword="true"/>。</returns>
-    internal static bool ArePlaylistDropCandidateRows(IEnumerable<object> rows)
-    {
-        List<object> candidateRows = rows?.Where(row => row != null).ToList() ?? [];
-        return candidateRows.Count > 0 && candidateRows.All(IsPlaylistDropCandidateRow);
-    }
-
-    /// <summary>
-    /// 指定行が playlist tree への drop で追加対象になり得るかどうかを返します。
-    /// owned chart は chart から再構築し、missing playlist row は既存 entry を複製する既存仕様に合わせます。
-    /// </summary>
-    /// <param name="row">CustomTableView の行オブジェクト。</param>
-    /// <returns>playlist entry または解決済み chart として追加できる場合は <see langword="true"/>。</returns>
-    internal static bool IsPlaylistDropCandidateRow(object row)
-    {
-        return GridRowResolver.GetPlaylistEntry(row) != null
-            || ResolvePlaylistDropChart(row) != null;
-    }
-
-    /// <summary>
-    /// root folder drop 時に playlist entry をそのまま複製すべき行かどうかを返します。
-    /// 実体 chart adapter が作れる行は BMS / bmson を問わず chart として再追加し、未所持 playlist entry だけを entry 複製として残します。
-    /// </summary>
-    internal static bool ShouldPreservePlaylistEntryForRootFolderDrop(object row)
-    {
-        return GridRowResolver.GetPlaylistEntry(row) != null
-            && ResolvePlaylistDropChart(row) == null;
-    }
-
-    internal static ChartFile ResolvePlaylistDropChart(object row)
-    {
-        if (row is PlayHistoryRow playHistoryRow)
-        {
-            return playHistoryRow.ResolvedChart;
-        }
-        return GridRowResolver.TryGetChartOperationTarget(row, out ChartOperationTarget target)
-            && !target.IsPlaylistMissing
-            ? target.Chart
-            : null;
-    }
-
-    private List<string> GetPlaylistDropOrgMd5(ChartFile chart)
-    {
-        if (chart == null)
-        {
-            return null;
-        }
-        return files.GetPlaylistOrgMd5sForChart(chart);
-    }
-
-    internal void DeleteBMSTableEntries(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable)
-    {
-        if (bmsTable.is_external_sync)
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_remove_playlist_entry, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-            return;
-        }
-        tables.RemoveEntriesBMSTable(bmsEntries, bmsTable);
-        RefreshChartRowsViewForPlaylist(bmsTable);
-        tables.AcquireReaderLockBMSTables();
-        files.RemoveReferenceBMSTables(bmsTable, bmsEntries);
-        tables.FreeReaderLockBMSTables();
-        InvalidateNormalLibraryReferenceTableSortKeys();
-    }
-
-    private void RefreshChartRowsViewForPlaylist(BMSTable bmsTableUpdated)
-    {
-        RefreshPlaylistSummaryIfVisible("playlist_entries_updated", invalidateTableCountCache: true);
-        if (treeViewFilterParameterSelected is PlaylistDetailSelection selection
-            && selection.Table != null
-            && selection.Table == bmsTableUpdated)
-        {
-            IncrementPlaylistContentRevision("playlist_updated");
-            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         }
     }
 

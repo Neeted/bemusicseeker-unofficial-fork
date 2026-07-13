@@ -874,7 +874,7 @@ public partial class MainWindowViewModel
                 ownerViewModel.InvalidateNormalLibraryReferenceTableSortKeys();
                 if (entryFolderProjectionChanged)
                 {
-                    ownerViewModel.RefreshChartRowsViewForPlaylist(bmsTable);
+                    ownerViewModel.ApplyPlaylistEntriesChanged(bmsTable, refreshSummaryIfVisible: true);
                 }
                 else
                 {
@@ -883,7 +883,7 @@ public partial class MainWindowViewModel
             }
             else if (externalResyncApplied)
             {
-                ownerViewModel.RefreshChartRowsViewForPlaylist(bmsTable);
+                ownerViewModel.ApplyPlaylistEntriesChanged(bmsTable, refreshSummaryIfVisible: true);
             }
             if (entryFolderProjectionChanged)
             {
