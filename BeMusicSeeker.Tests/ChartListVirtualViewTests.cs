@@ -849,7 +849,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         SelectSummaryFilter(workflowOwner, "exhard");
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
@@ -911,7 +912,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator);
         workflowOwner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = nameof(PlayHistoryRow.Title),
@@ -967,7 +969,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator);
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
         SelectSummaryFilter(workflowOwner, "exhard");
 
@@ -1021,7 +1024,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator);
         workspace.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
@@ -1421,7 +1425,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator);
         var owner = new PlayHistoryTerminalHarness(
             workflowOwner,
             table,
@@ -1540,7 +1545,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator);
         var sourceClear = new PlaylistSourceClearCommitResult(
             [],
             new List<object>(),
@@ -4016,7 +4022,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator);
         configureWorkspace(workspace);
         return new PlayHistoryTerminalHarness(
             workflowOwner,

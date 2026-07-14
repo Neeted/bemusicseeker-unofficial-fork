@@ -4553,6 +4553,8 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
             DispatchMainChartListAction,
             MainChartList,
+            () => tables,
+            () => BMSTables,
             LogPlaylistViewApply,
             LogPlaylistRetention,
             () => IsDropInstallQueueActive,
@@ -4607,14 +4609,12 @@ public partial class MainWindowViewModel : ViewModel
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
-            () => tables,
             applicationComposition.CreateDefaultBmsPlayer,
             () => DispatcherHelper.UIDispatcher,
             chartFileOperations,
             LogMainViewBuild,
             DispatchMainChartListAction,
             LogMainViewBuildWarning,
-            () => BMSTables,
             ProcessDroppedInstallBatch,
             UpdateDropInstallQueueStatus,
             HandleDroppedInstallBatchException);

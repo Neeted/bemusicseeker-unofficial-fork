@@ -106,7 +106,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
     }
 
     [TestMethod]
@@ -117,13 +118,15 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
         Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             null!,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
     }
 
     [TestMethod]
@@ -134,19 +137,31 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             null!,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
         Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             null!,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
     }
 
     [TestMethod]
     public void ConstructorRequiresExplicitPlaylistSummaryColumnSettingsStore()
     {
-        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(null!));
+        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
+            null!,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
+    }
+
+    [TestMethod]
+    public void ConstructorRequiresExplicitPlaylistSummaryBmtSortCoordinator()
+    {
+        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            null!));
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspace(
@@ -169,7 +184,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
@@ -177,7 +193,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Action<string> externalInfoLog,
         Action<Exception, string> beatorajaWarningLog,
         Action<string> beatorajaInfoLog,
-        IMainChartColumnSettingsStore columnSettingsStore)
+        IMainChartColumnSettingsStore columnSettingsStore,
+        PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort)
     {
         return new PlaylistWorkspaceViewModel(
             action => action(),
@@ -195,11 +212,13 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             externalInfoLog,
             beatorajaWarningLog,
             beatorajaInfoLog,
-            columnSettingsStore);
+            columnSettingsStore,
+            playlistSummaryBmtSort);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
-        IMainChartColumnSettingsStore columnSettingsStore)
+        IMainChartColumnSettingsStore columnSettingsStore,
+        PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort)
     {
         return new PlaylistWorkspaceViewModel(
             action => action(),
@@ -217,6 +236,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-            columnSettingsStore);
+            columnSettingsStore,
+            playlistSummaryBmtSort);
     }
 }

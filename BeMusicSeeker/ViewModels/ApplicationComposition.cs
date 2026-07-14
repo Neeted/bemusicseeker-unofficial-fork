@@ -145,6 +145,8 @@ internal sealed class ApplicationComposition
     internal PlaylistWorkspaceViewModel CreatePlaylistWorkspaceViewModel(
         Action<Action> dispatchPresentationAction,
         MainChartListViewModel mainChartList,
+        Func<BMSPlaylist> tablesProvider,
+        Func<IEnumerable<BMSTable>> tableSnapshotProvider,
         Action<string> detailViewLog,
         Action<string> detailRetentionLog,
         Func<bool> playlistUrlInstallQueueActiveProvider,
@@ -171,7 +173,8 @@ internal sealed class ApplicationComposition
             externalPlaylistImportInfoLog,
             beatorajaTableUrlImportWarningLog,
             beatorajaTableUrlImportInfoLog,
-            mainChartColumnSettingsStore);
+            mainChartColumnSettingsStore,
+            new PlaylistSummaryBmtSortCoordinator(tablesProvider, tableSnapshotProvider));
         return playlistWorkspace;
     }
 
@@ -203,14 +206,12 @@ internal sealed class ApplicationComposition
     internal MainWindowChildComposition CreateMainWindowChildComposition(
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
-        Func<BMSPlaylist> tablesProvider,
         Func<IBMSPlayer> bmsPlayerFactory,
         Func<Dispatcher> uiDispatcherProvider,
         ChartFileOperationSynchronizer chartFileOperations,
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
-        Func<IEnumerable<BMSTable>> tableSnapshotProvider,
         Action<DroppedInstallBatchRequest, System.Threading.CancellationToken> processDroppedInstallBatch,
         Action<DropInstallQueueStatusSnapshot> updateDropInstallQueueStatus,
         Action<Exception> handleDroppedInstallBatchException)
@@ -218,7 +219,6 @@ internal sealed class ApplicationComposition
         return new MainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
-            tablesProvider,
             bmsPlayerFactory,
             uiDispatcherProvider,
             playbackSettingsStore,
@@ -226,7 +226,6 @@ internal sealed class ApplicationComposition
             mainViewLog,
             dispatchMainChartListAction,
             mainViewLogWarning,
-            tableSnapshotProvider,
             processDroppedInstallBatch,
             updateDropInstallQueueStatus,
             handleDroppedInstallBatchException);
@@ -339,7 +338,6 @@ internal sealed class MainWindowChildComposition
     internal MainWindowChildComposition(
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
-        Func<BMSPlaylist> tablesProvider,
         Func<IBMSPlayer> bmsPlayerFactory,
         Func<Dispatcher> uiDispatcherProvider,
         IPlaybackSettingsStore playbackSettingsStore,
@@ -347,7 +345,6 @@ internal sealed class MainWindowChildComposition
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
-        Func<IEnumerable<BMSTable>> tableSnapshotProvider,
         Action<DroppedInstallBatchRequest, System.Threading.CancellationToken> processDroppedInstallBatch,
         Action<DropInstallQueueStatusSnapshot> updateDropInstallQueueStatus,
         Action<Exception> handleDroppedInstallBatchException)
@@ -369,10 +366,6 @@ internal sealed class MainWindowChildComposition
             chartFileOperations);
         ChartFilters = new ChartListFilterViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();
-        var playlistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
-            tablesProvider,
-            tableSnapshotProvider);
-        PlaylistWorkspace.ConfigureSummaryBmtSort(playlistSummaryBmtSort);
         RegularChartListOwner = new RegularChartListOwner(
             MainChartList,
             PlaylistWorkspace,

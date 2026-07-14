@@ -33,4 +33,7 @@ internal static class PlaylistWorkspaceTestPorts
 
     internal static IMainChartColumnSettingsStore PlaylistSummaryColumnSettingsStore =>
         new SettingsMainChartColumnSettingsStore();
+
+    internal static PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSortCoordinator =>
+        new PlaylistSummaryBmtSortCoordinator(() => null, () => []);
 }

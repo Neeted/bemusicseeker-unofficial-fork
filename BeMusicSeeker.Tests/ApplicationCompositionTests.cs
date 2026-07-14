@@ -58,6 +58,8 @@ public sealed class ApplicationCompositionTests
             PlaylistWorkspaceViewModel missingProviderWorkspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
                 missingProviderMainChartList,
+                () => null,
+                () => [],
                 _ => { },
                 _ => { },
                 () => false,
@@ -72,6 +74,8 @@ public sealed class ApplicationCompositionTests
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
                 mainChartList,
+                () => playlist,
+                () => playlist.BMSTables,
                 _ => { },
                 _ => { },
                 () => false,
@@ -361,6 +365,8 @@ public sealed class ApplicationCompositionTests
         PlaylistWorkspaceViewModel playlistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
             action => action(),
             mainChartList,
+            () => null,
+            () => [],
             _ =>
             {
             },
@@ -391,6 +397,8 @@ public sealed class ApplicationCompositionTests
         PlaylistWorkspaceViewModel playlistWorkspace = composition.CreatePlaylistWorkspaceViewModel(
             action => action(),
             mainChartList,
+            () => null,
+            () => [],
             _ =>
             {
             },
@@ -405,7 +413,6 @@ public sealed class ApplicationCompositionTests
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
-            () => null,
             () => new InternalBMSAutoPlayerSoundOnly(),
             () => null,
             new ChartFileOperationSynchronizer(),
@@ -416,7 +423,6 @@ public sealed class ApplicationCompositionTests
             _ =>
             {
             },
-            () => [],
             (_, _) =>
             {
             },
@@ -469,6 +475,8 @@ public sealed class ApplicationCompositionTests
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
                 mainChartList,
+                () => playlist,
+                () => playlist.BMSTables,
                 _ => { },
                 _ => { },
                 () => false,
@@ -482,14 +490,12 @@ public sealed class ApplicationCompositionTests
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
-                () => playlist,
                 () => new InternalBMSAutoPlayerSoundOnly(),
                 () => null,
                 new ChartFileOperationSynchronizer(),
                 _ => { },
                 action => action(),
                 _ => { },
-                () => playlist.BMSTables,
                 (_, _) => { },
                 _ => { },
                 _ => { });
@@ -559,6 +565,8 @@ public sealed class ApplicationCompositionTests
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
                 mainChartList,
+                () => playlist,
+                () => playlist.BMSTables,
                 _ => { },
                 _ => { },
                 () => false,
@@ -569,14 +577,12 @@ public sealed class ApplicationCompositionTests
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
-                () => playlist,
                 () => new InternalBMSAutoPlayerSoundOnly(),
                 () => null,
                 new ChartFileOperationSynchronizer(),
                 _ => { },
                 action => action(),
                 _ => { },
-                () => playlist.BMSTables,
                 (_, _) => { },
                 _ => { },
                 _ => { });
@@ -744,7 +750,8 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
-                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
+                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+                new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables));
             workspace.ConfigureDetailEditing(() => playlist);
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);

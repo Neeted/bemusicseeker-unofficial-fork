@@ -45,7 +45,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly SemaphoreSlim manualReloadSemaphore = new(1, 1);
 
-    private PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
+    private readonly PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
 
     private IPlaylistDetailDataSource detailDataSource;
 
@@ -103,7 +103,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action<string> externalPlaylistImportInfoLog,
         Action<Exception, string> beatorajaTableUrlImportWarningLog,
         Action<string> beatorajaTableUrlImportInfoLog,
-        IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore)
+        IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore,
+        PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -131,19 +132,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(beatorajaTableUrlImportInfoLog));
         this.playlistSummaryColumnSettingsStore = playlistSummaryColumnSettingsStore
             ?? throw new ArgumentNullException(nameof(playlistSummaryColumnSettingsStore));
-    }
-
-    internal void ConfigureSummaryBmtSort(PlaylistSummaryBmtSortCoordinator coordinator)
-    {
-        if (coordinator == null)
-        {
-            throw new ArgumentNullException(nameof(coordinator));
-        }
-        if (playlistSummaryBmtSort != null)
-        {
-            throw new InvalidOperationException("Playlist summary BMT sort is already configured.");
-        }
-        playlistSummaryBmtSort = coordinator;
+        this.playlistSummaryBmtSort = playlistSummaryBmtSort
+            ?? throw new ArgumentNullException(nameof(playlistSummaryBmtSort));
     }
 
     internal void ResetPlaylistSummaryColumnsToDefault()
@@ -340,8 +330,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private PlaylistSummaryBmtSortCoordinator GetSummaryBmtSort()
     {
-        return playlistSummaryBmtSort
-            ?? throw new InvalidOperationException("Playlist summary BMT sort is not configured.");
+        return playlistSummaryBmtSort;
     }
 
     private long RequestPlaylistSummaryBmtSortRefresh(

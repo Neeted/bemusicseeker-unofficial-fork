@@ -469,6 +469,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs");
         string coordinatorSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSummaryBmtSortCoordinator.cs");
+        StringAssert.Contains(compositionSource, "new PlaylistSummaryBmtSortCoordinator(tablesProvider, tableSnapshotProvider)");
+        Assert.IsFalse(compositionSource.Contains("ConfigureSummaryBmtSort"));
         Assert.IsFalse(compositionSource.Contains("Func<string, bool, bool, long> refreshPlaylistSummary"));
         Assert.IsFalse(coordinatorSource.Contains("refreshPlaylistSummary"));
     }
