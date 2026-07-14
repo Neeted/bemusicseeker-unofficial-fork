@@ -364,9 +364,16 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "ViewModels",
             "MainWindow",
             "PlaylistWorkspaceViewModel.KeywordSearch.cs");
+        string playlistWorkspaceSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.cs");
 
         StringAssert.Contains(mainWindowSource, "keywordSearchHistorySettingsStore.KeywordSearchHistory");
-        StringAssert.Contains(playlistWorkspaceKeywordSearchSource, "settingsStore.PlaylistSummaryKeywordSearchHistory");
+        StringAssert.Contains(playlistWorkspaceSource, "keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory");
+        Assert.IsFalse(playlistWorkspaceKeywordSearchSource.Contains("ConfigureKeywordSearchHistory"));
+        StringAssert.Contains(playlistWorkspaceKeywordSearchSource, "IKeywordSearchHistorySettingsStore playlistSummaryKeywordSearchHistorySettingsStore");
         Assert.IsFalse(mainWindowSource.Contains("Settings.Default.KeywordSearchHistory"));
         Assert.IsFalse(mainWindowSource.Contains("Settings.Default.PlaylistSummaryKeywordSearchHistory"));
         Assert.IsFalse(playlistWorkspaceKeywordSearchSource.Contains("Settings.Default.KeywordSearchHistory"));

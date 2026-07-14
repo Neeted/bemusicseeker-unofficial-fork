@@ -3366,6 +3366,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(compositionCode.Contains("ConfigurePlaylistSummaryColumnSettingsStore"));
         Assert.IsFalse(workspaceOwnerCode.Contains("ConfigureSummaryBmtSort"));
         Assert.IsFalse(compositionCode.Contains("ConfigureSummaryBmtSort"));
+        Assert.IsFalse(workspaceOwnerCode.Contains("ConfigureKeywordSearchHistory"));
+        Assert.IsFalse(compositionCode.Contains("ConfigureKeywordSearchHistory"));
         StringAssert.Contains(workspaceCode, "GetPlaylistUrlAcquisitionOptions");
         StringAssert.Contains(workspaceCode, "DispatchPlaylistUrlAcquisitionAction");
         StringAssert.Contains(workspaceCode, "PlaylistUrlDownloadStatusChanged");

@@ -107,7 +107,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore));
     }
 
     [TestMethod]
@@ -119,14 +120,16 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore));
         Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             null!,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore));
     }
 
     [TestMethod]
@@ -138,14 +141,16 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             null!,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore));
         Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             null!,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore));
     }
 
     [TestMethod]
@@ -153,7 +158,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     {
         Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
             null!,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator));
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore));
     }
 
     [TestMethod]
@@ -161,6 +167,16 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     {
         Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            null!,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore));
+    }
+
+    [TestMethod]
+    public void ConstructorRequiresExplicitKeywordSearchHistorySettingsStore()
+    {
+        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             null!));
     }
 
@@ -185,7 +201,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator);
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
@@ -194,7 +211,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Action<Exception, string> beatorajaWarningLog,
         Action<string> beatorajaInfoLog,
         IMainChartColumnSettingsStore columnSettingsStore,
-        PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort)
+        PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort,
+        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore)
     {
         return new PlaylistWorkspaceViewModel(
             action => action(),
@@ -213,12 +231,14 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             beatorajaWarningLog,
             beatorajaInfoLog,
             columnSettingsStore,
-            playlistSummaryBmtSort);
+            playlistSummaryBmtSort,
+            keywordSearchHistorySettingsStore);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
         IMainChartColumnSettingsStore columnSettingsStore,
-        PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort)
+        PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort,
+        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore)
     {
         return new PlaylistWorkspaceViewModel(
             action => action(),
@@ -237,6 +257,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             columnSettingsStore,
-            playlistSummaryBmtSort);
+            playlistSummaryBmtSort,
+            keywordSearchHistorySettingsStore);
     }
 }

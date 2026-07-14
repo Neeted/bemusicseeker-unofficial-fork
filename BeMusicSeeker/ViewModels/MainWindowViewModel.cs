@@ -4563,7 +4563,6 @@ public partial class MainWindowViewModel : ViewModel
             LogBeatorajaTableUrlImportWarning,
             LogBeatorajaTableUrlImportInfo);
         PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
-        PlaylistWorkspace.ConfigureKeywordSearchHistory(composition.KeywordSearchHistorySettingsStore);
         PlaylistWorkspace.ConfigurePropertyEditing(new PlaylistPropertySaveService(
             () => tables,
             () => files,

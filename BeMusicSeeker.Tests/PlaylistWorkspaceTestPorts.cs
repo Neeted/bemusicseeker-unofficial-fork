@@ -36,4 +36,14 @@ internal static class PlaylistWorkspaceTestPorts
 
     internal static PlaylistSummaryBmtSortCoordinator PlaylistSummaryBmtSortCoordinator =>
         new PlaylistSummaryBmtSortCoordinator(() => null, () => []);
+
+    internal static IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore =>
+        new InMemoryKeywordSearchHistorySettingsStore();
+
+    private sealed class InMemoryKeywordSearchHistorySettingsStore : IKeywordSearchHistorySettingsStore
+    {
+        public string KeywordSearchHistory { get; set; } = string.Empty;
+
+        public string PlaylistSummaryKeywordSearchHistory { get; set; } = string.Empty;
+    }
 }

@@ -9,7 +9,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private readonly List<string> playlistSummaryKeywordSearchHistory = [];
 
-    private IKeywordSearchHistorySettingsStore playlistSummaryKeywordSearchHistorySettingsStore;
+    private readonly IKeywordSearchHistorySettingsStore playlistSummaryKeywordSearchHistorySettingsStore;
 
     internal IReadOnlyList<string> GetPlaylistKeywordValueCandidates()
     {
@@ -42,29 +42,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    internal void ConfigureKeywordSearchHistory(IKeywordSearchHistorySettingsStore settingsStore)
-    {
-        if (settingsStore == null)
-        {
-            throw new ArgumentNullException(nameof(settingsStore));
-        }
-        if (playlistSummaryKeywordSearchHistorySettingsStore != null)
-        {
-            throw new InvalidOperationException("Playlist summary keyword search history is already configured.");
-        }
-
-        playlistSummaryKeywordSearchHistorySettingsStore = settingsStore;
-        playlistSummaryKeywordSearchHistory.Clear();
-        playlistSummaryKeywordSearchHistory.AddRange(
-            KeywordSearchHistoryStore.Deserialize(settingsStore.PlaylistSummaryKeywordSearchHistory));
-    }
-
     internal void RefreshPlaylistSummaryKeywordSearchSuggestions(
         string keywordFilter,
         int caretIndex,
         bool forceHistory)
     {
-        EnsureKeywordSearchHistoryConfigured();
         GridKeywordSearchCompletionResult fieldCompletion = GridKeywordSearchCompletion.CreateFieldCompletion(
             keywordFilter,
             caretIndex,
@@ -117,21 +99,13 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal void CommitPlaylistSummaryKeywordSearchHistory(string keywordFilter)
     {
-        IKeywordSearchHistorySettingsStore settingsStore = EnsureKeywordSearchHistoryConfigured();
         IReadOnlyList<string> nextHistory = KeywordSearchHistoryStore.AddEntry(
             playlistSummaryKeywordSearchHistory,
             keywordFilter);
         playlistSummaryKeywordSearchHistory.Clear();
         playlistSummaryKeywordSearchHistory.AddRange(nextHistory);
-        settingsStore.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(
+        playlistSummaryKeywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory = KeywordSearchHistoryStore.Serialize(
             playlistSummaryKeywordSearchHistory);
-    }
-
-    private IKeywordSearchHistorySettingsStore EnsureKeywordSearchHistoryConfigured()
-    {
-        return playlistSummaryKeywordSearchHistorySettingsStore
-            ?? throw new InvalidOperationException(
-                "Playlist summary keyword search history is not configured.");
     }
 
     private void SetPlaylistSummaryKeywordSearchSuggestions(

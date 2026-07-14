@@ -174,7 +174,8 @@ internal sealed class ApplicationComposition
             beatorajaTableUrlImportWarningLog,
             beatorajaTableUrlImportInfoLog,
             mainChartColumnSettingsStore,
-            new PlaylistSummaryBmtSortCoordinator(tablesProvider, tableSnapshotProvider));
+            new PlaylistSummaryBmtSortCoordinator(tablesProvider, tableSnapshotProvider),
+            keywordSearchHistorySettingsStore);
         return playlistWorkspace;
     }
 
