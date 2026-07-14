@@ -4910,7 +4910,14 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (GridKeywordSearchCompletion.IsPlaylistValueCompletionContext(keywordFilter, caretIndex, context))
         {
-            GridKeywordSearchCompletionResult playlistValueCompletion = GridKeywordSearchCompletion.CreatePlaylistValueCompletion(keywordFilter, caretIndex, context, GetKeywordSearchPlaylistNameCandidates(context));
+            IReadOnlyList<string> playlistNameCandidates = context == GridKeywordSearchContext.PlaylistSummary
+                ? []
+                : PlaylistWorkspace.GetPlaylistKeywordValueCandidates();
+            GridKeywordSearchCompletionResult playlistValueCompletion = GridKeywordSearchCompletion.CreatePlaylistValueCompletion(
+                keywordFilter,
+                caretIndex,
+                context,
+                playlistNameCandidates);
             if (playlistValueCompletion.Items.Count > 0)
             {
                 SetKeywordSearchSuggestions(targetSuggestions, playlistValueCompletion.Items, KeywordSearchSuggestionKind.Value);
@@ -4924,32 +4931,6 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         SetKeywordSearchSuggestions(targetSuggestions, [], KeywordSearchSuggestionKind.Field);
-    }
-
-    private IReadOnlyList<string> GetKeywordSearchPlaylistNameCandidates(GridKeywordSearchContext context)
-    {
-        if (context == GridKeywordSearchContext.PlaylistSummary || tables == null)
-        {
-            return [];
-        }
-        bool lockAcquired = false;
-        try
-        {
-            tables.AcquireReaderLockBMSTables();
-            lockAcquired = true;
-            return [.. (BMSTables ?? Enumerable.Empty<BMSTable>())
-                .Where(table => !string.IsNullOrWhiteSpace(table?.name))
-                .Select(table => table.name.Trim())
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
-        }
-        finally
-        {
-            if (lockAcquired)
-            {
-                tables.FreeReaderLockBMSTables();
-            }
-        }
     }
 
     private void SetKeywordSearchSuggestions(ObservableCollection<KeywordSearchSuggestionItem> targetSuggestions, IReadOnlyList<KeywordSearchSuggestionItem> suggestions, KeywordSearchSuggestionKind kind)

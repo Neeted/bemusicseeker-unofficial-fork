@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -8,6 +10,37 @@ public sealed partial class PlaylistWorkspaceViewModel
     private readonly List<string> playlistSummaryKeywordSearchHistory = [];
 
     private IKeywordSearchHistorySettingsStore playlistSummaryKeywordSearchHistorySettingsStore;
+
+    internal IReadOnlyList<string> GetPlaylistKeywordValueCandidates()
+    {
+        if (getPlaylistStore == null)
+        {
+            throw new InvalidOperationException("Playlist persistence provider is not configured.");
+        }
+        BMSPlaylist playlistStore = getPlaylistStore();
+        if (playlistStore == null)
+        {
+            return [];
+        }
+        bool lockAcquired = false;
+        try
+        {
+            playlistStore.AcquireReaderLockBMSTables();
+            lockAcquired = true;
+            return [.. (playlistStore.BMSTables ?? Enumerable.Empty<BMSTable>())
+                .Where(table => !string.IsNullOrWhiteSpace(table?.name))
+                .Select(table => table.name.Trim())
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
+        }
+        finally
+        {
+            if (lockAcquired)
+            {
+                playlistStore.FreeReaderLockBMSTables();
+            }
+        }
+    }
 
     internal void ConfigureKeywordSearchHistory(IKeywordSearchHistorySettingsStore settingsStore)
     {

@@ -768,6 +768,79 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void PlaylistKeywordValueCandidates_AreOwnedByWorkspaceAndDetailCompletionUsesThem()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(
+                    [
+                        new BMSTable { name = " zeta " },
+                        new BMSTable { name = "Alpha" },
+                        new BMSTable { name = " alpha " },
+                        new BMSTable { name = "Beta" },
+                        new BMSTable { name = " " },
+                        new BMSTable { name = null }
+                    ]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var viewModel = new MainWindowViewModel();
+            CollectionAssert.AreEqual(
+                Array.Empty<string>(),
+                viewModel.PlaylistWorkspace.GetPlaylistKeywordValueCandidates().ToArray());
+            viewModel.RefreshKeywordSearchSuggestions("playlist:a", "playlist:a".Length, forceHistory: false);
+            Assert.AreEqual(0, viewModel.KeywordSearchSuggestions.Count);
+
+            typeof(MainWindowViewModel)
+                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, playlist);
+
+            CollectionAssert.AreEqual(
+                new[] { "Alpha", "Beta", "zeta" },
+                viewModel.PlaylistWorkspace.GetPlaylistKeywordValueCandidates().ToArray());
+
+            playlist.AcquireWriterLockBMSTables();
+            playlist.FreeWriterLockBMSTables();
+
+            typeof(MainWindowViewModel)
+                .GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, MainViewUpdateMode.PlaylistFilterSelected);
+            viewModel.RefreshKeywordSearchSuggestions("playlist:a", "playlist:a".Length, forceHistory: false);
+
+            Assert.AreEqual(1, viewModel.KeywordSearchSuggestions.Count);
+            Assert.AreEqual(KeywordSearchSuggestionKind.Value, viewModel.KeywordSearchSuggestions[0].Kind);
+            Assert.AreEqual("Alpha", viewModel.KeywordSearchSuggestions[0].DisplayText);
+
+            typeof(MainWindowViewModel)
+                .GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, MainViewUpdateMode.FolderFilterSelected);
+            viewModel.RefreshKeywordSearchSuggestions("playlist:b", "playlist:b".Length, forceHistory: false);
+            Assert.AreEqual(1, viewModel.KeywordSearchSuggestions.Count);
+            Assert.AreEqual("Beta", viewModel.KeywordSearchSuggestions[0].DisplayText);
+
+            typeof(MainWindowViewModel)
+                .GetField("treeViewFilterTypeSelected", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, MainViewUpdateMode.PlayHistorySelected);
+            viewModel.RefreshKeywordSearchSuggestions("playlist:z", "playlist:z".Length, forceHistory: false);
+            Assert.AreEqual(1, viewModel.KeywordSearchSuggestions.Count);
+            Assert.AreEqual("zeta", viewModel.KeywordSearchSuggestions[0].DisplayText);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public async Task CommitBMSTableEntry_StaleDetailEditPreservesReloadedFields()
     {
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;

@@ -116,6 +116,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal Task RemoveTableAsync(");
         StringAssert.Contains(workspaceSource, "internal Task RemoveTablesAsync(");
         StringAssert.Contains(workspaceSource, "internal void RefreshPlaylistSummaryKeywordSearchSuggestions(");
+        StringAssert.Contains(workspaceSource, "internal IReadOnlyList<string> GetPlaylistKeywordValueCandidates()");
         StringAssert.Contains(workspaceSource, "internal void CommitPlaylistSummaryKeywordSearchHistory(");
         StringAssert.Contains(workspaceSource, "internal void ConfigureKeywordSearchHistory(");
         Assert.AreEqual(-1, rootSource.IndexOf("playlistSummaryKeywordSearchHistory", StringComparison.Ordinal));
@@ -123,6 +124,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("CommitPlaylistSummaryKeywordSearchHistory", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("ClosePlaylistSummaryKeywordSearchSuggestions", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("UpdatePlaylistSummaryKeywordSearchPresentation", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("GetKeywordSearchPlaylistNameCandidates(", StringComparison.Ordinal));
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.GetPlaylistKeywordValueCandidates()");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RefreshPlaylistSummaryKeywordSearchSuggestions(");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.CommitPlaylistSummaryKeywordSearchHistory(");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ClosePlaylistSummaryKeywordSearchSuggestions();");
