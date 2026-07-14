@@ -841,6 +841,66 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void PlaylistTreeTables_TrackStoreReplacementAndPreserveCollectionIdentity()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([new BMSTable { name = "Initial" }]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var viewModel = new MainWindowViewModel();
+            List<string> workspacePropertyNames = [];
+            viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => workspacePropertyNames.Add(e.PropertyName);
+
+            Assert.AreEqual(0, viewModel.PlaylistWorkspace.PlaylistTreeTables.Count);
+
+            typeof(MainWindowViewModel)
+                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, playlist);
+            viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
+
+            Assert.AreSame(playlist.BMSTables, viewModel.PlaylistWorkspace.PlaylistTreeTables);
+            Assert.AreEqual(1, viewModel.PlaylistWorkspace.PlaylistTreeTables.Count);
+            CollectionAssert.AreEqual(
+                new[] { nameof(PlaylistWorkspaceViewModel.PlaylistTreeTables) },
+                workspacePropertyNames);
+
+            playlist.BMSTables.Add(new BMSTable { name = "Added" });
+            Assert.AreSame(playlist.BMSTables, viewModel.PlaylistWorkspace.PlaylistTreeTables);
+            Assert.AreEqual(2, viewModel.PlaylistWorkspace.PlaylistTreeTables.Count);
+
+            DispatcherCollection<BMSTable> replacement = new(
+                new ObservableCollection<BMSTable>([new BMSTable { name = "Replacement" }]),
+                Dispatcher.CurrentDispatcher);
+            playlist.BMSTables = replacement;
+            viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
+
+            Assert.AreSame(replacement, viewModel.PlaylistWorkspace.PlaylistTreeTables);
+            CollectionAssert.AreEqual(
+                new[]
+                {
+                    nameof(PlaylistWorkspaceViewModel.PlaylistTreeTables),
+                    nameof(PlaylistWorkspaceViewModel.PlaylistTreeTables)
+                },
+                workspacePropertyNames);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public async Task CommitBMSTableEntry_StaleDetailEditPreservesReloadedFields()
     {
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;

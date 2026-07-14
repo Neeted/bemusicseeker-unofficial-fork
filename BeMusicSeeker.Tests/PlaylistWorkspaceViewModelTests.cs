@@ -71,9 +71,19 @@ public sealed class PlaylistWorkspaceViewModelTests
         }
 
         StringAssert.Contains(workspaceSource, "public sealed partial class PlaylistWorkspaceViewModel : ViewModel");
+        StringAssert.Contains(workspaceSource, "private DispatcherCollection<BMSTable> emptyPlaylistTreeTables;");
+        StringAssert.Contains(workspaceSource, "private DispatcherCollection<BMSTable> playlistTreeTables;");
+        StringAssert.Contains(workspaceSource, "public DispatcherCollection<BMSTable> PlaylistTreeTables");
+        StringAssert.Contains(workspaceSource, "internal void ConfigurePlaylistTreeSource(DispatcherCollection<BMSTable> emptySource)");
+        StringAssert.Contains(workspaceSource, "internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore)");
         StringAssert.Contains(workspaceSource, "private bool isPlaylistTreeExpanded = true;");
         StringAssert.Contains(workspaceSource, "public bool IsPlaylistTreeExpanded");
         StringAssert.Contains(mainWindowXaml, "IsExpanded=\"{Binding PlaylistWorkspace.IsPlaylistTreeExpanded, Mode=TwoWay}\"");
+        StringAssert.Contains(mainWindowXaml, "ItemsSource=\"{Binding PlaylistWorkspace.PlaylistTreeTables}\"");
+        Assert.IsFalse(mainWindowXaml.Contains("ItemsSource=\"{Binding BMSTables}\""));
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RefreshPlaylistTreeTables(tables);");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));");
+        StringAssert.Contains(logicalSource, "RaisePropertyChanged(() => BMSTables);");
         StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
         StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
         StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");

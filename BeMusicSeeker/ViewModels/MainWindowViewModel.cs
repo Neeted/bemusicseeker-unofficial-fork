@@ -2686,6 +2686,7 @@ public partial class MainWindowViewModel : ViewModel
             var stopwatch2 = Stopwatch.StartNew();
             RefreshPlayHistoryDisplayTargets();
             RaisePropertyChanged(() => BMSTables);
+            PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
             stopwatch2.Stop();
             num2 = stopwatch2.ElapsedMilliseconds;
         }
@@ -4942,8 +4943,8 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// アプリケーション内で認識・ツリー表示されているプレイリスト (BMSTable) 群の Observable なコレクションです。
-    /// カスタムフォルダや難易度表等のプレイリスト階層構造全体を保持します。
+    /// アプリケーション内の共有プレイリスト (BMSTable) コレクションです。
+    /// 設定、インポート、参照更新、プレイ履歴のスナップショットなど、ツリー表示以外の root consumer が使用します。
     /// </summary>
     public DispatcherCollection<BMSTable> BMSTables
     {
@@ -5158,6 +5159,7 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             LogPlaylistViewApply,
             LogPlaylistRetention);
+        PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
         PlaylistWorkspace.ConfigureKeywordSearchHistory(composition.KeywordSearchHistorySettingsStore);
         PlaylistWorkspace.ConfigurePropertyEditing(new PlaylistPropertySaveService(
             () => tables,
@@ -6862,6 +6864,7 @@ public partial class MainWindowViewModel : ViewModel
                 libraryProfile,
                 () => files.GetBMSScores(),
                 () => files.CreateBeatorajaBmtSongHashResolver());
+            PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
             PlaylistWorkspace.SetDetailDataSource(
                 applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
             tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2SongDbSyncMutationBlockedForPlaylist(operation);
@@ -7159,6 +7162,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
+            PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
             PlayHistory.QueueDisplayTargetCatalogRefresh();
             RefreshPlaylistSummaryIfVisible("playlist_tables_changed", invalidateTableCountCache: true);
         });
@@ -7175,6 +7179,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             RaisePropertyChanged(() => BMSTables);
+            PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
             PlayHistory.QueueDisplayTargetCatalogRefresh();
             RefreshPlaylistSummaryIfVisible("playlist_tables_collection_changed", invalidateTableCountCache: true);
         });

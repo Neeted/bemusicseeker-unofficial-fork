@@ -1,11 +1,16 @@
 using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
+using Livet;
 
 namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    private DispatcherCollection<BMSTable> emptyPlaylistTreeTables;
+
+    private DispatcherCollection<BMSTable> playlistTreeTables;
+
     private bool isPlaylistTreeExpanded = true;
 
     private readonly object playlistDetailSelectionSyncRoot = new();
@@ -15,6 +20,40 @@ public sealed partial class PlaylistWorkspaceViewModel
     private long playlistDetailSelectionRevision;
 
     internal event EventHandler<PlaylistTreeSelectionRequestedEventArgs> TreeSelectionRequested;
+
+    /// <summary>
+    /// プレイリストツリーが表示するテーブル source です。起動前は注入された空のコレクションを返し、起動後は <see cref="BMSPlaylist.BMSTables" /> と同じコレクション identity、順序、階層を保持します。
+    /// </summary>
+    public DispatcherCollection<BMSTable> PlaylistTreeTables => playlistTreeTables
+        ?? throw new InvalidOperationException("Playlist tree source is not configured.");
+
+    internal void ConfigurePlaylistTreeSource(DispatcherCollection<BMSTable> emptySource)
+    {
+        if (emptySource == null)
+        {
+            throw new ArgumentNullException(nameof(emptySource));
+        }
+        if (emptyPlaylistTreeTables != null)
+        {
+            throw new InvalidOperationException("Playlist tree source is already configured.");
+        }
+        emptyPlaylistTreeTables = emptySource;
+        playlistTreeTables = emptySource;
+    }
+
+    internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore)
+    {
+        DispatcherCollection<BMSTable> nextTables = playlistStore == null
+            ? emptyPlaylistTreeTables
+                ?? throw new InvalidOperationException("Playlist tree source is not configured.")
+            : playlistStore.BMSTables;
+        if (ReferenceEquals(playlistTreeTables, nextTables))
+        {
+            return;
+        }
+        playlistTreeTables = nextTables;
+        RaisePropertyChanged(nameof(PlaylistTreeTables));
+    }
 
     public bool IsPlaylistTreeExpanded
     {
