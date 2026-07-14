@@ -83,9 +83,13 @@ public sealed partial class PlaylistWorkspaceViewModel
                 results = await playlists.ReloadPlaylistTargetsAsync(
                     activeTables,
                     [CreateReferenceReplaceUpdateCallback(playlists, library)],
-                    result => PlaylistSyncResultReported?.Invoke(
-                        this,
-                        new PlaylistSyncResultReportedEventArgs(result)),
+                    result =>
+                    {
+                        RecordPlaylistSyncResult(result);
+                        PlaylistSyncResultReported?.Invoke(
+                            this,
+                            new PlaylistSyncResultReportedEventArgs(result));
+                    },
                     snapshot => PlaylistSyncProgressChanged?.Invoke(
                         this,
                         new PlaylistSyncProgressChangedEventArgs(snapshot)),

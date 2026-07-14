@@ -147,6 +147,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         object sender,
         PlaylistSyncResultReportedEventArgs request)
     {
+        RecordPlaylistSyncResult(request?.Result);
         RaiseRequiredEvent(PlaylistSyncResultReported, request, nameof(PlaylistSyncResultReported));
     }
 
@@ -154,6 +155,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         object sender,
         PlaylistPropertyExternalSyncFailedEventArgs request)
     {
+        if (request != null)
+        {
+            RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(request.Table, request.Uri, request.Exception));
+        }
         RaiseRequiredEvent(
             PlaylistPropertyExternalSyncFailed,
             request,

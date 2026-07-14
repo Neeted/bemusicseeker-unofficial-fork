@@ -574,10 +574,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly object lockDeferredExternalSync = new();
 
-    private readonly object lockPlaylistSyncStatuses = new();
-
-    private readonly Dictionary<string, PlaylistSyncRuntimeStatus> playlistSyncStatuses = new(StringComparer.OrdinalIgnoreCase);
-
     private readonly ExternalPlaylistImportQueue externalPlaylistImportQueue = new();
 
     private int beatorajaTableUrlImportRunning;
@@ -1849,7 +1845,6 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace.RefreshPlaylistSummaryPresentation(
                 files,
                 tables,
-                GetPlaylistSyncStatusSnapshot(),
                 installPerformanceLoggingEnabled ? installPerformanceLogger : null);
         }
         return 0L;
@@ -3231,7 +3226,7 @@ public partial class MainWindowViewModel : ViewModel
                     }
                     List<BMSTable> list = await tables.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions, delegate (PlaylistSyncAttemptResult result)
                     {
-                        UpdatePlaylistSyncRuntimeStatus(result);
+                        PlaylistWorkspace.RecordPlaylistSyncResult(result);
                     }, UpdatePlaylistSyncProgressStatus).ConfigureAwait(false);
                     int num = list?.Count ?? 0;
                     tables.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + reason);
@@ -5547,7 +5542,6 @@ public partial class MainWindowViewModel : ViewModel
                 + " uri="
                 + (result.PageUri?.ToString() ?? string.Empty));
         }
-        UpdatePlaylistSyncRuntimeStatus(result);
     }
 
     private void PlaylistWorkspacePlaylistReferenceTableReplaced(
@@ -11539,7 +11533,6 @@ public partial class MainWindowViewModel : ViewModel
         return PlaylistWorkspace.RebuildPlaylistSummaryView(
             files,
             tables,
-            GetPlaylistSyncStatusSnapshot(),
             installPerformanceLoggingEnabled ? installPerformanceLogger : null,
             runAsync);
     }
@@ -12142,7 +12135,7 @@ public partial class MainWindowViewModel : ViewModel
                         NLogWrapper.FileLogger?.Warn(restoreException, "beatoraja_table_url_bmt_restore_failed uri=" + item.Target.Uri.AbsoluteUri);
                         item.Failure = failure;
                         outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, failure));
-                        UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, failure));
+                        PlaylistWorkspace.RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, failure));
                         UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
                     }
                 }
@@ -12153,7 +12146,7 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     item.Failure = new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty);
                     outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, item.Failure));
-                    UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, item.Failure));
+                    PlaylistWorkspace.RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, item.Failure));
                     UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, item.Target.Uri, item.LoadedTable.name, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
                 }
                 registrationItems = [.. registrationItems.Where(item => item.Failure == null)];
@@ -12177,7 +12170,7 @@ public partial class MainWindowViewModel : ViewModel
                         foreach (BeatorajaTableUrlImportWorkItem item in registrationItems)
                         {
                             outcomes.Add(BeatorajaTableUrlImportOutcome.Failed(item.Target.Uri, ex));
-                            UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, ex));
+                            PlaylistWorkspace.RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Target.Uri, ex));
                         }
                         postProgressCompletedCount += 2;
                         UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_apply_bmt_sort);
@@ -12188,7 +12181,7 @@ public partial class MainWindowViewModel : ViewModel
                         {
                             BMSTable importedTable = item.LoadedTable;
                             orderedImportedTables.Add(importedTable);
-                            UpdatePlaylistSyncRuntimeStatus(CreateBeatorajaTableUrlImportSyncStatus(item, importedTable));
+                            PlaylistWorkspace.RecordPlaylistSyncResult(CreateBeatorajaTableUrlImportSyncStatus(item, importedTable));
                         }
                         Exception referenceUpdateException = null;
                         try
@@ -12243,14 +12236,17 @@ public partial class MainWindowViewModel : ViewModel
         ShowBeatorajaTableUrlImportSummary(new BeatorajaTableUrlImportSummary(outcomes));
     }
 
-    private void CompleteImportedPlaylistRegistrations(IReadOnlyList<BMSTable> importedTables, string reason)
+    private bool CompleteImportedPlaylistRegistrations(
+        IReadOnlyList<BMSTable> importedTables,
+        string reason,
+        bool queueSummaryRefresh = true)
     {
         List<BMSTable> tableList = [.. (importedTables ?? [])
             .Where(table => table != null)
             .Where(table => tables.ContainsBMSTable(table))];
         if (tableList.Count == 0)
         {
-            return;
+            return false;
         }
         files.AddReferenceBMSTablesIncremental(tableList);
         foreach (BMSTable table in tableList.Where(table => !tables.ContainsBMSTable(table)))
@@ -12258,7 +12254,11 @@ public partial class MainWindowViewModel : ViewModel
             files.RemoveReferenceBMSTables(table);
         }
         InvalidateNormalLibraryReferenceTableSortKeys();
-        QueuePlaylistSummaryRefreshIfVisible(reason ?? "playlist_registered", invalidateTableCountCache: true);
+        if (queueSummaryRefresh)
+        {
+            QueuePlaylistSummaryRefreshIfVisible(reason ?? "playlist_registered", invalidateTableCountCache: true);
+        }
+        return true;
     }
 
     private static PlaylistSyncAttemptResult CreateBeatorajaTableUrlImportSyncStatus(BeatorajaTableUrlImportWorkItem item, BMSTable importedTable)
@@ -12565,7 +12565,7 @@ public partial class MainWindowViewModel : ViewModel
                     }
                     item.Failure = loadResult.Exception ?? new InvalidOperationException("Playlist load returned no table.");
                     outcomes.Add(ExternalPlaylistImportOutcome.Failed(item.Uri, item.Failure));
-                    UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, item.Failure));
+                    PlaylistWorkspace.RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, item.Failure));
                 }
 
                 UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_check_duplicates);
@@ -12599,7 +12599,7 @@ public partial class MainWindowViewModel : ViewModel
                                 foreach (ExternalPlaylistImportWorkItem item in pendingRegistrationItems)
                                 {
                                     outcomes.Add(ExternalPlaylistImportOutcome.Failed(item.Uri, ex));
-                                    UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, ex));
+                                    PlaylistWorkspace.RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, ex));
                                 }
                                 break;
                             }
@@ -12615,7 +12615,7 @@ public partial class MainWindowViewModel : ViewModel
                             foreach (ExternalPlaylistImportWorkItem item in pendingRegistrationItems)
                             {
                                 outcomes.Add(ExternalPlaylistImportOutcome.Failed(item.Uri, ex));
-                                UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, ex));
+                                PlaylistWorkspace.RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, ex));
                             }
                             break;
                         }
@@ -12626,27 +12626,55 @@ public partial class MainWindowViewModel : ViewModel
                 if (registeredItems.Count > 0)
                 {
                     Exception referenceUpdateException = null;
+                    bool referenceUpdateCompleted = false;
                     try
                     {
                         UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_update_references);
-                        CompleteImportedPlaylistRegistrations([.. registeredItems.Select(item => item.LoadedTable)], "external_playlist_import");
+                        referenceUpdateCompleted = CompleteImportedPlaylistRegistrations(
+                            [.. registeredItems.Select(item => item.LoadedTable)],
+                            "external_playlist_import",
+                            queueSummaryRefresh: false);
                     }
                     catch (Exception ex)
                     {
                         referenceUpdateException = ex;
                         NLogWrapper.FileLogger?.Warn(ex, "external_playlist_import_reference_update_failed");
                     }
+                    if (referenceUpdateException == null)
+                    {
+                        foreach (ExternalPlaylistImportWorkItem item in registeredItems)
+                        {
+                            PlaylistWorkspace.RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateSuccess(item.LoadedTable, item.LoadedTable, item.Uri, updated: false));
+                        }
+                        if (referenceUpdateCompleted)
+                        {
+                            try
+                            {
+                                QueuePlaylistSummaryRefreshIfVisible("external_playlist_import", invalidateTableCountCache: true);
+                            }
+                            catch (Exception ex)
+                            {
+                                NLogWrapper.FileLogger?.Warn(ex, "external_playlist_import_summary_refresh_failed");
+                                // The playlist registration already succeeded; summary refresh is a presentation concern.
+                                // Keep the import result successful, but surface the refresh failure to the user.
+                                ShowUiMessage(
+                                    BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + ex.Message,
+                                    BeMusicSeeker.Properties.Resources.Warning,
+                                    MessageBoxImage.Exclamation,
+                                    "external playlist import summary refresh failure notification");
+                            }
+                        }
+                    }
                     foreach (ExternalPlaylistImportWorkItem item in registeredItems)
                     {
                         if (referenceUpdateException != null)
                         {
                             outcomes.Add(ExternalPlaylistImportOutcome.Failed(item.Uri, referenceUpdateException));
-                            UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(item.LoadedTable, item.LoadedTable, item.Uri, referenceUpdateException));
+                            PlaylistWorkspace.RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(item.LoadedTable, item.LoadedTable, item.Uri, referenceUpdateException));
                             NLogWrapper.FileLogger?.Warn(referenceUpdateException, "external_playlist_import_reference_update_warning uri=" + (item.Uri?.ToString() ?? string.Empty));
                             continue;
                         }
                         outcomes.Add(ExternalPlaylistImportOutcome.Imported(item.Uri, item.LoadedTable.name));
-                        UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateSuccess(item.LoadedTable, item.LoadedTable, item.Uri, updated: false));
                     }
                 }
                 postProgressCompletedCount++;
@@ -12677,7 +12705,7 @@ public partial class MainWindowViewModel : ViewModel
                 var exception = new InvalidOperationException(BeMusicSeeker.Properties.Resources.Error_OutputDirNameEmpty);
                 item.Failure = exception;
                 outcomes.Add(ExternalPlaylistImportOutcome.Failed(item.Uri, exception));
-                UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, exception));
+                PlaylistWorkspace.RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(null, item.Uri, exception));
                 continue;
             }
             string desiredName = item.LoadedTable.name ?? string.Empty;
@@ -12834,62 +12862,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             message.AppendLine("- ...");
         }
-    }
-
-    private void UpdatePlaylistSyncRuntimeStatus(PlaylistSyncAttemptResult result)
-    {
-        if (result == null)
-        {
-            return;
-        }
-        PlaylistSyncRuntimeStatus playlistSyncRuntimeStatus = PlaylistSyncStatusMapper.Create(result, DateTime.Now);
-        string playlistSyncStatusKey = GetPlaylistSyncStatusKey(result.ResultTable ?? result.SourceTable);
-        string playlistSyncStatusKey2 = GetPlaylistSyncStatusKey(result.SourceTable);
-        lock (lockPlaylistSyncStatuses)
-        {
-            if (!string.IsNullOrWhiteSpace(playlistSyncStatusKey2) && !string.Equals(playlistSyncStatusKey2, playlistSyncStatusKey, StringComparison.OrdinalIgnoreCase))
-            {
-                playlistSyncStatuses.Remove(playlistSyncStatusKey2);
-            }
-            if (!string.IsNullOrWhiteSpace(playlistSyncStatusKey))
-            {
-                playlistSyncStatuses[playlistSyncStatusKey] = playlistSyncRuntimeStatus;
-            }
-            else if (!string.IsNullOrWhiteSpace(playlistSyncStatusKey2))
-            {
-                playlistSyncStatuses[playlistSyncStatusKey2] = playlistSyncRuntimeStatus;
-            }
-        }
-    }
-
-    private Dictionary<string, PlaylistSyncRuntimeStatus> GetPlaylistSyncStatusSnapshot()
-    {
-        lock (lockPlaylistSyncStatuses)
-        {
-            return new Dictionary<string, PlaylistSyncRuntimeStatus>(playlistSyncStatuses, StringComparer.OrdinalIgnoreCase);
-        }
-    }
-
-    private string GetPlaylistSyncStatusKey(BMSTable table)
-    {
-        if (table == null)
-        {
-            return null;
-        }
-        if (table.playlist_id.HasValue)
-        {
-            return "id:" + table.playlist_id.Value;
-        }
-        Uri uri = table.Page_url ?? table.Header_url;
-        if (uri != null && uri.IsAbsoluteUri)
-        {
-            return "uri:" + uri.AbsoluteUri;
-        }
-        if (!string.IsNullOrWhiteSpace(table.name))
-        {
-            return "name:" + table.name;
-        }
-        return null;
     }
 
     internal void ExportBMSTable(BMSTable bmsTable, string fileNameHeader, string fileNameData)

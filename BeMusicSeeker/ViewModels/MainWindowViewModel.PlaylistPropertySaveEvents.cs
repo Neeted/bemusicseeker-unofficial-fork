@@ -103,8 +103,6 @@ public partial class MainWindowViewModel
                 + (request.Table?.name ?? string.Empty)
                 + " uri="
                 + (request.Uri?.ToString() ?? string.Empty));
-        UpdatePlaylistSyncRuntimeStatus(
-            PlaylistSyncAttemptResult.CreateFailure(request.Table, request.Uri, request.Exception));
         ShowPlaylistLoadFailure(request.Exception);
     }
 

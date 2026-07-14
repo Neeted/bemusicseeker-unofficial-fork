@@ -159,6 +159,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "LogPlaylistRetention);");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("private void PlaylistWorkspacePropertyChanged(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("lockPlaylistSyncStatuses", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("playlistSyncStatuses", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("UpdatePlaylistSyncRuntimeStatus", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("GetPlaylistSyncStatusSnapshot", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal void RecordPlaylistSyncResult(PlaylistSyncAttemptResult result)");
+        StringAssert.Contains(workspaceSource, "internal IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> CapturePlaylistSyncStatusSnapshot()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;");
         StringAssert.Contains(logicalSource, "private void PlaylistWorkspacePlaylistSummaryFilterChanged(");
         Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
@@ -476,6 +482,65 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsTrue(workspace.IsDetailBuildIdle);
         Assert.AreEqual(initialRequestVersion, workspace.DetailBuildState.RequestVersion);
         Assert.IsNull(workspace.DetailBuildState.PendingRequest);
+    }
+
+    [TestMethod]
+    public void PlaylistSyncStatusOwner_ReplacesSourceKeyAndUsesSourceFallback()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        var sourceTable = new BMSTable { playlist_id = 1 };
+        var resultTable = new BMSTable { playlist_id = 2 };
+
+        workspace.RecordPlaylistSyncResult(
+            PlaylistSyncAttemptResult.CreateSuccess(
+                sourceTable,
+                resultTable,
+                new Uri("https://example.test/table"),
+                updated: true));
+
+        IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> snapshot = workspace.CapturePlaylistSyncStatusSnapshot();
+        Assert.IsFalse(snapshot.ContainsKey("id:1"));
+        Assert.IsTrue(snapshot.ContainsKey("id:2"));
+        Assert.AreEqual(PlaylistSyncStatusKind.Updated, snapshot["id:2"].Kind);
+
+        var fallbackSourceTable = new BMSTable { name = "fallback" };
+        workspace.RecordPlaylistSyncResult(
+            PlaylistSyncAttemptResult.CreateSuccess(
+                fallbackSourceTable,
+                new BMSTable(),
+                new Uri("https://example.test/fallback"),
+                updated: false));
+
+        snapshot = workspace.CapturePlaylistSyncStatusSnapshot();
+        Assert.IsTrue(snapshot.ContainsKey("name:fallback"));
+        Assert.AreEqual(PlaylistSyncStatusKind.Ok, snapshot["name:fallback"].Kind);
+    }
+
+    [TestMethod]
+    public void PlaylistSyncStatusOwner_CapturesIsolatedSnapshots()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        var table = new BMSTable { playlist_id = 3 };
+        workspace.RecordPlaylistSyncResult(
+            PlaylistSyncAttemptResult.CreateSuccess(
+                table,
+                table,
+                new Uri("https://example.test/initial"),
+                updated: false));
+
+        IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> firstSnapshot = workspace.CapturePlaylistSyncStatusSnapshot();
+        workspace.RecordPlaylistSyncResult(
+            PlaylistSyncAttemptResult.CreateFailure(
+                table,
+                new Uri("https://example.test/failure"),
+                new InvalidOperationException("failure")));
+        IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> secondSnapshot = workspace.CapturePlaylistSyncStatusSnapshot();
+
+        Assert.AreNotSame(firstSnapshot["id:3"], secondSnapshot["id:3"]);
+        Assert.AreEqual(PlaylistSyncStatusKind.Ok, firstSnapshot["id:3"].Kind);
+        Assert.AreEqual(PlaylistSyncStatusKind.UnknownError, secondSnapshot["id:3"].Kind);
+        workspace.RecordPlaylistSyncResult(null);
+        Assert.AreEqual(PlaylistSyncStatusKind.Ok, firstSnapshot["id:3"].Kind);
     }
 
     [TestMethod]

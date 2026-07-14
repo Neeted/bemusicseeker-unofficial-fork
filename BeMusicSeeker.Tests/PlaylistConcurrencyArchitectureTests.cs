@@ -495,7 +495,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string drainMethod = ExtractMethodBody(source, "private async Task DrainExternalPlaylistImportQueueAsync");
-        string completionMethod = ExtractMethodBody(source, "private void CompleteImportedPlaylistRegistrations");
+        string completionMethod = ExtractMethodBody(source, "private bool CompleteImportedPlaylistRegistrations");
         string duplicatePreparationMethod = ExtractMethodBody(source, "private List<ExternalPlaylistImportWorkItem> PrepareExternalPlaylistImportRegistrationItems");
         string duplicateSkipMethod = ExtractMethodBody(source, "private static void RecordExternalPlaylistImportDuplicateNameSkip");
 
@@ -526,7 +526,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string importMethod = ExtractMethodBody(source, "private async Task ImportBeatorajaTableUrlsAsync");
-        string completionMethod = ExtractMethodBody(source, "private void CompleteImportedPlaylistRegistrations");
+        string completionMethod = ExtractMethodBody(source, "private bool CompleteImportedPlaylistRegistrations");
 
         StringAssert.Contains(importMethod, "await tables.LoadExternalTableSnapshotsAsync(");
         StringAssert.Contains(importMethod, "schedulePlaylistUrlCompletionRefresh: false");

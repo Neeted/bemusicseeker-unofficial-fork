@@ -59,14 +59,12 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// </summary>
     /// <param name="library">The library that supplies the owned-chart digest snapshot.</param>
     /// <param name="playlists">The playlist collection whose current tables are summarized.</param>
-    /// <param name="syncStatusSnapshot">The immutable-for-this-build runtime sync-status snapshot.</param>
     /// <param name="logger">The concrete diagnostics sink used by the summary pipeline.</param>
     /// <param name="runAsync">Whether to run the build on the task pool.</param>
     /// <returns>The accepted data generation, or zero when the workspace cannot start a build.</returns>
     internal long RebuildPlaylistSummaryView(
         BMSLibrary library,
         BMSPlaylist playlists,
-        IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> syncStatusSnapshot,
         Logger logger,
         bool runAsync = true)
     {
@@ -74,6 +72,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return 0L;
         }
+
+        IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> syncStatusSnapshot = CapturePlaylistSyncStatusSnapshot();
 
         long dataRebuildGeneration = buildRequest.Generation;
         void Execute()
@@ -182,12 +182,10 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// </summary>
     /// <param name="library">The library used if a data rebuild becomes necessary.</param>
     /// <param name="playlists">The playlist collection used if a data rebuild becomes necessary.</param>
-    /// <param name="syncStatusSnapshot">The sync-status snapshot used if a data rebuild becomes necessary.</param>
     /// <param name="logger">The concrete diagnostics sink used by the presentation pipeline.</param>
     internal void RefreshPlaylistSummaryPresentation(
         BMSLibrary library,
         BMSPlaylist playlists,
-        IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> syncStatusSnapshot,
         Logger logger)
     {
         List<PlaylistSummaryRow> cachedRows = GetPlaylistSummaryRowsCacheSnapshot(
@@ -195,7 +193,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             out long dataRebuildGeneration);
         if (cachedRows == null)
         {
-            RebuildPlaylistSummaryView(library, playlists, syncStatusSnapshot, logger);
+            RebuildPlaylistSummaryView(library, playlists, logger);
             return;
         }
 
@@ -581,20 +579,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             return status;
         }
         return PlaylistSyncStatusMapper.CreateNone();
-    }
-
-    private static string GetPlaylistSyncStatusKey(BMSTable table)
-    {
-        if (table?.playlist_id != null)
-        {
-            return "id:" + table.playlist_id.Value;
-        }
-        Uri uri = table?.Page_url ?? table?.Header_url;
-        if (uri?.IsAbsoluteUri == true)
-        {
-            return "uri:" + uri.AbsoluteUri;
-        }
-        return string.IsNullOrWhiteSpace(table?.name) ? null : "name:" + table.name;
     }
 
     private void LogStalePresentation(
