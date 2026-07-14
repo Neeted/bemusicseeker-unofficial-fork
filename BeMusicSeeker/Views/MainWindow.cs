@@ -3447,14 +3447,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_playlist, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
-        {
-            return;
-        }
         if (base.DataContext is MainWindowViewModel viewModel)
         {
             await viewModel.PlaylistWorkspace
-                .RemoveTablesAsync(selectedPlaylistSummaryRows.Select(item => item?.TableRef))
+                .RemovePlaylistSummaryRowsAsync(selectedPlaylistSummaryRows)
                 .Logging("playlistSummaryContextMenuRemoveClick");
         }
     }

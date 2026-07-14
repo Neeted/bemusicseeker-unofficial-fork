@@ -6358,18 +6358,18 @@ public sealed class BmsPlaylistUpdateTests
                     Dispatcher.CurrentDispatcher)
             };
             var library = new BMSLibrary(songDbPath);
-            var viewModel = new ApplicationComposition(
-                () => new BmsLibraryOptionsSnapshot(),
-                beatorajaBmtOptionsProvider: () => new BeatorajaBmtOptionsSnapshot(),
-                customFolderOutputSettingsProvider: getOperationSettings).CreateMainWindowViewModel();
-            typeof(MainWindowViewModel)
-                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?.SetValue(viewModel, playlist);
-            typeof(MainWindowViewModel)
-                .GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?.SetValue(viewModel, library);
+            var workspace = new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                getOperationSettings);
+            workspace.ConfigureDetailEditing(() => playlist);
+            workspace.ConfigureMutations(() => library, (action, _) => action());
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
-            viewModel.PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
+            workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
             {
                 if (request.Reason == "playlist_table_removed")
                 {
@@ -6377,9 +6377,20 @@ public sealed class BmsPlaylistUpdateTests
                 }
             };
 
-            viewModel.PlaylistWorkspace.RemoveTableAsync(table).GetAwaiter().GetResult();
+            bool removalConfirmationRequested = false;
+            workspace.PlaylistSummaryRemovalConfirmationRequested += (_, request) =>
+            {
+                removalConfirmationRequested = true;
+                request.Confirmed = true;
+            };
+
+            workspace.RemovePlaylistSummaryRowsAsync(
+                [new PlaylistSummaryRow { TableRef = table }])
+                .GetAwaiter()
+                .GetResult();
 
             Assert.AreEqual(1, providerCallCount);
+            Assert.IsTrue(removalConfirmationRequested);
             Assert.IsNotNull(removalRefresh);
             Assert.IsFalse(removalRefresh!.RebuildAsync);
             Assert.IsFalse(playlist.ContainsBMSTable(table));
