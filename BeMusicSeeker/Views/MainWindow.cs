@@ -1431,9 +1431,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is not MainWindowViewModel viewModel
             || e.Row is not PlaylistSummaryRow playlistSummaryRow
             || playlistSummaryRow.TableRef == null
-            || !IsPlaylistSummaryEditableProperty(e.EditPropertyName)
             || !CanOpenPlaylistEditDialog(viewModel)
-            || !viewModel.PlaylistWorkspace.ContainsActivePlaylistTable(playlistSummaryRow.TableRef))
+            || !viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(playlistSummaryRow, e.EditPropertyName))
         {
             e.Cancel = true;
         }
@@ -1514,15 +1513,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (!e.Commit
             || e.Row is not PlaylistSummaryRow playlistSummaryRow
-            || playlistSummaryRow.TableRef == null
-            || !IsPlaylistSummaryEditableProperty(e.EditPropertyName))
-        {
-            return;
-        }
-
-        string currentText = GetPlaylistSummaryEditableText(playlistSummaryRow, e.EditPropertyName);
-        string editedText = NormalizePlaylistSummaryEditableText(e.EditPropertyName, e.Text);
-        if (string.Equals(currentText, editedText, StringComparison.Ordinal))
+            || playlistSummaryRow.TableRef == null)
         {
             return;
         }
@@ -1565,43 +1556,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             propertyName,
             viewModel.CurrentMainViewChartOperationSourceScope,
             viewModel.CurrentMainViewOperationSection);
-    }
-
-    private static bool IsPlaylistSummaryEditableProperty(string propertyName)
-    {
-        return string.Equals(propertyName, nameof(PlaylistSummaryRow.Name), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(PlaylistSummaryRow.FolderName), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(PlaylistSummaryRow.CompatPrefix), StringComparison.Ordinal)
-            || string.Equals(propertyName, nameof(PlaylistSummaryRow.Symbol), StringComparison.Ordinal);
-    }
-
-    private static string GetPlaylistSummaryEditableText(PlaylistSummaryRow row, string propertyName)
-    {
-        if (row == null)
-        {
-            return string.Empty;
-        }
-        return propertyName switch
-        {
-            nameof(PlaylistSummaryRow.Name) => NormalizePlaylistSummaryEditableText(propertyName, row.Name),
-            nameof(PlaylistSummaryRow.FolderName) => NormalizePlaylistSummaryEditableText(propertyName, row.FolderName),
-            nameof(PlaylistSummaryRow.CompatPrefix) => NormalizePlaylistSummaryEditableText(propertyName, row.CompatPrefix),
-            nameof(PlaylistSummaryRow.Symbol) => NormalizePlaylistSummaryEditableText(propertyName, row.Symbol),
-            _ => string.Empty
-        };
-    }
-
-    private static string NormalizePlaylistSummaryEditableText(string propertyName, string text)
-    {
-        text ??= string.Empty;
-        return propertyName switch
-        {
-            nameof(PlaylistSummaryRow.CompatPrefix) => text.TrimStart(),
-            nameof(PlaylistSummaryRow.FolderName) => BMSTable.NormalizeOutputDirectoryName(text) ?? string.Empty,
-            nameof(PlaylistSummaryRow.Name) => text.Trim(),
-            nameof(PlaylistSummaryRow.Symbol) => text.Trim(),
-            _ => text
-        };
     }
 
     private void RefreshCustomTableViewDisplayAsync()

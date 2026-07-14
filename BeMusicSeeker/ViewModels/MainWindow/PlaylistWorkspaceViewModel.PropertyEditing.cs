@@ -234,6 +234,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    internal bool CanBeginSummaryPropertyEdit(PlaylistSummaryRow row, string propertyName)
+    {
+        return row?.TableRef != null
+            && IsSummaryPropertyEditable(propertyName)
+            && propertySaveService?.ContainsActiveTable(row.TableRef) == true;
+    }
+
     internal async Task<bool> ApplySummaryPropertyEditAsync(
         PlaylistSummaryRow row,
         string propertyName,
@@ -242,7 +249,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistPropertySaveService service = propertySaveService
             ?? throw new InvalidOperationException("Playlist property editing is not available.");
         if (row?.TableRef == null
-            || string.IsNullOrWhiteSpace(propertyName)
+            || !IsSummaryPropertyEditable(propertyName)
             || !service.ContainsActiveTable(row.TableRef))
         {
             return false;
@@ -257,7 +264,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 case nameof(PlaylistSummaryRow.Name):
                     {
                         string name = (text ?? string.Empty).Trim();
-                        if (string.Equals(values.Name, name, StringComparison.Ordinal))
+                        if (string.Equals(values.Name ?? string.Empty, name, StringComparison.Ordinal))
                         {
                             return true;
                         }
@@ -282,7 +289,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 case nameof(PlaylistSummaryRow.CompatPrefix):
                     {
                         string compatPrefix = (text ?? string.Empty).TrimStart();
-                        if (string.Equals(values.CompatPrefix, compatPrefix, StringComparison.Ordinal))
+                        if (string.Equals(values.CompatPrefix ?? string.Empty, compatPrefix, StringComparison.Ordinal))
                         {
                             return true;
                         }
@@ -292,7 +299,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 case nameof(PlaylistSummaryRow.Symbol):
                     {
                         string symbol = (text ?? string.Empty).Trim();
-                        if (string.Equals(values.Symbol, symbol, StringComparison.Ordinal))
+                        if (string.Equals(values.Symbol ?? string.Empty, symbol, StringComparison.Ordinal))
                         {
                             return true;
                         }
@@ -309,5 +316,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         await service.ApplyPostSaveUpdatesAsync(commit);
         return true;
+    }
+
+    private static bool IsSummaryPropertyEditable(string propertyName)
+    {
+        return string.Equals(propertyName, nameof(PlaylistSummaryRow.Name), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistSummaryRow.FolderName), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistSummaryRow.CompatPrefix), StringComparison.Ordinal)
+            || string.Equals(propertyName, nameof(PlaylistSummaryRow.Symbol), StringComparison.Ordinal);
     }
 }

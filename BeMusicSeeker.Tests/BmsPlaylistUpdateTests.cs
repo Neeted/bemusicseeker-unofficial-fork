@@ -2463,6 +2463,144 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public async Task PlaylistSummaryInlinePropertyEdit_OwnsEligibilityNormalizationAndNoOp()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            Settings.Default.OperationModeLR2DB = false;
+            Settings.Default.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7341,
+                name = "Inline Original",
+                symbol = "ORIGINAL",
+                compat_prefix = "OLD",
+                Output_dir = "Inline Original"
+            };
+            var conflictingTable = new BMSTable
+            {
+                playlist_id = 7342,
+                name = "Conflict",
+                symbol = "CONFLICT",
+                Output_dir = "Conflict"
+            };
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table, conflictingTable]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                db.InsertOrReplace(conflictingTable, typeof(LR2SongDBExtended.playlist));
+            }
+            var library = new BMSLibrary(songDbPath);
+            LR2Config config = CreateLr2Config(tempDirectory, Path.Combine(tempDirectory, "ManualBmsRoot"));
+            var viewModel = new MainWindowViewModel();
+            typeof(MainWindowViewModel)
+                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, playlist);
+            typeof(MainWindowViewModel)
+                .GetField("files", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, library);
+            typeof(MainWindowViewModel)
+                .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(viewModel, config);
+            PlaylistSummaryRow row = new() { TableRef = table };
+            int refreshCount = 0;
+            viewModel.PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += (_, _) => refreshCount++;
+
+            Assert.IsTrue(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(row, nameof(PlaylistSummaryRow.Name)));
+            Assert.IsTrue(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(row, nameof(PlaylistSummaryRow.FolderName)));
+            Assert.IsTrue(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(row, nameof(PlaylistSummaryRow.CompatPrefix)));
+            Assert.IsTrue(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(row, nameof(PlaylistSummaryRow.Symbol)));
+            Assert.IsFalse(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(row, "Unsupported"));
+
+            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                row,
+                nameof(PlaylistSummaryRow.Name),
+                "  Inline Renamed  "));
+            Assert.AreEqual("Inline Renamed", table.name);
+            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                row,
+                nameof(PlaylistSummaryRow.FolderName),
+                "  Inline Folder  "));
+            Assert.AreEqual("Inline Folder", table.Output_dir);
+            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                row,
+                nameof(PlaylistSummaryRow.CompatPrefix),
+                "  PREFIX"));
+            Assert.AreEqual("PREFIX", table.compat_prefix);
+            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                row,
+                nameof(PlaylistSummaryRow.Symbol),
+                "  INL  "));
+            Assert.AreEqual("INL", table.symbol);
+
+            int refreshCountBeforeNoOp = refreshCount;
+            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                row,
+                nameof(PlaylistSummaryRow.Name),
+                " Inline Renamed "));
+            Assert.AreEqual("Inline Renamed", table.name);
+            Assert.AreEqual(refreshCountBeforeNoOp, refreshCount);
+
+            table.name = null;
+            int refreshCountBeforeNullNoOp = refreshCount;
+            Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                row,
+                nameof(PlaylistSummaryRow.Name),
+                string.Empty));
+            Assert.IsNull(table.name);
+            Assert.AreEqual(refreshCountBeforeNullNoOp, refreshCount);
+
+            Settings.Default.OperationModeLR2DB = true;
+            var conflictViewModel = new MainWindowViewModel();
+            typeof(MainWindowViewModel)
+                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
+                ?.SetValue(conflictViewModel, playlist);
+            string outputDirectoryBeforeConflict = table.Output_dir;
+            Assert.IsFalse(await conflictViewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                row,
+                nameof(PlaylistSummaryRow.FolderName),
+                "Conflict"));
+            Assert.AreEqual(outputDirectoryBeforeConflict, table.Output_dir);
+            Settings.Default.OperationModeLR2DB = false;
+            Assert.IsFalse(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                row,
+                "Unsupported",
+                "value"));
+
+            var staleRow = new PlaylistSummaryRow
+            {
+                TableRef = new BMSTable { playlist_id = 7399, name = "Stale" }
+            };
+            Assert.IsFalse(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(staleRow, nameof(PlaylistSummaryRow.Name)));
+            Assert.IsFalse(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
+                staleRow,
+                nameof(PlaylistSummaryRow.Name),
+                "Should not persist"));
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public async Task SettingDialogPostSaveCustomFolderSync_UsesOneSavedSettingsSnapshot()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;

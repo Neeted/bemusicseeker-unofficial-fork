@@ -280,6 +280,11 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "TryTakePlaylistSummarySelectionRestore");
         StringAssert.Contains(workspaceSource, "QueuePlaylistSummarySelectionRestore");
         StringAssert.Contains(workspaceSource, "SetPlaylistSummarySelectionRestoreMinimumGeneration");
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("IsPlaylistSummaryEditableProperty", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("GetPlaylistSummaryEditableText", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("NormalizePlaylistSummaryEditableText", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "CanBeginSummaryPropertyEdit");
+        StringAssert.Contains(workspaceSource, "private static bool IsSummaryPropertyEditable");
         StringAssert.Contains(workspaceSource, "private long lastPlaylistSummaryBuildElapsedMs;");
         string buildOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBuild.cs");
