@@ -227,12 +227,14 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.PlaylistSummaryViewApplied += MainWindowViewModel_PlaylistSummaryViewApplied;");
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryRows", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryPresentationRows", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("DrainPlaylistSummaryRefresh(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("CanApplyPlaylistSummaryPresentation", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("private void ApplyPlaylistSummaryPresentation", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("lastPlaylistSummaryBuildElapsedMs", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "private long lastPlaylistSummaryBuildElapsedMs;");
         string buildOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBuild.cs");
+        StringAssert.Contains(buildOwnerSource, "internal long DrainDeferredPlaylistSummaryRefresh(");
         StringAssert.Contains(buildOwnerSource, "internal long RebuildPlaylistSummaryView(");
         StringAssert.Contains(buildOwnerSource, "private PlaylistSummaryRowsBuildResult BuildPlaylistSummaryRows(");
         StringAssert.Contains(buildOwnerSource, "internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(");
@@ -244,6 +246,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableSortParameters", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("public void ExecSort", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("public void ExecPlaylistSummarySort", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("public long RebuildPlaylistSummaryView(", StringComparison.Ordinal));
         StringAssert.Contains(mainChartListSource, "internal event EventHandler DisplayRefreshRequested;");
         StringAssert.Contains(mainChartListSource, "internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummarySort(");
@@ -1823,6 +1826,46 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(
             PlaylistSummaryDeferredRefreshKind.Data,
             workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceDeferredRefreshDrainOwnsHiddenAndPresentationRoutes()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
+
+        Assert.AreEqual(
+            0L,
+            workspace.DrainDeferredPlaylistSummaryRefresh(
+                library: null,
+                playlists: null,
+                logger: null,
+                dataRefreshRequired: true,
+                rebuildAsync: false));
+
+        workspace.IsPlaylistSummaryMode = true;
+        long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+        var rows = new List<PlaylistSummaryRow> { new() };
+        Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(rows, dataGeneration));
+        workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
+
+        long presentationGenerationBefore = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        Assert.AreEqual(
+            0L,
+            workspace.DrainDeferredPlaylistSummaryRefresh(
+                library: null,
+                playlists: null,
+                logger: null,
+                dataRefreshRequired: false,
+                rebuildAsync: false));
+        Assert.IsTrue(workspace.CurrentPlaylistSummaryPresentationGeneration > presentationGenerationBefore);
+        Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
     }
 
     [TestMethod]

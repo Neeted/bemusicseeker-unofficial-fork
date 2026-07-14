@@ -55,6 +55,38 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
+    /// Drains one deferred summary refresh and executes its terminal data or presentation route.
+    /// </summary>
+    /// <param name="library">The library that supplies the owned-chart digest snapshot.</param>
+    /// <param name="playlists">The playlist collection whose current tables are summarized.</param>
+    /// <param name="logger">The concrete diagnostics sink used by the summary pipeline.</param>
+    /// <param name="dataRefreshRequired">Whether the caller observed an external data refresh.</param>
+    /// <param name="rebuildAsync">Whether a data rebuild should run on the task pool.</param>
+    /// <returns>The accepted data generation, or zero when no data rebuild was started.</returns>
+    internal long DrainDeferredPlaylistSummaryRefresh(
+        BMSLibrary library,
+        BMSPlaylist playlists,
+        Logger logger,
+        bool dataRefreshRequired,
+        bool rebuildAsync)
+    {
+        PlaylistSummaryDeferredRefreshKind refresh = TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired);
+        if (!IsPlaylistSummaryMode)
+        {
+            return 0L;
+        }
+        if (refresh == PlaylistSummaryDeferredRefreshKind.Data)
+        {
+            return RebuildPlaylistSummaryView(library, playlists, logger, rebuildAsync);
+        }
+        if (refresh == PlaylistSummaryDeferredRefreshKind.Presentation)
+        {
+            RefreshPlaylistSummaryPresentation(library, playlists, logger);
+        }
+        return 0L;
+    }
+
+    /// <summary>
     /// Builds raw summary rows and publishes the fresh filtered and sorted result owned by this workspace.
     /// </summary>
     /// <param name="library">The library that supplies the owned-chart digest snapshot.</param>
