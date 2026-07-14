@@ -155,7 +155,8 @@ internal sealed class ApplicationComposition
         Action<Exception, string> beatorajaTableUrlImportWarningLog,
         Action<string> beatorajaTableUrlImportInfoLog,
         Func<BMSLibrary> libraryProvider,
-        Func<LR2Config> lr2ConfigProvider)
+        Func<LR2Config> lr2ConfigProvider,
+        Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications)
     {
         var playlistPropertySaveService = new PlaylistPropertySaveService(
             tablesProvider,
@@ -184,7 +185,9 @@ internal sealed class ApplicationComposition
             new PlaylistSummaryBmtSortCoordinator(tablesProvider, tableSnapshotProvider),
             keywordSearchHistorySettingsStore,
             tablesProvider,
-            playlistPropertySaveService);
+            playlistPropertySaveService,
+            libraryProvider,
+            presentPlaylistOperationNotifications);
         return playlistWorkspace;
     }
 

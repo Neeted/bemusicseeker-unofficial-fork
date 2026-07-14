@@ -4563,11 +4563,11 @@ public partial class MainWindowViewModel : ViewModel
             LogBeatorajaTableUrlImportWarning,
             LogBeatorajaTableUrlImportInfo,
             () => files,
-            () => lr2config);
+            () => lr2config,
+            FlushPlaylistOperationNotifications);
         PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
         PlaylistWorkspace.ConfigureSummaryBulkEditing(() => lr2config);
         PlaylistWorkspace.ConfigureSummaryBulkWarningLogging(LogPlaylistSummaryBulkWarning);
-        PlaylistWorkspace.ConfigureMutations(() => files, RunPlaylistOperationWithNotifications);
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
@@ -12070,23 +12070,6 @@ public partial class MainWindowViewModel : ViewModel
             };
             ShowUiMessage(notification.Message, notification.Caption, icon, routeName);
         });
-    }
-
-    private static void RunPlaylistOperationWithNotifications(Action operation, string routeName)
-    {
-        if (operation == null)
-        {
-            return;
-        }
-        using BMSPlaylist.OperationNotificationScope scope = BMSPlaylist.BeginOperationNotificationScope();
-        try
-        {
-            operation();
-        }
-        finally
-        {
-            FlushPlaylistOperationNotifications(scope, routeName);
-        }
     }
 
     private static bool ToUiConfirmationDecision(UiDialogResult result, string routeName)

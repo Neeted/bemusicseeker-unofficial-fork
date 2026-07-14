@@ -3445,7 +3445,9 @@ public sealed class PlayHistoryReadModelTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => null!,
+                (_, _) => { }));
     }
 
     [TestMethod]

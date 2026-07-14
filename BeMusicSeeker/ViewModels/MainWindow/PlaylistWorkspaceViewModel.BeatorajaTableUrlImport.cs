@@ -35,7 +35,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         try
         {
             BMSPlaylist playlistStore = getPlaylistStore();
-            BMSLibrary playlistLibrary = getPlaylistLibrary?.Invoke();
+            BMSLibrary playlistLibrary = getPlaylistLibrary();
             if (playlistStore == null || playlistLibrary == null || playlistStore.BMSTables == null)
             {
                 RequestBeatorajaTableUrlImportNotification(

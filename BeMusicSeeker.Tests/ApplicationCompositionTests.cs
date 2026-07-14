@@ -68,7 +68,8 @@ public sealed class ApplicationCompositionTests
                 (_, _) => { },
                 _ => { },
                 () => null!,
-                () => null!);
+                () => null!,
+                (_, _) => { });
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
 
@@ -86,7 +87,8 @@ public sealed class ApplicationCompositionTests
                 (_, _) => { },
                 _ => { },
                 () => null!,
-                () => null!);
+                () => null!,
+                (_, _) => { });
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
             DateTime completedAt = DateTime.Now;
@@ -382,7 +384,8 @@ public sealed class ApplicationCompositionTests
             (_, _) => { },
             _ => { },
             () => null!,
-            () => null!);
+            () => null!,
+            (_, _) => { });
 
         Assert.IsNotNull(mainChartList);
         Assert.IsNotNull(playlistWorkspace);
@@ -416,7 +419,8 @@ public sealed class ApplicationCompositionTests
             (_, _) => { },
             _ => { },
             () => null!,
-            () => null!);
+            () => null!,
+            (_, _) => { });
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
@@ -492,7 +496,8 @@ public sealed class ApplicationCompositionTests
                 (_, _) => { },
                 _ => { },
                 () => null!,
-                () => null!);
+                () => null!,
+                (_, _) => { });
             workspace.IsPlaylistSummaryMode = true;
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
@@ -584,7 +589,8 @@ public sealed class ApplicationCompositionTests
                 (_, _) => { },
                 _ => { },
                 () => null!,
-                () => null!);
+                () => null!,
+                (_, _) => { });
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -765,7 +771,9 @@ public sealed class ApplicationCompositionTests
                 new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => null!,
+                (_, _) => { });
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
             var queuedReasons = new List<string>();

@@ -42,7 +42,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
 
         Assert.IsFalse(owner.HasFolderRows);
         Assert.IsFalse(owner.HasKeywordRows);
@@ -86,7 +88,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { });
         workspace.IsPlaylistDetailViewActive = true;
         workspace.UseAsyncChartRowsViewBinding = false;
         var owner = new RegularChartListOwner(
@@ -152,7 +156,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var route = new ChartListRefreshRoute(
             ChartListRefreshRouteKind.ContinueMainLibrary,
             MainViewUpdateMode.FolderFilterSelected,
@@ -196,7 +202,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var route = new ChartListRefreshRoute(
             ChartListRefreshRouteKind.ApplyPlayHistoryView,
             MainViewUpdateMode.PlayHistorySelected,
@@ -238,7 +246,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         List<LibraryChartRow> rows =
         [
             LibraryChartRow.FromChartFile(CreateSourceRow("Folder A", "Beta").Chart),
@@ -306,7 +316,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         List<LibraryChartRow> outerRows =
         [
             LibraryChartRow.FromChartFile(CreateSourceRow("Outer", "outer.bms").Chart)
@@ -358,7 +370,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var file = new BMSFile
         {
             path = @"C:\Charts\Owner\chart.bms",
@@ -397,7 +411,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
 
         Assert.IsTrue(owner.TryInvalidateSourceForOwnedCollectionVersion(0, out _));
         Assert.AreEqual(1L, owner.SourceGeneration);
@@ -430,7 +446,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularVirtualSourceRowsLookup staleLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
 
@@ -473,7 +491,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         List<ChartListSourceRow> rows = [CreateSourceRow("Folder A", "a.bms")];
@@ -525,7 +545,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         Assert.IsTrue(owner.TryBeginVirtualRequest(firstLibrary, out RegularChartListRequestLease firstLease));
@@ -568,7 +590,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var firstLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         var secondLibrary = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(firstLibrary, out RegularChartListPrewarmLease firstLease));
@@ -602,7 +626,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         List<ChartListSourceRow> rows =
         [
             CreateSourceRow("Folder A", "b.bms"),
@@ -658,7 +684,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         List<ChartListSourceRow> sourceRows =
         [
             CreateSourceRow("Folder A", "Alpha"),
@@ -727,7 +755,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         List<ChartFile> charts =
         [
             CreateSourceRow("Folder A", "Alpha").Chart,
@@ -795,7 +825,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(
             lookup,
@@ -851,7 +883,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(
             lookup,
@@ -888,7 +922,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularChartListRequestLease pending = owner.BeginRequest();
 
         table.CommitAppliedColumnMode(MainViewUpdateMode.PlayHistorySelected);
@@ -921,7 +957,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularVirtualSourceRowsLookup lookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         owner.TryPublishVirtualSourceRows(
             lookup,
@@ -958,7 +996,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         ChartFile bravo = CreateSourceRow("Folder B", "Bravo").Chart;
         ChartFile alpha = CreateSourceRow("Folder A", "Alpha").Chart;
         var library = (BMSLibrary)FormatterServices.GetUninitializedObject(typeof(BMSLibrary));
@@ -1022,7 +1062,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var versions = new RegularChartListExternalVersions(score: 1, chartInfo: 0, maintenanceHydration: 0);
         ChartListOrder order = CreateOrder(CreateSourceRow("Folder A", "a.bms"));
         NormalLibrarySortCacheKey defaultKey = owner.CreateVirtualOrderKey(
@@ -1076,7 +1118,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var initialVersions = new RegularChartListExternalVersions(score: 1, chartInfo: 0, maintenanceHydration: 0);
         NormalLibrarySortCacheKey key = owner.CreateVirtualOrderKey(
             owner.SourceGeneration,
@@ -1119,7 +1163,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var initialVersions = new RegularChartListExternalVersions(score: 0, chartInfo: 1, maintenanceHydration: 0);
         VirtualChartSubsetSortCacheKey key = owner.CreateVirtualSubsetOrderKey(
             owner.SourceGeneration,
@@ -1165,7 +1211,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 1);
         ChartListOrder order = CreateOrder(CreateSourceRow("Folder A", "a.bms"));
         NormalLibrarySortCacheKey installKey = owner.CreateVirtualOrderKey(
@@ -1216,7 +1264,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { });
         RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease firstLease = owner.BeginRequest();
         RegularChartListBuildResult firstBuild = Build(owner, firstLease, new List<LibraryChartRow>());
@@ -1271,7 +1321,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         int canceled = 0;
@@ -1313,7 +1365,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
 
@@ -1366,7 +1420,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         var settings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
@@ -1423,7 +1479,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularChartListRequestLease staleLease = owner.BeginRequest();
         var staleRows = new List<object> { new() };
         RegularChartListRequestLease currentLease = owner.BeginRequest();
@@ -1473,7 +1531,9 @@ public sealed class RegularChartListOwnerTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService),
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => null!,
+                (_, _) => { }),
             _ => { },
             action =>
             {
@@ -1525,7 +1585,9 @@ public sealed class RegularChartListOwnerTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService),
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => null!,
+                (_, _) => { }),
             _ => { },
             action =>
             {
@@ -1578,7 +1640,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var sourceRows = new BlockingSourceRows(
             CreateSourceRow("Folder A", "a.bms"),
             CreateSourceRow("Folder B", "b.bms"));
@@ -1634,7 +1698,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var source = new List<LibraryChartRow>();
         RegularChartListRequestLease firstLease = owner.BeginRequest();
         RegularChartListBuildResult first = Build(owner, firstLease, source, MainViewUpdateMode.FolderFilterSelected);
@@ -1672,7 +1738,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         Assert.IsTrue(owner.TryCommit(lease, CreateTerminalInput(build)).WasCommitted);
@@ -1707,7 +1775,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
         long completionAtNotification = 0L;
@@ -1751,7 +1821,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularChartListRequestLease outerLease = owner.BeginRequest();
         RegularChartListBuildResult outerBuild = Build(owner, outerLease, new List<LibraryChartRow>());
         RegularChartListBuildResult nestedBuild = null!;
@@ -1806,7 +1878,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { });
         RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease outerLease = owner.BeginRequest();
         RegularChartListBuildResult outerBuild = Build(owner, outerLease, new List<LibraryChartRow>());
@@ -1871,7 +1945,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { });
         RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease outerLease = owner.BeginRequest();
         RegularChartListBuildResult outerBuild = Build(owner, outerLease, new List<LibraryChartRow>());
@@ -1942,7 +2018,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularChartListRequestLease lease = owner.BeginRequest();
 
         owner.Dispose();
@@ -1976,7 +2054,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
 
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease first));
         Assert.IsTrue(owner.IsVirtualOrderPrewarmRunning);
@@ -2014,7 +2094,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
 
         Task stopTask = owner.StopAsync();
@@ -2050,7 +2132,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         Assert.IsTrue(owner.TryBeginVirtualOrderPrewarm(null, out RegularChartListPrewarmLease lease));
 
         owner.InvalidateIdentitySortKeys(clearSourceRows: false);
@@ -2083,7 +2167,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 0);
         NormalLibrarySortCacheKey staleKey = owner.CreateVirtualOrderKey(
             owner.SourceGeneration,
@@ -2128,7 +2214,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
         RegularVirtualSourceRowsLookup sourceLookup = owner.LookupVirtualSourceRows(null, includeBmsonRows: false);
         var rows = new List<ChartListSourceRow> { CreateSourceRow("Folder A", "a.bms") };
         var versions = new RegularChartListExternalVersions(score: 0, chartInfo: 0, maintenanceHydration: 0);
@@ -2191,7 +2279,9 @@ public sealed class RegularChartListOwnerTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { });
         RegularChartListOwner owner = CreateOwner(table, workspace);
         RegularChartListRequestLease lease = owner.BeginRequest();
         RegularChartListBuildResult build = Build(owner, lease, new List<LibraryChartRow>());
@@ -2243,7 +2333,9 @@ public sealed class RegularChartListOwnerTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => null!,
+                (_, _) => { });
             Settings.Default.StandardCustomTableColumnSettings = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
             Settings.Default.PlaylistSummaryColumnsSettings = new PlaylistSummaryColumnSettings();
 
@@ -2305,7 +2397,9 @@ public sealed class RegularChartListOwnerTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => null!,
+                (_, _) => { });
             var oldSettings = new PlaylistSummaryColumnSettings();
             Settings.Default.PlaylistSummaryColumnsSettings = oldSettings;
             workspace.PlaylistSummaryColumnsSettings = oldSettings;

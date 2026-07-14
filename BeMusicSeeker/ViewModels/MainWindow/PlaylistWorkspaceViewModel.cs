@@ -107,7 +107,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
         Func<BMSPlaylist> playlistStoreProvider,
-        PlaylistPropertySaveService propertySaveService)
+        PlaylistPropertySaveService propertySaveService,
+        Func<BMSLibrary> playlistLibraryProvider,
+        Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -146,6 +148,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistStoreProvider));
         this.propertySaveService = propertySaveService
             ?? throw new ArgumentNullException(nameof(propertySaveService));
+        getPlaylistLibrary = playlistLibraryProvider
+            ?? throw new ArgumentNullException(nameof(playlistLibraryProvider));
+        this.presentPlaylistOperationNotifications = presentPlaylistOperationNotifications
+            ?? throw new ArgumentNullException(nameof(presentPlaylistOperationNotifications));
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;

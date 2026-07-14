@@ -10,9 +10,9 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private Func<BMSLibrary> getPlaylistLibrary;
+    private readonly Func<BMSLibrary> getPlaylistLibrary;
 
-    private Action<Action, string> runPlaylistOperationWithNotifications;
+    private readonly Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications;
 
     internal event EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> MutationRejected;
 
@@ -21,15 +21,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal event EventHandler PlaylistReferenceSortInvalidationRequested;
 
     internal event EventHandler<PlaylistTableRemovalInvalidOutputDirectoryEventArgs> PlaylistTableRemovalInvalidOutputDirectoryRequested;
-
-    internal void ConfigureMutations(
-        Func<BMSLibrary> playlistLibrary,
-        Action<Action, string> operationWithNotifications)
-    {
-        getPlaylistLibrary = playlistLibrary ?? throw new ArgumentNullException(nameof(playlistLibrary));
-        runPlaylistOperationWithNotifications = operationWithNotifications
-            ?? throw new ArgumentNullException(nameof(operationWithNotifications));
-    }
 
     internal Task<BMSTable> CreatePlaylistAsync()
     {
@@ -544,15 +535,25 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private BMSLibrary GetPlaylistLibrary()
     {
-        return getPlaylistLibrary?.Invoke()
+        return getPlaylistLibrary()
             ?? throw new InvalidOperationException("Playlist library is not available.");
     }
 
     private void RunWithNotifications(Action operation, string routeName)
     {
-        Action<Action, string> runner = runPlaylistOperationWithNotifications
-            ?? throw new InvalidOperationException("Playlist operation notification routing is not available.");
-        runner(operation, routeName);
+        if (operation == null)
+        {
+            return;
+        }
+        using BMSPlaylist.OperationNotificationScope scope = BMSPlaylist.BeginOperationNotificationScope();
+        try
+        {
+            operation();
+        }
+        finally
+        {
+            presentPlaylistOperationNotifications(scope, routeName);
+        }
     }
 
     private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true)

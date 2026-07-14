@@ -110,7 +110,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { }));
     }
 
     [TestMethod]
@@ -238,7 +240,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { });
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
@@ -271,7 +275,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             playlistSummaryBmtSort,
             keywordSearchHistorySettingsStore,
             playlistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            (_, _) => { });
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
@@ -301,6 +307,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             playlistSummaryBmtSort,
             keywordSearchHistorySettingsStore,
             playlistStoreProvider,
-            propertySaveService);
+            propertySaveService,
+            () => null!,
+            (_, _) => { });
     }
 }

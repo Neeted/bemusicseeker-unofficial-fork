@@ -615,8 +615,9 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
-            workspace.ConfigureMutations(() => library, (action, _) => action());
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => library,
+                (_, _) => { });
             workspace.ConfigurePlaylistReloadCleanup(
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,
@@ -761,8 +762,9 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
-            workspace.ConfigureMutations(() => library, (action, _) => action());
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => library,
+                (_, _) => { });
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
 
             List<PlaylistWorkspaceEntriesChangedEventArgs> changes = [];
@@ -6402,8 +6404,9 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
                 () => playlist,
-                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
-            workspace.ConfigureMutations(() => library, (action, _) => action());
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => library,
+                (_, _) => { });
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
             {
