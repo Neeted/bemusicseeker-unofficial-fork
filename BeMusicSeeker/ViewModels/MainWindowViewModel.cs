@@ -966,15 +966,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 直前に差し替えた playlist summary collection の弱参照状態を返します。
-    /// </summary>
-    private bool TryGetPreviousPlaylistSummaryViewState(out bool alive, out int rowCount)
-    {
-        PlaylistWorkspace.TryGetPreviousPlaylistSummaryViewState(out alive, out rowCount);
-        return alive;
-    }
-
-    /// <summary>
     /// 現在の playlist detail 表示が full reload 後 cleanup で待機対象になるかを返します。
     /// </summary>
     private bool IsPlaylistDetailRefreshWaitRequired()
@@ -1073,10 +1064,9 @@ public partial class MainWindowViewModel : ViewModel
                     return;
                 }
             }
-            await WaitForPlaylistReloadCleanupReadinessAsync(request).ConfigureAwait(false);
-            TryGetPreviousPlaylistSummaryViewState(out bool oldSummaryAlive, out int oldSummaryRowCount);
-            PlaylistPreviousDetailRowsSnapshot previousDetailRows =
-                PlaylistWorkspace.CapturePreviousDetailRowsSnapshot();
+            await WaitForPlaylistReloadCleanupShellReadinessAsync(request).ConfigureAwait(false);
+            PlaylistReloadCleanupSnapshot cleanupSnapshot =
+                PlaylistWorkspace.CapturePlaylistReloadCleanupSnapshot();
             long managedMemoryBeforeBytes = GC.GetTotalMemory(forceFullCollection: false);
             bool gcInvoked = request.GcAllowed && !IsShutdownRequested;
             if (gcInvoked)
@@ -1086,14 +1076,14 @@ public partial class MainWindowViewModel : ViewModel
                 GC.Collect();
             }
             long managedMemoryAfterBytes = GC.GetTotalMemory(forceFullCollection: false);
-            LogPlaylistReload("playlist_reload_cleanup completed cleanupId=" + request.CleanupId + " operationKind=" + GetPlaylistReloadOperationKindText(request.OperationKind) + " tableCount=" + request.TableCount + " oldSummaryAlive=" + oldSummaryAlive.ToString().ToLowerInvariant() + " oldSummaryRowCount=" + oldSummaryRowCount + " oldDetailSourceAlive=" + previousDetailRows.SourceAlive.ToString().ToLowerInvariant() + " oldDetailSourceRowCount=" + previousDetailRows.SourceRowCount + " oldDetailViewAlive=" + previousDetailRows.ViewAlive.ToString().ToLowerInvariant() + " oldDetailViewRowCount=" + previousDetailRows.ViewRowCount + " managedMemoryBeforeMb=" + (managedMemoryBeforeBytes / 1024L / 1024L) + " managedMemoryAfterMb=" + (managedMemoryAfterBytes / 1024L / 1024L) + " gcInvoked=" + gcInvoked.ToString().ToLowerInvariant());
+            LogPlaylistReload("playlist_reload_cleanup completed cleanupId=" + request.CleanupId + " operationKind=" + GetPlaylistReloadOperationKindText(request.OperationKind) + " tableCount=" + request.TableCount + " oldSummaryAlive=" + cleanupSnapshot.SummaryAlive.ToString().ToLowerInvariant() + " oldSummaryRowCount=" + cleanupSnapshot.SummaryRowCount + " oldDetailSourceAlive=" + cleanupSnapshot.PreviousDetailRows.SourceAlive.ToString().ToLowerInvariant() + " oldDetailSourceRowCount=" + cleanupSnapshot.PreviousDetailRows.SourceRowCount + " oldDetailViewAlive=" + cleanupSnapshot.PreviousDetailRows.ViewAlive.ToString().ToLowerInvariant() + " oldDetailViewRowCount=" + cleanupSnapshot.PreviousDetailRows.ViewRowCount + " managedMemoryBeforeMb=" + (managedMemoryBeforeBytes / 1024L / 1024L) + " managedMemoryAfterMb=" + (managedMemoryAfterBytes / 1024L / 1024L) + " gcInvoked=" + gcInvoked.ToString().ToLowerInvariant());
         }
     }
 
     /// <summary>
     /// playlist reload cleanup 実行前に必要な UI / build 完了を待機します。
     /// </summary>
-    private async Task WaitForPlaylistReloadCleanupReadinessAsync(PlaylistReloadCleanupRequest request)
+    private async Task WaitForPlaylistReloadCleanupShellReadinessAsync(PlaylistReloadCleanupRequest request)
     {
         if (request.WaitForStartupOperable)
         {
@@ -1103,22 +1093,10 @@ public partial class MainWindowViewModel : ViewModel
                 await Task.Delay(100).ConfigureAwait(false);
             }
         }
-        if (request.WaitForSummaryRefresh)
-        {
-            var summaryWaitStopwatch = Stopwatch.StartNew();
-            while (PlaylistWorkspace.LastPlaylistSummaryBuildCompletedTimestamp < request.RequestedAtTimestamp && summaryWaitStopwatch.ElapsedMilliseconds < 10000)
-            {
-                await Task.Delay(50).ConfigureAwait(false);
-            }
-        }
-        if (request.WaitForDetailRefresh)
-        {
-            var detailWaitStopwatch = Stopwatch.StartNew();
-            while (PlaylistWorkspace.LastDetailBuildCompletedTimestamp < request.RequestedAtTimestamp && detailWaitStopwatch.ElapsedMilliseconds < 10000)
-            {
-                await Task.Delay(50).ConfigureAwait(false);
-            }
-        }
+        await PlaylistWorkspace.WaitForPlaylistReloadCleanupReadinessAsync(
+            request.WaitForSummaryRefresh,
+            request.WaitForDetailRefresh,
+            request.RequestedAtTimestamp).ConfigureAwait(false);
         if (DispatcherHelper.UIDispatcher != null)
         {
             await DispatcherHelper.UIDispatcher.InvokeAsync(delegate

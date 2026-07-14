@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -116,6 +117,15 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "NextBuildGeneration { get; }");
         StringAssert.Contains(logicalSource, "if (request.RequestAlreadyQueued)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(");
+        StringAssert.Contains(workspaceSource, "internal async Task WaitForPlaylistReloadCleanupReadinessAsync(");
+        StringAssert.Contains(workspaceSource, "internal PlaylistReloadCleanupSnapshot CapturePlaylistReloadCleanupSnapshot()");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.WaitForPlaylistReloadCleanupReadinessAsync(");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.CapturePlaylistReloadCleanupSnapshot()");
+        Assert.AreEqual(-1, rootSource.IndexOf("TryGetPreviousPlaylistSummaryViewState", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.LastPlaylistSummaryBuildCompletedTimestamp", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.LastDetailBuildCompletedTimestamp", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.CapturePreviousDetailRowsSnapshot", StringComparison.Ordinal));
+        StringAssert.Contains(logicalSource, "WaitForPlaylistReloadCleanupShellReadinessAsync(");
         Assert.AreEqual(-1, bmtSortSource.IndexOf("refreshPlaylistSummary", StringComparison.Ordinal));
         Assert.AreEqual(-1, bmtSortSource.IndexOf("Func<string, bool, bool, long>", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("refreshPlaylistSummary", StringComparison.Ordinal));
@@ -285,6 +295,51 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, mainWindowSource.IndexOf("private async void customTableView_SortRequested(", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("CaptureSortRequest", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
+    }
+
+    [TestMethod]
+    public async Task PlaylistReloadCleanupReadinessAndSnapshotAreOwnedByWorkspace()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var stopwatch = Stopwatch.StartNew();
+
+        await workspace.WaitForPlaylistReloadCleanupReadinessAsync(
+            waitForSummaryRefresh: true,
+            waitForDetailRefresh: true,
+            requestedAtTimestamp: 0L);
+
+        stopwatch.Stop();
+        Assert.IsTrue(stopwatch.ElapsedMilliseconds < 1000L);
+        PlaylistReloadCleanupSnapshot snapshot = workspace.CapturePlaylistReloadCleanupSnapshot();
+        Assert.IsFalse(snapshot.SummaryAlive);
+        Assert.AreEqual(0, snapshot.SummaryRowCount);
+        Assert.IsFalse(snapshot.PreviousDetailRows.SourceAlive);
+        Assert.AreEqual(0, snapshot.PreviousDetailRows.SourceRowCount);
+        Assert.IsFalse(snapshot.PreviousDetailRows.ViewAlive);
+        Assert.AreEqual(0, snapshot.PreviousDetailRows.ViewRowCount);
+
+        workspace.IsPlaylistSummaryMode = true;
+        var firstSummaryRows = new ObservableCollection<PlaylistSummaryRow>
+        {
+            new PlaylistSummaryRow { PlaylistId = 1 }
+        };
+        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+        {
+            Rows = firstSummaryRows,
+            PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+        }));
+        var secondSummaryRows = new ObservableCollection<PlaylistSummaryRow>
+        {
+            new PlaylistSummaryRow { PlaylistId = 2 }
+        };
+        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+        {
+            Rows = secondSummaryRows,
+            PresentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration()
+        }));
+        snapshot = workspace.CapturePlaylistReloadCleanupSnapshot();
+        Assert.IsTrue(snapshot.SummaryAlive);
+        Assert.AreEqual(1, snapshot.SummaryRowCount);
     }
 
     [TestMethod]

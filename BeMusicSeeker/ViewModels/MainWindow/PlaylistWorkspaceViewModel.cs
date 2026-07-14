@@ -1121,14 +1121,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    internal bool TryGetPreviousPlaylistSummaryViewState(out bool alive, out int rowCount)
-    {
-        ObservableCollection<PlaylistSummaryRow> previousSummaryRows = null;
-        alive = previousPlaylistSummaryViewWeakReference != null && previousPlaylistSummaryViewWeakReference.TryGetTarget(out previousSummaryRows);
-        rowCount = alive ? previousSummaryRows.Count : 0;
-        return previousPlaylistSummaryViewWeakReference != null;
-    }
-
 }
 
 internal sealed class PlaylistSummaryApplyRequest
