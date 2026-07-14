@@ -4561,13 +4561,10 @@ public partial class MainWindowViewModel : ViewModel
             LogExternalPlaylistImportWarning,
             LogExternalPlaylistImportInfo,
             LogBeatorajaTableUrlImportWarning,
-            LogBeatorajaTableUrlImportInfo);
-        PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
-        PlaylistWorkspace.ConfigurePropertyEditing(new PlaylistPropertySaveService(
-            () => tables,
+            LogBeatorajaTableUrlImportInfo,
             () => files,
-            () => lr2config,
-            customFolderOutputSettingsProvider));
+            () => lr2config);
+        PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
         PlaylistWorkspace.ConfigureSummaryBulkEditing(() => lr2config);
         PlaylistWorkspace.ConfigureSummaryBulkWarningLogging(LogPlaylistSummaryBulkWarning);
         PlaylistWorkspace.ConfigureMutations(() => files, RunPlaylistOperationWithNotifications);

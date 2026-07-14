@@ -6,7 +6,7 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private PlaylistPropertySaveService propertySaveService;
+    private readonly PlaylistPropertySaveService propertySaveService;
 
     private PlaylistPropertyDialogViewModel activePropertyDialog;
 
@@ -37,33 +37,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 RaisePropertyChanged(nameof(ActivePropertyDialog));
             }
         }
-    }
-
-    internal void ConfigurePropertyEditing(PlaylistPropertySaveService service)
-    {
-        if (service == null)
-        {
-            throw new ArgumentNullException(nameof(service));
-        }
-        if (propertySaveService != null)
-        {
-            throw new InvalidOperationException("Playlist property editing is already configured.");
-        }
-        propertySaveService = service;
-        service.ValidationError += ForwardPlaylistPropertyValidationError;
-        service.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
-        service.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
-        service.PlaylistPropertySyncStarted += ForwardPlaylistPropertySyncStarted;
-        service.PlaylistPropertySyncProgressChanged += ForwardPlaylistSyncProgressChanged;
-        service.PlaylistPropertySyncFinished += ForwardPlaylistPropertySyncFinished;
-        service.PlaylistPropertyReferenceTableReplaced += ForwardPlaylistPropertyReferenceTableReplaced;
-        service.PlaylistPropertyFolderSelectionRemapped += ForwardPlaylistPropertyFolderSelectionRemapped;
-        service.PlaylistPropertyReferenceSortInvalidationRequested += ForwardPlaylistPropertyReferenceSortInvalidationRequested;
-        service.PlaylistPropertySyncResultReported += ForwardPlaylistSyncResultReported;
-        service.PlaylistPropertyExternalSyncFailed += ForwardPlaylistPropertyExternalSyncFailed;
-        service.PlaylistPropertySummaryDataRefreshRequested += ForwardPlaylistSummaryDataRefreshRequested;
-        service.PlaylistPropertyEntriesChanged += ForwardPlaylistEntriesChanged;
-        service.PlaylistPropertyNotificationsFlushRequested += ForwardPlaylistNotificationsFlushRequested;
     }
 
     private void ForwardPlaylistPropertyValidationError(

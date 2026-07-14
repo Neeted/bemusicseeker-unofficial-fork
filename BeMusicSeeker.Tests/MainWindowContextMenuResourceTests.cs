@@ -3370,6 +3370,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(compositionCode.Contains("ConfigureKeywordSearchHistory"));
         Assert.IsFalse(workspaceOwnerCode.Contains("ConfigureDetailEditing"));
         Assert.IsFalse(compositionCode.Contains("ConfigureDetailEditing"));
+        Assert.IsFalse(workspaceOwnerCode.Contains("ConfigurePropertyEditing"));
+        Assert.IsFalse(compositionCode.Contains("ConfigurePropertyEditing"));
+        Assert.IsFalse(mainWindowCode.Contains("new PlaylistPropertySaveService("));
         StringAssert.Contains(workspaceCode, "GetPlaylistUrlAcquisitionOptions");
         StringAssert.Contains(workspaceCode, "DispatchPlaylistUrlAcquisitionAction");
         StringAssert.Contains(workspaceCode, "PlaylistUrlDownloadStatusChanged");

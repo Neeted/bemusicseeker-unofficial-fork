@@ -106,7 +106,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore,
         PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
-        Func<BMSPlaylist> playlistStoreProvider)
+        Func<BMSPlaylist> playlistStoreProvider,
+        PlaylistPropertySaveService propertySaveService)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -143,6 +144,22 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
                 keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory));
         getPlaylistStore = playlistStoreProvider
             ?? throw new ArgumentNullException(nameof(playlistStoreProvider));
+        this.propertySaveService = propertySaveService
+            ?? throw new ArgumentNullException(nameof(propertySaveService));
+        propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
+        propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
+        propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
+        propertySaveService.PlaylistPropertySyncStarted += ForwardPlaylistPropertySyncStarted;
+        propertySaveService.PlaylistPropertySyncProgressChanged += ForwardPlaylistSyncProgressChanged;
+        propertySaveService.PlaylistPropertySyncFinished += ForwardPlaylistPropertySyncFinished;
+        propertySaveService.PlaylistPropertyReferenceTableReplaced += ForwardPlaylistPropertyReferenceTableReplaced;
+        propertySaveService.PlaylistPropertyFolderSelectionRemapped += ForwardPlaylistPropertyFolderSelectionRemapped;
+        propertySaveService.PlaylistPropertyReferenceSortInvalidationRequested += ForwardPlaylistPropertyReferenceSortInvalidationRequested;
+        propertySaveService.PlaylistPropertySyncResultReported += ForwardPlaylistSyncResultReported;
+        propertySaveService.PlaylistPropertyExternalSyncFailed += ForwardPlaylistPropertyExternalSyncFailed;
+        propertySaveService.PlaylistPropertySummaryDataRefreshRequested += ForwardPlaylistSummaryDataRefreshRequested;
+        propertySaveService.PlaylistPropertyEntriesChanged += ForwardPlaylistEntriesChanged;
+        propertySaveService.PlaylistPropertyNotificationsFlushRequested += ForwardPlaylistNotificationsFlushRequested;
     }
 
     internal void ResetPlaylistSummaryColumnsToDefault()

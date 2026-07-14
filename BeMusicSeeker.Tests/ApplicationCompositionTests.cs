@@ -66,7 +66,9 @@ public sealed class ApplicationCompositionTests
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
-                _ => { });
+                _ => { },
+                () => null!,
+                () => null!);
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
 
@@ -82,7 +84,9 @@ public sealed class ApplicationCompositionTests
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
-                _ => { });
+                _ => { },
+                () => null!,
+                () => null!);
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
             DateTime completedAt = DateTime.Now;
@@ -376,7 +380,9 @@ public sealed class ApplicationCompositionTests
             (_, _) => { },
             _ => { },
             (_, _) => { },
-            _ => { });
+            _ => { },
+            () => null!,
+            () => null!);
 
         Assert.IsNotNull(mainChartList);
         Assert.IsNotNull(playlistWorkspace);
@@ -408,7 +414,9 @@ public sealed class ApplicationCompositionTests
             (_, _) => { },
             _ => { },
             (_, _) => { },
-            _ => { });
+            _ => { },
+            () => null!,
+            () => null!);
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
@@ -482,7 +490,9 @@ public sealed class ApplicationCompositionTests
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
-                _ => { });
+                _ => { },
+                () => null!,
+                () => null!);
             workspace.IsPlaylistSummaryMode = true;
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
@@ -572,7 +582,9 @@ public sealed class ApplicationCompositionTests
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
-                _ => { });
+                _ => { },
+                () => null!,
+                () => null!);
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -752,7 +764,8 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                () => playlist);
+                () => playlist,
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
             var queuedReasons = new List<string>();

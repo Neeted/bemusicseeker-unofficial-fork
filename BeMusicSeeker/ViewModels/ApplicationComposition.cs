@@ -153,8 +153,15 @@ internal sealed class ApplicationComposition
         Action<Exception, string> externalPlaylistImportWarningLog,
         Action<string> externalPlaylistImportInfoLog,
         Action<Exception, string> beatorajaTableUrlImportWarningLog,
-        Action<string> beatorajaTableUrlImportInfoLog)
+        Action<string> beatorajaTableUrlImportInfoLog,
+        Func<BMSLibrary> libraryProvider,
+        Func<LR2Config> lr2ConfigProvider)
     {
+        var playlistPropertySaveService = new PlaylistPropertySaveService(
+            tablesProvider,
+            libraryProvider,
+            lr2ConfigProvider,
+            customFolderOutputSettingsProvider);
         var playlistWorkspace = new PlaylistWorkspaceViewModel(
             dispatchPresentationAction,
             mainChartList,
@@ -176,7 +183,8 @@ internal sealed class ApplicationComposition
             mainChartColumnSettingsStore,
             new PlaylistSummaryBmtSortCoordinator(tablesProvider, tableSnapshotProvider),
             keywordSearchHistorySettingsStore,
-            tablesProvider);
+            tablesProvider,
+            playlistPropertySaveService);
         return playlistWorkspace;
     }
 

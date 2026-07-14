@@ -852,7 +852,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         SelectSummaryFilter(workflowOwner, "exhard");
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
@@ -917,7 +918,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
         workflowOwner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = nameof(PlayHistoryRow.Title),
@@ -976,7 +978,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
         SelectSummaryFilter(workflowOwner, "exhard");
 
@@ -1033,7 +1036,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
         workspace.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
@@ -1436,7 +1440,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
         var owner = new PlayHistoryTerminalHarness(
             workflowOwner,
             table,
@@ -1558,7 +1563,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
         var sourceClear = new PlaylistSourceClearCommitResult(
             [],
             new List<object>(),
@@ -4037,7 +4043,8 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
         configureWorkspace(workspace);
         return new PlayHistoryTerminalHarness(
             workflowOwner,

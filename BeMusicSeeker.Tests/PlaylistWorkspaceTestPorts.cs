@@ -42,6 +42,13 @@ internal static class PlaylistWorkspaceTestPorts
 
     internal static Func<BMSPlaylist> PlaylistStoreProvider => () => null!;
 
+    internal static PlaylistPropertySaveService PlaylistPropertySaveService =>
+        new PlaylistPropertySaveService(
+            () => null!,
+            () => null!,
+            () => null!,
+            () => new CustomFolderOutputSettingsSnapshot());
+
     private sealed class InMemoryKeywordSearchHistorySettingsStore : IKeywordSearchHistorySettingsStore
     {
         public string KeywordSearchHistory { get; set; } = string.Empty;

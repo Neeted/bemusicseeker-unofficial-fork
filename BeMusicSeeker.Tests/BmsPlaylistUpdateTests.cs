@@ -614,7 +614,8 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                () => playlist);
+                () => playlist,
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             workspace.ConfigurePlaylistReloadCleanup(
                 () => true,
@@ -759,7 +760,8 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                () => playlist);
+                () => playlist,
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
 
@@ -6399,7 +6401,8 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
                 PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-                () => playlist);
+                () => playlist,
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>

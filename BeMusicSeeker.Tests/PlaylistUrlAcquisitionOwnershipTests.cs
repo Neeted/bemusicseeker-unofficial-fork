@@ -109,7 +109,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider));
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
     }
 
     [TestMethod]
@@ -165,7 +166,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             null!,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider));
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
     }
 
     [TestMethod]
@@ -175,7 +177,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             null!,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider));
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
     }
 
     [TestMethod]
@@ -185,7 +188,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             null!,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider));
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
     }
 
     [TestMethod]
@@ -195,6 +199,18 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            null!,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService));
+    }
+
+    [TestMethod]
+    public void ConstructorRequiresExplicitPlaylistPropertySaveService()
+    {
+        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithColumnStore(
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             null!));
     }
 
@@ -221,7 +237,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
@@ -253,14 +270,16 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             columnSettingsStore,
             playlistSummaryBmtSort,
             keywordSearchHistorySettingsStore,
-            playlistStoreProvider);
+            playlistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
         IMainChartColumnSettingsStore columnSettingsStore,
         PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort,
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
-        Func<BMSPlaylist> playlistStoreProvider)
+        Func<BMSPlaylist> playlistStoreProvider,
+        PlaylistPropertySaveService propertySaveService)
     {
         return new PlaylistWorkspaceViewModel(
             action => action(),
@@ -281,6 +300,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             columnSettingsStore,
             playlistSummaryBmtSort,
             keywordSearchHistorySettingsStore,
-            playlistStoreProvider);
+            playlistStoreProvider,
+            propertySaveService);
     }
 }
