@@ -101,7 +101,20 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             null,
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider));
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog));
+    }
+
+    [TestMethod]
+    public void ConstructorRequiresExplicitExternalPlaylistImportLoggingPorts()
+    {
+        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
+            null!,
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog));
+        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspaceWithLoggingPorts(
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
+            null!));
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspace(
@@ -119,6 +132,28 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             optionsProvider ?? PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog);
+    }
+
+    private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
+        Action<Exception, string> warningLog,
+        Action<string> infoLog)
+    {
+        return new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            warningLog,
+            infoLog);
     }
 }

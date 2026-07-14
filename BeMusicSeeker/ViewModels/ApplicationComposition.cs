@@ -147,7 +147,9 @@ internal sealed class ApplicationComposition
         MainChartListViewModel mainChartList,
         Action<string> detailViewLog,
         Action<string> detailRetentionLog,
-        Func<bool> playlistUrlInstallQueueActiveProvider)
+        Func<bool> playlistUrlInstallQueueActiveProvider,
+        Action<Exception, string> externalPlaylistImportWarningLog,
+        Action<string> externalPlaylistImportInfoLog)
     {
         var playlistWorkspace = new PlaylistWorkspaceViewModel(
             dispatchPresentationAction,
@@ -162,7 +164,9 @@ internal sealed class ApplicationComposition
                 detailViewLog),
             PlaylistExternalPackageLookupService.CreateDefault(),
             playlistUrlAcquisitionOptionsProvider,
-            playlistUrlInstallQueueActiveProvider);
+            playlistUrlInstallQueueActiveProvider,
+            externalPlaylistImportWarningLog,
+            externalPlaylistImportInfoLog);
         playlistWorkspace.ConfigurePlaylistSummaryColumnSettingsStore(mainChartColumnSettingsStore);
         return playlistWorkspace;
     }

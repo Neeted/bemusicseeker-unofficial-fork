@@ -3436,7 +3436,9 @@ public sealed class PlayHistoryReadModelTests
                 PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
                 PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
-                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider));
+                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+                PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
+                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog));
     }
 
     [TestMethod]

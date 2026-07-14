@@ -21,4 +21,8 @@ internal static class PlaylistWorkspaceTestPorts
         () => new PlaylistUrlAcquisitionOptionsSnapshot();
 
     internal static Func<bool> InactiveInstallQueueProvider => () => false;
+
+    internal static Action<Exception, string> ExternalPlaylistImportWarningLog => (_, _) => { };
+
+    internal static Action<string> ExternalPlaylistImportInfoLog => _ => { };
 }
