@@ -1024,7 +1024,7 @@ public partial class MainWindowViewModel
                 {
                     if (value
                         && !ApplicationSettings.EnableBeatorajaBmtOutput
-                        && ownerViewModel.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(BeatorajaRootPath)
+                        && ownerViewModel.PlaylistWorkspace.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(BeatorajaRootPath)
                         && !MainWindowViewModel.ShowUiConfirmation(
                             BeMusicSeeker.Properties.Resources.Confirm_enable_beatoraja_bmt_output_before_table_url_import,
                             BeMusicSeeker.Properties.Resources.Confirm,

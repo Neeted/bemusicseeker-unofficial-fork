@@ -261,7 +261,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
     {
         if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel } mainWindowViewModel)
         {
-            mainWindowViewModel.StartBeatorajaTableUrlImport(settingDialogViewModel.BeatorajaRootPath);
+            mainWindowViewModel.PlaylistWorkspace.StartBeatorajaTableUrlImport(settingDialogViewModel.BeatorajaRootPath);
         }
     }
 

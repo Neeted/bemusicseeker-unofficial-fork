@@ -29,6 +29,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private Action<string> externalPlaylistImportInfoLog;
 
+    private Action<Exception, string> beatorajaTableUrlImportWarningLog;
+
+    private Action<string> beatorajaTableUrlImportInfoLog;
+
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
     private IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore;
@@ -116,6 +120,16 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         externalPlaylistImportWarningLog = warningLog
             ?? throw new ArgumentNullException(nameof(warningLog));
         externalPlaylistImportInfoLog = infoLog
+            ?? throw new ArgumentNullException(nameof(infoLog));
+    }
+
+    internal void ConfigureBeatorajaTableUrlImportLogging(
+        Action<Exception, string> warningLog,
+        Action<string> infoLog)
+    {
+        beatorajaTableUrlImportWarningLog = warningLog
+            ?? throw new ArgumentNullException(nameof(warningLog));
+        beatorajaTableUrlImportInfoLog = infoLog
             ?? throw new ArgumentNullException(nameof(infoLog));
     }
 

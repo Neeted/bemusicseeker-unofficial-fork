@@ -112,6 +112,39 @@ public partial class MainWindowViewModel
             request.InvalidateTableCountCache);
     }
 
+    private void PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested(
+        object sender,
+        BeatorajaTableUrlImportConfirmationRequestedEventArgs request)
+    {
+        request.Confirmed = ShowUiConfirmation(
+            BeMusicSeeker.Properties.Resources.Confirm_import_beatoraja_table_urls,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxImage.Question,
+            MessageBoxButton.OKCancel,
+            "beatoraja Table URL import confirmation");
+    }
+
+    private void PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested(
+        object sender,
+        BeatorajaTableUrlImportNotificationRequestedEventArgs request)
+    {
+        MessageBoxImage icon = request.Kind switch
+        {
+            BeatorajaTableUrlImportNotificationKind.Information => MessageBoxImage.Information,
+            BeatorajaTableUrlImportNotificationKind.Warning => MessageBoxImage.Exclamation,
+            BeatorajaTableUrlImportNotificationKind.Error => MessageBoxImage.Hand,
+            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
+        };
+        ShowUiMessage(request.Message, request.Caption, icon, request.RouteName);
+    }
+
+    private void PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady(
+        object sender,
+        BeatorajaTableUrlImportSummaryReadyEventArgs request)
+    {
+        ShowBeatorajaTableUrlImportSummary(request?.Summary);
+    }
+
     private void PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
     {
         ShowUiMessage(

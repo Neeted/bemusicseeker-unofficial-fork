@@ -1112,7 +1112,7 @@ public sealed class BmtTableExportServiceTests
     [TestCategory("Playlist")]
     public void BuildBeatorajaTableUrlImportTargets_DeduplicatesByAbsoluteUriKeepingFirstRawUrl()
     {
-        object targets = typeof(MainWindowViewModel)
+        object targets = typeof(PlaylistWorkspaceViewModel)
             .GetMethod("BuildBeatorajaTableUrlImportTargets", BindingFlags.Static | BindingFlags.NonPublic)!
             .Invoke(null, [new[] { "https://EXAMPLE.com/table/%7Efull.html", "https://example.com/table/~full.html", "https://example.com/other.html" }]);
         var targetList = ((System.Collections.IEnumerable)targets).Cast<object>().ToArray();
@@ -1131,7 +1131,7 @@ public sealed class BmtTableExportServiceTests
         {
             Page_url = new Uri(rawPageUrl, UriKind.Absolute)
         };
-        MethodInfo method = typeof(MainWindowViewModel)
+        MethodInfo method = typeof(PlaylistWorkspaceViewModel)
             .GetMethod("HasSamePersistedTableUrl", BindingFlags.Static | BindingFlags.NonPublic)!;
 
         Assert.IsTrue((bool)method.Invoke(null, [table, rawPageUrl]));

@@ -530,9 +530,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void BeatorajaTableUrlImport_ParallelizesExternalLoadAndBatchesRegistrationWork()
     {
-        string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
-        string importMethod = ExtractMethodBody(source, "private async Task ImportBeatorajaTableUrlsAsync");
+        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string importMethod = ExtractMethodBody(workspaceSource, "private async Task ImportBeatorajaTableUrlsAsync");
         string completionMethod = ExtractMethodBody(workspaceSource, "internal bool CompleteImportedPlaylistRegistrations");
 
         StringAssert.Contains(importMethod, "await tables.LoadExternalTableSnapshotsAsync(");
@@ -547,6 +547,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(
             importMethod.Contains("await tables.RegistrateExternalTableAsync("),
             "beatoraja Table URL import should not serialize external requests through the single-table registration API.");
+        Assert.AreEqual(-1, rootSource.IndexOf("ImportBeatorajaTableUrlsAsync(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("StartBeatorajaTableUrlImport(", StringComparison.Ordinal));
     }
 
     [TestMethod]

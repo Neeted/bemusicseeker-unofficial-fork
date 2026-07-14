@@ -216,12 +216,30 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistImportNotificationsFlushRequested += PlaylistWorkspacePlaylistImportNotificationsFlushRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshRequested += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ConfigureBeatorajaTableUrlImportLogging(");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;");
         StringAssert.Contains(workspaceSource, "internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)");
         StringAssert.Contains(workspaceSource, "private async Task DrainExternalPlaylistImportQueueAsync()");
         StringAssert.Contains(workspaceSource, "internal bool CompleteImportedPlaylistRegistrations(");
+        StringAssert.Contains(workspaceSource, "internal void StartBeatorajaTableUrlImport(string rootPath)");
+        StringAssert.Contains(workspaceSource, "internal bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string rootPath)");
+        StringAssert.Contains(workspaceSource, "private async Task ImportBeatorajaTableUrlsAsync(");
+        StringAssert.Contains(workspaceSource, "private static IReadOnlyList<BeatorajaTableUrlImportTarget> BuildBeatorajaTableUrlImportTargets(");
+        StringAssert.Contains(workspaceSource, "BeatorajaTableUrlImportConfirmationRequested");
+        StringAssert.Contains(workspaceSource, "BeatorajaTableUrlImportNotificationRequested");
+        StringAssert.Contains(workspaceSource, "BeatorajaTableUrlImportSummaryReady");
         Assert.AreEqual(-1, rootSource.IndexOf("EnqueueExternalPlaylistBMSTableImport(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("DrainExternalPlaylistImportQueueAsync(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("private bool CompleteImportedPlaylistRegistrations(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("StartBeatorajaTableUrlImport(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("ImportBeatorajaTableUrlsAsync(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("BuildBeatorajaTableUrlImportTargets(", StringComparison.Ordinal));
+        string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "SettingDialog.cs");
+        StringAssert.Contains(settingDialogSource, "mainWindowViewModel.PlaylistWorkspace.StartBeatorajaTableUrlImport(");
+        StringAssert.Contains(logicalSource, "ownerViewModel.PlaylistWorkspace.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(");
         string summaryRemovalConfirmationSource = SourceTextTestHelper.ExtractMethodBody(
             logicalSource,
             "private void PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested(");
