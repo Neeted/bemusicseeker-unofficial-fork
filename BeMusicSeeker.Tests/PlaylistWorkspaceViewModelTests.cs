@@ -212,6 +212,16 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "PlaylistSummaryRemovalConfirmationRequested");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested += PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistImportNotificationsFlushRequested += PlaylistWorkspacePlaylistImportNotificationsFlushRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshRequested += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshRequested;");
+        StringAssert.Contains(workspaceSource, "internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)");
+        StringAssert.Contains(workspaceSource, "private async Task DrainExternalPlaylistImportQueueAsync()");
+        StringAssert.Contains(workspaceSource, "internal bool CompleteImportedPlaylistRegistrations(");
+        Assert.AreEqual(-1, rootSource.IndexOf("EnqueueExternalPlaylistBMSTableImport(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("DrainExternalPlaylistImportQueueAsync(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("private bool CompleteImportedPlaylistRegistrations(", StringComparison.Ordinal));
         string summaryRemovalConfirmationSource = SourceTextTestHelper.ExtractMethodBody(
             logicalSource,
             "private void PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested(");

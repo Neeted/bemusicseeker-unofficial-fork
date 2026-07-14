@@ -93,11 +93,11 @@ public sealed class ExternalPlaylistImportQueueTests
     [TestMethod]
     public void ResolveExternalPlaylistImportQueueProgressTotal_UsesCompletedActiveAndPendingCounts()
     {
-        Assert.AreEqual(2, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(0, hasActiveImport: true, pendingCount: 1));
-        Assert.AreEqual(2, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(1, hasActiveImport: false, pendingCount: 1));
-        Assert.AreEqual(3, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(1, hasActiveImport: true, pendingCount: 1));
-        Assert.AreEqual(3, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(3, hasActiveImport: false, pendingCount: 0));
-        Assert.AreEqual(0, MainWindowViewModel.ResolveExternalPlaylistImportQueueProgressTotal(-1, hasActiveImport: false, pendingCount: -1));
+        Assert.AreEqual(2, PlaylistWorkspaceViewModel.ResolveExternalPlaylistImportQueueProgressTotal(0, hasActiveImport: true, pendingCount: 1));
+        Assert.AreEqual(2, PlaylistWorkspaceViewModel.ResolveExternalPlaylistImportQueueProgressTotal(1, hasActiveImport: false, pendingCount: 1));
+        Assert.AreEqual(3, PlaylistWorkspaceViewModel.ResolveExternalPlaylistImportQueueProgressTotal(1, hasActiveImport: true, pendingCount: 1));
+        Assert.AreEqual(3, PlaylistWorkspaceViewModel.ResolveExternalPlaylistImportQueueProgressTotal(3, hasActiveImport: false, pendingCount: 0));
+        Assert.AreEqual(0, PlaylistWorkspaceViewModel.ResolveExternalPlaylistImportQueueProgressTotal(-1, hasActiveImport: false, pendingCount: -1));
     }
 
     [TestMethod]

@@ -499,11 +499,11 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void ExternalTableImportContinuation_DoesNotReturnReferenceIndexWorkToUiThread()
     {
-        string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
-        string drainMethod = ExtractMethodBody(source, "private async Task DrainExternalPlaylistImportQueueAsync");
-        string completionMethod = ExtractMethodBody(source, "private bool CompleteImportedPlaylistRegistrations");
-        string duplicatePreparationMethod = ExtractMethodBody(source, "private List<ExternalPlaylistImportWorkItem> PrepareExternalPlaylistImportRegistrationItems");
-        string duplicateSkipMethod = ExtractMethodBody(source, "private static void RecordExternalPlaylistImportDuplicateNameSkip");
+        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string drainMethod = ExtractMethodBody(workspaceSource, "private async Task DrainExternalPlaylistImportQueueAsync");
+        string completionMethod = ExtractMethodBody(workspaceSource, "internal bool CompleteImportedPlaylistRegistrations");
+        string duplicatePreparationMethod = ExtractMethodBody(workspaceSource, "private List<ExternalPlaylistImportWorkItem> PrepareExternalPlaylistImportRegistrationItems");
+        string duplicateSkipMethod = ExtractMethodBody(workspaceSource, "private void RecordExternalPlaylistImportDuplicateNameSkip");
 
         StringAssert.Contains(drainMethod, ".ConfigureAwait(false)");
         StringAssert.Contains(drainMethod, "externalPlaylistImportQueue.DequeueBatch()");
@@ -516,7 +516,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(drainMethod, "Playlist_import_progress_phase_update_references");
         StringAssert.Contains(drainMethod, "PlaylistSyncAttemptResult.CreateFailure(item.LoadedTable, item.LoadedTable, item.Uri, referenceUpdateException)");
         StringAssert.Contains(completionMethod, "files.AddReferenceBMSTablesIncremental(tableList);");
-        StringAssert.Contains(completionMethod, "QueuePlaylistSummaryRefreshIfVisible(reason ?? \"playlist_registered\", invalidateTableCountCache: true)");
+        StringAssert.Contains(completionMethod, "RequestExternalPlaylistSummaryRefresh(");
         StringAssert.Contains(duplicatePreparationMethod, "GetExternalPlaylistImportExistingNamesSnapshot()");
         StringAssert.Contains(duplicateSkipMethod, "ExternalPlaylistImportOutcome.SkippedDuplicateName");
         Assert.IsFalse(
@@ -531,8 +531,9 @@ public sealed class PlaylistConcurrencyArchitectureTests
     public void BeatorajaTableUrlImport_ParallelizesExternalLoadAndBatchesRegistrationWork()
     {
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
         string importMethod = ExtractMethodBody(source, "private async Task ImportBeatorajaTableUrlsAsync");
-        string completionMethod = ExtractMethodBody(source, "private bool CompleteImportedPlaylistRegistrations");
+        string completionMethod = ExtractMethodBody(workspaceSource, "internal bool CompleteImportedPlaylistRegistrations");
 
         StringAssert.Contains(importMethod, "await tables.LoadExternalTableSnapshotsAsync(");
         StringAssert.Contains(importMethod, "schedulePlaylistUrlCompletionRefresh: false");

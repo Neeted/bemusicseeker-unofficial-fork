@@ -78,6 +78,40 @@ public partial class MainWindowViewModel
             MessageBoxResult.Cancel);
     }
 
+    private void PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady(
+        object sender,
+        ExternalPlaylistImportQueueSummaryReadyEventArgs request)
+    {
+        ShowExternalPlaylistImportQueueSummary(request?.Summary);
+    }
+
+    private void PlaylistWorkspacePlaylistImportNotificationsFlushRequested(
+        object sender,
+        PlaylistImportNotificationsFlushRequestedEventArgs request)
+    {
+        FlushPlaylistOperationNotifications(request.Scope, request.RouteName);
+    }
+
+    private void PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed(
+        object sender,
+        ExternalPlaylistImportSummaryRefreshFailedEventArgs request)
+    {
+        ShowUiMessage(
+            BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + request.Exception.Message,
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxImage.Exclamation,
+            "external playlist import summary refresh failure notification");
+    }
+
+    private void PlaylistWorkspaceExternalPlaylistImportSummaryRefreshRequested(
+        object sender,
+        ExternalPlaylistImportSummaryRefreshRequestedEventArgs request)
+    {
+        QueuePlaylistSummaryRefreshIfVisible(
+            request.Reason,
+            request.InvalidateTableCountCache);
+    }
+
     private void PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
     {
         ShowUiMessage(

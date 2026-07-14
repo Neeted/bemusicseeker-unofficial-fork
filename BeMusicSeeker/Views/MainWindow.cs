@@ -3810,7 +3810,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (base.DataContext is MainWindowViewModel viewModel && menuItem.DataContext is BMSTableSimple dataContext && !(dataContext.url == null) && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
         {
-            viewModel.EnqueueExternalPlaylistBMSTableImport(dataContext.url);
+            viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(dataContext.url);
         }
     }
 
@@ -3823,7 +3823,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel viewModel && sender is MenuItem menuItem && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
         {
             var uri = new Uri((string)menuItem.Tag);
-            viewModel.EnqueueExternalPlaylistBMSTableImport(uri);
+            viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(uri);
         }
     }
 
@@ -3854,7 +3854,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        viewModel.EnqueueExternalPlaylistBMSTableImport(uri);
+        viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(uri);
     }
 
     /// <summary>

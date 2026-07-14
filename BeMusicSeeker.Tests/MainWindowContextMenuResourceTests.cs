@@ -1114,9 +1114,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(menuSnippet, "<Setter Property=\"MenuItem.StaysOpenOnClick\" Value=\"True\" />");
         StringAssert.Contains(menuSnippet, "<DataTrigger Binding=\"{Binding url}\" Value=\"{x:Null}\">");
         StringAssert.Contains(menuSnippet, "<Setter Property=\"MenuItem.StaysOpenOnClick\" Value=\"False\" />");
-        StringAssert.Contains(code, "viewModel.EnqueueExternalPlaylistBMSTableImport(dataContext.url);");
-        StringAssert.Contains(code, "viewModel.EnqueueExternalPlaylistBMSTableImport(uri);");
-        StringAssert.Contains(dialogCode, "viewModel.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);");
+        StringAssert.Contains(code, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(dataContext.url);");
+        StringAssert.Contains(code, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(uri);");
+        StringAssert.Contains(dialogCode, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);");
         StringAssert.Contains(dialogCode, "ParsePlaylistUriInput(textBoxURIInput.Text)");
         StringAssert.Contains(dialogCode, "AppendUriInputLine(textBoxURIInput.Text, result.FileName)");
         StringAssert.Contains(dialogXaml, "AcceptsReturn=\"True\"");

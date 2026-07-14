@@ -25,6 +25,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Action<string> detailViewLog;
 
+    private Action<Exception, string> externalPlaylistImportWarningLog;
+
+    private Action<string> externalPlaylistImportInfoLog;
+
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
     private IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore;
@@ -103,6 +107,16 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             throw new InvalidOperationException("Playlist summary BMT sort is already configured.");
         }
         playlistSummaryBmtSort = coordinator;
+    }
+
+    internal void ConfigureExternalPlaylistImportLogging(
+        Action<Exception, string> warningLog,
+        Action<string> infoLog)
+    {
+        externalPlaylistImportWarningLog = warningLog
+            ?? throw new ArgumentNullException(nameof(warningLog));
+        externalPlaylistImportInfoLog = infoLog
+            ?? throw new ArgumentNullException(nameof(infoLog));
     }
 
     internal void ConfigurePlaylistSummaryColumnSettingsStore(IMainChartColumnSettingsStore store)

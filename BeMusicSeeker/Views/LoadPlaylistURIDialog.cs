@@ -61,7 +61,7 @@ public partial class LoadPlaylistURIDialog : UserControl, IComponentConnector
             }
             textBoxURIInput.Text = string.Empty;
             GetDialogHost().HideOverlayDialog(this);
-            viewModel.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);
+            viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);
             if (parseResult.HasInvalidLines)
             {
                 ShowInvalidUriLines(parseResult.InvalidLines);
