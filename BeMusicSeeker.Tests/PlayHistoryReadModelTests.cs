@@ -3432,7 +3432,11 @@ public sealed class PlayHistoryReadModelTests
                 new PlaylistDetailViewState(),
                 _ => { },
                 _ => { },
-                () => new CustomFolderOutputSettingsSnapshot()));
+                () => new CustomFolderOutputSettingsSnapshot(),
+                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider));
     }
 
     [TestMethod]

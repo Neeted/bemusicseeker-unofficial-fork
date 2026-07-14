@@ -180,7 +180,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly object playlistUrlAcquisitionSync = new();
 
-    private Func<bool> playlistUrlInstallQueueActiveProvider;
+    private readonly Func<bool> playlistUrlInstallQueueActiveProvider;
 
     private int playlistUrlAcquisitionRunning;
 
@@ -217,12 +217,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return playlistUrlAcquisitionRunning != 0;
             }
         }
-    }
-
-    internal void ConfigurePlaylistUrlAcquisitionInstallQueue(Func<bool> activeProvider)
-    {
-        playlistUrlInstallQueueActiveProvider = activeProvider
-            ?? throw new ArgumentNullException(nameof(activeProvider));
     }
 
     internal async Task OpenSinglePlaylistUrlAsync(Uri url)
@@ -685,14 +679,12 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private bool IsPlaylistUrlInstallQueueActive()
     {
-        return (playlistUrlInstallQueueActiveProvider
-            ?? throw new InvalidOperationException("Playlist URL acquisition install queue is not configured."))();
+        return playlistUrlInstallQueueActiveProvider();
     }
 
     private PlaylistUrlAcquisitionOptionsSnapshot GetPlaylistUrlAcquisitionOptions()
     {
-        return (playlistUrlAcquisitionOptionsProvider
-            ?? throw new InvalidOperationException("Playlist URL acquisition options are not configured."))();
+        return playlistUrlAcquisitionOptionsProvider();
     }
 
     private bool RequestPlaylistUrlAcquisitionConfirmation(PlaylistUrlAcquisitionConfirmationRequestedEventArgs request)

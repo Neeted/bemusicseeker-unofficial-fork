@@ -602,7 +602,11 @@ public sealed class BmsPlaylistUpdateTests
                 new PlaylistDetailViewState(),
                 _ => { },
                 _ => { },
-                () => new CustomFolderOutputSettingsSnapshot());
+                () => new CustomFolderOutputSettingsSnapshot(),
+                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
             workspace.ConfigureDetailEditing(() => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             workspace.ConfigurePlaylistReloadCleanup(
@@ -736,7 +740,11 @@ public sealed class BmsPlaylistUpdateTests
                 new PlaylistDetailViewState(),
                 _ => { },
                 _ => { },
-                () => new CustomFolderOutputSettingsSnapshot());
+                () => new CustomFolderOutputSettingsSnapshot(),
+                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
             workspace.ConfigureDetailEditing(() => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
@@ -6365,7 +6373,11 @@ public sealed class BmsPlaylistUpdateTests
                 new PlaylistDetailViewState(),
                 _ => { },
                 _ => { },
-                getOperationSettings);
+                getOperationSettings,
+                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
             workspace.ConfigureDetailEditing(() => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;

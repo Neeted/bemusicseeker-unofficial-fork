@@ -59,7 +59,8 @@ public sealed class ApplicationCompositionTests
                 action => action(),
                 missingProviderMainChartList,
                 _ => { },
-                _ => { });
+                _ => { },
+                () => false);
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
 
@@ -68,7 +69,8 @@ public sealed class ApplicationCompositionTests
                 action => action(),
                 mainChartList,
                 _ => { },
-                _ => { });
+                _ => { },
+                () => false);
             workspace.ConfigureDetailEditing(() => playlist);
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
@@ -356,7 +358,8 @@ public sealed class ApplicationCompositionTests
             },
             _ =>
             {
-            });
+            },
+            () => false);
 
         Assert.IsNotNull(mainChartList);
         Assert.IsNotNull(playlistWorkspace);
@@ -381,7 +384,8 @@ public sealed class ApplicationCompositionTests
             },
             _ =>
             {
-            });
+            },
+            () => false);
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
@@ -450,7 +454,8 @@ public sealed class ApplicationCompositionTests
                 action => action(),
                 mainChartList,
                 _ => { },
-                _ => { });
+                _ => { },
+                () => false);
             workspace.IsPlaylistSummaryMode = true;
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
@@ -535,7 +540,8 @@ public sealed class ApplicationCompositionTests
                 action => action(),
                 mainChartList,
                 _ => { },
-                _ => { });
+                _ => { },
+                () => false);
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -705,7 +711,11 @@ public sealed class ApplicationCompositionTests
                 new PlaylistDetailViewState(),
                 _ => { },
                 _ => { },
-                () => new CustomFolderOutputSettingsSnapshot());
+                () => new CustomFolderOutputSettingsSnapshot(),
+                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
             workspace.ConfigureDetailEditing(() => playlist);
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);

@@ -3329,6 +3329,11 @@ public sealed class MainWindowContextMenuResourceTests
             "BeMusicSeeker",
             "ViewModels",
             "MainWindowViewModel.PlaylistUrlAcquisitionEvents.cs"));
+        string compositionCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "ApplicationComposition.cs"));
 
         StringAssert.Contains(mainWindowCode, "viewModel.PlaylistWorkspace.OpenSinglePlaylistUrlAsync(url)");
         StringAssert.Contains(mainWindowCode, "bulkViewModel.PlaylistWorkspace.DownloadSelectedPlaylistUrlsAsync(");
@@ -3341,7 +3346,14 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(workspaceCode, "CancelPlaylistUrlDownload");
         StringAssert.Contains(workflowCode, "IPlaylistUrlDownloadGateway");
         Assert.IsFalse(workflowCode.Contains("NLog"));
-        StringAssert.Contains(workspaceOwnerCode, "ConfigurePlaylistUrlAcquisitionOptions");
+        Assert.IsFalse(workspaceOwnerCode.Contains("ConfigurePlaylistUrlAcquisition"));
+        StringAssert.Contains(workspaceOwnerCode, "playlistUrlAcquisitionOptionsProvider");
+        StringAssert.Contains(workspaceCode, "playlistUrlInstallQueueActiveProvider");
+        StringAssert.Contains(compositionCode, "new PlaylistUrlAcquisitionWorkflow(");
+        StringAssert.Contains(compositionCode, "PlaylistExternalPackageLookupService.CreateDefault()");
+        StringAssert.Contains(compositionCode, "playlistUrlAcquisitionOptionsProvider");
+        StringAssert.Contains(compositionCode, "playlistUrlInstallQueueActiveProvider");
+        Assert.IsFalse(compositionCode.Contains("ConfigurePlaylistUrlAcquisition"));
         StringAssert.Contains(workspaceCode, "GetPlaylistUrlAcquisitionOptions");
         StringAssert.Contains(workspaceCode, "DispatchPlaylistUrlAcquisitionAction");
         StringAssert.Contains(workspaceCode, "PlaylistUrlDownloadStatusChanged");

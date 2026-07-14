@@ -14,11 +14,6 @@ internal sealed class PlaylistUrlAcquisitionOptionsSnapshot
 
     internal bool ShouldAutoInstall => ScanBmsFilesOnStartup && AutoInstall;
 
-    internal static PlaylistUrlAcquisitionOptionsSnapshot CreateCurrent()
-    {
-        return CreateCurrent(SettingsEditSession.CreateDefault().Values);
-    }
-
     internal static PlaylistUrlAcquisitionOptionsSnapshot CreateCurrent(Settings settings)
     {
         if (settings == null)

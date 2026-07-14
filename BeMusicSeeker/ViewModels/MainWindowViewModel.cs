@@ -4554,8 +4554,8 @@ public partial class MainWindowViewModel : ViewModel
             DispatchMainChartListAction,
             MainChartList,
             LogPlaylistViewApply,
-            LogPlaylistRetention);
-        PlaylistWorkspace.ConfigurePlaylistUrlAcquisitionInstallQueue(() => IsDropInstallQueueActive);
+            LogPlaylistRetention,
+            () => IsDropInstallQueueActive);
         PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
         PlaylistWorkspace.ConfigureKeywordSearchHistory(composition.KeywordSearchHistorySettingsStore);
         PlaylistWorkspace.ConfigurePropertyEditing(new PlaylistPropertySaveService(

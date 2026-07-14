@@ -840,7 +840,11 @@ public sealed class ChartListVirtualViewTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         SelectSummaryFilter(workflowOwner, "exhard");
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
@@ -893,7 +897,11 @@ public sealed class ChartListVirtualViewTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         workflowOwner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = nameof(PlayHistoryRow.Title),
@@ -940,7 +948,11 @@ public sealed class ChartListVirtualViewTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
         SelectSummaryFilter(workflowOwner, "exhard");
 
@@ -985,7 +997,11 @@ public sealed class ChartListVirtualViewTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         workspace.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
@@ -1376,7 +1392,11 @@ public sealed class ChartListVirtualViewTests
             viewState,
             _ => { },
             _ => retentionLogged = true,
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var owner = new PlayHistoryTerminalHarness(
             workflowOwner,
             table,
@@ -1486,7 +1506,11 @@ public sealed class ChartListVirtualViewTests
             viewState,
             _ => { },
             _ => retentionLogged = true,
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var sourceClear = new PlaylistSourceClearCommitResult(
             [],
             new List<object>(),
@@ -3953,7 +3977,11 @@ public sealed class ChartListVirtualViewTests
             playlistViewState,
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         configureWorkspace(workspace);
         return new PlayHistoryTerminalHarness(
             workflowOwner,

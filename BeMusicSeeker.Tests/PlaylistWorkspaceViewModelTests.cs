@@ -303,7 +303,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "LogPlaylistViewApply,");
         StringAssert.Contains(workspaceSource, "internal PlaylistDetailBuildState DetailBuildState { get; }");
         StringAssert.Contains(workspaceSource, "internal PlaylistDetailViewState DetailViewState { get; }");
-        StringAssert.Contains(logicalSource, "LogPlaylistRetention);");
+        StringAssert.Contains(logicalSource, "LogPlaylistRetention,");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PropertyChanged += PlaylistWorkspacePropertyChanged;", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("private void PlaylistWorkspacePropertyChanged(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("lockPlaylistSyncStatuses", StringComparison.Ordinal));
@@ -622,7 +622,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            null));
+            null,
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider));
     }
 
     [TestMethod]
@@ -804,7 +808,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             logs.Add,
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "request-entry");
@@ -1440,7 +1448,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         return workspace;
@@ -1563,7 +1575,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         var summaryColumns = new PlaylistSummaryColumnSettings();
         var selection = new MainChartListColumnSelection(
@@ -1604,7 +1620,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         int raisedCount = 0;
         workspace.PlaylistSummarySortRequested += (_, _) =>
         {
@@ -1630,7 +1650,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         int raisedCount = 0;
         MainChartListSortRequestedEventArgs? observedRequest = null;
         workspace.PlaylistDetailSortChanged += (_, request) =>
@@ -1702,7 +1726,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var initialSort = new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.Level),
@@ -1735,7 +1763,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         workspace.InitializePlaylistDetailFilter(
             new ChartListFilterSnapshot("  title:Alpha  ", ChartModeFilter.All));
         int raisedCount = 0;
@@ -1839,7 +1871,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
 
         int raisedCount = 0;
         workspace.PropertyChanged += (_, e) =>
@@ -1872,7 +1908,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var propertyNames = new List<string>();
         workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
@@ -1894,7 +1934,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var propertyNames = new List<string>();
         workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
         workspace.GridHeaderText = "stale header";
@@ -1979,7 +2023,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
@@ -2040,7 +2088,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot())
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider)
         {
             IsPlaylistSummaryMode = true
         };
@@ -2080,7 +2132,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot())
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider)
         {
             IsPlaylistSummaryMode = true
         };
@@ -2110,7 +2166,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot())
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider)
         {
             IsPlaylistSummaryMode = true
         };
@@ -2141,7 +2201,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var expected = new PlaylistSummaryCountResult
         {
             ScannedEntries = 4,
@@ -2173,7 +2237,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest staleBuild));
         var staleResult = new PlaylistSummaryCountResult
@@ -2203,7 +2271,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot())
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider)
         {
             IsPlaylistSummaryMode = true
         };
@@ -2234,7 +2306,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot())
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider)
         {
             IsPlaylistSummaryMode = true
         };
@@ -2265,7 +2341,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot())
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider)
         {
             IsPlaylistSummaryMode = true
         };
@@ -2294,7 +2374,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         long hiddenDataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
         long hiddenCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
 
@@ -2328,7 +2412,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
 
         Assert.AreEqual(
             0L,
@@ -2368,7 +2456,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var table = new BMSTable();
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder");
         var playlistRow = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
@@ -2392,7 +2484,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var table = new BMSTable { is_external_sync = true };
         var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
         workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
@@ -2425,7 +2521,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
         var table = new BMSTable();
         PlaylistFolderNode specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
 

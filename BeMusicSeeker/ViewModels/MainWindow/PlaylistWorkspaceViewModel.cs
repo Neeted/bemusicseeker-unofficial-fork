@@ -35,7 +35,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
-    private Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider;
+    private readonly Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider;
 
     private readonly PlaylistUrlAcquisitionWorkflow playlistUrlAcquisitionWorkflow;
 
@@ -95,8 +95,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action<string> detailViewLog,
         Action<string> detailRetentionLog,
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
-        PlaylistUrlAcquisitionWorkflow playlistUrlAcquisitionWorkflow = null,
-        PlaylistExternalPackageLookupService playlistExternalPackageLookupService = null)
+        PlaylistUrlAcquisitionWorkflow playlistUrlAcquisitionWorkflow,
+        PlaylistExternalPackageLookupService playlistExternalPackageLookupService,
+        Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider,
+        Func<bool> playlistUrlInstallQueueActiveProvider)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -107,25 +109,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
             ?? throw new ArgumentNullException(nameof(customFolderOutputSettingsProvider));
         this.playlistUrlAcquisitionWorkflow = playlistUrlAcquisitionWorkflow
-            ?? new PlaylistUrlAcquisitionWorkflow(
-                new AppPlaylistUrlDownloadGateway(),
-                detailViewLog);
+            ?? throw new ArgumentNullException(nameof(playlistUrlAcquisitionWorkflow));
         this.playlistExternalPackageLookupService = playlistExternalPackageLookupService
-            ?? PlaylistExternalPackageLookupService.CreateDefault();
-    }
-
-    internal void ConfigurePlaylistUrlAcquisitionOptions(
-        Func<PlaylistUrlAcquisitionOptionsSnapshot> optionsProvider)
-    {
-        if (optionsProvider == null)
-        {
-            throw new ArgumentNullException(nameof(optionsProvider));
-        }
-        if (playlistUrlAcquisitionOptionsProvider != null)
-        {
-            throw new InvalidOperationException("Playlist URL acquisition options are already configured.");
-        }
-        playlistUrlAcquisitionOptionsProvider = optionsProvider;
+            ?? throw new ArgumentNullException(nameof(playlistExternalPackageLookupService));
+        this.playlistUrlAcquisitionOptionsProvider = playlistUrlAcquisitionOptionsProvider
+            ?? throw new ArgumentNullException(nameof(playlistUrlAcquisitionOptionsProvider));
+        this.playlistUrlInstallQueueActiveProvider = playlistUrlInstallQueueActiveProvider
+            ?? throw new ArgumentNullException(nameof(playlistUrlInstallQueueActiveProvider));
     }
 
     internal void ConfigureSummaryBmtSort(PlaylistSummaryBmtSortCoordinator coordinator)

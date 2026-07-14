@@ -44,9 +44,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         {
             dispatchCount++;
             action();
-        });
-        workspace.ConfigurePlaylistUrlAcquisitionInstallQueue(() => false);
-        workspace.ConfigurePlaylistUrlAcquisitionOptions(() => new PlaylistUrlAcquisitionOptionsSnapshot
+        }, () => new PlaylistUrlAcquisitionOptionsSnapshot
         {
             ScanBmsFilesOnStartup = false,
             AutoInstall = true
@@ -68,9 +66,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         {
             dispatchCount++;
             action();
-        });
-        workspace.ConfigurePlaylistUrlAcquisitionInstallQueue(() => false);
-        workspace.ConfigurePlaylistUrlAcquisitionOptions(() => new PlaylistUrlAcquisitionOptionsSnapshot());
+        }, () => new PlaylistUrlAcquisitionOptionsSnapshot());
         workspace.PlaylistUrlAcquisitionConfirmationRequested += (_, request) => request.Confirmed = true;
         PlaylistUrlAcquisitionSummaryReadyEventArgs? summary = null;
         List<PlaylistUrlDownloadStatusSnapshot> statuses = [];
@@ -92,16 +88,25 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     }
 
     [TestMethod]
-    public async Task WorkspaceWithoutConfiguredOptionsFailsExplicitly()
+    public void ConstructorRequiresExplicitPlaylistUrlPorts()
     {
-        PlaylistWorkspaceViewModel workspace = CreateWorkspace(action => action());
-        workspace.ConfigurePlaylistUrlAcquisitionInstallQueue(() => false);
-
-        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
-            () => workspace.OpenSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
+        Assert.ThrowsException<ArgumentNullException>(() => new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot(),
+            null,
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider));
     }
 
-    private static PlaylistWorkspaceViewModel CreateWorkspace(Action<Action> dispatch)
+    private static PlaylistWorkspaceViewModel CreateWorkspace(
+        Action<Action> dispatch,
+        Func<PlaylistUrlAcquisitionOptionsSnapshot>? optionsProvider = null)
     {
         return new PlaylistWorkspaceViewModel(
             dispatch,
@@ -110,6 +115,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             new PlaylistDetailViewState(),
             _ => { },
             _ => { },
-            () => new CustomFolderOutputSettingsSnapshot());
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            optionsProvider ?? PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider);
     }
 }

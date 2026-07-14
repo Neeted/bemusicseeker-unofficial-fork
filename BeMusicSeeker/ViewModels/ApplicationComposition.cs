@@ -146,7 +146,8 @@ internal sealed class ApplicationComposition
         Action<Action> dispatchPresentationAction,
         MainChartListViewModel mainChartList,
         Action<string> detailViewLog,
-        Action<string> detailRetentionLog)
+        Action<string> detailRetentionLog,
+        Func<bool> playlistUrlInstallQueueActiveProvider)
     {
         var playlistWorkspace = new PlaylistWorkspaceViewModel(
             dispatchPresentationAction,
@@ -155,8 +156,13 @@ internal sealed class ApplicationComposition
             new PlaylistDetailViewState(),
             detailViewLog,
             detailRetentionLog,
-            customFolderOutputSettingsProvider);
-        playlistWorkspace.ConfigurePlaylistUrlAcquisitionOptions(playlistUrlAcquisitionOptionsProvider);
+            customFolderOutputSettingsProvider,
+            new PlaylistUrlAcquisitionWorkflow(
+                new AppPlaylistUrlDownloadGateway(),
+                detailViewLog),
+            PlaylistExternalPackageLookupService.CreateDefault(),
+            playlistUrlAcquisitionOptionsProvider,
+            playlistUrlInstallQueueActiveProvider);
         playlistWorkspace.ConfigurePlaylistSummaryColumnSettingsStore(mainChartColumnSettingsStore);
         return playlistWorkspace;
     }
