@@ -3438,7 +3438,9 @@ public sealed class PlayHistoryReadModelTests
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
                 PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog));
+                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog));
     }
 
     [TestMethod]

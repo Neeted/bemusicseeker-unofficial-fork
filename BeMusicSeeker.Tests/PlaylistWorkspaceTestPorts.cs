@@ -25,4 +25,8 @@ internal static class PlaylistWorkspaceTestPorts
     internal static Action<Exception, string> ExternalPlaylistImportWarningLog => (_, _) => { };
 
     internal static Action<string> ExternalPlaylistImportInfoLog => _ => { };
+
+    internal static Action<Exception, string> BeatorajaTableUrlImportWarningLog => (_, _) => { };
+
+    internal static Action<string> BeatorajaTableUrlImportInfoLog => _ => { };
 }

@@ -62,6 +62,8 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 () => false,
                 (_, _) => { },
+                _ => { },
+                (_, _) => { },
                 _ => { });
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
@@ -73,6 +75,8 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 _ => { },
                 () => false,
+                (_, _) => { },
+                _ => { },
                 (_, _) => { },
                 _ => { });
             workspace.ConfigureDetailEditing(() => playlist);
@@ -365,6 +369,8 @@ public sealed class ApplicationCompositionTests
             },
             () => false,
             (_, _) => { },
+            _ => { },
+            (_, _) => { },
             _ => { });
 
         Assert.IsNotNull(mainChartList);
@@ -392,6 +398,8 @@ public sealed class ApplicationCompositionTests
             {
             },
             () => false,
+            (_, _) => { },
+            _ => { },
             (_, _) => { },
             _ => { });
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
@@ -464,6 +472,8 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 _ => { },
                 () => false,
+                (_, _) => { },
+                _ => { },
                 (_, _) => { },
                 _ => { });
             workspace.IsPlaylistSummaryMode = true;
@@ -552,6 +562,8 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 _ => { },
                 () => false,
+                (_, _) => { },
+                _ => { },
                 (_, _) => { },
                 _ => { });
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
@@ -729,7 +741,9 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
                 PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog);
+                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
             workspace.ConfigureDetailEditing(() => playlist);
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);

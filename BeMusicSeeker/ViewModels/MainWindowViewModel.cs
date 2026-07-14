@@ -4557,7 +4557,9 @@ public partial class MainWindowViewModel : ViewModel
             LogPlaylistRetention,
             () => IsDropInstallQueueActive,
             LogExternalPlaylistImportWarning,
-            LogExternalPlaylistImportInfo);
+            LogExternalPlaylistImportInfo,
+            LogBeatorajaTableUrlImportWarning,
+            LogBeatorajaTableUrlImportInfo);
         PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
         PlaylistWorkspace.ConfigureKeywordSearchHistory(composition.KeywordSearchHistorySettingsStore);
         PlaylistWorkspace.ConfigurePropertyEditing(new PlaylistPropertySaveService(
@@ -4568,9 +4570,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.ConfigureDetailEditing(() => tables);
         PlaylistWorkspace.ConfigureSummaryBulkEditing(() => lr2config);
         PlaylistWorkspace.ConfigureSummaryBulkWarningLogging(LogPlaylistSummaryBulkWarning);
-        PlaylistWorkspace.ConfigureBeatorajaTableUrlImportLogging(
-            LogBeatorajaTableUrlImportWarning,
-            LogBeatorajaTableUrlImportInfo);
         PlaylistWorkspace.ConfigureMutations(() => files, RunPlaylistOperationWithNotifications);
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;

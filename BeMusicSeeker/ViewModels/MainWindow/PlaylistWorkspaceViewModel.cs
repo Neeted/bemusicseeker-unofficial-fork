@@ -29,9 +29,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Action<string> externalPlaylistImportInfoLog;
 
-    private Action<Exception, string> beatorajaTableUrlImportWarningLog;
+    private readonly Action<Exception, string> beatorajaTableUrlImportWarningLog;
 
-    private Action<string> beatorajaTableUrlImportInfoLog;
+    private readonly Action<string> beatorajaTableUrlImportInfoLog;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
@@ -100,7 +100,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider,
         Func<bool> playlistUrlInstallQueueActiveProvider,
         Action<Exception, string> externalPlaylistImportWarningLog,
-        Action<string> externalPlaylistImportInfoLog)
+        Action<string> externalPlaylistImportInfoLog,
+        Action<Exception, string> beatorajaTableUrlImportWarningLog,
+        Action<string> beatorajaTableUrlImportInfoLog)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -122,6 +124,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(externalPlaylistImportWarningLog));
         this.externalPlaylistImportInfoLog = externalPlaylistImportInfoLog
             ?? throw new ArgumentNullException(nameof(externalPlaylistImportInfoLog));
+        this.beatorajaTableUrlImportWarningLog = beatorajaTableUrlImportWarningLog
+            ?? throw new ArgumentNullException(nameof(beatorajaTableUrlImportWarningLog));
+        this.beatorajaTableUrlImportInfoLog = beatorajaTableUrlImportInfoLog
+            ?? throw new ArgumentNullException(nameof(beatorajaTableUrlImportInfoLog));
     }
 
     internal void ConfigureSummaryBmtSort(PlaylistSummaryBmtSortCoordinator coordinator)
@@ -135,16 +141,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             throw new InvalidOperationException("Playlist summary BMT sort is already configured.");
         }
         playlistSummaryBmtSort = coordinator;
-    }
-
-    internal void ConfigureBeatorajaTableUrlImportLogging(
-        Action<Exception, string> warningLog,
-        Action<string> infoLog)
-    {
-        beatorajaTableUrlImportWarningLog = warningLog
-            ?? throw new ArgumentNullException(nameof(warningLog));
-        beatorajaTableUrlImportInfoLog = infoLog
-            ?? throw new ArgumentNullException(nameof(infoLog));
     }
 
     internal void ConfigurePlaylistSummaryColumnSettingsStore(IMainChartColumnSettingsStore store)

@@ -3355,9 +3355,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(compositionCode, "playlistUrlInstallQueueActiveProvider");
         StringAssert.Contains(compositionCode, "externalPlaylistImportWarningLog");
         StringAssert.Contains(compositionCode, "externalPlaylistImportInfoLog");
+        StringAssert.Contains(compositionCode, "beatorajaTableUrlImportWarningLog");
+        StringAssert.Contains(compositionCode, "beatorajaTableUrlImportInfoLog");
         Assert.IsFalse(compositionCode.Contains("ConfigurePlaylistUrlAcquisition"));
         Assert.IsFalse(workspaceOwnerCode.Contains("ConfigureExternalPlaylistImportLogging"));
         Assert.IsFalse(compositionCode.Contains("ConfigureExternalPlaylistImportLogging"));
+        Assert.IsFalse(workspaceOwnerCode.Contains("ConfigureBeatorajaTableUrlImportLogging"));
+        Assert.IsFalse(compositionCode.Contains("ConfigureBeatorajaTableUrlImportLogging"));
         StringAssert.Contains(workspaceCode, "GetPlaylistUrlAcquisitionOptions");
         StringAssert.Contains(workspaceCode, "DispatchPlaylistUrlAcquisitionAction");
         StringAssert.Contains(workspaceCode, "PlaylistUrlDownloadStatusChanged");

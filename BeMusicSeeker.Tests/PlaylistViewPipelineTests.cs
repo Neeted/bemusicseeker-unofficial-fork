@@ -327,7 +327,9 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog);
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
         table.RowsReplacementCanceled += (_, _) =>
         {
             Task lockProbe = Task.Run(() =>
@@ -364,7 +366,9 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog);
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         PlaylistDetailTerminalRequest request = CreatePlaylistTerminalRequest(
@@ -397,7 +401,9 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog);
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -450,7 +456,9 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog);
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };
@@ -2634,7 +2642,9 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog);
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
         workspace.ConfigureDetailEditing(() => throw new AssertFailedException("cancel must not persist"));
         PlaylistDetailScoreSnapshotRefreshRequestedEventArgs? refresh = null;
         workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refresh = request;
@@ -2682,7 +2692,9 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
-            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog);
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
         workspace.ConfigureDetailEditing(() => throw new AssertFailedException("invalid URI must not persist"));
         var context = new MainChartListCellEditContext(
             row,

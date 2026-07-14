@@ -149,7 +149,9 @@ internal sealed class ApplicationComposition
         Action<string> detailRetentionLog,
         Func<bool> playlistUrlInstallQueueActiveProvider,
         Action<Exception, string> externalPlaylistImportWarningLog,
-        Action<string> externalPlaylistImportInfoLog)
+        Action<string> externalPlaylistImportInfoLog,
+        Action<Exception, string> beatorajaTableUrlImportWarningLog,
+        Action<string> beatorajaTableUrlImportInfoLog)
     {
         var playlistWorkspace = new PlaylistWorkspaceViewModel(
             dispatchPresentationAction,
@@ -166,7 +168,9 @@ internal sealed class ApplicationComposition
             playlistUrlAcquisitionOptionsProvider,
             playlistUrlInstallQueueActiveProvider,
             externalPlaylistImportWarningLog,
-            externalPlaylistImportInfoLog);
+            externalPlaylistImportInfoLog,
+            beatorajaTableUrlImportWarningLog,
+            beatorajaTableUrlImportInfoLog);
         playlistWorkspace.ConfigurePlaylistSummaryColumnSettingsStore(mainChartColumnSettingsStore);
         return playlistWorkspace;
     }
