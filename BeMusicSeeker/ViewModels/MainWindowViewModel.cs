@@ -5457,7 +5457,9 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistWorkspaceEntriesChangedEventArgs request)
     {
-        ApplyPlaylistEntriesChanged(request.Table, refreshSummaryIfVisible: true);
+        ApplyPlaylistEntriesChanged(
+            refreshSummaryIfVisible: request.RefreshSummaryIfVisible,
+            detailContentChanged: request.DetailContentChanged);
     }
 
     private void PlaylistWorkspacePlaylistSummaryDataRefreshRequested(
@@ -5566,14 +5568,15 @@ public partial class MainWindowViewModel : ViewModel
             + request.ElapsedMilliseconds);
     }
 
-    private void ApplyPlaylistEntriesChanged(BMSTable table, bool refreshSummaryIfVisible)
+    private void ApplyPlaylistEntriesChanged(
+        bool refreshSummaryIfVisible,
+        bool detailContentChanged)
     {
         if (refreshSummaryIfVisible)
         {
             RefreshPlaylistSummaryIfVisible("playlist_entries_updated", invalidateTableCountCache: true);
         }
-        if (IsPlaylistDetailWorkflowActive
-            && PlaylistWorkspace.MarkCurrentPlaylistDetailEntriesChanged(table, "playlist_updated"))
+        if (IsPlaylistDetailWorkflowActive && detailContentChanged)
         {
             RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         }

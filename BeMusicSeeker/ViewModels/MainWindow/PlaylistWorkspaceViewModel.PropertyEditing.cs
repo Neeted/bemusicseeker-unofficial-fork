@@ -175,7 +175,18 @@ public sealed partial class PlaylistWorkspaceViewModel
         object sender,
         PlaylistWorkspaceEntriesChangedEventArgs request)
     {
-        RaiseRequiredEvent(EntriesChanged, request, nameof(EntriesChanged));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(request.Table, "playlist_updated");
+        RaiseRequiredEvent(
+            EntriesChanged,
+            new PlaylistWorkspaceEntriesChangedEventArgs(
+                request.Table,
+                detailContentChanged,
+                request.RefreshSummaryIfVisible),
+            nameof(EntriesChanged));
     }
 
     private void ForwardPlaylistNotificationsFlushRequested(

@@ -150,9 +150,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         lock (playlistDetailSelectionSyncRoot)
         {
+            string currentFolderName = playlistDetailSelection?.FolderName;
             if (playlistDetailSelection?.Table != table
-                || string.IsNullOrWhiteSpace(playlistDetailSelection.FolderName)
-                || !rewrittenFolders.TryGetValue(playlistDetailSelection.FolderName, out string rewrittenFolder))
+                || currentFolderName == null
+                || !rewrittenFolders.TryGetValue(currentFolderName, out string rewrittenFolder))
             {
                 return false;
             }
@@ -170,9 +171,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return false;
             }
+            IncrementDetailContentRevision(reason);
+            return true;
         }
-        IncrementDetailContentRevision(reason);
-        return true;
     }
 
     private bool IsCurrentPlaylistDetailSelectionWithoutLock(

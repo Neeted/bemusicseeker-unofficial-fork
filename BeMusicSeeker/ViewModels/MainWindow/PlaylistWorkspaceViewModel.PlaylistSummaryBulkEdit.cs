@@ -767,6 +767,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
 
         const string reason = "playlist_summary_external_property_initialization";
+        bool summaryRefreshRequired = false;
+        bool summaryRefreshAttempted = false;
+        bool playlistTablesReaderLockHeld = false;
         BeginPlaylistSyncProgressOperation();
         try
         {
@@ -843,12 +846,20 @@ public sealed partial class PlaylistWorkspaceViewModel
                 return;
             }
 
+            tables.AcquireReaderLockBMSTables();
+            playlistTablesReaderLockHeld = true;
             List<PlaylistSummaryExternalPropertyInitializationChange> acceptedChanges =
                 FilterPlaylistSummaryExternalPropertyInitializationOutputConflicts(pendingChanges, settings);
             if (acceptedChanges.Count == 0)
             {
                 return;
             }
+            acceptedChanges = [.. acceptedChanges.Where(change => tables.ContainsBMSTable(change.Table))];
+            if (acceptedChanges.Count == 0)
+            {
+                return;
+            }
+            summaryRefreshRequired = true;
 
             var outputDirPathBeforeByTable = new Dictionary<BMSTable, string>();
             var outputBaseDirPathBeforeByTable = new Dictionary<BMSTable, string>();
@@ -878,13 +889,21 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
 
                 bool entryFolderProjectionChanged = false;
+                IReadOnlyDictionary<string, string> rewrittenFolders = null;
                 if (change.RequiresCompatiblePrefixRewrite)
                 {
                     tables.EnsurePlaylistEntriesLoaded(table, "ApplyPlaylistSummaryExternalPropertyInitialization.RewriteCompatiblePrefix");
                     using (table.ReaderWriterLock.GetWriterGuard())
                     {
                         table.compat_prefix = change.DesiredCompatPrefix;
-                        entryFolderProjectionChanged = table.RewriteCompatibleFolderPrefix(change.OriginalCompatPrefix, change.DesiredCompatPrefix, out _);
+                        entryFolderProjectionChanged = table.RewriteCompatibleFolderPrefix(
+                            change.OriginalCompatPrefix,
+                            change.DesiredCompatPrefix,
+                            out rewrittenFolders);
+                    }
+                    if (entryFolderProjectionChanged)
+                    {
+                        RemapCurrentPlaylistDetailFolderSelection(table, rewrittenFolders);
                     }
                 }
 
@@ -928,6 +947,10 @@ public sealed partial class PlaylistWorkspaceViewModel
                 tables.CommitBMSTablesWithEntriesToDB(
                     entryChangedTableList,
                     UpdatePlaylistSummaryExternalPropertyInitializationProgress);
+                foreach (BMSTable table in entryChangedTableList)
+                {
+                    PublishEntriesChanged(table, refreshSummaryIfVisible: false);
+                }
             }
             if (outputChangedTables.Count > 0)
             {
@@ -981,11 +1004,27 @@ public sealed partial class PlaylistWorkspaceViewModel
                 tables.QueueBeatorajaBmtExportForTables(bmtProjectionTables.Distinct(), reason);
             }
             UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, 0, string.Empty);
+            summaryRefreshAttempted = true;
             RequestPlaylistSummaryRefresh(reason, invalidateTableCountCache: true);
         }
         finally
         {
-            EndPlaylistSyncProgressOperation();
+            try
+            {
+                if (summaryRefreshRequired && !summaryRefreshAttempted)
+                {
+                    summaryRefreshAttempted = true;
+                    RequestPlaylistSummaryRefresh(reason, invalidateTableCountCache: true);
+                }
+            }
+            finally
+            {
+                if (playlistTablesReaderLockHeld)
+                {
+                    tables.FreeReaderLockBMSTables();
+                }
+                EndPlaylistSyncProgressOperation();
+            }
         }
     }
 

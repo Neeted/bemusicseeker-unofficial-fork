@@ -97,14 +97,20 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceTableReplaced += PlaylistWorkspacePlaylistReferenceTableReplaced;");
         StringAssert.Contains(logicalSource, "InvokeMainChartListPresentationAction(() =>");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable);");
-        StringAssert.Contains(logicalSource, "ApplyPlaylistEntriesChanged(request.Table, refreshSummaryIfVisible: true);");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.MarkCurrentPlaylistDetailEntriesChanged(table, \"playlist_updated\")");
+        StringAssert.Contains(logicalSource, "detailContentChanged: request.DetailContentChanged");
+        Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistEntriesChanged(\n            request.Table", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("MarkCurrentPlaylistDetailEntriesChanged(table, \"playlist_updated\")", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders);");
         Assert.AreEqual(-1, rootSource.IndexOf("ReplaceCurrentPlaylistSelectionTable(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("RemapCurrentPlaylistFolderSelection(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("treeViewFilterParameterSelected is PlaylistDetailSelection", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "private void PublishEntriesChanged(BMSTable table)");
-        StringAssert.Contains(workspaceSource, "EntriesChanged?.Invoke(this, new PlaylistWorkspaceEntriesChangedEventArgs(table));");
+        StringAssert.Contains(workspaceSource, "private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true)");
+        StringAssert.Contains(workspaceSource, "bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(table, \"playlist_updated\")");
+        StringAssert.Contains(workspaceSource, "private void ForwardPlaylistEntriesChanged(");
+        StringAssert.Contains(workspaceSource, "bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(request.Table, \"playlist_updated\")");
+        StringAssert.Contains(workspaceSource, "new PlaylistWorkspaceEntriesChangedEventArgs(\n                request.Table,\n                detailContentChanged,\n                request.RefreshSummaryIfVisible)");
+        StringAssert.Contains(workspaceSource, "DetailContentChanged { get; }");
+        StringAssert.Contains(workspaceSource, "RefreshSummaryIfVisible { get; }");
         StringAssert.Contains(workspaceSource, "internal Task AddRowsToFolderAsync(");
         StringAssert.Contains(workspaceSource, "internal Task DeleteEntriesAsync(");
         StringAssert.Contains(workspaceSource, "internal Task RemoveTableAsync(");
@@ -134,6 +140,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool ReplaceCurrentPlaylistDetailSelectionTable(");
         StringAssert.Contains(workspaceSource, "internal bool RemapCurrentPlaylistDetailFolderSelection(");
         StringAssert.Contains(workspaceSource, "internal bool MarkCurrentPlaylistDetailEntriesChanged(");
+        StringAssert.Contains(bulkEditSource, "PublishEntriesChanged(table, refreshSummaryIfVisible: false);");
         StringAssert.Contains(workspaceSource, "internal long ClearPlaylistDetailSelection()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryExecuteCurrentPlaylistSummarySelection(");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryExecuteCurrentPlaylistDetailSelection(");
@@ -871,6 +878,20 @@ public sealed class PlaylistWorkspaceViewModelTests
             newTable,
             new Dictionary<string, string> { ["Folder A"] = "Folder B" }));
         Assert.AreEqual("Folder B", workspace.CapturePlaylistDetailSelection().FolderName);
+
+        workspace.RequestDetailSelection(newTable, PlaylistFolderNode.CreateFolder(string.Empty));
+        Assert.IsTrue(workspace.RemapCurrentPlaylistDetailFolderSelection(
+            newTable,
+            new Dictionary<string, string> { [string.Empty] = "Root Renamed" }));
+        Assert.AreEqual("Root Renamed", workspace.CapturePlaylistDetailSelection().FolderName);
+
+        workspace.RequestDetailSelection(
+            newTable,
+            PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned));
+        Assert.IsFalse(workspace.RemapCurrentPlaylistDetailFolderSelection(
+            newTable,
+            new Dictionary<string, string> { [string.Empty] = "Not Owned Renamed" }));
+        Assert.IsNull(workspace.CapturePlaylistDetailSelection().FolderName);
 
         workspace.DetailViewState.Source.PlaylistContentRevision = 9;
         Assert.IsTrue(workspace.MarkCurrentPlaylistDetailEntriesChanged(newTable, "test_entries_changed"));

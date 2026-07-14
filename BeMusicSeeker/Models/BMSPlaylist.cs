@@ -9035,24 +9035,28 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="foldeNameBefore">変更前フォルダ名。</param>
     /// <param name="folderNameAfter">変更後フォルダ名。</param>
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
+    /// <returns>対象テーブルがアクティブで変更を適用した場合は <see langword="true"/>、それ以外は <see langword="false"/>。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void RenameFolderBMSTable(BMSTable bmsTable, string foldeNameBefore, string folderNameAfter, bool commitFlag = true)
+    internal bool RenameFolderBMSTable(BMSTable bmsTable, string foldeNameBefore, string folderNameAfter, bool commitFlag = true)
     {
         if (bmsTable == null)
         {
             throw new ArgumentNullException("bmsTable");
         }
         EnsurePlaylistEntriesLoaded(bmsTable, "RenameFolderBMSTable");
+        using (rwlockBMSTables.GetReaderGuard())
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
-            if (BMSTables.Contains(bmsTable))
+            if (!BMSTables.Contains(bmsTable))
             {
-                bmsTable.RenameFolder(foldeNameBefore, folderNameAfter);
-                if (commitFlag)
-                {
-                    ReOutputCustomFolderAndCommitToDB(bmsTable);
-                }
+                return false;
             }
+            bmsTable.RenameFolder(foldeNameBefore, folderNameAfter);
+            if (commitFlag)
+            {
+                ReOutputCustomFolderAndCommitToDB(bmsTable);
+            }
+            return true;
         }
     }
 
@@ -9062,24 +9066,28 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="bmsTable">対象プレイリスト。</param>
     /// <param name="folderNameDelete">削除するフォルダ名。</param>
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
+    /// <returns>対象テーブルがアクティブで変更を適用した場合は <see langword="true"/>、それ以外は <see langword="false"/>。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void RemoveFolderBMSTable(BMSTable bmsTable, string folderNameDelete, bool commitFlag = true)
+    internal bool RemoveFolderBMSTable(BMSTable bmsTable, string folderNameDelete, bool commitFlag = true)
     {
         if (bmsTable == null)
         {
             throw new ArgumentNullException("bmsTable");
         }
         EnsurePlaylistEntriesLoaded(bmsTable, "RemoveFolderBMSTable");
+        using (rwlockBMSTables.GetReaderGuard())
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
-            if (BMSTables.Contains(bmsTable))
+            if (!BMSTables.Contains(bmsTable))
             {
-                bmsTable.RemoveFolder(folderNameDelete);
-                if (commitFlag)
-                {
-                    ReOutputCustomFolderAndCommitToDB(bmsTable);
-                }
+                return false;
             }
+            bmsTable.RemoveFolder(folderNameDelete);
+            if (commitFlag)
+            {
+                ReOutputCustomFolderAndCommitToDB(bmsTable);
+            }
+            return true;
         }
     }
 
@@ -9098,6 +9106,7 @@ public partial class BMSPlaylist : NotificationObject
             throw new ArgumentNullException("bmsTable");
         }
         EnsurePlaylistEntriesLoaded(bmsTable, "CreateNewFolderBMSTable");
+        using (rwlockBMSTables.GetReaderGuard())
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (!BMSTables.Contains(bmsTable))
@@ -9120,14 +9129,16 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="bmsTable">対象プレイリスト。</param>
     /// <param name="folderName">追加先フォルダ名。</param>
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
+    /// <returns>対象テーブルがアクティブで変更を適用した場合は <see langword="true"/>、それ以外は <see langword="false"/>。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void AddPlaylistEntriesToFolderBMSTable(IEnumerable<BMSTableEntry> entries, BMSTable bmsTable, string folderName, bool commitFlag = true)
+    internal bool AddPlaylistEntriesToFolderBMSTable(IEnumerable<BMSTableEntry> entries, BMSTable bmsTable, string folderName, bool commitFlag = true)
     {
         if (bmsTable == null)
         {
             throw new ArgumentNullException("bmsTable");
         }
         EnsurePlaylistEntriesLoaded(bmsTable, "AddPlaylistEntriesToFolderBMSTable");
+        using (rwlockBMSTables.GetReaderGuard())
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
@@ -9137,7 +9148,9 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     ReOutputCustomFolderAndCommitToDB(bmsTable);
                 }
+                return true;
             }
+            return false;
         }
     }
 
@@ -9147,14 +9160,16 @@ public partial class BMSPlaylist : NotificationObject
     /// <param name="bmsEntries">除去するエントリ群。</param>
     /// <param name="bmsTable">対象プレイリスト。</param>
     /// <param name="commitFlag">変更後に DB 反映するかどうか。</param>
+    /// <returns>対象テーブルがアクティブで変更を適用した場合は <see langword="true"/>、それ以外は <see langword="false"/>。</returns>
     /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    internal void RemoveEntriesBMSTable(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable, bool commitFlag = true)
+    internal bool RemoveEntriesBMSTable(IEnumerable<BMSTableEntry> bmsEntries, BMSTable bmsTable, bool commitFlag = true)
     {
         if (bmsTable == null)
         {
             throw new ArgumentNullException("bmsTable");
         }
         EnsurePlaylistEntriesLoaded(bmsTable, "RemoveEntriesBMSTable");
+        using (rwlockBMSTables.GetReaderGuard())
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             if (BMSTables.Contains(bmsTable))
@@ -9164,7 +9179,9 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     ReOutputCustomFolderAndCommitToDB(bmsTable);
                 }
+                return true;
             }
+            return false;
         }
     }
 

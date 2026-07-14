@@ -692,6 +692,82 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public async Task PlaylistWorkspaceMutation_ReportsDetailContentChangeForCurrentTable()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSTable table = new()
+            {
+                playlist_id = 9012,
+                name = "WorkspaceMutation",
+                symbol = "WM",
+                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Mutation")]
+            };
+            BMSTableEntry entry = table.entries.Single();
+            entry.folder = "Mutation";
+            entry.parent = table;
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    null!)
+            };
+            var library = new BMSLibrary(songDbPath);
+            var workspace = new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot());
+            workspace.ConfigureDetailEditing(() => playlist);
+            workspace.ConfigureMutations(() => library, (action, _) => action());
+            workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
+
+            List<PlaylistWorkspaceEntriesChangedEventArgs> changes = [];
+            PlaylistWorkspaceEntriesChangedEventArgs? changed = null;
+            workspace.EntriesChanged += (_, request) =>
+            {
+                changed = request;
+                changes.Add(request);
+            };
+            long initialRevision = workspace.DetailViewState.Source.PlaylistContentRevision;
+
+            await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Mutation"), "Renamed");
+            Assert.AreEqual("Renamed", workspace.CapturePlaylistDetailSelection()!.FolderName);
+            await workspace.CreateFolderAsync(table);
+            await workspace.RemoveFolderAsync(table, PlaylistFolderNode.CreateFolder("Renamed"));
+            Assert.AreEqual(string.Empty, workspace.CapturePlaylistDetailSelection()!.FolderName);
+            await workspace.DeleteEntriesAsync([entry], table);
+
+            Assert.IsNotNull(changed);
+            Assert.AreSame(table, changed!.Table);
+            Assert.IsTrue(changed.DetailContentChanged);
+            Assert.AreEqual(4, changes.Count);
+            Assert.IsTrue(changes.All(request => request.DetailContentChanged));
+            Assert.AreEqual(initialRevision + changes.Count, workspace.DetailViewState.Source.PlaylistContentRevision);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public async Task CommitBMSTableEntry_StaleDetailEditPreservesReloadedFields()
     {
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
@@ -917,6 +993,10 @@ public sealed class BmsPlaylistUpdateTests
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
+            viewModel.PlaylistWorkspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("1"));
+            PlaylistWorkspaceEntriesChangedEventArgs? detailContentChange = null;
+            viewModel.PlaylistWorkspace.EntriesChanged += (_, request) => detailContentChange = request;
+            long initialDetailContentRevision = viewModel.PlaylistWorkspace.DetailViewState.Source.PlaylistContentRevision;
 
             await viewModel.PlaylistWorkspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = table }],
@@ -936,6 +1016,12 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual("★1", table.entries[0].folder);
             Assert.AreEqual("★★1", table.entries[1].folder);
             CollectionAssert.AreEqual(new[] { "★1", "★★1" }, table.Folder_order);
+            Assert.IsNotNull(detailContentChange);
+            Assert.AreSame(table, detailContentChange!.Table);
+            Assert.IsTrue(detailContentChange.DetailContentChanged);
+            Assert.IsFalse(detailContentChange.RefreshSummaryIfVisible);
+            Assert.AreEqual("★1", viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection().FolderName);
+            Assert.AreEqual(initialDetailContentRevision + 1, viewModel.PlaylistWorkspace.DetailViewState.Source.PlaylistContentRevision);
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDBExtended.playlist persisted = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == 9501);
             Assert.AreEqual("External:Name", persisted.name);
