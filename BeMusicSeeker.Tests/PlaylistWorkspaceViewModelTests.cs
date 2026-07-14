@@ -91,6 +91,15 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));");
         StringAssert.Contains(logicalSource, "RaisePropertyChanged(() => BMSTables);");
         Assert.AreEqual(-1, rootSource.IndexOf("private void SetPlaylistSummaryMode(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("playlistLibraryIndexSync", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("GetOrCreatePlaylistLibraryIndexSnapshot", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "ConfigurePlaylistLibraryIndexPrewarm(");
+        StringAssert.Contains(workspaceSource, "InvalidatePlaylistLibraryIndexSnapshot(");
+        StringAssert.Contains(workspaceSource, "CapturePlaylistLibraryIndexReadinessSnapshot()");
+        StringAssert.Contains(workspaceSource, "MarkPlaylistLibraryIndexShutdownRequested()");
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.ConfigurePlaylistLibraryIndexPrewarm(");
+        StringAssert.Contains(rootSource, "QueueStartupBackgroundTask(\"playlist_library_index_prewarm\", reason, null, work)");
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.MarkPlaylistLibraryIndexShutdownRequested();");
         Assert.AreEqual(-1, rootSource.IndexOf("public bool IsPlaylistDetailViewActive", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryColumnSettingsCoordinator", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.IsPlaylistSummaryMode =", StringComparison.Ordinal));
@@ -1150,6 +1159,54 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreSame(replacementRequest, workspace.DetailBuildState.PendingRequest);
     }
 
+    [TestMethod]
+    public async Task PlaylistLibraryIndexPrewarm_UsesWorkspaceSchedulerAndRuntimeCache()
+    {
+        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        var queuedWork = new List<Func<Task>>();
+        workspace.ConfigurePlaylistLibraryIndexPrewarm((_, work) =>
+        {
+            queuedWork.Add(work);
+            return true;
+        });
+
+        workspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
+
+        Assert.AreEqual(1, queuedWork.Count);
+        await queuedWork[0]().ConfigureAwait(false);
+        Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
+
+        dataSource.RuntimeState = new BMSLibrary.PlaylistLibraryResolveIndexRuntimeState
+        {
+            IsCached = true,
+            OwnedCollectionVersion = (int)dataSource.OwnedChartCollectionVersion,
+            BuildElapsedMs = 12L
+        };
+        PlaylistLibraryIndexReadinessSnapshot readiness = workspace.CapturePlaylistLibraryIndexReadinessSnapshot();
+        Assert.AreEqual("cached", readiness.State);
+        Assert.AreEqual(12L, readiness.BuildElapsedMs);
+    }
+
+    [TestMethod]
+    public async Task PlaylistLibraryIndexPrewarm_DuplicateRefreshDefersUntilUiPriorityEnds()
+    {
+        var workspace = CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource);
+        workspace.ConfigurePlaylistLibraryIndexPrewarm((_, _) => true);
+        workspace.BeginDuplicateRefreshPriorityWindow("test");
+
+        workspace.InvalidatePlaylistLibraryIndexSnapshot(
+            "owned_collection_changed",
+            startupReadyOperable: true,
+            MainViewUpdateMode.DuplicateFilterSelected);
+
+        Assert.IsNull(workspace.GetPlaylistLibraryIndexPrewarmTask());
+        workspace.ReleaseDuplicateRefreshPriorityWindow("test_done");
+        Task prewarmTask = workspace.GetPlaylistLibraryIndexPrewarmTask();
+        Assert.IsNotNull(prewarmTask);
+        await prewarmTask.ConfigureAwait(false);
+        Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
+    }
+
     private static PlaylistWorkspaceViewModel CreateDetailWorkspace(out FakePlaylistDetailDataSource dataSource)
     {
         var workspace = new PlaylistWorkspaceViewModel(
@@ -1168,6 +1225,10 @@ public sealed class PlaylistWorkspaceViewModelTests
     private sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
     {
         internal int EnsureEntriesLoadedCallCount { get; private set; }
+
+        internal int ResolveIndexCallCount { get; private set; }
+
+        internal BMSLibrary.PlaylistLibraryResolveIndexRuntimeState RuntimeState { get; set; } = new();
 
         internal LR2SongDBExtended.chart_info ChartInfo { get; set; } = null!;
 
@@ -1192,9 +1253,15 @@ public sealed class PlaylistWorkspaceViewModelTests
             out bool cacheHit,
             out int staleRetryCount)
         {
+            ResolveIndexCallCount++;
             cacheHit = true;
             staleRetryCount = 0;
             return PlaylistLibraryResolveIndexSnapshot.Empty;
+        }
+
+        public BMSLibrary.PlaylistLibraryResolveIndexRuntimeState GetResolveIndexRuntimeState()
+        {
+            return RuntimeState;
         }
 
         public LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)

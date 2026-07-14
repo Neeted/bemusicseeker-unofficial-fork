@@ -4425,10 +4425,10 @@ public sealed class PlaylistViewPipelineTests
     {
         Assert.AreEqual(
             MainViewUpdateMode.PlaylistFilterSelected,
-            MainWindowViewModel.ResolvePlaylistColumnSettingMode(PlaylistDetailFilter.PlaylistFilter));
+            PlaylistWorkspaceViewModel.ResolvePlaylistColumnSettingMode(PlaylistDetailFilter.PlaylistFilter));
         Assert.AreEqual(
             MainViewUpdateMode.PlaylistNotOwnedFilterSelected,
-            MainWindowViewModel.ResolvePlaylistColumnSettingMode(PlaylistDetailFilter.PlaylistNotOwnedFilterSelected));
+            PlaylistWorkspaceViewModel.ResolvePlaylistColumnSettingMode(PlaylistDetailFilter.PlaylistNotOwnedFilterSelected));
     }
 
     private static PlaylistDetailSourceRow CreateSourceRow(string hash, string title, int? mode, string memo = "", string comment = "", double? entryLevel = null, string? sha256 = null)

@@ -420,28 +420,28 @@ public sealed class LibraryChartRowSortEngineTests
     [TestCategory("SortEngine")]
     public void PlaylistLibraryIndexPrewarm_DeferForDuplicateRefreshOnlyForOwnedCollectionInDuplicateView()
     {
-        Assert.IsTrue(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+        Assert.IsTrue(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
             "owned_collection_changed",
             startupReadyOperable: true,
             duplicateRefreshPriorityActive: true,
             (int)MainViewUpdateMode.DuplicateFilterSelected));
 
-        Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
             "initialize_completed",
             startupReadyOperable: true,
             duplicateRefreshPriorityActive: true,
             (int)MainViewUpdateMode.DuplicateFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
             "owned_collection_changed",
             startupReadyOperable: false,
             duplicateRefreshPriorityActive: true,
             (int)MainViewUpdateMode.DuplicateFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
             "owned_collection_changed",
             startupReadyOperable: true,
             duplicateRefreshPriorityActive: false,
             (int)MainViewUpdateMode.DuplicateFilterSelected));
-        Assert.IsFalse(MainWindowViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefreshForTest(
+        Assert.IsFalse(PlaylistWorkspaceViewModel.ShouldDeferPlaylistLibraryIndexPrewarmForDuplicateRefresh(
             "owned_collection_changed",
             startupReadyOperable: true,
             duplicateRefreshPriorityActive: true,

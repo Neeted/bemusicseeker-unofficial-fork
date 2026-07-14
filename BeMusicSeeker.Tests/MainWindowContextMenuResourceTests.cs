@@ -2130,21 +2130,32 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void PlaylistLibraryIndexUsesOwnedResolveIndex()
     {
-        string root = FindRepositoryRoot();
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs");
+        string playlistWorkspaceCode = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string playlistDataSourceCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistDetailDataSource.cs");
         string bmsLibraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string createPlaylistLibraryIndex = ExtractBetween(
-            viewModelCode,
+            playlistWorkspaceCode,
             "private PlaylistLibraryIndexSnapshot CreatePlaylistLibraryIndexSnapshot",
-            "private PlaylistLibraryIndexSnapshot GetOrCreatePlaylistLibraryIndexSnapshot");
+            "internal PlaylistLibraryIndexReadinessSnapshot CapturePlaylistLibraryIndexReadinessSnapshot");
         string resolveIndexHelper = ExtractBetween(
             bmsLibraryCode,
             "private PlaylistLibraryResolveIndexSnapshot CreatePlaylistLibraryResolveIndexSnapshotUnsafe",
             "private ChartInfoHydrationOwnerSummary CreateChartInfoHydrationOwnerSummaryUnsafe");
 
-        StringAssert.Contains(createPlaylistLibraryIndex, "GetPlaylistLibraryResolveIndexSnapshot(cancellationToken");
+        StringAssert.Contains(createPlaylistLibraryIndex, "dataSource.GetResolveIndexSnapshot(");
+        StringAssert.Contains(playlistDataSourceCode, "library.GetPlaylistLibraryResolveIndexSnapshot(");
         Assert.IsFalse(createPlaylistLibraryIndex.Contains("foreach (BeMusicSeeker.Models.BMSFile file in BMSFiles"));
         Assert.IsFalse(createPlaylistLibraryIndex.Contains("files?.BmsonSongs"));
+        Assert.IsFalse(viewModelCode.Contains("playlistLibraryIndexSync"));
+        Assert.IsFalse(viewModelCode.Contains("GetOrCreatePlaylistLibraryIndexSnapshot"));
         StringAssert.Contains(resolveIndexHelper, "ownedChartCollection.CreatePlaylistLibraryResolveRefSnapshot(cancellationToken.ThrowIfCancellationRequested)");
         StringAssert.Contains(resolveIndexHelper, "PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(refs, cancellationToken.ThrowIfCancellationRequested)");
     }

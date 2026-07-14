@@ -62,6 +62,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             }
             Volatile.Write(ref detailDataSource, dataSource);
         }
+        ResetPlaylistLibraryIndexPrewarmForDataSourceChange();
         try
         {
             activeBuildCancellation?.Cancel();

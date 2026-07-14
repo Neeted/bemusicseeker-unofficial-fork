@@ -27,6 +27,8 @@ internal interface IPlaylistDetailDataSource
         out bool cacheHit,
         out int staleRetryCount);
 
+    BMSLibrary.PlaylistLibraryResolveIndexRuntimeState GetResolveIndexRuntimeState();
+
     LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5);
 
     PlaylistDetailSourceRow CreateSourceRow(
@@ -80,6 +82,11 @@ internal sealed class PlaylistDetailDataSource : IPlaylistDetailDataSource
             cancellationToken,
             out cacheHit,
             out staleRetryCount);
+    }
+
+    public BMSLibrary.PlaylistLibraryResolveIndexRuntimeState GetResolveIndexRuntimeState()
+    {
+        return library.GetPlaylistLibraryResolveIndexRuntimeState();
     }
 
     public LR2SongDBExtended.chart_info ResolveChartInfo(string sha256, string md5)

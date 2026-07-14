@@ -195,30 +195,8 @@ internal readonly struct PlaylistRequestIdentity : IEquatable<PlaylistRequestIde
     }
 }
 
-/// <summary>
-/// playlist source build で再利用するライブラリ索引 snapshot です。
-/// </summary>
-internal sealed class PlaylistLibraryIndexSnapshot
-{
-    internal long Version;
-
-    internal long BuildElapsedMs;
-
-    internal PlaylistLibraryResolveIndexSnapshot ResolveIndex = PlaylistLibraryResolveIndexSnapshot.Empty;
-}
-
 public partial class MainWindowViewModel
 {
-    /// <summary>
-    /// playlist open 要求時点の library index readiness を表します。
-    /// </summary>
-    private sealed class PlaylistLibraryIndexReadinessSnapshot
-    {
-        internal string State = "inline";
-
-        internal long BuildElapsedMs;
-    }
-
     /// <summary>
     /// プレイリスト再読み込みの起点種別です。
     /// full reload 後 cleanup の対象判定とログ分類に利用します。
