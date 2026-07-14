@@ -4104,10 +4104,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         else if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_override_level_warning, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
-            Task.Run(delegate
-            {
-                viewModel.ReplaceBMSFileLevelByTableEntryLevel(bmsTable);
-            }).Logging("treeViewPlaylistTableContextMenuItemOverwriteLevelClick");
+            _ = viewModel.PlaylistWorkspace.ReplaceBmsFileLevelByTableEntryLevelAsync(bmsTable)
+                .Logging("treeViewPlaylistTableContextMenuItemOverwriteLevelClick");
         }
     }
 

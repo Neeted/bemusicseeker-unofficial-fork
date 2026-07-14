@@ -72,6 +72,26 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistOverwriteLevel_RoutesThroughWorkspaceMutationOwner()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string workspaceMutationSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.Mutations.cs");
+        string route = ExtractBetween(
+            mainWindowSource,
+            "private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick",
+            "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick");
+
+        StringAssert.Contains(route, "viewModel.PlaylistWorkspace.ReplaceBmsFileLevelByTableEntryLevelAsync(bmsTable)");
+        Assert.IsFalse(route.Contains("viewModel.ReplaceBMSFileLevelByTableEntryLevel("));
+        StringAssert.Contains(workspaceMutationSource, "internal Task ReplaceBmsFileLevelByTableEntryLevelAsync(BMSTable bmsTable)");
+        StringAssert.Contains(workspaceMutationSource, "GetPlaylistLibrary().ReplaceBmsFileLevelByTableEntryLevel(bmsTable)");
+        Assert.AreEqual(-1, rootViewModelSource.IndexOf("ReplaceBMSFileLevelByTableEntryLevel(", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void InstallPackageTreeHeaders_BindToPackageDisplayTitle()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));

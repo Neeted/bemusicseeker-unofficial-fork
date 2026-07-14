@@ -41,6 +41,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         return GetPlaylistStore().CreateBMSTable();
     }
 
+    internal Task ReplaceBmsFileLevelByTableEntryLevelAsync(BMSTable bmsTable)
+    {
+        return Task.Run(() => GetPlaylistLibrary().ReplaceBmsFileLevelByTableEntryLevel(bmsTable));
+    }
+
     internal Task RenameFolderAsync(BMSTable table, PlaylistFolderNode folder, string newName)
     {
         return Task.Run(() => RenameFolder(table, folder, newName));

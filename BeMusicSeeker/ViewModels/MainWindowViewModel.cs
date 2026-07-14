@@ -8270,16 +8270,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist entry が持つ level を、対応する LR2 song row へ反映します。
-    /// このメニューは LR2 互換の song.level 上書き機能であり、bmson_song への writeback は行いません。
-    /// </summary>
-    /// <param name="bmsTable">参照元 playlist。</param>
-    public void ReplaceBMSFileLevelByTableEntryLevel(BMSTable bmsTable)
-    {
-        files?.ReplaceBmsFileLevelByTableEntryLevel(bmsTable);
-    }
-
-    /// <summary>
     /// 指定されたパスのBMSファイルやアーカイブ群をBMSLibraryへ自動インストール・登録します。
     /// 登録完了後、読み込み済みの各プレイリスト (BMSTable) に対しても新規検出されたファイル群のリファレンス追加（参照解決）を試みます。
     /// </summary>
