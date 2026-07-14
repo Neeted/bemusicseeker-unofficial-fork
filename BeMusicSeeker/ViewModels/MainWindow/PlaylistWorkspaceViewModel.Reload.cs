@@ -79,6 +79,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             List<BMSPlaylist.PlaylistReloadTargetResult> results = null;
             try
             {
+                BeginPlaylistSyncProgressOperation();
                 PlaylistReloadStarted?.Invoke(this, new PlaylistReloadStartedEventArgs(activeTables.Count));
                 results = await playlists.ReloadPlaylistTargetsAsync(
                     activeTables,
@@ -90,9 +91,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             this,
                             new PlaylistSyncResultReportedEventArgs(result));
                     },
-                    snapshot => PlaylistSyncProgressChanged?.Invoke(
-                        this,
-                        new PlaylistSyncProgressChangedEventArgs(snapshot)),
+                    ReportPlaylistSyncProgress,
                     "manual_resync",
                     requireCurrentTargetForApply: true);
                 playlists.QueueBeatorajaBmtExportAll("manual_resync");
@@ -113,6 +112,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             finally
             {
                 PlaylistReloadFinished?.Invoke(this, EventArgs.Empty);
+                EndPlaylistSyncProgressOperation();
             }
         }
         finally

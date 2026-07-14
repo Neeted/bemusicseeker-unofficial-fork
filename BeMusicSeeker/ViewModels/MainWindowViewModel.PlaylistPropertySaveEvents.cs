@@ -47,16 +47,6 @@ public partial class MainWindowViewModel
             "playlist property output directory notification");
     }
 
-    private void PlaylistWorkspacePlaylistPropertySyncStarted(object sender, EventArgs e)
-    {
-        BeginPlaylistSyncProgressOperation();
-    }
-
-    private void PlaylistWorkspacePlaylistPropertySyncFinished(object sender, EventArgs e)
-    {
-        EndPlaylistSyncProgressOperation();
-    }
-
     private void PlaylistWorkspacePlaylistPropertyReferenceTableReplaced(
         object sender,
         PlaylistReferenceTableReplacedEventArgs request)

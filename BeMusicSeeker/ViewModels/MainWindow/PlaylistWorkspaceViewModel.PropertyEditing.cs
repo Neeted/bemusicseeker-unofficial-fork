@@ -16,10 +16,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler PlaylistPropertyInvalidOutputDirectoryRequested;
 
-    internal event EventHandler PlaylistPropertySyncStarted;
-
-    internal event EventHandler PlaylistPropertySyncFinished;
-
     internal event EventHandler<PlaylistReferenceTableReplacedEventArgs> PlaylistPropertyReferenceTableReplaced;
 
     internal event EventHandler<PlaylistPropertyFolderSelectionRemappedEventArgs> PlaylistPropertyFolderSelectionRemapped;
@@ -100,19 +96,19 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void ForwardPlaylistPropertySyncStarted(object sender, EventArgs e)
     {
-        RaiseRequiredEvent(PlaylistPropertySyncStarted, EventArgs.Empty, nameof(PlaylistPropertySyncStarted));
+        BeginPlaylistSyncProgressOperation();
     }
 
     private void ForwardPlaylistSyncProgressChanged(
         object sender,
         PlaylistSyncProgressChangedEventArgs request)
     {
-        RaiseRequiredEvent(PlaylistSyncProgressChanged, request, nameof(PlaylistSyncProgressChanged));
+        ReportPlaylistSyncProgress(request?.Snapshot);
     }
 
     private void ForwardPlaylistPropertySyncFinished(object sender, EventArgs e)
     {
-        RaiseRequiredEvent(PlaylistPropertySyncFinished, EventArgs.Empty, nameof(PlaylistPropertySyncFinished));
+        EndPlaylistSyncProgressOperation();
     }
 
     private void ForwardPlaylistPropertyReferenceTableReplaced(

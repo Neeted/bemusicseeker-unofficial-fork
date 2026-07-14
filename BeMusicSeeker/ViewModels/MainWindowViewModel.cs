@@ -687,13 +687,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private CancellationTokenSource maintenanceRescanCancellationTokenSource;
 
-    private readonly object playlistSyncProgressLock = new();
-
-    private int playlistSyncProgressActiveOperationCount;
-
     private long playlistSyncProgressUiVersion;
-
-    private readonly HashSet<long> activeBeatorajaBmtExportProgressOperations = [];
 
     private readonly object lockPlaylistReloadCleanup = new();
 
@@ -3216,7 +3210,7 @@ public partial class MainWindowViewModel : ViewModel
                 using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
                 try
                 {
-                    BeginPlaylistSyncProgressOperation();
+                    PlaylistWorkspace.BeginPlaylistSyncProgressOperation();
                     LogPlaylistReload("playlist_reload_operation started operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=0 version=" + requestVersion);
                     LogDeferredExternalSync("deferred_external_sync run reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion);
                     List<Action<BMSPlaylist.PlaylistTableUpdateContext>> updateCallbackActions = null;
@@ -3227,7 +3221,7 @@ public partial class MainWindowViewModel : ViewModel
                     List<BMSTable> list = await tables.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions, delegate (PlaylistSyncAttemptResult result)
                     {
                         PlaylistWorkspace.RecordPlaylistSyncResult(result);
-                    }, UpdatePlaylistSyncProgressStatus).ConfigureAwait(false);
+                    }, PlaylistWorkspace.ReportPlaylistSyncProgress).ConfigureAwait(false);
                     int num = list?.Count ?? 0;
                     tables.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + reason);
                     if (ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync(updateCallbackAction))
@@ -3262,7 +3256,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 finally
                 {
-                    EndPlaylistSyncProgressOperation();
+                    PlaylistWorkspace.EndPlaylistSyncProgressOperation();
                     FlushPlaylistOperationNotifications(notificationScope, "external playlist sync notification");
                 }
                 lock (lockDeferredExternalSync)
@@ -5218,8 +5212,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistTableRemovalInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistTableRemovalInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += PlaylistWorkspacePlaylistSummaryDataRefreshRequested;
-        PlaylistWorkspace.PlaylistSummaryBulkOperationStarted += PlaylistWorkspacePlaylistSummaryBulkOperationStarted;
-        PlaylistWorkspace.PlaylistSummaryBulkOperationFinished += PlaylistWorkspacePlaylistSummaryBulkOperationFinished;
         PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistReloadStarted += PlaylistWorkspacePlaylistReloadStarted;
         PlaylistWorkspace.PlaylistSyncProgressChanged += PlaylistWorkspacePlaylistSyncProgressChanged;
@@ -5227,12 +5219,9 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistReferenceTableReplaced += PlaylistWorkspacePlaylistReferenceTableReplaced;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
         PlaylistWorkspace.PlaylistReloadCompleted += PlaylistWorkspacePlaylistReloadCompleted;
-        PlaylistWorkspace.PlaylistReloadFinished += PlaylistWorkspacePlaylistReloadFinished;
         PlaylistWorkspace.PlaylistPropertyValidationError += PlaylistWorkspacePlaylistPropertyValidationError;
         PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistPropertyExternalSyncConfirmationRequested;
         PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested;
-        PlaylistWorkspace.PlaylistPropertySyncStarted += PlaylistWorkspacePlaylistPropertySyncStarted;
-        PlaylistWorkspace.PlaylistPropertySyncFinished += PlaylistWorkspacePlaylistPropertySyncFinished;
         PlaylistWorkspace.PlaylistPropertyReferenceTableReplaced += PlaylistWorkspacePlaylistPropertyReferenceTableReplaced;
         PlaylistWorkspace.PlaylistPropertyFolderSelectionRemapped += PlaylistWorkspacePlaylistPropertyFolderSelectionRemapped;
         PlaylistWorkspace.PlaylistPropertyReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistPropertyReferenceSortInvalidationRequested;
@@ -5481,16 +5470,6 @@ public partial class MainWindowViewModel : ViewModel
             request.RebuildAsync);
     }
 
-    private void PlaylistWorkspacePlaylistSummaryBulkOperationStarted(object sender, EventArgs e)
-    {
-        BeginPlaylistSyncProgressOperation();
-    }
-
-    private void PlaylistWorkspacePlaylistSummaryBulkOperationFinished(object sender, EventArgs e)
-    {
-        EndPlaylistSyncProgressOperation();
-    }
-
     private void PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested(
         object sender,
         PlaylistSummaryBulkInvalidOutputDirectoryEventArgs request)
@@ -5506,7 +5485,6 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistReloadStartedEventArgs request)
     {
-        BeginPlaylistSyncProgressOperation();
         PlaylistReloadOperationKind operationKind = request.TableCount > 1
             ? PlaylistReloadOperationKind.ManualFullReload
             : PlaylistReloadOperationKind.SinglePlaylistReload;
@@ -5586,11 +5564,6 @@ public partial class MainWindowViewModel : ViewModel
             + cleanupQueued.ToString().ToLowerInvariant()
             + " elapsedMs="
             + request.ElapsedMilliseconds);
-    }
-
-    private void PlaylistWorkspacePlaylistReloadFinished(object sender, EventArgs e)
-    {
-        EndPlaylistSyncProgressOperation();
     }
 
     private void ApplyPlaylistEntriesChanged(BMSTable table, bool refreshSummaryIfVisible)
@@ -6931,7 +6904,7 @@ public partial class MainWindowViewModel : ViewModel
             files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
             files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
             tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
-            tables.BeatorajaBmtExportProgressReporter = UpdateBeatorajaBmtExportProgressStatus;
+            tables.BeatorajaBmtExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
             if (!libraryProfile.OperationModeLR2DB)
             {
                 files.SearchTargets.AddRange(libraryProfile.SearchRoots);
@@ -9250,84 +9223,8 @@ public partial class MainWindowViewModel : ViewModel
         InstallPipelineCanCancel = false;
     }
 
-    private void BeginPlaylistSyncProgressOperation()
-    {
-        lock (playlistSyncProgressLock)
-        {
-            playlistSyncProgressActiveOperationCount++;
-        }
-    }
-
-    private void EndPlaylistSyncProgressOperation()
-    {
-        bool shouldClear = false;
-        lock (playlistSyncProgressLock)
-        {
-            if (playlistSyncProgressActiveOperationCount > 0)
-            {
-                playlistSyncProgressActiveOperationCount--;
-            }
-            shouldClear = playlistSyncProgressActiveOperationCount == 0;
-        }
-        if (shouldClear)
-        {
-            UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
-            {
-                IsActive = false,
-                TotalTableCount = 0,
-                CompletedTableCount = 0,
-                CurrentTableName = string.Empty,
-                CurrentUri = null
-            });
-        }
-    }
-
-    private void UpdateBeatorajaBmtExportProgressStatus(PlaylistSyncProgressSnapshot snapshot)
-    {
-        bool isActive = snapshot != null && snapshot.IsActive;
-        long operationId = snapshot?.OperationId ?? 0;
-        bool shouldBegin = false;
-        bool shouldEnd = false;
-        lock (playlistSyncProgressLock)
-        {
-            if (isActive && operationId != 0 && activeBeatorajaBmtExportProgressOperations.Add(operationId))
-            {
-                shouldBegin = true;
-            }
-            else if (!isActive && operationId != 0 && activeBeatorajaBmtExportProgressOperations.Remove(operationId))
-            {
-                shouldEnd = true;
-            }
-        }
-        if (shouldBegin)
-        {
-            BeginPlaylistSyncProgressOperation();
-        }
-        if (isActive)
-        {
-            UpdatePlaylistSyncProgressStatus(snapshot);
-        }
-        if (shouldEnd)
-        {
-            EndPlaylistSyncProgressOperation();
-        }
-    }
-
     private void UpdatePlaylistSyncProgressStatus(PlaylistSyncProgressSnapshot snapshot)
     {
-        if (snapshot?.IsActive != true)
-        {
-            lock (playlistSyncProgressLock)
-            {
-                // A completion snapshot from one concurrent route must not clear a
-                // still-running manual/deferred operation.  The last operation to end
-                // calls this method after decrementing the shared count.
-                if (playlistSyncProgressActiveOperationCount > 0)
-                {
-                    return;
-                }
-            }
-        }
         long uiVersion = Interlocked.Increment(ref playlistSyncProgressUiVersion);
         Action reflect = delegate
         {
@@ -12045,7 +11942,7 @@ public partial class MainWindowViewModel : ViewModel
         int postProgressCompletedCount = totalCount;
         var totalStopwatch = Stopwatch.StartNew();
         using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
-        BeginPlaylistSyncProgressOperation();
+        PlaylistWorkspace.BeginPlaylistSyncProgressOperation();
         try
         {
             UpdateBeatorajaTableUrlImportProgress(completedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_check_urls);
@@ -12229,7 +12126,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             totalStopwatch.Stop();
             NLogWrapper.FileLogger?.Info("beatoraja_table_url_import completed targetCount=" + totalCount + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
-            EndPlaylistSyncProgressOperation();
+            PlaylistWorkspace.EndPlaylistSyncProgressOperation();
             FlushPlaylistOperationNotifications(notificationScope, "beatoraja Table URL import notification");
             Interlocked.Exchange(ref beatorajaTableUrlImportRunning, 0);
         }
@@ -12273,7 +12170,7 @@ public partial class MainWindowViewModel : ViewModel
     private void UpdateBeatorajaTableUrlImportProgress(int completedCount, int totalCount, Uri currentUri, string currentTableName, string phaseText = null)
     {
         string detail = BuildBeatorajaTableUrlImportProgressDetail(phaseText, currentTableName);
-        UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+        PlaylistWorkspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
             IsActive = totalCount > 0,
             TotalTableCount = Math.Max(totalCount, 0),
@@ -12521,7 +12418,7 @@ public partial class MainWindowViewModel : ViewModel
         const int ExternalPlaylistImportPostProgressStepCount = 4;
         List<ExternalPlaylistImportOutcome> outcomes = [];
         using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
-        BeginPlaylistSyncProgressOperation();
+        PlaylistWorkspace.BeginPlaylistSyncProgressOperation();
         try
         {
             IReadOnlyList<Uri> batch;
@@ -12684,7 +12581,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         finally
         {
-            EndPlaylistSyncProgressOperation();
+            PlaylistWorkspace.EndPlaylistSyncProgressOperation();
             FlushPlaylistOperationNotifications(notificationScope, "external playlist import notification");
         }
         ShowExternalPlaylistImportQueueSummary(new ExternalPlaylistImportQueueSummary(outcomes));
@@ -12752,7 +12649,7 @@ public partial class MainWindowViewModel : ViewModel
     private void UpdateExternalPlaylistImportProgress(int completedCount, int totalCount, Uri currentUri, string currentTableName, string phaseText = null)
     {
         string detail = BuildExternalPlaylistImportProgressDetail(phaseText, currentTableName);
-        UpdatePlaylistSyncProgressStatus(new PlaylistSyncProgressSnapshot
+        PlaylistWorkspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
         {
             IsActive = totalCount > 0,
             TotalTableCount = Math.Max(totalCount, 0),

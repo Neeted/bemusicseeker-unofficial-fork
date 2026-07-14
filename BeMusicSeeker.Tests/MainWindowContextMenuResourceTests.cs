@@ -3286,7 +3286,7 @@ public sealed class MainWindowContextMenuResourceTests
         string refreshStatus = ExtractBetween(
             SourceTextTestHelper.ReadMainWindowViewModelSourceText(),
             "private void RefreshInstallPipelineStatus()",
-            "private void BeginPlaylistSyncProgressOperation()");
+            "private void UpdatePlaylistSyncProgressStatus(PlaylistSyncProgressSnapshot snapshot)");
 
         StringAssert.Contains(openUrlHandler, "OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: false");
         StringAssert.Contains(openUrlDiffHandler, "OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: true");

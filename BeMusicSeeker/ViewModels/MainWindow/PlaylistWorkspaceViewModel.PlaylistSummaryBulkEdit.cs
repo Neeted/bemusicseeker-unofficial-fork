@@ -18,8 +18,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     private Func<LR2Config> getLr2Config;
     private Action<string> summaryBulkWarningLog;
     private PlaylistSummaryBulkEditDialogViewModel activeSummaryBulkEditDialog;
-    internal event EventHandler PlaylistSummaryBulkOperationStarted;
-    internal event EventHandler PlaylistSummaryBulkOperationFinished;
     internal event EventHandler<PlaylistSummaryBulkInvalidOutputDirectoryEventArgs> PlaylistSummaryBulkInvalidOutputDirectoryRequested;
 
     internal void ConfigureSummaryBulkEditing(Func<LR2Config> lr2ConfigProvider)
@@ -80,7 +78,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        BeginPlaylistSummaryBulkProgress();
+        BeginPlaylistSyncProgressOperation();
         bool progressEnded = false;
         try
         {
@@ -94,7 +92,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     finally
                     {
                         progressEnded = true;
-                        EndPlaylistSummaryBulkProgress();
+                        EndPlaylistSyncProgressOperation();
                     }
                 },
                 routeName);
@@ -104,24 +102,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (!progressEnded)
             {
                 progressEnded = true;
-                EndPlaylistSummaryBulkProgress();
+                EndPlaylistSyncProgressOperation();
             }
         }
-    }
-
-    private void BeginPlaylistSummaryBulkProgress()
-    {
-        RaiseRequiredEvent(PlaylistSummaryBulkOperationStarted, EventArgs.Empty, nameof(PlaylistSummaryBulkOperationStarted));
-    }
-
-    private void EndPlaylistSummaryBulkProgress()
-    {
-        RaiseRequiredEvent(PlaylistSummaryBulkOperationFinished, EventArgs.Empty, nameof(PlaylistSummaryBulkOperationFinished));
-    }
-
-    private void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)
-    {
-        PlaylistSyncProgressChanged?.Invoke(this, new PlaylistSyncProgressChangedEventArgs(snapshot));
     }
 
     private void RequestPlaylistSummaryRefresh(
@@ -784,7 +767,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             ?? throw new InvalidOperationException("Custom-folder output settings provider returned null.");
 
         const string reason = "playlist_summary_external_property_initialization";
-        BeginPlaylistSummaryBulkProgress();
+        BeginPlaylistSyncProgressOperation();
         try
         {
             UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, targetTables.Count, string.Empty);
@@ -1002,7 +985,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         finally
         {
-            EndPlaylistSummaryBulkProgress();
+            EndPlaylistSyncProgressOperation();
         }
     }
 

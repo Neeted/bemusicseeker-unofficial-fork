@@ -165,6 +165,19 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("GetPlaylistSyncStatusSnapshot", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal void RecordPlaylistSyncResult(PlaylistSyncAttemptResult result)");
         StringAssert.Contains(workspaceSource, "internal IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> CapturePlaylistSyncStatusSnapshot()");
+        Assert.AreEqual(-1, rootSource.IndexOf("playlistSyncProgressLock", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("playlistSyncProgressActiveOperationCount", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("activeBeatorajaBmtExportProgressOperations", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("private void BeginPlaylistSyncProgressOperation", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("private void EndPlaylistSyncProgressOperation", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("UpdateBeatorajaBmtExportProgressStatus", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal void BeginPlaylistSyncProgressOperation()");
+        StringAssert.Contains(workspaceSource, "internal void EndPlaylistSyncProgressOperation()");
+        StringAssert.Contains(workspaceSource, "internal void ReportPlaylistSyncProgress(PlaylistSyncProgressSnapshot snapshot)");
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryBulkOperationStarted", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryBulkOperationFinished", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncStarted", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncFinished", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;");
         StringAssert.Contains(logicalSource, "private void PlaylistWorkspacePlaylistSummaryFilterChanged(");
         Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
@@ -541,6 +554,108 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(PlaylistSyncStatusKind.UnknownError, secondSnapshot["id:3"].Kind);
         workspace.RecordPlaylistSyncResult(null);
         Assert.AreEqual(PlaylistSyncStatusKind.Ok, firstSnapshot["id:3"].Kind);
+    }
+
+    [TestMethod]
+    public void PlaylistSyncProgressOwner_SuppressesInactiveUntilLastScopeEnds()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        List<PlaylistSyncProgressSnapshot> snapshots = [];
+        workspace.PlaylistSyncProgressChanged += (_, request) => snapshots.Add(request.Snapshot);
+
+        workspace.BeginPlaylistSyncProgressOperation();
+        workspace.BeginPlaylistSyncProgressOperation();
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = true,
+            TotalTableCount = 2,
+            CompletedTableCount = 1,
+            CurrentTableName = "active"
+        });
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = false
+        });
+
+        Assert.AreEqual(1, snapshots.Count);
+        Assert.IsTrue(snapshots[0].IsActive);
+
+        workspace.EndPlaylistSyncProgressOperation();
+        Assert.AreEqual(1, snapshots.Count);
+
+        workspace.EndPlaylistSyncProgressOperation();
+        Assert.AreEqual(2, snapshots.Count);
+        Assert.IsFalse(snapshots[1].IsActive);
+    }
+
+    [TestMethod]
+    public void PlaylistSyncProgressOwner_TracksBeatorajaOperationIdsExactlyOnce()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        List<PlaylistSyncProgressSnapshot> snapshots = [];
+        workspace.PlaylistSyncProgressChanged += (_, request) => snapshots.Add(request.Snapshot);
+
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = true,
+            OperationId = 41,
+            TotalTableCount = 1,
+            CompletedTableCount = 0
+        });
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = true,
+            OperationId = 41,
+            TotalTableCount = 1,
+            CompletedTableCount = 1
+        });
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = false,
+            OperationId = 99
+        });
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = false,
+            OperationId = 41
+        });
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = false,
+            OperationId = 41
+        });
+
+        Assert.AreEqual(3, snapshots.Count);
+        Assert.IsTrue(snapshots[0].IsActive);
+        Assert.IsTrue(snapshots[1].IsActive);
+        Assert.IsFalse(snapshots[2].IsActive);
+    }
+
+    [TestMethod]
+    public void PlaylistSyncProgressOwner_BeatorajaCompletionDoesNotClearManualScope()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        List<PlaylistSyncProgressSnapshot> snapshots = [];
+        workspace.PlaylistSyncProgressChanged += (_, request) => snapshots.Add(request.Snapshot);
+
+        workspace.BeginPlaylistSyncProgressOperation();
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = true,
+            OperationId = 7,
+            TotalTableCount = 1,
+            CompletedTableCount = 0
+        });
+        workspace.ReportPlaylistSyncProgress(new PlaylistSyncProgressSnapshot
+        {
+            IsActive = false,
+            OperationId = 7
+        });
+
+        Assert.AreEqual(1, snapshots.Count);
+        workspace.EndPlaylistSyncProgressOperation();
+        Assert.AreEqual(2, snapshots.Count);
+        Assert.IsFalse(snapshots[1].IsActive);
     }
 
     [TestMethod]
