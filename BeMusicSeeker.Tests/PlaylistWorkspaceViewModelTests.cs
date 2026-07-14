@@ -119,8 +119,14 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(");
         StringAssert.Contains(workspaceSource, "internal async Task WaitForPlaylistReloadCleanupReadinessAsync(");
         StringAssert.Contains(workspaceSource, "internal PlaylistReloadCleanupSnapshot CapturePlaylistReloadCleanupSnapshot()");
+        StringAssert.Contains(workspaceSource, "internal bool ShouldRefreshPlaylistDetailAfterReload(MainViewUpdateMode currentTreeMode)");
+        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailReloadRefresh()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.WaitForPlaylistReloadCleanupReadinessAsync(");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.CapturePlaylistReloadCleanupSnapshot()");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ShouldRefreshPlaylistDetailAfterReload(treeViewFilterTypeSelected)");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();");
+        Assert.AreEqual(-1, rootSource.IndexOf("RefreshPlaylistDetailAfterReloadIfVisible", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("IsPlaylistDetailRefreshWaitRequired", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("TryGetPreviousPlaylistSummaryViewState", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.LastPlaylistSummaryBuildCompletedTimestamp", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.LastDetailBuildCompletedTimestamp", StringComparison.Ordinal));
@@ -1076,6 +1082,26 @@ public sealed class PlaylistWorkspaceViewModelTests
         workspace.IsPlaylistSummaryMode = true;
         workspace.RequestPlaylistDetailScoreSnapshotRefresh(4);
         Assert.AreEqual(0, refreshes.Count);
+    }
+
+    [TestMethod]
+    public void RequestPlaylistDetailReloadRefresh_PublishesReloadOpportunity()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        int refreshCount = 0;
+        workspace.PlaylistDetailReloadRefreshRequested += (_, _) => refreshCount++;
+
+        Assert.IsTrue(workspace.ShouldRefreshPlaylistDetailAfterReload(MainViewUpdateMode.PlaylistFilterSelected));
+        workspace.RequestPlaylistDetailReloadRefresh();
+        Assert.AreEqual(1, refreshCount);
+
+        Assert.IsFalse(workspace.ShouldRefreshPlaylistDetailAfterReload(MainViewUpdateMode.PlayHistorySelected));
+        workspace.RequestPlaylistDetailReloadRefresh();
+        Assert.AreEqual(2, refreshCount);
+
+        workspace.IsPlaylistSummaryMode = true;
+        workspace.RequestPlaylistDetailReloadRefresh();
+        Assert.AreEqual(3, refreshCount);
     }
 
     [TestMethod]

@@ -23,6 +23,18 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler PlaylistReloadFinished;
 
+    internal bool ShouldRefreshPlaylistDetailAfterReload(MainViewUpdateMode currentTreeMode)
+    {
+        return ChartListRefreshCoordinator.IsPlaylistTreeActive(
+            MainViewUpdateMode.TreeViewFilterNotChanged,
+            currentTreeMode);
+    }
+
+    internal void RequestPlaylistDetailReloadRefresh()
+    {
+        PlaylistDetailReloadRefreshRequested?.Invoke(this, EventArgs.Empty);
+    }
+
     internal bool ContainsActivePlaylistTable(BMSTable table)
     {
         return table != null && GetPlaylistStore().ContainsBMSTable(table);
@@ -100,7 +112,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     new PlaylistSummaryDataRefreshRequestedEventArgs(
                         "manual_playlist_resync",
                         invalidateTableCountCache: true));
-                PlaylistDetailReloadRefreshRequested?.Invoke(this, EventArgs.Empty);
+                RequestPlaylistDetailReloadRefresh();
                 PlaylistReloadCompleted?.Invoke(
                     this,
                     new PlaylistReloadCompletedEventArgs(

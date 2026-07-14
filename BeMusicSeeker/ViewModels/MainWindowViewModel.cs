@@ -966,27 +966,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// 現在の playlist detail 表示が full reload 後 cleanup で待機対象になるかを返します。
-    /// </summary>
-    private bool IsPlaylistDetailRefreshWaitRequired()
-    {
-        return IsPlaylistViewMode(treeViewFilterTypeSelected);
-    }
-
-    /// <summary>
-    /// 現在の playlist detail 表示を full reload 後に再構築します。
-    /// current source/view の寿命短縮を優先し、通常切り替え経路には影響させません。
-    /// </summary>
-    private void RefreshPlaylistDetailAfterReloadIfVisible()
-    {
-        if (!IsPlaylistDetailRefreshWaitRequired())
-        {
-            return;
-        }
-        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-    }
-
-    /// <summary>
     /// playlist reload 完了後 cleanup を full reload 系 operation に対してだけキューします。
     /// </summary>
     private bool QueuePlaylistReloadCleanup(PlaylistReloadOperationKind operationKind, int tableCount)
@@ -1003,7 +982,7 @@ public partial class MainWindowViewModel : ViewModel
             TableCount = tableCount,
             WaitForStartupOperable = operationKind == PlaylistReloadOperationKind.StartupFullReload,
             WaitForSummaryRefresh = PlaylistWorkspace.IsPlaylistSummaryMode,
-            WaitForDetailRefresh = IsPlaylistDetailRefreshWaitRequired(),
+            WaitForDetailRefresh = PlaylistWorkspace.ShouldRefreshPlaylistDetailAfterReload(treeViewFilterTypeSelected),
             GcAllowed = true,
             RequestedAtTimestamp = Stopwatch.GetTimestamp()
         };
@@ -2518,7 +2497,7 @@ public partial class MainWindowViewModel : ViewModel
         else
         {
             RefreshPlaylistSummaryIfVisible("chart_info_dependent_views", invalidateTableCountCache: true);
-            RefreshPlaylistDetailAfterReloadIfVisible();
+            PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();
         }
         if (TrySuppress(UiRefreshChannel.LibraryMainView))
         {
@@ -5508,7 +5487,14 @@ public partial class MainWindowViewModel : ViewModel
 
     private void PlaylistWorkspacePlaylistDetailReloadRefreshRequested(object sender, EventArgs e)
     {
-        InvokeMainChartListPresentationAction(RefreshPlaylistDetailAfterReloadIfVisible);
+        InvokeMainChartListPresentationAction(
+            () =>
+            {
+                if (PlaylistWorkspace.ShouldRefreshPlaylistDetailAfterReload(treeViewFilterTypeSelected))
+                {
+                    RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
+                }
+            });
     }
 
     private void PlaylistWorkspacePlaylistReloadCompleted(
@@ -7201,7 +7187,7 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             RefreshPlaylistSummaryIfVisible("playlist_entries_hydration_completed", invalidateTableCountCache: true);
-            RefreshPlaylistDetailAfterReloadIfVisible();
+            PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();
         });
         listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationRequestedVersion, delegate
         {

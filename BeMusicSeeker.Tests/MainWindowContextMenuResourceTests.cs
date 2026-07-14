@@ -2770,7 +2770,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders)");
         Assert.AreEqual(-1, viewModelCode.IndexOf("ReplaceCurrentPlaylistSelectionTable(", StringComparison.Ordinal));
         Assert.AreEqual(-1, viewModelCode.IndexOf("RemapCurrentPlaylistFolderSelection(", StringComparison.Ordinal));
-        StringAssert.Contains(viewModelCode, "InvokeMainChartListPresentationAction(RefreshPlaylistDetailAfterReloadIfVisible)");
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();");
+        StringAssert.Contains(viewModelCode, "InvokeMainChartListPresentationAction(");
+        StringAssert.Contains(viewModelCode, "RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);");
         Assert.IsFalse(viewModelCode.Contains("public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)"));
         Assert.IsFalse(workspaceCode.Contains("ResetBMSTableAsync("));
         Assert.IsFalse(workspaceCode.Contains("ShowPlaylistLoadFailure("));
