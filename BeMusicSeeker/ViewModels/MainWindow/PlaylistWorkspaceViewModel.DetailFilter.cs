@@ -82,6 +82,19 @@ public sealed partial class PlaylistWorkspaceViewModel
                 ++playlistDetailFilterRevision));
     }
 
+    internal bool TryRequestPlaylistDetailFilter(
+        MainViewUpdateMode updateMode,
+        ChartListFilterSnapshot filterSnapshot)
+    {
+        if (!IsPlaylistDetailViewActive || IsPlaylistSummaryMode)
+        {
+            return false;
+        }
+
+        RequestPlaylistDetailFilter(updateMode, filterSnapshot);
+        return true;
+    }
+
     /// <summary>
     /// Returns whether a detail-filter refresh request still represents the current owner state.
     /// </summary>

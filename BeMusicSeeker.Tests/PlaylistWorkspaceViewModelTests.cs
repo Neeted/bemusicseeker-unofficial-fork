@@ -309,17 +309,28 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(mainChartListSource, "internal event EventHandler<MainChartListSortRequestedEventArgs> SortRequested;");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummarySort(");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailSort(");
+        StringAssert.Contains(workspaceSource, "internal bool TryRequestPlaylistDetailSort(");
         StringAssert.Contains(workspaceSource, "internal ChartListSortParameters CapturePlaylistDetailSortParameters()");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailFilter(");
+        StringAssert.Contains(workspaceSource, "internal bool TryRequestPlaylistDetailFilter(");
         StringAssert.Contains(workspaceSource, "internal ChartListFilterSnapshot CapturePlaylistDetailFilterSnapshot()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.InitializePlaylistDetailSort(regularChartListOwner.CaptureSortParameters());");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailSort(request.ColumnName, request.Direction);");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryRequestPlaylistDetailSort(request.ColumnName, request.Direction)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.CapturePlaylistDetailSortParameters()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters);");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters);");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryRequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters)");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryRequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters)");
+        string modeFilterChanged = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void ChartFiltersModeFilterChanged(");
+        string keywordFilterChanged = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void ChartFiltersKeywordFilterChanged(");
+        string sortRequested = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void MainChartListSortRequested(");
+        Assert.AreEqual(-1, modeFilterChanged.IndexOf("IsPlaylistDetailWorkflowActive", StringComparison.Ordinal));
+        Assert.AreEqual(-1, modeFilterChanged.IndexOf(".RequestPlaylistDetailFilter(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, keywordFilterChanged.IndexOf("IsPlaylistDetailWorkflowActive", StringComparison.Ordinal));
+        Assert.AreEqual(-1, keywordFilterChanged.IndexOf(".RequestPlaylistDetailFilter(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, sortRequested.IndexOf("IsPlaylistDetailWorkflowActive", StringComparison.Ordinal));
+        Assert.AreEqual(-1, sortRequested.IndexOf(".RequestPlaylistDetailSort(", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal event EventHandler<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs> PlaylistDetailScoreSnapshotRefreshRequested;");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailScoreSnapshotRefresh(int scoreSnapshotVersion)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;");
@@ -1513,6 +1524,41 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void PlaylistWorkspaceRoutesSharedDetailSortOnlyWhileDetailIsActive()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        workspace.InitializePlaylistDetailSort(new ChartListSortParameters
+        {
+            ColumnsName = nameof(PlaylistDetailRow.Title),
+            Direction = System.ComponentModel.ListSortDirection.Ascending
+        });
+        int raisedCount = 0;
+        workspace.PlaylistDetailSortChanged += (_, _) => raisedCount++;
+
+        Assert.IsFalse(workspace.TryRequestPlaylistDetailSort(
+            nameof(PlaylistDetailRow.Level),
+            System.ComponentModel.ListSortDirection.Descending));
+        workspace.IsPlaylistDetailViewActive = true;
+        Assert.IsTrue(workspace.TryRequestPlaylistDetailSort(
+            nameof(PlaylistDetailRow.Level),
+            System.ComponentModel.ListSortDirection.Descending));
+        Assert.AreEqual(1, raisedCount);
+        Assert.AreEqual(nameof(PlaylistDetailRow.Level), workspace.PlaylistDetailSortParameters.ColumnsName);
+
+        workspace.IsPlaylistSummaryMode = true;
+        Assert.IsFalse(workspace.TryRequestPlaylistDetailSort(
+            nameof(PlaylistDetailRow.Artist),
+            System.ComponentModel.ListSortDirection.Ascending));
+        Assert.AreEqual(nameof(PlaylistDetailRow.Level), workspace.PlaylistDetailSortParameters.ColumnsName);
+
+        workspace.IsPlaylistSummaryMode = false;
+        workspace.IsPlaylistDetailViewActive = false;
+        Assert.IsFalse(workspace.TryRequestPlaylistDetailSort(
+            nameof(PlaylistDetailRow.Artist),
+            System.ComponentModel.ListSortDirection.Ascending));
+    }
+
+    [TestMethod]
     public void PlaylistWorkspaceDetailSortInitializationUsesFallbackOnlyOnce()
     {
         var workspace = new PlaylistWorkspaceViewModel(
@@ -1608,6 +1654,45 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         Assert.AreEqual(2, raisedCount);
         Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceRoutesSharedDetailFilterOnlyWhileDetailIsActive()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("initial", ChartModeFilter.All));
+        int raisedCount = 0;
+        workspace.PlaylistDetailFilterChanged += (_, _) => raisedCount++;
+
+        Assert.IsFalse(workspace.TryRequestPlaylistDetailFilter(
+            MainViewUpdateMode.KeywordFilterUpdated,
+            new ChartListFilterSnapshot("before-detail", ChartModeFilter.All)));
+        Assert.AreEqual("initial", workspace.PlaylistDetailFilterSnapshot.KeywordFilter);
+
+        workspace.IsPlaylistDetailViewActive = true;
+        Assert.IsTrue(workspace.TryRequestPlaylistDetailFilter(
+            MainViewUpdateMode.KeywordFilterUpdated,
+            new ChartListFilterSnapshot("detail", ChartModeFilter.All)));
+        Assert.AreEqual(1, raisedCount);
+        Assert.AreEqual("detail", workspace.PlaylistDetailFilterSnapshot.KeywordFilter);
+
+        Assert.IsTrue(workspace.TryRequestPlaylistDetailFilter(
+            MainViewUpdateMode.ModeFilterUpdated,
+            new ChartListFilterSnapshot("detail", ChartModeFilter.None)));
+        Assert.AreEqual(1, raisedCount);
+        Assert.AreEqual(ChartModeFilter.All, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
+
+        workspace.IsPlaylistSummaryMode = true;
+        Assert.IsFalse(workspace.TryRequestPlaylistDetailFilter(
+            MainViewUpdateMode.KeywordFilterUpdated,
+            new ChartListFilterSnapshot("summary", ChartModeFilter.All)));
+        Assert.AreEqual("detail", workspace.PlaylistDetailFilterSnapshot.KeywordFilter);
+
+        workspace.IsPlaylistSummaryMode = false;
+        workspace.IsPlaylistDetailViewActive = false;
+        Assert.IsFalse(workspace.TryRequestPlaylistDetailFilter(
+            MainViewUpdateMode.KeywordFilterUpdated,
+            new ChartListFilterSnapshot("after-detail", ChartModeFilter.All)));
     }
 
     [TestMethod]

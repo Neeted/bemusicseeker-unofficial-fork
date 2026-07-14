@@ -4075,9 +4075,8 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         RaisePropertyChanged("ModeFilter");
-        if (IsPlaylistDetailWorkflowActive)
+        if (PlaylistWorkspace.TryRequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters))
         {
-            PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters);
             return;
         }
         RefreshChartRowsView(MainViewUpdateMode.ModeFilterUpdated);
@@ -4086,11 +4085,10 @@ public partial class MainWindowViewModel : ViewModel
     private void ChartFiltersKeywordFilterChanged(object sender, EventArgs e)
     {
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
-        if (IsPlaylistDetailWorkflowActive)
+        RaisePropertyChanged("KeywordFilter");
+        UpdateKeywordSearchPresentation();
+        if (PlaylistWorkspace.TryRequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters))
         {
-            RaisePropertyChanged("KeywordFilter");
-            UpdateKeywordSearchPresentation();
-            PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters);
             return;
         }
         lock (playHistoryViewRequestLock)
@@ -4102,8 +4100,6 @@ public partial class MainWindowViewModel : ViewModel
                     advanceRevision: true);
             }
         }
-        RaisePropertyChanged("KeywordFilter");
-        UpdateKeywordSearchPresentation();
         if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
         {
             playHistoryWorkflowOwner.QueueKeywordFilterRefresh(
@@ -4670,11 +4666,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             PlayHistory.QueueSort(request);
         }
-        else if (IsPlaylistDetailWorkflowActive)
-        {
-            PlaylistWorkspace.RequestPlaylistDetailSort(request.ColumnName, request.Direction);
-        }
-        else
+        else if (!PlaylistWorkspace.TryRequestPlaylistDetailSort(request.ColumnName, request.Direction))
         {
             regularChartListOwner.QueueSort(request);
         }

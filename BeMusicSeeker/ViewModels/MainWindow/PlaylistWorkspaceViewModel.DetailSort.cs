@@ -86,6 +86,17 @@ public sealed partial class PlaylistWorkspaceViewModel
                 ++playlistDetailSortRevision));
     }
 
+    internal bool TryRequestPlaylistDetailSort(string columnName, ListSortDirection direction)
+    {
+        if (!IsPlaylistDetailViewActive || IsPlaylistSummaryMode)
+        {
+            return false;
+        }
+
+        RequestPlaylistDetailSort(columnName, direction);
+        return true;
+    }
+
     /// <summary>
     /// Returns whether a detail-sort refresh request still represents the current owner state.
     /// </summary>
