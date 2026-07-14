@@ -3443,7 +3443,8 @@ public sealed class PlayHistoryReadModelTests
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore));
+                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+                PlaylistWorkspaceTestPorts.PlaylistStoreProvider));
     }
 
     [TestMethod]

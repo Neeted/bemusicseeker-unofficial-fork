@@ -8,12 +8,7 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private Func<BMSPlaylist> getPlaylistStore;
-
-    internal void ConfigureDetailEditing(Func<BMSPlaylist> playlistStore)
-    {
-        getPlaylistStore = playlistStore ?? throw new ArgumentNullException(nameof(playlistStore));
-    }
+    private readonly Func<BMSPlaylist> getPlaylistStore;
 
     internal bool CanBeginDetailEdit(MainChartListCellEditContext context)
     {
@@ -70,7 +65,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void CommitRow(PlaylistDetailRow playlistRow, string editedPropertyName)
     {
-        BMSPlaylist playlistStore = getPlaylistStore?.Invoke()
+        BMSPlaylist playlistStore = getPlaylistStore()
             ?? throw new InvalidOperationException("Playlist persistence is not available.");
         ChartFile chart = playlistRow.Chart;
         if (chart != null && playlistRow.Entry?.parent?.is_external_sync != true)

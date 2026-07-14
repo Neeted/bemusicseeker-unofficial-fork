@@ -34,7 +34,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool started = false;
         try
         {
-            BMSPlaylist playlistStore = getPlaylistStore?.Invoke();
+            BMSPlaylist playlistStore = getPlaylistStore();
             BMSLibrary playlistLibrary = getPlaylistLibrary?.Invoke();
             if (playlistStore == null || playlistLibrary == null || playlistStore.BMSTables == null)
             {
@@ -107,7 +107,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         try
         {
-            BMSPlaylist playlistStore = getPlaylistStore?.Invoke();
+            BMSPlaylist playlistStore = getPlaylistStore();
             if (playlistStore == null || playlistStore.BMSTables == null || !BeatorajaConfigService.IsBeatorajaRootPathValid(rootPath))
             {
                 return false;
@@ -444,7 +444,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private BMSTable FindBMSTableByConfigTableUrl(string rawUrl, Uri uri)
     {
-        BMSPlaylist tables = getPlaylistStore?.Invoke();
+        BMSPlaylist tables = getPlaylistStore();
         if (uri == null || !uri.IsAbsoluteUri || tables == null)
         {
             return null;
@@ -464,7 +464,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private BMSTable FindBMSTableByExactConfigTableUrl(string rawUrl)
     {
-        BMSPlaylist tables = getPlaylistStore?.Invoke();
+        BMSPlaylist tables = getPlaylistStore();
         if (string.IsNullOrWhiteSpace(rawUrl) || tables == null)
         {
             return null;

@@ -40,6 +40,8 @@ internal static class PlaylistWorkspaceTestPorts
     internal static IKeywordSearchHistorySettingsStore KeywordSearchHistorySettingsStore =>
         new InMemoryKeywordSearchHistorySettingsStore();
 
+    internal static Func<BMSPlaylist> PlaylistStoreProvider => () => null!;
+
     private sealed class InMemoryKeywordSearchHistorySettingsStore : IKeywordSearchHistorySettingsStore
     {
         public string KeywordSearchHistory { get; set; } = string.Empty;

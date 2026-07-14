@@ -332,7 +332,8 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
         table.RowsReplacementCanceled += (_, _) =>
         {
             Task lockProbe = Task.Run(() =>
@@ -374,7 +375,8 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         PlaylistDetailTerminalRequest request = CreatePlaylistTerminalRequest(
@@ -412,7 +414,8 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -470,7 +473,8 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider);
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };
@@ -2659,8 +2663,8 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
-        workspace.ConfigureDetailEditing(() => throw new AssertFailedException("cancel must not persist"));
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            () => throw new AssertFailedException("cancel must not persist"));
         PlaylistDetailScoreSnapshotRefreshRequestedEventArgs? refresh = null;
         workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refresh = request;
         var context = new MainChartListCellEditContext(
@@ -2712,8 +2716,8 @@ public sealed class PlaylistViewPipelineTests
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
-        workspace.ConfigureDetailEditing(() => throw new AssertFailedException("invalid URI must not persist"));
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            () => throw new AssertFailedException("invalid URI must not persist"));
         var context = new MainChartListCellEditContext(
             row,
             nameof(PlaylistDetailRow.Url),

@@ -613,8 +613,8 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
-            workspace.ConfigureDetailEditing(() => playlist);
+                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+                () => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             workspace.ConfigurePlaylistReloadCleanup(
                 () => true,
@@ -758,8 +758,8 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
-            workspace.ConfigureDetailEditing(() => playlist);
+                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+                () => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
 
@@ -6398,8 +6398,8 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
-            workspace.ConfigureDetailEditing(() => playlist);
+                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+                () => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>

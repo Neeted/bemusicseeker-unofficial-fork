@@ -538,7 +538,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private BMSPlaylist GetPlaylistStore()
     {
-        return getPlaylistStore?.Invoke()
+        return getPlaylistStore()
             ?? throw new InvalidOperationException("Playlist persistence is not available.");
     }
 

@@ -83,7 +83,6 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 (_, _) => { },
                 _ => { });
-            workspace.ConfigureDetailEditing(() => playlist);
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
             DateTime completedAt = DateTime.Now;
@@ -752,8 +751,8 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
                 PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
                 new PlaylistSummaryBmtSortCoordinator(() => playlist, () => playlist.BMSTables),
-                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore);
-            workspace.ConfigureDetailEditing(() => playlist);
+                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+                () => playlist);
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
             var queuedReasons = new List<string>();

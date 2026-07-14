@@ -13,10 +13,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal IReadOnlyList<string> GetPlaylistKeywordValueCandidates()
     {
-        if (getPlaylistStore == null)
-        {
-            throw new InvalidOperationException("Playlist persistence provider is not configured.");
-        }
         BMSPlaylist playlistStore = getPlaylistStore();
         if (playlistStore == null)
         {

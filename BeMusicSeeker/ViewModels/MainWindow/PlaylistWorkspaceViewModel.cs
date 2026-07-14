@@ -105,7 +105,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action<string> beatorajaTableUrlImportInfoLog,
         IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore,
         PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort,
-        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore)
+        IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore,
+        Func<BMSPlaylist> playlistStoreProvider)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -140,6 +141,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         playlistSummaryKeywordSearchHistory.AddRange(
             KeywordSearchHistoryStore.Deserialize(
                 keywordSearchHistorySettingsStore.PlaylistSummaryKeywordSearchHistory));
+        getPlaylistStore = playlistStoreProvider
+            ?? throw new ArgumentNullException(nameof(playlistStoreProvider));
     }
 
     internal void ResetPlaylistSummaryColumnsToDefault()

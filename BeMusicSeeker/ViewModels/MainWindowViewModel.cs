@@ -4568,7 +4568,6 @@ public partial class MainWindowViewModel : ViewModel
             () => files,
             () => lr2config,
             customFolderOutputSettingsProvider));
-        PlaylistWorkspace.ConfigureDetailEditing(() => tables);
         PlaylistWorkspace.ConfigureSummaryBulkEditing(() => lr2config);
         PlaylistWorkspace.ConfigureSummaryBulkWarningLogging(LogPlaylistSummaryBulkWarning);
         PlaylistWorkspace.ConfigureMutations(() => files, RunPlaylistOperationWithNotifications);
