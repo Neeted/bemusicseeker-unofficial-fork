@@ -62,14 +62,14 @@ public partial class MainWindowViewModel
         PlaylistReferenceTableReplacedEventArgs request)
     {
         InvokeMainChartListPresentationAction(() =>
-            ReplaceCurrentPlaylistSelectionTable(request.OldTable, request.NewTable));
+            PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable));
     }
 
     private void PlaylistWorkspacePlaylistPropertyFolderSelectionRemapped(
         object sender,
         PlaylistPropertyFolderSelectionRemappedEventArgs request)
     {
-        RemapCurrentPlaylistFolderSelection(request.Table, request.RewrittenFolders);
+        PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders);
     }
 
     private void PlaylistWorkspacePlaylistPropertyReferenceSortInvalidationRequested(object sender, EventArgs e)

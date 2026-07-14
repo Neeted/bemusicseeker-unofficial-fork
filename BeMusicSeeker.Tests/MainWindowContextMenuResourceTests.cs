@@ -46,11 +46,14 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModel.Contains("private ModeFilterType _ModeFilter"));
         Assert.IsFalse(viewModel.Contains("private string _KeywordFilter"));
         StringAssert.Contains(viewModel, "CreatePlaylistDetailRefreshInput(route.Mode, route.RequestedMode, parameter)");
+        StringAssert.Contains(viewModel, "PlaylistWorkspace.CapturePlaylistDetailSelection(out long selectionRevision)");
+        StringAssert.Contains(viewModel, "selectionRevision);");
         StringAssert.Contains(viewModel, "PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot()");
         StringAssert.Contains(viewModel, "PlaylistWorkspace.CapturePlaylistDetailSortParameters()");
+        Assert.IsFalse(viewModel.Contains("parameter as PlaylistDetailSelection"));
         Assert.IsFalse(viewModel.Contains("ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();\r\n        ChartListSortParameters sortParameters = PlaylistWorkspace.CapturePlaylistDetailSortParameters();"));
         StringAssert.Contains(playlistRequestOwner, "SortParameters = sortParameters");
-        StringAssert.Contains(playlistRequestOwner, "Filters = new ChartListFilterSnapshot(input.KeywordFilter, input.ModeFilter)");
+        StringAssert.Contains(playlistRequestOwner, "Filters = new ChartListFilterSnapshot(keywordFilter, modeFilter)");
         Assert.IsFalse(regularOwner.Contains("RegularChartModeFilter"));
         Assert.IsFalse(regularOwner.Contains("SetFilters("));
         StringAssert.Contains(regularOwner, "ChartListFilterSnapshot Filters");
@@ -2761,7 +2764,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(workspaceCode, "playlists.QueueBeatorajaBmtExportAll(\"manual_resync\")");
         StringAssert.Contains(viewModelCode, "PlaylistWorkspacePlaylistSyncResultReported");
         StringAssert.Contains(viewModelCode, "PlaylistWorkspacePlaylistReferenceTableReplaced");
-        StringAssert.Contains(viewModelCode, "ReplaceCurrentPlaylistSelectionTable(request.OldTable, request.NewTable)");
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable)");
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders)");
+        Assert.AreEqual(-1, viewModelCode.IndexOf("ReplaceCurrentPlaylistSelectionTable(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, viewModelCode.IndexOf("RemapCurrentPlaylistFolderSelection(", StringComparison.Ordinal));
         StringAssert.Contains(viewModelCode, "InvokeMainChartListPresentationAction(RefreshPlaylistDetailAfterReloadIfVisible)");
         Assert.IsFalse(viewModelCode.Contains("public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)"));
         Assert.IsFalse(workspaceCode.Contains("ResetBMSTableAsync("));

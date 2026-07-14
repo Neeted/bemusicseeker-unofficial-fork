@@ -96,8 +96,13 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += PlaylistWorkspacePlaylistSummaryDataRefreshRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceTableReplaced += PlaylistWorkspacePlaylistReferenceTableReplaced;");
         StringAssert.Contains(logicalSource, "InvokeMainChartListPresentationAction(() =>");
-        StringAssert.Contains(logicalSource, "ReplaceCurrentPlaylistSelectionTable(request.OldTable, request.NewTable);");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable);");
         StringAssert.Contains(logicalSource, "ApplyPlaylistEntriesChanged(request.Table, refreshSummaryIfVisible: true);");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.MarkCurrentPlaylistDetailEntriesChanged(table, \"playlist_updated\")");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders);");
+        Assert.AreEqual(-1, rootSource.IndexOf("ReplaceCurrentPlaylistSelectionTable(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("RemapCurrentPlaylistFolderSelection(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("treeViewFilterParameterSelected is PlaylistDetailSelection", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "private void PublishEntriesChanged(BMSTable table)");
         StringAssert.Contains(workspaceSource, "EntriesChanged?.Invoke(this, new PlaylistWorkspaceEntriesChangedEventArgs(table));");
         StringAssert.Contains(workspaceSource, "internal Task AddRowsToFolderAsync(");
@@ -121,6 +126,18 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RemoveTableAsync(");
         StringAssert.Contains(workspaceSource, "internal void RequestSummarySelection()");
         StringAssert.Contains(workspaceSource, "internal void RequestDetailSelection(BMSTable table, PlaylistFolderNode folderNode = null)");
+        StringAssert.Contains(workspaceSource, "internal PlaylistDetailSelection CapturePlaylistDetailSelection()");
+        StringAssert.Contains(workspaceSource, "internal PlaylistDetailSelection CapturePlaylistDetailSelection(out long selectionRevision)");
+        StringAssert.Contains(workspaceSource, "internal bool IsCurrentPlaylistDetailSelection(");
+        StringAssert.Contains(workspaceSource, "internal bool TryExecuteCurrentPlaylistDetailSelection(");
+        StringAssert.Contains(workspaceSource, "internal bool TryExecuteCurrentPlaylistSummarySelection(");
+        StringAssert.Contains(workspaceSource, "internal bool ReplaceCurrentPlaylistDetailSelectionTable(");
+        StringAssert.Contains(workspaceSource, "internal bool RemapCurrentPlaylistDetailFolderSelection(");
+        StringAssert.Contains(workspaceSource, "internal bool MarkCurrentPlaylistDetailEntriesChanged(");
+        StringAssert.Contains(workspaceSource, "internal long ClearPlaylistDetailSelection()");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryExecuteCurrentPlaylistSummarySelection(");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryExecuteCurrentPlaylistDetailSelection(");
+        StringAssert.Contains(logicalSource, "CapturePlaylistDetailSelection(out long selectionRevision)");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestSummarySelection();");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ApplyPlaylistSummaryBmtOutput(");
@@ -467,6 +484,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreSame(table, folderRequest.Detail.Table);
         Assert.AreEqual("Folder A", folderRequest.Detail.FolderName);
         Assert.AreEqual(PlaylistDetailFilter.PlaylistFilter, folderRequest.Detail.Filter);
+        Assert.AreEqual(1L, folderRequest.SelectionRevision);
+        Assert.IsTrue(workspace.IsCurrentPlaylistDetailSelection(folderRequest.Detail, folderRequest.SelectionRevision));
 
         workspace.RequestDetailSelection(
             table,
@@ -477,6 +496,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreSame(table, notOwnedRequest.Detail.Table);
         Assert.IsNull(notOwnedRequest.Detail.FolderName);
         Assert.AreEqual(PlaylistDetailFilter.PlaylistNotOwnedFilterSelected, notOwnedRequest.Detail.Filter);
+        Assert.AreEqual(2L, notOwnedRequest.SelectionRevision);
+        Assert.IsFalse(workspace.IsCurrentPlaylistDetailSelection(folderRequest.Detail, folderRequest.SelectionRevision));
+        Assert.IsTrue(workspace.IsCurrentPlaylistDetailSelection(notOwnedRequest.Detail, notOwnedRequest.SelectionRevision));
     }
 
     [TestMethod]
@@ -494,6 +516,186 @@ public sealed class PlaylistWorkspaceViewModelTests
         workspace.RequestSummarySelection();
 
         Assert.AreEqual(2, requestCount);
+        Assert.IsNull(workspace.CapturePlaylistDetailSelection());
+    }
+
+    [TestMethod]
+    public void TreeSelection_StaleSummaryCannotExecuteAfterDetailSelection()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        PlaylistTreeSelectionRequestedEventArgs? summaryRequest = null;
+        workspace.TreeSelectionRequested += (_, request) =>
+        {
+            if (request.IsSummary)
+            {
+                summaryRequest = request;
+            }
+        };
+
+        workspace.RequestSummarySelection();
+        workspace.RequestDetailSelection(new BMSTable());
+
+        PlaylistTreeSelectionRequestedEventArgs staleSummary = summaryRequest
+            ?? throw new AssertFailedException("Summary selection request was not raised.");
+        int appliedCount = 0;
+        Assert.IsFalse(workspace.TryExecuteCurrentPlaylistSummarySelection(
+            staleSummary.SelectionRevision,
+            () => appliedCount++));
+        Assert.AreEqual(0, appliedCount);
+    }
+
+    [TestMethod]
+    public void TreeSelection_CurrentExecutionIsRejectedAfterClear()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        PlaylistTreeSelectionRequestedEventArgs? detailRequest = null;
+        workspace.TreeSelectionRequested += (_, request) =>
+        {
+            if (!request.IsSummary)
+            {
+                detailRequest = request;
+            }
+        };
+
+        workspace.RequestDetailSelection(new BMSTable());
+        PlaylistTreeSelectionRequestedEventArgs selected = detailRequest
+            ?? throw new AssertFailedException("Detail selection request was not raised.");
+        workspace.ClearPlaylistDetailSelection();
+
+        int appliedCount = 0;
+        Assert.IsFalse(workspace.TryExecuteCurrentPlaylistDetailSelection(
+            selected.Detail,
+            selected.SelectionRevision,
+            () => appliedCount++));
+        Assert.AreEqual(0, appliedCount);
+    }
+
+    [TestMethod]
+    public void TreeSelection_CurrentExecutionSerializesRouteApplication()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        var table = new BMSTable();
+        PlaylistTreeSelectionRequestedEventArgs? detailRequest = null;
+        workspace.TreeSelectionRequested += (_, request) =>
+        {
+            if (!request.IsSummary)
+            {
+                detailRequest = request;
+            }
+        };
+        workspace.RequestDetailSelection(table);
+        PlaylistTreeSelectionRequestedEventArgs selected = detailRequest
+            ?? throw new AssertFailedException("Detail selection request was not raised.");
+
+        bool applied = false;
+        Assert.IsTrue(workspace.TryExecuteCurrentPlaylistDetailSelection(
+            selected.Detail,
+            selected.SelectionRevision,
+            () =>
+            {
+                applied = true;
+                workspace.ClearPlaylistDetailSelection();
+            }));
+        Assert.IsTrue(applied);
+        Assert.IsNull(workspace.CapturePlaylistDetailSelection());
+    }
+
+    [TestMethod]
+    public void RequestDetailRefresh_StaleInputUsesCurrentOwnerSelection()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("old", ChartModeFilter.All));
+        var oldTable = new BMSTable();
+        var currentTable = new BMSTable();
+        PlaylistTreeSelectionRequestedEventArgs? request = null;
+        workspace.TreeSelectionRequested += (_, selectionRequest) =>
+        {
+            if (!selectionRequest.IsSummary)
+            {
+                request = selectionRequest;
+            }
+        };
+        workspace.RequestDetailSelection(oldTable);
+        PlaylistTreeSelectionRequestedEventArgs oldRequest = request
+            ?? throw new AssertFailedException("Initial detail selection request was not raised.");
+        PlaylistDetailRefreshInput staleInput = new(
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            oldTable,
+            folderName: null,
+            PlaylistDetailFilter.PlaylistFilter,
+            hasResolvedSelection: true,
+            keywordFilter: string.Empty,
+            ChartModeFilter.All,
+            sortColumnName: string.Empty,
+            System.ComponentModel.ListSortDirection.Ascending,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            useCoalescingWindow: false,
+            openReadiness: default,
+            selectionRevision: oldRequest.SelectionRevision);
+
+        workspace.RequestDetailSelection(currentTable);
+        workspace.RequestPlaylistDetailFilter(
+            MainViewUpdateMode.KeywordFilterUpdated,
+            new ChartListFilterSnapshot("current", ChartModeFilter.All));
+        int requestVersion = workspace.RequestDetailRefresh(staleInput);
+
+        Assert.IsTrue(requestVersion > 0);
+        Assert.IsTrue(SpinWait.SpinUntil(() => workspace.IsDetailBuildIdle, 5000));
+        Assert.AreSame(currentTable, workspace.DetailViewState.Source.CurrentTable);
+        Assert.AreEqual("CURRENT", workspace.DetailViewState.View.CurrentIdentity?.KeywordFilter);
+    }
+
+    [TestMethod]
+    public void TreeSelection_NullTableSelectionRemainsResolvedAsSelectionState()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        PlaylistTreeSelectionRequestedEventArgs? request = null;
+        workspace.TreeSelectionRequested += (_, e) => request = e;
+
+        workspace.RequestDetailSelection(null);
+
+        PlaylistTreeSelectionRequestedEventArgs detailRequest = request
+            ?? throw new AssertFailedException("Null-table detail selection request was not raised.");
+        Assert.IsFalse(detailRequest.IsSummary);
+        Assert.IsNotNull(detailRequest.Detail);
+        Assert.IsNull(detailRequest.Detail.Table);
+        Assert.IsTrue(workspace.IsCurrentPlaylistDetailSelection(
+            detailRequest.Detail,
+            detailRequest.SelectionRevision));
+        Assert.IsNotNull(workspace.CapturePlaylistDetailSelection());
+        Assert.IsNull(workspace.CapturePlaylistDetailSelection().Table);
+    }
+
+    [TestMethod]
+    public void TreeSelection_OwnerPreservesReplacementRemapAndContentRevision()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        var oldTable = new BMSTable();
+        var newTable = new BMSTable();
+        PlaylistTreeSelectionRequestedEventArgs? request = null;
+        workspace.TreeSelectionRequested += (_, e) => request = e;
+
+        workspace.RequestDetailSelection(oldTable, PlaylistFolderNode.CreateFolder("Folder A"));
+        PlaylistTreeSelectionRequestedEventArgs selected = request
+            ?? throw new AssertFailedException("Detail selection request was not raised.");
+
+        Assert.IsTrue(workspace.ReplaceCurrentPlaylistDetailSelectionTable(oldTable, newTable));
+        PlaylistDetailSelection replaced = workspace.CapturePlaylistDetailSelection()
+            ?? throw new AssertFailedException("Replaced detail selection was not retained.");
+        Assert.AreSame(newTable, replaced.Table);
+        Assert.AreEqual("Folder A", replaced.FolderName);
+        Assert.IsFalse(workspace.IsCurrentPlaylistDetailSelection(selected.Detail, selected.SelectionRevision));
+
+        Assert.IsTrue(workspace.RemapCurrentPlaylistDetailFolderSelection(
+            newTable,
+            new Dictionary<string, string> { ["Folder A"] = "Folder B" }));
+        Assert.AreEqual("Folder B", workspace.CapturePlaylistDetailSelection().FolderName);
+
+        workspace.DetailViewState.Source.PlaylistContentRevision = 9;
+        Assert.IsTrue(workspace.MarkCurrentPlaylistDetailEntriesChanged(newTable, "test_entries_changed"));
+        Assert.AreEqual(10, workspace.DetailViewState.Source.PlaylistContentRevision);
+        Assert.IsFalse(workspace.MarkCurrentPlaylistDetailEntriesChanged(oldTable, "test_non_current_entries_changed"));
     }
 
     [TestMethod]

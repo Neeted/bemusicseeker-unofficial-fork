@@ -21,7 +21,8 @@ internal sealed class PlaylistDetailRefreshInput
         ListSortDirection sortDirection,
         MainViewUpdateMode currentTreeMode,
         bool useCoalescingWindow,
-        PlaylistOpenReadinessSnapshot openReadiness)
+        PlaylistOpenReadinessSnapshot openReadiness,
+        long selectionRevision = 0L)
     {
         Mode = mode;
         RequestedMode = requestedMode;
@@ -36,6 +37,7 @@ internal sealed class PlaylistDetailRefreshInput
         CurrentTreeMode = currentTreeMode;
         UseCoalescingWindow = useCoalescingWindow;
         OpenReadiness = openReadiness;
+        SelectionRevision = selectionRevision;
     }
 
     internal MainViewUpdateMode Mode { get; }
@@ -63,4 +65,6 @@ internal sealed class PlaylistDetailRefreshInput
     internal bool UseCoalescingWindow { get; }
 
     internal PlaylistOpenReadinessSnapshot OpenReadiness { get; }
+
+    internal long SelectionRevision { get; }
 }

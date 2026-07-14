@@ -1623,26 +1623,12 @@ public partial class MainWindowViewModel : ViewModel
         };
     }
 
-    /// <summary>
-    /// 現在の playlist 内容更新版数を返します。
-    /// </summary>
-    /// <summary>
-    /// playlist 内容更新版数を進めます。
-    /// </summary>
-    /// <param name="reason">更新理由。</param>
-    /// <returns>更新後の版数。</returns>
-    private long IncrementPlaylistContentRevision(string reason)
-    {
-        return PlaylistWorkspace.IncrementDetailContentRevision(reason);
-    }
-
     private PlaylistDetailRefreshInput CreatePlaylistDetailRefreshInput(
         MainViewUpdateMode mode,
         MainViewUpdateMode requestedMode,
         object parameter)
     {
-        PlaylistDetailSelection selection = parameter as PlaylistDetailSelection
-            ?? treeViewFilterParameterSelected as PlaylistDetailSelection;
+        PlaylistDetailSelection selection = PlaylistWorkspace.CapturePlaylistDetailSelection(out long selectionRevision);
         bool hasResolvedSelection = selection != null;
         ChartListFilterSnapshot filters = PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot();
         ChartListSortParameters sortParameters = PlaylistWorkspace.CapturePlaylistDetailSortParameters();
@@ -1659,7 +1645,8 @@ public partial class MainWindowViewModel : ViewModel
             NormalizePlaylistSortDirection(sortParameters),
             treeViewFilterTypeSelected,
             ShouldUsePlaylistBuildCoalescingWindow(mode, requestedMode),
-            CapturePlaylistOpenReadinessSnapshot());
+            CapturePlaylistOpenReadinessSnapshot(),
+            selectionRevision);
     }
 
     private ChartListSortParameters CaptureActiveMainViewSortParameters()
@@ -5361,6 +5348,7 @@ public partial class MainWindowViewModel : ViewModel
             },
             request =>
             {
+                PlaylistWorkspace.ClearPlaylistDetailSelection();
                 treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
                 treeViewFilterParameterSelected = request;
             },
@@ -5497,18 +5485,30 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistTreeSelectionRequestedEventArgs request)
     {
+        if (request == null)
+        {
+            return;
+        }
         if (request.IsSummary)
         {
-            ApplyPlaylistSummarySelection();
+            PlaylistWorkspace.TryExecuteCurrentPlaylistSummarySelection(
+                request.SelectionRevision,
+                ApplyPlaylistSummarySelection);
             return;
         }
         PlaylistDetailSelection selection = request.Detail;
-        SetPlaylistSummaryMode(enabled: false);
-        RefreshChartRowsView(
-            selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
-                ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
-                : MainViewUpdateMode.PlaylistFilterSelected,
-            selection);
+        PlaylistWorkspace.TryExecuteCurrentPlaylistDetailSelection(
+            selection,
+            request.SelectionRevision,
+            () =>
+            {
+                SetPlaylistSummaryMode(enabled: false);
+                RefreshChartRowsView(
+                    selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
+                        ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
+                        : MainViewUpdateMode.PlaylistFilterSelected,
+                    selection);
+            });
     }
 
     private static void PlaylistWorkspaceMutationRejected(
@@ -5614,7 +5614,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         InvokeMainChartListPresentationAction(() =>
         {
-            ReplaceCurrentPlaylistSelectionTable(request.OldTable, request.NewTable);
+            PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable);
             if (request.ReferenceIndexChanged)
             {
                 InvalidateNormalLibraryReferenceTableSortKeys();
@@ -5663,10 +5663,9 @@ public partial class MainWindowViewModel : ViewModel
         {
             RefreshPlaylistSummaryIfVisible("playlist_entries_updated", invalidateTableCountCache: true);
         }
-        if (treeViewFilterParameterSelected is PlaylistDetailSelection selection
-            && selection.Table == table)
+        if (IsPlaylistDetailWorkflowActive
+            && PlaylistWorkspace.MarkCurrentPlaylistDetailEntriesChanged(table, "playlist_updated"))
         {
-            IncrementPlaylistContentRevision("playlist_updated");
             RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         }
         InvalidateNormalLibraryReferenceTableSortKeys();
@@ -8173,10 +8172,14 @@ public partial class MainWindowViewModel : ViewModel
         {
             throw new InvalidOperationException("Play-history selection must be activated through BeginPlayHistoryFilterRequest.");
         }
+        if (!IsPlaylistViewMode(mode))
+        {
+            PlaylistWorkspace.ClearPlaylistDetailSelection();
+        }
         playHistoryWorkflowOwner.Deactivate(() =>
         {
             treeViewFilterTypeSelected = mode;
-            treeViewFilterParameterSelected = parameter;
+            treeViewFilterParameterSelected = IsPlaylistViewMode(mode) ? null : parameter;
         });
         playHistoryWorkflowOwner.ClearSummaryFilters();
     }
@@ -8240,6 +8243,7 @@ public partial class MainWindowViewModel : ViewModel
     internal long BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest request)
     {
         SetPlaylistSummaryMode(enabled: false);
+        PlaylistWorkspace.ClearPlaylistDetailSelection();
         EnsurePlayHistoryDisplayTargetSelection();
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
         MainViewOperationSection previousOperationSection = CurrentMainViewOperationSection;
@@ -8250,6 +8254,7 @@ public partial class MainWindowViewModel : ViewModel
             playHistoryWorkflowOwner.DisplayTargetRevision,
             requestToActivate =>
             {
+                PlaylistWorkspace.ClearPlaylistDetailSelection();
                 treeViewFilterTypeSelected = MainViewUpdateMode.PlayHistorySelected;
                 treeViewFilterParameterSelected = requestToActivate;
             });
@@ -12982,48 +12987,6 @@ public partial class MainWindowViewModel : ViewModel
                 bmsTable.Data_url = data_url;
             }
         }
-    }
-
-    private void ReplaceCurrentPlaylistSelectionTable(BMSTable oldTable, BMSTable newTable)
-    {
-        if (oldTable == null || newTable == null || oldTable == newTable)
-        {
-            return;
-        }
-        lock (playHistoryViewRequestLock)
-        {
-            if (treeViewFilterParameterSelected is PlaylistDetailSelection selection
-                && selection.Table == oldTable)
-            {
-                treeViewFilterParameterSelected = new PlaylistDetailSelection(
-                    newTable,
-                    selection.FolderName,
-                    selection.Filter);
-            }
-        }
-    }
-
-    private void RemapCurrentPlaylistFolderSelection(BMSTable table, IReadOnlyDictionary<string, string> rewrittenFolders)
-    {
-        if (table == null || rewrittenFolders == null || rewrittenFolders.Count == 0)
-        {
-            return;
-        }
-        if (treeViewFilterTypeSelected != MainViewUpdateMode.PlaylistFilterSelected
-            || treeViewFilterParameterSelected is not PlaylistDetailSelection selection
-            || selection.Table != table)
-        {
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(selection.FolderName)
-            || !rewrittenFolders.TryGetValue(selection.FolderName, out string rewrittenFolder))
-        {
-            return;
-        }
-        treeViewFilterParameterSelected = new PlaylistDetailSelection(
-            table,
-            rewrittenFolder,
-            selection.Filter);
     }
 
     internal BMSTable CreateBMSTable()

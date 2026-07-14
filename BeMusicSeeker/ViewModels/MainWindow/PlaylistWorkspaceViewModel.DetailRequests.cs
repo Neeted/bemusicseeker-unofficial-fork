@@ -1,4 +1,5 @@
 using System;
+using System.ComponentModel;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.ExceptionServices;
@@ -36,51 +37,80 @@ public sealed partial class PlaylistWorkspaceViewModel
             ?? throw new InvalidOperationException("Playlist detail data source is not attached.");
         PlaylistBuildRequest request;
         PlaylistBuildQueueRegisterResult registerResult;
-        lock (DetailBuildState.SyncRoot)
+        lock (playlistDetailSelectionSyncRoot)
         {
-            long playlistRevision;
-            int lastBuiltScoreSnapshotVersion;
-            PlaylistRequestIdentity? currentViewIdentity;
-            lock (DetailViewState.SyncRoot)
+            BMSTable table = input.Table;
+            string folderName = input.FolderName;
+            PlaylistDetailFilter filterType = input.FilterType;
+            bool hasResolvedSelection = input.HasResolvedSelection;
+            string keywordFilter = input.KeywordFilter;
+            ChartModeFilter modeFilter = input.ModeFilter;
+            string sortColumnName = input.SortColumnName;
+            ListSortDirection sortDirection = input.SortDirection;
+            if (input.SelectionRevision != 0L)
             {
-                playlistRevision = DetailViewState.Source.PlaylistContentRevision;
-                lastBuiltScoreSnapshotVersion = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
-                currentViewIdentity = DetailViewState.View.CurrentIdentity;
+                if (playlistDetailSelection == null)
+                {
+                    return 0;
+                }
+                table = playlistDetailSelection.Table;
+                folderName = playlistDetailSelection.FolderName;
+                filterType = playlistDetailSelection.Filter;
+                hasResolvedSelection = true;
+                ChartListFilterSnapshot currentFilters = CapturePlaylistDetailFilterSnapshot();
+                keywordFilter = currentFilters.KeywordFilter;
+                modeFilter = currentFilters.ModeFilter;
+                ChartListSortParameters currentSort = CapturePlaylistDetailSortParameters();
+                sortColumnName = currentSort?.ColumnsName ?? string.Empty;
+                sortDirection = currentSort?.Direction ?? ListSortDirection.Ascending;
             }
-            var sortParameters = new ChartListSortParameters
+
+            lock (DetailBuildState.SyncRoot)
             {
-                ColumnsName = input.SortColumnName,
-                Direction = input.SortDirection
-            };
-            request = new PlaylistBuildRequest
-            {
-                MainViewBuildRequestId = MainViewBuildRequestSequence.Next(),
-                Mode = input.Mode,
-                RequestedMode = input.RequestedMode,
-                Filters = new ChartListFilterSnapshot(input.KeywordFilter, input.ModeFilter),
-                SortParameters = sortParameters,
-                CurrentTreeMode = input.CurrentTreeMode,
-                OpenReadiness = input.OpenReadiness,
-                Identity = PlaylistRequestFactory.CreateIdentity(
-                    input.Table,
-                    input.FolderName,
-                    input.FilterType,
-                    input.KeywordFilter,
-                    input.ModeFilter,
-                    sortParameters,
-                    dataSource.OwnedChartCollectionVersion,
-                    playlistRevision,
-                    dataSource.ScoreSnapshotVersion,
-                    dataSource.ChartInfoIndexVersion,
-                    input.HasResolvedSelection),
-                UseCoalescingWindow = input.UseCoalescingWindow
-            };
-            registerResult = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
-                DetailBuildState,
-                request,
-                currentViewIdentity,
-                lastBuiltScoreSnapshotVersion,
-                isShutdownRequested: false);
+                long playlistRevision;
+                int lastBuiltScoreSnapshotVersion;
+                PlaylistRequestIdentity? currentViewIdentity;
+                lock (DetailViewState.SyncRoot)
+                {
+                    playlistRevision = DetailViewState.Source.PlaylistContentRevision;
+                    lastBuiltScoreSnapshotVersion = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
+                    currentViewIdentity = DetailViewState.View.CurrentIdentity;
+                }
+                var sortParameters = new ChartListSortParameters
+                {
+                    ColumnsName = sortColumnName,
+                    Direction = sortDirection
+                };
+                request = new PlaylistBuildRequest
+                {
+                    MainViewBuildRequestId = MainViewBuildRequestSequence.Next(),
+                    Mode = input.Mode,
+                    RequestedMode = input.RequestedMode,
+                    Filters = new ChartListFilterSnapshot(keywordFilter, modeFilter),
+                    SortParameters = sortParameters,
+                    CurrentTreeMode = input.CurrentTreeMode,
+                    OpenReadiness = input.OpenReadiness,
+                    Identity = PlaylistRequestFactory.CreateIdentity(
+                        table,
+                        folderName,
+                        filterType,
+                        keywordFilter,
+                        modeFilter,
+                        sortParameters,
+                        dataSource.OwnedChartCollectionVersion,
+                        playlistRevision,
+                        dataSource.ScoreSnapshotVersion,
+                        dataSource.ChartInfoIndexVersion,
+                        hasResolvedSelection),
+                    UseCoalescingWindow = input.UseCoalescingWindow
+                };
+                registerResult = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
+                    DetailBuildState,
+                    request,
+                    currentViewIdentity,
+                    lastBuiltScoreSnapshotVersion,
+                    isShutdownRequested: false);
+            }
         }
 
         detailRetentionLog("playlist_source_build requested version=" + request.RequestVersion
