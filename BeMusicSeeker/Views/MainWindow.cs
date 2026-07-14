@@ -3878,7 +3878,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
                 return;
             }
-            BMSTable bMSTable = await Task.Run(() => viewModel.CreateBMSTable()).Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
+            BMSTable bMSTable = await viewModel.PlaylistWorkspace.CreatePlaylistAsync().Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
             if (bMSTable != null)
             {
                 OpenPlaylistPropertyDialog(viewModel, bMSTable, isNewTable: true);

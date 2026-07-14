@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models;
@@ -28,6 +29,67 @@ public sealed class ApplicationCompositionTests
         var composition = new ApplicationComposition(() => snapshot);
 
         Assert.AreSame(snapshot, composition.BmsLibraryOptionsProvider());
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistWorkspaceCreatesNewPlaylistThroughConfiguredStore()
+    {
+        int previousDefault = BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput;
+        BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput =
+            (int)LR2SongDBExtended.playlist.CustomFolderType.AllFolders;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+            MainChartListViewModel missingProviderMainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
+            PlaylistWorkspaceViewModel missingProviderWorkspace = composition.CreatePlaylistWorkspaceViewModel(
+                action => action(),
+                missingProviderMainChartList,
+                _ => { },
+                _ => { });
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                () => missingProviderWorkspace.CreatePlaylistAsync());
+
+            MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
+            PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
+                action => action(),
+                mainChartList,
+                _ => { },
+                _ => { });
+            workspace.ConfigureDetailEditing(() => playlist);
+            DateTime startedAt = DateTime.Now;
+            BMSTable created = await workspace.CreatePlaylistAsync();
+            DateTime completedAt = DateTime.Now;
+
+            Assert.IsNotNull(created);
+            Assert.AreSame(created, playlist.BMSTables.Single());
+            Assert.IsTrue(created.last_update >= startedAt && created.last_update <= completedAt);
+            Assert.AreEqual(
+                LR2SongDBExtended.playlist.CustomFolderType.AllFolders,
+                created.ignore_folder_output);
+            Assert.IsTrue(created.is_bmt_output);
+        }
+        finally
+        {
+            BeMusicSeeker.Properties.Settings.Default.PlaylistDefaultIgnoreFolderOutput = previousDefault;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]

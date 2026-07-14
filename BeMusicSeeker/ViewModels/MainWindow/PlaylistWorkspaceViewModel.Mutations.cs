@@ -31,6 +31,16 @@ public sealed partial class PlaylistWorkspaceViewModel
             ?? throw new ArgumentNullException(nameof(operationWithNotifications));
     }
 
+    internal Task<BMSTable> CreatePlaylistAsync()
+    {
+        return Task.Run(CreatePlaylist);
+    }
+
+    internal BMSTable CreatePlaylist()
+    {
+        return GetPlaylistStore().CreateBMSTable();
+    }
+
     internal Task RenameFolderAsync(BMSTable table, PlaylistFolderNode folder, string newName)
     {
         return Task.Run(() => RenameFolder(table, folder, newName));

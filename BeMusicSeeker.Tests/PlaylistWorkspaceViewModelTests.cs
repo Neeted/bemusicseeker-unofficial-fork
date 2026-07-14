@@ -105,6 +105,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.IsPlaylistSummaryMode =", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.GridHeaderText =", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.PlaylistSummaryText =", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("internal BMSTable CreateBMSTable()", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal Task<BMSTable> CreatePlaylistAsync()");
+        StringAssert.Contains(workspaceSource, "return GetPlaylistStore().CreateBMSTable();");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.CreatePlaylistAsync()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.IsPlaylistDetailViewActive");

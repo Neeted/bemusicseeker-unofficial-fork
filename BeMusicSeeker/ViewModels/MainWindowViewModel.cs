@@ -12122,11 +12122,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    internal BMSTable CreateBMSTable()
-    {
-        return tables.CreateBMSTable();
-    }
-
     internal void BackupBMSTables(string fileName)
     {
         if (BMSTables == null)
