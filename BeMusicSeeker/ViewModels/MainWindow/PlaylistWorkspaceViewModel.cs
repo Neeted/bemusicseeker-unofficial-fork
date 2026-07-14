@@ -26,6 +26,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
+    private IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore;
+
     private readonly SemaphoreSlim manualReloadSemaphore = new(1, 1);
 
     private PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
@@ -99,6 +101,26 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             throw new InvalidOperationException("Playlist summary BMT sort is already configured.");
         }
         playlistSummaryBmtSort = coordinator;
+    }
+
+    internal void ConfigurePlaylistSummaryColumnSettingsStore(IMainChartColumnSettingsStore store)
+    {
+        if (store == null)
+        {
+            throw new ArgumentNullException(nameof(store));
+        }
+        if (playlistSummaryColumnSettingsStore != null)
+        {
+            throw new InvalidOperationException("Playlist summary column settings store is already configured.");
+        }
+        playlistSummaryColumnSettingsStore = store;
+    }
+
+    internal void ResetPlaylistSummaryColumnsToDefault()
+    {
+        IMainChartColumnSettingsStore store = playlistSummaryColumnSettingsStore
+            ?? throw new InvalidOperationException("Playlist summary column settings store is not configured.");
+        PlaylistSummaryColumnsSettings = store.ResetPlaylistSummary();
     }
 
     internal void ApplyCurrentVisibleBmtOrder(IEnumerable<PlaylistSummaryRow> visibleRows)

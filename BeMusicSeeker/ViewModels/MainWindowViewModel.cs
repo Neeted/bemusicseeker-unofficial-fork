@@ -123,11 +123,6 @@ public partial class MainWindowViewModel : ViewModel
 
     public PlayHistoryWorkflowOwner PlayHistory { get; }
 
-    internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
-
-
-
-
     /// <summary>
     /// Compatibility name for callers compiled against the former nested sort contract.
     /// New code uses the feature-owned <see cref="global::BeMusicSeeker.ViewModels.ChartListSortParameters"/>.
@@ -5239,7 +5234,6 @@ public partial class MainWindowViewModel : ViewModel
             advanceRevision: false);
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => PlayHistory.QueueKeywordFilterRefresh(
             NormalizePlaylistKeywordFilter(ChartFilters.KeywordFilter));
-        PlaylistSummaryColumns = childComposition.PlaylistSummaryColumns;
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;

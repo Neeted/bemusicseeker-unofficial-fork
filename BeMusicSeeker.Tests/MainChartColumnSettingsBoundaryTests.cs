@@ -22,7 +22,7 @@ public sealed class MainChartColumnSettingsBoundaryTests
         Assert.AreSame(store.MainColumns, selection.ColumnsSettings);
         Assert.AreSame(store.PlaylistSummaryColumns, selection.PlaylistSummaryColumnsSettings);
 
-        viewModel.PlaylistSummaryColumns.ResetToDefault();
+        viewModel.PlaylistWorkspace.ResetPlaylistSummaryColumnsToDefault();
 
         Assert.AreSame(store.PlaylistSummaryColumns, viewModel.PlaylistWorkspace.PlaylistSummaryColumnsSettings);
         Assert.AreEqual(1, store.ResetPlaylistSummaryCallCount);

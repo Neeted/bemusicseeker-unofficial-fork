@@ -160,17 +160,17 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "ViewModels",
             "MainWindow",
             "MainChartListViewModel.cs"));
-        string coordinatorSource = File.ReadAllText(Path.Combine(
+        string workspaceSource = File.ReadAllText(Path.Combine(
             root,
             "BeMusicSeeker",
             "ViewModels",
             "MainWindow",
-            "PlaylistSummaryColumnSettingsCoordinator.cs"));
+            "PlaylistWorkspaceViewModel.cs"));
 
         StringAssert.Contains(mainChartSource, "IMainChartColumnSettingsStore");
-        StringAssert.Contains(coordinatorSource, "IMainChartColumnSettingsStore");
+        StringAssert.Contains(workspaceSource, "IMainChartColumnSettingsStore");
         Assert.IsFalse(mainChartSource.Contains("Settings.Default."));
-        Assert.IsFalse(coordinatorSource.Contains("Settings.Default."));
+        Assert.IsFalse(workspaceSource.Contains("Settings.Default."));
 
         string compositionSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
@@ -461,7 +461,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(source.Contains("new ChartListFilterViewModel("));
         Assert.IsFalse(source.Contains("new MainWindowRuntimeContext("));
         Assert.IsFalse(source.Contains("new PlayHistoryWorkflowOwner("));
-        Assert.IsFalse(source.Contains("new PlaylistSummaryColumnSettingsCoordinator("));
+        Assert.IsFalse(source.Contains("PlaylistSummaryColumnSettingsCoordinator"));
         Assert.IsFalse(source.Contains("new PlaylistSummaryBmtSortCoordinator("));
         Assert.IsFalse(source.Contains("new RegularChartListOwner("));
         Assert.IsFalse(source.Contains("new DropInstallQueueProcessor("));

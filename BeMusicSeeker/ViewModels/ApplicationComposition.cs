@@ -141,7 +141,7 @@ internal sealed class ApplicationComposition
         Action<string> detailViewLog,
         Action<string> detailRetentionLog)
     {
-        return new PlaylistWorkspaceViewModel(
+        var playlistWorkspace = new PlaylistWorkspaceViewModel(
             dispatchPresentationAction,
             mainChartList,
             new PlaylistDetailBuildState(),
@@ -149,6 +149,8 @@ internal sealed class ApplicationComposition
             detailViewLog,
             detailRetentionLog,
             customFolderOutputSettingsProvider);
+        playlistWorkspace.ConfigurePlaylistSummaryColumnSettingsStore(mainChartColumnSettingsStore);
+        return playlistWorkspace;
     }
 
     internal IPlaylistDetailDataSource CreatePlaylistDetailDataSource(
@@ -195,7 +197,6 @@ internal sealed class ApplicationComposition
         return new MainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
-            mainChartColumnSettingsStore,
             tablesProvider,
             bmsPlayerFactory,
             uiDispatcherProvider,
@@ -318,7 +319,6 @@ internal sealed class MainWindowChildComposition
     internal MainWindowChildComposition(
         MainChartListViewModel mainChartList,
         PlaylistWorkspaceViewModel playlistWorkspace,
-        IMainChartColumnSettingsStore mainChartColumnSettingsStore,
         Func<BMSPlaylist> tablesProvider,
         Func<IBMSPlayer> bmsPlayerFactory,
         Func<Dispatcher> uiDispatcherProvider,
@@ -350,9 +350,6 @@ internal sealed class MainWindowChildComposition
             chartFileOperations);
         ChartFilters = new ChartListFilterViewModel();
         PlayHistory = new PlayHistoryWorkflowOwner();
-        PlaylistSummaryColumns = new PlaylistSummaryColumnSettingsCoordinator(
-            PlaylistWorkspace,
-            mainChartColumnSettingsStore);
         var playlistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
             tablesProvider,
             tableSnapshotProvider,
@@ -381,8 +378,6 @@ internal sealed class MainWindowChildComposition
     internal ChartListFilterViewModel ChartFilters { get; }
 
     internal PlayHistoryWorkflowOwner PlayHistory { get; }
-
-    internal PlaylistSummaryColumnSettingsCoordinator PlaylistSummaryColumns { get; }
 
     internal RegularChartListOwner RegularChartListOwner { get; }
 

@@ -1682,7 +1682,7 @@ public sealed class RegularChartListOwnerTests
 
     [TestMethod]
     [DoNotParallelize]
-    public void PlaylistSummaryColumnSettingsCoordinator_ResetCreatesDefaultSettingsAndPublishesWorkspace()
+    public void PlaylistSummaryColumnSettings_ResetCreatesDefaultSettingsAndPublishesWorkspace()
     {
         PlaylistSummaryColumnSettings previousSummary = Settings.Default.PlaylistSummaryColumnsSettings;
         try
@@ -1707,8 +1707,8 @@ public sealed class RegularChartListOwnerTests
                 }
             };
 
-            var coordinator = new PlaylistSummaryColumnSettingsCoordinator(workspace);
-            coordinator.ResetToDefault();
+            workspace.ConfigurePlaylistSummaryColumnSettingsStore(new SettingsMainChartColumnSettingsStore());
+            workspace.ResetPlaylistSummaryColumnsToDefault();
 
             Assert.AreNotSame(oldSettings, Settings.Default.PlaylistSummaryColumnsSettings);
             Assert.AreSame(Settings.Default.PlaylistSummaryColumnsSettings, workspace.PlaylistSummaryColumnsSettings);
