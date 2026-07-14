@@ -67,22 +67,18 @@ public sealed class RegularChartListRefreshTypesTests
     public void RefreshChartRowsView_DispatchesRegularProductionEntry()
     {
         string refreshChartRowsView = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private void RefreshChartRowsView(");
-        string detailRefreshInput = SourceTextTestHelper.ReadMainWindowViewModelMethodBody("private PlaylistDetailRefreshInput CreatePlaylistDetailRefreshInput(");
-        string root = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string root = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
 
         StringAssert.Contains(refreshChartRowsView, "ChartListRefreshCoordinator.ResolveRoute");
         StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.PrepareForMainViewRefresh();");
         StringAssert.Contains(refreshChartRowsView, "PlaylistWorkspace.RequestDetailRefresh(");
-        StringAssert.Contains(refreshChartRowsView, "CreatePlaylistDetailRefreshInput(route.Mode, route.RequestedMode, parameter)");
+        StringAssert.Contains(refreshChartRowsView, "ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode)");
+        StringAssert.Contains(refreshChartRowsView, "CapturePlaylistOpenReadinessSnapshot()");
         StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyMainLibraryView(");
         StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
-        StringAssert.Contains(detailRefreshInput, "PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot()");
-        StringAssert.Contains(detailRefreshInput, "PlaylistWorkspace.CapturePlaylistDetailSortParameters()");
-        StringAssert.Contains(detailRefreshInput, "PlaylistWorkspace.CapturePlaylistDetailSelection(out long selectionRevision)");
-        StringAssert.Contains(detailRefreshInput, "selectionRevision);");
-        Assert.IsFalse(detailRefreshInput.Contains("parameter as PlaylistDetailSelection"));
-        Assert.IsFalse(detailRefreshInput.Contains("ChartFilters.CaptureSnapshot()"));
-        Assert.IsFalse(detailRefreshInput.Contains("regularChartListOwner.CaptureSortParameters()"));
+        Assert.IsFalse(refreshChartRowsView.Contains("CreatePlaylistDetailRefreshInput("));
+        Assert.IsFalse(root.Contains("CapturePlaylistDetailSelection(out long selectionRevision)"));
+        Assert.IsFalse(root.Contains("CapturePlaylistDetailFilterSnapshot()"));
         Assert.IsTrue(
             refreshChartRowsView.IndexOf("UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)", StringComparison.Ordinal)
             < refreshChartRowsView.IndexOf("PlaylistWorkspace.RequestDetailRefresh(", StringComparison.Ordinal));

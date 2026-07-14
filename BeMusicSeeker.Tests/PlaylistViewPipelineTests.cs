@@ -171,7 +171,8 @@ public sealed class PlaylistViewPipelineTests
         StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested || isShutdownRequested");
         StringAssert.Contains(queueCoordinatorSource, "state.ShutdownCancellationRequested = true;");
         StringAssert.Contains(queueCoordinatorSource, "lock (state.SyncRoot)");
-        StringAssert.Contains(playlistRequestOwner, "internal int RequestDetailRefresh(PlaylistDetailRefreshInput input)");
+        StringAssert.Contains(playlistRequestOwner, "internal int RequestDetailRefresh(");
+        StringAssert.Contains(playlistRequestOwner, "PlaylistDetailSelection selection = playlistDetailSelection;");
         StringAssert.Contains(playlistRequestOwner, "PlaylistDetailBuildQueueCoordinator.RegisterRequest");
         StringAssert.Contains(playlistRequestOwner, "PlaylistDetailBuildQueueCoordinator.CancelForShutdown");
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailBuildQueueCoordinator.", StringComparison.Ordinal));

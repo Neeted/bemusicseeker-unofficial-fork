@@ -27,43 +27,33 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal long LastDetailBuildElapsedMs => Interlocked.Read(ref lastDetailBuildElapsedMs);
 
-    internal int RequestDetailRefresh(PlaylistDetailRefreshInput input)
+    internal int RequestDetailRefresh(
+        MainViewUpdateMode mode,
+        MainViewUpdateMode requestedMode,
+        MainViewUpdateMode currentTreeMode,
+        bool useCoalescingWindow,
+        PlaylistOpenReadinessSnapshot openReadiness)
     {
-        if (input == null)
-        {
-            throw new ArgumentNullException(nameof(input));
-        }
         IPlaylistDetailDataSource dataSource = Volatile.Read(ref detailDataSource)
             ?? throw new InvalidOperationException("Playlist detail data source is not attached.");
         PlaylistBuildRequest request;
         PlaylistBuildQueueRegisterResult registerResult;
         lock (playlistDetailSelectionSyncRoot)
         {
-            BMSTable table = input.Table;
-            string folderName = input.FolderName;
-            PlaylistDetailFilter filterType = input.FilterType;
-            bool hasResolvedSelection = input.HasResolvedSelection;
-            string keywordFilter = input.KeywordFilter;
-            ChartModeFilter modeFilter = input.ModeFilter;
-            string sortColumnName = input.SortColumnName;
-            ListSortDirection sortDirection = input.SortDirection;
-            if (input.SelectionRevision != 0L)
+            PlaylistDetailSelection selection = playlistDetailSelection;
+            if (selection == null)
             {
-                if (playlistDetailSelection == null)
-                {
-                    return 0;
-                }
-                table = playlistDetailSelection.Table;
-                folderName = playlistDetailSelection.FolderName;
-                filterType = playlistDetailSelection.Filter;
-                hasResolvedSelection = true;
-                ChartListFilterSnapshot currentFilters = CapturePlaylistDetailFilterSnapshot();
-                keywordFilter = currentFilters.KeywordFilter;
-                modeFilter = currentFilters.ModeFilter;
-                ChartListSortParameters currentSort = CapturePlaylistDetailSortParameters();
-                sortColumnName = currentSort?.ColumnsName ?? string.Empty;
-                sortDirection = currentSort?.Direction ?? ListSortDirection.Ascending;
+                return 0;
             }
+            BMSTable table = selection.Table;
+            string folderName = selection.FolderName;
+            PlaylistDetailFilter filterType = selection.Filter;
+            ChartListFilterSnapshot currentFilters = CapturePlaylistDetailFilterSnapshot();
+            ChartListSortParameters currentSort = CapturePlaylistDetailSortParameters();
+            string keywordFilter = currentFilters.KeywordFilter ?? string.Empty;
+            ChartModeFilter modeFilter = currentFilters.ModeFilter;
+            string sortColumnName = currentSort?.ColumnsName ?? string.Empty;
+            ListSortDirection sortDirection = currentSort?.Direction ?? ListSortDirection.Ascending;
 
             lock (DetailBuildState.SyncRoot)
             {
@@ -84,12 +74,12 @@ public sealed partial class PlaylistWorkspaceViewModel
                 request = new PlaylistBuildRequest
                 {
                     MainViewBuildRequestId = MainViewBuildRequestSequence.Next(),
-                    Mode = input.Mode,
-                    RequestedMode = input.RequestedMode,
+                    Mode = mode,
+                    RequestedMode = requestedMode,
                     Filters = new ChartListFilterSnapshot(keywordFilter, modeFilter),
                     SortParameters = sortParameters,
-                    CurrentTreeMode = input.CurrentTreeMode,
-                    OpenReadiness = input.OpenReadiness,
+                    CurrentTreeMode = currentTreeMode,
+                    OpenReadiness = openReadiness,
                     Identity = PlaylistRequestFactory.CreateIdentity(
                         table,
                         folderName,
@@ -101,8 +91,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                         playlistRevision,
                         dataSource.ScoreSnapshotVersion,
                         dataSource.ChartInfoIndexVersion,
-                        hasResolvedSelection),
-                    UseCoalescingWindow = input.UseCoalescingWindow
+                        hasResolvedSelection: true),
+                    UseCoalescingWindow = useCoalescingWindow
                 };
                 registerResult = PlaylistDetailBuildQueueCoordinator.RegisterRequest(
                     DetailBuildState,

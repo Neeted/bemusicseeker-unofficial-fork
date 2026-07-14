@@ -892,14 +892,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist request の folder 名を同値判定向けに正規化します。
-    /// </summary>
-    internal static string NormalizePlaylistFolderName(string folderName)
-    {
-        return PlaylistRequestFactory.NormalizeFolderName(folderName);
-    }
-
-    /// <summary>
     /// playlist request の keyword filter を同値判定向けに正規化します。
     /// </summary>
     internal static string NormalizePlaylistKeywordFilter(string keywordFilter)
@@ -940,35 +932,11 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist request の sort 列名を同値判定向けに正規化します。
-    /// </summary>
-    internal static string NormalizePlaylistSortColumnName(ChartListSortParameters sortParameters)
-    {
-        return PlaylistRequestFactory.NormalizeSortColumnName(sortParameters);
-    }
-
-    /// <summary>
-    /// playlist request の sort 方向を同値判定向けに正規化します。
-    /// </summary>
-    internal static ListSortDirection NormalizePlaylistSortDirection(ChartListSortParameters sortParameters)
-    {
-        return PlaylistRequestFactory.NormalizeSortDirection(sortParameters);
-    }
-
-    /// <summary>
     /// request identity に source rebuild 前の quiet window を適用するかを返します。
     /// </summary>
     private static bool ShouldUsePlaylistBuildCoalescingWindow(MainViewUpdateMode mode, MainViewUpdateMode requestedMode)
     {
         return IsPlaylistViewMode(mode) || requestedMode == MainViewUpdateMode.TreeViewFilterNotChanged;
-    }
-
-    /// <summary>
-    /// 現在の UI 条件を反映した playlist request identity を生成します。
-    /// </summary>
-    internal static PlaylistRequestIdentity CreatePlaylistRequestIdentity(BMSTable table, string folderName, PlaylistDetailFilter filterType, string keywordFilter, ChartModeFilter modeFilter, ChartListSortParameters sortParameters, long libraryIndexVersion, long playlistRevision, int scoreSnapshotVersion, int chartInfoIndexVersion, bool hasResolvedSelection)
-    {
-        return PlaylistRequestFactory.CreateIdentity(table, folderName, filterType, keywordFilter, modeFilter, sortParameters, libraryIndexVersion, playlistRevision, scoreSnapshotVersion, chartInfoIndexVersion, hasResolvedSelection);
     }
 
     /// <summary>
@@ -1621,32 +1589,6 @@ public partial class MainWindowViewModel : ViewModel
             RankingRefreshRunning = scoreState.RankingRefreshRunning,
             RankingRefreshCompletedVersion = scoreState.RankingRefreshCompletedVersion
         };
-    }
-
-    private PlaylistDetailRefreshInput CreatePlaylistDetailRefreshInput(
-        MainViewUpdateMode mode,
-        MainViewUpdateMode requestedMode,
-        object parameter)
-    {
-        PlaylistDetailSelection selection = PlaylistWorkspace.CapturePlaylistDetailSelection(out long selectionRevision);
-        bool hasResolvedSelection = selection != null;
-        ChartListFilterSnapshot filters = PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot();
-        ChartListSortParameters sortParameters = PlaylistWorkspace.CapturePlaylistDetailSortParameters();
-        return new PlaylistDetailRefreshInput(
-            mode,
-            requestedMode,
-            selection?.Table,
-            selection?.FolderName,
-            selection?.Filter ?? PlaylistDetailFilter.PlaylistFilter,
-            hasResolvedSelection,
-            filters.KeywordFilter,
-            filters.ModeFilter,
-            NormalizePlaylistSortColumnName(sortParameters),
-            NormalizePlaylistSortDirection(sortParameters),
-            treeViewFilterTypeSelected,
-            ShouldUsePlaylistBuildCoalescingWindow(mode, requestedMode),
-            CapturePlaylistOpenReadinessSnapshot(),
-            selectionRevision);
     }
 
     private ChartListSortParameters CaptureActiveMainViewSortParameters()
@@ -7779,7 +7721,11 @@ public partial class MainWindowViewModel : ViewModel
         {
             UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive);
             PlaylistWorkspace.RequestDetailRefresh(
-                CreatePlaylistDetailRefreshInput(route.Mode, route.RequestedMode, parameter));
+                route.Mode,
+                route.RequestedMode,
+                treeViewFilterTypeSelected,
+                ShouldUsePlaylistBuildCoalescingWindow(route.Mode, route.RequestedMode),
+                CapturePlaylistOpenReadinessSnapshot());
             return;
         }
         RegularChartListEntryResult regularResult = regularChartListOwner.ApplyMainLibraryView(

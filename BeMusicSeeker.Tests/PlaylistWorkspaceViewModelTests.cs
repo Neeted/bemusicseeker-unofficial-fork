@@ -199,7 +199,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters);");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters);");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot()");
+        Assert.AreEqual(-1, rootSource.IndexOf("CreatePlaylistDetailRefreshInput(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailRefreshInput", StringComparison.Ordinal));
         string bindingModeUpdate = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void UpdateBmsFilesViewBindingMode(");
         StringAssert.Contains(bindingModeUpdate, "if (playlistDetailActive)");
         StringAssert.Contains(bindingModeUpdate, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
@@ -410,22 +411,20 @@ public sealed class PlaylistWorkspaceViewModelTests
         workspace.SetDetailDataSource(dataSource);
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "request-entry");
         var table = new BMSTable { entries = [entry] };
-        var input = new PlaylistDetailRefreshInput(
+        workspace.RequestDetailSelection(table);
+        workspace.InitializePlaylistDetailFilter(new ChartListFilterSnapshot("request", ChartModeFilter.All));
+        workspace.InitializePlaylistDetailSort(new ChartListSortParameters
+        {
+            ColumnsName = "TITLE",
+            Direction = System.ComponentModel.ListSortDirection.Ascending
+        });
+
+        int requestVersion = workspace.RequestDetailRefresh(
             MainViewUpdateMode.PlaylistFilterSelected,
             MainViewUpdateMode.PlaylistFilterSelected,
-            table,
-            folderName: null,
-            PlaylistDetailFilter.PlaylistFilter,
-            hasResolvedSelection: true,
-            keywordFilter: "request",
-            ChartModeFilter.All,
-            sortColumnName: "TITLE",
-            System.ComponentModel.ListSortDirection.Ascending,
             MainViewUpdateMode.PlaylistFilterSelected,
             useCoalescingWindow: false,
             openReadiness: default);
-
-        int requestVersion = workspace.RequestDetailRefresh(input);
 
         Assert.IsTrue(SpinWait.SpinUntil(() => workspace.IsDetailBuildIdle, 5000));
         Assert.AreEqual(requestVersion, workspace.DetailBuildState.RequestVersion);
@@ -445,26 +444,37 @@ public sealed class PlaylistWorkspaceViewModelTests
     {
         var workspace = CreateDetailWorkspace(out _);
         workspace.CancelDetailBuilds();
-        var input = new PlaylistDetailRefreshInput(
+        workspace.RequestDetailSelection(new BMSTable());
+
+        workspace.RequestDetailRefresh(
             MainViewUpdateMode.PlaylistFilterSelected,
             MainViewUpdateMode.PlaylistFilterSelected,
-            new BMSTable(),
-            folderName: null,
-            PlaylistDetailFilter.PlaylistFilter,
-            hasResolvedSelection: true,
-            keywordFilter: string.Empty,
-            ChartModeFilter.All,
-            sortColumnName: string.Empty,
-            System.ComponentModel.ListSortDirection.Ascending,
             MainViewUpdateMode.PlaylistFilterSelected,
             useCoalescingWindow: false,
             openReadiness: default);
 
-        workspace.RequestDetailRefresh(input);
-
         Assert.IsTrue(workspace.IsDetailBuildIdle);
         Assert.IsTrue(workspace.DetailBuildState.ShutdownCancellationRequested);
         Assert.IsFalse(workspace.DetailBuildState.WorkerRunning);
+        Assert.IsNull(workspace.DetailBuildState.PendingRequest);
+    }
+
+    [TestMethod]
+    public void RequestDetailRefresh_WithoutOwnerSelectionIsIgnored()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        int initialRequestVersion = workspace.DetailBuildState.RequestVersion;
+
+        int requestVersion = workspace.RequestDetailRefresh(
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            useCoalescingWindow: false,
+            openReadiness: default);
+
+        Assert.AreEqual(0, requestVersion);
+        Assert.IsTrue(workspace.IsDetailBuildIdle);
+        Assert.AreEqual(initialRequestVersion, workspace.DetailBuildState.RequestVersion);
         Assert.IsNull(workspace.DetailBuildState.PendingRequest);
     }
 
@@ -616,29 +626,19 @@ public sealed class PlaylistWorkspaceViewModelTests
             }
         };
         workspace.RequestDetailSelection(oldTable);
-        PlaylistTreeSelectionRequestedEventArgs oldRequest = request
+        _ = request
             ?? throw new AssertFailedException("Initial detail selection request was not raised.");
-        PlaylistDetailRefreshInput staleInput = new(
-            MainViewUpdateMode.PlaylistFilterSelected,
-            MainViewUpdateMode.PlaylistFilterSelected,
-            oldTable,
-            folderName: null,
-            PlaylistDetailFilter.PlaylistFilter,
-            hasResolvedSelection: true,
-            keywordFilter: string.Empty,
-            ChartModeFilter.All,
-            sortColumnName: string.Empty,
-            System.ComponentModel.ListSortDirection.Ascending,
-            MainViewUpdateMode.PlaylistFilterSelected,
-            useCoalescingWindow: false,
-            openReadiness: default,
-            selectionRevision: oldRequest.SelectionRevision);
 
         workspace.RequestDetailSelection(currentTable);
         workspace.RequestPlaylistDetailFilter(
             MainViewUpdateMode.KeywordFilterUpdated,
             new ChartListFilterSnapshot("current", ChartModeFilter.All));
-        int requestVersion = workspace.RequestDetailRefresh(staleInput);
+        int requestVersion = workspace.RequestDetailRefresh(
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            MainViewUpdateMode.PlaylistFilterSelected,
+            useCoalescingWindow: false,
+            openReadiness: default);
 
         Assert.IsTrue(requestVersion > 0);
         Assert.IsTrue(SpinWait.SpinUntil(() => workspace.IsDetailBuildIdle, 5000));
