@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
 using System.Windows;
@@ -151,13 +152,154 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     internal long DropSummaryRowsInBmtOrder(
         IEnumerable<PlaylistSummaryRow> visibleRows,
         IEnumerable<PlaylistSummaryRow> draggedRows,
-        int visibleInsertIndex)
+        int visibleInsertIndex,
+        int? currentPlaylistId = null)
     {
-        if (!GetSummaryBmtSort().DropRows(visibleRows, draggedRows, visibleInsertIndex))
+        List<PlaylistSummaryRow> draggedRowsSnapshot = [.. (draggedRows ?? [])];
+        long selectionRestoreOperationId = QueuePlaylistSummarySelectionRestore(
+            draggedRowsSnapshot,
+            currentPlaylistId,
+            out PlaylistSummarySelectionRestoreRequest selectionRestoreRequest);
+        try
+        {
+            if (!GetSummaryBmtSort().DropRows(visibleRows, draggedRowsSnapshot, visibleInsertIndex))
+            {
+                ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
+                return 0L;
+            }
+            long dataRebuildGeneration = RequestPlaylistSummaryBmtSortRefresh(
+                "playlist_summary_bmt_sort_drag_drop",
+                selectionRestoreOperationId > 0L
+                    ? generation => SetPlaylistSummarySelectionRestoreMinimumGenerationUnsafe(
+                        selectionRestoreOperationId,
+                        selectionRestoreRequest,
+                        generation)
+                    : null);
+            if (selectionRestoreOperationId > 0L)
+            {
+                if (dataRebuildGeneration <= 0L)
+                {
+                    ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
+                }
+            }
+            return dataRebuildGeneration;
+        }
+        catch
+        {
+            ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
+            throw;
+        }
+    }
+
+    private long QueuePlaylistSummarySelectionRestore(
+        IEnumerable<PlaylistSummaryRow> draggedRows,
+        int? currentPlaylistId,
+        out PlaylistSummarySelectionRestoreRequest selectionRestoreRequest)
+    {
+        selectionRestoreRequest = null;
+        var playlistIds = new HashSet<int>();
+        foreach (PlaylistSummaryRow row in draggedRows ?? [])
+        {
+            if (row?.PlaylistId is int playlistId)
+            {
+                playlistIds.Add(playlistId);
+            }
+        }
+        if (playlistIds.Count == 0)
         {
             return 0L;
         }
-        return RequestPlaylistSummaryBmtSortRefresh("playlist_summary_bmt_sort_drag_drop");
+        int? selectedCurrentPlaylistId = currentPlaylistId.HasValue && playlistIds.Contains(currentPlaylistId.Value)
+            ? currentPlaylistId
+            : playlistIds.FirstOrDefault();
+        selectionRestoreRequest = new PlaylistSummarySelectionRestoreRequest(playlistIds, selectedCurrentPlaylistId);
+        lock (playlistSummaryTransitionLock)
+        {
+            long operationId = ++playlistSummarySelectionRestoreOperationId;
+            if (operationId <= 0L)
+            {
+                operationId = playlistSummarySelectionRestoreOperationId = 1L;
+            }
+            pendingPlaylistSummarySelectionPlaylistIds = playlistIds;
+            pendingPlaylistSummaryCurrentPlaylistId = selectedCurrentPlaylistId;
+            pendingPlaylistSummarySelectionMinDataGeneration = long.MaxValue;
+            pendingPlaylistSummarySelectionOperationId = operationId;
+            return operationId;
+        }
+    }
+
+    private void SetPlaylistSummarySelectionRestoreMinimumGenerationUnsafe(
+        long operationId,
+        PlaylistSummarySelectionRestoreRequest selectionRestoreRequest,
+        long dataRebuildGeneration)
+    {
+        // The data generation, rather than drop completion order, identifies the view that can consume this intent.
+        // A later callback may therefore replace an earlier pending intent even when its operation started first.
+        if (selectionRestoreRequest == null
+            || dataRebuildGeneration <= 0L
+            || lastPlaylistSummaryAppliedDataGeneration > dataRebuildGeneration
+            || (pendingPlaylistSummarySelectionPlaylistIds != null
+                && pendingPlaylistSummarySelectionMinDataGeneration > 0L
+                && pendingPlaylistSummarySelectionMinDataGeneration != long.MaxValue
+                && dataRebuildGeneration < pendingPlaylistSummarySelectionMinDataGeneration))
+        {
+            return;
+        }
+        pendingPlaylistSummarySelectionPlaylistIds = new HashSet<int>(selectionRestoreRequest.PlaylistIds);
+        pendingPlaylistSummaryCurrentPlaylistId = selectionRestoreRequest.CurrentPlaylistId;
+        pendingPlaylistSummarySelectionMinDataGeneration = dataRebuildGeneration;
+        pendingPlaylistSummarySelectionOperationId = operationId;
+    }
+
+    internal bool TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest request)
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            if (playlistSummaryDataBuildStopped
+                || pendingPlaylistSummarySelectionPlaylistIds == null
+                || pendingPlaylistSummarySelectionPlaylistIds.Count == 0
+                || pendingPlaylistSummarySelectionMinDataGeneration <= 0L
+                || pendingPlaylistSummarySelectionMinDataGeneration == long.MaxValue
+                || lastPlaylistSummaryAppliedDataGeneration < pendingPlaylistSummarySelectionMinDataGeneration)
+            {
+                request = null;
+                return false;
+            }
+            if (lastPlaylistSummaryAppliedDataGeneration > pendingPlaylistSummarySelectionMinDataGeneration)
+            {
+                ClearPlaylistSummarySelectionRestoreUnsafe();
+                request = null;
+                return false;
+            }
+            request = new PlaylistSummarySelectionRestoreRequest(
+                pendingPlaylistSummarySelectionPlaylistIds,
+                pendingPlaylistSummaryCurrentPlaylistId);
+            ClearPlaylistSummarySelectionRestoreUnsafe();
+            return true;
+        }
+    }
+
+    private void ClearPlaylistSummarySelectionRestore(long operationId)
+    {
+        if (operationId <= 0L)
+        {
+            return;
+        }
+        lock (playlistSummaryTransitionLock)
+        {
+            if (pendingPlaylistSummarySelectionOperationId == operationId)
+            {
+                ClearPlaylistSummarySelectionRestoreUnsafe();
+            }
+        }
+    }
+
+    private void ClearPlaylistSummarySelectionRestoreUnsafe()
+    {
+        pendingPlaylistSummarySelectionPlaylistIds = null;
+        pendingPlaylistSummaryCurrentPlaylistId = null;
+        pendingPlaylistSummarySelectionMinDataGeneration = 0L;
+        pendingPlaylistSummarySelectionOperationId = 0L;
     }
 
     internal void ApplyImportedTablesToBmtFront(IReadOnlyList<BMSTable> importedTables)
@@ -174,9 +316,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new InvalidOperationException("Playlist summary BMT sort is not configured.");
     }
 
-    private long RequestPlaylistSummaryBmtSortRefresh(string reason)
+    private long RequestPlaylistSummaryBmtSortRefresh(
+        string reason,
+        Action<long> beforeRefreshRequested = null)
     {
-        PlaylistSummaryDataRefreshRequestResult request = RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false);
+        PlaylistSummaryDataRefreshRequestResult request = RequestPlaylistSummaryDataRefresh(
+            invalidateTableCountCache: false,
+            beforeRefreshRequested: beforeRefreshRequested);
         if (!request.Queued)
         {
             return request.NextBuildGeneration;
@@ -237,6 +383,18 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     private long playlistSummaryPresentationGeneration;
 
     private long playlistSummaryDataRebuildGeneration;
+
+    private long lastPlaylistSummaryAppliedDataGeneration;
+
+    private long playlistSummarySelectionRestoreOperationId;
+
+    private HashSet<int> pendingPlaylistSummarySelectionPlaylistIds;
+
+    private int? pendingPlaylistSummaryCurrentPlaylistId;
+
+    private long pendingPlaylistSummarySelectionMinDataGeneration;
+
+    private long pendingPlaylistSummarySelectionOperationId;
 
     private long playlistSummaryRowsCacheGeneration;
 
@@ -538,6 +696,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
                     playlistSummaryPresentationGeneration++;
                     deferredPlaylistSummaryDataRefreshRequested = false;
                     deferredPlaylistSummaryPresentationRefreshRequested = false;
+                    ClearPlaylistSummarySelectionRestoreUnsafe();
                 }
             }
             CancelDataBuild(cancellation);
@@ -757,12 +916,15 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             cancellation = playlistSummaryDataBuildCancellation;
             playlistSummaryDataBuildCancellation = null;
             generation = ++playlistSummaryDataRebuildGeneration;
+            ClearPlaylistSummarySelectionRestoreIfSupersededUnsafe(generation);
         }
         CancelDataBuild(cancellation);
         return generation;
     }
 
-    internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(bool invalidateTableCountCache)
+    internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(
+        bool invalidateTableCountCache,
+        Action<long> beforeRefreshRequested = null)
     {
         CancellationTokenSource cancellation;
         PlaylistSummaryDataRefreshRequestResult result;
@@ -786,6 +948,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
                     : 0L,
                 Queued = queued
             };
+            ClearPlaylistSummarySelectionRestoreIfSupersededUnsafe(result.NextBuildGeneration);
+            if (queued)
+            {
+                beforeRefreshRequested?.Invoke(result.NextBuildGeneration);
+            }
         }
         CancelDataBuild(cancellation);
         return result;
@@ -844,6 +1011,17 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         return cancellation;
     }
 
+    private void ClearPlaylistSummarySelectionRestoreIfSupersededUnsafe(long nextDataRebuildGeneration)
+    {
+        if (pendingPlaylistSummarySelectionPlaylistIds != null
+            && pendingPlaylistSummarySelectionMinDataGeneration > 0L
+            && pendingPlaylistSummarySelectionMinDataGeneration != long.MaxValue
+            && nextDataRebuildGeneration > pendingPlaylistSummarySelectionMinDataGeneration)
+        {
+            ClearPlaylistSummarySelectionRestoreUnsafe();
+        }
+    }
+
     internal bool TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest request)
     {
         CancellationTokenSource previousCancellation;
@@ -861,6 +1039,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
                 playlistSummaryRowsCacheGeneration,
                 playlistSummaryTableCountCacheGeneration,
                 playlistSummaryDataBuildCancellation);
+            ClearPlaylistSummarySelectionRestoreIfSupersededUnsafe(request.Generation);
             playlistSummaryDataBuildActiveCount++;
         }
         CancelDataBuild(previousCancellation);
@@ -894,6 +1073,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             playlistSummaryDataBuildCancellation = null;
             playlistSummaryDataRebuildGeneration++;
             playlistSummaryPresentationGeneration++;
+            ClearPlaylistSummarySelectionRestoreUnsafe();
         }
         CancelDataBuild(cancellation);
     }
@@ -1065,6 +1245,12 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
                 Interlocked.Exchange(ref lastPlaylistSummaryBuildCompletedTimestamp, Stopwatch.GetTimestamp());
             }
             playlistSummaryText = nextSummaryText;
+            if (request.DataRebuildGeneration is long appliedDataGeneration)
+            {
+                lastPlaylistSummaryAppliedDataGeneration = Math.Max(
+                    lastPlaylistSummaryAppliedDataGeneration,
+                    appliedDataGeneration);
+            }
         }
 
         var publishExceptions = new List<Exception>();
@@ -1201,6 +1387,21 @@ internal sealed class PlaylistSummaryViewAppliedEventArgs : EventArgs
     }
 
     internal long DataRebuildGeneration { get; }
+}
+
+internal sealed class PlaylistSummarySelectionRestoreRequest
+{
+    internal PlaylistSummarySelectionRestoreRequest(
+        IReadOnlyCollection<int> playlistIds,
+        int? currentPlaylistId)
+    {
+        PlaylistIds = new List<int>(playlistIds ?? throw new ArgumentNullException(nameof(playlistIds)));
+        CurrentPlaylistId = currentPlaylistId;
+    }
+
+    internal IReadOnlyCollection<int> PlaylistIds { get; }
+
+    internal int? CurrentPlaylistId { get; }
 }
 
 internal sealed class PlaylistSummaryDataRefreshRequestedEventArgs : EventArgs

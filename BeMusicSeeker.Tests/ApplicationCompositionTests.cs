@@ -447,6 +447,161 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
+    public void ComposedPlaylistWorkspaceRestoresBmtDropSelectionAfterMatchingSummaryApply()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
+            var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
+            var third = new BMSTable { playlist_id = 3, name = "Third", symbol = "T", bmt_sort = 3 };
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([first, second, third]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+            MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
+            PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
+                action => action(),
+                mainChartList,
+                _ => { },
+                _ => { });
+            MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
+                mainChartList,
+                workspace,
+                () => playlist,
+                () => new InternalBMSAutoPlayerSoundOnly(),
+                () => null,
+                new ChartFileOperationSynchronizer(),
+                _ => { },
+                action => action(),
+                _ => { },
+                () => playlist.BMSTables,
+                (_, _) => { },
+                _ => { },
+                _ => { });
+            try
+            {
+                workspace.IsPlaylistSummaryMode = true;
+
+                long dataRebuildGeneration = workspace.DropSummaryRowsInBmtOrder(
+                    [
+                        new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
+                        new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
+                        new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third }
+                    ],
+                    [new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }],
+                    visibleInsertIndex: 0,
+                    currentPlaylistId: second.playlist_id);
+
+                Assert.IsTrue(dataRebuildGeneration > 0L);
+                Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
+                Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest));
+                Assert.AreEqual(dataRebuildGeneration, buildRequest.Generation);
+
+                long presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+                long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
+                Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+                {
+                    Rows = new ObservableCollection<PlaylistSummaryRow>(),
+                    PresentationGeneration = presentationGeneration,
+                    DataRebuildGeneration = dataRebuildGeneration,
+                    CacheGeneration = cacheGeneration
+                }));
+
+                Assert.IsTrue(workspace.TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest restore));
+                CollectionAssert.AreEquivalent(new[] { second.playlist_id }, restore.PlaylistIds.ToArray());
+                Assert.AreEqual(second.playlist_id, restore.CurrentPlaylistId);
+                Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
+                workspace.CompletePlaylistSummaryDataBuild(buildRequest);
+
+                long noOpGeneration = workspace.DropSummaryRowsInBmtOrder(
+                    [
+                        new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
+                        new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
+                        new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third }
+                    ],
+                    [new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }],
+                    visibleInsertIndex: 0,
+                    currentPlaylistId: second.playlist_id);
+                Assert.AreEqual(0L, noOpGeneration);
+                Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
+
+                long supersededGeneration = workspace.DropSummaryRowsInBmtOrder(
+                    [
+                        new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
+                        new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
+                        new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third }
+                    ],
+                    [new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third }],
+                    visibleInsertIndex: 0,
+                    currentPlaylistId: third.playlist_id);
+                Assert.IsTrue(supersededGeneration > 0L);
+                workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false);
+                Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
+
+                PlaylistSummarySelectionRestoreRequest synchronousRestore = null!;
+                workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
+                {
+                    if (request.Reason != "playlist_summary_bmt_sort_drag_drop")
+                    {
+                        return;
+                    }
+                    Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest synchronousBuild));
+                    try
+                    {
+                        Assert.AreEqual(request.NextBuildGeneration, synchronousBuild.Generation);
+                        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+                        {
+                            Rows = new ObservableCollection<PlaylistSummaryRow>(),
+                            PresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration,
+                            DataRebuildGeneration = synchronousBuild.Generation,
+                            CacheGeneration = synchronousBuild.CacheGeneration
+                        }));
+                        Assert.IsTrue(workspace.TryTakePlaylistSummarySelectionRestore(out synchronousRestore));
+                    }
+                    finally
+                    {
+                        workspace.CompletePlaylistSummaryDataBuild(synchronousBuild);
+                    }
+                };
+                long synchronousGeneration = workspace.DropSummaryRowsInBmtOrder(
+                    [
+                        new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third },
+                        new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
+                        new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first }
+                    ],
+                    [new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third }],
+                    visibleInsertIndex: 2,
+                    currentPlaylistId: third.playlist_id);
+                Assert.IsTrue(synchronousGeneration > 0L);
+                Assert.IsNotNull(synchronousRestore);
+                CollectionAssert.AreEquivalent(new[] { third.playlist_id }, synchronousRestore.PlaylistIds.ToArray());
+                Assert.AreEqual(third.playlist_id, synchronousRestore.CurrentPlaylistId);
+            }
+            finally
+            {
+                childComposition.RegularChartListOwner.Dispose();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void PlaylistWorkspaceBmtOutputTogglePersistsDistinctChangedHeadersAndRequestsSummaryRefresh()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
