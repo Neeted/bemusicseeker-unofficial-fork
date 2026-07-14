@@ -3153,7 +3153,7 @@ public sealed class MainWindowContextMenuResourceTests
         string settingDialog = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
 
         Assert.AreEqual("song.dbアクセス最適化PRAGMAを有効にする", Resources.Details_test_db_read_optimized_pragmas);
-        StringAssert.Contains(viewModel, "private bool _IsPlaylistTreeExpanded = true;");
+        Assert.IsFalse(viewModel.Contains("_IsPlaylistTreeExpanded"));
         Assert.AreEqual(0, CountOccurrences(viewModel + settings + appConfig + settingDialog, "StartupExpandPlaylistTree"));
         Assert.AreEqual(0, CountOccurrences(File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.resx"))
             + File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Properties", "Resources.cs")), "Details_test_startup_expand_playlist_tree"));

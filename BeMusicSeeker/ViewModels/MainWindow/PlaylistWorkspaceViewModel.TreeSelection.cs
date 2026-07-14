@@ -6,6 +6,8 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
+    private bool isPlaylistTreeExpanded = true;
+
     private readonly object playlistDetailSelectionSyncRoot = new();
 
     private PlaylistDetailSelection playlistDetailSelection;
@@ -13,6 +15,20 @@ public sealed partial class PlaylistWorkspaceViewModel
     private long playlistDetailSelectionRevision;
 
     internal event EventHandler<PlaylistTreeSelectionRequestedEventArgs> TreeSelectionRequested;
+
+    public bool IsPlaylistTreeExpanded
+    {
+        get => isPlaylistTreeExpanded;
+        set
+        {
+            if (isPlaylistTreeExpanded == value)
+            {
+                return;
+            }
+            isPlaylistTreeExpanded = value;
+            RaisePropertyChanged(nameof(IsPlaylistTreeExpanded));
+        }
+    }
 
     internal void RequestSummarySelection()
     {

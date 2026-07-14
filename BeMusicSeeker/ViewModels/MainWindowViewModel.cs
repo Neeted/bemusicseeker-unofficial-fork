@@ -707,8 +707,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
 
-    private bool _IsPlaylistTreeExpanded = true;
-
     private string _KeywordSearchWarningText = string.Empty;
 
     private bool _IsKeywordSearchHelpOpen;
@@ -4650,22 +4648,6 @@ public partial class MainWindowViewModel : ViewModel
         get => ProgressHub.IsLr2SongDbSyncCleanupVisible;
         set => ProgressHub.IsLr2SongDbSyncCleanupVisible = value;
     }
-    public bool IsPlaylistTreeExpanded
-    {
-        get
-        {
-            return _IsPlaylistTreeExpanded;
-        }
-        set
-        {
-            if (_IsPlaylistTreeExpanded != value)
-            {
-                _IsPlaylistTreeExpanded = value;
-                RaisePropertyChanged("IsPlaylistTreeExpanded");
-            }
-        }
-    }
-
     /// <summary>
     /// Compatibility forwarder for callers that still address the former root filter property.
     /// </summary>

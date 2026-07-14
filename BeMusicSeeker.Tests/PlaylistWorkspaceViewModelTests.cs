@@ -28,6 +28,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
         string logicalSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
+        string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
         string mainChartListSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
         string regularOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
@@ -54,6 +55,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             "previousPlaylistSummaryViewWeakReference",
             "_IsPlaylistSummaryMode",
             "_IsPlaylistDetailViewActive",
+            "_IsPlaylistTreeExpanded",
             "_UseAsyncChartRowsViewBinding",
             "_GridHeaderText",
             "_PlaylistSummaryKeywordFilter",
@@ -69,6 +71,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         }
 
         StringAssert.Contains(workspaceSource, "public sealed partial class PlaylistWorkspaceViewModel : ViewModel");
+        StringAssert.Contains(workspaceSource, "private bool isPlaylistTreeExpanded = true;");
+        StringAssert.Contains(workspaceSource, "public bool IsPlaylistTreeExpanded");
+        StringAssert.Contains(mainWindowXaml, "IsExpanded=\"{Binding PlaylistWorkspace.IsPlaylistTreeExpanded, Mode=TwoWay}\"");
         StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
         StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
         StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");
@@ -241,6 +246,30 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, mainWindowSource.IndexOf("private async void customTableView_SortRequested(", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("CaptureSortRequest", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
+    }
+
+    [TestMethod]
+    public void PlaylistTreeExpansionState_IsOwnedByWorkspaceAndRaisesOnlyOnChange()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        List<string> propertyNames = [];
+        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+
+        Assert.IsTrue(workspace.IsPlaylistTreeExpanded);
+        workspace.IsPlaylistTreeExpanded = true;
+        Assert.AreEqual(0, propertyNames.Count);
+
+        workspace.IsPlaylistTreeExpanded = false;
+        workspace.IsPlaylistTreeExpanded = true;
+
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                nameof(PlaylistWorkspaceViewModel.IsPlaylistTreeExpanded),
+                nameof(PlaylistWorkspaceViewModel.IsPlaylistTreeExpanded)
+            },
+            propertyNames);
+        Assert.IsTrue(workspace.IsPlaylistTreeExpanded);
     }
 
     [TestMethod]
