@@ -1587,7 +1587,7 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     private bool IsPlaylistDetailWorkflowActive =>
-        IsPlaylistDetailViewActive && !PlaylistWorkspace.IsPlaylistSummaryMode;
+        PlaylistWorkspace.IsPlaylistDetailViewActive && !PlaylistWorkspace.IsPlaylistSummaryMode;
 
     private static bool IsSameReferenceSequence<T>(List<T> left, List<T> right) where T : class
     {
@@ -2464,7 +2464,7 @@ public partial class MainWindowViewModel : ViewModel
             filters.KeywordFilter,
             filters.ModeFilter,
             sortParameters?.ColumnsName,
-            IsPlaylistDetailViewActive,
+            PlaylistWorkspace.IsPlaylistDetailViewActive,
             dependency,
             reason);
         LogMainViewBuild("main_view_refresh_decision reason=" + decision.Reason
@@ -2477,7 +2477,7 @@ public partial class MainWindowViewModel : ViewModel
             + " keywordEmpty=" + string.IsNullOrWhiteSpace(filters.KeywordFilter).ToString().ToLowerInvariant()
             + " modeFilter=" + filters.ModeFilter
             + " folderFilterApplied=" + regularChartListOwner.HasTreeFilter.ToString().ToLowerInvariant()
-            + " isPlaylistDetailView=" + IsPlaylistDetailViewActive.ToString().ToLowerInvariant());
+            + " isPlaylistDetailView=" + PlaylistWorkspace.IsPlaylistDetailViewActive.ToString().ToLowerInvariant());
         if (!decision.ShouldRefresh)
         {
             if (decision.ShouldRefreshDisplay)
@@ -4125,17 +4125,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    /// <summary>
-    /// 現在のメイン一覧がプレイリスト詳細表示モードかどうかを示します。
-    /// </summary>
-    public bool IsPlaylistDetailViewActive
-    {
-        get
-        {
-            return PlaylistWorkspace.IsPlaylistDetailViewActive;
-        }
-    }
-
     public bool IsStartupUiInteractionBlocked
     {
         get
@@ -5357,7 +5346,7 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistDetailEditRefreshRequestedEventArgs request)
     {
-        if (!IsPlaylistDetailViewActive)
+        if (!PlaylistWorkspace.IsPlaylistDetailViewActive)
         {
             return;
         }
@@ -6969,7 +6958,7 @@ public partial class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreSnapshotVersion, delegate
         {
             MainChartList.RowProjection.CaptureVersions(files);
-            if (!IsPlaylistDetailViewActive)
+            if (!PlaylistWorkspace.IsPlaylistDetailViewActive)
             {
                 return;
             }

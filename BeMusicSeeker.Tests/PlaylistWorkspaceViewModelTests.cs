@@ -86,11 +86,15 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));");
         StringAssert.Contains(logicalSource, "RaisePropertyChanged(() => BMSTables);");
         Assert.AreEqual(-1, rootSource.IndexOf("private void SetPlaylistSummaryMode(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("public bool IsPlaylistDetailViewActive", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.IsPlaylistSummaryMode =", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.GridHeaderText =", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.PlaylistSummaryText =", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true)");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.IsPlaylistDetailViewActive");
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("viewModel.IsPlaylistDetailViewActive", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive");
         StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
         StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
         StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");
