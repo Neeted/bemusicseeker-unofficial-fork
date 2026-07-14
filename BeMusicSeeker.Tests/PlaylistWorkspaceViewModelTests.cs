@@ -127,20 +127,27 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "if (request.RequestAlreadyQueued)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(");
         StringAssert.Contains(workspaceSource, "internal async Task WaitForPlaylistReloadCleanupReadinessAsync(");
+        StringAssert.Contains(workspaceSource, "internal void ConfigurePlaylistReloadCleanup(");
+        StringAssert.Contains(workspaceSource, "internal bool QueuePlaylistReloadCleanup(string reason, bool fromReloadTables, int tableCount)");
+        StringAssert.Contains(workspaceSource, "internal bool IsPlaylistReloadCleanupIdle");
+        StringAssert.Contains(workspaceSource, "internal void CancelPlaylistReloadCleanupForShutdown()");
         StringAssert.Contains(workspaceSource, "internal PlaylistReloadCleanupSnapshot CapturePlaylistReloadCleanupSnapshot()");
         StringAssert.Contains(workspaceSource, "internal bool ShouldRefreshPlaylistDetailAfterReload(MainViewUpdateMode currentTreeMode)");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailReloadRefresh()");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.WaitForPlaylistReloadCleanupReadinessAsync(");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.CapturePlaylistReloadCleanupSnapshot()");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ShouldRefreshPlaylistDetailAfterReload(treeViewFilterTypeSelected)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ConfigurePlaylistReloadCleanup(");
+        StringAssert.Contains(logicalSource, "WaitForPlaylistReloadCleanupDispatcherIdleAsync");
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistReloadCleanupRequest", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("lockPlaylistReloadCleanup", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("ProcessPendingPlaylistReloadCleanupAsync", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("private bool QueuePlaylistReloadCleanup(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("RefreshPlaylistDetailAfterReloadIfVisible", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("IsPlaylistDetailRefreshWaitRequired", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("TryGetPreviousPlaylistSummaryViewState", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.LastPlaylistSummaryBuildCompletedTimestamp", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.LastDetailBuildCompletedTimestamp", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.CapturePreviousDetailRowsSnapshot", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "WaitForPlaylistReloadCleanupShellReadinessAsync(");
+        Assert.AreEqual(-1, logicalSource.IndexOf("WaitForPlaylistReloadCleanupShellReadinessAsync(", StringComparison.Ordinal));
         Assert.AreEqual(-1, bmtSortSource.IndexOf("refreshPlaylistSummary", StringComparison.Ordinal));
         Assert.AreEqual(-1, bmtSortSource.IndexOf("Func<string, bool, bool, long>", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("refreshPlaylistSummary", StringComparison.Ordinal));
@@ -276,7 +283,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, buildOwnerSource.IndexOf("DispatcherHelper.UIDispatcher", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("CustomFolderOutputSettingsSnapshot.CreateCurrent", StringComparison.Ordinal));
         StringAssert.Contains(buildOwnerSource, "dispatchPresentation(Reflect);");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableDisplayRefreshRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableSortParameters", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("public void ExecSort", StringComparison.Ordinal));
@@ -362,6 +369,62 @@ public sealed class PlaylistWorkspaceViewModelTests
         snapshot = workspace.CapturePlaylistReloadCleanupSnapshot();
         Assert.IsTrue(snapshot.SummaryAlive);
         Assert.AreEqual(1, snapshot.SummaryRowCount);
+    }
+
+    [TestMethod]
+    public void PlaylistReloadCleanupSkipsSingleReloadInsideWorkspace()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var log = new List<string>();
+        workspace.ConfigurePlaylistReloadCleanup(
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            log.Add);
+
+        Assert.IsFalse(workspace.QueuePlaylistReloadCleanup(isFullReload: false, tableCount: 1));
+        Assert.IsTrue(workspace.IsPlaylistReloadCleanupIdle);
+        StringAssert.Contains(log[0], "reason=not_full_reload");
+    }
+
+    [TestMethod]
+    public async Task PlaylistReloadCleanupProcessesLatestPendingFullReload()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var log = new List<string>();
+        var dispatcherEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcherRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int garbageCollectionCount = 0;
+        workspace.ConfigurePlaylistReloadCleanup(
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            async () =>
+            {
+                dispatcherEntered.TrySetResult(true);
+                await dispatcherRelease.Task.ConfigureAwait(false);
+            },
+            () => false,
+            () => Interlocked.Increment(ref garbageCollectionCount),
+            log.Add);
+
+        Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
+        await dispatcherEntered.Task.ConfigureAwait(false);
+        Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 2));
+        Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 3));
+        dispatcherRelease.TrySetResult(true);
+
+        for (int i = 0; i < 100 && !workspace.IsPlaylistReloadCleanupIdle; i++)
+        {
+            await Task.Delay(10).ConfigureAwait(false);
+        }
+
+        Assert.IsTrue(workspace.IsPlaylistReloadCleanupIdle);
+        Assert.AreEqual(2, garbageCollectionCount);
+        Assert.IsTrue(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=1")));
+        Assert.IsTrue(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=3")));
+        Assert.IsFalse(log.Exists(message => message.Contains("completed cleanupId=") && message.Contains("tableCount=2")));
     }
 
     [TestMethod]

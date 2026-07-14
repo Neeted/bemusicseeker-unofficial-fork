@@ -605,6 +605,13 @@ public sealed class BmsPlaylistUpdateTests
                 () => new CustomFolderOutputSettingsSnapshot());
             workspace.ConfigureDetailEditing(() => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
+            workspace.ConfigurePlaylistReloadCleanup(
+                () => true,
+                () => MainViewUpdateMode.FolderFilterSelected,
+                () => Task.CompletedTask,
+                () => false,
+                () => { },
+                _ => { });
 
             int startedCount = 0;
             int progressCount = 0;

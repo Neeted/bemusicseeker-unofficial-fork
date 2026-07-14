@@ -1102,6 +1102,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         PlaylistSummaryViewAppliedEventArgs eventArgs,
         List<Exception> exceptions)
     {
+        TrySchedulePlaylistReloadCleanup();
         Delegate[] subscribers = PlaylistSummaryViewApplied?.GetInvocationList() ?? [];
         foreach (Delegate subscriber in subscribers)
         {

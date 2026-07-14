@@ -113,13 +113,15 @@ public sealed partial class PlaylistWorkspaceViewModel
                         "manual_playlist_resync",
                         invalidateTableCountCache: true));
                 RequestPlaylistDetailReloadRefresh();
+                bool cleanupQueued = QueuePlaylistReloadCleanup(isFullReload, activeTables.Count);
                 PlaylistReloadCompleted?.Invoke(
                     this,
                     new PlaylistReloadCompletedEventArgs(
                         activeTables.Count,
                         results?.Count ?? 0,
                         isFullReload,
-                        stopwatch.ElapsedMilliseconds));
+                        stopwatch.ElapsedMilliseconds,
+                        cleanupQueued));
             }
             finally
             {
@@ -240,12 +242,18 @@ internal sealed class PlaylistReferenceTableReplacedEventArgs : EventArgs
 
 internal sealed class PlaylistReloadCompletedEventArgs : EventArgs
 {
-    internal PlaylistReloadCompletedEventArgs(int tableCount, int processedCount, bool isFullReload, long elapsedMilliseconds)
+    internal PlaylistReloadCompletedEventArgs(
+        int tableCount,
+        int processedCount,
+        bool isFullReload,
+        long elapsedMilliseconds,
+        bool cleanupQueued)
     {
         TableCount = tableCount;
         ProcessedCount = processedCount;
         IsFullReload = isFullReload;
         ElapsedMilliseconds = elapsedMilliseconds;
+        CleanupQueued = cleanupQueued;
     }
 
     internal int TableCount { get; }
@@ -255,4 +263,6 @@ internal sealed class PlaylistReloadCompletedEventArgs : EventArgs
     internal bool IsFullReload { get; }
 
     internal long ElapsedMilliseconds { get; }
+
+    internal bool CleanupQueued { get; }
 }

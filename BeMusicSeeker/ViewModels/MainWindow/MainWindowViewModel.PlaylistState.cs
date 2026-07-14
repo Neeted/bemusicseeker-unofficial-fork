@@ -197,40 +197,6 @@ internal readonly struct PlaylistRequestIdentity : IEquatable<PlaylistRequestIde
 
 public partial class MainWindowViewModel
 {
-    /// <summary>
-    /// プレイリスト再読み込みの起点種別です。
-    /// full reload 後 cleanup の対象判定とログ分類に利用します。
-    /// </summary>
-    private enum PlaylistReloadOperationKind
-    {
-        None,
-        StartupFullReload,
-        ManualFullReload,
-        SinglePlaylistReload
-    }
-
-    /// <summary>
-    /// プレイリスト再読み込み後 cleanup の pending 要求です。
-    /// </summary>
-    private sealed class PlaylistReloadCleanupRequest
-    {
-        internal long CleanupId;
-
-        internal PlaylistReloadOperationKind OperationKind;
-
-        internal int TableCount;
-
-        internal bool WaitForStartupOperable;
-
-        internal bool WaitForSummaryRefresh;
-
-        internal bool WaitForDetailRefresh;
-
-        internal bool GcAllowed;
-
-        internal long RequestedAtTimestamp;
-    }
-
     private readonly struct PlaylistBuildRequestViewSnapshot
     {
         internal PlaylistBuildRequestViewSnapshot(long playlistRevision, int lastBuiltScoreSnapshotVersion, PlaylistRequestIdentity? currentViewIdentity)

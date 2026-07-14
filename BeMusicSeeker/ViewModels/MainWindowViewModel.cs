@@ -663,14 +663,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private long playlistSyncProgressUiVersion;
 
-    private readonly object lockPlaylistReloadCleanup = new();
-
-    private PlaylistReloadCleanupRequest pendingPlaylistReloadCleanup;
-
-    private bool playlistReloadCleanupRunning;
-
-    private long playlistReloadCleanupSeed;
-
     private readonly object startupProgressLock = new();
 
     private StartupProgressState startupProgressState = new();
@@ -824,36 +816,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist reload operation kind をログ用文字列へ変換します。
-    /// </summary>
-    private static string GetPlaylistReloadOperationKindText(PlaylistReloadOperationKind operationKind)
-    {
-        return operationKind switch
-        {
-            PlaylistReloadOperationKind.StartupFullReload => "startup_full",
-            PlaylistReloadOperationKind.ManualFullReload => "manual_full",
-            PlaylistReloadOperationKind.SinglePlaylistReload => "single",
-            _ => "none",
-        };
-    }
-
-    /// <summary>
-    /// deferred external sync の起点から playlist reload operation kind を判定します。
-    /// </summary>
-    private static PlaylistReloadOperationKind DeterminePlaylistReloadOperationKind(string reason, bool fromReloadTables)
-    {
-        if (string.Equals(reason, "Initialize", StringComparison.Ordinal))
-        {
-            return PlaylistReloadOperationKind.StartupFullReload;
-        }
-        if (fromReloadTables || string.Equals(reason, "ReloadTables", StringComparison.Ordinal))
-        {
-            return PlaylistReloadOperationKind.ManualFullReload;
-        }
-        return PlaylistReloadOperationKind.None;
-    }
-
-    /// <summary>
     /// playlist request の keyword filter を同値判定向けに正規化します。
     /// </summary>
     internal static string NormalizePlaylistKeywordFilter(string keywordFilter)
@@ -945,128 +907,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     /// <summary>
-    /// playlist reload 完了後 cleanup を full reload 系 operation に対してだけキューします。
-    /// </summary>
-    private bool QueuePlaylistReloadCleanup(PlaylistReloadOperationKind operationKind, int tableCount)
-    {
-        if (operationKind != PlaylistReloadOperationKind.StartupFullReload && operationKind != PlaylistReloadOperationKind.ManualFullReload)
-        {
-            LogPlaylistReload("playlist_reload_cleanup skipped operationKind=" + GetPlaylistReloadOperationKindText(operationKind) + " tableCount=" + tableCount + " reason=not_full_reload");
-            return false;
-        }
-        var request = new PlaylistReloadCleanupRequest
-        {
-            CleanupId = Interlocked.Increment(ref playlistReloadCleanupSeed),
-            OperationKind = operationKind,
-            TableCount = tableCount,
-            WaitForStartupOperable = operationKind == PlaylistReloadOperationKind.StartupFullReload,
-            WaitForSummaryRefresh = PlaylistWorkspace.IsPlaylistSummaryMode,
-            WaitForDetailRefresh = PlaylistWorkspace.ShouldRefreshPlaylistDetailAfterReload(treeViewFilterTypeSelected),
-            GcAllowed = true,
-            RequestedAtTimestamp = Stopwatch.GetTimestamp()
-        };
-        bool shouldStartWorker = false;
-        lock (lockPlaylistReloadCleanup)
-        {
-            pendingPlaylistReloadCleanup = request;
-            if (!playlistReloadCleanupRunning)
-            {
-                playlistReloadCleanupRunning = true;
-                shouldStartWorker = true;
-            }
-        }
-        LogPlaylistReload("playlist_reload_cleanup queued cleanupId=" + request.CleanupId + " operationKind=" + GetPlaylistReloadOperationKindText(operationKind) + " tableCount=" + tableCount + " waitForStartupOperable=" + request.WaitForStartupOperable.ToString().ToLowerInvariant() + " waitForSummaryRefresh=" + request.WaitForSummaryRefresh.ToString().ToLowerInvariant() + " waitForDetailRefresh=" + request.WaitForDetailRefresh.ToString().ToLowerInvariant() + " gcAllowed=" + request.GcAllowed.ToString().ToLowerInvariant());
-        if (shouldStartWorker)
-        {
-            Task.Run(ProcessPendingPlaylistReloadCleanupAsync).Logging("ProcessPendingPlaylistReloadCleanupAsync");
-        }
-        return true;
-    }
-
-    /// <summary>
-    /// summary collection 差し替えや detail rebuild 後に pending cleanup の実行を促します。
-    /// </summary>
-    private void TrySchedulePlaylistReloadCleanup()
-    {
-        bool shouldStartWorker = false;
-        lock (lockPlaylistReloadCleanup)
-        {
-            if (pendingPlaylistReloadCleanup != null && !playlistReloadCleanupRunning)
-            {
-                playlistReloadCleanupRunning = true;
-                shouldStartWorker = true;
-            }
-        }
-        if (shouldStartWorker)
-        {
-            Task.Run(ProcessPendingPlaylistReloadCleanupAsync).Logging("ProcessPendingPlaylistReloadCleanupAsync");
-        }
-    }
-
-    /// <summary>
-    /// playlist reload cleanup worker ループです。
-    /// full reload 完了後だけ UI idle と必要な再反映完了を待ってから後始末を実施します。
-    /// </summary>
-    private async Task ProcessPendingPlaylistReloadCleanupAsync()
-    {
-        while (true)
-        {
-            PlaylistReloadCleanupRequest request;
-            lock (lockPlaylistReloadCleanup)
-            {
-                request = pendingPlaylistReloadCleanup;
-                pendingPlaylistReloadCleanup = null;
-                if (request == null)
-                {
-                    playlistReloadCleanupRunning = false;
-                    return;
-                }
-            }
-            await WaitForPlaylistReloadCleanupShellReadinessAsync(request).ConfigureAwait(false);
-            PlaylistReloadCleanupSnapshot cleanupSnapshot =
-                PlaylistWorkspace.CapturePlaylistReloadCleanupSnapshot();
-            long managedMemoryBeforeBytes = GC.GetTotalMemory(forceFullCollection: false);
-            bool gcInvoked = request.GcAllowed && !IsShutdownRequested;
-            if (gcInvoked)
-            {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                GC.Collect();
-            }
-            long managedMemoryAfterBytes = GC.GetTotalMemory(forceFullCollection: false);
-            LogPlaylistReload("playlist_reload_cleanup completed cleanupId=" + request.CleanupId + " operationKind=" + GetPlaylistReloadOperationKindText(request.OperationKind) + " tableCount=" + request.TableCount + " oldSummaryAlive=" + cleanupSnapshot.SummaryAlive.ToString().ToLowerInvariant() + " oldSummaryRowCount=" + cleanupSnapshot.SummaryRowCount + " oldDetailSourceAlive=" + cleanupSnapshot.PreviousDetailRows.SourceAlive.ToString().ToLowerInvariant() + " oldDetailSourceRowCount=" + cleanupSnapshot.PreviousDetailRows.SourceRowCount + " oldDetailViewAlive=" + cleanupSnapshot.PreviousDetailRows.ViewAlive.ToString().ToLowerInvariant() + " oldDetailViewRowCount=" + cleanupSnapshot.PreviousDetailRows.ViewRowCount + " managedMemoryBeforeMb=" + (managedMemoryBeforeBytes / 1024L / 1024L) + " managedMemoryAfterMb=" + (managedMemoryAfterBytes / 1024L / 1024L) + " gcInvoked=" + gcInvoked.ToString().ToLowerInvariant());
-        }
-    }
-
-    /// <summary>
-    /// playlist reload cleanup 実行前に必要な UI / build 完了を待機します。
-    /// </summary>
-    private async Task WaitForPlaylistReloadCleanupShellReadinessAsync(PlaylistReloadCleanupRequest request)
-    {
-        if (request.WaitForStartupOperable)
-        {
-            var operableWaitStopwatch = Stopwatch.StartNew();
-            while (!startupReadyOperableReached && operableWaitStopwatch.ElapsedMilliseconds < 30000)
-            {
-                await Task.Delay(100).ConfigureAwait(false);
-            }
-        }
-        await PlaylistWorkspace.WaitForPlaylistReloadCleanupReadinessAsync(
-            request.WaitForSummaryRefresh,
-            request.WaitForDetailRefresh,
-            request.RequestedAtTimestamp).ConfigureAwait(false);
-        if (DispatcherHelper.UIDispatcher != null)
-        {
-            await DispatcherHelper.UIDispatcher.InvokeAsync(delegate
-            {
-            }, DispatcherPriority.ContextIdle).Task.ConfigureAwait(false);
-            await DispatcherHelper.UIDispatcher.InvokeAsync(delegate
-            {
-            }, DispatcherPriority.ApplicationIdle).Task.ConfigureAwait(false);
-        }
-    }
-
-    /// <summary>
     /// 現在の playlist open readiness snapshot を返します。
     /// </summary>
     private PlaylistOpenReadinessSnapshot CapturePlaylistOpenReadinessSnapshot()
@@ -1102,6 +942,28 @@ public partial class MainWindowViewModel : ViewModel
             RankingRefreshRunning = scoreState.RankingRefreshRunning,
             RankingRefreshCompletedVersion = scoreState.RankingRefreshCompletedVersion
         };
+    }
+
+    private async Task WaitForPlaylistReloadCleanupDispatcherIdleAsync()
+    {
+        Dispatcher dispatcher = DispatcherHelper.UIDispatcher;
+        if (dispatcher == null)
+        {
+            return;
+        }
+        await dispatcher.InvokeAsync(delegate
+        {
+        }, DispatcherPriority.ContextIdle).Task.ConfigureAwait(false);
+        await dispatcher.InvokeAsync(delegate
+        {
+        }, DispatcherPriority.ApplicationIdle).Task.ConfigureAwait(false);
+    }
+
+    private static void CollectPlaylistReloadCleanupGarbage()
+    {
+        GC.Collect();
+        GC.WaitForPendingFinalizers();
+        GC.Collect();
     }
 
     private ChartListSortParameters CaptureActiveMainViewSortParameters()
@@ -2711,7 +2573,7 @@ public partial class MainWindowViewModel : ViewModel
             LogDeferredExternalSync("deferred_external_sync skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
             return;
         }
-        PlaylistReloadOperationKind playlistReloadOperationKind = DeterminePlaylistReloadOperationKind(reason, fromReloadTables);
+        string playlistReloadOperationKind = PlaylistWorkspaceViewModel.GetPlaylistReloadOperationKindText(reason, fromReloadTables);
         int version = 0;
         bool shouldStartWorker = false;
         lock (lockDeferredExternalSync)
@@ -2751,7 +2613,7 @@ public partial class MainWindowViewModel : ViewModel
                 try
                 {
                     PlaylistWorkspace.BeginPlaylistSyncProgressOperation();
-                    LogPlaylistReload("playlist_reload_operation started operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=0 version=" + requestVersion);
+                    LogPlaylistReload("playlist_reload_operation started operationKind=" + playlistReloadOperationKind + " reason=" + reason + " tableCount=0 version=" + requestVersion);
                     LogDeferredExternalSync("deferred_external_sync run reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion);
                     List<Action<BMSPlaylist.PlaylistTableUpdateContext>> updateCallbackActions = null;
                     if (updateCallbackAction != null)
@@ -2773,8 +2635,8 @@ public partial class MainWindowViewModel : ViewModel
                         TryCompleteStartupProgressPlaylistReference(requestVersion);
                     }
                     RefreshPlaylistSummaryIfVisible("deferred_external_sync", invalidateTableCountCache: true);
-                    bool cleanupQueued = QueuePlaylistReloadCleanup(playlistReloadOperationKind, num);
-                    LogPlaylistReload("playlist_reload_operation completed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + PlaylistWorkspace.LastDetailBuildElapsedMs + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
+                    bool cleanupQueued = PlaylistWorkspace.QueuePlaylistReloadCleanup(reason, fromReloadTables, num);
+                    LogPlaylistReload("playlist_reload_operation completed operationKind=" + playlistReloadOperationKind + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + PlaylistWorkspace.LastDetailBuildElapsedMs + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
                     LogDeferredExternalSync("deferred_external_sync done reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " updatedCount=" + num);
                     if (IsStartupProgressOperationTokenCurrent(operationToken))
                     {
@@ -2787,7 +2649,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 catch (Exception ex)
                 {
-                    LogPlaylistReload("playlist_reload_operation failed operationKind=" + GetPlaylistReloadOperationKindText(playlistReloadOperationKind) + " reason=" + reason + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
+                    LogPlaylistReload("playlist_reload_operation failed operationKind=" + playlistReloadOperationKind + " reason=" + reason + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
                     LogDeferredExternalSync("deferred_external_sync failed reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
                     if (IsStartupProgressOperationTokenCurrent(operationToken))
                     {
@@ -4780,7 +4642,6 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistory.SummaryFilterRefreshRequested += (_, _) => PlayHistory.QueueKeywordFilterRefresh(
             NormalizePlaylistKeywordFilter(ChartFilters.KeywordFilter));
         ProgressHub.PropertyChanged += ProgressHubPropertyChanged;
-        PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
         PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;
         PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;
@@ -5007,12 +4868,10 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistReloadStartedEventArgs request)
     {
-        PlaylistReloadOperationKind operationKind = request.TableCount > 1
-            ? PlaylistReloadOperationKind.ManualFullReload
-            : PlaylistReloadOperationKind.SinglePlaylistReload;
+        string operationKind = PlaylistWorkspaceViewModel.GetPlaylistReloadOperationKindText(request.TableCount > 1);
         LogPlaylistReload(
             "playlist_reload_operation started operationKind="
-            + GetPlaylistReloadOperationKindText(operationKind)
+            + operationKind
             + " reason=manual_resync tableCount="
             + request.TableCount);
     }
@@ -5074,13 +4933,9 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistReloadCompletedEventArgs request)
     {
-        PlaylistReloadOperationKind operationKind = request.IsFullReload
-            ? PlaylistReloadOperationKind.ManualFullReload
-            : PlaylistReloadOperationKind.SinglePlaylistReload;
-        bool cleanupQueued = QueuePlaylistReloadCleanup(operationKind, request.TableCount);
         LogPlaylistReload(
             "playlist_reload_operation completed operationKind="
-            + GetPlaylistReloadOperationKindText(operationKind)
+            + PlaylistWorkspaceViewModel.GetPlaylistReloadOperationKindText(request.IsFullReload)
             + " reason=manual_resync tableCount="
             + request.TableCount
             + " processedCount="
@@ -5090,7 +4945,7 @@ public partial class MainWindowViewModel : ViewModel
             + " detailRefreshMs="
             + PlaylistWorkspace.LastDetailBuildElapsedMs
             + " cleanupQueued="
-            + cleanupQueued.ToString().ToLowerInvariant()
+            + request.CleanupQueued.ToString().ToLowerInvariant()
             + " elapsedMs="
             + request.ElapsedMilliseconds);
     }
@@ -5194,11 +5049,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             return false;
         }
-    }
-
-    private void PlaylistWorkspacePlaylistSummaryViewApplied(object sender, PlaylistSummaryViewAppliedEventArgs e)
-    {
-        TrySchedulePlaylistReloadCleanup();
     }
 
     private void PlaylistWorkspacePlaylistSummarySortRequested(object sender, EventArgs e)
@@ -5347,7 +5197,7 @@ public partial class MainWindowViewModel : ViewModel
         TryShutdownStep("playlist_summary", PlaylistWorkspace.StopPlaylistSummaryDataBuild);
         TryShutdownStep("play_history", CancelPlayHistoryRequestsForShutdown);
         TryShutdownStep("playlist_index_prewarm", PlaylistWorkspace.CancelPlaylistLibraryIndexPrewarmForShutdown);
-        TryShutdownStep("playlist_reload_cleanup", CancelPlaylistReloadCleanupForShutdown);
+        TryShutdownStep("playlist_reload_cleanup", PlaylistWorkspace.CancelPlaylistReloadCleanupForShutdown);
         TryShutdownStep("maintenance_rescan", CancelMaintenanceRescan);
         TryShutdownStep("drop_install", () => dropInstallQueueProcessor?.CancelAll());
         TryShutdownStep("startup_background_queue", () => CancelStartupBackgroundTasksForShutdown(reason));
@@ -5485,14 +5335,6 @@ public partial class MainWindowViewModel : ViewModel
         playHistoryWorkflowOwner.CancelDisplayTargetCatalogRefreshesForShutdown();
     }
 
-    private void CancelPlaylistReloadCleanupForShutdown()
-    {
-        lock (lockPlaylistReloadCleanup)
-        {
-            pendingPlaylistReloadCleanup = null;
-        }
-    }
-
     private sealed class ShutdownWaitTracker
     {
         private int slowWaitLogged;
@@ -5603,18 +5445,10 @@ public partial class MainWindowViewModel : ViewModel
     {
         await WaitForConditionAsync(
             "playlistReloadCleanup",
-            IsPlaylistReloadCleanupIdle,
+            () => PlaylistWorkspace.IsPlaylistReloadCleanupIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
-            DescribePlaylistReloadCleanupWaitState).ConfigureAwait(false);
-    }
-
-    private bool IsPlaylistReloadCleanupIdle()
-    {
-        lock (lockPlaylistReloadCleanup)
-        {
-            return pendingPlaylistReloadCleanup == null && !playlistReloadCleanupRunning;
-        }
+            PlaylistWorkspace.DescribePlaylistReloadCleanupWaitState).ConfigureAwait(false);
     }
 
     private async Task WaitForLibraryShutdownBlockingWorkAsync(ShutdownWaitTracker tracker)
@@ -5773,15 +5607,6 @@ public partial class MainWindowViewModel : ViewModel
         }
         return "deferredPlaylistRefRunning=" + FormatBool(playlistRefRunning)
             + " deferredExternalSyncRunning=" + FormatBool(externalSyncRunning);
-    }
-
-    private string DescribePlaylistReloadCleanupWaitState()
-    {
-        lock (lockPlaylistReloadCleanup)
-        {
-            return "pending=" + FormatBool(pendingPlaylistReloadCleanup != null)
-                + " running=" + FormatBool(playlistReloadCleanupRunning);
-        }
     }
 
     private static void LogSlowWaitIfNeeded(
@@ -6415,6 +6240,13 @@ public partial class MainWindowViewModel : ViewModel
                 applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
             PlaylistWorkspace.ConfigurePlaylistLibraryIndexPrewarm(
                 (reason, work) => QueueStartupBackgroundTask("playlist_library_index_prewarm", reason, null, work));
+            PlaylistWorkspace.ConfigurePlaylistReloadCleanup(
+                () => startupReadyOperableReached,
+                () => treeViewFilterTypeSelected,
+                WaitForPlaylistReloadCleanupDispatcherIdleAsync,
+                () => IsShutdownRequested,
+                CollectPlaylistReloadCleanupGarbage,
+                LogPlaylistReload);
             tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2SongDbSyncMutationBlockedForPlaylist(operation);
             tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
             tables.CustomFolderOutputPhysicalSurfaceProvider = () => files.GetCurrentAppManagedCustomFolderOutputPhysicalSurface();
