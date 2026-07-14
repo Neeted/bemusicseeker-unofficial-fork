@@ -76,6 +76,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "public DispatcherCollection<BMSTable> PlaylistTreeTables");
         StringAssert.Contains(workspaceSource, "internal void ConfigurePlaylistTreeSource(DispatcherCollection<BMSTable> emptySource)");
         StringAssert.Contains(workspaceSource, "internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore)");
+        StringAssert.Contains(workspaceSource, "internal bool SetPlaylistSummaryMode(bool enabled)");
         StringAssert.Contains(workspaceSource, "private bool isPlaylistTreeExpanded = true;");
         StringAssert.Contains(workspaceSource, "public bool IsPlaylistTreeExpanded");
         StringAssert.Contains(mainWindowXaml, "IsExpanded=\"{Binding PlaylistWorkspace.IsPlaylistTreeExpanded, Mode=TwoWay}\"");
@@ -84,6 +85,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RefreshPlaylistTreeTables(tables);");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));");
         StringAssert.Contains(logicalSource, "RaisePropertyChanged(() => BMSTables);");
+        Assert.AreEqual(-1, rootSource.IndexOf("private void SetPlaylistSummaryMode(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.IsPlaylistSummaryMode =", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.GridHeaderText =", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.PlaylistSummaryText =", StringComparison.Ordinal));
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false)");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true)");
         StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
         StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
         StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");
@@ -1373,6 +1380,50 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsTrue(workspace.HasPlaylistSummaryKeywordSearchWarning);
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.PlaylistSummaryKeywordSearchWarningText));
         CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.HasPlaylistSummaryKeywordSearchWarning));
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummaryModeTransitionOwnsHeaderTextAndCancellation()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
+        var propertyNames = new List<string>();
+        workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
+        workspace.GridHeaderText = "stale header";
+        workspace.PlaylistSummaryText = "stale summary";
+
+        Assert.IsTrue(workspace.SetPlaylistSummaryMode(enabled: true));
+        Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_summary_header, workspace.GridHeaderText);
+        Assert.AreEqual("stale summary", workspace.PlaylistSummaryText);
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode));
+        CollectionAssert.Contains(propertyNames, nameof(PlaylistWorkspaceViewModel.GridHeaderText));
+
+        Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest request));
+        propertyNames.Clear();
+
+        Assert.IsTrue(workspace.SetPlaylistSummaryMode(enabled: false));
+        Assert.IsTrue(request.CancellationToken.IsCancellationRequested);
+        Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+        Assert.AreEqual(string.Empty, workspace.GridHeaderText);
+        Assert.AreEqual(string.Empty, workspace.PlaylistSummaryText);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode),
+                nameof(PlaylistWorkspaceViewModel.GridHeaderText),
+                nameof(PlaylistWorkspaceViewModel.PlaylistSummaryText)
+            },
+            propertyNames);
+
+        Assert.IsFalse(workspace.SetPlaylistSummaryMode(enabled: false));
+        workspace.CompletePlaylistSummaryDataBuild(request);
     }
 
     [TestMethod]

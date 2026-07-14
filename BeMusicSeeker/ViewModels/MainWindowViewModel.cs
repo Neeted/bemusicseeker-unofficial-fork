@@ -5393,7 +5393,10 @@ public partial class MainWindowViewModel : ViewModel
             request.SelectionRevision,
             () =>
             {
-                SetPlaylistSummaryMode(enabled: false);
+                if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
+                {
+                    UpdateKeywordSearchPresentation();
+                }
                 RefreshChartRowsView(
                     selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
                         ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
@@ -8126,7 +8129,10 @@ public partial class MainWindowViewModel : ViewModel
 
     internal long BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest request)
     {
-        SetPlaylistSummaryMode(enabled: false);
+        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
+        {
+            UpdateKeywordSearchPresentation();
+        }
         PlaylistWorkspace.ClearPlaylistDetailSelection();
         EnsurePlayHistoryDisplayTargetSelection();
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
@@ -8294,7 +8300,10 @@ public partial class MainWindowViewModel : ViewModel
 
     public void ExecFolderFilter(FolderFilterType type, string filterKey = null)
     {
-        SetPlaylistSummaryMode(enabled: false);
+        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
+        {
+            UpdateKeywordSearchPresentation();
+        }
         if (!string.IsNullOrWhiteSpace(filterKey))
         {
             switch (type)
@@ -8326,7 +8335,10 @@ public partial class MainWindowViewModel : ViewModel
 
     public void ExecMaintenanceFilter(MaintenanceFilterType type, object parameter = null)
     {
-        SetPlaylistSummaryMode(enabled: false);
+        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
+        {
+            UpdateKeywordSearchPresentation();
+        }
         if (files != null)
         {
             if (type == MaintenanceFilterType.DuplicateFilter)
@@ -8423,7 +8435,10 @@ public partial class MainWindowViewModel : ViewModel
 
     public void ExecInstallFilter(InstallFilterType type, object parameter = null)
     {
-        SetPlaylistSummaryMode(enabled: false);
+        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
+        {
+            UpdateKeywordSearchPresentation();
+        }
         switch (type)
         {
             case InstallFilterType.NewlyInstalledFilter:
@@ -11330,24 +11345,6 @@ public partial class MainWindowViewModel : ViewModel
         }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
-    private void SetPlaylistSummaryMode(bool enabled)
-    {
-        if (PlaylistWorkspace.IsPlaylistSummaryMode != enabled)
-        {
-            PlaylistWorkspace.IsPlaylistSummaryMode = enabled;
-            UpdateKeywordSearchPresentation();
-        }
-        if (enabled)
-        {
-            PlaylistWorkspace.GridHeaderText = BeMusicSeeker.Properties.Resources.Playlist_summary_header;
-        }
-        else
-        {
-            PlaylistWorkspace.GridHeaderText = string.Empty;
-            PlaylistWorkspace.PlaylistSummaryText = string.Empty;
-        }
-    }
-
     private long RefreshPlaylistSummaryIfVisible(string reason = "playlist_summary_refresh", bool invalidateTableCountCache = false, bool rebuildAsync = true)
     {
         return RefreshPlaylistSummaryDataIfVisible(reason, invalidateTableCountCache, rebuildAsync);
@@ -11386,7 +11383,10 @@ public partial class MainWindowViewModel : ViewModel
         bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
         SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
         PlayHistory.ClearSummaryPresentation();
-        SetPlaylistSummaryMode(enabled: true);
+        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true))
+        {
+            UpdateKeywordSearchPresentation();
+        }
         if (wasPlayHistoryViewActive != IsPlayHistoryViewActive)
         {
             RaisePropertyChanged(() => IsPlayHistoryViewActive);

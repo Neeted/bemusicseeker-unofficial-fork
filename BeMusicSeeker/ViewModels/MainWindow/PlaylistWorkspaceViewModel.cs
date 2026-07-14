@@ -492,6 +492,26 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     }
 
     /// <summary>
+    /// Changes the playlist summary presentation mode and applies its associated header state.
+    /// </summary>
+    /// <returns><see langword="true"/> when the mode itself changed.</returns>
+    internal bool SetPlaylistSummaryMode(bool enabled)
+    {
+        bool changed = IsPlaylistSummaryMode != enabled;
+        IsPlaylistSummaryMode = enabled;
+        if (enabled)
+        {
+            GridHeaderText = BeMusicSeeker.Properties.Resources.Playlist_summary_header;
+        }
+        else
+        {
+            GridHeaderText = string.Empty;
+            PlaylistSummaryText = string.Empty;
+        }
+        return changed;
+    }
+
+    /// <summary>
     /// Gets whether the shared main table is showing playlist detail rows.
     /// </summary>
     public bool IsPlaylistDetailViewActive
