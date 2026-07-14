@@ -170,8 +170,8 @@ internal sealed class ApplicationComposition
             externalPlaylistImportWarningLog,
             externalPlaylistImportInfoLog,
             beatorajaTableUrlImportWarningLog,
-            beatorajaTableUrlImportInfoLog);
-        playlistWorkspace.ConfigurePlaylistSummaryColumnSettingsStore(mainChartColumnSettingsStore);
+            beatorajaTableUrlImportInfoLog,
+            mainChartColumnSettingsStore);
         return playlistWorkspace;
     }
 

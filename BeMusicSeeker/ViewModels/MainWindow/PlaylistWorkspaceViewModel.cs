@@ -41,7 +41,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly PlaylistExternalPackageLookupService playlistExternalPackageLookupService;
 
-    private IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore;
+    private readonly IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore;
 
     private readonly SemaphoreSlim manualReloadSemaphore = new(1, 1);
 
@@ -102,7 +102,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action<Exception, string> externalPlaylistImportWarningLog,
         Action<string> externalPlaylistImportInfoLog,
         Action<Exception, string> beatorajaTableUrlImportWarningLog,
-        Action<string> beatorajaTableUrlImportInfoLog)
+        Action<string> beatorajaTableUrlImportInfoLog,
+        IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -128,6 +129,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(beatorajaTableUrlImportWarningLog));
         this.beatorajaTableUrlImportInfoLog = beatorajaTableUrlImportInfoLog
             ?? throw new ArgumentNullException(nameof(beatorajaTableUrlImportInfoLog));
+        this.playlistSummaryColumnSettingsStore = playlistSummaryColumnSettingsStore
+            ?? throw new ArgumentNullException(nameof(playlistSummaryColumnSettingsStore));
     }
 
     internal void ConfigureSummaryBmtSort(PlaylistSummaryBmtSortCoordinator coordinator)
@@ -141,19 +144,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             throw new InvalidOperationException("Playlist summary BMT sort is already configured.");
         }
         playlistSummaryBmtSort = coordinator;
-    }
-
-    internal void ConfigurePlaylistSummaryColumnSettingsStore(IMainChartColumnSettingsStore store)
-    {
-        if (store == null)
-        {
-            throw new ArgumentNullException(nameof(store));
-        }
-        if (playlistSummaryColumnSettingsStore != null)
-        {
-            throw new InvalidOperationException("Playlist summary column settings store is already configured.");
-        }
-        playlistSummaryColumnSettingsStore = store;
     }
 
     internal void ResetPlaylistSummaryColumnsToDefault()

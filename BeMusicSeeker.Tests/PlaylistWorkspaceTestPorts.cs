@@ -1,5 +1,6 @@
 using System;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.ViewModels;
 
 namespace BeMusicSeeker.Tests;
 
@@ -29,4 +30,7 @@ internal static class PlaylistWorkspaceTestPorts
     internal static Action<Exception, string> BeatorajaTableUrlImportWarningLog => (_, _) => { };
 
     internal static Action<string> BeatorajaTableUrlImportInfoLog => _ => { };
+
+    internal static IMainChartColumnSettingsStore PlaylistSummaryColumnSettingsStore =>
+        new SettingsMainChartColumnSettingsStore();
 }

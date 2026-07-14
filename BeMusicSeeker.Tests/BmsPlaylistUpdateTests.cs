@@ -610,7 +610,8 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
             workspace.ConfigureDetailEditing(() => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             workspace.ConfigurePlaylistReloadCleanup(
@@ -752,7 +753,8 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
             workspace.ConfigureDetailEditing(() => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
@@ -6389,7 +6391,8 @@ public sealed class BmsPlaylistUpdateTests
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
             workspace.ConfigureDetailEditing(() => playlist);
             workspace.ConfigureMutations(() => library, (action, _) => action());
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;

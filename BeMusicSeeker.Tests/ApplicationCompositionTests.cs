@@ -743,7 +743,8 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
-                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog);
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore);
             workspace.ConfigureDetailEditing(() => playlist);
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
