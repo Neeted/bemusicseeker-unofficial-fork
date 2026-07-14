@@ -716,14 +716,15 @@ public sealed class ApplicationCompositionTests
                 return true;
             };
 
-            workspace.ApplyPlaylistSummaryBmtOutput(
+            workspace.ApplyPlaylistSummaryCellActionAsync(
                 [
                     new PlaylistSummaryRow { TableRef = first },
                     new PlaylistSummaryRow { TableRef = second },
                     new PlaylistSummaryRow { TableRef = second },
                     new PlaylistSummaryRow { TableRef = third }
                 ],
-                isBmtOutput: true);
+                "IsBmtOutput",
+                value: true).GetAwaiter().GetResult();
 
             Assert.IsNull(first.is_bmt_output);
             Assert.AreEqual(true, second.is_bmt_output);
@@ -732,7 +733,10 @@ public sealed class ApplicationCompositionTests
             Assert.AreEqual("playlist_summary_bmt_output_changed", refreshRequests[0].Reason);
             Assert.IsFalse(refreshRequests[0].InvalidateTableCountCache);
             CollectionAssert.AreEqual(new[] { "playlist_summary_bmt_output_changed" }, queuedReasons);
-            workspace.ApplyPlaylistSummaryBmtOutput([new PlaylistSummaryRow { TableRef = third }], isBmtOutput: true);
+            workspace.ApplyPlaylistSummaryCellActionAsync(
+                [new PlaylistSummaryRow { TableRef = third }],
+                "IsBmtOutput",
+                value: true).GetAwaiter().GetResult();
             Assert.AreEqual(1, refreshRequests.Count);
 
             using var verify = new LR2SongDBExtended(songDbPath);

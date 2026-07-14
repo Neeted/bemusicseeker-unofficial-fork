@@ -1494,13 +1494,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                 await OpenPlaylistSummaryUriAsync(playlistSummaryRow.DataUri).Logging("customTablePlaylistSummary_CellActionRequested_Data");
                 break;
             case "IsExternalSync":
-                await ApplyPlaylistSummarySyncFromCustomTableAsync(playlistSummaryRow, !(playlistSummaryRow.IsExternalSync)).Logging("customTablePlaylistSummary_CellActionRequested_Sync");
-                break;
             case "IsRootFolder":
-                await ApplyPlaylistSummaryRootFromCustomTableAsync(playlistSummaryRow, !(playlistSummaryRow.IsRootFolder)).Logging("customTablePlaylistSummary_CellActionRequested_Root");
-                break;
             case "IsBmtOutput":
-                await ApplyPlaylistSummaryBmtOutputFromCustomTableAsync(playlistSummaryRow, !(playlistSummaryRow.IsBmtOutput)).Logging("customTablePlaylistSummary_CellActionRequested_BmtOutput");
+                if (base.DataContext is MainWindowViewModel viewModel)
+                {
+                    bool value = e.Column.Id switch
+                    {
+                        "IsExternalSync" => !playlistSummaryRow.IsExternalSync,
+                        "IsRootFolder" => !playlistSummaryRow.IsRootFolder,
+                        "IsBmtOutput" => !playlistSummaryRow.IsBmtOutput,
+                        _ => false
+                    };
+                    await viewModel.PlaylistWorkspace.ApplyPlaylistSummaryCellActionAsync(
+                        getSelectedPlaylistSummaryRows(playlistSummaryRow),
+                        e.Column.Id,
+                        value).Logging("customTablePlaylistSummary_CellActionRequested_" + e.Column.Id);
+                }
                 break;
         }
     }
@@ -3294,114 +3303,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             {
             }
         });
-    }
-
-    private async void playlistSummarySyncCheckBoxClick(object sender, RoutedEventArgs e)
-    {
-        if (!(sender is CheckBox { DataContext: PlaylistSummaryRow playlistSummaryRow } checkBox))
-        {
-            return;
-        }
-        bool flag = checkBox.IsChecked == true;
-        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
-        if (selectedPlaylistSummaryRows.Count == 0)
-        {
-            return;
-        }
-        string confirmationText = (!flag)
-            ? "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？"
-            : "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？";
-        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), confirmationText, "警告", MessageBoxButton.OKCancel, MessageBoxImage.Exclamation, MessageBoxResult.Cancel) != MessageBoxResult.OK)
-        {
-            checkBox.IsChecked = !flag;
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, flag, null);
-            }).Logging("playlistSummarySyncCheckBoxClick");
-        }
-        e.Handled = true;
-    }
-
-    private async Task ApplyPlaylistSummarySyncFromCustomTableAsync(PlaylistSummaryRow playlistSummaryRow, bool flag)
-    {
-        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
-        if (selectedPlaylistSummaryRows.Count == 0)
-        {
-            return;
-        }
-        string confirmationText = (!flag)
-            ? "同期モードを解除するとリモートの変更が反映されなくなります。" + Environment.NewLine + "よろしいですか？"
-            : "同期モードに設定するとローカルの変更が失われます。" + Environment.NewLine + "よろしいですか？";
-        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), confirmationText, "警告", MessageBoxButton.OKCancel, MessageBoxImage.Exclamation, MessageBoxResult.Cancel) != MessageBoxResult.OK)
-        {
-            customTablePlaylistSummary?.RefreshDisplay();
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, flag, null);
-            });
-        }
-    }
-
-    private async void playlistSummaryRootCheckBoxClick(object sender, RoutedEventArgs e)
-    {
-        if (!(sender is CheckBox { DataContext: PlaylistSummaryRow playlistSummaryRow } checkBox))
-        {
-            return;
-        }
-        bool flag = checkBox.IsChecked == true;
-        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
-        if (selectedPlaylistSummaryRows.Count == 0)
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, null, flag);
-            }).Logging("playlistSummaryRootCheckBoxClick");
-        }
-        e.Handled = true;
-    }
-
-    private async Task ApplyPlaylistSummaryRootFromCustomTableAsync(PlaylistSummaryRow playlistSummaryRow, bool flag)
-    {
-        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
-        if (selectedPlaylistSummaryRows.Count == 0)
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryFlags(selectedPlaylistSummaryRows, null, flag);
-            });
-        }
-    }
-
-    private async Task ApplyPlaylistSummaryBmtOutputFromCustomTableAsync(PlaylistSummaryRow playlistSummaryRow, bool flag)
-    {
-        List<PlaylistSummaryRow> selectedPlaylistSummaryRows = getSelectedPlaylistSummaryRows(playlistSummaryRow);
-        if (selectedPlaylistSummaryRows.Count == 0)
-        {
-            return;
-        }
-        if (base.DataContext is MainWindowViewModel viewModel)
-        {
-            await Task.Run(delegate
-            {
-                viewModel.PlaylistWorkspace.ApplyPlaylistSummaryBmtOutput(selectedPlaylistSummaryRows, flag);
-            });
-        }
     }
 
     private async void playlistSummaryContextMenuResyncClick(object sender, RoutedEventArgs e)

@@ -38,6 +38,20 @@ public partial class MainWindowViewModel
             request.Enable ? "Playlist sync enable confirmation" : "Playlist sync disable confirmation");
     }
 
+    private void PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested(
+        object sender,
+        PlaylistSummaryExternalSyncConfirmationRequestedEventArgs request)
+    {
+        request.Confirmed = ShowUiConfirmation(
+            request.Enable
+                ? BeMusicSeeker.Properties.Resources.Confirm_EnablePlaylistSyncModeLoseLocalChanges
+                : BeMusicSeeker.Properties.Resources.Confirm_DisablePlaylistSyncModeRemoteChangesNotApplied,
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxImage.Exclamation,
+            MessageBoxButton.OKCancel,
+            request.Enable ? "Playlist summary sync enable confirmation" : "Playlist summary sync disable confirmation");
+    }
+
     private void PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
     {
         ShowUiMessage(

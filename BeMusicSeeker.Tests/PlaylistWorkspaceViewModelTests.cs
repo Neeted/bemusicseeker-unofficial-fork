@@ -227,9 +227,17 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "CapturePlaylistDetailSelection(out long selectionRevision)");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestSummarySelection();");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ApplyPlaylistSummaryBmtOutput(");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ApplyPlaylistSummaryCellActionAsync(");
         StringAssert.Contains(bulkEditSource, "ownerWorkspace.ApplyPlaylistSummaryBmtOutput(");
         StringAssert.Contains(workspaceSource, "internal void ApplyPlaylistSummaryBmtOutput(");
+        StringAssert.Contains(workspaceSource, "internal async Task ApplyPlaylistSummaryCellActionAsync(");
+        StringAssert.Contains(workspaceSource, "PlaylistSummaryExternalSyncConfirmationRequested");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested;");
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummarySyncFromCustomTableAsync", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummaryRootFromCustomTableAsync", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummaryBmtOutputFromCustomTableAsync", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("playlistSummarySyncCheckBoxClick", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("playlistSummaryRootCheckBoxClick", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistSummaryBmtOutput(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("RemoveBMSTable(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("ExecPlaylistFilter", StringComparison.Ordinal));
@@ -351,6 +359,31 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, mainWindowSource.IndexOf("private async void customTableView_SortRequested(", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("CaptureSortRequest", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceSummaryCellActionRequiresExternalSyncConfirmation()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        var table = new BMSTable { is_external_sync = false };
+        bool confirmationRequested = false;
+        workspace.PlaylistSummaryExternalSyncConfirmationRequested += (_, request) =>
+        {
+            confirmationRequested = true;
+            Assert.IsTrue(request.Enable);
+            request.Confirmed = false;
+        };
+
+        await workspace.ApplyPlaylistSummaryCellActionAsync(
+            [
+                new PlaylistSummaryRow { TableRef = table },
+                new PlaylistSummaryRow { TableRef = table }
+            ],
+            "IsExternalSync",
+            value: true);
+
+        Assert.IsTrue(confirmationRequested);
+        Assert.IsFalse(table.is_external_sync);
     }
 
     [TestMethod]
