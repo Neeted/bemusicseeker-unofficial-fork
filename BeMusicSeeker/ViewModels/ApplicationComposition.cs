@@ -189,7 +189,6 @@ internal sealed class ApplicationComposition
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
         Func<IEnumerable<BMSTable>> tableSnapshotProvider,
-        Func<string, bool, bool, long> refreshPlaylistSummary,
         Action<DroppedInstallBatchRequest, System.Threading.CancellationToken> processDroppedInstallBatch,
         Action<DropInstallQueueStatusSnapshot> updateDropInstallQueueStatus,
         Action<Exception> handleDroppedInstallBatchException)
@@ -206,7 +205,6 @@ internal sealed class ApplicationComposition
             dispatchMainChartListAction,
             mainViewLogWarning,
             tableSnapshotProvider,
-            refreshPlaylistSummary,
             processDroppedInstallBatch,
             updateDropInstallQueueStatus,
             handleDroppedInstallBatchException);
@@ -328,7 +326,6 @@ internal sealed class MainWindowChildComposition
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
         Func<IEnumerable<BMSTable>> tableSnapshotProvider,
-        Func<string, bool, bool, long> refreshPlaylistSummary,
         Action<DroppedInstallBatchRequest, System.Threading.CancellationToken> processDroppedInstallBatch,
         Action<DropInstallQueueStatusSnapshot> updateDropInstallQueueStatus,
         Action<Exception> handleDroppedInstallBatchException)
@@ -352,8 +349,7 @@ internal sealed class MainWindowChildComposition
         PlayHistory = new PlayHistoryWorkflowOwner();
         var playlistSummaryBmtSort = new PlaylistSummaryBmtSortCoordinator(
             tablesProvider,
-            tableSnapshotProvider,
-            refreshPlaylistSummary);
+            tableSnapshotProvider);
         PlaylistWorkspace.ConfigureSummaryBmtSort(playlistSummaryBmtSort);
         RegularChartListOwner = new RegularChartListOwner(
             MainChartList,

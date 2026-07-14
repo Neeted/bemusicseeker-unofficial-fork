@@ -1660,6 +1660,30 @@ public partial class MainWindowViewModel : ViewModel
         return suppressed;
     }
 
+    private bool TryDeferPlaylistSummaryDataRefresh()
+    {
+        UiRefreshChannel pendingMask;
+        UiRefreshChannel summaryMask = UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView;
+        int suppressDepth;
+        lock (lockUiSuppression)
+        {
+            if (suppressUiUpdateDepth <= 0)
+            {
+                return false;
+            }
+            UiRefreshChannel previousMask = pendingUiRefreshMask;
+            pendingUiRefreshMask |= suppressedUiRefreshMask & summaryMask;
+            pendingMask = pendingUiRefreshMask;
+            suppressDepth = suppressUiUpdateDepth;
+            if (previousMask == pendingMask)
+            {
+                return true;
+            }
+        }
+        LogUiSuppression("ui_suppress pending playlist_summary depth=" + suppressDepth + " pending=" + pendingMask);
+        return true;
+    }
+
     private bool TryDeferStartupPresentationRefresh(UiRefreshChannel channel, string reason)
     {
         if (channel == UiRefreshChannel.None)
@@ -5179,7 +5203,6 @@ public partial class MainWindowViewModel : ViewModel
             DispatchMainChartListAction,
             LogMainViewBuildWarning,
             () => BMSTables,
-            (reason, invalidateTableCountCache, rebuildAsync) => RefreshPlaylistSummaryIfVisible(reason, invalidateTableCountCache, rebuildAsync),
             ProcessDroppedInstallBatch,
             UpdateDropInstallQueueStatus,
             HandleDroppedInstallBatchException);
@@ -5409,6 +5432,20 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistSummaryDataRefreshRequestedEventArgs request)
     {
+        if (request.RequestAlreadyQueued)
+        {
+            if (TryDeferPlaylistSummaryDataRefresh())
+            {
+                return;
+            }
+            PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
+                files,
+                tables,
+                installPerformanceLoggingEnabled ? installPerformanceLogger : null,
+                dataRefreshRequired: false,
+                rebuildAsync: request.RebuildAsync);
+            return;
+        }
         RefreshPlaylistSummaryIfVisible(
             request.Reason,
             request.InvalidateTableCountCache,

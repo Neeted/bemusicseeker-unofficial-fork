@@ -125,17 +125,26 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     internal void ApplyCurrentVisibleBmtOrder(IEnumerable<PlaylistSummaryRow> visibleRows)
     {
-        GetSummaryBmtSort().ApplyCurrentVisibleOrder(visibleRows);
+        if (GetSummaryBmtSort().ApplyCurrentVisibleOrder(visibleRows))
+        {
+            RequestPlaylistSummaryBmtSortRefresh("playlist_summary_apply_current_order_to_bmt_sort");
+        }
     }
 
     internal void MoveSummaryRowsToBmtTop(IEnumerable<PlaylistSummaryRow> rows)
     {
-        GetSummaryBmtSort().MoveRowsToTop(rows);
+        if (GetSummaryBmtSort().MoveRowsToTop(rows))
+        {
+            RequestPlaylistSummaryBmtSortRefresh("playlist_summary_move_to_bmt_sort_top");
+        }
     }
 
     internal void MoveSummaryRowsToBmtBottom(IEnumerable<PlaylistSummaryRow> rows)
     {
-        GetSummaryBmtSort().MoveRowsToBottom(rows);
+        if (GetSummaryBmtSort().MoveRowsToBottom(rows))
+        {
+            RequestPlaylistSummaryBmtSortRefresh("playlist_summary_move_to_bmt_sort_bottom");
+        }
     }
 
     internal long DropSummaryRowsInBmtOrder(
@@ -143,18 +152,43 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         IEnumerable<PlaylistSummaryRow> draggedRows,
         int visibleInsertIndex)
     {
-        return GetSummaryBmtSort().DropRows(visibleRows, draggedRows, visibleInsertIndex);
+        if (!GetSummaryBmtSort().DropRows(visibleRows, draggedRows, visibleInsertIndex))
+        {
+            return 0L;
+        }
+        return RequestPlaylistSummaryBmtSortRefresh("playlist_summary_bmt_sort_drag_drop");
     }
 
     internal void ApplyImportedTablesToBmtFront(IReadOnlyList<BMSTable> importedTables)
     {
-        GetSummaryBmtSort().ApplyImportedTablesToFront(importedTables);
+        if (GetSummaryBmtSort().ApplyImportedTablesToFront(importedTables))
+        {
+            RequestPlaylistSummaryBmtSortRefresh("beatoraja_table_url_import");
+        }
     }
 
     private PlaylistSummaryBmtSortCoordinator GetSummaryBmtSort()
     {
         return playlistSummaryBmtSort
             ?? throw new InvalidOperationException("Playlist summary BMT sort is not configured.");
+    }
+
+    private long RequestPlaylistSummaryBmtSortRefresh(string reason)
+    {
+        PlaylistSummaryDataRefreshRequestResult request = RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false);
+        if (!request.Queued)
+        {
+            return request.NextBuildGeneration;
+        }
+        PlaylistSummaryDataRefreshRequested?.Invoke(
+            this,
+            new PlaylistSummaryDataRefreshRequestedEventArgs(
+                reason,
+                invalidateTableCountCache: false,
+                rebuildAsync: false,
+                requestAlreadyQueued: true,
+                nextBuildGeneration: request.NextBuildGeneration));
+        return request.NextBuildGeneration;
     }
 
     private ChartListSortParameters playlistSummarySortParameters;
@@ -1180,11 +1214,15 @@ internal sealed class PlaylistSummaryDataRefreshRequestedEventArgs : EventArgs
     internal PlaylistSummaryDataRefreshRequestedEventArgs(
         string reason,
         bool invalidateTableCountCache,
-        bool rebuildAsync = true)
+        bool rebuildAsync = true,
+        bool requestAlreadyQueued = false,
+        long nextBuildGeneration = 0L)
     {
         Reason = reason ?? throw new ArgumentNullException(nameof(reason));
         InvalidateTableCountCache = invalidateTableCountCache;
         RebuildAsync = rebuildAsync;
+        RequestAlreadyQueued = requestAlreadyQueued;
+        NextBuildGeneration = nextBuildGeneration;
     }
 
     internal string Reason { get; }
@@ -1192,6 +1230,10 @@ internal sealed class PlaylistSummaryDataRefreshRequestedEventArgs : EventArgs
     internal bool InvalidateTableCountCache { get; }
 
     internal bool RebuildAsync { get; }
+
+    internal bool RequestAlreadyQueued { get; }
+
+    internal long NextBuildGeneration { get; }
 }
 
 [Serializable]

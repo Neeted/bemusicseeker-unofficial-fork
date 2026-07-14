@@ -465,6 +465,12 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(source.Contains("new PlaylistSummaryBmtSortCoordinator("));
         Assert.IsFalse(source.Contains("new RegularChartListOwner("));
         Assert.IsFalse(source.Contains("new DropInstallQueueProcessor("));
+        string compositionSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs");
+        string coordinatorSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSummaryBmtSortCoordinator.cs");
+        Assert.IsFalse(compositionSource.Contains("Func<string, bool, bool, long> refreshPlaylistSummary"));
+        Assert.IsFalse(coordinatorSource.Contains("refreshPlaylistSummary"));
     }
 
     [TestMethod]

@@ -27,6 +27,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
         string logicalSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string bmtSortSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSummaryBmtSortCoordinator.cs");
         string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
         string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
         string mainChartListSource = SourceTextTestHelper.ReadProductionSourceText(
@@ -109,6 +111,14 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool TryGetPlaylistSummaryTableCount(");
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)");
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(");
+        StringAssert.Contains(workspaceSource, "private long RequestPlaylistSummaryBmtSortRefresh(");
+        StringAssert.Contains(workspaceSource, "RequestAlreadyQueued { get; }");
+        StringAssert.Contains(workspaceSource, "NextBuildGeneration { get; }");
+        StringAssert.Contains(logicalSource, "if (request.RequestAlreadyQueued)");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(");
+        Assert.AreEqual(-1, bmtSortSource.IndexOf("refreshPlaylistSummary", StringComparison.Ordinal));
+        Assert.AreEqual(-1, bmtSortSource.IndexOf("Func<string, bool, bool, long>", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("refreshPlaylistSummary", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal long LastPlaylistSummaryBuildCompletedTimestamp");
         StringAssert.Contains(workspaceSource, "CommitMainTablePresentationWithoutNotification(");
         StringAssert.Contains(workspaceSource, "PublishMainTablePresentation(");

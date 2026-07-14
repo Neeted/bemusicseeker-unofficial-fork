@@ -9,50 +9,47 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
 {
     private readonly Func<BMSPlaylist> playlistProvider;
     private readonly Func<IEnumerable<BMSTable>> tableSnapshotProvider;
-    private readonly Func<string, bool, bool, long> refreshPlaylistSummary;
 
     internal PlaylistSummaryBmtSortCoordinator(
         Func<BMSPlaylist> playlistProvider,
-        Func<IEnumerable<BMSTable>> tableSnapshotProvider,
-        Func<string, bool, bool, long> refreshPlaylistSummary)
+        Func<IEnumerable<BMSTable>> tableSnapshotProvider)
     {
         this.playlistProvider = playlistProvider ?? throw new ArgumentNullException(nameof(playlistProvider));
         this.tableSnapshotProvider = tableSnapshotProvider ?? throw new ArgumentNullException(nameof(tableSnapshotProvider));
-        this.refreshPlaylistSummary = refreshPlaylistSummary ?? throw new ArgumentNullException(nameof(refreshPlaylistSummary));
     }
 
-    internal void ApplyCurrentVisibleOrder(IEnumerable<PlaylistSummaryRow> visibleRows)
+    internal bool ApplyCurrentVisibleOrder(IEnumerable<PlaylistSummaryRow> visibleRows)
     {
         List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByReplacingVisibleSlots(GetFullOrderSnapshot(), visibleRows);
-        PersistOrder(orderedTables, "playlist_summary_apply_current_order_to_bmt_sort");
+        return PersistOrder(orderedTables, "playlist_summary_apply_current_order_to_bmt_sort");
     }
 
-    internal void MoveRowsToTop(IEnumerable<PlaylistSummaryRow> rows)
+    internal bool MoveRowsToTop(IEnumerable<PlaylistSummaryRow> rows)
     {
         List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByMovingRows(GetFullOrderSnapshot(), rows, insertAtTop: true);
-        PersistOrder(orderedTables, "playlist_summary_move_to_bmt_sort_top");
+        return PersistOrder(orderedTables, "playlist_summary_move_to_bmt_sort_top");
     }
 
-    internal void MoveRowsToBottom(IEnumerable<PlaylistSummaryRow> rows)
+    internal bool MoveRowsToBottom(IEnumerable<PlaylistSummaryRow> rows)
     {
         List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByMovingRows(GetFullOrderSnapshot(), rows, insertAtTop: false);
-        PersistOrder(orderedTables, "playlist_summary_move_to_bmt_sort_bottom");
+        return PersistOrder(orderedTables, "playlist_summary_move_to_bmt_sort_bottom");
     }
 
-    internal long DropRows(IEnumerable<PlaylistSummaryRow> visibleRows, IEnumerable<PlaylistSummaryRow> draggedRows, int visibleInsertIndex)
+    internal bool DropRows(IEnumerable<PlaylistSummaryRow> visibleRows, IEnumerable<PlaylistSummaryRow> draggedRows, int visibleInsertIndex)
     {
         List<BMSTable> orderedTables = PlaylistSummaryBmtSortOrderPlanner.BuildOrderByVisibleDrop(GetFullOrderSnapshot(), visibleRows, draggedRows, visibleInsertIndex);
         return PersistOrder(orderedTables, "playlist_summary_bmt_sort_drag_drop");
     }
 
-    internal void ApplyImportedTablesToFront(IReadOnlyList<BMSTable> importedTables)
+    internal bool ApplyImportedTablesToFront(IReadOnlyList<BMSTable> importedTables)
     {
         List<BMSTable> frontTables = [.. (importedTables ?? [])
             .Where(table => table != null)
             .Distinct()];
         if (frontTables.Count == 0)
         {
-            return;
+            return false;
         }
         BMSPlaylist playlist = playlistProvider()
             ?? throw new InvalidOperationException("A playlist store is required to apply imported BMT sort order.");
@@ -93,11 +90,11 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         }
         if (changedTables.Count == 0)
         {
-            return;
+            return false;
         }
         playlist.CommitBMSTableHeadersToDB(changedTables);
         playlist.QueueBeatorajaBmtUrlSync("beatoraja_table_url_import");
-        refreshPlaylistSummary("beatoraja_table_url_import", false, false);
+        return true;
     }
 
     private List<BMSTable> GetFullOrderSnapshot()
@@ -123,12 +120,12 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         }
     }
 
-    private long PersistOrder(IReadOnlyList<BMSTable> orderedTables, string reason)
+    private bool PersistOrder(IReadOnlyList<BMSTable> orderedTables, string reason)
     {
         BMSPlaylist playlist = playlistProvider();
         if (orderedTables == null || orderedTables.Count == 0 || playlist == null)
         {
-            return 0L;
+            return false;
         }
         List<BMSTable> changedTables = [];
         for (int i = 0; i < orderedTables.Count; i++)
@@ -143,10 +140,10 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
         }
         if (changedTables.Count == 0)
         {
-            return 0L;
+            return false;
         }
         playlist.CommitBMSTableHeadersToDB(changedTables);
         playlist.QueueBeatorajaBmtUrlSync(reason);
-        return refreshPlaylistSummary(reason, false, false);
+        return true;
     }
 }

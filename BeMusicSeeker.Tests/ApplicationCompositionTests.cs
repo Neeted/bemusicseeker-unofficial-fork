@@ -335,7 +335,6 @@ public sealed class ApplicationCompositionTests
             {
             },
             () => [],
-            (_, _, _) => 0L,
             (_, _) =>
             {
             },
@@ -390,7 +389,9 @@ public sealed class ApplicationCompositionTests
                 mainChartList,
                 _ => { },
                 _ => { });
-            int refreshCount = 0;
+            workspace.IsPlaylistSummaryMode = true;
+            var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
+            workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -402,11 +403,6 @@ public sealed class ApplicationCompositionTests
                 action => action(),
                 _ => { },
                 () => playlist.BMSTables,
-                (_, _, _) =>
-                {
-                    refreshCount++;
-                    return 1L;
-                },
                 (_, _) => { },
                 _ => { },
                 _ => { });
@@ -420,10 +416,21 @@ public sealed class ApplicationCompositionTests
 
                 Assert.AreEqual(2, first.bmt_sort);
                 Assert.AreEqual(1, second.bmt_sort);
-                Assert.AreEqual(1, refreshCount);
+                Assert.AreEqual(1, refreshRequests.Count);
+                Assert.IsTrue(refreshRequests[0].RequestAlreadyQueued);
+                Assert.IsFalse(refreshRequests[0].InvalidateTableCountCache);
+                Assert.IsFalse(refreshRequests[0].RebuildAsync);
+                Assert.IsTrue(refreshRequests[0].NextBuildGeneration > 0L);
                 using var verify = new LR2SongDBExtended(songDbPath);
                 Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 1));
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 2));
+                workspace.IsPlaylistSummaryMode = false;
+                workspace.ApplyCurrentVisibleBmtOrder(
+                [
+                    new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
+                    new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }
+                ]);
+                Assert.AreEqual(1, refreshRequests.Count);
             }
             finally
             {
