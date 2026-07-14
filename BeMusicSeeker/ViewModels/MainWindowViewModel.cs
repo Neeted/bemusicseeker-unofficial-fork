@@ -5149,7 +5149,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.ConfigureSummaryBulkWarningLogging(LogPlaylistSummaryBulkWarning);
         PlaylistWorkspace.ConfigureMutations(() => files, RunPlaylistOperationWithNotifications);
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
-        PlaylistWorkspace.PlaylistDetailEditRefreshRequested += PlaylistWorkspacePlaylistDetailEditRefreshRequested;
+        PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
         PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
@@ -5329,19 +5329,29 @@ public partial class MainWindowViewModel : ViewModel
         }).Logging("regularChartListInstallDestinationEditRequested");
     }
 
-    private void PlaylistWorkspacePlaylistDetailEditRefreshRequested(
+    private void PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested(
         object sender,
-        PlaylistDetailEditRefreshRequestedEventArgs request)
+        PlaylistDetailScoreSnapshotRefreshRequestedEventArgs request)
     {
-        if (!PlaylistWorkspace.IsPlaylistDetailViewActive)
+        if (request == null || !PlaylistWorkspace.IsPlaylistDetailViewActive)
         {
             return;
         }
+        if (!request.RefreshRequired)
+        {
+            LogPlaylistWorker("playlist_score_snapshot_refresh_deferred scoreSnapshotVersion="
+                + request.ScoreSnapshotVersion
+                + " lastBuiltScoreSnapshotVersion="
+                + request.LastBuiltVersion
+                + " reason=editing");
+            return;
+        }
         LogPlaylistWorker("playlist_score_snapshot_refresh_requested scoreSnapshotVersion="
-            + request.PendingVersion
+            + request.ScoreSnapshotVersion
             + " lastBuiltScoreSnapshotVersion="
             + request.LastBuiltVersion
-            + " deferredByEdit=true");
+            + " deferredByEdit="
+            + request.DeferredByEdit.ToString().ToLowerInvariant());
         if (!TrySuppress(UiRefreshChannel.LibraryMainView))
         {
             RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
@@ -6963,7 +6973,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 return;
             }
-            RequestPlaylistScoreSnapshotRefresh(files.ScoreSnapshotVersion);
+            PlaylistWorkspace.RequestPlaylistDetailScoreSnapshotRefresh(files.ScoreSnapshotVersion);
             RefreshPlaylistSummaryIfVisible("score_snapshot_changed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshRequestedVersion, delegate
@@ -8850,31 +8860,6 @@ public partial class MainWindowViewModel : ViewModel
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree);
         InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
-    }
-
-    /// <summary>
-    /// score snapshot 更新に伴う playlist detail view の再反映を要求します。
-    /// 編集中は保留し、編集終了後に 1 回だけ再構築します。
-    /// </summary>
-    private void RequestPlaylistScoreSnapshotRefresh(int scoreSnapshotVersion)
-    {
-        PlaylistScoreRefreshDecision decision =
-            PlaylistWorkspace.EvaluateScoreSnapshotRefresh(scoreSnapshotVersion);
-        if (decision.Deferred)
-        {
-            LogPlaylistWorker("playlist_score_snapshot_refresh_deferred scoreSnapshotVersion=" + scoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + decision.LastBuiltVersion + " reason=editing");
-            return;
-        }
-        if (!decision.RefreshRequired)
-        {
-            return;
-        }
-        LogPlaylistWorker("playlist_score_snapshot_refresh_requested scoreSnapshotVersion=" + scoreSnapshotVersion + " lastBuiltScoreSnapshotVersion=" + decision.LastBuiltVersion + " deferredByEdit=false");
-        if (TrySuppress(UiRefreshChannel.LibraryMainView))
-        {
-            return;
-        }
-        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
     }
 
     /// <summary>

@@ -2606,8 +2606,8 @@ public sealed class PlaylistViewPipelineTests
             _ => { },
             () => new CustomFolderOutputSettingsSnapshot());
         workspace.ConfigureDetailEditing(() => throw new AssertFailedException("cancel must not persist"));
-        PlaylistDetailEditRefreshRequestedEventArgs? refresh = null;
-        workspace.PlaylistDetailEditRefreshRequested += (_, request) => refresh = request;
+        PlaylistDetailScoreSnapshotRefreshRequestedEventArgs? refresh = null;
+        workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refresh = request;
         var context = new MainChartListCellEditContext(
             row,
             nameof(PlaylistDetailRow.memo),
@@ -2623,8 +2623,10 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(state.Source.IsPlaylistCellEditing);
         Assert.AreEqual("before", row.memo);
         Assert.IsNotNull(refresh);
-        Assert.AreEqual(5, refresh!.PendingVersion);
+        Assert.AreEqual(5, refresh!.ScoreSnapshotVersion);
         Assert.AreEqual(3, refresh.LastBuiltVersion);
+        Assert.IsTrue(refresh.DeferredByEdit);
+        Assert.IsTrue(refresh.RefreshRequired);
         Assert.AreEqual(0, state.Source.PendingScoreSnapshotRefreshVersion);
     }
 

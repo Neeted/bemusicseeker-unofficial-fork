@@ -10,8 +10,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private Func<BMSPlaylist> getPlaylistStore;
 
-    internal event EventHandler<PlaylistDetailEditRefreshRequestedEventArgs> PlaylistDetailEditRefreshRequested;
-
     internal void ConfigureDetailEditing(Func<BMSPlaylist> playlistStore)
     {
         getPlaylistStore = playlistStore ?? throw new ArgumentNullException(nameof(playlistStore));
@@ -98,11 +96,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         if (pendingScoreSnapshotVersion > lastBuiltScoreSnapshotVersion)
         {
-            PlaylistDetailEditRefreshRequested?.Invoke(
-                this,
-                new PlaylistDetailEditRefreshRequestedEventArgs(
-                    pendingScoreSnapshotVersion,
-                    lastBuiltScoreSnapshotVersion));
+            PublishPlaylistDetailScoreSnapshotRefreshRequested(
+                pendingScoreSnapshotVersion,
+                lastBuiltScoreSnapshotVersion,
+                deferredByEdit: true,
+                refreshRequired: true);
         }
     }
 
@@ -140,17 +138,4 @@ public sealed partial class PlaylistWorkspaceViewModel
             || string.Equals(propertyName, nameof(PlaylistDetailRow.comment), StringComparison.Ordinal)
             || string.Equals(propertyName, nameof(PlaylistDetailRow.memo), StringComparison.Ordinal);
     }
-}
-
-internal sealed class PlaylistDetailEditRefreshRequestedEventArgs : EventArgs
-{
-    internal PlaylistDetailEditRefreshRequestedEventArgs(int pendingVersion, int lastBuiltVersion)
-    {
-        PendingVersion = pendingVersion;
-        LastBuiltVersion = lastBuiltVersion;
-    }
-
-    internal int PendingVersion { get; }
-
-    internal int LastBuiltVersion { get; }
 }

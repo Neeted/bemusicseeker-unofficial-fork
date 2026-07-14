@@ -282,6 +282,13 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters);");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters);");
+        StringAssert.Contains(workspaceSource, "internal event EventHandler<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs> PlaylistDetailScoreSnapshotRefreshRequested;");
+        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailScoreSnapshotRefresh(int scoreSnapshotVersion)");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailScoreSnapshotRefresh(files.ScoreSnapshotVersion);");
+        Assert.AreEqual(-1, rootSource.IndexOf("RequestPlaylistScoreSnapshotRefresh(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("EvaluateScoreSnapshotRefresh(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistDetailEditRefreshRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("CreatePlaylistDetailRefreshInput(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistDetailRefreshInput", StringComparison.Ordinal));
         string bindingModeUpdate = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void UpdateBmsFilesViewBindingMode(");
@@ -1026,22 +1033,49 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void EvaluateScoreSnapshotRefresh_DefersDuringEditAndPreservesHighestVersion()
+    public void RequestPlaylistDetailScoreSnapshotRefresh_DefersDuringEditAndPreservesHighestVersion()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        workspace.IsPlaylistDetailViewActive = true;
+        workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion = 3;
+        workspace.DetailViewState.Source.IsPlaylistCellEditing = true;
+        var refreshes = new List<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs>();
+        workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refreshes.Add(request);
+
+        workspace.RequestPlaylistDetailScoreSnapshotRefresh(5);
+        workspace.RequestPlaylistDetailScoreSnapshotRefresh(4);
+
+        Assert.AreEqual(2, refreshes.Count);
+        Assert.IsTrue(refreshes[0].DeferredByEdit);
+        Assert.IsFalse(refreshes[0].RefreshRequired);
+        Assert.IsTrue(refreshes[1].DeferredByEdit);
+        Assert.IsFalse(refreshes[1].RefreshRequired);
+        Assert.AreEqual(5, workspace.DetailViewState.Source.PendingScoreSnapshotRefreshVersion);
+        workspace.DetailViewState.Source.IsPlaylistCellEditing = false;
+        workspace.RequestPlaylistDetailScoreSnapshotRefresh(5);
+        Assert.AreEqual(3, refreshes.Count);
+        Assert.IsTrue(refreshes[2].RefreshRequired);
+        Assert.IsTrue(refreshes[2].DeferredByEdit == false);
+        Assert.AreEqual(5, refreshes[2].ScoreSnapshotVersion);
+        Assert.AreEqual(3, refreshes[2].LastBuiltVersion);
+    }
+
+    [TestMethod]
+    public void RequestPlaylistDetailScoreSnapshotRefresh_IgnoresStaleOrInactiveRequests()
     {
         var workspace = CreateDetailWorkspace(out _);
         workspace.DetailViewState.Source.LastBuiltScoreSnapshotVersion = 3;
-        workspace.DetailViewState.Source.IsPlaylistCellEditing = true;
+        var refreshes = new List<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs>();
+        workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refreshes.Add(request);
 
-        PlaylistScoreRefreshDecision first = workspace.EvaluateScoreSnapshotRefresh(5);
-        PlaylistScoreRefreshDecision second = workspace.EvaluateScoreSnapshotRefresh(4);
+        workspace.RequestPlaylistDetailScoreSnapshotRefresh(3);
+        workspace.RequestPlaylistDetailScoreSnapshotRefresh(4);
+        Assert.AreEqual(0, refreshes.Count);
 
-        Assert.IsTrue(first.Deferred);
-        Assert.IsTrue(second.Deferred);
-        Assert.AreEqual(5, workspace.DetailViewState.Source.PendingScoreSnapshotRefreshVersion);
-        workspace.DetailViewState.Source.IsPlaylistCellEditing = false;
-        PlaylistScoreRefreshDecision ready = workspace.EvaluateScoreSnapshotRefresh(5);
-        Assert.IsTrue(ready.RefreshRequired);
-        Assert.AreEqual(3, ready.LastBuiltVersion);
+        workspace.IsPlaylistDetailViewActive = true;
+        workspace.IsPlaylistSummaryMode = true;
+        workspace.RequestPlaylistDetailScoreSnapshotRefresh(4);
+        Assert.AreEqual(0, refreshes.Count);
     }
 
     [TestMethod]

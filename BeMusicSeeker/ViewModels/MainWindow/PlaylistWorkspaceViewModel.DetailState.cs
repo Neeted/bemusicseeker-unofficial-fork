@@ -50,24 +50,57 @@ public sealed partial class PlaylistWorkspaceViewModel
             viewAlive ? CountDetailRows(viewRows) : 0);
     }
 
-    internal PlaylistScoreRefreshDecision EvaluateScoreSnapshotRefresh(int scoreSnapshotVersion)
+    internal event EventHandler<PlaylistDetailScoreSnapshotRefreshRequestedEventArgs> PlaylistDetailScoreSnapshotRefreshRequested;
+
+    internal void RequestPlaylistDetailScoreSnapshotRefresh(int scoreSnapshotVersion)
     {
+        if (!IsPlaylistDetailViewActive || IsPlaylistSummaryMode)
+        {
+            return;
+        }
+
+        int lastBuiltVersion;
+        bool deferredByEdit;
         lock (DetailViewState.SyncRoot)
         {
-            int lastBuiltVersion = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
+            lastBuiltVersion = DetailViewState.Source.LastBuiltScoreSnapshotVersion;
             if (scoreSnapshotVersion <= lastBuiltVersion)
             {
-                return PlaylistScoreRefreshDecision.NotRequired(lastBuiltVersion);
+                return;
             }
             if (DetailViewState.Source.IsPlaylistCellEditing)
             {
                 DetailViewState.Source.PendingScoreSnapshotRefreshVersion = Math.Max(
                     DetailViewState.Source.PendingScoreSnapshotRefreshVersion,
                     scoreSnapshotVersion);
-                return PlaylistScoreRefreshDecision.CreateDeferred(lastBuiltVersion);
+                deferredByEdit = true;
             }
-            return PlaylistScoreRefreshDecision.Required(lastBuiltVersion);
+            else
+            {
+                deferredByEdit = false;
+            }
         }
+
+        PublishPlaylistDetailScoreSnapshotRefreshRequested(
+            scoreSnapshotVersion,
+            lastBuiltVersion,
+            deferredByEdit,
+            refreshRequired: !deferredByEdit);
+    }
+
+    private void PublishPlaylistDetailScoreSnapshotRefreshRequested(
+        int scoreSnapshotVersion,
+        int lastBuiltVersion,
+        bool deferredByEdit,
+        bool refreshRequired)
+    {
+        PlaylistDetailScoreSnapshotRefreshRequested?.Invoke(
+            this,
+            new PlaylistDetailScoreSnapshotRefreshRequestedEventArgs(
+                scoreSnapshotVersion,
+                lastBuiltVersion,
+                deferredByEdit,
+                refreshRequired));
     }
 }
 
@@ -94,24 +127,25 @@ internal readonly struct PlaylistPreviousDetailRowsSnapshot
     internal int ViewRowCount { get; }
 }
 
-internal readonly struct PlaylistScoreRefreshDecision
+internal sealed class PlaylistDetailScoreSnapshotRefreshRequestedEventArgs : EventArgs
 {
-    private PlaylistScoreRefreshDecision(bool refreshRequired, bool deferred, int lastBuiltVersion)
+    internal PlaylistDetailScoreSnapshotRefreshRequestedEventArgs(
+        int scoreSnapshotVersion,
+        int lastBuiltVersion,
+        bool deferredByEdit,
+        bool refreshRequired)
     {
-        RefreshRequired = refreshRequired;
-        Deferred = deferred;
+        ScoreSnapshotVersion = scoreSnapshotVersion;
         LastBuiltVersion = lastBuiltVersion;
+        DeferredByEdit = deferredByEdit;
+        RefreshRequired = refreshRequired;
     }
 
-    internal bool RefreshRequired { get; }
-
-    internal bool Deferred { get; }
+    internal int ScoreSnapshotVersion { get; }
 
     internal int LastBuiltVersion { get; }
 
-    internal static PlaylistScoreRefreshDecision NotRequired(int lastBuiltVersion) => new(false, false, lastBuiltVersion);
+    internal bool DeferredByEdit { get; }
 
-    internal static PlaylistScoreRefreshDecision CreateDeferred(int lastBuiltVersion) => new(false, true, lastBuiltVersion);
-
-    internal static PlaylistScoreRefreshDecision Required(int lastBuiltVersion) => new(true, false, lastBuiltVersion);
+    internal bool RefreshRequired { get; }
 }
