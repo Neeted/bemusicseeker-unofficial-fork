@@ -999,9 +999,13 @@ public partial class MainWindowViewModel : ViewModel
     private void UpdateBmsFilesViewBindingMode(bool playlistDetailActive)
     {
         PlaylistBindingModeCommit commit = PlaylistWorkspace.CommitBindingModeWithoutNotification(playlistDetailActive);
-        if (commit.DetailActiveChanged && playlistDetailActive)
+        if (playlistDetailActive)
         {
-            PlaylistWorkspace.InitializePlaylistDetailSort(regularChartListOwner.CaptureSortParameters());
+            if (commit.DetailActiveChanged)
+            {
+                PlaylistWorkspace.InitializePlaylistDetailSort(regularChartListOwner.CaptureSortParameters());
+            }
+            PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());
         }
         PlaylistWorkspace.PublishBindingMode(commit);
         if (commit.DetailActiveChanged)
@@ -1640,7 +1644,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistDetailSelection selection = parameter as PlaylistDetailSelection
             ?? treeViewFilterParameterSelected as PlaylistDetailSelection;
         bool hasResolvedSelection = selection != null;
-        ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
+        ChartListFilterSnapshot filters = PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot();
         ChartListSortParameters sortParameters = PlaylistWorkspace.CapturePlaylistDetailSortParameters();
         return new PlaylistDetailRefreshInput(
             mode,
@@ -1660,12 +1664,12 @@ public partial class MainWindowViewModel : ViewModel
 
     private ChartListSortParameters CaptureActiveMainViewSortParameters()
     {
-        return IsPlaylistDetailSortActive
+        return IsPlaylistDetailWorkflowActive
             ? PlaylistWorkspace.CapturePlaylistDetailSortParameters()
             : regularChartListOwner.CaptureSortParameters();
     }
 
-    private bool IsPlaylistDetailSortActive =>
+    private bool IsPlaylistDetailWorkflowActive =>
         IsPlaylistDetailViewActive && !PlaylistWorkspace.IsPlaylistSummaryMode;
 
     private static bool IsSameReferenceSequence<T>(List<T> left, List<T> right) where T : class
@@ -4778,12 +4782,24 @@ public partial class MainWindowViewModel : ViewModel
         }
 
         RaisePropertyChanged("ModeFilter");
+        if (IsPlaylistDetailWorkflowActive)
+        {
+            PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters);
+            return;
+        }
         RefreshChartRowsView(MainViewUpdateMode.ModeFilterUpdated);
     }
 
     private void ChartFiltersKeywordFilterChanged(object sender, EventArgs e)
     {
         ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();
+        if (IsPlaylistDetailWorkflowActive)
+        {
+            RaisePropertyChanged("KeywordFilter");
+            UpdateKeywordSearchPresentation();
+            PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters);
+            return;
+        }
         lock (playHistoryViewRequestLock)
         {
             if (treeViewFilterTypeSelected == MainViewUpdateMode.PlayHistorySelected)
@@ -5360,6 +5376,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;
         PlaylistWorkspace.PlaylistSummarySortRequested += PlaylistWorkspacePlaylistSummarySortRequested;
         PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;
+        PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;
         PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;
         regularChartListOwner = childComposition.RegularChartListOwner;
         MainChartList.SortRequested += MainChartListSortRequested;
@@ -5385,7 +5402,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             PlayHistory.QueueSort(request);
         }
-        else if (IsPlaylistDetailSortActive)
+        else if (IsPlaylistDetailWorkflowActive)
         {
             PlaylistWorkspace.RequestPlaylistDetailSort(request.ColumnName, request.Direction);
         }
@@ -5658,7 +5675,7 @@ public partial class MainWindowViewModel : ViewModel
     private void RegularChartListOwnerSortChanged(object sender, MainChartListSortRequestedEventArgs request)
     {
         RaisePropertyChanged(nameof(SortParameters));
-        if (!IsPlayHistoryViewActive && !IsPlaylistDetailSortActive)
+        if (!IsPlayHistoryViewActive && !IsPlaylistDetailWorkflowActive)
         {
             SyncMainChartListSortPresentation();
         }
@@ -5681,7 +5698,7 @@ public partial class MainWindowViewModel : ViewModel
         if (isCurrent
             && (request.Target == MainChartListSortTarget.PlayHistory
                 ? IsPlayHistoryViewActive
-                : !IsPlayHistoryViewActive && !IsPlaylistDetailSortActive))
+                : !IsPlayHistoryViewActive && !IsPlaylistDetailWorkflowActive))
         {
             RefreshChartRowsView(MainViewUpdateMode.SortUpdated, expectedSortTarget: request.Target);
         }
@@ -5763,7 +5780,7 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         MainChartListSortRequestedEventArgs request)
     {
-        if (!IsPlaylistDetailSortActive
+        if (!IsPlaylistDetailWorkflowActive
             || !PlaylistWorkspace.IsCurrentPlaylistDetailSortRequest(request))
         {
             return;
@@ -5773,6 +5790,19 @@ public partial class MainWindowViewModel : ViewModel
             CreateMainChartListSortPresentation(PlaylistWorkspace.CapturePlaylistDetailSortParameters()),
             MainChartListSortTarget.Regular);
         RefreshChartRowsView(MainViewUpdateMode.SortUpdated, expectedSortTarget: MainChartListSortTarget.Regular);
+    }
+
+    private void PlaylistWorkspacePlaylistDetailFilterChanged(
+        object sender,
+        PlaylistDetailFilterChangedEventArgs request)
+    {
+        if (!IsPlaylistDetailWorkflowActive
+            || !PlaylistWorkspace.IsCurrentPlaylistDetailFilterRequest(request))
+        {
+            return;
+        }
+
+        RefreshChartRowsView(request.UpdateMode);
     }
 
 

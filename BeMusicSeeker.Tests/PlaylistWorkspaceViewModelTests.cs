@@ -172,10 +172,20 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummarySort(");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailSort(");
         StringAssert.Contains(workspaceSource, "internal ChartListSortParameters CapturePlaylistDetailSortParameters()");
+        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailFilter(");
+        StringAssert.Contains(workspaceSource, "internal ChartListFilterSnapshot CapturePlaylistDetailFilterSnapshot()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.InitializePlaylistDetailSort(regularChartListOwner.CaptureSortParameters());");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailSort(request.ColumnName, request.Direction);");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.CapturePlaylistDetailSortParameters()");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.KeywordFilterUpdated, filters);");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailFilter(MainViewUpdateMode.ModeFilterUpdated, filters);");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot()");
+        string bindingModeUpdate = SourceTextTestHelper.ExtractMethodBody(logicalSource, "private void UpdateBmsFilesViewBindingMode(");
+        StringAssert.Contains(bindingModeUpdate, "if (playlistDetailActive)");
+        StringAssert.Contains(bindingModeUpdate, "PlaylistWorkspace.InitializePlaylistDetailFilter(ChartFilters.CaptureSnapshot());");
         Assert.IsFalse(mainWindowSource.Contains("MainChartList.DisplayRefreshRequested"));
         string customTableSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "CustomTableView.cs");
         StringAssert.Contains(customTableSource, "subscribedMainChartList.DisplayRefreshRequested += MainChartListDisplayRefreshRequested;");
@@ -798,6 +808,104 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         Assert.AreEqual(nameof(PlaylistDetailRow.Level), workspace.PlaylistDetailSortParameters.ColumnsName);
         Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistDetailSortParameters.Direction);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceDetailFilterRequestCommitsOwnerStateBeforeEventAndRejectsNone()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
+        workspace.InitializePlaylistDetailFilter(
+            new ChartListFilterSnapshot("  title:Alpha  ", ChartModeFilter.All));
+        int raisedCount = 0;
+        PlaylistDetailFilterChangedEventArgs? firstRequest = null;
+        PlaylistDetailFilterChangedEventArgs? secondRequest = null;
+        workspace.PlaylistDetailFilterChanged += (_, request) =>
+        {
+            raisedCount++;
+            if (raisedCount == 1)
+            {
+                firstRequest = request;
+            }
+            else
+            {
+                secondRequest = request;
+            }
+            Assert.AreEqual("  title:Beta  ", workspace.PlaylistDetailFilterSnapshot.KeywordFilter);
+        };
+
+        workspace.RequestPlaylistDetailFilter(
+            MainViewUpdateMode.KeywordFilterUpdated,
+            new ChartListFilterSnapshot("  title:Beta  ", ChartModeFilter.All));
+
+        Assert.AreEqual(1, raisedCount);
+        Assert.IsNotNull(firstRequest);
+        Assert.AreEqual(MainViewUpdateMode.KeywordFilterUpdated, firstRequest.UpdateMode);
+        Assert.AreEqual(1L, firstRequest.OwnerRevision);
+        Assert.IsTrue(workspace.IsCurrentPlaylistDetailFilterRequest(firstRequest));
+
+        workspace.RequestPlaylistDetailFilter(
+            MainViewUpdateMode.KeywordFilterUpdated,
+            new ChartListFilterSnapshot("  title:Beta  ", ChartModeFilter.All));
+        Assert.AreEqual(1, raisedCount);
+
+        workspace.RequestPlaylistDetailFilter(
+            MainViewUpdateMode.ModeFilterUpdated,
+            new ChartListFilterSnapshot("  title:Beta  ", ChartModeFilter._7KEYS));
+
+        Assert.AreEqual(2, raisedCount);
+        Assert.IsNotNull(secondRequest);
+        Assert.AreEqual(MainViewUpdateMode.ModeFilterUpdated, secondRequest.UpdateMode);
+        Assert.AreEqual(2L, secondRequest.OwnerRevision);
+        Assert.IsFalse(workspace.IsCurrentPlaylistDetailFilterRequest(firstRequest));
+        Assert.IsTrue(workspace.IsCurrentPlaylistDetailFilterRequest(secondRequest));
+        Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
+
+        workspace.RequestPlaylistDetailFilter(
+            MainViewUpdateMode.ModeFilterUpdated,
+            new ChartListFilterSnapshot("  title:Beta  ", ChartModeFilter.None));
+
+        Assert.AreEqual(2, raisedCount);
+        Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceDetailFilterInitializationResynchronizesAcrossDetailEntries()
+    {
+        var workspace = new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot());
+
+        int raisedCount = 0;
+        workspace.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(workspace.PlaylistDetailFilterSnapshot))
+            {
+                raisedCount++;
+            }
+        };
+
+        workspace.InitializePlaylistDetailFilter(
+            new ChartListFilterSnapshot("title:Alpha", ChartModeFilter.All));
+        workspace.InitializePlaylistDetailFilter(
+            new ChartListFilterSnapshot("title:Beta", ChartModeFilter._7KEYS));
+        workspace.InitializePlaylistDetailFilter(
+            new ChartListFilterSnapshot("title:Beta", ChartModeFilter._7KEYS));
+
+        Assert.AreEqual(2, raisedCount);
+        Assert.AreEqual("title:Beta", workspace.PlaylistDetailFilterSnapshot.KeywordFilter);
+        Assert.AreEqual(ChartModeFilter._7KEYS, workspace.PlaylistDetailFilterSnapshot.ModeFilter);
     }
 
     [TestMethod]

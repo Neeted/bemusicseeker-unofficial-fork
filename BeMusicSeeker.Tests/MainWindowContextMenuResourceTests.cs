@@ -46,7 +46,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModel.Contains("private ModeFilterType _ModeFilter"));
         Assert.IsFalse(viewModel.Contains("private string _KeywordFilter"));
         StringAssert.Contains(viewModel, "CreatePlaylistDetailRefreshInput(route.Mode, route.RequestedMode, parameter)");
+        StringAssert.Contains(viewModel, "PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot()");
         StringAssert.Contains(viewModel, "PlaylistWorkspace.CapturePlaylistDetailSortParameters()");
+        Assert.IsFalse(viewModel.Contains("ChartListFilterSnapshot filters = ChartFilters.CaptureSnapshot();\r\n        ChartListSortParameters sortParameters = PlaylistWorkspace.CapturePlaylistDetailSortParameters();"));
         StringAssert.Contains(playlistRequestOwner, "SortParameters = sortParameters");
         StringAssert.Contains(playlistRequestOwner, "Filters = new ChartListFilterSnapshot(input.KeywordFilter, input.ModeFilter)");
         Assert.IsFalse(regularOwner.Contains("RegularChartModeFilter"));

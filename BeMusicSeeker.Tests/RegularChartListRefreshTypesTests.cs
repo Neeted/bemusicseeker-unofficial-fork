@@ -76,7 +76,9 @@ public sealed class RegularChartListRefreshTypesTests
         StringAssert.Contains(refreshChartRowsView, "CreatePlaylistDetailRefreshInput(route.Mode, route.RequestedMode, parameter)");
         StringAssert.Contains(refreshChartRowsView, "regularChartListOwner.ApplyMainLibraryView(");
         StringAssert.Contains(refreshChartRowsView, "UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)");
+        StringAssert.Contains(detailRefreshInput, "PlaylistWorkspace.CapturePlaylistDetailFilterSnapshot()");
         StringAssert.Contains(detailRefreshInput, "PlaylistWorkspace.CapturePlaylistDetailSortParameters()");
+        Assert.IsFalse(detailRefreshInput.Contains("ChartFilters.CaptureSnapshot()"));
         Assert.IsFalse(detailRefreshInput.Contains("regularChartListOwner.CaptureSortParameters()"));
         Assert.IsTrue(
             refreshChartRowsView.IndexOf("UpdateBmsFilesViewBindingMode(route.IsPlaylistTreeActive)", StringComparison.Ordinal)
