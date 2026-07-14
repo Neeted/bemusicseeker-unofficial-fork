@@ -23,6 +23,8 @@ internal sealed class ApplicationComposition
 
     private readonly Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider;
 
+    private readonly Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider;
+
     private readonly Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider;
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
@@ -51,6 +53,7 @@ internal sealed class ApplicationComposition
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider = null,
+        Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider = null,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider = null,
         Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider = null,
         IMainChartColumnSettingsStore mainChartColumnSettingsStore = null,
@@ -74,6 +77,8 @@ internal sealed class ApplicationComposition
             ?? (() => StartupSettingsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider
             ?? (() => PlaylistUrlCompletionOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
+        this.playlistUrlAcquisitionOptionsProvider = playlistUrlAcquisitionOptionsProvider
+            ?? (() => PlaylistUrlAcquisitionOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider
             ?? (() => BeatorajaBmtOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
@@ -99,6 +104,8 @@ internal sealed class ApplicationComposition
     internal Func<StartupSettingsSnapshot> StartupSettingsProvider => startupSettingsProvider;
 
     internal Func<PlaylistUrlCompletionOptionsSnapshot> PlaylistUrlCompletionOptionsProvider => playlistUrlCompletionOptionsProvider;
+
+    internal Func<PlaylistUrlAcquisitionOptionsSnapshot> PlaylistUrlAcquisitionOptionsProvider => playlistUrlAcquisitionOptionsProvider;
 
     internal Func<BeatorajaBmtOptionsSnapshot> BeatorajaBmtOptionsProvider => beatorajaBmtOptionsProvider;
 
@@ -149,6 +156,7 @@ internal sealed class ApplicationComposition
             detailViewLog,
             detailRetentionLog,
             customFolderOutputSettingsProvider);
+        playlistWorkspace.ConfigurePlaylistUrlAcquisitionOptions(playlistUrlAcquisitionOptionsProvider);
         playlistWorkspace.ConfigurePlaylistSummaryColumnSettingsStore(mainChartColumnSettingsStore);
         return playlistWorkspace;
     }

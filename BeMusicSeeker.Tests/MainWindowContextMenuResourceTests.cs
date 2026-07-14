@@ -3234,10 +3234,10 @@ public sealed class MainWindowContextMenuResourceTests
     public void DownloadAndInstall_UsesChartFileKindResolverForDirectChartFiles()
     {
         string root = FindRepositoryRoot();
-        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string candidateHelper = ExtractBetween(mainWindowCode, "private static bool IsDownloadAndInstallCandidateFileName", "private static string NormalizeDownloadUrlString");
-        string downloadResponseMethod = ExtractBetween(mainWindowCode, "private static async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth", "private static bool IsDownloadAndInstallCandidateFileName");
-        MethodInfo helper = typeof(MainWindow).GetMethod("IsDownloadAndInstallCandidateFileName", BindingFlags.Static | BindingFlags.NonPublic);
+        string workflowCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "PlaylistUrlAcquisitionWorkflow.cs"));
+        string candidateHelper = ExtractBetween(workflowCode, "private static bool IsDownloadAndInstallCandidateFileName", "private static string NormalizeDownloadUrlString");
+        string downloadResponseMethod = ExtractBetween(workflowCode, "private async Task<PlaylistUrlDownloadResult> DownloadPlaylistUrlResponseCandidateAsync(Uri requestedUri, AppHttpResponse response, string tempDirectory, int remainingSharedPageResolutionDepth", "private static bool IsDownloadAndInstallCandidateFileName");
+        MethodInfo helper = typeof(PlaylistUrlAcquisitionWorkflow).GetMethod("IsDownloadAndInstallCandidateFileName", BindingFlags.Static | BindingFlags.NonPublic);
         Assert.IsNotNull(helper);
 
         StringAssert.Contains(candidateHelper, "ChartFileKindResolver.IsSupportedChartFilePath(fileName)");
@@ -3303,78 +3303,68 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void PlaylistUrlBulkImport_UsesSharedHandlerAndSuppressesBrowserFallback()
+    public void PlaylistUrlBulkImport_IsOwnedByWorkspaceAndShellForwarded()
     {
         string root = FindRepositoryRoot();
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string singleUrlMethod = ExtractBetween(mainWindowCode, "private async Task OpenSinglePlaylistUrlAsync(Uri url)", "private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync");
-        string singleUrlStatusMethod = ExtractBetween(mainWindowCode, "private async Task<PlaylistUrlDownloadResult> DownloadSinglePlaylistUrlCandidateWithStatusAsync", "private void playlistRootSelect");
-        string openUrlHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLClick", "private async void tableContextMenuItemOpenURLdiffClick");
-        string openUrlDiffHandler = ExtractBetween(mainWindowCode, "private async void tableContextMenuItemOpenURLdiffClick", "private async Task OpenPlaylistUrlFromContextMenuAsync");
-        string contextMenuMethod = ExtractBetween(mainWindowCode, "private async Task OpenPlaylistUrlFromContextMenuAsync", "private List<object> GetEffectiveContextMenuRows");
+        string workspaceCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.PlaylistUrlAcquisition.cs"));
+        string workspaceOwnerCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.cs"));
+        string workflowCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "Models",
+            "PlaylistUrlAcquisitionWorkflow.cs"));
+        string statusBridge = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.PlaylistUrlAcquisitionEvents.cs"));
+
+        StringAssert.Contains(mainWindowCode, "viewModel.PlaylistWorkspace.OpenSinglePlaylistUrlAsync(url)");
+        StringAssert.Contains(mainWindowCode, "bulkViewModel.PlaylistWorkspace.DownloadSelectedPlaylistUrlsAsync(");
+        StringAssert.Contains(mainWindowCode, "viewModel.PlaylistWorkspace.DownloadSelectedPlaylistExternalPackagesAsync(");
+        Assert.IsFalse(mainWindowCode.Contains("DownloadPlaylistUrlCandidateAsync"));
+        Assert.IsFalse(mainWindowCode.Contains("playlistUrlBulkDownload"));
+        StringAssert.Contains(workspaceCode, "DownloadCandidateAsync");
+        StringAssert.Contains(workspaceCode, "DownloadSelectedPlaylistUrlsAsync");
+        StringAssert.Contains(workspaceCode, "DownloadSelectedPlaylistExternalPackagesAsync");
+        StringAssert.Contains(workspaceCode, "CancelPlaylistUrlDownload");
+        StringAssert.Contains(workflowCode, "IPlaylistUrlDownloadGateway");
+        Assert.IsFalse(workflowCode.Contains("NLog"));
+        StringAssert.Contains(workspaceOwnerCode, "ConfigurePlaylistUrlAcquisitionOptions");
+        StringAssert.Contains(workspaceCode, "GetPlaylistUrlAcquisitionOptions");
+        StringAssert.Contains(workspaceCode, "DispatchPlaylistUrlAcquisitionAction");
+        StringAssert.Contains(workspaceCode, "PlaylistUrlDownloadStatusChanged");
+        StringAssert.Contains(statusBridge, "RefreshInstallPipelineStatus");
+
         string dropHandler = ExtractBetween(mainWindowCode, "private void Window_Drop", "private void Window_DragOver");
         string dragOverHandler = ExtractBetween(mainWindowCode, "private void Window_DragOver", "private void Window_MouseLeftButtonDown");
-        string selectionHelper = ExtractBetween(mainWindowCode, "private List<object> GetEffectiveContextMenuRows", "private bool CanStartPlaylistExternalPackageLookup");
-        string bulkMethod = ExtractBetween(mainWindowCode, "private async Task DownloadSelectedPlaylistUrlsAsync", "private void tableContextMenuItemOpenDocumentFileClick");
-        string refreshStatus = ExtractBetween(
-            SourceTextTestHelper.ReadMainWindowViewModelSourceText(),
-            "private void RefreshInstallPipelineStatus()",
-            "private void UpdatePlaylistSyncProgressStatus(PlaylistSyncProgressSnapshot snapshot)");
-
-        StringAssert.Contains(openUrlHandler, "OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: false");
-        StringAssert.Contains(openUrlDiffHandler, "OpenPlaylistUrlFromContextMenuAsync(e.Source, isDiffUrl: true");
-        Assert.IsFalse(openUrlHandler.Contains("Process.Start"));
-        Assert.IsFalse(openUrlDiffHandler.Contains("Process.Start"));
-        StringAssert.Contains(contextMenuMethod, "OpenPlaylistUrlInBrowser(contextRow, isDiffUrl)");
-        StringAssert.Contains(contextMenuMethod, "DownloadSelectedPlaylistUrlsAsync(rows, isDiffUrl)");
-        Assert.IsFalse(contextMenuMethod.Contains("OpenSinglePlaylistUrlAsync(contextRow, isDiffUrl)"));
-        StringAssert.Contains(singleUrlMethod, "DownloadSinglePlaylistUrlCandidateWithStatusAsync(url)");
-        StringAssert.Contains(singleUrlMethod, "playlistUrlBulkDownloadRunning");
-        StringAssert.Contains(singleUrlStatusMethod, "UpdatePlaylistUrlDownloadStatus(true, 1, 0");
-        StringAssert.Contains(singleUrlStatusMethod, "UpdatePlaylistUrlDownloadStatus(true, 1, 1");
-        StringAssert.Contains(singleUrlStatusMethod, "UpdatePlaylistUrlDownloadStatus(false, 0, 0");
-        StringAssert.Contains(selectionHelper, "GetSelectedGridRowsSnapshot");
-        StringAssert.Contains(bulkMethod, "PlaylistContextMenuTargetResolver.BuildPlaylistUrlTargets(rows, isDiffUrl)");
-        StringAssert.Contains(bulkMethod, "IsDropInstallQueueActive: true");
-        StringAssert.Contains(bulkMethod, "Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue");
-        StringAssert.Contains(bulkMethod, "SelectedPlaylistUrlDownloadLargeSelectionWarningThreshold");
-        StringAssert.Contains(bulkMethod, "Warn_SelectedPlaylistUrlDownloadLargeSelection");
-        StringAssert.Contains(bulkMethod, "warningMessageBoxText: largeSelectionWarningMessage");
-        StringAssert.Contains(bulkMethod, "CancellationTokenSource");
-        StringAssert.Contains(bulkMethod, "cancellation.IsCancellationRequested");
-        StringAssert.Contains(bulkMethod, "canceledCount");
-        StringAssert.Contains(bulkMethod, "canCancel: true");
-        StringAssert.Contains(bulkMethod, "browserFallbackCount++");
-        StringAssert.Contains(bulkMethod, "duplicateCount++");
-        StringAssert.Contains(bulkMethod, "viewModel?.EnqueueDroppedInstallPaths(downloadedPaths)");
-        Assert.IsFalse(bulkMethod.Contains("installChartPackages(downloadedPaths)"));
-        Assert.IsFalse(bulkMethod.Contains("Process.Start"));
-        StringAssert.Contains(mainWindowCode, "private void CancelPlaylistUrlBulkDownload()");
-        StringAssert.Contains(mainWindowCode, "playlist_url_download failed source=");
-        StringAssert.Contains(mainWindowCode, "playlist_url_download cancel_requested");
-        StringAssert.Contains(mainWindowCode, "playlist_url_download blocked_size_limit");
-        StringAssert.Contains(dropHandler, "Warn_DropInstallBlockedByPlaylistUrlDownload");
-        StringAssert.Contains(dropHandler, "playlistUrlBulkDownloadRunning");
-        StringAssert.Contains(dragOverHandler, "DragDropEffects.None");
-        StringAssert.Contains(dragOverHandler, "playlistUrlBulkDownloadRunning");
-        Assert.IsTrue(refreshStatus.IndexOf("playlistUrlDownloadStatusActive", StringComparison.Ordinal) < refreshStatus.IndexOf("bool dropActive", StringComparison.Ordinal));
-        StringAssert.Contains(refreshStatus, "InstallPipelineCanCancel = playlistUrlDownloadCanCancel");
-        StringAssert.Contains(refreshStatus, "GetDropInstallQueueSubLabel(latestDropInstallQueueStatus)");
-        StringAssert.Contains(refreshStatus, "CurrentWorkIndex");
-        StringAssert.Contains(refreshStatus, "CurrentWorkTotal");
-        StringAssert.Contains(refreshStatus, "showCurrentWorkProgress");
+        StringAssert.Contains(dropHandler, "IsPlaylistUrlDownloadRunning");
+        StringAssert.Contains(dragOverHandler, "IsPlaylistUrlDownloadRunning");
+        StringAssert.Contains(mainWindowCode, "PlaylistUrlAcquisitionConfirmationRequested");
+        StringAssert.Contains(mainWindowCode, "PlaylistUrlAcquisitionSummaryReady");
     }
 
     [TestMethod]
     public void PlaylistUrlDownload_BrowserFallbackRecognizesPageUrls()
     {
-        Assert.IsTrue(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/folder/")));
-        Assert.IsTrue(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/index.htm")));
-        Assert.IsTrue(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/index.html")));
-        Assert.IsFalse(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://example.invalid/package.zip")));
-        Assert.IsFalse(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1")));
-        Assert.IsFalse(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://venue.bmssearch.net/event/1/1")));
-        Assert.IsFalse(MainWindow.IsBrowserFallbackDownloadUriForTest(new Uri("https://bmssearch.net/bmses/1")));
+        Assert.IsTrue(PlaylistUrlAcquisitionWorkflow.IsBrowserFallbackDownloadUri(new Uri("https://example.invalid/folder/")));
+        Assert.IsTrue(PlaylistUrlAcquisitionWorkflow.IsBrowserFallbackDownloadUri(new Uri("https://example.invalid/index.htm")));
+        Assert.IsTrue(PlaylistUrlAcquisitionWorkflow.IsBrowserFallbackDownloadUri(new Uri("https://example.invalid/index.html")));
+        Assert.IsFalse(PlaylistUrlAcquisitionWorkflow.IsBrowserFallbackDownloadUri(new Uri("https://example.invalid/package.zip")));
+        Assert.IsFalse(PlaylistUrlAcquisitionWorkflow.IsBrowserFallbackDownloadUri(new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1")));
+        Assert.IsFalse(PlaylistUrlAcquisitionWorkflow.IsBrowserFallbackDownloadUri(new Uri("https://venue.bmssearch.net/event/1/1")));
+        Assert.IsFalse(PlaylistUrlAcquisitionWorkflow.IsBrowserFallbackDownloadUri(new Uri("https://bmssearch.net/bmses/1")));
     }
 
     [TestMethod]
@@ -3382,19 +3372,19 @@ public sealed class MainWindowContextMenuResourceTests
     {
         Assert.AreEqual(
             "https://drive.usercontent.google.com/download?id=abc123&export=download",
-            MainWindow.NormalizeDownloadUriForTest(new Uri("https://drive.google.com/file/d/abc123/view?usp=sharing")).ToString());
+            PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://drive.google.com/file/d/abc123/view?usp=sharing")).ToString());
         Assert.AreEqual(
             "https://drive.usercontent.google.com/download?id=abc123&export=download",
-            MainWindow.NormalizeDownloadUriForTest(new Uri("https://drive.google.com/open?id=abc123&usp=sharing")).ToString());
+            PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://drive.google.com/open?id=abc123&usp=sharing")).ToString());
         Assert.AreEqual(
             "https://drive.usercontent.google.com/download?id=abc123&export=download",
-            MainWindow.NormalizeDownloadUriForTest(new Uri("https://docs.google.com/uc?export=download&id=abc123")).ToString());
+            PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://docs.google.com/uc?export=download&id=abc123")).ToString());
         Assert.AreEqual(
             "https://www.dropbox.com/scl/fi/token/package.zip?rlkey=key&dl=1",
-            MainWindow.NormalizeDownloadUriForTest(new Uri("https://www.dropbox.com/scl/fi/token/package.zip?rlkey=key&dl=0")).ToString());
+            PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://www.dropbox.com/scl/fi/token/package.zip?rlkey=key&dl=0")).ToString());
         Assert.AreEqual(
             "https://notdropbox.com/scl/fi/token/package.zip?dl=0",
-            MainWindow.NormalizeDownloadUriForTest(new Uri("https://notdropbox.com/scl/fi/token/package.zip?dl=0")).ToString());
+            PlaylistUrlAcquisitionWorkflow.NormalizeDownloadUri(new Uri("https://notdropbox.com/scl/fi/token/package.zip?dl=0")).ToString());
     }
 
     [TestMethod]
@@ -3503,47 +3493,47 @@ public sealed class MainWindowContextMenuResourceTests
 
         Assert.AreEqual(
             "https://drive.usercontent.google.com/download?id=abc123&confirm=token",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveWarningHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveWarningHtml).ToString());
         Assert.AreEqual(
             "https://download123.mediafire.com/abc/package.zip",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireHtml).ToString());
         Assert.AreEqual(
             "https://example.invalid/body.zip",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1"), manbowHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1"), manbowHtml).ToString());
         Assert.AreEqual(
             "https://drive.usercontent.google.com/download?id=abc123&export=download",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/event/1/1"), venueHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/event/1/1"), venueHtml).ToString());
         Assert.AreEqual(
             "https://bmssearch.net/archives/package.lzh",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://bmssearch.net/bmses/1"), bmsSearchHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://bmssearch.net/bmses/1"), bmsSearchHtml).ToString());
         Assert.AreEqual(
             "https://anonymous.bms.ms/data/body.zip",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://bmssearch.net/bmses/2uLp8a8bJYLmrx"), bmsSearchNextHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://bmssearch.net/bmses/2uLp8a8bJYLmrx"), bmsSearchNextHtml).ToString());
         Assert.AreEqual(
             "https://anonymous.bms.ms/data/itsfree_battle.7z",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueNextHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/freebattle/30"), venueNextHtml).ToString());
         Assert.AreEqual(
             "https://drive.usercontent.google.com/download?id=entryCore&export=download",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/bmstukuru2025/80"), venueMixedPackageHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/bmstukuru2025/80"), venueMixedPackageHtml).ToString());
         Assert.AreEqual(
             "https://drive.usercontent.google.com/download?id=entryTypeFirst&export=download",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/bmstukuru2025/80"), venueTypeFirstCoreHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/bmstukuru2025/80"), venueTypeFirstCoreHtml).ToString());
         Assert.AreEqual(
             "https://drive.usercontent.google.com/download?id=entryAnchor&export=download",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/bmstukuru2025/80"), venuePackageAnchorHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/bmstukuru2025/80"), venuePackageAnchorHtml).ToString());
         Assert.AreEqual(
             "https://www.mediafire.com/file/abc/package.zip/file",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueMediaFireHtml).ToString());
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/freebattle/30"), venueMediaFireHtml).ToString());
         Assert.AreEqual(
             "https://download123.mediafire.com/token/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z",
-            MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://www.mediafire.com/file/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z"), mediaFireArchiveNamedLandingHtml).ToString());
-        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveUnsafeActionHtml));
-        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireUnsafeHostHtml));
-        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://evilmediafire.com/file/abc/package.zip/file"), mediaFireHtml));
-        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1"), manbowUnsafeSchemeHtml));
-        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/event/1/1"), venueUnsafeHostHtml));
-        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueSourcePageOnlyHtml));
-        Assert.IsNull(MainWindow.ResolveSharedDownloadPageUriForTest(new Uri("https://venue.bmssearch.net/freebattle/30"), venueGoogleDriveFolderOnlyHtml));
+            PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://www.mediafire.com/file/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z"), mediaFireArchiveNamedLandingHtml).ToString());
+        Assert.IsNull(PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download"), googleDriveUnsafeActionHtml));
+        Assert.IsNull(PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://www.mediafire.com/file/abc/package.zip/file"), mediaFireUnsafeHostHtml));
+        Assert.IsNull(PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://evilmediafire.com/file/abc/package.zip/file"), mediaFireHtml));
+        Assert.IsNull(PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://manbow.nothing.sh/event/event.cgi?action=More_def&num=1&event=1"), manbowUnsafeSchemeHtml));
+        Assert.IsNull(PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/event/1/1"), venueUnsafeHostHtml));
+        Assert.IsNull(PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/freebattle/30"), venueSourcePageOnlyHtml));
+        Assert.IsNull(PlaylistUrlAcquisitionWorkflow.ResolveSharedDownloadPageUri(new Uri("https://venue.bmssearch.net/freebattle/30"), venueGoogleDriveFolderOnlyHtml));
     }
 
     [TestMethod]
@@ -3551,12 +3541,12 @@ public sealed class MainWindowContextMenuResourceTests
     {
         Assert.AreEqual(
             "BMSをたくさん作るぜ'25_250126更新分.zip",
-            MainWindow.ResolveContentDispositionFileNameForTest("attachment; filename*=UTF-8''BMS%E3%82%92%E3%81%9F%E3%81%8F%E3%81%95%E3%82%93%E4%BD%9C%E3%82%8B%E3%81%9C%2725_250126%E6%9B%B4%E6%96%B0%E5%88%86.zip"));
+            PlaylistUrlAcquisitionWorkflow.ResolveContentDispositionFileName("attachment; filename*=UTF-8''BMS%E3%82%92%E3%81%9F%E3%81%8F%E3%81%95%E3%82%93%E4%BD%9C%E3%82%8B%E3%81%9C%2725_250126%E6%9B%B4%E6%96%B0%E5%88%86.zip"));
 
         string mojibake = Encoding.GetEncoding("ISO-8859-1").GetString(Encoding.UTF8.GetBytes("BMSをたくさん作るぜ'25_250126更新分.zip"));
         Assert.AreEqual(
             "BMSをたくさん作るぜ'25_250126更新分.zip",
-            MainWindow.ResolveContentDispositionFileNameForTest("attachment; filename=\"" + mojibake + "\""));
+            PlaylistUrlAcquisitionWorkflow.ResolveContentDispositionFileName("attachment; filename=\"" + mojibake + "\""));
     }
 
     [TestMethod]
@@ -3564,16 +3554,16 @@ public sealed class MainWindowContextMenuResourceTests
     {
         Assert.AreEqual(
             "gdrive:abc123",
-            MainWindow.CreatePlaylistUrlDownloadKeyForTest(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download&confirm=t&uuid=volatile")));
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey(new Uri("https://drive.usercontent.google.com/download?id=abc123&export=download&confirm=t&uuid=volatile")));
         Assert.AreEqual(
             "gdrive:abc123",
-            MainWindow.CreatePlaylistUrlDownloadKeyForTest(new Uri("https://drive.google.com/file/d/abc123/view?usp=sharing")));
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey(new Uri("https://drive.google.com/file/d/abc123/view?usp=sharing")));
         Assert.AreEqual(
             "mediafire:ar4aa9p35amxfer",
-            MainWindow.CreatePlaylistUrlDownloadKeyForTest(new Uri("https://download123.mediafire.com/token/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z")));
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey(new Uri("https://download123.mediafire.com/token/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z")));
         Assert.AreEqual(
             "mediafire:ar4aa9p35amxfer",
-            MainWindow.CreatePlaylistUrlDownloadKeyForTest(new Uri("https://www.mediafire.com/file/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z/file")));
+            PlaylistUrlAcquisitionWorkflow.CreatePlaylistUrlDownloadKey(new Uri("https://www.mediafire.com/file/ar4aa9p35amxfer/%5BULTIMATE-lopears%5D-miyako.7z/file")));
     }
 
     [TestMethod]

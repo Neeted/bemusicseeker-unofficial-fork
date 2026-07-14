@@ -645,17 +645,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private InstallEstimationProgressSnapshot latestInstallEstimationProgress = new();
 
-    private bool playlistUrlDownloadStatusActive;
-
-    private int playlistUrlDownloadTotalCount;
-
-    private int playlistUrlDownloadCompletedCount;
-
-    private string playlistUrlDownloadCurrentDisplayName = string.Empty;
-
-    private string playlistUrlDownloadLabelFormat = string.Empty;
-
-    private bool playlistUrlDownloadCanCancel;
+    private PlaylistUrlDownloadStatusSnapshot latestPlaylistUrlDownloadStatus = PlaylistUrlDownloadStatusSnapshot.Inactive;
 
     private CancellationTokenSource maintenanceRescanCancellationTokenSource;
 
@@ -4565,6 +4555,7 @@ public partial class MainWindowViewModel : ViewModel
             MainChartList,
             LogPlaylistViewApply,
             LogPlaylistRetention);
+        PlaylistWorkspace.ConfigurePlaylistUrlAcquisitionInstallQueue(() => IsDropInstallQueueActive);
         PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
         PlaylistWorkspace.ConfigureKeywordSearchHistory(composition.KeywordSearchHistorySettingsStore);
         PlaylistWorkspace.ConfigurePropertyEditing(new PlaylistPropertySaveService(
@@ -4614,6 +4605,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistPropertyReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistPropertyReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += PlaylistWorkspacePlaylistPropertyExternalSyncFailed;
         PlaylistWorkspace.PlaylistPropertyNotificationsFlushRequested += PlaylistWorkspacePlaylistPropertyNotificationsFlushRequested;
+        PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
@@ -8460,38 +8452,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    /// <summary>
-    /// プレイリスト由来の URL/外部API 取り込み進捗を導入パイプライン表示へ反映します。
-    /// 通常の導入キューとは別経路でファイルを準備するため、同じステータス枠を先取りして競合を見える化します。
-    /// </summary>
-    /// <param name="isActive">取り込み処理が実行中かどうか。</param>
-    /// <param name="totalCount">全対象数。</param>
-    /// <param name="completedCount">完了済み対象数。</param>
-    /// <param name="currentDisplayName">現在処理中の対象表示名。</param>
-    /// <param name="canCancel">キャンセル可能な状態かどうか。</param>
-    /// <param name="labelFormat">進捗ラベル用の書式。未指定時は URL 取り込み用の既定書式を使います。</param>
-    internal void UpdatePlaylistUrlDownloadStatus(bool isActive, int totalCount, int completedCount, string currentDisplayName, bool canCancel = false, string labelFormat = null)
-    {
-        Action reflect = delegate
-        {
-            playlistUrlDownloadStatusActive = isActive;
-            playlistUrlDownloadTotalCount = isActive ? Math.Max(0, totalCount) : 0;
-            playlistUrlDownloadCompletedCount = isActive ? Math.Max(0, completedCount) : 0;
-            playlistUrlDownloadCurrentDisplayName = isActive ? (currentDisplayName ?? string.Empty) : string.Empty;
-            playlistUrlDownloadLabelFormat = isActive ? (string.IsNullOrWhiteSpace(labelFormat) ? BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format : labelFormat) : string.Empty;
-            playlistUrlDownloadCanCancel = isActive && canCancel;
-            RefreshInstallPipelineStatus();
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-        }
-    }
-
     private static string GetDropInstallQueueSubLabel(DropInstallQueueStatusSnapshot snapshot)
     {
         if (snapshot == null)
@@ -8511,17 +8471,17 @@ public partial class MainWindowViewModel : ViewModel
 
     private void RefreshInstallPipelineStatus()
     {
-        if (playlistUrlDownloadStatusActive)
+        if (latestPlaylistUrlDownloadStatus.IsActive)
         {
             IsInstallPipelineStatusActive = true;
             InstallPipelineLabel = string.Format(
-                string.IsNullOrWhiteSpace(playlistUrlDownloadLabelFormat) ? BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format : playlistUrlDownloadLabelFormat,
-                Math.Max(0, playlistUrlDownloadCompletedCount),
-                Math.Max(0, playlistUrlDownloadTotalCount));
-            InstallPipelineSubLabel = playlistUrlDownloadCurrentDisplayName ?? string.Empty;
-            InstallPipelineMaximum = Math.Max(1, playlistUrlDownloadTotalCount);
-            InstallPipelineValue = Math.Max(0, playlistUrlDownloadCompletedCount);
-            InstallPipelineCanCancel = playlistUrlDownloadCanCancel;
+                string.IsNullOrWhiteSpace(latestPlaylistUrlDownloadStatus.LabelFormat) ? BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format : latestPlaylistUrlDownloadStatus.LabelFormat,
+                Math.Max(0, latestPlaylistUrlDownloadStatus.CompletedCount),
+                Math.Max(0, latestPlaylistUrlDownloadStatus.TotalCount));
+            InstallPipelineSubLabel = latestPlaylistUrlDownloadStatus.CurrentDisplayName ?? string.Empty;
+            InstallPipelineMaximum = Math.Max(1, latestPlaylistUrlDownloadStatus.TotalCount);
+            InstallPipelineValue = Math.Max(0, latestPlaylistUrlDownloadStatus.CompletedCount);
+            InstallPipelineCanCancel = latestPlaylistUrlDownloadStatus.CanCancel;
             return;
         }
         bool dropActive = latestDropInstallQueueStatus != null && latestDropInstallQueueStatus.IsActive;

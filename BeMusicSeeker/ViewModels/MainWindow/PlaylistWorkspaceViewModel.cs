@@ -35,6 +35,12 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider;
 
+    private Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider;
+
+    private readonly PlaylistUrlAcquisitionWorkflow playlistUrlAcquisitionWorkflow;
+
+    private readonly PlaylistExternalPackageLookupService playlistExternalPackageLookupService;
+
     private IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore;
 
     private readonly SemaphoreSlim manualReloadSemaphore = new(1, 1);
@@ -88,7 +94,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         PlaylistDetailViewState viewState,
         Action<string> detailViewLog,
         Action<string> detailRetentionLog,
-        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider)
+        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
+        PlaylistUrlAcquisitionWorkflow playlistUrlAcquisitionWorkflow = null,
+        PlaylistExternalPackageLookupService playlistExternalPackageLookupService = null)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -98,6 +106,26 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         this.detailRetentionLog = detailRetentionLog ?? throw new ArgumentNullException(nameof(detailRetentionLog));
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider
             ?? throw new ArgumentNullException(nameof(customFolderOutputSettingsProvider));
+        this.playlistUrlAcquisitionWorkflow = playlistUrlAcquisitionWorkflow
+            ?? new PlaylistUrlAcquisitionWorkflow(
+                new AppPlaylistUrlDownloadGateway(),
+                detailViewLog);
+        this.playlistExternalPackageLookupService = playlistExternalPackageLookupService
+            ?? PlaylistExternalPackageLookupService.CreateDefault();
+    }
+
+    internal void ConfigurePlaylistUrlAcquisitionOptions(
+        Func<PlaylistUrlAcquisitionOptionsSnapshot> optionsProvider)
+    {
+        if (optionsProvider == null)
+        {
+            throw new ArgumentNullException(nameof(optionsProvider));
+        }
+        if (playlistUrlAcquisitionOptionsProvider != null)
+        {
+            throw new InvalidOperationException("Playlist URL acquisition options are already configured.");
+        }
+        playlistUrlAcquisitionOptionsProvider = optionsProvider;
     }
 
     internal void ConfigureSummaryBmtSort(PlaylistSummaryBmtSortCoordinator coordinator)
