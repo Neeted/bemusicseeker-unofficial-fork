@@ -4278,21 +4278,18 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         EditableTextBlock editableTextBlock = _getETBFromContextMenuClickEvent(sender);
-        if (editableTextBlock == null || !TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode) || folderNode.IsSpecial)
+        if (editableTextBlock == null || !TryGetPlaylistFolderNode(editableTextBlock.DataContext, out PlaylistFolderNode folderNode))
         {
             return;
         }
         BMSTable bmsTable = _getUpperBMSTableForContextMenuClickEvent(sender);
-        if (bmsTable == null || bmsTable.is_external_sync)
+        if (bmsTable == null)
         {
             return;
         }
-        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
-        {
-            viewModel.PlaylistWorkspace
-                .RemoveFolderAsync(bmsTable, folderNode)
-                .Logging("treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick");
-        }
+        viewModel.PlaylistWorkspace
+            .RemovePlaylistFolderAsync(bmsTable, folderNode)
+            .Logging("treeViewPlaylistTableFolderContextMenuItemDeleteFolderClick");
     }
 
     /// <summary>

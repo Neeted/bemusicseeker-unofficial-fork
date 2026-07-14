@@ -4567,6 +4567,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += PlaylistWorkspacePlaylistSummaryDataRefreshRequested;
         PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested;
         PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested += PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested;
+        PlaylistWorkspace.PlaylistFolderRemovalConfirmationRequested += PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested;
         PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistReloadStarted += PlaylistWorkspacePlaylistReloadStarted;
         PlaylistWorkspace.PlaylistSyncProgressChanged += PlaylistWorkspacePlaylistSyncProgressChanged;

@@ -65,6 +65,19 @@ public partial class MainWindowViewModel
             MessageBoxResult.Cancel);
     }
 
+    private void PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested(
+        object sender,
+        PlaylistFolderRemovalConfirmationRequestedEventArgs request)
+    {
+        request.Confirmed = ShowUiConfirmation(
+            BeMusicSeeker.Properties.Resources.Msg_remove_folder,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxImage.Question,
+            MessageBoxButton.OKCancel,
+            "Playlist folder removal confirmation",
+            MessageBoxResult.Cancel);
+    }
+
     private void PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested(object sender, EventArgs e)
     {
         ShowUiMessage(
