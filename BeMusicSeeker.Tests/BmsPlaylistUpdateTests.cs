@@ -636,7 +636,7 @@ public sealed class BmsPlaylistUpdateTests
             BMSTable? referenceReplacementOldTable = null;
             BMSTable? referenceReplacementNewTable = null;
             bool referenceIndexChanged = false;
-            PlaylistSummaryDataRefreshRequestedEventArgs? summaryRefresh = null;
+            long summaryDataGenerationBeforeResync = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
             workspace.PlaylistSyncProgressChanged += (_, _) => progressCount++;
             workspace.PlaylistReferenceTableReplaced += (_, request) =>
             {
@@ -645,8 +645,6 @@ public sealed class BmsPlaylistUpdateTests
                 referenceReplacementNewTable = request.NewTable;
                 referenceIndexChanged = request.ReferenceIndexChanged;
             };
-            workspace.PlaylistSummaryDataRefreshRequested += (_, request) => summaryRefresh = request;
-
             Assert.IsTrue(workspace.ContainsActivePlaylistTable(table));
             Assert.IsTrue(workspace.ContainsActivePlaylistSummaryRows([new PlaylistSummaryRow { TableRef = table }]));
 
@@ -664,9 +662,7 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsTrue(lifecycleLogs.Any(log => log.StartsWith(
                 "playlist_reload_operation completed operationKind=single reason=manual_resync tableCount=1 processedCount=1",
                 StringComparison.Ordinal)));
-            Assert.IsNotNull(summaryRefresh);
-            Assert.AreEqual("manual_playlist_resync", summaryRefresh!.Reason);
-            Assert.IsTrue(summaryRefresh.InvalidateTableCountCache);
+            Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > summaryDataGenerationBeforeResync);
 
             BMSTable reloadedTable = playlist.BMSTables.Single();
             Assert.AreNotSame(table, reloadedTable);
@@ -2590,8 +2586,6 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, config);
             PlaylistSummaryRow row = new() { TableRef = table };
-            int refreshCount = 0;
-            viewModel.PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += (_, _) => refreshCount++;
 
             Assert.IsTrue(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(row, nameof(PlaylistSummaryRow.Name)));
             Assert.IsTrue(viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(row, nameof(PlaylistSummaryRow.FolderName)));
@@ -2620,22 +2614,22 @@ public sealed class BmsPlaylistUpdateTests
                 "  INL  "));
             Assert.AreEqual("INL", table.symbol);
 
-            int refreshCountBeforeNoOp = refreshCount;
+            long refreshGenerationBeforeNoOp = viewModel.PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration;
             Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.Name),
                 " Inline Renamed "));
             Assert.AreEqual("Inline Renamed", table.name);
-            Assert.AreEqual(refreshCountBeforeNoOp, refreshCount);
+            Assert.AreEqual(refreshGenerationBeforeNoOp, viewModel.PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration);
 
             table.name = null;
-            int refreshCountBeforeNullNoOp = refreshCount;
+            long refreshGenerationBeforeNullNoOp = viewModel.PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration;
             Assert.IsTrue(await viewModel.PlaylistWorkspace.ApplySummaryPropertyEditAsync(
                 row,
                 nameof(PlaylistSummaryRow.Name),
                 string.Empty));
             Assert.IsNull(table.name);
-            Assert.AreEqual(refreshCountBeforeNullNoOp, refreshCount);
+            Assert.AreEqual(refreshGenerationBeforeNullNoOp, viewModel.PlaylistWorkspace.CurrentPlaylistSummaryDataRebuildGeneration);
 
             Settings.Default.OperationModeLR2DB = true;
             var conflictViewModel = new MainWindowViewModel();
@@ -6468,14 +6462,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 _ => { },
                 (exception, message) => { });
-            PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
-            workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
-            {
-                if (request.Reason == "playlist_table_removed")
-                {
-                    removalRefresh = request;
-                }
-            };
+            long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
 
             bool removalConfirmationRequested = false;
             workspace.PlaylistSummaryRemovalConfirmationRequested += (_, request) =>
@@ -6491,8 +6478,7 @@ public sealed class BmsPlaylistUpdateTests
 
             Assert.AreEqual(1, providerCallCount);
             Assert.IsTrue(removalConfirmationRequested);
-            Assert.IsNotNull(removalRefresh);
-            Assert.IsFalse(removalRefresh!.RebuildAsync);
+            Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > summaryDataGenerationBeforeRemoval);
             Assert.IsFalse(playlist.ContainsBMSTable(table));
             Assert.IsFalse(Directory.Exists(targetDir));
             Assert.IsFalse(Directory.Exists(Path.Combine(globalOutputBaseDir, table.Output_dir)));

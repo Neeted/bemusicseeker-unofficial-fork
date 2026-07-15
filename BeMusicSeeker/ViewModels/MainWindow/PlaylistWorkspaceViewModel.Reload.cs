@@ -103,11 +103,9 @@ public sealed partial class PlaylistWorkspaceViewModel
                     "manual_resync",
                     requireCurrentTargetForApply: true);
                 playlists.QueueBeatorajaBmtExportAll("manual_resync");
-                PlaylistSummaryDataRefreshRequested?.Invoke(
-                    this,
-                    new PlaylistSummaryDataRefreshRequestedEventArgs(
-                        "manual_playlist_resync",
-                        invalidateTableCountCache: true));
+                RequestPlaylistSummaryDataRefresh(
+                    "manual_playlist_resync",
+                    invalidateTableCountCache: true);
                 RequestPlaylistDetailReloadRefresh();
                 bool cleanupQueued = QueuePlaylistReloadCleanup(isFullReload, activeTables.Count);
                 WritePlaylistReloadLog(

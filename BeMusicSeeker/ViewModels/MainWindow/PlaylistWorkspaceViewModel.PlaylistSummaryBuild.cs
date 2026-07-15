@@ -46,11 +46,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         playlists.CommitBMSTableHeadersToDB(changedTables);
         playlists.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bmt_output_changed");
-        PlaylistSummaryDataRefreshRequested?.Invoke(
-            this,
-            new PlaylistSummaryDataRefreshRequestedEventArgs(
-                "playlist_summary_bmt_output_changed",
-                invalidateTableCountCache: false));
+        RequestPlaylistSummaryDataRefresh(
+            "playlist_summary_bmt_output_changed",
+            invalidateTableCountCache: false);
     }
 
     /// <summary>

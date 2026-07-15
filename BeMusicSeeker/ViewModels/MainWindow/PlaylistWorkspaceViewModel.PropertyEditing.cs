@@ -149,10 +149,14 @@ public sealed partial class PlaylistWorkspaceViewModel
         object sender,
         PlaylistSummaryDataRefreshRequestedEventArgs request)
     {
-        RaiseRequiredEvent(
-            PlaylistSummaryDataRefreshRequested,
-            request,
-            nameof(PlaylistSummaryDataRefreshRequested));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        RequestPlaylistSummaryDataRefresh(
+            request.Reason,
+            request.InvalidateTableCountCache,
+            request.RebuildAsync);
     }
 
     private void ForwardPlaylistEntriesChanged(
@@ -164,13 +168,25 @@ public sealed partial class PlaylistWorkspaceViewModel
             throw new ArgumentNullException(nameof(request));
         }
         bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(request.Table, "playlist_updated");
-        RaiseRequiredEvent(
-            EntriesChanged,
-            new PlaylistWorkspaceEntriesChangedEventArgs(
-                request.Table,
-                detailContentChanged,
-                request.RefreshSummaryIfVisible),
-            nameof(EntriesChanged));
+        try
+        {
+            RaiseRequiredEvent(
+                EntriesChanged,
+                new PlaylistWorkspaceEntriesChangedEventArgs(
+                    request.Table,
+                    detailContentChanged,
+                    request.RefreshSummaryIfVisible),
+                nameof(EntriesChanged));
+        }
+        finally
+        {
+            if (request.RefreshSummaryIfVisible)
+            {
+                RequestPlaylistSummaryDataRefresh(
+                    "playlist_entries_updated",
+                    invalidateTableCountCache: true);
+            }
+        }
     }
 
     private void ForwardPlaylistNotificationsFlushRequested(

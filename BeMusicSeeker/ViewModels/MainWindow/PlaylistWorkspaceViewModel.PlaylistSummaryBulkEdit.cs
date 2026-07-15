@@ -102,12 +102,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool invalidateTableCountCache,
         bool rebuildAsync = true)
     {
-        PlaylistSummaryDataRefreshRequested?.Invoke(
-            this,
-            new PlaylistSummaryDataRefreshRequestedEventArgs(
-                reason,
-                invalidateTableCountCache,
-                rebuildAsync));
+        RequestPlaylistSummaryDataRefresh(
+            reason,
+            invalidateTableCountCache,
+            rebuildAsync);
     }
 
     private void LogPlaylistSummaryBulkWarning(string message)

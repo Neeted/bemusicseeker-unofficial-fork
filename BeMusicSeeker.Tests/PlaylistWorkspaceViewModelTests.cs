@@ -161,10 +161,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool TryGetPlaylistSummaryTableCount(");
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)");
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(");
+        StringAssert.Contains(workspaceSource, "internal long RequestPlaylistSummaryDataRefresh(\n        string reason,");
+        StringAssert.Contains(workspaceSource, "private readonly Action<Action<bool>> playlistSummaryDataRefreshGate;");
         StringAssert.Contains(workspaceSource, "private long RequestPlaylistSummaryBmtSortRefresh(");
-        StringAssert.Contains(workspaceSource, "RequestAlreadyQueued { get; }");
-        StringAssert.Contains(workspaceSource, "NextBuildGeneration { get; }");
-        StringAssert.Contains(logicalSource, "if (request.RequestAlreadyQueued)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(");
         StringAssert.Contains(workspaceSource, "internal async Task WaitForPlaylistReloadCleanupReadinessAsync(");
         Assert.AreEqual(-1, workspaceSource.IndexOf("internal void ConfigurePlaylistReloadCleanup(", StringComparison.Ordinal));
@@ -206,7 +205,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace = composition.CreatePlaylistWorkspaceViewModel(");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryDataRefreshRequested += PlaylistWorkspacePlaylistSummaryDataRefreshRequested;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryDataRefreshRequested", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSummaryDataRefreshRequested", StringComparison.Ordinal));
+        StringAssert.Contains(logicalSource, "InvokePlaylistSummaryDataRefreshGate");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceTableReplaced += PlaylistWorkspacePlaylistReferenceTableReplaced;");
         StringAssert.Contains(logicalSource, "InvokeMainChartListPresentationAction(() =>");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable);");
@@ -221,7 +222,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(table, \"playlist_updated\")");
         StringAssert.Contains(workspaceSource, "private void ForwardPlaylistEntriesChanged(");
         StringAssert.Contains(workspaceSource, "bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(request.Table, \"playlist_updated\")");
-        StringAssert.Contains(workspaceSource, "new PlaylistWorkspaceEntriesChangedEventArgs(\n                request.Table,\n                detailContentChanged,\n                request.RefreshSummaryIfVisible)");
+        StringAssert.Contains(workspaceSource, "new PlaylistWorkspaceEntriesChangedEventArgs(");
+        StringAssert.Contains(workspaceSource, "request.RefreshSummaryIfVisible)");
         StringAssert.Contains(workspaceSource, "DetailContentChanged { get; }");
         StringAssert.Contains(workspaceSource, "RefreshSummaryIfVisible { get; }");
         StringAssert.Contains(workspaceSource, "internal Task AddRowsToFolderAsync(");
@@ -252,7 +254,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistImportNotificationsFlushRequested += PlaylistWorkspacePlaylistImportNotificationsFlushRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshRequested += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshRequested;");
+        Assert.AreEqual(-1, logicalSource.IndexOf("ExternalPlaylistImportSummaryRefreshRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ConfigureExternalPlaylistImportLogging(", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("ConfigureExternalPlaylistImportLogging(", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ConfigureBeatorajaTableUrlImportLogging(", StringComparison.Ordinal));
@@ -263,6 +265,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)");
         StringAssert.Contains(workspaceSource, "private async Task DrainExternalPlaylistImportQueueAsync()");
         StringAssert.Contains(workspaceSource, "internal bool CompleteImportedPlaylistRegistrations(");
+        StringAssert.Contains(workspaceSource, "RequestPlaylistSummaryDataRefresh(");
         StringAssert.Contains(workspaceSource, "internal void StartBeatorajaTableUrlImport(string rootPath)");
         StringAssert.Contains(workspaceSource, "internal bool HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(string rootPath)");
         StringAssert.Contains(workspaceSource, "private async Task ImportBeatorajaTableUrlsAsync(");
@@ -1594,7 +1597,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Action<string>? reloadCleanupLog = null,
         Action<Exception, string>? reloadFailureLog = null,
         Func<BMSPlaylist>? playlistStoreProvider = null,
-        Action<Action<bool>>? playlistSummaryPresentationRefreshGate = null)
+        Action<Action<bool>>? playlistSummaryPresentationRefreshGate = null,
+        Action<Action<bool>>? playlistSummaryDataRefreshGate = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
@@ -1630,7 +1634,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             reloadCleanupGarbageCollector ?? (() => { }),
             reloadCleanupLog ?? (_ => { }),
             reloadFailureLog ?? ((_, _) => { }),
-            playlistSummaryPresentationRefreshGate);
+            playlistSummaryPresentationRefreshGate,
+            playlistSummaryDataRefreshGate);
         dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         return workspace;
@@ -3052,6 +3057,49 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(
             PlaylistSummaryDeferredRefreshKind.Data,
             workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummaryDataRefreshUsesShellGateAndDrainsWhenAllowed()
+    {
+        bool deferred = true;
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistSummaryDataRefreshGate: request => request(deferred));
+        workspace.IsPlaylistSummaryMode = true;
+
+        long initialGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+        long deferredGeneration = workspace.RequestPlaylistSummaryDataRefresh(
+            "test_deferred_summary_data",
+            invalidateTableCountCache: false,
+            rebuildAsync: false);
+
+        Assert.AreEqual(initialGeneration + 2L, deferredGeneration);
+        Assert.IsTrue(
+            workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false)
+                == PlaylistSummaryDeferredRefreshKind.Data);
+
+        deferred = false;
+        long drainedGeneration = workspace.RequestPlaylistSummaryDataRefresh(
+            "test_drained_summary_data",
+            invalidateTableCountCache: false,
+            rebuildAsync: false);
+
+        Assert.IsTrue(drainedGeneration > deferredGeneration);
+        Assert.IsTrue(
+            workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false)
+                == PlaylistSummaryDeferredRefreshKind.None);
+        Assert.IsTrue(workspace.IsPlaylistSummaryDataBuildIdle);
+
+        workspace.IsPlaylistSummaryMode = false;
+        long hiddenGenerationBefore = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+        Assert.AreEqual(
+            0L,
+            workspace.RequestPlaylistSummaryDataRefresh(
+                "test_hidden_summary_data",
+                invalidateTableCountCache: false,
+                rebuildAsync: false));
+        Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > hiddenGenerationBefore);
     }
 
     [TestMethod]

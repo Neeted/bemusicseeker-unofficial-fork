@@ -51,6 +51,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Action<Action<bool>> playlistSummaryPresentationRefreshGate;
 
+    private readonly Action<Action<bool>> playlistSummaryDataRefreshGate;
+
     private IPlaylistDetailDataSource detailDataSource;
 
     internal PlaylistDetailBuildState DetailBuildState { get; }
@@ -125,7 +127,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action playlistReloadCleanupGarbageCollector,
         Action<string> playlistReloadLog,
         Action<Exception, string> playlistSyncFailureLog,
-        Action<Action<bool>> playlistSummaryPresentationRefreshGate = null)
+        Action<Action<bool>> playlistSummaryPresentationRefreshGate = null,
+        Action<Action<bool>> playlistSummaryDataRefreshGate = null)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -192,6 +195,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         this.playlistSyncFailureLog = playlistSyncFailureLog
             ?? throw new ArgumentNullException(nameof(playlistSyncFailureLog));
         this.playlistSummaryPresentationRefreshGate = playlistSummaryPresentationRefreshGate;
+        this.playlistSummaryDataRefreshGate = playlistSummaryDataRefreshGate;
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
@@ -409,22 +413,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         string reason,
         Action<long> beforeRefreshRequested = null)
     {
-        PlaylistSummaryDataRefreshRequestResult request = RequestPlaylistSummaryDataRefresh(
+        return RequestPlaylistSummaryDataRefresh(
+            reason,
             invalidateTableCountCache: false,
-            beforeRefreshRequested: beforeRefreshRequested);
-        if (!request.Queued)
-        {
-            return request.NextBuildGeneration;
-        }
-        PlaylistSummaryDataRefreshRequested?.Invoke(
-            this,
-            new PlaylistSummaryDataRefreshRequestedEventArgs(
-                reason,
-                invalidateTableCountCache: false,
-                rebuildAsync: false,
-                requestAlreadyQueued: true,
-                nextBuildGeneration: request.NextBuildGeneration));
-        return request.NextBuildGeneration;
+            rebuildAsync: false,
+            beforeRefreshRequested);
     }
 
     private ChartListSortParameters playlistSummarySortParameters;
@@ -511,11 +504,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     /// Raised after the summary view is replaced and code-behind selection restoration can run.
     /// </summary>
     internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied;
-
-    /// <summary>
-    /// Raised after a playlist-summary data mutation requires the shell to schedule a fresh summary build.
-    /// </summary>
-    internal event EventHandler<PlaylistSummaryDataRefreshRequestedEventArgs> PlaylistSummaryDataRefreshRequested;
 
     /// <summary>
     /// Gets or sets the current playlist summary sort parameters.
@@ -1037,6 +1025,42 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         return result;
     }
 
+    /// <summary>
+    /// Requests a summary data refresh and drains it when the shell permits presentation work.
+    /// </summary>
+    /// <param name="reason">The boundary that invalidated the summary data.</param>
+    /// <param name="invalidateTableCountCache">Whether table-count cache entries must be invalidated.</param>
+    /// <param name="rebuildAsync">Whether the data build should run asynchronously.</param>
+    /// <param name="beforeRefreshRequested">Optional state publication performed before the request is drained.</param>
+    /// <returns>The next data-build generation, or the accepted drained generation.</returns>
+    internal long RequestPlaylistSummaryDataRefresh(
+        string reason,
+        bool invalidateTableCountCache,
+        bool rebuildAsync = true,
+        Action<long> beforeRefreshRequested = null)
+    {
+        if (reason == null)
+        {
+            throw new ArgumentNullException(nameof(reason));
+        }
+        PlaylistSummaryDataRefreshRequestResult request = RequestPlaylistSummaryDataRefresh(
+            invalidateTableCountCache,
+            beforeRefreshRequested);
+        bool drainNow = true;
+        if (request.Queued && playlistSummaryDataRefreshGate != null)
+        {
+            playlistSummaryDataRefreshGate(deferred => drainNow = !deferred);
+        }
+        if (!request.Queued || !drainNow)
+        {
+            return request.NextBuildGeneration;
+        }
+        long drainedGeneration = DrainDeferredPlaylistSummaryRefresh(
+            dataRefreshRequired: false,
+            rebuildAsync);
+        return drainedGeneration != 0L ? drainedGeneration : request.NextBuildGeneration;
+    }
+
     internal void RequestDeferredPlaylistSummaryPresentationRefresh()
     {
         lock (playlistSummaryTransitionLock)
@@ -1528,15 +1552,11 @@ internal sealed class PlaylistSummaryDataRefreshRequestedEventArgs : EventArgs
     internal PlaylistSummaryDataRefreshRequestedEventArgs(
         string reason,
         bool invalidateTableCountCache,
-        bool rebuildAsync = true,
-        bool requestAlreadyQueued = false,
-        long nextBuildGeneration = 0L)
+        bool rebuildAsync = true)
     {
         Reason = reason ?? throw new ArgumentNullException(nameof(reason));
         InvalidateTableCountCache = invalidateTableCountCache;
         RebuildAsync = rebuildAsync;
-        RequestAlreadyQueued = requestAlreadyQueued;
-        NextBuildGeneration = nextBuildGeneration;
     }
 
     internal string Reason { get; }
@@ -1544,10 +1564,6 @@ internal sealed class PlaylistSummaryDataRefreshRequestedEventArgs : EventArgs
     internal bool InvalidateTableCountCache { get; }
 
     internal bool RebuildAsync { get; }
-
-    internal bool RequestAlreadyQueued { get; }
-
-    internal long NextBuildGeneration { get; }
 }
 
 [Serializable]

@@ -19,8 +19,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<ExternalPlaylistImportSummaryRefreshFailedEventArgs> ExternalPlaylistImportSummaryRefreshFailed;
 
-    internal event EventHandler<ExternalPlaylistImportSummaryRefreshRequestedEventArgs> ExternalPlaylistImportSummaryRefreshRequested;
-
     internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)
     {
         EnqueueExternalPlaylistBMSTableImports([uri]);
@@ -169,16 +167,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                         {
                             try
                             {
-                                RequestExternalPlaylistSummaryRefresh("external_playlist_import", invalidateTableCountCache: true);
+                                QueuePlaylistSummaryDataRefreshFromImport(
+                                    "external_playlist_import",
+                                    invalidateTableCountCache: true,
+                                    ReportExternalPlaylistImportSummaryRefreshFailure);
                             }
                             catch (Exception ex)
                             {
-                                WriteExternalPlaylistImportWarning(ex, "external_playlist_import_summary_refresh_failed");
-                                // The playlist registration already succeeded; summary refresh is a presentation concern.
-                                // Keep the import result successful, but surface the refresh failure to the user.
-                                ExternalPlaylistImportSummaryRefreshFailed?.Invoke(
-                                    this,
-                                    new ExternalPlaylistImportSummaryRefreshFailedEventArgs(ex));
+                                ReportExternalPlaylistImportSummaryRefreshFailure(ex);
                             }
                         }
                     }
@@ -362,22 +358,41 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
         if (queueSummaryRefresh)
         {
-            RequestExternalPlaylistSummaryRefresh(
+            QueuePlaylistSummaryDataRefreshFromImport(
                 reason ?? "playlist_registered",
                 invalidateTableCountCache: true);
         }
         return true;
     }
 
-    private void RequestExternalPlaylistSummaryRefresh(
+    private void QueuePlaylistSummaryDataRefreshFromImport(
         string reason,
-        bool invalidateTableCountCache)
+        bool invalidateTableCountCache,
+        Action<Exception> failure = null)
     {
-        ExternalPlaylistImportSummaryRefreshRequestedEventArgs request =
-            new(
-                reason,
-                invalidateTableCountCache);
-        ExternalPlaylistImportSummaryRefreshRequested?.Invoke(this, request);
+        dispatchPresentation(() =>
+        {
+            try
+            {
+                RequestPlaylistSummaryDataRefresh(
+                    reason,
+                    invalidateTableCountCache);
+            }
+            catch (Exception exception) when (failure != null)
+            {
+                failure(exception);
+            }
+        });
+    }
+
+    private void ReportExternalPlaylistImportSummaryRefreshFailure(Exception exception)
+    {
+        WriteExternalPlaylistImportWarning(exception, "external_playlist_import_summary_refresh_failed");
+        // The playlist registration already succeeded; summary refresh is a presentation concern.
+        // Keep the import result successful, but surface the refresh failure to the user.
+        ExternalPlaylistImportSummaryRefreshFailed?.Invoke(
+            this,
+            new ExternalPlaylistImportSummaryRefreshFailedEventArgs(exception));
     }
 
     private void WriteExternalPlaylistImportWarning(Exception exception, string message)
@@ -428,19 +443,4 @@ internal sealed class ExternalPlaylistImportSummaryRefreshFailedEventArgs : Even
     }
 
     internal Exception Exception { get; }
-}
-
-internal sealed class ExternalPlaylistImportSummaryRefreshRequestedEventArgs : EventArgs
-{
-    internal ExternalPlaylistImportSummaryRefreshRequestedEventArgs(
-        string reason,
-        bool invalidateTableCountCache)
-    {
-        Reason = reason ?? throw new ArgumentNullException(nameof(reason));
-        InvalidateTableCountCache = invalidateTableCountCache;
-    }
-
-    internal string Reason { get; }
-
-    internal bool InvalidateTableCountCache { get; }
 }

@@ -559,12 +559,24 @@ public sealed partial class PlaylistWorkspaceViewModel
     private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true)
     {
         bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(table, "playlist_updated");
-        EntriesChanged?.Invoke(
-            this,
-            new PlaylistWorkspaceEntriesChangedEventArgs(
-                table,
-                detailContentChanged,
-                refreshSummaryIfVisible));
+        try
+        {
+            EntriesChanged?.Invoke(
+                this,
+                new PlaylistWorkspaceEntriesChangedEventArgs(
+                    table,
+                    detailContentChanged,
+                    refreshSummaryIfVisible));
+        }
+        finally
+        {
+            if (refreshSummaryIfVisible)
+            {
+                RequestPlaylistSummaryDataRefresh(
+                    "playlist_entries_updated",
+                    invalidateTableCountCache: true);
+            }
+        }
     }
 }
 

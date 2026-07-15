@@ -525,7 +525,10 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(drainMethod, "Playlist_import_progress_phase_update_references");
         StringAssert.Contains(drainMethod, "PlaylistSyncAttemptResult.CreateFailure(item.LoadedTable, item.LoadedTable, item.Uri, referenceUpdateException)");
         StringAssert.Contains(completionMethod, "files.AddReferenceBMSTablesIncremental(tableList);");
-        StringAssert.Contains(completionMethod, "RequestExternalPlaylistSummaryRefresh(");
+        StringAssert.Contains(completionMethod, "QueuePlaylistSummaryDataRefreshFromImport(");
+        StringAssert.Contains(workspaceSource, "private void QueuePlaylistSummaryDataRefreshFromImport(");
+        StringAssert.Contains(workspaceSource, "dispatchPresentation(() =>");
+        StringAssert.Contains(workspaceSource, "RequestPlaylistSummaryDataRefresh(");
         StringAssert.Contains(duplicatePreparationMethod, "GetExternalPlaylistImportExistingNamesSnapshot()");
         StringAssert.Contains(duplicateSkipMethod, "ExternalPlaylistImportOutcome.SkippedDuplicateName");
         Assert.IsFalse(

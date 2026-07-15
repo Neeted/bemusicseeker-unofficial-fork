@@ -550,10 +550,10 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { });
+                (exception, message) => { },
+                null,
+                request => request(true));
             workspace.IsPlaylistSummaryMode = true;
-            var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
-            workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -568,6 +568,7 @@ public sealed class ApplicationCompositionTests
                 _ => { });
             try
             {
+                long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
                 workspace.ApplyCurrentVisibleBmtOrder(
                 [
                     new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
@@ -576,11 +577,10 @@ public sealed class ApplicationCompositionTests
 
                 Assert.AreEqual(2, first.bmt_sort);
                 Assert.AreEqual(1, second.bmt_sort);
-                Assert.AreEqual(1, refreshRequests.Count);
-                Assert.IsTrue(refreshRequests[0].RequestAlreadyQueued);
-                Assert.IsFalse(refreshRequests[0].InvalidateTableCountCache);
-                Assert.IsFalse(refreshRequests[0].RebuildAsync);
-                Assert.IsTrue(refreshRequests[0].NextBuildGeneration > 0L);
+                Assert.AreEqual(generationBeforeVisibleRefresh + 1L, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+                Assert.AreEqual(
+                    PlaylistSummaryDeferredRefreshKind.Data,
+                    workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
                 using var verify = new LR2SongDBExtended(songDbPath);
                 Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 1));
                 Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 2));
@@ -590,7 +590,10 @@ public sealed class ApplicationCompositionTests
                     new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
                     new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }
                 ]);
-                Assert.AreEqual(1, refreshRequests.Count);
+                Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > generationBeforeVisibleRefresh + 1L);
+                Assert.AreEqual(
+                    PlaylistSummaryDeferredRefreshKind.None,
+                    workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
             }
             finally
             {
@@ -653,7 +656,9 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { });
+                (exception, message) => { },
+                null,
+                request => request(true));
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -726,31 +731,6 @@ public sealed class ApplicationCompositionTests
                 workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false);
                 Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
 
-                PlaylistSummarySelectionRestoreRequest synchronousRestore = null!;
-                workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
-                {
-                    if (request.Reason != "playlist_summary_bmt_sort_drag_drop")
-                    {
-                        return;
-                    }
-                    Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest synchronousBuild));
-                    try
-                    {
-                        Assert.AreEqual(request.NextBuildGeneration, synchronousBuild.Generation);
-                        Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
-                        {
-                            Rows = new ObservableCollection<PlaylistSummaryRow>(),
-                            PresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration,
-                            DataRebuildGeneration = synchronousBuild.Generation,
-                            CacheGeneration = synchronousBuild.CacheGeneration
-                        }));
-                        Assert.IsTrue(workspace.TryTakePlaylistSummarySelectionRestore(out synchronousRestore));
-                    }
-                    finally
-                    {
-                        workspace.CompletePlaylistSummaryDataBuild(synchronousBuild);
-                    }
-                };
                 long synchronousGeneration = workspace.DropSummaryRowsInBmtOrder(
                     [
                         new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third },
@@ -761,6 +741,24 @@ public sealed class ApplicationCompositionTests
                     visibleInsertIndex: 2,
                     currentPlaylistId: third.playlist_id);
                 Assert.IsTrue(synchronousGeneration > 0L);
+                Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest synchronousBuild));
+                PlaylistSummarySelectionRestoreRequest synchronousRestore;
+                try
+                {
+                    Assert.AreEqual(synchronousGeneration, synchronousBuild.Generation);
+                    Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
+                    {
+                        Rows = new ObservableCollection<PlaylistSummaryRow>(),
+                        PresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration,
+                        DataRebuildGeneration = synchronousBuild.Generation,
+                        CacheGeneration = synchronousBuild.CacheGeneration
+                    }));
+                    Assert.IsTrue(workspace.TryTakePlaylistSummarySelectionRestore(out synchronousRestore));
+                }
+                finally
+                {
+                    workspace.CompletePlaylistSummaryDataBuild(synchronousBuild);
+                }
                 Assert.IsNotNull(synchronousRestore);
                 CollectionAssert.AreEquivalent(new[] { third.playlist_id }, synchronousRestore.PlaylistIds.ToArray());
                 Assert.AreEqual(third.playlist_id, synchronousRestore.CurrentPlaylistId);
@@ -848,8 +846,6 @@ public sealed class ApplicationCompositionTests
                 () => { },
                 _ => { },
                 (exception, message) => { });
-            var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
-            workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
             var queuedReasons = new List<string>();
             playlist.StartupBackgroundTaskScheduler = (_, reason, _, _) =>
             {
@@ -857,6 +853,7 @@ public sealed class ApplicationCompositionTests
                 return true;
             };
 
+            long generationBeforeFirstAction = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
             workspace.ApplyPlaylistSummaryCellActionAsync(
                 [
                     new PlaylistSummaryRow { TableRef = first },
@@ -870,15 +867,14 @@ public sealed class ApplicationCompositionTests
             Assert.IsNull(first.is_bmt_output);
             Assert.AreEqual(true, second.is_bmt_output);
             Assert.AreEqual(true, third.is_bmt_output);
-            Assert.AreEqual(1, refreshRequests.Count);
-            Assert.AreEqual("playlist_summary_bmt_output_changed", refreshRequests[0].Reason);
-            Assert.IsFalse(refreshRequests[0].InvalidateTableCountCache);
+            Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > generationBeforeFirstAction);
             CollectionAssert.AreEqual(new[] { "playlist_summary_bmt_output_changed" }, queuedReasons);
+            long generationBeforeNoOp = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
             workspace.ApplyPlaylistSummaryCellActionAsync(
                 [new PlaylistSummaryRow { TableRef = third }],
                 "IsBmtOutput",
                 value: true).GetAwaiter().GetResult();
-            Assert.AreEqual(1, refreshRequests.Count);
+            Assert.AreEqual(generationBeforeNoOp, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             LR2SongDBExtended.playlist persistedFirst = verify.Table<LR2SongDBExtended.playlist>().Single(row => row.playlist_id == first.playlist_id);

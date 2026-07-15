@@ -102,15 +102,6 @@ public partial class MainWindowViewModel
             "external playlist import summary refresh failure notification");
     }
 
-    private void PlaylistWorkspaceExternalPlaylistImportSummaryRefreshRequested(
-        object sender,
-        ExternalPlaylistImportSummaryRefreshRequestedEventArgs request)
-    {
-        QueuePlaylistSummaryRefreshIfVisible(
-            request.Reason,
-            request.InvalidateTableCountCache);
-    }
-
     private void PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested(
         object sender,
         BeatorajaTableUrlImportConfirmationRequestedEventArgs request)
