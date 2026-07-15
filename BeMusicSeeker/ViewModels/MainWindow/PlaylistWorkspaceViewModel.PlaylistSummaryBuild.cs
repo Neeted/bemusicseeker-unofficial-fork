@@ -273,7 +273,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             else if (entriesLoaded)
             {
-                countResult = CalculatePlaylistSummaryCounts(table.GetEntriesExceptDummy(), ownedHashSnapshot, cancellationToken);
+                countResult = CalculatePlaylistSummaryCounts(
+                    SnapshotPlaylistEntriesExceptDummy(table),
+                    ownedHashSnapshot,
+                    cancellationToken);
                 TrySetPlaylistSummaryTableCount(countCacheKey, countResult, expectedTableCountCacheGeneration);
                 result.SummaryCacheMissCount++;
             }

@@ -46,7 +46,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         cancellationToken.ThrowIfCancellationRequested();
         List<(BMSTableEntry entry, LibraryChartRef resolvedChart)> resolvedEntries = [];
         cancellationStage = "entry_resolve";
-        foreach (BMSTableEntry entry in table.GetEntriesExceptDummy())
+        foreach (BMSTableEntry entry in SnapshotPlaylistEntriesExceptDummy(table))
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (entry.is_removed || (folderName != null && entry.folder != folderName))

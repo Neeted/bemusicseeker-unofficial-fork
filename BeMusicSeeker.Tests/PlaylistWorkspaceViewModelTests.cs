@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -28,6 +29,12 @@ public sealed class PlaylistWorkspaceViewModelTests
     {
         string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string detailSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailSource.cs");
+        string summaryBuildSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBuild.cs");
+        string entrySnapshotSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.EntrySnapshot.cs");
         string logicalSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string bmtSortSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistSummaryBmtSortCoordinator.cs");
@@ -97,6 +104,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "PlaylistOperationNotificationsFlushRequestedEventArgs(scope, routeName)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistOperationNotificationsFlushRequested += PlaylistWorkspacePlaylistOperationNotificationsFlushRequested;");
         StringAssert.Contains(workspaceSource, "private readonly Func<LR2Config> getLr2Config;");
+        StringAssert.Contains(entrySnapshotSource, "using (table.ReaderWriterLock.GetReaderGuard())");
+        StringAssert.Contains(entrySnapshotSource, "return [.. table.GetEntriesExceptDummy()]");
+        StringAssert.Contains(detailSource, "SnapshotPlaylistEntriesExceptDummy(table)");
+        Assert.AreEqual(-1, detailSource.IndexOf("table.GetEntriesExceptDummy()", StringComparison.Ordinal));
+        StringAssert.Contains(summaryBuildSource, "SnapshotPlaylistEntriesExceptDummy(table)");
+        Assert.AreEqual(-1, summaryBuildSource.IndexOf("table.GetEntriesExceptDummy()", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "private readonly Action<string> summaryBulkWarningLog;");
         StringAssert.Contains(workspaceSource, "IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore");
         StringAssert.Contains(workspaceSource, "PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort");
@@ -706,6 +719,22 @@ public sealed class PlaylistWorkspaceViewModelTests
         {
             Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
         }
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceEntrySnapshotPreservesReferencesAfterTableMutation()
+    {
+        Assert.ThrowsException<ArgumentNullException>(
+            () => PlaylistWorkspaceViewModel.SnapshotPlaylistEntriesExceptDummy(null));
+
+        var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "entry");
+        var dummy = new TestablePlaylistEntry("00000000000000000000000000000000", "dummy");
+        var table = new BMSTable { entries = [entry, dummy] };
+
+        IReadOnlyList<BMSTableEntry> snapshot = PlaylistWorkspaceViewModel.SnapshotPlaylistEntriesExceptDummy(table);
+        table.entries.Clear();
+
+        CollectionAssert.AreEqual(new[] { entry }, snapshot.ToArray());
     }
 
     [TestMethod]
