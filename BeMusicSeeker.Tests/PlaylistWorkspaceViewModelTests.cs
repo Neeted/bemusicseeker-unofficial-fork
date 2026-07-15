@@ -698,6 +698,88 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void PlaylistTreeSnapshot_IsOwnedByWorkspaceAndReleasesReaderLock()
+    {
+        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string workspaceTreeSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.TreeSelection.cs");
+
+        Assert.AreEqual(-1, rootSource.IndexOf("SnapshotPlayHistoryDisplayTargetTables", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("AcquireReaderLockBMSTables", StringComparison.Ordinal));
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot()");
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot,");
+        StringAssert.Contains(workspaceTreeSource, "internal List<BMSTable> CapturePlaylistTreeTablesSnapshot()");
+        StringAssert.Contains(workspaceTreeSource, "playlistStore.AcquireReaderLockBMSTables();");
+        StringAssert.Contains(workspaceTreeSource, "playlistStore.FreeReaderLockBMSTables();");
+
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSTable first = new() { name = "first" };
+            BMSTable second = new() { name = "second" };
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([first, second]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            workspace.RefreshPlaylistTreeTables(playlist);
+
+            List<BMSTable> snapshot = workspace.CapturePlaylistTreeTablesSnapshot();
+
+            CollectionAssert.AreEqual(new[] { first, second }, snapshot);
+            Task<bool> writerProbe = Task.Run(() =>
+            {
+                playlist.AcquireWriterLockBMSTables();
+                try
+                {
+                    return true;
+                }
+                finally
+                {
+                    playlist.FreeWriterLockBMSTables();
+                }
+            });
+            bool writerCompleted = writerProbe.Wait(TimeSpan.FromSeconds(2));
+            try
+            {
+                Assert.IsTrue(writerCompleted);
+                Assert.IsTrue(writerProbe.GetAwaiter().GetResult());
+            }
+            finally
+            {
+                if (!writerCompleted)
+                {
+                    playlist.FreeReaderLockBMSTables();
+                    writerProbe.Wait(TimeSpan.FromSeconds(2));
+                }
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void PlaylistTableExternalLinks_AreOwnedByWorkspace()
     {
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();

@@ -39,6 +39,36 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// </summary>
     public DispatcherCollection<BMSTable> PlaylistTreeTables => playlistTreeTables;
 
+    /// <summary>
+    /// Captures the playlist tree source while holding the playlist reader lock.
+    /// </summary>
+    internal List<BMSTable> CapturePlaylistTreeTablesSnapshot()
+    {
+        List<BMSTable> tableSnapshot = [];
+        BMSPlaylist playlistStore = getPlaylistStore();
+        bool readerLockAcquired = false;
+        try
+        {
+            if (playlistStore != null)
+            {
+                playlistStore.AcquireReaderLockBMSTables();
+                readerLockAcquired = true;
+            }
+            if (PlaylistTreeTables != null)
+            {
+                tableSnapshot.AddRange(PlaylistTreeTables);
+            }
+        }
+        finally
+        {
+            if (playlistStore != null && readerLockAcquired)
+            {
+                playlistStore.FreeReaderLockBMSTables();
+            }
+        }
+        return tableSnapshot;
+    }
+
     internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore)
     {
         AttachPlaylistTreeStore(playlistStore);

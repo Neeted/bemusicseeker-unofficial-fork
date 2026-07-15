@@ -246,6 +246,7 @@ public sealed class MainWindowContextMenuResourceTests
         string mainChartListCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "MainChartListViewModel.cs");
         string playHistoryWorkflowCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
         string displayTargetOwnerCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
+        string playlistWorkspaceCode = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
         string terminalShellOwnerCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.TerminalShell.cs");
         string playlistDetailTerminalCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.DetailTerminal.cs");
         string viewExecutionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.ViewExecution.cs");
@@ -308,7 +309,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(terminalShellOwnerCode, "new AggregateException(tablePublishException, shellPublishException)");
         Assert.IsFalse(rootViewModelCode.Contains("CreatePlayHistoryViewDiagnostics"));
         Assert.IsFalse(rootViewModelCode.Contains("CountDistinctPlayHistoryFolderLabels"));
-        StringAssert.Contains(rootViewModelCode, "SnapshotPlayHistoryDisplayTargetTables");
+        Assert.IsFalse(rootViewModelCode.Contains("SnapshotPlayHistoryDisplayTargetTables"));
+        StringAssert.Contains(playlistWorkspaceCode, "CapturePlaylistTreeTablesSnapshot");
         StringAssert.Contains(displayTargetOwnerCode, "ReplaceDisplayTargetCatalog");
         Assert.IsFalse(rootViewModelCode.Contains("MergePlayHistoryDiagnostics"));
         Assert.IsFalse(rootViewModelCode.Contains("playHistoryWorkflowOwner.ReadCache"));
@@ -424,6 +426,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.QueueKeywordFilterRefresh(");
         StringAssert.Contains(viewModelCode, "playHistoryWorkflowOwner.QueueDisplayTargetRefresh(");
         StringAssert.Contains(refreshTargets, "PlayHistory.ReplaceDisplayTargetCatalog(");
+        StringAssert.Contains(refreshTargets, "PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot()");
         StringAssert.Contains(displayTargetOwner, "DisplayTargetRefreshRequested");
         StringAssert.Contains(displayTargetOwner, "AdvanceDisplayTargetRevision(nextIdentity);");
         StringAssert.Contains(displayTargetOwner, "persistDisplayTargetIdentity(nextIdentity);");

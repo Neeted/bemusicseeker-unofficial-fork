@@ -3834,25 +3834,10 @@ public partial class MainWindowViewModel : ViewModel
         RefreshPlayHistoryDisplayTargets(queueRefreshWhenSelectionChanges: false);
     }
 
-    private List<BMSTable> SnapshotPlayHistoryDisplayTargetTables()
-    {
-        List<BMSTable> tableSnapshot = [];
-        try
-        {
-            tables?.AcquireReaderLockBMSTables();
-            tableSnapshot.AddRange(PlaylistWorkspace.PlaylistTreeTables ?? Enumerable.Empty<BMSTable>());
-        }
-        finally
-        {
-            tables?.FreeReaderLockBMSTables();
-        }
-        return tableSnapshot;
-    }
-
     private void RefreshPlayHistoryDisplayTargets(bool queueRefreshWhenSelectionChanges = true)
     {
         PlayHistory.ReplaceDisplayTargetCatalog(
-            SnapshotPlayHistoryDisplayTargetTables(),
+            PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot(),
             queueRefreshWhenSelectionChanges);
     }
 
@@ -3873,7 +3858,7 @@ public partial class MainWindowViewModel : ViewModel
         playHistoryDisplaySettingsStore.DisplayTargetSetsJson = serializedTargetSets;
         PlayHistory.ReplaceDisplayTargetSets(
             PlayHistoryDisplayTargetSetStore.Deserialize(serializedTargetSets),
-            SnapshotPlayHistoryDisplayTargetTables(),
+            PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot(),
             queueRefreshWhenSelectionChanges: false);
     }
 
@@ -4172,7 +4157,7 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
-            SnapshotPlayHistoryDisplayTargetTables,
+            PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot,
             SchedulePlayHistoryDisplayTargetCatalogRefresh);
         PlayHistory.ConfigureViewRefreshScheduler(
             () => IsShutdownRequested,
@@ -5102,7 +5087,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         PlayHistory.ReplaceDisplayTargetSetsFromSettings(
             playHistoryDisplaySettingsStore.DisplayTargetSetsJson,
-            SnapshotPlayHistoryDisplayTargetTables(),
+            PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot(),
             queueRefreshWhenSelectionChanges);
     }
 
