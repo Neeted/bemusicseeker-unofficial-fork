@@ -11084,21 +11084,6 @@ public partial class BMSPlaylist : NotificationObject
             settings.LR2CustomFolderAdditionalOutputBaseDirs);
     }
 
-    /// <summary>
-    /// 現在の global settings を使って、public compatibility 用の出力先ディレクトリを算出します。
-    /// production の instance 経路は provider-backed <see cref="ResolveCustomFolderOutputDirectory"/> を使います。
-    /// </summary>
-    /// <param name="bmsTable">対象プレイリスト。</param>
-    /// <returns>算出された出力先ディレクトリ。</returns>
-    public static string GetCustomFolderOutputDirectory(BMSTable bmsTable)
-    {
-        return GetCustomFolderOutputDirectory(
-            bmsTable,
-            Settings.Default.LR2CustomFolderOutputBaseDir,
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType,
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs);
-    }
-
     public static string GetCustomFolderOutputDirectory(
         BMSTable bmsTable,
         string normalOutputBaseDirectory,

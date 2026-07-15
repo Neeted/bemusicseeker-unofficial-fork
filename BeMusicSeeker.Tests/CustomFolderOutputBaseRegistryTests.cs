@@ -3,32 +3,24 @@ using System.IO;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
-using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
 
 [TestClass]
-[DoNotParallelize]
 public sealed class CustomFolderOutputBaseRegistryTests
 {
     [TestMethod]
     [TestCategory("Playlist")]
     public void GetCustomFolderOutputDirectory_UsesPlaylistAdditionalOutputBase()
     {
-        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "CustomFolderOutputBaseRegistryTests", Guid.NewGuid().ToString("N"));
         try
         {
             string normalOutputBase = Path.Combine(tempDirectory, "Default");
             string rootOutputBase = Path.Combine(tempDirectory, "Root");
             string dpOutputBase = Path.Combine(tempDirectory, "DP");
-            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
-                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([dpOutputBase]);
+            string serializedAdditionalOutputBases = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([dpOutputBase]);
 
             var table = new BMSTable
             {
@@ -39,13 +31,14 @@ public sealed class CustomFolderOutputBaseRegistryTests
 
             Assert.AreEqual(
                 Path.Combine(dpOutputBase, "Table"),
-                BMSPlaylist.GetCustomFolderOutputDirectory(table));
+                BMSPlaylist.GetCustomFolderOutputDirectory(
+                    table,
+                    normalOutputBase,
+                    rootOutputBase,
+                    serializedAdditionalOutputBases));
         }
         finally
         {
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -57,15 +50,12 @@ public sealed class CustomFolderOutputBaseRegistryTests
     [TestCategory("Playlist")]
     public void GetCustomFolderOutputDirectory_FallsBackToDefaultForUnknownAdditionalOutputBase()
     {
-        string previousNormalOutputBase = Settings.Default.LR2CustomFolderOutputBaseDir;
-        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "CustomFolderOutputBaseRegistryTests", Guid.NewGuid().ToString("N"));
         try
         {
             string normalOutputBase = Path.Combine(tempDirectory, "Default");
-            Settings.Default.LR2CustomFolderOutputBaseDir = normalOutputBase;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
-                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(tempDirectory, "DP")]);
+            string rootOutputBase = Path.Combine(tempDirectory, "Root");
+            string serializedAdditionalOutputBases = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(tempDirectory, "DP")]);
 
             var table = new BMSTable
             {
@@ -76,12 +66,14 @@ public sealed class CustomFolderOutputBaseRegistryTests
 
             Assert.AreEqual(
                 Path.Combine(normalOutputBase, "Table"),
-                BMSPlaylist.GetCustomFolderOutputDirectory(table));
+                BMSPlaylist.GetCustomFolderOutputDirectory(
+                    table,
+                    normalOutputBase,
+                    rootOutputBase,
+                    serializedAdditionalOutputBases));
         }
         finally
         {
-            Settings.Default.LR2CustomFolderOutputBaseDir = previousNormalOutputBase;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -93,15 +85,12 @@ public sealed class CustomFolderOutputBaseRegistryTests
     [TestCategory("Playlist")]
     public void GetCustomFolderOutputDirectory_RootOutputBaseOverridesSavedAdditionalOutputBase()
     {
-        string previousRootOutputBase = Settings.Default.LR2CustomFolderOutputBaseDirRootType;
-        string previousAdditionalOutputBases = Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs;
         string tempDirectory = Path.Combine(Path.GetTempPath(), "CustomFolderOutputBaseRegistryTests", Guid.NewGuid().ToString("N"));
         try
         {
+            string normalOutputBase = Path.Combine(tempDirectory, "Default");
             string rootOutputBase = Path.Combine(tempDirectory, "Root");
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = rootOutputBase;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs =
-                CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(tempDirectory, "DP")]);
+            string serializedAdditionalOutputBases = CustomFolderOutputBaseRegistry.SerializeBaseDirectories([Path.Combine(tempDirectory, "DP")]);
 
             var table = new BMSTable
             {
@@ -113,12 +102,14 @@ public sealed class CustomFolderOutputBaseRegistryTests
 
             Assert.AreEqual(
                 Path.Combine(rootOutputBase, "Table"),
-                BMSPlaylist.GetCustomFolderOutputDirectory(table));
+                BMSPlaylist.GetCustomFolderOutputDirectory(
+                    table,
+                    normalOutputBase,
+                    rootOutputBase,
+                    serializedAdditionalOutputBases));
         }
         finally
         {
-            Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBase;
-            Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBases;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);

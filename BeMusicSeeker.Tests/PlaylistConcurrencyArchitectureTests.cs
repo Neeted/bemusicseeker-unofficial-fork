@@ -111,6 +111,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string viewModelSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
 
         StringAssert.Contains(playlistSource, "ResolveCustomFolderOutputDirectory(BMSTable bmsTable)");
+        Assert.IsFalse(playlistSource.Contains("GetCustomFolderOutputDirectory(BMSTable bmsTable)"));
+        StringAssert.Contains(playlistSource, "public static string GetCustomFolderOutputDirectory(\n        BMSTable bmsTable,\n        string normalOutputBaseDirectory");
         StringAssert.Contains(playlistSource, "customFolderOutputSettingsProvider()");
         StringAssert.Contains(librarySource, "CurrentOptionsSnapshot");
         StringAssert.Contains(librarySource, "options.LR2CustomFolderAdditionalOutputBaseDirs");
