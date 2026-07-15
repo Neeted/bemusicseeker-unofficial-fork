@@ -4339,7 +4339,22 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     PlaylistWorkspace.TryExecuteCurrentPlaylistSummarySelection(
                         request.SelectionRevision,
-                        ApplyPlaylistSummarySelection);
+                        () =>
+                        {
+                            bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
+                            SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
+                            PlayHistory.ClearSummaryPresentation();
+                            if (wasPlayHistoryViewActive != IsPlayHistoryViewActive)
+                            {
+                                RaisePropertyChanged(() => IsPlayHistoryViewActive);
+                                RaisePropertyChanged(() => CurrentMainViewOperationSection);
+                                SyncMainChartListSortPresentation();
+                            }
+                            if (PlaylistWorkspace.ActivatePlaylistSummary())
+                            {
+                                UpdateKeywordSearchPresentation();
+                            }
+                        });
                 });
             return;
         }
@@ -10079,24 +10094,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             files.InstallPendingPackagesToEstimatedDestinations(list);
         }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
-    }
-
-    private void ApplyPlaylistSummarySelection()
-    {
-        bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
-        SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
-        PlayHistory.ClearSummaryPresentation();
-        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true))
-        {
-            UpdateKeywordSearchPresentation();
-        }
-        if (wasPlayHistoryViewActive != IsPlayHistoryViewActive)
-        {
-            RaisePropertyChanged(() => IsPlayHistoryViewActive);
-            RaisePropertyChanged(() => CurrentMainViewOperationSection);
-            SyncMainChartListSortPresentation();
-        }
-        PlaylistWorkspace.RequestPlaylistSummaryPresentationRefresh();
     }
 
     private void ManualInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)

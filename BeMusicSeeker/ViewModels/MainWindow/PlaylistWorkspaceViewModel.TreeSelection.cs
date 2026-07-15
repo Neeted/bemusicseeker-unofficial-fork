@@ -240,6 +240,17 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
+    /// <summary>
+    /// Activates the playlist summary presentation and requests its initial refresh.
+    /// </summary>
+    /// <returns><see langword="true"/> when the summary mode itself changed.</returns>
+    internal bool ActivatePlaylistSummary()
+    {
+        bool changed = SetPlaylistSummaryMode(enabled: true);
+        RequestPlaylistSummaryPresentationRefresh();
+        return changed;
+    }
+
     internal bool TryExecuteCurrentPlaylistDetailSelection(
         PlaylistDetailSelection selection,
         long selectionRevision,

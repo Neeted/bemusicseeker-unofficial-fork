@@ -201,7 +201,14 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "return GetPlaylistStore().CreateBMSTable();");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.CreatePlaylistAsync()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false)");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true)");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true)", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal bool ActivatePlaylistSummary()");
+        string summaryActivationSource = SourceTextTestHelper.ExtractMethodBody(
+            workspaceSource,
+            "internal bool ActivatePlaylistSummary(");
+        StringAssert.Contains(summaryActivationSource, "SetPlaylistSummaryMode(enabled: true)");
+        StringAssert.Contains(summaryActivationSource, "RequestPlaylistSummaryPresentationRefresh();");
+        Assert.AreEqual(-1, logicalSource.IndexOf("private void ApplyPlaylistSummarySelection(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.IsPlaylistDetailViewActive");
         Assert.AreEqual(-1, mainWindowSource.IndexOf("viewModel.IsPlaylistDetailViewActive", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive");
@@ -434,6 +441,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool IsCurrentPlaylistDetailSelection(");
         StringAssert.Contains(workspaceSource, "internal bool TryExecuteCurrentPlaylistDetailSelection(");
         StringAssert.Contains(workspaceSource, "internal bool TryExecuteCurrentPlaylistSummarySelection(");
+        StringAssert.Contains(workspaceSource, "internal bool ActivatePlaylistSummary()");
         StringAssert.Contains(workspaceSource, "internal bool ReplaceCurrentPlaylistDetailSelectionTable(");
         StringAssert.Contains(workspaceSource, "internal bool RemapCurrentPlaylistDetailFolderSelection(");
         StringAssert.Contains(workspaceSource, "internal bool MarkCurrentPlaylistDetailEntriesChanged(");
@@ -445,6 +453,9 @@ public sealed class PlaylistWorkspaceViewModelTests
             logicalSource,
             "private void PlaylistWorkspaceTreeSelectionRequested(");
         StringAssert.Contains(treeSelectionHandlerSource, "InvokeMainChartListPresentationAction(");
+        StringAssert.Contains(treeSelectionHandlerSource, "PlaylistWorkspace.ActivatePlaylistSummary()");
+        Assert.AreEqual(-1, treeSelectionHandlerSource.IndexOf("PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true)", StringComparison.Ordinal));
+        Assert.AreEqual(-1, treeSelectionHandlerSource.IndexOf("PlaylistWorkspace.RequestPlaylistSummaryPresentationRefresh();", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "CapturePlaylistDetailSelection(out long selectionRevision)");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestSummarySelection();");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);");
@@ -521,7 +532,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "DrainDeferredPlaylistSummaryRefresh(");
         Assert.AreEqual(-1, rootSource.IndexOf("pendingPlaylistSummaryPresentationRefresh", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("QueuePlaylistSummaryPresentationRefresh", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistSummaryPresentationRefresh();");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.RequestPlaylistSummaryPresentationRefresh();", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryDataRefreshDecision", StringComparison.Ordinal));
@@ -1996,6 +2007,46 @@ public sealed class PlaylistWorkspaceViewModelTests
             staleSummary.SelectionRevision,
             () => appliedCount++));
         Assert.AreEqual(0, appliedCount);
+    }
+
+    [TestMethod]
+    public void TreeSelection_CurrentSummaryExecutionActivatesWorkspacePresentation()
+    {
+        int presentationRefreshRequestCount = 0;
+        var workspace = CreateDetailWorkspace(
+            out _,
+            playlistSummaryPresentationRefreshGate: request =>
+            {
+                presentationRefreshRequestCount++;
+                request(true);
+            });
+        PlaylistTreeSelectionRequestedEventArgs? summaryRequest = null;
+        workspace.TreeSelectionRequested += (_, request) =>
+        {
+            if (request.IsSummary)
+            {
+                summaryRequest = request;
+            }
+        };
+
+        workspace.RequestSummarySelection();
+        PlaylistTreeSelectionRequestedEventArgs currentSummary = summaryRequest
+            ?? throw new AssertFailedException("Summary selection request was not raised.");
+
+        bool callbackRan = false;
+        Assert.IsTrue(workspace.TryExecuteCurrentPlaylistSummarySelection(
+            currentSummary.SelectionRevision,
+            () =>
+            {
+                callbackRan = true;
+                Assert.IsTrue(workspace.ActivatePlaylistSummary());
+            }));
+
+        Assert.IsTrue(callbackRan);
+        Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.Playlist_summary_header, workspace.GridHeaderText);
+        Assert.AreEqual(1, presentationRefreshRequestCount);
+        Assert.IsTrue(workspace.HasDeferredPlaylistSummaryPresentationRefresh());
     }
 
     [TestMethod]
