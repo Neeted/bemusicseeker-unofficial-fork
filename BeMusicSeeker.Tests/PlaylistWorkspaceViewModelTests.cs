@@ -154,7 +154,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, mainWindowSource.IndexOf("viewModel.IsPlaylistDetailViewActive", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive");
         Assert.AreEqual(-1, mainWindowSource.IndexOf("mainWindowViewModel.PlaylistSummaryColumns", StringComparison.Ordinal));
-        StringAssert.Contains(mainWindowSource, "mainWindowViewModel.PlaylistWorkspace.ResetPlaylistSummaryColumnsToDefault();");
+        StringAssert.Contains(mainWindowSource, "mainWindowViewModel.PlaylistWorkspace.TryResetPlaylistSummaryColumnsToDefault();");
+        string playlistSummaryColumnResetSource = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private void playlistSummaryInitializeColumnSetting(");
+        Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf(".ResetPlaylistSummaryColumnsToDefault();", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
         StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
         StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");
@@ -272,10 +277,13 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool ConfirmPlaylistTableRemoval(BMSTable table)");
         StringAssert.Contains(workspaceSource, "PlaylistTableLevelOverwriteConfirmationRequested");
         StringAssert.Contains(workspaceSource, "internal bool ConfirmPlaylistOverwriteLevel(BMSTable table)");
+        StringAssert.Contains(workspaceSource, "PlaylistSummaryColumnResetConfirmationRequested");
+        StringAssert.Contains(workspaceSource, "internal bool TryResetPlaylistSummaryColumnsToDefault()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested += PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested += PlaylistWorkspacePlaylistTableRemovalConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested += PlaylistWorkspacePlaylistTableLevelOverwriteConfirmationRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested += PlaylistWorkspacePlaylistSummaryColumnResetConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistImportNotificationsFlushRequested += PlaylistWorkspacePlaylistImportNotificationsFlushRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
@@ -620,6 +628,29 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsFalse(workspace.ConfirmPlaylistOverwriteLevel(recommendedTable));
         Assert.IsTrue(workspace.ConfirmPlaylistOverwriteLevel(normalTable));
         CollectionAssert.AreEqual(new[] { true, false }, requests);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummaryColumnResetRequiresConfirmation()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var originalSettings = workspace.PlaylistSummaryColumnsSettings;
+        bool confirmationRequested = false;
+        workspace.PlaylistSummaryColumnResetConfirmationRequested += (_, request) =>
+        {
+            confirmationRequested = true;
+            request.Confirmed = false;
+        };
+
+        Assert.IsFalse(workspace.TryResetPlaylistSummaryColumnsToDefault());
+        Assert.IsTrue(confirmationRequested);
+        Assert.AreSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
+
+        confirmationRequested = false;
+        workspace.PlaylistSummaryColumnResetConfirmationRequested += (_, request) => request.Confirmed = true;
+        Assert.IsTrue(workspace.TryResetPlaylistSummaryColumnsToDefault());
+        Assert.IsTrue(confirmationRequested);
+        Assert.AreNotSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
     }
 
     [TestMethod]

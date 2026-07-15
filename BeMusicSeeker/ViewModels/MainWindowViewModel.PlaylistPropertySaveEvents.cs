@@ -113,6 +113,19 @@ public partial class MainWindowViewModel
             MessageBoxResult.Cancel);
     }
 
+    private void PlaylistWorkspacePlaylistSummaryColumnResetConfirmationRequested(
+        object sender,
+        PlaylistSummaryColumnResetConfirmationRequestedEventArgs request)
+    {
+        request.Confirmed = ShowUiConfirmation(
+            BeMusicSeeker.Properties.Resources.Msg_init_column_settings,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxImage.Question,
+            MessageBoxButton.OKCancel,
+            "Playlist summary column reset confirmation",
+            MessageBoxResult.Cancel);
+    }
+
     private void PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady(
         object sender,
         ExternalPlaylistImportQueueSummaryReadyEventArgs request)
