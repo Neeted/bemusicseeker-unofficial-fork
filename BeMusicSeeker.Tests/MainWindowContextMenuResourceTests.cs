@@ -1150,6 +1150,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(menuSnippet, "<Setter Property=\"MenuItem.StaysOpenOnClick\" Value=\"True\" />");
         StringAssert.Contains(menuSnippet, "<DataTrigger Binding=\"{Binding url}\" Value=\"{x:Null}\">");
         StringAssert.Contains(menuSnippet, "<Setter Property=\"MenuItem.StaysOpenOnClick\" Value=\"False\" />");
+        StringAssert.Contains(menuSnippet, "ItemsSource=\"{Binding PlaylistWorkspace.BMSExternalTableListExt.Children}\"");
+        Assert.IsFalse(menuSnippet.Contains("ItemsSource=\"{Binding BMSExternalTableListExt.Children}\""));
         StringAssert.Contains(code, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(dataContext.url);");
         StringAssert.Contains(code, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(uri);");
         StringAssert.Contains(dialogCode, "viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImports(parseResult.ValidUris);");
@@ -1614,7 +1616,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "PlaylistWorkspace.QueueExternalPlaylistSync(");
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
-        StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)");
+        StringAssert.Contains(initialize, "PlaylistWorkspace.LoadExternalTableCollection(startupSettings.TableListURL);");
+        Assert.IsFalse(initialize.Contains("BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)"));
         StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver());");
         StringAssert.Contains(compositionCode, "playlistUrlCompletionOptionsProvider,");
         StringAssert.Contains(compositionCode, "beatorajaBmtOptionsProvider,");

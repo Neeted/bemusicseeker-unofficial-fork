@@ -246,7 +246,7 @@
             <TextBlock Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Import, Mode=OneWay}" />
           </MenuItem.Header>
           <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadPlaylistURL" IsEnabled="False" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_Url, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemLoadPlaylistURLClick" />
-          <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadPlaylistCollection" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_from_table_list, Mode=OneWay}" ItemsSource="{Binding BMSExternalTableListExt.Children}">
+          <MenuItem Name="treeViewPlaylistRootContextMenuItemLoadPlaylistCollection" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Load_from_table_list, Mode=OneWay}" ItemsSource="{Binding PlaylistWorkspace.BMSExternalTableListExt.Children}">
             <ItemsControl.ItemTemplate>
               <HierarchicalDataTemplate ItemsSource="{Binding Children}">
                 <TextBlock Text="{Binding name}" />

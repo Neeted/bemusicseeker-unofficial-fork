@@ -657,10 +657,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool bmsParentFolderListViewInitialized;
 
-    private BMSTableSimpleCategorized _BMSExternalTableListExt;
-
-    private bool _IsLoadingExternalCollectionBMSTables;
-
     private MainViewUpdateMode treeViewFilterTypeSelected;
 
     private object treeViewFilterParameterSelected;
@@ -3963,22 +3959,6 @@ public partial class MainWindowViewModel : ViewModel
         RefreshChartRowsView(MainViewUpdateMode.FolderFilterSelected);
     }
 
-    public BMSTableSimpleCategorized BMSExternalTableListExt
-    {
-        get
-        {
-            return _BMSExternalTableListExt;
-        }
-        private set
-        {
-            if (_BMSExternalTableListExt != value)
-            {
-                _BMSExternalTableListExt = value;
-                RaisePropertyChanged("BMSExternalTableListExt");
-            }
-        }
-    }
-
     public bool IsWriteLockHeldInitializeBMSFiles
     {
         get
@@ -4048,22 +4028,6 @@ public partial class MainWindowViewModel : ViewModel
                 return files.IsWriteLockHeldDuplicateChartGroups;
             }
             return false;
-        }
-    }
-
-    public bool IsLoadingExternalCollectionBMSTables
-    {
-        get
-        {
-            return _IsLoadingExternalCollectionBMSTables;
-        }
-        set
-        {
-            if (_IsLoadingExternalCollectionBMSTables != value)
-            {
-                _IsLoadingExternalCollectionBMSTables = value;
-                RaisePropertyChanged("IsLoadingExternalCollectionBMSTables");
-            }
         }
     }
 
@@ -6087,44 +6051,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         void taskAdd2()
         {
-            try
-            {
-                IsLoadingExternalCollectionBMSTables = true;
-                List<BMSTableSimple> bMSTableInfo = BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL);
-                var bMSTableSimpleCategorized = new BMSTableSimpleCategorized();
-                IEnumerable<string> source = bMSTableInfo.Select(bMSTableSimple => bMSTableSimple.tag1).Distinct();
-                bMSTableSimpleCategorized.Children = [.. source.Select(name => new BMSTableSimpleCategorized
-                {
-                    name = name
-                })];
-                foreach (BMSTableSimpleCategorized child in bMSTableSimpleCategorized.Children)
-                {
-                    string tag1 = child.name;
-                    child.Children = [.. (from tt in bMSTableInfo
-                                          where tt.tag1 == tag1 && string.IsNullOrWhiteSpace(tt.tag2)
-                                          select new BMSTableSimpleCategorized(tt))];
-                    List<BMSTableSimple> source2 = [.. bMSTableInfo.Where(tt => tt.tag1 == tag1 && !string.IsNullOrWhiteSpace(tt.tag2))];
-                    foreach (string t2 in (from tt in source2.Select(tt => tt.tag2).Distinct()
-                                           orderby tt
-                                           select tt).ToList())
-                    {
-                        child.Children.Add(new BMSTableSimpleCategorized
-                        {
-                            name = t2,
-                            Children = [.. (from tt in source2
-                                            where tt.tag2 == t2
-                                            select new BMSTableSimpleCategorized(tt) into tt
-                                            orderby tt.name
-                                            select tt)]
-                        });
-                    }
-                }
-                BMSExternalTableListExt = bMSTableSimpleCategorized;
-                IsLoadingExternalCollectionBMSTables = false;
-            }
-            catch
-            {
-            }
+            PlaylistWorkspace.LoadExternalTableCollection(startupSettings.TableListURL);
         }
         Thread.Yield();
         startupReadyInstallStopwatch = Stopwatch.StartNew();

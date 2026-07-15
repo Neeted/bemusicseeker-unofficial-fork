@@ -631,6 +631,73 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void ExternalTableListCatalog_IsOwnedByWorkspace()
+    {
+        string rootSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
+        string mainWindowXaml = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.xaml");
+
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.LoadExternalTableCollection(startupSettings.TableListURL);");
+        Assert.AreEqual(-1, rootSource.IndexOf("BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("BMSExternalTableListExt", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("IsLoadingExternalCollectionBMSTables", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal void LoadExternalTableCollection(Uri tableListUrl)");
+        StringAssert.Contains(workspaceSource, "BMSPlaylist.GetBMSTableInfo(tableListUrl)");
+        StringAssert.Contains(workspaceSource, "BuildExternalTableListCatalog(tableInfo)");
+        StringAssert.Contains(mainWindowXaml, "ItemsSource=\"{Binding PlaylistWorkspace.BMSExternalTableListExt.Children}\"");
+        Assert.AreEqual(-1, mainWindowXaml.IndexOf("ItemsSource=\"{Binding BMSExternalTableListExt.Children}\"", StringComparison.Ordinal));
+        StringAssert.Contains(mainWindowSource, "mainWindowViewModel.PlaylistWorkspace.IsLoadingExternalCollectionBMSTables");
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("mainWindowViewModel.IsLoadingExternalCollectionBMSTables", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void ExternalTableListCatalog_PreservesHierarchyOrderAndLeafMenuShape()
+    {
+        var firstLeaf = new BMSTableSimple
+        {
+            tag1 = "First",
+            name = "direct",
+            url = new Uri("https://example.test/direct")
+        };
+        var secondLeaf = new BMSTableSimple
+        {
+            tag1 = "Second",
+            name = "second",
+            url = new Uri("https://example.test/second")
+        };
+        var nestedZ = new BMSTableSimple
+        {
+            tag1 = "First",
+            tag2 = "Zeta",
+            name = "z-name",
+            url = new Uri("https://example.test/z")
+        };
+        var nestedA = new BMSTableSimple
+        {
+            tag1 = "First",
+            tag2 = "Alpha",
+            name = "a-name",
+            url = new Uri("https://example.test/a")
+        };
+
+        BMSTableSimpleCategorized catalog = PlaylistWorkspaceViewModel.BuildExternalTableListCatalog(
+            [firstLeaf, nestedZ, nestedA, secondLeaf]);
+
+        Assert.AreEqual(2, catalog.Children.Count);
+        Assert.AreEqual("First", catalog.Children[0].name);
+        Assert.AreEqual("Second", catalog.Children[1].name);
+        Assert.AreEqual(3, catalog.Children[0].Children.Count);
+        Assert.AreEqual("direct", catalog.Children[0].Children[0].name);
+        Assert.IsNotNull(catalog.Children[0].Children[1].Children);
+        Assert.AreEqual("Alpha", catalog.Children[0].Children[1].name);
+        Assert.AreEqual("Zeta", catalog.Children[0].Children[2].name);
+        Assert.IsNotNull(catalog.Children[0].Children[1].Children[0].url);
+        Assert.IsNotNull(catalog.Children[0].Children[2].Children[0].url);
+        Assert.IsNull(catalog.Children[0].Children[0].Children);
+    }
+
+    [TestMethod]
     public void PlaylistTableExternalLinks_AreOwnedByWorkspace()
     {
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();

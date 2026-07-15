@@ -3821,7 +3821,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (menuItem3 != null)
         {
             menuItem3.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin
-                && !mainWindowViewModel.IsLoadingExternalCollectionBMSTables;
+                && !mainWindowViewModel.PlaylistWorkspace.IsLoadingExternalCollectionBMSTables;
         }
         if (menuItem4 != null)
         {
