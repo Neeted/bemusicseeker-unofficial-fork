@@ -4433,54 +4433,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    public bool IsWriteLockHeldBMSTables
-    {
-        get
-        {
-            if (tables != null)
-            {
-                return tables.IsWriteLockHeldBMSTables;
-            }
-            return true;
-        }
-    }
-
-    public bool IsWriteLockHeldBMSTablesInitializeMin
-    {
-        get
-        {
-            if (tables != null)
-            {
-                return tables.IsWriteLockHeldBMSTablesInitializeMin;
-            }
-            return true;
-        }
-    }
-
-    public bool IsWriteLockHeldAnyBMSTable
-    {
-        get
-        {
-            if (tables != null)
-            {
-                return tables.IsWriteLockHeldAnyBMSTable;
-            }
-            return true;
-        }
-    }
-
-    public bool IsPlaylistUpdating
-    {
-        get
-        {
-            if (tables != null)
-            {
-                return tables.IsPlaylistUpdating;
-            }
-            return false;
-        }
-    }
-
     public bool IsLoadingExternalCollectionBMSTables
     {
         get
@@ -6551,18 +6503,6 @@ public partial class MainWindowViewModel : ViewModel
         listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldDuplicateChartGroups, delegate
         {
             RaisePropertyChanged(() => IsWriteLockHeldDuplicateChartGroups);
-        });
-        listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTables, delegate
-        {
-            RaisePropertyChanged(() => IsWriteLockHeldBMSTables);
-        });
-        listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTablesInitializeMin, delegate
-        {
-            RaisePropertyChanged(() => IsWriteLockHeldBMSTablesInitializeMin);
-        });
-        listenerForBMSPlaylist.RegisterHandler(() => tables.IsPlaylistUpdating, delegate
-        {
-            RaisePropertyChanged(() => IsPlaylistUpdating);
         });
         RaiseInitializationSucceeded();
         if (startupSettings.OperationModeLR2DB && startupSettings.IsLR2BackupEnabled)

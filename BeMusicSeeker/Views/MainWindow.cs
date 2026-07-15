@@ -3502,9 +3502,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private static bool CanOpenPlaylistEditDialog(MainWindowViewModel viewModel)
     {
         return viewModel != null
-            && !viewModel.IsWriteLockHeldBMSTablesInitializeMin
-            && !viewModel.IsWriteLockHeldBMSTables
-            && !viewModel.IsWriteLockHeldAnyBMSTable;
+            && viewModel.PlaylistWorkspace != null
+            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin
+            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTables
+            && !viewModel.PlaylistWorkspace.IsWriteLockHeldAnyBMSTable;
     }
 
     private void OpenPlaylistPropertyDialog(
@@ -3839,19 +3840,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem != null)
         {
-            menuItem.IsEnabled = !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable;
+            menuItem.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin
+                && !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTables
+                && !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldAnyBMSTable;
         }
         if (menuItem2 != null)
         {
-            menuItem2.IsEnabled = !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin;
+            menuItem2.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin;
         }
         if (menuItem3 != null)
         {
-            menuItem3.IsEnabled = !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsLoadingExternalCollectionBMSTables;
+            menuItem3.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin
+                && !mainWindowViewModel.IsLoadingExternalCollectionBMSTables;
         }
         if (menuItem4 != null)
         {
-            menuItem4.IsEnabled = !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin;
+            menuItem4.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin;
         }
     }
 
@@ -3888,7 +3892,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadPlaylistURLClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel { IsWriteLockHeldBMSTablesInitializeMin: false })
+        if (base.DataContext is MainWindowViewModel viewModel
+            && viewModel.PlaylistWorkspace != null
+            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin)
         {
             ShowOverlayDialog(loadPlaylistURIDialog);
         }
@@ -3904,7 +3910,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel viewModel && menuItem.DataContext is BMSTableSimple dataContext && !(dataContext.url == null) && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
+        if (base.DataContext is MainWindowViewModel viewModel
+            && viewModel.PlaylistWorkspace != null
+            && menuItem.DataContext is BMSTableSimple dataContext
+            && !(dataContext.url == null)
+            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin)
         {
             viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(dataContext.url);
         }
@@ -3916,7 +3926,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadWalkureTableClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel viewModel && sender is MenuItem menuItem && !viewModel.IsWriteLockHeldBMSTablesInitializeMin)
+        if (base.DataContext is MainWindowViewModel viewModel
+            && viewModel.PlaylistWorkspace != null
+            && sender is MenuItem menuItem
+            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin)
         {
             var uri = new Uri((string)menuItem.Tag);
             viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(uri);
@@ -3929,7 +3942,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem menuItem || viewModel.IsWriteLockHeldBMSTablesInitializeMin)
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || viewModel.PlaylistWorkspace == null
+            || sender is not MenuItem menuItem
+            || viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin)
         {
             return;
         }
@@ -4006,7 +4022,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         menuItem4.IsEnabled = !dataContext.is_external_sync;
         menuItem3.IsEnabled = true;
         menuItem5.IsEnabled = true;
-        menuItem6.IsEnabled = !mainWindowViewModel.IsWriteLockHeldBMSTablesInitializeMin && !mainWindowViewModel.IsWriteLockHeldBMSTables && !mainWindowViewModel.IsWriteLockHeldAnyBMSTable;
+        menuItem6.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin
+            && !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTables
+            && !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldAnyBMSTable;
     }
 
     /// <summary>
@@ -7660,7 +7678,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             var viewModel = base.DataContext as MainWindowViewModel;
             bool isManualInteraction = treeView.IsKeyboardFocusWithin || treeView.IsMouseOver;
             if (!_isCrossTreeDeselecting && e.NewValue == null && e.OldValue != null && e.OldValue is BMSTable
-                && (viewModel?.IsPlaylistUpdating ?? false) && !isManualInteraction)
+                && (viewModel?.PlaylistWorkspace?.IsPlaylistUpdating ?? false) && !isManualInteraction)
             {
                 if (!treeView.SelectTreeViewItemSearchedByDataContext(e.OldValue))
                 {

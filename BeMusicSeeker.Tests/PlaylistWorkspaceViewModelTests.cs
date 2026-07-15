@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -106,6 +107,22 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, logicalSource.IndexOf("ConfigurePlaylistTreeSource(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "RaisePropertyChanged(() => BMSTables);");
         Assert.AreEqual(-1, rootSource.IndexOf("private void SetPlaylistSummaryMode(", StringComparison.Ordinal));
+        foreach (string rootLockProperty in new[]
+        {
+            "IsWriteLockHeldBMSTables",
+            "IsWriteLockHeldBMSTablesInitializeMin",
+            "IsWriteLockHeldAnyBMSTable",
+            "IsPlaylistUpdating"
+        })
+        {
+            Assert.AreEqual(-1, rootSource.IndexOf("public bool " + rootLockProperty, StringComparison.Ordinal), rootLockProperty);
+        }
+        StringAssert.Contains(workspaceSource, "internal bool IsWriteLockHeldBMSTables");
+        StringAssert.Contains(workspaceSource, "internal bool IsWriteLockHeldBMSTablesInitializeMin");
+        StringAssert.Contains(workspaceSource, "internal bool IsWriteLockHeldAnyBMSTable");
+        StringAssert.Contains(workspaceSource, "internal bool IsPlaylistUpdating");
+        StringAssert.Contains(mainWindowSource, "mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin");
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace?.IsPlaylistUpdating");
         Assert.AreEqual(-1, rootSource.IndexOf("RunPlaylistOperationWithNotifications", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("playlistLibraryIndexSync", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("GetOrCreatePlaylistLibraryIndexSnapshot", StringComparison.Ordinal));
@@ -628,6 +645,68 @@ public sealed class PlaylistWorkspaceViewModelTests
             },
             propertyNames);
         Assert.IsTrue(workspace.IsPlaylistTreeExpanded);
+    }
+
+    [TestMethod]
+    public void PlaylistLockState_IsOwnedByWorkspaceAndPreservesPreInitializationFallbacks()
+    {
+        PlaylistWorkspaceViewModel uninitializedWorkspace = CreateDetailWorkspace(out _);
+
+        Assert.IsTrue(uninitializedWorkspace.IsWriteLockHeldBMSTables);
+        Assert.IsTrue(uninitializedWorkspace.IsWriteLockHeldBMSTablesInitializeMin);
+        Assert.IsTrue(uninitializedWorkspace.IsWriteLockHeldAnyBMSTable);
+        Assert.IsFalse(uninitializedWorkspace.IsPlaylistUpdating);
+
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+
+            Assert.AreEqual(playlist.IsWriteLockHeldBMSTables, workspace.IsWriteLockHeldBMSTables);
+            Assert.AreEqual(playlist.IsWriteLockHeldBMSTablesInitializeMin, workspace.IsWriteLockHeldBMSTablesInitializeMin);
+            Assert.AreEqual(playlist.IsWriteLockHeldAnyBMSTable, workspace.IsWriteLockHeldAnyBMSTable);
+            Assert.AreEqual(playlist.IsPlaylistUpdating, workspace.IsPlaylistUpdating);
+
+            playlist.AcquireWriterLockBMSTables();
+            try
+            {
+                Assert.IsTrue(workspace.IsWriteLockHeldBMSTables);
+            }
+            finally
+            {
+                playlist.FreeWriterLockBMSTables();
+            }
+
+            var table = new BMSTable();
+            playlist.BMSTables.Add(table);
+            using (table.ReaderWriterLock.GetWriterGuard())
+            {
+                Assert.IsTrue(workspace.IsWriteLockHeldAnyBMSTable);
+            }
+
+            playlist.IsPlaylistUpdating = true;
+            Assert.IsTrue(workspace.IsPlaylistUpdating);
+            playlist.IsPlaylistUpdating = false;
+            Assert.IsFalse(workspace.IsPlaylistUpdating);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+        }
     }
 
     [TestMethod]
@@ -1508,7 +1587,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Func<bool>? reloadCleanupShutdownRequestedProvider = null,
         Action? reloadCleanupGarbageCollector = null,
         Action<string>? reloadCleanupLog = null,
-        Action<Exception, string>? reloadFailureLog = null)
+        Action<Exception, string>? reloadFailureLog = null,
+        Func<BMSPlaylist>? playlistStoreProvider = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
@@ -1529,7 +1609,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
             PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
-            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            playlistStoreProvider ?? PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
             (_, _) => { },

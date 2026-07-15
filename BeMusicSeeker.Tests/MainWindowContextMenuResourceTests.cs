@@ -380,7 +380,7 @@ public sealed class MainWindowContextMenuResourceTests
         string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void ScheduleDeferredPlaylistReferenceApply");
         string playlistTablesHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.BMSTables", "listenerForBMSPlaylistBMSTablesCollection.RegisterHandler");
         string playlistTablesCollectionHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylistBMSTablesCollection.RegisterHandler", "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion");
-        string playlistEntriesHydrationHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion", "listenerForBMSPlaylist.RegisterHandler(() => tables.IsWriteLockHeldBMSTables");
+        string playlistEntriesHydrationHandler = ExtractBetween(viewModelCode, "listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion", "RaiseInitializationSucceeded();");
         string state = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
         string workflowOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
         string displayTargetOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
