@@ -2499,51 +2499,6 @@ public partial class MainWindowViewModel : ViewModel
         LogDeferredPlaylistReference("playlist_ref_deferred skipped reason=" + (shutdownReason ?? "shutdown_requested") + " requestReason=" + FormatTextForLog(reason) + " version=" + version);
     }
 
-    private Action<BMSPlaylist.PlaylistTableUpdateContext> CreatePlaylistReferenceReplaceUpdateCallback()
-    {
-        return delegate (BMSPlaylist.PlaylistTableUpdateContext updateContext)
-        {
-            bool objectReplaced = updateContext?.OldTable != null
-                && updateContext.NewTable != null
-                && !ReferenceEquals(updateContext.OldTable, updateContext.NewTable);
-            if (updateContext == null || files == null)
-            {
-                return;
-            }
-            bool referenceIndexChanged = updateContext.Updated
-                || updateContext.ReferenceEntriesChanged
-                || objectReplaced;
-            bool newTableIsActive = updateContext.NewTable != null
-                && tables?.ContainsBMSTable(updateContext.NewTable) == true;
-            if (!referenceIndexChanged && newTableIsActive)
-            {
-                return;
-            }
-            if (!newTableIsActive)
-            {
-                if (updateContext.OldTable != null)
-                {
-                    files.RemoveReferenceBMSTables(updateContext.OldTable);
-                }
-                return;
-            }
-            files.ReplaceReferenceBMSTable(
-                updateContext.OldTable,
-                updateContext.NewTable,
-                updateContext.OldEntriesSnapshot,
-                updateContext.NewEntriesSnapshot);
-            if (!tables.ContainsBMSTable(updateContext.NewTable))
-            {
-                files.RemoveReferenceBMSTables(updateContext.NewTable);
-                return;
-            }
-            PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(
-                updateContext.OldTable,
-                updateContext.NewTable);
-            PlaylistWorkspace.RequestPlaylistReferenceSortInvalidation();
-        };
-    }
-
     private static bool ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync(Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction)
     {
         return updateCallbackAction == null;
@@ -5583,7 +5538,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         await _semaphore.WaitAsync();
         long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
-        Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction = CreatePlaylistReferenceReplaceUpdateCallback();
+        Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction = PlaylistWorkspace.CreateReferenceReplaceUpdateCallback();
         bool scheduleDeferredExternalSync = false;
         try
         {
@@ -6621,7 +6576,7 @@ public partial class MainWindowViewModel : ViewModel
         LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");
         if (!startupSettings.SkipInitPlaylistLoad)
         {
-            StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken);
+            StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, PlaylistWorkspace.CreateReferenceReplaceUpdateCallback(), operationToken);
         }
         SkipUnrequestedStartupProgressPhases(
             "Initialize:scheduled",

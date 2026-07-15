@@ -219,8 +219,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistPropertyReferenceTableReplaced", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistPropertyFolderSelectionRemapped", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistPropertyReferenceSortInvalidationRequested", StringComparison.Ordinal));
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(");
-        StringAssert.Contains(rootSource, "PlaylistWorkspace.RequestPlaylistReferenceSortInvalidation();");
+        StringAssert.Contains(workspaceSource, "internal Action<BMSPlaylist.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.CreateReferenceReplaceUpdateCallback()");
+        Assert.AreEqual(-1, rootSource.IndexOf("CreatePlaylistReferenceReplaceUpdateCallback", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("files.ReplaceReferenceBMSTable(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;");
         Assert.AreEqual(-1, rootSource.IndexOf("ApplyPlaylistEntriesChanged(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspaceEntriesChangedEventArgs", StringComparison.Ordinal));

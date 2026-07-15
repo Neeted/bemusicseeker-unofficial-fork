@@ -77,7 +77,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return;
             }
-            BMSLibrary library = GetPlaylistLibrary();
             bool isFullReload = activeTables.Count > 1;
             var stopwatch = Stopwatch.StartNew();
             List<BMSPlaylist.PlaylistReloadTargetResult> results = null;
@@ -91,7 +90,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + activeTables.Count);
                 results = await playlists.ReloadPlaylistTargetsAsync(
                     activeTables,
-                    [CreateReferenceReplaceUpdateCallback(playlists, library)],
+                    [CreateReferenceReplaceUpdateCallback()],
                     result =>
                     {
                         RecordPlaylistSyncResult(result);
@@ -147,9 +146,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             + (result.PageUri?.ToString() ?? string.Empty));
     }
 
-    private Action<BMSPlaylist.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback(
-        BMSPlaylist playlists,
-        BMSLibrary library)
+    internal Action<BMSPlaylist.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()
     {
         return updateContext =>
         {
@@ -157,11 +154,17 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return;
             }
+            BMSLibrary library = getPlaylistLibrary();
+            if (library == null)
+            {
+                return;
+            }
+            BMSPlaylist playlists = getPlaylistStore();
             bool objectReplaced = updateContext.OldTable != null
                 && updateContext.NewTable != null
                 && !ReferenceEquals(updateContext.OldTable, updateContext.NewTable);
             if (updateContext.NewTable == null
-                || !playlists.ContainsBMSTable(updateContext.NewTable))
+                || playlists?.ContainsBMSTable(updateContext.NewTable) != true)
             {
                 if (updateContext.OldTable != null)
                 {
@@ -182,7 +185,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     updateContext.NewEntriesSnapshot);
                 referenceIndexApplied = true;
             }
-            if (!playlists.ContainsBMSTable(updateContext.NewTable))
+            if (playlists?.ContainsBMSTable(updateContext.NewTable) != true)
             {
                 if (referenceIndexApplied)
                 {

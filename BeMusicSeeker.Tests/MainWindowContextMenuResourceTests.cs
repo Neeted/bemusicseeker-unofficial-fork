@@ -1595,7 +1595,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion))");
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
         Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
-        StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, CreatePlaylistReferenceReplaceUpdateCallback(), operationToken)");
+        StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, PlaylistWorkspace.CreateReferenceReplaceUpdateCallback(), operationToken)");
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
         StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)");
         StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver());");
@@ -2801,7 +2801,7 @@ public sealed class MainWindowContextMenuResourceTests
             "MainWindowViewModel.PlaylistPropertySaveEvents.cs");
 
         StringAssert.Contains(workspaceCode, "playlists.ReloadPlaylistTargetsAsync(");
-        StringAssert.Contains(workspaceCode, "CreateReferenceReplaceUpdateCallback(playlists, library)");
+        StringAssert.Contains(workspaceCode, "CreateReferenceReplaceUpdateCallback()");
         StringAssert.Contains(workspaceCode, "requireCurrentTargetForApply: true");
         StringAssert.Contains(workspaceCode, "playlists.QueueBeatorajaBmtExportAll(\"manual_resync\")");
         StringAssert.Contains(workspaceCode, "LogPlaylistSyncFailure(result)");
@@ -2811,8 +2811,8 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistSyncResultReported"));
         Assert.IsFalse(propertySaveEventsCode.Contains("playlist_property_resync_failed table="));
         Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistReferenceTableReplaced"));
-        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(");
-        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RequestPlaylistReferenceSortInvalidation();");
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.CreateReferenceReplaceUpdateCallback()");
+        Assert.AreEqual(-1, viewModelCode.IndexOf("files.ReplaceReferenceBMSTable(", StringComparison.Ordinal));
         Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection("));
         Assert.AreEqual(-1, viewModelCode.IndexOf("ReplaceCurrentPlaylistSelectionTable(", StringComparison.Ordinal));
         Assert.AreEqual(-1, viewModelCode.IndexOf("RemapCurrentPlaylistFolderSelection(", StringComparison.Ordinal));
@@ -2850,9 +2850,9 @@ public sealed class MainWindowContextMenuResourceTests
             "internal async Task ApplyPostSaveUpdatesAsync(PlaylistPropertySaveCommit commit)",
             "private static bool IsValid(");
         string replaceCallback = ExtractBetween(
-            viewModelCode,
-            "private Action<BMSPlaylist.PlaylistTableUpdateContext> CreatePlaylistReferenceReplaceUpdateCallback()",
-            "private static bool ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync");
+            File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.Reload.cs")),
+            "internal Action<BMSPlaylist.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()",
+            "internal sealed class PlaylistSyncProgressChangedEventArgs");
 
         AssertReplaceInvalidatesReferenceSortKey(propertyDialogSave);
         StringAssert.Contains(replaceCallback, "ReferenceEntriesChanged");
@@ -2869,6 +2869,10 @@ public sealed class MainWindowContextMenuResourceTests
         if (replaceIndex < 0)
         {
             replaceIndex = source.IndexOf("GetLibrary().ReplaceReferenceBMSTable(", StringComparison.Ordinal);
+        }
+        if (replaceIndex < 0)
+        {
+            replaceIndex = source.IndexOf("library.ReplaceReferenceBMSTable(", StringComparison.Ordinal);
         }
         int invalidateIndex = source.IndexOf("InvalidateNormalLibraryReferenceTableSortKeys()", StringComparison.Ordinal);
         if (invalidateIndex < 0)
