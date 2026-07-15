@@ -3941,29 +3941,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     {
         if (base.DataContext is not MainWindowViewModel viewModel
             || viewModel.PlaylistWorkspace == null
-            || sender is not MenuItem menuItem
-            || viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin)
+            || sender is not MenuItem menuItem)
         {
             return;
         }
-        var uri = new Uri((string)menuItem.Tag);
-        if (viewModel.LR2ID == 0)
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_error, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            return;
-        }
-        if (Regex.Match((string)menuItem.Tag, "mode=update").Success)
-        {
-            if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "LR2ID: " + viewModel.LR2ID + BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_update_mode, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.OK) == MessageBoxResult.Cancel)
-            {
-                return;
-            }
-        }
-        else if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "LR2ID: " + viewModel.LR2ID + BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_readonly_mode, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.OK) == MessageBoxResult.Cancel)
-        {
-            return;
-        }
-        viewModel.PlaylistWorkspace.EnqueueExternalPlaylistBMSTableImport(uri);
+        viewModel.PlaylistWorkspace.TryEnqueueRecommendedPlaylistImport((string)menuItem.Tag);
     }
 
     /// <summary>

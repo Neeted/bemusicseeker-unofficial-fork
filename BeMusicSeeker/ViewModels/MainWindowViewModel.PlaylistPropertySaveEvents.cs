@@ -126,6 +126,33 @@ public partial class MainWindowViewModel
             MessageBoxResult.Cancel);
     }
 
+    private void PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested(
+        object sender,
+        PlaylistRecommendedTableImportConfirmationRequestedEventArgs request)
+    {
+        if (request.Lr2Id == 0)
+        {
+            ShowUiMessage(
+                BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_error,
+                BeMusicSeeker.Properties.Resources.Error,
+                MessageBoxImage.Hand,
+                "Playlist recommended table import LR2ID error notification");
+            return;
+        }
+
+        request.Confirmed = ShowUiConfirmation(
+            "LR2ID: " + request.Lr2Id + (request.IsUpdateMode
+                ? BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_update_mode
+                : BeMusicSeeker.Properties.Resources.Msg_load_recommended_tables_readonly_mode),
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxImage.Question,
+            MessageBoxButton.OKCancel,
+            request.IsUpdateMode
+                ? "Playlist recommended table update confirmation"
+                : "Playlist recommended table read-only confirmation",
+            MessageBoxResult.OK);
+    }
+
     private void PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady(
         object sender,
         ExternalPlaylistImportQueueSummaryReadyEventArgs request)

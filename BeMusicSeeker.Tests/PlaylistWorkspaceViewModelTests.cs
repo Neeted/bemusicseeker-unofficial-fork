@@ -160,6 +160,17 @@ public sealed class PlaylistWorkspaceViewModelTests
             "private void playlistSummaryInitializeColumnSetting(");
         Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistSummaryColumnResetSource.IndexOf(".ResetPlaylistSummaryColumnsToDefault();", StringComparison.Ordinal));
+        string recommendedImportSource = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private void treeViewPlaylistRootContextMenuItemLoadWalkureTableRecommendedClick(");
+        Assert.AreEqual(-1, recommendedImportSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
+        Assert.AreEqual(-1, recommendedImportSource.IndexOf("Msg_load_recommended_tables_", StringComparison.Ordinal));
+        Assert.AreEqual(-1, recommendedImportSource.IndexOf("viewModel.LR2ID", StringComparison.Ordinal));
+        Assert.AreEqual(-1, recommendedImportSource.IndexOf("IsWriteLockHeldBMSTablesInitializeMin", StringComparison.Ordinal));
+        Assert.AreEqual(-1, recommendedImportSource.IndexOf("new Uri", StringComparison.Ordinal));
+        Assert.AreEqual(-1, recommendedImportSource.IndexOf("Regex.Match", StringComparison.Ordinal));
+        Assert.AreEqual(-1, recommendedImportSource.IndexOf("EnqueueExternalPlaylistBMSTableImport", StringComparison.Ordinal));
+        StringAssert.Contains(recommendedImportSource, "viewModel.PlaylistWorkspace.TryEnqueueRecommendedPlaylistImport((string)menuItem.Tag);");
         StringAssert.Contains(workspaceSource, "private ObservableCollection<PlaylistSummaryRow> playlistSummaryView");
         StringAssert.Contains(workspaceSource, "private WeakReference<ObservableCollection<PlaylistSummaryRow>> previousPlaylistSummaryViewWeakReference;");
         StringAssert.Contains(workspaceSource, "private string playlistSummaryText = string.Empty;");
@@ -279,11 +290,15 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool ConfirmPlaylistOverwriteLevel(BMSTable table)");
         StringAssert.Contains(workspaceSource, "PlaylistSummaryColumnResetConfirmationRequested");
         StringAssert.Contains(workspaceSource, "internal bool TryResetPlaylistSummaryColumnsToDefault()");
+        StringAssert.Contains(workspaceSource, "PlaylistRecommendedTableImportConfirmationRequested");
+        StringAssert.Contains(workspaceSource, "internal bool TryEnqueueRecommendedPlaylistImport(string rawTag)");
+        StringAssert.Contains(workspaceSource, "if (request.Lr2Id == 0 || !request.Confirmed)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested += PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested += PlaylistWorkspacePlaylistTableRemovalConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested += PlaylistWorkspacePlaylistTableLevelOverwriteConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested += PlaylistWorkspacePlaylistSummaryColumnResetConfirmationRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested += PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistImportNotificationsFlushRequested += PlaylistWorkspacePlaylistImportNotificationsFlushRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
@@ -651,6 +666,46 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsTrue(workspace.TryResetPlaylistSummaryColumnsToDefault());
         Assert.IsTrue(confirmationRequested);
         Assert.AreNotSame(originalSettings, workspace.PlaylistSummaryColumnsSettings);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceRecommendedImportConfirmationPreservesModeAndRejectsMissingLr2Id()
+    {
+        string databasePath = Path.Combine(
+            Path.GetTempPath(),
+            "BeMusicSeekerTests",
+            Guid.NewGuid().ToString("N"),
+            "song.db");
+        Directory.CreateDirectory(Path.GetDirectoryName(databasePath)!);
+        File.WriteAllBytes(databasePath, []);
+        try
+        {
+            var playlist = new BMSPlaylist(databasePath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            var requests = new List<(int Lr2Id, bool IsUpdateMode)>();
+            workspace.PlaylistRecommendedTableImportConfirmationRequested += (_, request) =>
+            {
+                requests.Add((request.Lr2Id, request.IsUpdateMode));
+                request.Confirmed = true;
+            };
+
+            Assert.IsFalse(workspace.TryEnqueueRecommendedPlaylistImport(
+                "https://example.test/recommended?mode=update"));
+            Assert.IsFalse(workspace.TryEnqueueRecommendedPlaylistImport(
+                "https://example.test/recommended?mode=readonly"));
+            CollectionAssert.AreEqual(new[] { (0, true), (0, false) }, requests);
+        }
+        finally
+        {
+            Directory.Delete(Path.GetDirectoryName(databasePath)!, recursive: true);
+        }
     }
 
     [TestMethod]

@@ -4486,6 +4486,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested += PlaylistWorkspacePlaylistTableRemovalConfirmationRequested;
         PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested += PlaylistWorkspacePlaylistTableLevelOverwriteConfirmationRequested;
         PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested += PlaylistWorkspacePlaylistSummaryColumnResetConfirmationRequested;
+        PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested += PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested;
         PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested;
         PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested += PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested;
         PlaylistWorkspace.PlaylistFolderRemovalConfirmationRequested += PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested;
