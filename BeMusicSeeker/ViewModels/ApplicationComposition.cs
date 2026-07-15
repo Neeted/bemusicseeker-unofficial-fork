@@ -171,7 +171,8 @@ internal sealed class ApplicationComposition
         Action<Action<bool>> playlistSummaryPresentationRefreshGate,
         Action<Action<bool>> playlistSummaryDataRefreshGate,
         Func<bool> playlistTreeRefreshSuppressedProvider,
-        Func<string, bool> playlistTreeRefreshDeferredProvider)
+        Func<string, bool> playlistTreeRefreshDeferredProvider,
+        Func<string, Func<Task>, bool> playlistExternalSyncScheduler)
     {
         var playlistPropertySaveService = new PlaylistPropertySaveService(
             tablesProvider,
@@ -216,7 +217,8 @@ internal sealed class ApplicationComposition
             playlistSummaryPresentationRefreshGate,
             playlistSummaryDataRefreshGate,
             playlistTreeRefreshSuppressedProvider,
-            playlistTreeRefreshDeferredProvider);
+            playlistTreeRefreshDeferredProvider,
+            playlistExternalSyncScheduler);
         return playlistWorkspace;
     }
 

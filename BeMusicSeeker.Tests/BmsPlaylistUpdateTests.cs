@@ -629,7 +629,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 message => lifecycleLogs.Add(message),
-                (exception, message) => failureLogs.Add((exception, message)), request => request(false), request => request(false), () => false, _ => false);
+                (exception, message) => failureLogs.Add((exception, message)), request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
             int progressCount = 0;
             int referenceSortInvalidationCount = 0;
             long summaryDataGenerationBeforeResync = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -766,7 +766,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
             workspace.IsPlaylistDetailViewActive = true;
 
@@ -1279,7 +1279,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
@@ -6451,7 +6451,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
             var notificationRoutes = new List<string>();
             workspace.PlaylistOperationNotificationsFlushRequested += (_, request) => notificationRoutes.Add(request.RouteName);
             long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;

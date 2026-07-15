@@ -538,14 +538,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly object lockDeferredPlaylistRef = new();
 
-    private int deferredExternalSyncRequestedVersion;
-
-    private bool deferredExternalSyncRunning;
-
-    private readonly object lockDeferredExternalSync = new();
-
-
-
     private bool deferredLibraryFolderTreeRefreshQueued;
 
     private readonly object lockDeferredLibraryFolderTreeRefresh = new();
@@ -706,14 +698,6 @@ public partial class MainWindowViewModel : ViewModel
     }
 
     private static void LogDeferredPlaylistReference(string message)
-    {
-        if (installPerformanceLoggingEnabled)
-        {
-            installPerformanceLogger.Info(message);
-        }
-    }
-
-    private static void LogDeferredExternalSync(string message)
     {
         if (installPerformanceLoggingEnabled)
         {
@@ -2493,156 +2477,6 @@ public partial class MainWindowViewModel : ViewModel
         }
         LogDeferredPlaylistReference("playlist_ref_deferred skipped reason=" + (shutdownReason ?? "shutdown_requested") + " requestReason=" + FormatTextForLog(reason) + " version=" + version);
     }
-
-    private static bool ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync(Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction)
-    {
-        return updateCallbackAction == null;
-    }
-
-    private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction = null)
-    {
-        StartDeferredExternalPlaylistSync(reason, fromReloadTables, updateCallbackAction, GetActiveStartupProgressOperationToken());
-    }
-
-    private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction, long operationToken)
-    {
-        if (tables == null)
-        {
-            return;
-        }
-        if (IsShutdownRequested)
-        {
-            LogDeferredExternalSync("deferred_external_sync skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
-            return;
-        }
-        string playlistReloadOperationKind = PlaylistWorkspaceViewModel.GetPlaylistReloadOperationKindText(reason, fromReloadTables);
-        int version = 0;
-        bool shouldStartWorker = false;
-        lock (lockDeferredExternalSync)
-        {
-            deferredExternalSyncRequestedVersion++;
-            version = deferredExternalSyncRequestedVersion;
-            if (!deferredExternalSyncRunning)
-            {
-                deferredExternalSyncRunning = true;
-                shouldStartWorker = true;
-            }
-        }
-        if (IsStartupProgressOperationTokenCurrent(operationToken))
-        {
-            TrackStartupProgressExternalSyncRequest(reason, version);
-            if (updateCallbackAction != null)
-            {
-                TrackStartupProgressPlaylistReferenceRequest("DeferredExternalSync:" + reason, version);
-            }
-        }
-        LogDeferredExternalSync("deferred_external_sync queue reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + version);
-        if (!shouldStartWorker)
-        {
-            return;
-        }
-        async Task work()
-        {
-            while (true)
-            {
-                int requestVersion = 0;
-                lock (lockDeferredExternalSync)
-                {
-                    requestVersion = deferredExternalSyncRequestedVersion;
-                }
-                DateTime startedAt = DateTime.UtcNow;
-                using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
-                try
-                {
-                    PlaylistWorkspace.BeginPlaylistSyncProgressOperation();
-                    LogPlaylistReload("playlist_reload_operation started operationKind=" + playlistReloadOperationKind + " reason=" + reason + " tableCount=0 version=" + requestVersion);
-                    LogDeferredExternalSync("deferred_external_sync run reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion);
-                    List<Action<BMSPlaylist.PlaylistTableUpdateContext>> updateCallbackActions = null;
-                    if (updateCallbackAction != null)
-                    {
-                        updateCallbackActions = [updateCallbackAction];
-                    }
-                    List<BMSTable> list = await tables.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions, delegate (PlaylistSyncAttemptResult result)
-                    {
-                        PlaylistWorkspace.RecordPlaylistSyncResult(result);
-                    }, PlaylistWorkspace.ReportPlaylistSyncProgress).ConfigureAwait(false);
-                    int num = list?.Count ?? 0;
-                    tables.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + reason);
-                    if (ShouldScheduleDeferredPlaylistReferenceApplyAfterExternalSync(updateCallbackAction))
-                    {
-                        ScheduleDeferredPlaylistReferenceApply("DeferredExternalSync:" + reason, operationToken);
-                    }
-                    else if (IsStartupProgressOperationTokenCurrent(operationToken))
-                    {
-                        TryCompleteStartupProgressPlaylistReference(requestVersion);
-                    }
-                    PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                        "deferred_external_sync",
-                        invalidateTableCountCache: true);
-                    bool cleanupQueued = PlaylistWorkspace.QueuePlaylistReloadCleanup(reason, fromReloadTables, num);
-                    LogPlaylistReload("playlist_reload_operation completed operationKind=" + playlistReloadOperationKind + " reason=" + reason + " tableCount=" + num + " summaryRebuildMs=" + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs + " detailRefreshMs=" + PlaylistWorkspace.LastDetailBuildElapsedMs + " cleanupQueued=" + cleanupQueued.ToString().ToLowerInvariant() + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds);
-                    LogDeferredExternalSync("deferred_external_sync done reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " updatedCount=" + num);
-                    if (IsStartupProgressOperationTokenCurrent(operationToken))
-                    {
-                        if (updateCallbackAction != null)
-                        {
-                            TryCompleteStartupProgressPlaylistReference(requestVersion);
-                        }
-                        TryCompleteStartupProgressExternalSync(requestVersion);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogPlaylistReload("playlist_reload_operation failed operationKind=" + playlistReloadOperationKind + " reason=" + reason + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
-                    LogDeferredExternalSync("deferred_external_sync failed reason=" + reason + " fromReloadTables=" + fromReloadTables.ToString().ToLowerInvariant() + " version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
-                    if (IsStartupProgressOperationTokenCurrent(operationToken))
-                    {
-                        TryCompleteStartupProgressExternalSync(requestVersion);
-                    }
-                }
-                finally
-                {
-                    PlaylistWorkspace.EndPlaylistSyncProgressOperation();
-                    FlushPlaylistOperationNotifications(notificationScope, "external playlist sync notification");
-                }
-                lock (lockDeferredExternalSync)
-                {
-                    if (deferredExternalSyncRequestedVersion == requestVersion)
-                    {
-                        deferredExternalSyncRunning = false;
-                        break;
-                    }
-                }
-            }
-        }
-        if (QueueStartupBackgroundTask("external_playlist_sync", reason, "playlist_entries_hydration", work))
-        {
-            return;
-        }
-        CompleteDeferredExternalPlaylistSyncForShutdown(version, operationToken, reason, updateCallbackAction != null, "startup_scheduler_rejected");
-        return;
-    }
-
-    private void CompleteDeferredExternalPlaylistSyncForShutdown(int version, long operationToken, string reason, bool hadUpdateCallback, string shutdownReason)
-    {
-        lock (lockDeferredExternalSync)
-        {
-            if (deferredExternalSyncRequestedVersion == version)
-            {
-                deferredExternalSyncRunning = false;
-            }
-        }
-        if (IsStartupProgressOperationTokenCurrent(operationToken))
-        {
-            TryCompleteStartupProgressExternalSync(version);
-            if (hadUpdateCallback)
-            {
-                TryCompleteStartupProgressPlaylistReference(version);
-            }
-        }
-        LogDeferredExternalSync("deferred_external_sync skipped reason=" + (shutdownReason ?? "shutdown_requested") + " requestReason=" + FormatTextForLog(reason) + " version=" + version);
-    }
-
 
     public string WindowTitle
     {
@@ -4457,7 +4291,12 @@ public partial class MainWindowViewModel : ViewModel
             InvokePlaylistSummaryPresentationRefreshGate,
             InvokePlaylistSummaryDataRefreshGate,
             () => TrySuppress(UiRefreshChannel.PlaylistTree),
-            reason => TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, reason));
+            reason => TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, reason),
+            (reason, work) => QueueStartupBackgroundTask(
+                "external_playlist_sync",
+                reason,
+                "playlist_entries_hydration",
+                work));
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
@@ -4489,6 +4328,10 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
         PlaylistWorkspace.PlaylistEntriesHydrationRequested += PlaylistWorkspacePlaylistEntriesHydrationRequested;
         PlaylistWorkspace.PlaylistEntriesHydrationCompleted += PlaylistWorkspacePlaylistEntriesHydrationCompleted;
+        PlaylistWorkspace.PlaylistExternalSyncQueued += PlaylistWorkspacePlaylistExternalSyncQueued;
+        PlaylistWorkspace.PlaylistExternalSyncCompleted += PlaylistWorkspacePlaylistExternalSyncCompleted;
+        PlaylistWorkspace.PlaylistExternalSyncReferenceApplyRequested += PlaylistWorkspacePlaylistExternalSyncReferenceApplyRequested;
+        PlaylistWorkspace.PlaylistExternalSyncReferenceApplied += PlaylistWorkspacePlaylistExternalSyncReferenceApplied;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
@@ -5069,13 +4912,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (string.Equals(request.Name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase))
         {
-            int version;
-            lock (lockDeferredExternalSync)
-            {
-                deferredExternalSyncRunning = false;
-                version = deferredExternalSyncRequestedVersion;
-            }
-            LogDeferredExternalSync("deferred_external_sync discarded reason=shutdown_requested requestReason=" + FormatTextForLog(reason) + " version=" + version);
+            PlaylistWorkspace.DiscardDeferredExternalPlaylistSyncForShutdown(reason);
         }
     }
 
@@ -5221,10 +5058,7 @@ public partial class MainWindowViewModel : ViewModel
                 return false;
             }
         }
-        lock (lockDeferredExternalSync)
-        {
-            return !deferredExternalSyncRunning;
-        }
+        return PlaylistWorkspace.IsDeferredExternalPlaylistSyncIdle;
     }
 
     private async Task WaitForPlaylistReloadCleanupIdleAsync(ShutdownWaitTracker tracker)
@@ -5382,17 +5216,12 @@ public partial class MainWindowViewModel : ViewModel
     private string DescribeDeferredPlaylistWorkersWaitState()
     {
         bool playlistRefRunning;
-        bool externalSyncRunning;
         lock (lockDeferredPlaylistRef)
         {
             playlistRefRunning = deferredPlaylistRefRunning;
         }
-        lock (lockDeferredExternalSync)
-        {
-            externalSyncRunning = deferredExternalSyncRunning;
-        }
         return "deferredPlaylistRefRunning=" + FormatBool(playlistRefRunning)
-            + " deferredExternalSyncRunning=" + FormatBool(externalSyncRunning);
+            + " " + PlaylistWorkspace.DescribeDeferredExternalPlaylistSyncWaitState();
     }
 
     private static void LogSlowWaitIfNeeded(
@@ -5567,7 +5396,11 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (scheduleDeferredExternalSync)
         {
-            StartDeferredExternalPlaylistSync("ReloadTables", fromReloadTables: true, updateCallbackAction, operationToken);
+            PlaylistWorkspace.QueueExternalPlaylistSync(
+                "ReloadTables",
+                fromReloadTables: true,
+                updateCallbackAction,
+                operationToken);
         }
         SkipUnrequestedStartupProgressPhases(
             "ReloadTables:scheduled",
@@ -6508,7 +6341,11 @@ public partial class MainWindowViewModel : ViewModel
         LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");
         if (!startupSettings.SkipInitPlaylistLoad)
         {
-            StartDeferredExternalPlaylistSync("Initialize", fromReloadTables: false, PlaylistWorkspace.CreateReferenceReplaceUpdateCallback(), operationToken);
+            PlaylistWorkspace.QueueExternalPlaylistSync(
+                "Initialize",
+                fromReloadTables: false,
+                PlaylistWorkspace.CreateReferenceReplaceUpdateCallback(),
+                operationToken);
         }
         SkipUnrequestedStartupProgressPhases(
             "Initialize:scheduled",
@@ -6550,6 +6387,60 @@ public partial class MainWindowViewModel : ViewModel
             playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
                 PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty);
         }
+    }
+
+    private void PlaylistWorkspacePlaylistExternalSyncQueued(
+        object sender,
+        PlaylistExternalSyncRequestEventArgs request)
+    {
+        if (request == null || !IsStartupProgressOperationTokenCurrent(request.OperationToken))
+        {
+            return;
+        }
+        TrackStartupProgressExternalSyncRequest(request.Reason, request.Version);
+        if (request.HasUpdateCallback)
+        {
+            TrackStartupProgressPlaylistReferenceRequest(
+                "DeferredExternalSync:" + request.Reason,
+                request.Version);
+        }
+    }
+
+    private void PlaylistWorkspacePlaylistExternalSyncCompleted(
+        object sender,
+        PlaylistExternalSyncCompletionEventArgs completion)
+    {
+        if (completion == null || !IsStartupProgressOperationTokenCurrent(completion.OperationToken))
+        {
+            return;
+        }
+        if (completion.WasSkipped && completion.HasUpdateCallback)
+        {
+            TryCompleteStartupProgressPlaylistReference(completion.Version);
+        }
+        TryCompleteStartupProgressExternalSync(completion.Version);
+    }
+
+    private void PlaylistWorkspacePlaylistExternalSyncReferenceApplyRequested(
+        object sender,
+        PlaylistExternalSyncReferenceApplyRequestedEventArgs request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        ScheduleDeferredPlaylistReferenceApply(request.Reason, request.OperationToken);
+    }
+
+    private void PlaylistWorkspacePlaylistExternalSyncReferenceApplied(
+        object sender,
+        PlaylistExternalSyncReferenceAppliedEventArgs request)
+    {
+        if (request == null || !IsStartupProgressOperationTokenCurrent(request.OperationToken))
+        {
+            return;
+        }
+        TryCompleteStartupProgressPlaylistReference(request.Version);
     }
 
     public void CloseProcess()

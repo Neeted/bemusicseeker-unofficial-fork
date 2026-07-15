@@ -1599,10 +1599,11 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private void EndUiUpdateSuppression()",
             "private bool QueueStartupBackgroundTask");
-        string deferredExternalSync = ExtractBetween(
-            viewModelCode,
-            "private void StartDeferredExternalPlaylistSync(string reason, bool fromReloadTables, Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction, long operationToken)",
-            "public async void Initialize()");
+        string externalSyncWorkspace = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.ExternalPlaylistSync.cs");
 
         StringAssert.Contains(viewModelCode, "public bool IsLibraryOperationInProgress");
         StringAssert.Contains(viewModelCode, "private long GetActiveStartupProgressOperationToken()");
@@ -1611,7 +1612,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion))");
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
         Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
-        StringAssert.Contains(initialize, "StartDeferredExternalPlaylistSync(\"Initialize\", fromReloadTables: false, PlaylistWorkspace.CreateReferenceReplaceUpdateCallback(), operationToken)");
+        StringAssert.Contains(initialize, "PlaylistWorkspace.QueueExternalPlaylistSync(");
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
         StringAssert.Contains(initialize, "BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)");
         StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver());");
@@ -1627,7 +1628,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(initialize.Contains("Settings.Default.LR2BackupSpan"));
         Assert.IsFalse(initialize.Contains("Settings.Default.LR2BackupNum"));
         Assert.IsFalse(initialize.Contains("Settings.Default.TableListURL"));
-        StringAssert.Contains(deferredExternalSync, "tables.QueueBeatorajaBmtExportAll(\"DeferredExternalSync:\" + reason)");
+        StringAssert.Contains(externalSyncWorkspace, "currentPlaylists.QueueBeatorajaBmtExportAll(\"DeferredExternalSync:\" + request.Reason)");
+        StringAssert.Contains(externalSyncWorkspace, "currentPlaylists.UpdateBMSTablesInternalAsync(");
+        Assert.IsFalse(viewModelCode.Contains("StartDeferredExternalPlaylistSync("));
         StringAssert.Contains(initialize, "initialSetupCompletionMessagePending = true;");
         Assert.IsFalse(initialize.Contains("Resources.Msg_init_completed"));
         StringAssert.Contains(initialize, "await EnsureAppSchemaRepairApprovedForStartupAsync(startupSettings)");
@@ -1648,7 +1651,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending()");
         StringAssert.Contains(viewModelCode, "ShowInitialSetupCompletionMessageIfPending();");
         StringAssert.Contains(endSuppression, "FlushPendingUiRefresh(uiRefreshChannel, operationToken)");
-        StringAssert.Contains(viewModelCode, "ScheduleDeferredPlaylistReferenceApply(\"DeferredExternalSync:\" + reason, operationToken)");
+        StringAssert.Contains(viewModelCode, "ScheduleDeferredPlaylistReferenceApply(request.Reason, request.OperationToken)");
     }
 
     [TestMethod]
@@ -2791,7 +2794,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public async void ReloadScoresOnly()");
 
         StringAssert.Contains(method, "tables.ReloadTables(updateCallbackAction, queueBeatorajaBmtExportAfterHydration: false)");
-        StringAssert.Contains(method, "StartDeferredExternalPlaylistSync(\"ReloadTables\", fromReloadTables: true, updateCallbackAction, operationToken)");
+        StringAssert.Contains(method, "PlaylistWorkspace.QueueExternalPlaylistSync(");
         Assert.IsFalse(method.Contains("files.InitializeScoresOnly"));
         Assert.IsFalse(method.Contains("QueueDeferredScoreHydration"));
         Assert.IsFalse(method.Contains("QueueDeferredRankingRefresh"));

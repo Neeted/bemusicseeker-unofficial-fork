@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Threading;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -235,7 +236,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "Action<Action<bool>> playlistSummaryPresentationRefreshGate,");
         StringAssert.Contains(workspaceSource, "Action<Action<bool>> playlistSummaryDataRefreshGate,");
         StringAssert.Contains(workspaceSource, "Func<bool> playlistTreeRefreshSuppressedProvider,");
-        StringAssert.Contains(workspaceSource, "Func<string, bool> playlistTreeRefreshDeferredProvider)");
+        StringAssert.Contains(workspaceSource, "Func<string, bool> playlistTreeRefreshDeferredProvider,");
+        StringAssert.Contains(workspaceSource, "Func<string, Func<Task>, bool> playlistExternalSyncScheduler)");
         Assert.AreEqual(-1, workspaceSource.IndexOf("playlistSummaryDataRefreshGate = null", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("playlistSummaryPresentationRefreshGate = null", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("playlistSummaryDataRefreshGate != null", StringComparison.Ordinal));
@@ -1029,7 +1031,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false));
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false));
     }
 
     [TestMethod]
@@ -1236,7 +1238,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         var dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "request-entry");
@@ -1875,6 +1877,198 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(1, dataSource.ResolveIndexCallCount);
     }
 
+    [TestMethod]
+    public void QueueExternalPlaylistSync_SchedulerRejectionPublishesSkippedLifecycle()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            int schedulerCalls = 0;
+            var queued = new List<PlaylistExternalSyncRequestEventArgs>();
+            var completed = new List<PlaylistExternalSyncCompletionEventArgs>();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                externalSyncScheduler: (_, _) =>
+                {
+                    schedulerCalls++;
+                    return false;
+                });
+            workspace.PlaylistExternalSyncQueued += (_, request) => queued.Add(request);
+            workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
+
+            workspace.QueueExternalPlaylistSync(
+                "test_rejection",
+                fromReloadTables: true,
+                updateCallbackAction: null,
+                operationToken: 11L);
+
+            Assert.AreEqual(1, schedulerCalls);
+            Assert.AreEqual(1, queued.Count);
+            Assert.AreEqual("test_rejection", queued[0].Reason);
+            Assert.AreEqual(11L, queued[0].OperationToken);
+            Assert.AreEqual(1, completed.Count);
+            Assert.IsTrue(completed[0].WasSkipped);
+            Assert.IsFalse(completed[0].Succeeded);
+            Assert.IsFalse(completed[0].HasUpdateCallback);
+            Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void DiscardDeferredExternalPlaylistSyncForShutdown_PublishesSkippedLifecycle()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            Func<Task>? scheduledWork = null;
+            var completed = new List<PlaylistExternalSyncCompletionEventArgs>();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                externalSyncScheduler: (_, work) =>
+                {
+                    scheduledWork = work;
+                    return true;
+                });
+            workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
+
+            workspace.QueueExternalPlaylistSync(
+                "test_shutdown_discard",
+                fromReloadTables: false,
+                updateCallbackAction: _ => { },
+                operationToken: 17L);
+
+            Assert.IsNotNull(scheduledWork);
+            workspace.DiscardDeferredExternalPlaylistSyncForShutdown("test_shutdown");
+
+            Assert.AreEqual(1, completed.Count);
+            Assert.AreEqual("test_shutdown_discard", completed[0].Reason);
+            Assert.AreEqual(1, completed[0].Version);
+            Assert.AreEqual(17L, completed[0].OperationToken);
+            Assert.IsTrue(completed[0].HasUpdateCallback);
+            Assert.IsTrue(completed[0].WasSkipped);
+            Assert.IsFalse(completed[0].Succeeded);
+            Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void QueueExternalPlaylistSync_CoalescesAndRunsLatestRequestSnapshot()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            int schedulerCalls = 0;
+            Func<Task>? scheduledWork = null;
+            var queued = new List<PlaylistExternalSyncRequestEventArgs>();
+            var completed = new List<PlaylistExternalSyncCompletionEventArgs>();
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                externalSyncScheduler: (_, work) =>
+                {
+                    schedulerCalls++;
+                    scheduledWork = work;
+                    return true;
+                });
+            workspace.PlaylistExternalSyncQueued += (_, request) => queued.Add(request);
+            workspace.PlaylistExternalSyncCompleted += (_, request) => completed.Add(request);
+
+            workspace.QueueExternalPlaylistSync(
+                "first_request",
+                fromReloadTables: false,
+                updateCallbackAction: null,
+                operationToken: 1L);
+            workspace.QueueExternalPlaylistSync(
+                "latest_request",
+                fromReloadTables: false,
+                updateCallbackAction: _ => { },
+                operationToken: 2L);
+
+            Assert.AreEqual(1, schedulerCalls);
+            Assert.IsNotNull(scheduledWork);
+            Assert.AreEqual(2, queued.Count);
+            Assert.AreEqual("latest_request", queued[1].Reason);
+            Assert.AreEqual(2L, queued[1].OperationToken);
+            Assert.IsTrue(queued[1].HasUpdateCallback);
+
+            scheduledWork!().GetAwaiter().GetResult();
+
+            Assert.IsTrue(workspace.IsDeferredExternalPlaylistSyncIdle);
+            Assert.IsTrue(completed.Any(request =>
+                request.Version == 2
+                && request.Succeeded
+                && request.HasUpdateCallback));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
     private static PlaylistWorkspaceViewModel CreateDetailWorkspace(
         out FakePlaylistDetailDataSource dataSource,
         Func<string, Func<Task>, bool>? prewarmScheduler = null,
@@ -1887,7 +2081,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Action<Exception, string>? reloadFailureLog = null,
         Func<BMSPlaylist>? playlistStoreProvider = null,
         Action<Action<bool>>? playlistSummaryPresentationRefreshGate = null,
-        Action<Action<bool>>? playlistSummaryDataRefreshGate = null)
+        Action<Action<bool>>? playlistSummaryDataRefreshGate = null,
+        Func<string, Func<Task>, bool>? externalSyncScheduler = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
@@ -1925,7 +2120,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             playlistSummaryPresentationRefreshGate ?? (request => request(false)),
             playlistSummaryDataRefreshGate ?? (request => request(false)),
             () => false,
-            _ => false);
+            _ => false,
+            externalSyncScheduler ?? ((_, _) => false));
         dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         return workspace;
@@ -2073,7 +2269,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         var summaryColumns = new PlaylistSummaryColumnSettings();
         var selection = new MainChartListColumnSelection(
@@ -2139,7 +2335,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
@@ -2288,7 +2484,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         int raisedCount = 0;
         MainChartListSortRequestedEventArgs? observedRequest = null;
         workspace.PlaylistDetailSortChanged += (_, request) =>
@@ -2385,7 +2581,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         var initialSort = new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.Level),
@@ -2443,7 +2639,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         workspace.InitializePlaylistDetailFilter(
             new ChartListFilterSnapshot("  title:Alpha  ", ChartModeFilter.All));
         int raisedCount = 0;
@@ -2572,7 +2768,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
 
         int raisedCount = 0;
         workspace.PropertyChanged += (_, e) =>
@@ -2630,7 +2826,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         var propertyNames = new List<string>();
         workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
@@ -2677,7 +2873,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         var propertyNames = new List<string>();
         workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
         workspace.GridHeaderText = "stale header";
@@ -2787,7 +2983,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
@@ -2873,7 +3069,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false)
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false)
         {
             IsPlaylistSummaryMode = true
         };
@@ -2938,7 +3134,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false)
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false)
         {
             IsPlaylistSummaryMode = true
         };
@@ -2993,7 +3189,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false)
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false)
         {
             IsPlaylistSummaryMode = true
         };
@@ -3049,7 +3245,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         var expected = new PlaylistSummaryCountResult
         {
             ScannedEntries = 4,
@@ -3106,7 +3302,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest staleBuild));
         var staleResult = new PlaylistSummaryCountResult
@@ -3161,7 +3357,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false)
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false)
         {
             IsPlaylistSummaryMode = true
         };
@@ -3217,7 +3413,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false)
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false)
         {
             IsPlaylistSummaryMode = true
         };
@@ -3274,7 +3470,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false)
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false)
         {
             IsPlaylistSummaryMode = true
         };
@@ -3328,7 +3524,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         long hiddenDataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
         long hiddenCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
 
@@ -3430,7 +3626,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
 
         Assert.AreEqual(
             0L,
@@ -3489,7 +3685,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         var table = new BMSTable();
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder");
         var playlistRow = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
@@ -3538,7 +3734,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         var table = new BMSTable { is_external_sync = true };
         var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
         workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
@@ -3596,7 +3792,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
         var table = new BMSTable();
         PlaylistFolderNode specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
 
