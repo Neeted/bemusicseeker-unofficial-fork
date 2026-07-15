@@ -629,7 +629,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 message => lifecycleLogs.Add(message),
-                (exception, message) => failureLogs.Add((exception, message)), request => request(false), request => request(false));
+                (exception, message) => failureLogs.Add((exception, message)), request => request(false), request => request(false), () => false, _ => false);
             int progressCount = 0;
             int referenceSortInvalidationCount = 0;
             long summaryDataGenerationBeforeResync = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -766,7 +766,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false));
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
             workspace.IsPlaylistDetailViewActive = true;
 
@@ -886,7 +886,9 @@ public sealed class BmsPlaylistUpdateTests
             };
             var viewModel = new MainWindowViewModel();
             List<string> workspacePropertyNames = [];
+            int playlistTablesPresentationChangedCount = 0;
             viewModel.PlaylistWorkspace.PropertyChanged += (_, e) => workspacePropertyNames.Add(e.PropertyName);
+            viewModel.PlaylistWorkspace.PlaylistTablesPresentationChanged += (_, _) => playlistTablesPresentationChangedCount++;
 
             Assert.AreEqual(0, viewModel.PlaylistWorkspace.PlaylistTreeTables.Count);
 
@@ -904,21 +906,23 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables.Add(new BMSTable { name = "Added" });
             Assert.AreSame(playlist.BMSTables, viewModel.PlaylistWorkspace.PlaylistTreeTables);
             Assert.AreEqual(2, viewModel.PlaylistWorkspace.PlaylistTreeTables.Count);
+            Assert.AreEqual(1, playlistTablesPresentationChangedCount);
 
             DispatcherCollection<BMSTable> replacement = new(
                 new ObservableCollection<BMSTable>([new BMSTable { name = "Replacement" }]),
                 Dispatcher.CurrentDispatcher);
             playlist.BMSTables = replacement;
-            viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
 
             Assert.AreSame(replacement, viewModel.PlaylistWorkspace.PlaylistTreeTables);
             CollectionAssert.AreEqual(
                 new[]
                 {
                     nameof(PlaylistWorkspaceViewModel.PlaylistTreeTables),
+                    nameof(PlaylistWorkspaceViewModel.PlaylistTreeTables),
                     nameof(PlaylistWorkspaceViewModel.PlaylistTreeTables)
                 },
                 workspacePropertyNames);
+            Assert.AreEqual(2, playlistTablesPresentationChangedCount);
         }
         finally
         {
@@ -1275,7 +1279,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false));
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
@@ -2776,6 +2780,7 @@ public sealed class BmsPlaylistUpdateTests
             typeof(MainWindowViewModel)
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(viewModel, playlist);
+            viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
             typeof(MainWindowViewModel)
                 .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(viewModel, config);
@@ -6446,7 +6451,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false));
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false);
             var notificationRoutes = new List<string>();
             workspace.PlaylistOperationNotificationsFlushRequested += (_, request) => notificationRoutes.Add(request.RouteName);
             long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;

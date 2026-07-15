@@ -496,10 +496,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private CollectionChangedEventListener listenerForBMSLibraryChartPackagesInstalledCollection;
 
-    private PropertyChangedEventListener listenerForBMSPlaylist;
-
-    private CollectionChangedEventListener listenerForBMSPlaylistBMSTablesCollection;
-
     private readonly object lockThis = new();
 
     private static readonly SemaphoreSlim _semaphore = new(1, 1);
@@ -2075,8 +2071,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             var stopwatch2 = Stopwatch.StartNew();
             RefreshPlayHistoryDisplayTargets();
-            RaisePropertyChanged(() => BMSTables);
-            PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
+            PlaylistWorkspace.RefreshPlaylistTreePresentation();
             stopwatch2.Stop();
             num2 = stopwatch2.ElapsedMilliseconds;
         }
@@ -2422,7 +2417,7 @@ public partial class MainWindowViewModel : ViewModel
                     tables.AcquireReaderLockBMSTables();
                     try
                     {
-                        list = [.. BMSTables.Where(t => t != null)];
+                        list = [.. PlaylistWorkspace.PlaylistTreeTables.Where(t => t != null)];
                     }
                     finally
                     {
@@ -4168,7 +4163,7 @@ public partial class MainWindowViewModel : ViewModel
         try
         {
             tables?.AcquireReaderLockBMSTables();
-            tableSnapshot.AddRange(BMSTables ?? Enumerable.Empty<BMSTable>());
+            tableSnapshot.AddRange(PlaylistWorkspace.PlaylistTreeTables ?? Enumerable.Empty<BMSTable>());
         }
         finally
         {
@@ -4285,22 +4280,6 @@ public partial class MainWindowViewModel : ViewModel
         regularChartListOwner.SetTreeFilter(filter);
         RaisePropertyChanged("FolderFilter");
         RefreshChartRowsView(MainViewUpdateMode.FolderFilterSelected);
-    }
-
-    /// <summary>
-    /// アプリケーション内の共有プレイリスト (BMSTable) コレクションです。
-    /// 設定、インポート、参照更新、プレイ履歴のスナップショットなど、ツリー表示以外の root consumer が使用します。
-    /// </summary>
-    public DispatcherCollection<BMSTable> BMSTables
-    {
-        get
-        {
-            if (tables != null)
-            {
-                return tables.BMSTables;
-            }
-            return new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher);
-        }
     }
 
     public BMSTableSimpleCategorized BMSExternalTableListExt
@@ -4455,7 +4434,7 @@ public partial class MainWindowViewModel : ViewModel
             DispatchMainChartListAction,
             MainChartList,
             () => tables,
-            () => BMSTables,
+            () => PlaylistWorkspace.PlaylistTreeTables,
             LogPlaylistViewApply,
             LogPlaylistRetention,
             () => IsDropInstallQueueActive,
@@ -4476,7 +4455,9 @@ public partial class MainWindowViewModel : ViewModel
             LogPlaylistReload,
             (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message),
             InvokePlaylistSummaryPresentationRefreshGate,
-            InvokePlaylistSummaryDataRefreshGate);
+            InvokePlaylistSummaryDataRefreshGate,
+            () => TrySuppress(UiRefreshChannel.PlaylistTree),
+            reason => TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, reason));
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
@@ -4505,6 +4486,9 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += PlaylistWorkspacePlaylistPropertyExternalSyncFailed;
         PlaylistWorkspace.PlaylistPropertyNotificationsFlushRequested += PlaylistWorkspacePlaylistPropertyNotificationsFlushRequested;
         PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
+        PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
+        PlaylistWorkspace.PlaylistEntriesHydrationRequested += PlaylistWorkspacePlaylistEntriesHydrationRequested;
+        PlaylistWorkspace.PlaylistEntriesHydrationCompleted += PlaylistWorkspacePlaylistEntriesHydrationCompleted;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
@@ -6076,8 +6060,6 @@ public partial class MainWindowViewModel : ViewModel
         }
         LoadColumnSetting();
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
-        listenerForBMSPlaylist = new PropertyChangedEventListener(tables);
-        listenerForBMSPlaylistBMSTablesCollection = new CollectionChangedEventListener(tables.BMSTables);
         listenerForBMSLibrary.RegisterHandler(() => files.OwnedChartCollectionVersion, delegate
         {
             PlaylistWorkspace.InvalidatePlaylistLibraryIndexSnapshot(
@@ -6337,77 +6319,6 @@ public partial class MainWindowViewModel : ViewModel
             }
             ScheduleDeferredLibraryFolderTreeRefresh();
         });
-        listenerForBMSPlaylist.RegisterHandler(() => tables.BMSTables, delegate
-        {
-            if (TrySuppress(UiRefreshChannel.PlaylistTree))
-            {
-                PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                    "playlist_tables_changed",
-                    invalidateTableCountCache: true);
-                return;
-            }
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_tables_changed"))
-            {
-                PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                    "playlist_tables_changed",
-                    invalidateTableCountCache: true);
-                return;
-            }
-            RaisePropertyChanged(() => BMSTables);
-            PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
-            PlayHistory.QueueDisplayTargetCatalogRefresh();
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "playlist_tables_changed",
-                invalidateTableCountCache: true);
-        });
-        listenerForBMSPlaylistBMSTablesCollection.RegisterHandler(delegate
-        {
-            if (TrySuppress(UiRefreshChannel.PlaylistTree))
-            {
-                PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                    "playlist_tables_collection_changed",
-                    invalidateTableCountCache: true);
-                return;
-            }
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_tables_collection_changed"))
-            {
-                PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                    "playlist_tables_collection_changed",
-                    invalidateTableCountCache: true);
-                return;
-            }
-            RaisePropertyChanged(() => BMSTables);
-            PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
-            PlayHistory.QueueDisplayTargetCatalogRefresh();
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "playlist_tables_collection_changed",
-                invalidateTableCountCache: true);
-        });
-        listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationCompletedVersion, delegate
-        {
-            TryCompleteStartupProgressPlaylistEntriesHydration(tables.PlaylistEntriesHydrationCompletedVersion);
-            ScheduleDeferredPlaylistReferenceApply("PlaylistEntriesHydration");
-            if (PlayHistory.SelectedDisplayTarget.UsesProjection)
-            {
-                playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
-                    PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty);
-            }
-            if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "playlist_entries_hydration_completed"))
-            {
-                PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                    "playlist_entries_hydration_completed",
-                    invalidateTableCountCache: true);
-                return;
-            }
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "playlist_entries_hydration_completed",
-                invalidateTableCountCache: true);
-            PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();
-        });
-        listenerForBMSPlaylist.RegisterHandler(() => tables.PlaylistEntriesHydrationRequestedVersion, delegate
-        {
-            TrackStartupProgressPlaylistEntriesHydrationRequested(tables.PlaylistEntriesHydrationRequestedVersion);
-        });
         listenerForBMSLibrary.RegisterHandler(() => files.IsWriteLockHeldInitializeBMSFiles, delegate
         {
             RaisePropertyChanged(() => IsWriteLockHeldInitializeBMSFiles);
@@ -6613,6 +6524,32 @@ public partial class MainWindowViewModel : ViewModel
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
             StartupProgressPhase.InstallableMaintenanceDeferredDone);
+    }
+
+    private void PlaylistWorkspacePlaylistTablesPresentationChanged(object sender, EventArgs e)
+    {
+        PlayHistory.QueueDisplayTargetCatalogRefresh();
+    }
+
+    private void PlaylistWorkspacePlaylistEntriesHydrationRequested(
+        object sender,
+        PlaylistEntriesHydrationVersionChangedEventArgs e)
+    {
+        TrackStartupProgressPlaylistEntriesHydrationRequested(e?.Version ?? 0);
+    }
+
+    private void PlaylistWorkspacePlaylistEntriesHydrationCompleted(
+        object sender,
+        PlaylistEntriesHydrationVersionChangedEventArgs e)
+    {
+        int version = e?.Version ?? 0;
+        TryCompleteStartupProgressPlaylistEntriesHydration(version);
+        ScheduleDeferredPlaylistReferenceApply("PlaylistEntriesHydration");
+        if (PlayHistory.SelectedDisplayTarget.UsesProjection)
+        {
+            playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
+                PlayHistory.SelectedDisplayTarget?.Identity ?? string.Empty);
+        }
     }
 
     public void CloseProcess()
@@ -8092,7 +8029,7 @@ public partial class MainWindowViewModel : ViewModel
             tables.AcquireReaderLockBMSTables();
             try
             {
-                files.AddReferenceBMSTablesToPackageCharts(BMSTables, list);
+                files.AddReferenceBMSTablesToPackageCharts(PlaylistWorkspace.PlaylistTreeTables, list);
                 InvalidateNormalLibraryReferenceTableSortKeys();
             }
             finally
@@ -11035,11 +10972,11 @@ public partial class MainWindowViewModel : ViewModel
 
     internal void BackupBMSTables(string fileName)
     {
-        if (BMSTables == null)
+        if (PlaylistWorkspace.PlaylistTreeTables == null)
         {
             return;
         }
-        if (BMSTables.Count() == 0)
+        if (PlaylistWorkspace.PlaylistTreeTables.Count() == 0)
         {
             ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation);
             return;
@@ -11058,7 +10995,7 @@ public partial class MainWindowViewModel : ViewModel
 
     internal void RestoreBMSTables(string fileName)
     {
-        if (BMSTables == null)
+        if (PlaylistWorkspace.PlaylistTreeTables == null)
         {
             return;
         }

@@ -520,7 +520,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemBackupButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.BMSTables == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.PlaylistWorkspace.PlaylistTreeTables == null)
         {
             return;
         }
@@ -779,7 +779,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemRestoreButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.BMSTables == null || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
+        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.PlaylistWorkspace.PlaylistTreeTables == null || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "プレイリストをバックアップから復元します。" + Environment.NewLine + "現在のプレイリストは全て削除され置き換えられます。" + Environment.NewLine + "バックアップデータが不正な場合元に戻せなくなるかもしれません。" + Environment.NewLine + Environment.NewLine + "続行しますか？", "確認", MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.OK)
         {
             return;
         }
@@ -807,7 +807,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void detailTabItemUninstallButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.BMSTables == null)
+        if (base.DataContext is not MainWindowViewModel viewModel || viewModel.PlaylistWorkspace.PlaylistTreeTables == null)
         {
             return;
         }

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using BeMusicSeeker.Models;
 using Livet;
 
@@ -11,6 +12,12 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private DispatcherCollection<BMSTable> playlistTreeTables;
 
+    private BMSPlaylist playlistTreeStore;
+
+    private DispatcherCollection<BMSTable> observedPlaylistTreeTables;
+
+    private long playlistTreeNotificationGeneration;
+
     private bool isPlaylistTreeExpanded = true;
 
     private readonly object playlistDetailSelectionSyncRoot = new();
@@ -21,20 +28,86 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistTreeSelectionRequestedEventArgs> TreeSelectionRequested;
 
+    internal event EventHandler PlaylistTablesPresentationChanged;
+
+    internal event EventHandler<PlaylistEntriesHydrationVersionChangedEventArgs> PlaylistEntriesHydrationRequested;
+
+    internal event EventHandler<PlaylistEntriesHydrationVersionChangedEventArgs> PlaylistEntriesHydrationCompleted;
+
     /// <summary>
     /// プレイリストツリーが表示するテーブル source です。起動前は注入された空のコレクションを返し、起動後は <see cref="BMSPlaylist.BMSTables" /> と同じコレクション identity、順序、階層を保持します。
     /// </summary>
-    public DispatcherCollection<BMSTable> PlaylistTreeTables => playlistTreeTables
-        ?? throw new InvalidOperationException("Playlist tree source is not configured.");
+    public DispatcherCollection<BMSTable> PlaylistTreeTables => playlistTreeTables;
 
     internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore)
     {
-        DispatcherCollection<BMSTable> nextTables = playlistStore == null
+        AttachPlaylistTreeStore(playlistStore);
+        ApplyPlaylistTreeTablesSource();
+    }
+
+    internal void RefreshPlaylistTreePresentation()
+    {
+        ApplyPlaylistTreeTablesSource(raiseWhenUnchanged: true);
+    }
+
+    private void AttachPlaylistTreeStore(BMSPlaylist nextStore)
+    {
+        if (ReferenceEquals(playlistTreeStore, nextStore))
+        {
+            AttachObservedPlaylistTreeTables(nextStore?.BMSTables);
+            return;
+        }
+
+        if (playlistTreeStore != null)
+        {
+            playlistTreeStore.PropertyChanged -= PlaylistTreeStorePropertyChanged;
+        }
+        if (observedPlaylistTreeTables != null)
+        {
+            observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
+        }
+
+        playlistTreeStore = nextStore;
+        Interlocked.Increment(ref playlistTreeNotificationGeneration);
+        observedPlaylistTreeTables = null;
+        if (playlistTreeStore != null)
+        {
+            playlistTreeStore.PropertyChanged += PlaylistTreeStorePropertyChanged;
+            AttachObservedPlaylistTreeTables(playlistTreeStore.BMSTables);
+        }
+    }
+
+    private void AttachObservedPlaylistTreeTables(DispatcherCollection<BMSTable> nextTables)
+    {
+        if (ReferenceEquals(observedPlaylistTreeTables, nextTables))
+        {
+            return;
+        }
+        if (observedPlaylistTreeTables != null)
+        {
+            observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
+        }
+        observedPlaylistTreeTables = nextTables;
+        Interlocked.Increment(ref playlistTreeNotificationGeneration);
+        if (observedPlaylistTreeTables != null)
+        {
+            observedPlaylistTreeTables.CollectionChanged += PlaylistTreeTablesCollectionChanged;
+        }
+    }
+
+    private void ApplyPlaylistTreeTablesSource(bool raiseWhenUnchanged = false)
+    {
+        DispatcherCollection<BMSTable> nextTables = playlistTreeStore == null
             ? emptyPlaylistTreeTables
                 ?? throw new InvalidOperationException("Playlist tree source is not configured.")
-            : playlistStore.BMSTables;
+            : playlistTreeStore.BMSTables;
+        AttachObservedPlaylistTreeTables(nextTables);
         if (ReferenceEquals(playlistTreeTables, nextTables))
         {
+            if (raiseWhenUnchanged)
+            {
+                RaisePropertyChanged(nameof(PlaylistTreeTables));
+            }
             return;
         }
         playlistTreeTables = nextTables;

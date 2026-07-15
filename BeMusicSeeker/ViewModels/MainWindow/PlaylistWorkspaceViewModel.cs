@@ -53,6 +53,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly Action<Action<bool>> playlistSummaryDataRefreshGate;
 
+    private readonly Func<bool> playlistTreeRefreshSuppressedProvider;
+
+    private readonly Func<string, bool> playlistTreeRefreshDeferredProvider;
+
     private IPlaylistDetailDataSource detailDataSource;
 
     internal PlaylistDetailBuildState DetailBuildState { get; }
@@ -127,7 +131,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action<string> playlistReloadLog,
         Action<Exception, string> playlistSyncFailureLog,
         Action<Action<bool>> playlistSummaryPresentationRefreshGate,
-        Action<Action<bool>> playlistSummaryDataRefreshGate)
+        Action<Action<bool>> playlistSummaryDataRefreshGate,
+        Func<bool> playlistTreeRefreshSuppressedProvider,
+        Func<string, bool> playlistTreeRefreshDeferredProvider)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -195,6 +201,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistSummaryPresentationRefreshGate));
         this.playlistSummaryDataRefreshGate = playlistSummaryDataRefreshGate
             ?? throw new ArgumentNullException(nameof(playlistSummaryDataRefreshGate));
+        this.playlistTreeRefreshSuppressedProvider = playlistTreeRefreshSuppressedProvider
+            ?? throw new ArgumentNullException(nameof(playlistTreeRefreshSuppressedProvider));
+        this.playlistTreeRefreshDeferredProvider = playlistTreeRefreshDeferredProvider
+            ?? throw new ArgumentNullException(nameof(playlistTreeRefreshDeferredProvider));
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;

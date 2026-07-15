@@ -1364,6 +1364,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 Dispatcher.CurrentDispatcher)
         };
         SetViewModelField(viewModel, "tables", playlist);
+        viewModel.PlaylistWorkspace.RefreshPlaylistTreeTables(playlist);
     }
 
     private static object[] InvokeCollectCustomFolderOutputBaseJukeboxAdoptionConflicts(MainWindowViewModel.SettingDialogViewModel dialog)

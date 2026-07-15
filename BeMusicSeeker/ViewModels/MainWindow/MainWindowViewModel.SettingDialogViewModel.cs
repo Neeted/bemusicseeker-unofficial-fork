@@ -546,7 +546,7 @@ public partial class MainWindowViewModel
 
         /// <summary>
         /// 選択中プリセットへ追加できる playlist 候補です。
-        /// BMSTables の再読み込みに追従するため、選択中プリセットから都度再構築します。
+        /// プレイリスト table source の再読み込みに追従するため、選択中プリセットから都度再構築します。
         /// </summary>
         public ObservableCollection<PlayHistoryFolderPresetPlaylistOption> PlayHistoryFolderDisplayPresetPlaylistOptions { get; } = [];
 
@@ -1318,12 +1318,12 @@ public partial class MainWindowViewModel
 
         private IEnumerable<string> CreateRootFolderOutputDirectories(string rootOutputBaseDirectory)
         {
-            if (string.IsNullOrWhiteSpace(rootOutputBaseDirectory) || ownerViewModel.BMSTables == null)
+            if (string.IsNullOrWhiteSpace(rootOutputBaseDirectory) || ownerViewModel.PlaylistWorkspace.PlaylistTreeTables == null)
             {
                 return [];
             }
 
-            return [.. ownerViewModel.BMSTables
+            return [.. ownerViewModel.PlaylistWorkspace.PlaylistTreeTables
                 .Where(table => table != null && table.is_root_folder && !string.IsNullOrWhiteSpace(table.Output_dir))
                 .Select(table => Path.Combine(rootOutputBaseDirectory, table.Output_dir))];
         }
@@ -3119,8 +3119,8 @@ public partial class MainWindowViewModel
                 new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.FillMissingMd5Sha256),
                 new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.PreferSha256Only)
             ];
-            ownerViewModelEventListener = new PropertyChangedEventListener(ownerViewModel);
-            ownerViewModelEventListener.RegisterHandler(() => owner.BMSTables, delegate
+            ownerViewModelEventListener = new PropertyChangedEventListener(ownerViewModel.PlaylistWorkspace);
+            ownerViewModelEventListener.RegisterHandler(() => owner.PlaylistWorkspace.PlaylistTreeTables, delegate
             {
                 settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.LR2ConfigBMSDirectories);
                 settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.AvailableBMSDirectories);
@@ -3448,7 +3448,7 @@ public partial class MainWindowViewModel
             try
             {
                 ownerViewModel.tables?.AcquireReaderLockBMSTables();
-                return [.. (ownerViewModel.BMSTables ?? Enumerable.Empty<BMSTable>())
+                return [.. (ownerViewModel.PlaylistWorkspace.PlaylistTreeTables ?? Enumerable.Empty<BMSTable>())
                     .Where(table => table?.playlist_id != null)
                     .OrderBy(table => table.name ?? string.Empty, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(table => table.symbol ?? string.Empty, StringComparer.OrdinalIgnoreCase)];
@@ -4577,11 +4577,11 @@ public partial class MainWindowViewModel
 
         private int CountPlaylistCustomFolderOutputBaseReferences(string baseName)
         {
-            if (string.IsNullOrWhiteSpace(baseName) || ownerViewModel.BMSTables == null)
+            if (string.IsNullOrWhiteSpace(baseName) || ownerViewModel.PlaylistWorkspace.PlaylistTreeTables == null)
             {
                 return 0;
             }
-            return ownerViewModel.BMSTables.Count(table =>
+            return ownerViewModel.PlaylistWorkspace.PlaylistTreeTables.Count(table =>
                 table != null
                 && string.Equals(table.custom_folder_output_base_name, baseName, StringComparison.OrdinalIgnoreCase));
         }
@@ -5382,7 +5382,7 @@ public partial class MainWindowViewModel
                 if (customFolderOutputSettingsAfterSave?.OperationModeLR2DB == true)
                 {
                     var stepStopwatch = Stopwatch.StartNew();
-                    while (ownerViewModel.BMSTables == null)
+                    while (ownerViewModel.PlaylistWorkspace.PlaylistTreeTables == null)
                     {
                         await Task.Delay(100);
                     }
@@ -5737,12 +5737,12 @@ public partial class MainWindowViewModel
             IDictionary<BMSTable, string> outputBaseDirPathBeforeByTable,
             CustomFolderOutputSettingsSnapshot settings)
         {
-            if (string.IsNullOrWhiteSpace(oldBaseName) || ownerViewModel.BMSTables == null)
+            if (string.IsNullOrWhiteSpace(oldBaseName) || ownerViewModel.PlaylistWorkspace.PlaylistTreeTables == null)
             {
                 return;
             }
 
-            List<BMSTable> targetTables = [.. ownerViewModel.BMSTables
+            List<BMSTable> targetTables = [.. ownerViewModel.PlaylistWorkspace.PlaylistTreeTables
                 .Where(table => table != null
                     && (processedTables == null || !processedTables.Contains(table))
                     && string.Equals(table.custom_folder_output_base_name, oldBaseName, StringComparison.OrdinalIgnoreCase))];

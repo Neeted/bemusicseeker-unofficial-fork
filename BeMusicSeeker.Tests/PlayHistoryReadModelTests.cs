@@ -3458,7 +3458,7 @@ public sealed class PlayHistoryReadModelTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false)));
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false));
     }
 
     [TestMethod]
