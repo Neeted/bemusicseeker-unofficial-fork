@@ -532,12 +532,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly object lockUiSuppression = new();
 
-    private int deferredPlaylistRefRequestedVersion;
-
-    private bool deferredPlaylistRefRunning;
-
-    private readonly object lockDeferredPlaylistRef = new();
-
     private bool deferredLibraryFolderTreeRefreshQueued;
 
     private readonly object lockDeferredLibraryFolderTreeRefresh = new();
@@ -577,8 +571,6 @@ public partial class MainWindowViewModel : ViewModel
     private bool startupReadyUiReached;
 
     private bool startupReadyOperableReached;
-
-    private int deferredPlaylistRefLastCompletedVersion;
 
     private string _WindowTitle = "BeMusicSeeker Unofficial Fork - ";
 
@@ -694,14 +686,6 @@ public partial class MainWindowViewModel : ViewModel
         if (installPerformanceLoggingEnabled)
         {
             installPerformanceLogger.Warn(message);
-        }
-    }
-
-    private static void LogDeferredPlaylistReference(string message)
-    {
-        if (installPerformanceLoggingEnabled)
-        {
-            installPerformanceLogger.Info(message);
         }
     }
 
@@ -899,13 +883,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     private PlaylistOpenReadinessSnapshot CapturePlaylistOpenReadinessSnapshot()
     {
-        bool playlistRefRunning = false;
-        int playlistRefLastCompletedVersion = 0;
-        lock (lockDeferredPlaylistRef)
-        {
-            playlistRefRunning = deferredPlaylistRefRunning;
-            playlistRefLastCompletedVersion = deferredPlaylistRefLastCompletedVersion;
-        }
+        bool playlistRefRunning = !PlaylistWorkspace.IsPlaylistReferenceApplyIdle;
+        int playlistRefLastCompletedVersion = PlaylistWorkspace.PlaylistReferenceApplyLastCompletedVersion;
         BMSLibrary.ScoreRuntimeState scoreState = default;
         if (files != null)
         {
@@ -2344,138 +2323,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             HandleChartPackagesPendingCollectionChanged();
         });
-    }
-
-    private void ScheduleDeferredPlaylistReferenceApply(string reason)
-    {
-        ScheduleDeferredPlaylistReferenceApply(reason, GetActiveStartupProgressOperationToken());
-    }
-
-    private void ScheduleDeferredPlaylistReferenceApply(string reason, long operationToken)
-    {
-        if (IsShutdownRequested)
-        {
-            LogDeferredPlaylistReference("playlist_ref_deferred skipped reason=shutdown_requested requestReason=" + FormatTextForLog(reason));
-            return;
-        }
-        int version = 0;
-        bool shouldStartWorker = false;
-        lock (lockDeferredPlaylistRef)
-        {
-            deferredPlaylistRefRequestedVersion++;
-            version = deferredPlaylistRefRequestedVersion;
-            if (!deferredPlaylistRefRunning)
-            {
-                deferredPlaylistRefRunning = true;
-                shouldStartWorker = true;
-            }
-        }
-        if (IsStartupProgressOperationTokenCurrent(operationToken))
-        {
-            TrackStartupProgressPlaylistReferenceRequest(reason, version);
-            TrackStartupProgressPlaylistEntriesHydrationDirectRequest(version, "playlist_ref_deferred:" + reason);
-        }
-        LogDeferredPlaylistReference("playlist_ref_deferred queue reason=" + reason + " version=" + version);
-        if (!shouldStartWorker)
-        {
-            return;
-        }
-        void workBody()
-        {
-            while (true)
-            {
-                int requestVersion = 0;
-                lock (lockDeferredPlaylistRef)
-                {
-                    requestVersion = deferredPlaylistRefRequestedVersion;
-                }
-                DateTime startedAt = DateTime.UtcNow;
-                try
-                {
-                    tables.EnsureAllPlaylistEntriesLoadedAsync("playlist_ref_deferred").GetAwaiter().GetResult();
-                    if (IsStartupProgressOperationTokenCurrent(operationToken))
-                    {
-                        TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
-                    }
-                    List<BMSTable> list = [];
-                    tables.AcquireReaderLockBMSTables();
-                    try
-                    {
-                        list = [.. PlaylistWorkspace.PlaylistTreeTables.Where(t => t != null)];
-                    }
-                    finally
-                    {
-                        tables.FreeReaderLockBMSTables();
-                    }
-                    LogDeferredPlaylistReference("playlist_ref_deferred run version=" + requestVersion + " tableCount=" + list.Count);
-                    files.SynchronizeReferenceBMSTables(list);
-                    InvalidateNormalLibraryReferenceTableSortKeys();
-                    int presentationRequestVersion = requestVersion;
-                    DispatcherHelper.UIDispatcher.BeginInvoke((Action)delegate
-                    {
-                        if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, "playlist_ref_apply_completed"))
-                        {
-                            LogDeferredPlaylistReference("playlist_ref_deferred presentation_deferred version=" + presentationRequestVersion);
-                            return;
-                        }
-                        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-                    });
-                    LogDeferredPlaylistReference("playlist_ref_deferred done version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " presentation=queued");
-                    deferredPlaylistRefLastCompletedVersion = requestVersion;
-                    if (IsStartupProgressOperationTokenCurrent(operationToken))
-                    {
-                        TryCompleteStartupProgressPlaylistReference(requestVersion);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    LogDeferredPlaylistReference("playlist_ref_deferred failed version=" + requestVersion + " elapsedMs=" + (long)(DateTime.UtcNow - startedAt).TotalMilliseconds + " message=" + ex.Message);
-                    deferredPlaylistRefLastCompletedVersion = requestVersion;
-                    if (IsStartupProgressOperationTokenCurrent(operationToken))
-                    {
-                        TryCompleteStartupProgressPlaylistEntriesHydration(requestVersion);
-                        TryCompleteStartupProgressPlaylistReference(requestVersion);
-                    }
-                }
-                lock (lockDeferredPlaylistRef)
-                {
-                    if (deferredPlaylistRefRequestedVersion == requestVersion)
-                    {
-                        deferredPlaylistRefRunning = false;
-                        break;
-                    }
-                }
-            }
-        }
-        Task work()
-        {
-            workBody();
-            return Task.CompletedTask;
-        }
-        if (QueueStartupBackgroundTask("playlist_ref_apply", reason, null, work))
-        {
-            return;
-        }
-        CompleteDeferredPlaylistReferenceApplyForShutdown(version, operationToken, reason, "startup_scheduler_rejected");
-        return;
-    }
-
-    private void CompleteDeferredPlaylistReferenceApplyForShutdown(int version, long operationToken, string reason, string shutdownReason)
-    {
-        lock (lockDeferredPlaylistRef)
-        {
-            if (deferredPlaylistRefRequestedVersion == version)
-            {
-                deferredPlaylistRefRunning = false;
-            }
-            deferredPlaylistRefLastCompletedVersion = Math.Max(deferredPlaylistRefLastCompletedVersion, version);
-        }
-        if (IsStartupProgressOperationTokenCurrent(operationToken))
-        {
-            TryCompleteStartupProgressPlaylistEntriesHydration(version);
-            TryCompleteStartupProgressPlaylistReference(version);
-        }
-        LogDeferredPlaylistReference("playlist_ref_deferred skipped reason=" + (shutdownReason ?? "shutdown_requested") + " requestReason=" + FormatTextForLog(reason) + " version=" + version);
     }
 
     public string WindowTitle
@@ -4296,6 +4143,11 @@ public partial class MainWindowViewModel : ViewModel
                 "external_playlist_sync",
                 reason,
                 "playlist_entries_hydration",
+                work),
+            (reason, work) => QueueStartupBackgroundTask(
+                "playlist_ref_apply",
+                reason,
+                null,
                 work));
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
@@ -4332,6 +4184,9 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistExternalSyncCompleted += PlaylistWorkspacePlaylistExternalSyncCompleted;
         PlaylistWorkspace.PlaylistExternalSyncReferenceApplyRequested += PlaylistWorkspacePlaylistExternalSyncReferenceApplyRequested;
         PlaylistWorkspace.PlaylistExternalSyncReferenceApplied += PlaylistWorkspacePlaylistExternalSyncReferenceApplied;
+        PlaylistWorkspace.PlaylistReferenceApplyQueued += PlaylistWorkspacePlaylistReferenceApplyQueued;
+        PlaylistWorkspace.PlaylistReferenceApplyCompleted += PlaylistWorkspacePlaylistReferenceApplyCompleted;
+        PlaylistWorkspace.PlaylistReferenceApplyPresentationRequested += PlaylistWorkspacePlaylistReferenceApplyPresentationRequested;
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             MainChartList,
             PlaylistWorkspace,
@@ -4900,14 +4755,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (string.Equals(request.Name, "playlist_ref_apply", StringComparison.OrdinalIgnoreCase))
         {
-            int version;
-            lock (lockDeferredPlaylistRef)
-            {
-                deferredPlaylistRefRunning = false;
-                version = deferredPlaylistRefRequestedVersion;
-                deferredPlaylistRefLastCompletedVersion = Math.Max(deferredPlaylistRefLastCompletedVersion, version);
-            }
-            LogDeferredPlaylistReference("playlist_ref_deferred discarded reason=shutdown_requested requestReason=" + FormatTextForLog(reason) + " version=" + version);
+            PlaylistWorkspace.DiscardPlaylistReferenceApplyForShutdown(reason);
             return;
         }
         if (string.Equals(request.Name, "external_playlist_sync", StringComparison.OrdinalIgnoreCase))
@@ -5051,14 +4899,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private bool IsDeferredPlaylistWorkersIdle()
     {
-        lock (lockDeferredPlaylistRef)
-        {
-            if (deferredPlaylistRefRunning)
-            {
-                return false;
-            }
-        }
-        return PlaylistWorkspace.IsDeferredExternalPlaylistSyncIdle;
+        return PlaylistWorkspace.IsPlaylistReferenceApplyIdle
+            && PlaylistWorkspace.IsDeferredExternalPlaylistSyncIdle;
     }
 
     private async Task WaitForPlaylistReloadCleanupIdleAsync(ShutdownWaitTracker tracker)
@@ -5215,12 +5057,7 @@ public partial class MainWindowViewModel : ViewModel
 
     private string DescribeDeferredPlaylistWorkersWaitState()
     {
-        bool playlistRefRunning;
-        lock (lockDeferredPlaylistRef)
-        {
-            playlistRefRunning = deferredPlaylistRefRunning;
-        }
-        return "deferredPlaylistRefRunning=" + FormatBool(playlistRefRunning)
+        return PlaylistWorkspace.DescribePlaylistReferenceApplyWaitState()
             + " " + PlaylistWorkspace.DescribeDeferredExternalPlaylistSyncWaitState();
     }
 
@@ -5514,7 +5351,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (scheduleDeferredPlaylistRef)
         {
-            ScheduleDeferredPlaylistReferenceApply("ReloadFileDiff", operationToken);
+            PlaylistWorkspace.QueuePlaylistReferenceApply("ReloadFileDiff", operationToken);
             LogInitStage("deferred_playlist_ref_queued", "ReloadFileDiff");
         }
         SkipUnrequestedStartupProgressPhases(
@@ -5566,7 +5403,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (scheduleDeferredPlaylistRef)
         {
-            ScheduleDeferredPlaylistReferenceApply("FullReinitialize", operationToken);
+            PlaylistWorkspace.QueuePlaylistReferenceApply("FullReinitialize", operationToken);
             LogInitStage("deferred_playlist_ref_queued", "FullReinitialize");
         }
         SkipUnrequestedStartupProgressPhases(
@@ -6381,7 +6218,9 @@ public partial class MainWindowViewModel : ViewModel
     {
         int version = e?.Version ?? 0;
         TryCompleteStartupProgressPlaylistEntriesHydration(version);
-        ScheduleDeferredPlaylistReferenceApply("PlaylistEntriesHydration");
+        PlaylistWorkspace.QueuePlaylistReferenceApply(
+            "PlaylistEntriesHydration",
+            GetActiveStartupProgressOperationToken());
         if (PlayHistory.SelectedDisplayTarget.UsesProjection)
         {
             playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
@@ -6429,7 +6268,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
-        ScheduleDeferredPlaylistReferenceApply(request.Reason, request.OperationToken);
+        PlaylistWorkspace.QueuePlaylistReferenceApply(request.Reason, request.OperationToken);
     }
 
     private void PlaylistWorkspacePlaylistExternalSyncReferenceApplied(
@@ -6441,6 +6280,49 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
         TryCompleteStartupProgressPlaylistReference(request.Version);
+    }
+
+    private void PlaylistWorkspacePlaylistReferenceApplyQueued(
+        object sender,
+        PlaylistReferenceApplyQueuedEventArgs request)
+    {
+        if (request == null || !IsStartupProgressOperationTokenCurrent(request.OperationToken))
+        {
+            return;
+        }
+        TrackStartupProgressPlaylistReferenceRequest(request.Reason, request.Version);
+        TrackStartupProgressPlaylistEntriesHydrationDirectRequest(
+            request.Version,
+            "playlist_ref_deferred:" + request.Reason);
+    }
+
+    private void PlaylistWorkspacePlaylistReferenceApplyCompleted(
+        object sender,
+        PlaylistReferenceApplyCompletedEventArgs completion)
+    {
+        if (completion == null || !IsStartupProgressOperationTokenCurrent(completion.OperationToken))
+        {
+            return;
+        }
+        TryCompleteStartupProgressPlaylistEntriesHydration(completion.Version);
+        TryCompleteStartupProgressPlaylistReference(completion.Version);
+    }
+
+    private void PlaylistWorkspacePlaylistReferenceApplyPresentationRequested(
+        object sender,
+        PlaylistReferenceApplyPresentationRequestedEventArgs request)
+    {
+        if (request == null || !IsStartupProgressOperationTokenCurrent(request.OperationToken))
+        {
+            return;
+        }
+        if (TryDeferStartupPresentationRefresh(
+            UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree,
+            "playlist_ref_apply_completed"))
+        {
+            return;
+        }
+        RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
     }
 
     public void CloseProcess()

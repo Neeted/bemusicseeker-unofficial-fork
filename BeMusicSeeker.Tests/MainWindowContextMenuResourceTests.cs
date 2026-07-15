@@ -395,7 +395,7 @@ public sealed class MainWindowContextMenuResourceTests
         string viewExecutionCode = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.ViewExecution.cs");
         string refreshTargets = ExtractBetween(viewModelCode, "private void RefreshPlayHistoryDisplayTargets", "internal void ReplacePlayHistoryDisplayTargetSetsForTest");
         string displayTargetRefreshOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargetRefresh.cs");
-        string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void ScheduleDeferredPlaylistReferenceApply");
+        string flushPendingUiRefresh = ExtractBetween(viewModelCode, "private void FlushPendingUiRefresh", "private void BeginChartPackageMutation");
         string playlistStoreNotifications = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs");
         string state = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryPresentationState.cs");
         string workflowOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
@@ -1651,7 +1651,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "private void ShowInitialSetupCompletionMessageIfPending()");
         StringAssert.Contains(viewModelCode, "ShowInitialSetupCompletionMessageIfPending();");
         StringAssert.Contains(endSuppression, "FlushPendingUiRefresh(uiRefreshChannel, operationToken)");
-        StringAssert.Contains(viewModelCode, "ScheduleDeferredPlaylistReferenceApply(request.Reason, request.OperationToken)");
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.QueuePlaylistReferenceApply(request.Reason, request.OperationToken)");
+        Assert.IsFalse(viewModelCode.Contains("private void ScheduleDeferredPlaylistReferenceApply("));
     }
 
     [TestMethod]

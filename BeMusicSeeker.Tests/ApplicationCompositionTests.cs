@@ -79,7 +79,7 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
 
@@ -107,7 +107,7 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
             DateTime completedAt = DateTime.Now;
@@ -415,7 +415,7 @@ public sealed class ApplicationCompositionTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
 
         Assert.IsNotNull(mainChartList);
         Assert.IsNotNull(playlistWorkspace);
@@ -460,7 +460,7 @@ public sealed class ApplicationCompositionTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
@@ -548,7 +548,7 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 (exception, message) => { },
                 request => request(false),
-                request => request(true), () => false, _ => false, (_, _) => false);
+                request => request(true), () => false, _ => false, (_, _) => false, (_, _) => false);
             workspace.IsPlaylistSummaryMode = true;
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
@@ -655,7 +655,7 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 (exception, message) => { },
                 request => request(false),
-                request => request(true), () => false, _ => false, (_, _) => false);
+                request => request(true), () => false, _ => false, (_, _) => false, (_, _) => false);
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -841,7 +841,7 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false);
+                (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
             var queuedReasons = new List<string>();
             playlist.StartupBackgroundTaskScheduler = (_, reason, _, _) =>
             {
