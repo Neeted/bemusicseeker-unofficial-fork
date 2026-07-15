@@ -365,8 +365,13 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistSummaryBulkOperationFinished", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncStarted", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistPropertySyncFinished", StringComparison.Ordinal));
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryFilterChanged += PlaylistWorkspacePlaylistSummaryFilterChanged;");
-        StringAssert.Contains(logicalSource, "private void PlaylistWorkspacePlaylistSummaryFilterChanged(");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistSummarySortRequested", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistSummaryFilterChanged", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSummarySortRequested", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSummaryFilterChanged", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummaryPresentationRefresh()");
+        StringAssert.Contains(workspaceSource, "RequestDeferredPlaylistSummaryPresentationRefresh();");
+        StringAssert.Contains(workspaceSource, "DrainDeferredPlaylistSummaryRefresh(");
         Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryDataRefreshDecision", StringComparison.Ordinal));
@@ -1588,7 +1593,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Action? reloadCleanupGarbageCollector = null,
         Action<string>? reloadCleanupLog = null,
         Action<Exception, string>? reloadFailureLog = null,
-        Func<BMSPlaylist>? playlistStoreProvider = null)
+        Func<BMSPlaylist>? playlistStoreProvider = null,
+        Action<Action<bool>>? playlistSummaryPresentationRefreshGate = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
@@ -1623,7 +1629,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             reloadCleanupShutdownRequestedProvider ?? (() => false),
             reloadCleanupGarbageCollector ?? (() => { }),
             reloadCleanupLog ?? (_ => { }),
-            reloadFailureLog ?? ((_, _) => { }));
+            reloadFailureLog ?? ((_, _) => { }),
+            playlistSummaryPresentationRefreshGate);
         dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         return workspace;
@@ -1804,7 +1811,7 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
-    public void PlaylistWorkspaceSummarySortRequestCommitsOwnerStateBeforeEvent()
+    public void PlaylistWorkspaceSummarySortRequestDrainsOwnerPresentationState()
     {
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
@@ -1840,19 +1847,97 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => { },
             _ => { },
             (exception, message) => { });
-        int raisedCount = 0;
-        workspace.PlaylistSummarySortRequested += (_, _) =>
-        {
-            raisedCount++;
-            Assert.AreEqual(nameof(PlaylistSummaryRow.TotalCharts), workspace.PlaylistSummarySortParameters.ColumnsName);
-            Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistSummarySortParameters.Direction);
-        };
+        workspace.IsPlaylistSummaryMode = true;
+        long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+        Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
+            new[] { new PlaylistSummaryRow { TotalCharts = 3 } },
+            dataGeneration));
+        long presentationGenerationBefore = workspace.CurrentPlaylistSummaryPresentationGeneration;
 
         workspace.RequestPlaylistSummarySort(
             nameof(PlaylistSummaryRow.TotalCharts),
             System.ComponentModel.ListSortDirection.Descending);
 
-        Assert.AreEqual(1, raisedCount);
+        Assert.AreEqual(nameof(PlaylistSummaryRow.TotalCharts), workspace.PlaylistSummarySortParameters.ColumnsName);
+        Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistSummarySortParameters.Direction);
+        Assert.IsTrue(workspace.CurrentPlaylistSummaryPresentationGeneration > presentationGenerationBefore);
+        Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummaryFiltersDrainVisiblePresentationAndStayDeferredWhenHidden()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        workspace.IsPlaylistSummaryMode = true;
+        long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+        Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
+            new[]
+            {
+                new PlaylistSummaryRow { Name = "alpha", TotalCharts = 2, OwnedCharts = 2 },
+                new PlaylistSummaryRow { Name = "beta", TotalCharts = 3, OwnedCharts = 1 }
+            },
+            dataGeneration));
+
+        workspace.RequestPlaylistSummaryPresentationRefresh();
+        Assert.AreEqual(2, workspace.PlaylistSummaryView.Count);
+        long initialPresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        workspace.PlaylistSummaryKeywordFilter = "alpha";
+        long keywordPresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        Assert.IsTrue(keywordPresentationGeneration > initialPresentationGeneration);
+        Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+        Assert.AreEqual("alpha", workspace.PlaylistSummaryView[0].Name);
+        Assert.AreEqual(
+            string.Format(
+                BeMusicSeeker.Properties.Resources.Playlist_summary_format,
+                2,
+                1),
+            workspace.PlaylistSummaryText);
+
+        workspace.PlaylistSummaryKeywordFilter = string.Empty;
+        Assert.AreEqual(2, workspace.PlaylistSummaryView.Count);
+        workspace.PlaylistSummaryOwnedFilter = PlaylistOwnedFilter.OwnedComplete;
+        long ownedPresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        Assert.IsTrue(ownedPresentationGeneration > keywordPresentationGeneration);
+        Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+        Assert.AreEqual("alpha", workspace.PlaylistSummaryView[0].Name);
+
+        Assert.IsTrue(workspace.SetPlaylistSummaryMode(enabled: false));
+        long hiddenPresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        workspace.PlaylistSummaryKeywordFilter = string.Empty;
+        workspace.PlaylistSummaryOwnedFilter = PlaylistOwnedFilter.All;
+        Assert.AreEqual(hiddenPresentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceSummaryPresentationRefreshRespectsShellSuppressionGate()
+    {
+        bool suppressed = true;
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistSummaryPresentationRefreshGate: request => request(suppressed));
+        workspace.IsPlaylistSummaryMode = true;
+        long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
+        Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
+            new[]
+            {
+                new PlaylistSummaryRow { Name = "alpha", TotalCharts = 2, OwnedCharts = 2 },
+                new PlaylistSummaryRow { Name = "beta", TotalCharts = 3, OwnedCharts = 1 }
+            },
+            dataGeneration));
+
+        suppressed = false;
+        workspace.RequestPlaylistSummaryPresentationRefresh();
+        suppressed = true;
+        long initialPresentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        workspace.PlaylistSummaryKeywordFilter = "alpha";
+        Assert.AreEqual(initialPresentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
+        Assert.AreEqual(2, workspace.PlaylistSummaryView.Count);
+
+        suppressed = false;
+        workspace.PlaylistSummaryKeywordFilter = "beta";
+        Assert.IsTrue(workspace.CurrentPlaylistSummaryPresentationGeneration > initialPresentationGeneration);
+        Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+        Assert.AreEqual("beta", workspace.PlaylistSummaryView[0].Name);
     }
 
     [TestMethod]

@@ -168,7 +168,8 @@ internal sealed class ApplicationComposition
         Func<bool> playlistReloadCleanupShutdownRequestedProvider,
         Action playlistReloadCleanupGarbageCollector,
         Action<string> playlistReloadLog,
-        Action<Exception, string> playlistSyncFailureLog)
+        Action<Exception, string> playlistSyncFailureLog,
+        Action<Action<bool>> playlistSummaryPresentationRefreshGate = null)
     {
         var playlistPropertySaveService = new PlaylistPropertySaveService(
             tablesProvider,
@@ -210,7 +211,8 @@ internal sealed class ApplicationComposition
             playlistReloadCleanupShutdownRequestedProvider,
             playlistReloadCleanupGarbageCollector,
             playlistReloadLog,
-            playlistSyncFailureLog);
+            playlistSyncFailureLog,
+            playlistSummaryPresentationRefreshGate);
         return playlistWorkspace;
     }
 

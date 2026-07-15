@@ -49,6 +49,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 
     private readonly PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
 
+    private readonly Action<Action<bool>> playlistSummaryPresentationRefreshGate;
+
     private IPlaylistDetailDataSource detailDataSource;
 
     internal PlaylistDetailBuildState DetailBuildState { get; }
@@ -122,7 +124,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<bool> playlistReloadCleanupShutdownRequestedProvider,
         Action playlistReloadCleanupGarbageCollector,
         Action<string> playlistReloadLog,
-        Action<Exception, string> playlistSyncFailureLog)
+        Action<Exception, string> playlistSyncFailureLog,
+        Action<Action<bool>> playlistSummaryPresentationRefreshGate = null)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -188,6 +191,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistReloadLog));
         this.playlistSyncFailureLog = playlistSyncFailureLog
             ?? throw new ArgumentNullException(nameof(playlistSyncFailureLog));
+        this.playlistSummaryPresentationRefreshGate = playlistSummaryPresentationRefreshGate;
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
@@ -509,16 +513,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied;
 
     /// <summary>
-    /// Raised after the child owner accepts a different playlist-summary sort.
-    /// </summary>
-    internal event EventHandler PlaylistSummarySortRequested;
-
-    /// <summary>
-    /// Raised after a playlist-summary filter input changes and the shell must refresh the visible summary.
-    /// </summary>
-    internal event EventHandler PlaylistSummaryFilterChanged;
-
-    /// <summary>
     /// Raised after a playlist-summary data mutation requires the shell to schedule a fresh summary build.
     /// </summary>
     internal event EventHandler<PlaylistSummaryDataRefreshRequestedEventArgs> PlaylistSummaryDataRefreshRequested;
@@ -564,7 +558,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ColumnsName = normalizedColumnName,
             Direction = direction
         };
-        PlaylistSummarySortRequested?.Invoke(this, EventArgs.Empty);
+        RequestPlaylistSummaryPresentationRefresh();
     }
 
     /// <summary>
@@ -898,7 +892,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
                 playlistSummaryKeywordFilter = next;
                 RaisePropertyChanged(nameof(PlaylistSummaryKeywordFilter));
                 UpdatePlaylistSummaryKeywordSearchPresentation();
-                PlaylistSummaryFilterChanged?.Invoke(this, EventArgs.Empty);
+                RequestVisiblePlaylistSummaryPresentationRefresh();
             }
         }
     }
@@ -972,7 +966,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             {
                 playlistSummaryOwnedFilter = value;
                 RaisePropertyChanged(nameof(PlaylistSummaryOwnedFilter));
-                PlaylistSummaryFilterChanged?.Invoke(this, EventArgs.Empty);
+                RequestVisiblePlaylistSummaryPresentationRefresh();
             }
         }
     }
@@ -1053,6 +1047,46 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             {
                 deferredPlaylistSummaryPresentationRefreshRequested = true;
             }
+        }
+    }
+
+    /// <summary>
+    /// Requests and drains a presentation-only refresh for the current playlist summary state.
+    /// Hidden mode and an active data refresh remain governed by the existing deferred refresh state.
+    /// </summary>
+    internal void RequestPlaylistSummaryPresentationRefresh()
+    {
+        if (playlistSummaryPresentationRefreshGate != null)
+        {
+            playlistSummaryPresentationRefreshGate(deferred =>
+            {
+                RequestDeferredPlaylistSummaryPresentationRefresh();
+                if (!deferred)
+                {
+                    DrainDeferredPlaylistSummaryRefresh(
+                        dataRefreshRequired: false,
+                        rebuildAsync: true);
+                }
+            });
+        }
+        else
+        {
+            RequestDeferredPlaylistSummaryPresentationRefresh();
+            DrainDeferredPlaylistSummaryRefresh(
+                dataRefreshRequired: false,
+                rebuildAsync: true);
+        }
+    }
+
+    /// <summary>
+    /// Requests a filter-driven presentation refresh only while summary mode is visible.
+    /// Hidden-mode filter changes leave pending data refresh state untouched.
+    /// </summary>
+    private void RequestVisiblePlaylistSummaryPresentationRefresh()
+    {
+        if (IsPlaylistSummaryMode)
+        {
+            RequestPlaylistSummaryPresentationRefresh();
         }
     }
 
