@@ -855,7 +855,9 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
-            (_, _) => { });
+            (_, _) => { },
+            () => null!,
+            _ => { });
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         SelectSummaryFilter(workflowOwner, "exhard");
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
@@ -923,7 +925,9 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
-            (_, _) => { });
+            (_, _) => { },
+            () => null!,
+            _ => { });
         workflowOwner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = nameof(PlayHistoryRow.Title),
@@ -985,7 +989,9 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
-            (_, _) => { });
+            (_, _) => { },
+            () => null!,
+            _ => { });
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
         SelectSummaryFilter(workflowOwner, "exhard");
 
@@ -1045,7 +1051,9 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
-            (_, _) => { });
+            (_, _) => { },
+            () => null!,
+            _ => { });
         workspace.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
@@ -1451,7 +1459,9 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
-            (_, _) => { });
+            (_, _) => { },
+            () => null!,
+            _ => { });
         var owner = new PlayHistoryTerminalHarness(
             workflowOwner,
             table,
@@ -1576,7 +1586,9 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
-            (_, _) => { });
+            (_, _) => { },
+            () => null!,
+            _ => { });
         var sourceClear = new PlaylistSourceClearCommitResult(
             [],
             new List<object>(),
@@ -4058,7 +4070,9 @@ public sealed class ChartListVirtualViewTests
             PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
             PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             () => null!,
-            (_, _) => { });
+            (_, _) => { },
+            () => null!,
+            _ => { });
         configureWorkspace(workspace);
         return new PlayHistoryTerminalHarness(
             workflowOwner,

@@ -8,6 +8,7 @@ using System.Runtime.Serialization;
 using System.Threading;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.LR2;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
@@ -109,7 +110,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<BMSPlaylist> playlistStoreProvider,
         PlaylistPropertySaveService propertySaveService,
         Func<BMSLibrary> playlistLibraryProvider,
-        Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications)
+        Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications,
+        Func<LR2Config> lr2ConfigProvider,
+        Action<string> summaryBulkWarningLog)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -152,6 +155,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistLibraryProvider));
         this.presentPlaylistOperationNotifications = presentPlaylistOperationNotifications
             ?? throw new ArgumentNullException(nameof(presentPlaylistOperationNotifications));
+        getLr2Config = lr2ConfigProvider
+            ?? throw new ArgumentNullException(nameof(lr2ConfigProvider));
+        this.summaryBulkWarningLog = summaryBulkWarningLog
+            ?? throw new ArgumentNullException(nameof(summaryBulkWarningLog));
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;

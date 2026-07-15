@@ -617,7 +617,9 @@ public sealed class BmsPlaylistUpdateTests
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => library,
-                (_, _) => { });
+                (_, _) => { },
+                () => null!,
+                _ => { });
             workspace.ConfigurePlaylistReloadCleanup(
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,
@@ -764,7 +766,9 @@ public sealed class BmsPlaylistUpdateTests
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => library,
-                (_, _) => { });
+                (_, _) => { },
+                () => null!,
+                _ => { });
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
 
             List<PlaylistWorkspaceEntriesChangedEventArgs> changes = [];
@@ -1243,12 +1247,35 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(
                 new ObservableCollection<BMSTable>(new[] { tableA, tableB }),
                 Dispatcher.CurrentDispatcher);
-            var viewModel = new MainWindowViewModel();
-            typeof(MainWindowViewModel)
-                .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
-                ?.SetValue(viewModel, playlist);
+            var library = new BMSLibrary(songDbPath);
+            List<string> warnings = [];
+            var workspace = new PlaylistWorkspaceViewModel(
+                action => action(),
+                new MainChartListViewModel(action => action()),
+                new PlaylistDetailBuildState(),
+                new PlaylistDetailViewState(),
+                _ => { },
+                _ => { },
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = true },
+                PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+                PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+                PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+                PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+                PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
+                PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+                PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
+                PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+                PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+                PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+                () => playlist,
+                PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+                () => library,
+                (_, _) => { },
+                () => null!,
+                warnings.Add);
 
-            await viewModel.PlaylistWorkspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
+            await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
                 new PlaylistWorkspaceViewModel.PlaylistSummaryExternalPropertyInitializationOptions
                 {
@@ -1263,6 +1290,9 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual("OutputB", tableB.name);
             Assert.AreEqual("B2", tableB.symbol);
             Assert.AreEqual("OutputB", tableB.Output_dir);
+            CollectionAssert.AreEqual(
+                new[] { "playlist_summary_external_property_initialization_skipped reason=duplicate_output_dir table=LocalA outputDir=OutputB" },
+                warnings);
         }
         finally
         {
@@ -6406,7 +6436,9 @@ public sealed class BmsPlaylistUpdateTests
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => library,
-                (_, _) => { });
+                (_, _) => { },
+                () => null!,
+                _ => { });
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
             {

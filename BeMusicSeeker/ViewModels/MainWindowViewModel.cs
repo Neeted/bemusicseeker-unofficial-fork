@@ -4564,10 +4564,9 @@ public partial class MainWindowViewModel : ViewModel
             LogBeatorajaTableUrlImportInfo,
             () => files,
             () => lr2config,
-            FlushPlaylistOperationNotifications);
+            FlushPlaylistOperationNotifications,
+            LogPlaylistSummaryBulkWarning);
         PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
-        PlaylistWorkspace.ConfigureSummaryBulkEditing(() => lr2config);
-        PlaylistWorkspace.ConfigureSummaryBulkWarningLogging(LogPlaylistSummaryBulkWarning);
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;

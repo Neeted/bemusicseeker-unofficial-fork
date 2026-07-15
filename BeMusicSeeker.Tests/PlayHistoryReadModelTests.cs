@@ -3447,7 +3447,9 @@ public sealed class PlayHistoryReadModelTests
                 PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => null!,
-                (_, _) => { }));
+                (_, _) => { },
+                () => null!,
+                _ => { }));
     }
 
     [TestMethod]

@@ -15,20 +15,10 @@ namespace BeMusicSeeker.ViewModels;
 public sealed partial class PlaylistWorkspaceViewModel
 {
 
-    private Func<LR2Config> getLr2Config;
-    private Action<string> summaryBulkWarningLog;
+    private readonly Func<LR2Config> getLr2Config;
+    private readonly Action<string> summaryBulkWarningLog;
     private PlaylistSummaryBulkEditDialogViewModel activeSummaryBulkEditDialog;
     internal event EventHandler<PlaylistSummaryBulkInvalidOutputDirectoryEventArgs> PlaylistSummaryBulkInvalidOutputDirectoryRequested;
-
-    internal void ConfigureSummaryBulkEditing(Func<LR2Config> lr2ConfigProvider)
-    {
-        getLr2Config = lr2ConfigProvider ?? throw new ArgumentNullException(nameof(lr2ConfigProvider));
-    }
-
-    internal void ConfigureSummaryBulkWarningLogging(Action<string> warningLog)
-    {
-        summaryBulkWarningLog = warningLog ?? throw new ArgumentNullException(nameof(warningLog));
-    }
 
     internal PlaylistSummaryBulkEditDialogViewModel ActiveSummaryBulkEditDialog => activeSummaryBulkEditDialog;
     internal bool IsCustomFolderOutputEnabled => GetCustomFolderOutputSettings().OperationModeLR2DB;
@@ -69,7 +59,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private LR2Config GetLr2Config()
     {
-        return getLr2Config?.Invoke();
+        return getLr2Config();
     }
 
     private void RunPlaylistSummaryBulkOperation(Action operation, string routeName)
@@ -122,8 +112,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void LogPlaylistSummaryBulkWarning(string message)
     {
-        (summaryBulkWarningLog ?? throw new InvalidOperationException("Playlist summary bulk warning logging is not configured."))
-            (message ?? string.Empty);
+        summaryBulkWarningLog(message ?? string.Empty);
     }
 
     private string ResolvePlaylistSummaryCustomFolderOutputDirectory(
