@@ -251,10 +251,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         return changed;
     }
 
-    internal bool TryExecuteCurrentPlaylistDetailSelection(
+    internal bool TryActivateCurrentPlaylistDetailSelection(
         PlaylistDetailSelection selection,
         long selectionRevision,
-        Action apply)
+        Action<bool> apply)
     {
         if (apply == null)
         {
@@ -266,7 +266,8 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 return false;
             }
-            apply();
+            bool summaryModeChanged = SetPlaylistSummaryMode(enabled: false);
+            apply(summaryModeChanged);
             return true;
         }
     }

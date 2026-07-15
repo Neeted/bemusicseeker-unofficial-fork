@@ -4362,12 +4362,12 @@ public partial class MainWindowViewModel : ViewModel
         InvokeMainChartListPresentationAction(
             () =>
             {
-                PlaylistWorkspace.TryExecuteCurrentPlaylistDetailSelection(
+                PlaylistWorkspace.TryActivateCurrentPlaylistDetailSelection(
                     selection,
                     request.SelectionRevision,
-                    () =>
+                    summaryModeChanged =>
                     {
-                        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
+                        if (summaryModeChanged)
                         {
                             UpdateKeywordSearchPresentation();
                         }
