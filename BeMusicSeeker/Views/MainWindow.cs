@@ -4212,11 +4212,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (!string.IsNullOrWhiteSpace(bmsTable.page_url) && bmsTable.page_url.StartsWith("bmseeker:table.recommended"))
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_override_level_error_recommended, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-        }
-        else if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_override_level_warning, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (viewModel.PlaylistWorkspace.ConfirmPlaylistOverwriteLevel(bmsTable))
         {
             _ = viewModel.PlaylistWorkspace.ReplaceBmsFileLevelByTableEntryLevelAsync(bmsTable)
                 .Logging("treeViewPlaylistTableContextMenuItemOverwriteLevelClick");

@@ -84,7 +84,10 @@ public sealed class MainWindowContextMenuResourceTests
             "private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick",
             "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick");
 
+        StringAssert.Contains(route, "ConfirmPlaylistOverwriteLevel(bmsTable)");
         StringAssert.Contains(route, "viewModel.PlaylistWorkspace.ReplaceBmsFileLevelByTableEntryLevelAsync(bmsTable)");
+        Assert.AreEqual(-1, route.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
+        Assert.AreEqual(-1, route.IndexOf("bmseeker:table.recommended", StringComparison.Ordinal));
         Assert.IsFalse(route.Contains("viewModel.ReplaceBMSFileLevelByTableEntryLevel("));
         StringAssert.Contains(workspaceMutationSource, "internal Task ReplaceBmsFileLevelByTableEntryLevelAsync(BMSTable bmsTable)");
         StringAssert.Contains(workspaceMutationSource, "GetPlaylistLibrary().ReplaceBmsFileLevelByTableEntryLevel(bmsTable)");

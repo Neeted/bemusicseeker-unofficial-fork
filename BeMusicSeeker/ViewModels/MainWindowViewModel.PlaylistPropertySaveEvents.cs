@@ -90,6 +90,29 @@ public partial class MainWindowViewModel
             MessageBoxResult.Cancel);
     }
 
+    private void PlaylistWorkspacePlaylistTableLevelOverwriteConfirmationRequested(
+        object sender,
+        PlaylistTableLevelOverwriteConfirmationRequestedEventArgs request)
+    {
+        if (request.IsRecommendedTable)
+        {
+            ShowUiMessage(
+                BeMusicSeeker.Properties.Resources.Msg_override_level_error_recommended,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxImage.Hand,
+                "Playlist table level overwrite recommended error notification");
+            return;
+        }
+
+        request.Confirmed = ShowUiConfirmation(
+            BeMusicSeeker.Properties.Resources.Msg_override_level_warning,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxImage.Question,
+            MessageBoxButton.OKCancel,
+            "Playlist table level overwrite confirmation",
+            MessageBoxResult.Cancel);
+    }
+
     private void PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady(
         object sender,
         ExternalPlaylistImportQueueSummaryReadyEventArgs request)

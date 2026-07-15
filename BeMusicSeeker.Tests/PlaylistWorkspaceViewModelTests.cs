@@ -270,9 +270,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "PlaylistSummaryRemovalConfirmationRequested");
         StringAssert.Contains(workspaceSource, "PlaylistTableRemovalConfirmationRequested");
         StringAssert.Contains(workspaceSource, "internal bool ConfirmPlaylistTableRemoval(BMSTable table)");
+        StringAssert.Contains(workspaceSource, "PlaylistTableLevelOverwriteConfirmationRequested");
+        StringAssert.Contains(workspaceSource, "internal bool ConfirmPlaylistOverwriteLevel(BMSTable table)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested += PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested += PlaylistWorkspacePlaylistTableRemovalConfirmationRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistTableLevelOverwriteConfirmationRequested += PlaylistWorkspacePlaylistTableLevelOverwriteConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistImportNotificationsFlushRequested += PlaylistWorkspacePlaylistImportNotificationsFlushRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
@@ -321,6 +324,12 @@ public sealed class PlaylistWorkspaceViewModelTests
             "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick(");
         Assert.AreEqual(-1, tableRemoveSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
         StringAssert.Contains(tableRemoveSource, "SelectNextSiblingOrRoot(");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ConfirmPlaylistOverwriteLevel(bmsTable)");
+        string tableOverwriteSource = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick(");
+        Assert.AreEqual(-1, tableOverwriteSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
+        Assert.AreEqual(-1, tableOverwriteSource.IndexOf("bmseeker:table.recommended", StringComparison.Ordinal));
         string summaryRemoveSource = SourceTextTestHelper.ExtractMethodBody(
             mainWindowSource,
             "private async void playlistSummaryContextMenuRemoveClick(");
@@ -592,6 +601,25 @@ public sealed class PlaylistWorkspaceViewModelTests
         workspace.PlaylistTableRemovalConfirmationRequested += (_, request) => request.Confirmed = true;
         Assert.IsTrue(workspace.ConfirmPlaylistTableRemoval(table));
         Assert.IsTrue(confirmationRequested);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceOverwriteLevelConfirmationRejectsRecommendedTables()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var recommendedTable = new BMSTable { Page_url = new Uri("bmseeker:table.recommended") };
+        var normalTable = new BMSTable { Page_url = new Uri("https://example.test/table") };
+        var requests = new List<bool>();
+        workspace.PlaylistTableLevelOverwriteConfirmationRequested += (_, request) =>
+        {
+            requests.Add(request.IsRecommendedTable);
+            request.Confirmed = true;
+        };
+
+        Assert.IsFalse(workspace.ConfirmPlaylistOverwriteLevel(null));
+        Assert.IsFalse(workspace.ConfirmPlaylistOverwriteLevel(recommendedTable));
+        Assert.IsTrue(workspace.ConfirmPlaylistOverwriteLevel(normalTable));
+        CollectionAssert.AreEqual(new[] { true, false }, requests);
     }
 
     [TestMethod]
