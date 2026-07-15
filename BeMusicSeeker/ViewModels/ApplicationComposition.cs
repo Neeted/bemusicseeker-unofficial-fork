@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows.Markup;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
@@ -159,7 +160,8 @@ internal sealed class ApplicationComposition
         Func<LR2Config> lr2ConfigProvider,
         Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications,
         Action<string> summaryBulkWarningLog,
-        DispatcherCollection<BMSTable> emptyPlaylistTreeSource)
+        DispatcherCollection<BMSTable> emptyPlaylistTreeSource,
+        Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler)
     {
         var playlistPropertySaveService = new PlaylistPropertySaveService(
             tablesProvider,
@@ -193,7 +195,8 @@ internal sealed class ApplicationComposition
             presentPlaylistOperationNotifications,
             lr2ConfigProvider,
             summaryBulkWarningLog,
-            emptyPlaylistTreeSource);
+            emptyPlaylistTreeSource,
+            playlistLibraryIndexPrewarmScheduler);
         return playlistWorkspace;
     }
 

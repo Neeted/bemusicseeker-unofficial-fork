@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.LR2;
@@ -113,7 +114,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications,
         Func<LR2Config> lr2ConfigProvider,
         Action<string> summaryBulkWarningLog,
-        DispatcherCollection<BMSTable> emptyPlaylistTreeSource)
+        DispatcherCollection<BMSTable> emptyPlaylistTreeSource,
+        Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -163,6 +165,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         emptyPlaylistTreeTables = emptyPlaylistTreeSource
             ?? throw new ArgumentNullException(nameof(emptyPlaylistTreeSource));
         playlistTreeTables = emptyPlaylistTreeTables;
+        this.playlistLibraryIndexPrewarmScheduler = playlistLibraryIndexPrewarmScheduler
+            ?? throw new ArgumentNullException(nameof(playlistLibraryIndexPrewarmScheduler));
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;

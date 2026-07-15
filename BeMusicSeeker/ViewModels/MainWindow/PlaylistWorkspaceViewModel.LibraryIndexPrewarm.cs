@@ -61,19 +61,9 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private string deferredPlaylistLibraryIndexPrewarmReason;
 
-    private Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler;
+    private readonly Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler;
 
     private bool playlistLibraryIndexShutdownRequested;
-
-    internal void ConfigurePlaylistLibraryIndexPrewarm(
-        Func<string, Func<Task>, bool> startupBackgroundTaskScheduler)
-    {
-        if (startupBackgroundTaskScheduler == null)
-        {
-            throw new ArgumentNullException(nameof(startupBackgroundTaskScheduler));
-        }
-        playlistLibraryIndexPrewarmScheduler = startupBackgroundTaskScheduler;
-    }
 
     private void ResetPlaylistLibraryIndexPrewarmForDataSourceChange()
     {
@@ -135,17 +125,16 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (!debounce && string.Equals(reason, "initialize_completed", StringComparison.OrdinalIgnoreCase))
         {
             LogPlaylistLibraryIndex("playlist_library_index_prewarm queued version=" + targetVersion + " reason=" + reason + " debounceMs=" + delayMs + " source=scheduler");
-            if (playlistLibraryIndexPrewarmScheduler != null
-                && playlistLibraryIndexPrewarmScheduler(
-                    reason,
-                    async delegate
+            if (playlistLibraryIndexPrewarmScheduler(
+                reason,
+                async delegate
+                {
+                    Task<PlaylistLibraryIndexSnapshot> task = StartPlaylistLibraryIndexPrewarmTask(targetVersion, reason, delayMs, "scheduler");
+                    if (task != null)
                     {
-                        Task<PlaylistLibraryIndexSnapshot> task = StartPlaylistLibraryIndexPrewarmTask(targetVersion, reason, delayMs, "scheduler");
-                        if (task != null)
-                        {
-                            await task.ConfigureAwait(false);
-                        }
-                    }))
+                        await task.ConfigureAwait(false);
+                    }
+                }))
             {
                 return;
             }

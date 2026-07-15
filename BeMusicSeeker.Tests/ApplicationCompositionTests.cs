@@ -71,7 +71,8 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 (_, _) => { },
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                (_, _) => false);
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
 
@@ -92,7 +93,8 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 (_, _) => { },
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                (_, _) => false);
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
             DateTime completedAt = DateTime.Now;
@@ -393,7 +395,8 @@ public sealed class ApplicationCompositionTests
             () => null!,
             (_, _) => { },
             _ => { },
-            emptyPlaylistTreeSource);
+            emptyPlaylistTreeSource,
+            (_, _) => false);
 
         Assert.IsNotNull(mainChartList);
         Assert.IsNotNull(playlistWorkspace);
@@ -431,7 +434,8 @@ public sealed class ApplicationCompositionTests
             () => null!,
             (_, _) => { },
             _ => { },
-            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            (_, _) => false);
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
@@ -510,7 +514,8 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 (_, _) => { },
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                (_, _) => false);
             workspace.IsPlaylistSummaryMode = true;
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
@@ -605,7 +610,8 @@ public sealed class ApplicationCompositionTests
                 () => null!,
                 (_, _) => { },
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                (_, _) => false);
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -791,7 +797,8 @@ public sealed class ApplicationCompositionTests
                 (_, _) => { },
                 () => null!,
                 _ => { },
-                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+                (_, _) => false);
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
             var queuedReasons = new List<string>();

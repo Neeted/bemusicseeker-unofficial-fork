@@ -4566,7 +4566,8 @@ public partial class MainWindowViewModel : ViewModel
             () => lr2config,
             FlushPlaylistOperationNotifications,
             LogPlaylistSummaryBulkWarning,
-            new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
+            new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher),
+            (reason, work) => QueueStartupBackgroundTask("playlist_library_index_prewarm", reason, null, work));
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
@@ -6248,8 +6249,6 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
             PlaylistWorkspace.SetDetailDataSource(
                 applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
-            PlaylistWorkspace.ConfigurePlaylistLibraryIndexPrewarm(
-                (reason, work) => QueueStartupBackgroundTask("playlist_library_index_prewarm", reason, null, work));
             PlaylistWorkspace.ConfigurePlaylistReloadCleanup(
                 () => startupReadyOperableReached,
                 () => treeViewFilterTypeSelected,
