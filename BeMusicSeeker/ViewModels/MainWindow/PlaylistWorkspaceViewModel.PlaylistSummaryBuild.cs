@@ -12,7 +12,6 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Livet;
-using NLog;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -57,16 +56,10 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>
     /// Drains one deferred summary refresh and executes its terminal data or presentation route.
     /// </summary>
-    /// <param name="library">The library that supplies the owned-chart digest snapshot.</param>
-    /// <param name="playlists">The playlist collection whose current tables are summarized.</param>
-    /// <param name="logger">The concrete diagnostics sink used by the summary pipeline.</param>
     /// <param name="dataRefreshRequired">Whether the caller observed an external data refresh.</param>
     /// <param name="rebuildAsync">Whether a data rebuild should run on the task pool.</param>
     /// <returns>The accepted data generation, or zero when no data rebuild was started.</returns>
     internal long DrainDeferredPlaylistSummaryRefresh(
-        BMSLibrary library,
-        BMSPlaylist playlists,
-        Logger logger,
         bool dataRefreshRequired,
         bool rebuildAsync)
     {
@@ -77,11 +70,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         if (refresh == PlaylistSummaryDeferredRefreshKind.Data)
         {
-            return RebuildPlaylistSummaryView(library, playlists, logger, rebuildAsync);
+            return RebuildPlaylistSummaryView(rebuildAsync);
         }
         if (refresh == PlaylistSummaryDeferredRefreshKind.Presentation)
         {
-            RefreshPlaylistSummaryPresentation(library, playlists, logger);
+            RefreshPlaylistSummaryPresentation();
         }
         return 0L;
     }
@@ -89,20 +82,26 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>
     /// Builds raw summary rows and publishes the fresh filtered and sorted result owned by this workspace.
     /// </summary>
-    /// <param name="library">The library that supplies the owned-chart digest snapshot.</param>
-    /// <param name="playlists">The playlist collection whose current tables are summarized.</param>
-    /// <param name="logger">The concrete diagnostics sink used by the summary pipeline.</param>
     /// <param name="runAsync">Whether to run the build on the task pool.</param>
     /// <returns>The accepted data generation, or zero when the workspace cannot start a build.</returns>
-    internal long RebuildPlaylistSummaryView(
-        BMSLibrary library,
-        BMSPlaylist playlists,
-        Logger logger,
-        bool runAsync = true)
+    internal long RebuildPlaylistSummaryView(bool runAsync = true)
     {
         if (!TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest))
         {
             return 0L;
+        }
+
+        BMSLibrary library;
+        BMSPlaylist playlists;
+        try
+        {
+            library = getPlaylistLibrary();
+            playlists = getPlaylistStore();
+        }
+        catch
+        {
+            CompletePlaylistSummaryDataBuild(buildRequest);
+            throw;
         }
 
         IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> syncStatusSnapshot = CapturePlaylistSyncStatusSnapshot();
@@ -123,7 +122,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             catch (OperationCanceledException)
             {
-                LogBuild(logger, "playlist_summary_build_cancelled dataGeneration=" + dataRebuildGeneration
+                LogBuild("playlist_summary_build_cancelled dataGeneration=" + dataRebuildGeneration
                     + " currentDataGeneration=" + CurrentPlaylistSummaryDataRebuildGeneration
                     + " buildMs=" + stopwatch.ElapsedMilliseconds);
                 return;
@@ -132,7 +131,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             long buildMs = stopwatch.ElapsedMilliseconds;
             if (!IsCurrentPlaylistSummaryDataRebuildGeneration(dataRebuildGeneration))
             {
-                LogBuild(logger, "playlist_summary_build_stale rawCount=" + buildResult.Rows.Count
+                LogBuild("playlist_summary_build_stale rawCount=" + buildResult.Rows.Count
                     + " dataGeneration=" + dataRebuildGeneration
                     + " currentDataGeneration=" + CurrentPlaylistSummaryDataRebuildGeneration
                     + " buildMs=" + buildMs);
@@ -147,7 +146,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
             string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
             BMSLibrary.PlaylistSummaryOwnedHashSnapshot ownedSnapshot = buildResult.OwnedHashSnapshot;
-            LogBuild(logger, "playlist_summary_build tableCount=" + buildResult.TableCount
+            LogBuild("playlist_summary_build tableCount=" + buildResult.TableCount
                 + " unloadedTableCount=" + buildResult.UnloadedTableCount
                 + " entryScanCount=" + buildResult.EntryScanCount
                 + " rawCount=" + buildResult.Rows.Count
@@ -160,7 +159,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 + " tableCacheMiss=" + buildResult.SummaryCacheMissCount
                 + " sortColumn=" + sortColumn
                 + " sortDirection=" + sortDirection);
-            LogBuild(logger, "playlist_summary_cache tableCount=" + buildResult.TableCount
+            LogBuild("playlist_summary_cache tableCount=" + buildResult.TableCount
                 + " entryScanCount=" + buildResult.EntryScanCount
                 + " cacheHit=" + buildResult.SummaryCacheHitCount
                 + " cacheMiss=" + buildResult.SummaryCacheMissCount
@@ -172,7 +171,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                 stopwatch,
                 buildMs,
                 presentationGeneration,
-                logger,
                 dataRebuildGeneration: dataRebuildGeneration);
         }
 
@@ -212,20 +210,14 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// <summary>
     /// Reapplies filtering and sorting to the current raw-row cache, rebuilding data when no fresh cache exists.
     /// </summary>
-    /// <param name="library">The library used if a data rebuild becomes necessary.</param>
-    /// <param name="playlists">The playlist collection used if a data rebuild becomes necessary.</param>
-    /// <param name="logger">The concrete diagnostics sink used by the presentation pipeline.</param>
-    internal void RefreshPlaylistSummaryPresentation(
-        BMSLibrary library,
-        BMSPlaylist playlists,
-        Logger logger)
+    internal void RefreshPlaylistSummaryPresentation()
     {
         List<PlaylistSummaryRow> cachedRows = GetPlaylistSummaryRowsCacheSnapshot(
             out long cacheGeneration,
             out long dataRebuildGeneration);
         if (cachedRows == null)
         {
-            RebuildPlaylistSummaryView(library, playlists, logger);
+            RebuildPlaylistSummaryView();
             return;
         }
 
@@ -235,7 +227,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             Stopwatch.StartNew(),
             0L,
             presentationGeneration,
-            logger,
             dataRebuildGeneration: dataRebuildGeneration,
             cacheGeneration: cacheGeneration);
     }
@@ -349,7 +340,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         Stopwatch stopwatch,
         long buildMs,
         long presentationGeneration,
-        Logger logger,
         long? dataRebuildGeneration = null,
         long? cacheGeneration = null)
     {
@@ -362,7 +352,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             useLegacySort: false);
         if (!CanApplyPlaylistSummaryPresentation(presentationGeneration, dataRebuildGeneration, cacheGeneration))
         {
-            LogStalePresentation(logger, safeRawRows.Count, presentationGeneration, dataRebuildGeneration, cacheGeneration);
+            LogStalePresentation(safeRawRows.Count, presentationGeneration, dataRebuildGeneration, cacheGeneration);
             return;
         }
 
@@ -388,7 +378,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         dispatchPresentation(Reflect);
 
         Interlocked.Exchange(ref lastPlaylistSummaryBuildElapsedMs, stopwatch.ElapsedMilliseconds);
-        LogBuild(logger, "playlist_summary_present inputCount=" + safeRawRows.Count
+        LogBuild("playlist_summary_present inputCount=" + safeRawRows.Count
             + " filteredCount=" + presentationResult.FilteredCount
             + " viewCount=" + presentationResult.Rows.Count
             + " filterMs=" + presentationResult.FilterElapsedMs
@@ -614,13 +604,12 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     private void LogStalePresentation(
-        Logger logger,
         int inputCount,
         long presentationGeneration,
         long? dataRebuildGeneration,
         long? cacheGeneration)
     {
-        LogBuild(logger, "playlist_summary_present_stale inputCount=" + inputCount
+        LogBuild("playlist_summary_present_stale inputCount=" + inputCount
             + " generation=" + presentationGeneration
             + " currentGeneration=" + CurrentPlaylistSummaryPresentationGeneration
             + " dataGeneration=" + (dataRebuildGeneration?.ToString(CultureInfo.InvariantCulture) ?? "-")
@@ -629,9 +618,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             + " currentCacheGeneration=" + CurrentPlaylistSummaryRowsCacheGeneration);
     }
 
-    private static void LogBuild(Logger logger, string message)
+    private void LogBuild(string message)
     {
-        logger?.Info(message);
+        detailRetentionLog(message);
     }
 }
 

@@ -379,10 +379,13 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(buildOwnerSource, "internal long RebuildPlaylistSummaryView(");
         StringAssert.Contains(buildOwnerSource, "private PlaylistSummaryRowsBuildResult BuildPlaylistSummaryRows(");
         StringAssert.Contains(buildOwnerSource, "internal static PlaylistSummaryPresentationResult BuildPlaylistSummaryPresentationRows(");
+        Assert.AreEqual(-1, buildOwnerSource.IndexOf("Logger", StringComparison.Ordinal));
+        Assert.AreEqual(-1, buildOwnerSource.IndexOf("logger", StringComparison.Ordinal));
         Assert.AreEqual(-1, buildOwnerSource.IndexOf("DispatcherHelper.UIDispatcher", StringComparison.Ordinal));
         Assert.AreEqual(-1, workspaceSource.IndexOf("CustomFolderOutputSettingsSnapshot.CreateCurrent", StringComparison.Ordinal));
         StringAssert.Contains(buildOwnerSource, "dispatchPresentation(Reflect);");
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.PlaylistSummaryViewApplied += PlaylistWorkspacePlaylistSummaryViewApplied;", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("installPerformanceLoggingEnabled ? installPerformanceLogger : null", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableDisplayRefreshRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("MainTableSortParameters", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("public void ExecSort", StringComparison.Ordinal));
@@ -2904,9 +2907,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(
             0L,
             workspace.DrainDeferredPlaylistSummaryRefresh(
-                library: null,
-                playlists: null,
-                logger: null,
                 dataRefreshRequired: true,
                 rebuildAsync: false));
 
@@ -2920,9 +2920,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(
             0L,
             workspace.DrainDeferredPlaylistSummaryRefresh(
-                library: null,
-                playlists: null,
-                logger: null,
                 dataRefreshRequired: false,
                 rebuildAsync: false));
         Assert.IsTrue(workspace.CurrentPlaylistSummaryPresentationGeneration > presentationGenerationBefore);

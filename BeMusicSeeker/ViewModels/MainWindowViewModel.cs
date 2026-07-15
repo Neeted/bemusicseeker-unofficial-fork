@@ -1221,9 +1221,6 @@ public partial class MainWindowViewModel : ViewModel
             return request.NextBuildGeneration;
         }
         long drainedGeneration = PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
-            files,
-            tables,
-            installPerformanceLoggingEnabled ? installPerformanceLogger : null,
             dataRefreshRequired: false,
             rebuildAsync);
         return drainedGeneration != 0L ? drainedGeneration : request.NextBuildGeneration;
@@ -1240,9 +1237,6 @@ public partial class MainWindowViewModel : ViewModel
         if (!deferred)
         {
             PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
-                files,
-                tables,
-                installPerformanceLoggingEnabled ? installPerformanceLogger : null,
                 dataRefreshRequired: false,
                 rebuildAsync: true);
         }
@@ -2130,9 +2124,6 @@ public partial class MainWindowViewModel : ViewModel
         LogUiSuppression("ui_suppress flush_install_tree_ms=" + num + " flush_playlist_tree_ms=" + num2 + " flush_library_folder_tree_ms=" + num3 + " flush_duplicate_tree_ms=" + num4 + " flush_library_main_view_ms=" + num5 + " flush_total_ms=" + stopwatchTotal.ElapsedMilliseconds + " deferred_library_folder_tree=" + flag + " requested_mask=" + requestedMask + " flushed_mask=" + mask);
         bool playlistSummaryDataRefreshRequired = (mask & (UiRefreshChannel.PlaylistTree | UiRefreshChannel.LibraryMainView)) != 0;
         PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
-            files,
-            tables,
-            installPerformanceLoggingEnabled ? installPerformanceLogger : null,
             playlistSummaryDataRefreshRequired,
             rebuildAsync: true);
         if (logReadiness)
@@ -4857,9 +4848,6 @@ public partial class MainWindowViewModel : ViewModel
                 return;
             }
             PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
-                files,
-                tables,
-                installPerformanceLoggingEnabled ? installPerformanceLogger : null,
                 dataRefreshRequired: false,
                 rebuildAsync: request.RebuildAsync);
             return;
