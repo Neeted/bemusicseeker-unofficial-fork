@@ -3448,7 +3448,6 @@ public sealed class PlayHistoryReadModelTests
                 PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => null!,
-                (_, _) => { },
                 () => null!,
                 _ => { },
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),

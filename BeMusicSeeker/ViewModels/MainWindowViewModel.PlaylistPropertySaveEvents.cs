@@ -91,6 +91,13 @@ public partial class MainWindowViewModel
         FlushPlaylistOperationNotifications(request.Scope, request.RouteName);
     }
 
+    private void PlaylistWorkspacePlaylistOperationNotificationsFlushRequested(
+        object sender,
+        PlaylistOperationNotificationsFlushRequestedEventArgs request)
+    {
+        FlushPlaylistOperationNotifications(request.Scope, request.RouteName);
+    }
+
     private void PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed(
         object sender,
         ExternalPlaylistImportSummaryRefreshFailedEventArgs request)

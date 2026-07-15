@@ -619,7 +619,6 @@ public sealed class BmsPlaylistUpdateTests
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => library,
-                (_, _) => { },
                 () => null!,
                 _ => { },
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
@@ -757,7 +756,6 @@ public sealed class BmsPlaylistUpdateTests
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => library,
-                (_, _) => { },
                 () => null!,
                 _ => { },
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
@@ -1267,7 +1265,6 @@ public sealed class BmsPlaylistUpdateTests
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => library,
-                (_, _) => { },
                 () => null!,
                 warnings.Add,
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
@@ -6439,7 +6436,6 @@ public sealed class BmsPlaylistUpdateTests
                 () => playlist,
                 PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
                 () => library,
-                (_, _) => { },
                 () => null!,
                 _ => { },
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
@@ -6451,6 +6447,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 _ => { },
                 (exception, message) => { }, request => request(false), request => request(false));
+            var notificationRoutes = new List<string>();
+            workspace.PlaylistOperationNotificationsFlushRequested += (_, request) => notificationRoutes.Add(request.RouteName);
             long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
 
             bool removalConfirmationRequested = false;
@@ -6467,6 +6465,7 @@ public sealed class BmsPlaylistUpdateTests
 
             Assert.AreEqual(1, providerCallCount);
             Assert.IsTrue(removalConfirmationRequested);
+            CollectionAssert.Contains(notificationRoutes, "playlist remove custom folder notification");
             Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > summaryDataGenerationBeforeRemoval);
             Assert.IsFalse(playlist.ContainsBMSTable(table));
             Assert.IsFalse(Directory.Exists(targetDir));

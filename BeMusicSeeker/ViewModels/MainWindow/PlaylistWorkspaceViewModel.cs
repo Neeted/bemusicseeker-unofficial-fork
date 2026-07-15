@@ -115,7 +115,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<BMSPlaylist> playlistStoreProvider,
         PlaylistPropertySaveService propertySaveService,
         Func<BMSLibrary> playlistLibraryProvider,
-        Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications,
         Func<LR2Config> lr2ConfigProvider,
         Action<string> summaryBulkWarningLog,
         DispatcherCollection<BMSTable> emptyPlaylistTreeSource,
@@ -169,8 +168,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(propertySaveService));
         getPlaylistLibrary = playlistLibraryProvider
             ?? throw new ArgumentNullException(nameof(playlistLibraryProvider));
-        this.presentPlaylistOperationNotifications = presentPlaylistOperationNotifications
-            ?? throw new ArgumentNullException(nameof(presentPlaylistOperationNotifications));
         getLr2Config = lr2ConfigProvider
             ?? throw new ArgumentNullException(nameof(lr2ConfigProvider));
         this.summaryBulkWarningLog = summaryBulkWarningLog

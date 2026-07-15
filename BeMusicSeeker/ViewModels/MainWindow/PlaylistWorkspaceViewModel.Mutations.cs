@@ -12,9 +12,9 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private readonly Func<BMSLibrary> getPlaylistLibrary;
 
-    private readonly Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications;
-
     internal event EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> MutationRejected;
+
+    internal event EventHandler<PlaylistOperationNotificationsFlushRequestedEventArgs> PlaylistOperationNotificationsFlushRequested;
 
     internal event EventHandler PlaylistReferenceSortInvalidationRequested;
 
@@ -550,7 +550,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         finally
         {
-            presentPlaylistOperationNotifications(scope, routeName);
+            RaiseRequiredEvent(
+                PlaylistOperationNotificationsFlushRequested,
+                new PlaylistOperationNotificationsFlushRequestedEventArgs(scope, routeName),
+                nameof(PlaylistOperationNotificationsFlushRequested));
         }
     }
 
@@ -601,6 +604,21 @@ internal sealed class PlaylistWorkspaceMutationRejectedEventArgs : EventArgs
     }
 
     internal PlaylistWorkspaceMutationKind Kind { get; }
+}
+
+internal sealed class PlaylistOperationNotificationsFlushRequestedEventArgs : EventArgs
+{
+    internal PlaylistOperationNotificationsFlushRequestedEventArgs(
+        BMSPlaylist.OperationNotificationScope scope,
+        string routeName)
+    {
+        Scope = scope;
+        RouteName = routeName;
+    }
+
+    internal BMSPlaylist.OperationNotificationScope Scope { get; }
+
+    internal string RouteName { get; }
 }
 
 internal sealed class PlaylistTableRemovalInvalidOutputDirectoryEventArgs : EventArgs
