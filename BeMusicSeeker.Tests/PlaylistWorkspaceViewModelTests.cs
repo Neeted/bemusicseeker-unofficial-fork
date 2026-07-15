@@ -374,7 +374,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspacePlaylistSummaryFilterChanged", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistSummaryPresentationRefresh()");
         StringAssert.Contains(workspaceSource, "RequestDeferredPlaylistSummaryPresentationRefresh();");
+        StringAssert.Contains(workspaceSource, "internal bool HasDeferredPlaylistSummaryPresentationRefresh()");
+        StringAssert.Contains(workspaceSource, "internal bool HasDeferredPlaylistSummaryRefresh()");
         StringAssert.Contains(workspaceSource, "DrainDeferredPlaylistSummaryRefresh(");
+        Assert.AreEqual(-1, rootSource.IndexOf("pendingPlaylistSummaryPresentationRefresh", StringComparison.Ordinal));
+        Assert.AreEqual(-1, rootSource.IndexOf("QueuePlaylistSummaryPresentationRefresh", StringComparison.Ordinal));
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistSummaryPresentationRefresh();");
         Assert.AreEqual(-1, rootSource.IndexOf("public ObservableCollection<PlaylistSummaryRow> PlaylistSummaryView", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("BuildPlaylistSummaryDataRefreshDecision", StringComparison.Ordinal));
@@ -1937,12 +1942,14 @@ public sealed class PlaylistWorkspaceViewModelTests
         workspace.PlaylistSummaryKeywordFilter = "alpha";
         Assert.AreEqual(initialPresentationGeneration, workspace.CurrentPlaylistSummaryPresentationGeneration);
         Assert.AreEqual(2, workspace.PlaylistSummaryView.Count);
+        Assert.IsTrue(workspace.HasDeferredPlaylistSummaryPresentationRefresh());
 
         suppressed = false;
         workspace.PlaylistSummaryKeywordFilter = "beta";
         Assert.IsTrue(workspace.CurrentPlaylistSummaryPresentationGeneration > initialPresentationGeneration);
         Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
         Assert.AreEqual("beta", workspace.PlaylistSummaryView[0].Name);
+        Assert.IsFalse(workspace.HasDeferredPlaylistSummaryPresentationRefresh());
     }
 
     [TestMethod]
@@ -2935,6 +2942,7 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         Assert.IsTrue(activeBuild.CancellationToken.IsCancellationRequested);
         Assert.AreEqual(workspace.CurrentPlaylistSummaryDataRebuildGeneration + 1L, nextBuildGeneration);
+        Assert.IsTrue(workspace.HasDeferredPlaylistSummaryRefresh());
         Assert.AreEqual(
             PlaylistSummaryDeferredRefreshKind.Data,
             workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));

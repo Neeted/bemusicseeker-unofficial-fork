@@ -1074,6 +1074,23 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
+    internal bool HasDeferredPlaylistSummaryPresentationRefresh()
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            return deferredPlaylistSummaryPresentationRefreshRequested;
+        }
+    }
+
+    internal bool HasDeferredPlaylistSummaryRefresh()
+    {
+        lock (playlistSummaryTransitionLock)
+        {
+            return deferredPlaylistSummaryDataRefreshRequested
+                || deferredPlaylistSummaryPresentationRefreshRequested;
+        }
+    }
+
     /// <summary>
     /// Requests and drains a presentation-only refresh for the current playlist summary state.
     /// Hidden mode and an active data refresh remain governed by the existing deferred refresh state.

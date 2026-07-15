@@ -532,8 +532,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private UiRefreshChannel pendingUiRefreshMask = UiRefreshChannel.None;
 
-    private bool pendingPlaylistSummaryPresentationRefresh;
-
     private UiRefreshChannel deferredStartupPresentationMask = UiRefreshChannel.None;
 
     private readonly object lockUiSuppression = new();
@@ -1019,7 +1017,6 @@ public partial class MainWindowViewModel : ViewModel
             if (suppressUiUpdateDepth == 0)
             {
                 pendingUiRefreshMask = UiRefreshChannel.None;
-                pendingPlaylistSummaryPresentationRefresh = false;
             }
             suppressUiUpdateDepth++;
             suppressedUiRefreshMask |= mask;
@@ -1186,26 +1183,6 @@ public partial class MainWindowViewModel : ViewModel
         return GetStartupPresentationDeferredChannels(mask, reason, CanShowStartupBasicLibraryMainView(currentTreeMode)) != UiRefreshChannel.None;
     }
 
-    private void QueuePlaylistSummaryPresentationRefresh()
-    {
-        bool deferred;
-        lock (lockUiSuppression)
-        {
-            PlaylistWorkspace.RequestDeferredPlaylistSummaryPresentationRefresh();
-            deferred = suppressUiUpdateDepth > 0;
-            if (deferred)
-            {
-                pendingPlaylistSummaryPresentationRefresh = true;
-            }
-        }
-        if (!deferred)
-        {
-            PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
-                dataRefreshRequired: false,
-                rebuildAsync: true);
-        }
-    }
-
     private void InvokePlaylistSummaryPresentationRefreshGate(Action<bool> request)
     {
         if (request == null)
@@ -1215,10 +1192,6 @@ public partial class MainWindowViewModel : ViewModel
         lock (lockUiSuppression)
         {
             request(suppressUiUpdateDepth > 0);
-            if (suppressUiUpdateDepth > 0)
-            {
-                pendingPlaylistSummaryPresentationRefresh = true;
-            }
         }
     }
 
@@ -1265,7 +1238,7 @@ public partial class MainWindowViewModel : ViewModel
     {
         long operationToken = GetActiveStartupProgressOperationToken();
         UiRefreshChannel uiRefreshChannel = UiRefreshChannel.None;
-        bool playlistSummaryPresentationRefresh = false;
+        bool playlistSummaryRefreshPending;
         int suppressDepth = 0;
         lock (lockUiSuppression)
         {
@@ -1274,7 +1247,6 @@ public partial class MainWindowViewModel : ViewModel
                 suppressUiUpdateDepth = 0;
                 suppressedUiRefreshMask = UiRefreshChannel.None;
                 pendingUiRefreshMask = UiRefreshChannel.None;
-                pendingPlaylistSummaryPresentationRefresh = false;
                 return;
             }
             suppressUiUpdateDepth--;
@@ -1283,21 +1255,21 @@ public partial class MainWindowViewModel : ViewModel
             {
                 uiRefreshChannel = pendingUiRefreshMask;
                 pendingUiRefreshMask = UiRefreshChannel.None;
-                playlistSummaryPresentationRefresh = pendingPlaylistSummaryPresentationRefresh;
-                pendingPlaylistSummaryPresentationRefresh = false;
                 suppressedUiRefreshMask = UiRefreshChannel.None;
             }
         }
+        playlistSummaryRefreshPending = suppressDepth == 0
+            && PlaylistWorkspace.HasDeferredPlaylistSummaryRefresh();
         LogUiSuppression("ui_suppress end depth=" + suppressDepth + " flush=" + uiRefreshChannel
-            + " playlistSummaryPresentation=" + playlistSummaryPresentationRefresh);
-        if (uiRefreshChannel == UiRefreshChannel.None && !playlistSummaryPresentationRefresh)
+            + " playlistSummaryRefreshPending=" + playlistSummaryRefreshPending);
+        if (uiRefreshChannel == UiRefreshChannel.None && !playlistSummaryRefreshPending)
         {
             startupReadyInstallStopwatch = null;
             startupReadyOperableStopwatch = null;
             startupReadyDataLogged = false;
             startupReadyUiLogged = false;
         }
-        if (uiRefreshChannel == UiRefreshChannel.None && !playlistSummaryPresentationRefresh)
+        if (uiRefreshChannel == UiRefreshChannel.None && !playlistSummaryRefreshPending)
         {
             return;
         }
@@ -1306,14 +1278,14 @@ public partial class MainWindowViewModel : ViewModel
             if (!IsStartupProgressOperationTokenCurrent(operationToken))
             {
                 LogUiSuppression("ui_suppress flush_skipped_stale token=" + operationToken + " mask=" + uiRefreshChannel
-                    + " playlistSummaryPresentation=" + playlistSummaryPresentationRefresh);
+                    + " playlistSummaryRefreshPending=" + playlistSummaryRefreshPending);
                 return;
             }
             if (uiRefreshChannel != UiRefreshChannel.None)
             {
                 FlushPendingUiRefresh(uiRefreshChannel, operationToken);
             }
-            else if (playlistSummaryPresentationRefresh)
+            else if (playlistSummaryRefreshPending)
             {
                 PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(
                     dataRefreshRequired: false,
@@ -10554,11 +10526,6 @@ public partial class MainWindowViewModel : ViewModel
         }, CreatePackagePlaybackTargetSnapshot(list), UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
     }
 
-    private void RefreshPlaylistSummaryPresentationIfVisible()
-    {
-        QueuePlaylistSummaryPresentationRefresh();
-    }
-
     private void ApplyPlaylistSummarySelection()
     {
         bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
@@ -10574,7 +10541,7 @@ public partial class MainWindowViewModel : ViewModel
             RaisePropertyChanged(() => CurrentMainViewOperationSection);
             SyncMainChartListSortPresentation();
         }
-        RefreshPlaylistSummaryPresentationIfVisible();
+        PlaylistWorkspace.RequestPlaylistSummaryPresentationRefresh();
     }
 
     private void ManualInstallPendingCharts(IEnumerable<ChartOperationTarget> targets)
