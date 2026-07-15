@@ -334,8 +334,7 @@ internal sealed class PlaylistPropertySaveService
                         PlaylistPropertyReferenceTableReplaced,
                         new PlaylistReferenceTableReplacedEventArgs(
                             sourceTable,
-                            table,
-                            referenceIndexChanged: true),
+                            table),
                         "Playlist property reference-table replacement");
                     RaiseRequiredEvent(
                         PlaylistPropertyFolderSelectionRemapped,

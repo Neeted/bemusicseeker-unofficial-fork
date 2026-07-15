@@ -632,19 +632,11 @@ public sealed class BmsPlaylistUpdateTests
                 message => lifecycleLogs.Add(message),
                 (exception, message) => failureLogs.Add((exception, message)));
             int progressCount = 0;
-            int referenceReplacementCount = 0;
-            BMSTable? referenceReplacementOldTable = null;
-            BMSTable? referenceReplacementNewTable = null;
-            bool referenceIndexChanged = false;
+            int referenceSortInvalidationCount = 0;
             long summaryDataGenerationBeforeResync = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+            workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder(string.Empty));
             workspace.PlaylistSyncProgressChanged += (_, _) => progressCount++;
-            workspace.PlaylistReferenceTableReplaced += (_, request) =>
-            {
-                referenceReplacementCount++;
-                referenceReplacementOldTable = request.OldTable;
-                referenceReplacementNewTable = request.NewTable;
-                referenceIndexChanged = request.ReferenceIndexChanged;
-            };
+            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => referenceSortInvalidationCount++;
             Assert.IsTrue(workspace.ContainsActivePlaylistTable(table));
             Assert.IsTrue(workspace.ContainsActivePlaylistSummaryRows([new PlaylistSummaryRow { TableRef = table }]));
 
@@ -657,8 +649,7 @@ public sealed class BmsPlaylistUpdateTests
                     "playlist_reload_operation started operationKind=single reason=manual_resync tableCount=1",
                     StringComparison.Ordinal)));
             Assert.IsTrue(progressCount >= 3);
-            Assert.AreEqual(1, referenceReplacementCount);
-            Assert.IsTrue(referenceIndexChanged);
+            Assert.AreEqual(1, referenceSortInvalidationCount);
             Assert.IsTrue(lifecycleLogs.Any(log => log.StartsWith(
                 "playlist_reload_operation completed operationKind=single reason=manual_resync tableCount=1 processedCount=1",
                 StringComparison.Ordinal)));
@@ -666,8 +657,9 @@ public sealed class BmsPlaylistUpdateTests
 
             BMSTable reloadedTable = playlist.BMSTables.Single();
             Assert.AreNotSame(table, reloadedTable);
-            Assert.AreSame(table, referenceReplacementOldTable);
-            Assert.AreSame(reloadedTable, referenceReplacementNewTable);
+            PlaylistDetailSelection reloadedSelection = workspace.CapturePlaylistDetailSelection()
+                ?? throw new AssertFailedException("Replacement detail selection was not retained.");
+            Assert.AreSame(reloadedTable, reloadedSelection.Table);
             Assert.IsFalse(workspace.ContainsActivePlaylistTable(table));
             Assert.IsFalse(workspace.ContainsActivePlaylistSummaryRows([new PlaylistSummaryRow { TableRef = table }]));
             Assert.IsTrue(workspace.ContainsActivePlaylistTable(reloadedTable));
@@ -675,12 +667,11 @@ public sealed class BmsPlaylistUpdateTests
 
             reloadedTable.header_sha256 = null;
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"WorkspaceTarget\",\r\n\"symbol\":\"W\",\r\n\"tag\":\"header-refresh\",\r\n\"data_url\":\"./workspace-score.json\",\r\n\"level_order\":[1]\r\n}"));
-            int replacementCountBeforeHeaderRefresh = referenceReplacementCount;
             await workspace.ResyncPlaylistsAsync([reloadedTable]);
-            Assert.AreEqual(replacementCountBeforeHeaderRefresh + 1, referenceReplacementCount);
-            Assert.IsTrue(referenceIndexChanged);
+            Assert.AreEqual(2, referenceSortInvalidationCount);
             BMSTable headerRefreshedTable = playlist.BMSTables.Single();
             Assert.AreNotSame(reloadedTable, headerRefreshedTable);
+            Assert.AreSame(headerRefreshedTable, workspace.CapturePlaylistDetailSelection().Table);
             Assert.IsFalse(workspace.ContainsActivePlaylistTable(reloadedTable));
             Assert.IsTrue(workspace.ContainsActivePlaylistTable(headerRefreshedTable));
 
@@ -695,6 +686,8 @@ public sealed class BmsPlaylistUpdateTests
             Uri failureUri = headerRefreshedTable.Page_url ?? headerRefreshedTable.Header_url;
             await workspace.ResyncPlaylistsAsync([headerRefreshedTable]);
             Assert.AreEqual(1, failureLogs.Count);
+            Assert.AreEqual(2, referenceSortInvalidationCount);
+            Assert.AreSame(headerRefreshedTable, workspace.CapturePlaylistDetailSelection().Table);
             Assert.IsNotNull(failureLogs[0].Exception);
             Assert.AreEqual(
                 "playlist_manual_resync_failed table=WorkspaceTarget uri=" + failureUri,

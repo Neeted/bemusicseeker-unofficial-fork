@@ -144,26 +144,6 @@ public partial class MainWindowViewModel
             "playlist property output directory notification");
     }
 
-    private void PlaylistWorkspacePlaylistPropertyReferenceTableReplaced(
-        object sender,
-        PlaylistReferenceTableReplacedEventArgs request)
-    {
-        InvokeMainChartListPresentationAction(() =>
-            PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable));
-    }
-
-    private void PlaylistWorkspacePlaylistPropertyFolderSelectionRemapped(
-        object sender,
-        PlaylistPropertyFolderSelectionRemappedEventArgs request)
-    {
-        PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders);
-    }
-
-    private void PlaylistWorkspacePlaylistPropertyReferenceSortInvalidationRequested(object sender, EventArgs e)
-    {
-        InvalidateNormalLibraryReferenceTableSortKeys();
-    }
-
     private void PlaylistWorkspacePlaylistReferenceSortInvalidationRequested(object sender, EventArgs e)
     {
         InvalidateNormalLibraryReferenceTableSortKeys();

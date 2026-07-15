@@ -2810,9 +2810,10 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(propertyEditingCode, "playlist_property_resync_failed table=");
         Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistSyncResultReported"));
         Assert.IsFalse(propertySaveEventsCode.Contains("playlist_property_resync_failed table="));
-        StringAssert.Contains(viewModelCode, "PlaylistWorkspacePlaylistReferenceTableReplaced");
-        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable)");
-        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders)");
+        Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistReferenceTableReplaced"));
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(");
+        StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RequestPlaylistReferenceSortInvalidation();");
+        Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection("));
         Assert.AreEqual(-1, viewModelCode.IndexOf("ReplaceCurrentPlaylistSelectionTable(", StringComparison.Ordinal));
         Assert.AreEqual(-1, viewModelCode.IndexOf("RemapCurrentPlaylistFolderSelection(", StringComparison.Ordinal));
         StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();");
@@ -2873,6 +2874,10 @@ public sealed class MainWindowContextMenuResourceTests
         if (invalidateIndex < 0)
         {
             invalidateIndex = source.IndexOf("PlaylistPropertyReferenceSortInvalidationRequested", StringComparison.Ordinal);
+        }
+        if (invalidateIndex < 0)
+        {
+            invalidateIndex = source.IndexOf("RequestPlaylistReferenceSortInvalidation()", StringComparison.Ordinal);
         }
 
         Assert.IsTrue(replaceIndex >= 0);

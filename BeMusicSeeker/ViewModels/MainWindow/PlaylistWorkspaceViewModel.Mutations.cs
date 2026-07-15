@@ -218,7 +218,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     library.RemoveReferenceBMSTables(removedTable);
                 }
 
-                PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
+                RequestPlaylistReferenceSortInvalidation();
             },
             "playlist remove custom folder notification");
     }
@@ -565,7 +565,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 RequestPlaylistDetailReloadRefresh();
             }
-            PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
+            RequestPlaylistReferenceSortInvalidation();
         }
         finally
         {
@@ -576,6 +576,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                     invalidateTableCountCache: true);
             }
         }
+    }
+
+    internal void RequestPlaylistReferenceSortInvalidation()
+    {
+        PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
     }
 }
 

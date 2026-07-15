@@ -16,12 +16,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler PlaylistPropertyInvalidOutputDirectoryRequested;
 
-    internal event EventHandler<PlaylistReferenceTableReplacedEventArgs> PlaylistPropertyReferenceTableReplaced;
-
-    internal event EventHandler<PlaylistPropertyFolderSelectionRemappedEventArgs> PlaylistPropertyFolderSelectionRemapped;
-
-    internal event EventHandler PlaylistPropertyReferenceSortInvalidationRequested;
-
     internal event EventHandler<PlaylistPropertyExternalSyncFailedEventArgs> PlaylistPropertyExternalSyncFailed;
 
     internal event EventHandler<PlaylistPropertyNotificationsFlushRequestedEventArgs> PlaylistPropertyNotificationsFlushRequested;
@@ -88,28 +82,30 @@ public sealed partial class PlaylistWorkspaceViewModel
         object sender,
         PlaylistReferenceTableReplacedEventArgs request)
     {
-        RaiseRequiredEvent(
-            PlaylistPropertyReferenceTableReplaced,
-            request,
-            nameof(PlaylistPropertyReferenceTableReplaced));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable);
     }
 
     private void ForwardPlaylistPropertyFolderSelectionRemapped(
         object sender,
         PlaylistPropertyFolderSelectionRemappedEventArgs request)
     {
-        RaiseRequiredEvent(
-            PlaylistPropertyFolderSelectionRemapped,
-            request,
-            nameof(PlaylistPropertyFolderSelectionRemapped));
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders);
     }
 
     private void ForwardPlaylistPropertyReferenceSortInvalidationRequested(object sender, EventArgs e)
     {
         RaiseRequiredEvent(
-            PlaylistPropertyReferenceSortInvalidationRequested,
+            PlaylistReferenceSortInvalidationRequested,
             EventArgs.Empty,
-            nameof(PlaylistPropertyReferenceSortInvalidationRequested));
+            nameof(PlaylistReferenceSortInvalidationRequested));
     }
 
     private void ForwardPlaylistSyncResultReported(

@@ -2537,7 +2537,10 @@ public partial class MainWindowViewModel : ViewModel
                 files.RemoveReferenceBMSTables(updateContext.NewTable);
                 return;
             }
-            InvalidateNormalLibraryReferenceTableSortKeys();
+            PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(
+                updateContext.OldTable,
+                updateContext.NewTable);
+            PlaylistWorkspace.RequestPlaylistReferenceSortInvalidation();
         };
     }
 
@@ -4536,14 +4539,10 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistSyncProgressChanged += PlaylistWorkspacePlaylistSyncProgressChanged;
-        PlaylistWorkspace.PlaylistReferenceTableReplaced += PlaylistWorkspacePlaylistReferenceTableReplaced;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
         PlaylistWorkspace.PlaylistPropertyValidationError += PlaylistWorkspacePlaylistPropertyValidationError;
         PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistPropertyExternalSyncConfirmationRequested;
         PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested;
-        PlaylistWorkspace.PlaylistPropertyReferenceTableReplaced += PlaylistWorkspacePlaylistPropertyReferenceTableReplaced;
-        PlaylistWorkspace.PlaylistPropertyFolderSelectionRemapped += PlaylistWorkspacePlaylistPropertyFolderSelectionRemapped;
-        PlaylistWorkspace.PlaylistPropertyReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistPropertyReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += PlaylistWorkspacePlaylistPropertyExternalSyncFailed;
         PlaylistWorkspace.PlaylistPropertyNotificationsFlushRequested += PlaylistWorkspacePlaylistPropertyNotificationsFlushRequested;
         PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
@@ -4791,20 +4790,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistSyncProgressChangedEventArgs request)
     {
         UpdatePlaylistSyncProgressStatus(request.Snapshot);
-    }
-
-    private void PlaylistWorkspacePlaylistReferenceTableReplaced(
-        object sender,
-        PlaylistReferenceTableReplacedEventArgs request)
-    {
-        InvokeMainChartListPresentationAction(() =>
-        {
-            PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable);
-            if (request.ReferenceIndexChanged)
-            {
-                InvalidateNormalLibraryReferenceTableSortKeys();
-            }
-        });
     }
 
     private void PlaylistWorkspacePlaylistDetailReloadRefreshRequested(object sender, EventArgs e)

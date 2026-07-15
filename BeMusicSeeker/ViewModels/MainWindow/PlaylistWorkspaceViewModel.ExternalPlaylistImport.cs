@@ -355,7 +355,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             files.RemoveReferenceBMSTables(table);
         }
-        PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
+        RequestPlaylistReferenceSortInvalidation();
         if (queueSummaryRefresh)
         {
             QueuePlaylistSummaryDataRefreshFromImport(

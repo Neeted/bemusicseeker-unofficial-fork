@@ -13,8 +13,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistSyncProgressChangedEventArgs> PlaylistSyncProgressChanged;
 
-    internal event EventHandler<PlaylistReferenceTableReplacedEventArgs> PlaylistReferenceTableReplaced;
-
     internal event EventHandler PlaylistDetailReloadRefreshRequested;
 
     internal bool ShouldRefreshPlaylistDetailAfterReload(MainViewUpdateMode currentTreeMode)
@@ -194,12 +192,13 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             if (objectReplaced || updateContext.Updated || updateContext.ReferenceEntriesChanged)
             {
-                PlaylistReferenceTableReplaced?.Invoke(
-                    this,
-                    new PlaylistReferenceTableReplacedEventArgs(
-                        updateContext.OldTable,
-                        updateContext.NewTable,
-                        referenceIndexChanged));
+                ReplaceCurrentPlaylistDetailSelectionTable(
+                    updateContext.OldTable,
+                    updateContext.NewTable);
+                if (referenceIndexChanged)
+                {
+                    RequestPlaylistReferenceSortInvalidation();
+                }
             }
         };
     }
@@ -229,17 +228,14 @@ internal sealed class PlaylistReferenceTableReplacedEventArgs : EventArgs
 {
     internal PlaylistReferenceTableReplacedEventArgs(
         BMSTable oldTable,
-        BMSTable newTable,
-        bool referenceIndexChanged)
+        BMSTable newTable)
     {
         OldTable = oldTable;
         NewTable = newTable;
-        ReferenceIndexChanged = referenceIndexChanged;
     }
 
     internal BMSTable OldTable { get; }
 
     internal BMSTable NewTable { get; }
 
-    internal bool ReferenceIndexChanged { get; }
 }
