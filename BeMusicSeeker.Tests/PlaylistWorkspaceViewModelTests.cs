@@ -150,7 +150,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "if (request.RequestAlreadyQueued)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.DrainDeferredPlaylistSummaryRefresh(");
         StringAssert.Contains(workspaceSource, "internal async Task WaitForPlaylistReloadCleanupReadinessAsync(");
-        StringAssert.Contains(workspaceSource, "internal void ConfigurePlaylistReloadCleanup(");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("internal void ConfigurePlaylistReloadCleanup(", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal bool QueuePlaylistReloadCleanup(string reason, bool fromReloadTables, int tableCount)");
         StringAssert.Contains(workspaceSource, "internal bool IsPlaylistReloadCleanupIdle");
         StringAssert.Contains(workspaceSource, "internal void CancelPlaylistReloadCleanupForShutdown()");
@@ -158,7 +158,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool ShouldRefreshPlaylistDetailAfterReload(MainViewUpdateMode currentTreeMode)");
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailReloadRefresh()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.ConfigurePlaylistReloadCleanup(");
+        Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ConfigurePlaylistReloadCleanup(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "WaitForPlaylistReloadCleanupDispatcherIdleAsync");
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistReloadCleanupRequest", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("lockPlaylistReloadCleanup", StringComparison.Ordinal));
@@ -558,15 +558,10 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public void PlaylistReloadCleanupSkipsSingleReloadInsideWorkspace()
     {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var log = new List<string>();
-        workspace.ConfigurePlaylistReloadCleanup(
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            () => Task.CompletedTask,
-            () => false,
-            () => { },
-            log.Add);
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            reloadCleanupLog: log.Add);
 
         Assert.IsFalse(workspace.QueuePlaylistReloadCleanup(isFullReload: false, tableCount: 1));
         Assert.IsTrue(workspace.IsPlaylistReloadCleanupIdle);
@@ -576,22 +571,19 @@ public sealed class PlaylistWorkspaceViewModelTests
     [TestMethod]
     public async Task PlaylistReloadCleanupProcessesLatestPendingFullReload()
     {
-        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
         var log = new List<string>();
         var dispatcherEntered = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var dispatcherRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         int garbageCollectionCount = 0;
-        workspace.ConfigurePlaylistReloadCleanup(
-            () => true,
-            () => MainViewUpdateMode.FolderFilterSelected,
-            async () =>
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            reloadCleanupDispatcherIdleWaiter: async () =>
             {
                 dispatcherEntered.TrySetResult(true);
                 await dispatcherRelease.Task.ConfigureAwait(false);
             },
-            () => false,
-            () => Interlocked.Increment(ref garbageCollectionCount),
-            log.Add);
+            reloadCleanupGarbageCollector: () => Interlocked.Increment(ref garbageCollectionCount),
+            reloadCleanupLog: log.Add);
 
         Assert.IsTrue(workspace.QueuePlaylistReloadCleanup(isFullReload: true, tableCount: 1));
         await dispatcherEntered.Task.ConfigureAwait(false);
@@ -664,7 +656,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false));
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { }));
     }
 
     [TestMethod]
@@ -865,7 +863,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         var dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "request-entry");
@@ -1492,7 +1496,13 @@ public sealed class PlaylistWorkspaceViewModelTests
 
     private static PlaylistWorkspaceViewModel CreateDetailWorkspace(
         out FakePlaylistDetailDataSource dataSource,
-        Func<string, Func<Task>, bool>? prewarmScheduler = null)
+        Func<string, Func<Task>, bool>? prewarmScheduler = null,
+        Func<bool>? reloadCleanupStartupOperableProvider = null,
+        Func<MainViewUpdateMode>? reloadCleanupCurrentTreeModeProvider = null,
+        Func<Task>? reloadCleanupDispatcherIdleWaiter = null,
+        Func<bool>? reloadCleanupShutdownRequestedProvider = null,
+        Action? reloadCleanupGarbageCollector = null,
+        Action<string>? reloadCleanupLog = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
@@ -1520,7 +1530,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            prewarmScheduler ?? ((_, _) => false));
+            prewarmScheduler ?? ((_, _) => false),
+            reloadCleanupStartupOperableProvider ?? (() => true),
+            reloadCleanupCurrentTreeModeProvider ?? (() => MainViewUpdateMode.FolderFilterSelected),
+            reloadCleanupDispatcherIdleWaiter ?? (() => Task.CompletedTask),
+            reloadCleanupShutdownRequestedProvider ?? (() => false),
+            reloadCleanupGarbageCollector ?? (() => { }),
+            reloadCleanupLog ?? (_ => { }));
         dataSource = new FakePlaylistDetailDataSource();
         workspace.SetDetailDataSource(dataSource);
         return workspace;
@@ -1662,7 +1678,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         var columns = new CustomTableColumnSettings(CustomTableColumnSettings.ViewKind.STANDARD);
         var summaryColumns = new PlaylistSummaryColumnSettings();
         var selection = new MainChartListColumnSelection(
@@ -1722,7 +1744,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         int raisedCount = 0;
         workspace.PlaylistSummarySortRequested += (_, _) =>
         {
@@ -1767,7 +1795,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         int raisedCount = 0;
         MainChartListSortRequestedEventArgs? observedRequest = null;
         workspace.PlaylistDetailSortChanged += (_, request) =>
@@ -1858,7 +1892,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         var initialSort = new ChartListSortParameters
         {
             ColumnsName = nameof(PlaylistDetailRow.Level),
@@ -1910,7 +1950,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         workspace.InitializePlaylistDetailFilter(
             new ChartListFilterSnapshot("  title:Alpha  ", ChartModeFilter.All));
         int raisedCount = 0;
@@ -2033,7 +2079,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
 
         int raisedCount = 0;
         workspace.PropertyChanged += (_, e) =>
@@ -2085,7 +2137,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         var propertyNames = new List<string>();
         workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
 
@@ -2126,7 +2184,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         var propertyNames = new List<string>();
         workspace.PropertyChanged += (_, e) => propertyNames.Add(e.PropertyName);
         workspace.GridHeaderText = "stale header";
@@ -2230,7 +2294,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
@@ -2310,7 +2380,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false)
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { })
         {
             IsPlaylistSummaryMode = true
         };
@@ -2369,7 +2445,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false)
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { })
         {
             IsPlaylistSummaryMode = true
         };
@@ -2418,7 +2500,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false)
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { })
         {
             IsPlaylistSummaryMode = true
         };
@@ -2468,7 +2556,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         var expected = new PlaylistSummaryCountResult
         {
             ScannedEntries = 4,
@@ -2519,7 +2613,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         workspace.IsPlaylistSummaryMode = true;
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest staleBuild));
         var staleResult = new PlaylistSummaryCountResult
@@ -2568,7 +2668,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false)
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { })
         {
             IsPlaylistSummaryMode = true
         };
@@ -2618,7 +2724,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false)
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { })
         {
             IsPlaylistSummaryMode = true
         };
@@ -2668,7 +2780,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false)
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { })
         {
             IsPlaylistSummaryMode = true
         };
@@ -2716,7 +2834,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         long hiddenDataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
         long hiddenCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
 
@@ -2769,7 +2893,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
 
         Assert.AreEqual(
             0L,
@@ -2828,7 +2958,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         var table = new BMSTable();
         var entry = new TestablePlaylistEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder");
         var playlistRow = new PlaylistDetailSourceRow(entry, resolvedChart: null).CreateViewRow();
@@ -2871,7 +3007,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         var table = new BMSTable { is_external_sync = true };
         var rejectedKinds = new List<PlaylistWorkspaceMutationKind>();
         workspace.MutationRejected += (_, request) => rejectedKinds.Add(request.Kind);
@@ -2923,7 +3065,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
         var table = new BMSTable();
         PlaylistFolderNode specialFolder = PlaylistFolderNode.CreateSpecial(PlaylistFolderNodeSpecialKind.NotOwned);
 

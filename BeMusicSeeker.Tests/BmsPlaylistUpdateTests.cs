@@ -621,15 +621,13 @@ public sealed class BmsPlaylistUpdateTests
                 () => null!,
                 _ => { },
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-                (_, _) => false);
-            workspace.ConfigurePlaylistReloadCleanup(
+                (_, _) => false,
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
                 _ => { });
-
             int startedCount = 0;
             int progressCount = 0;
             int resultCount = 0;
@@ -772,7 +770,13 @@ public sealed class BmsPlaylistUpdateTests
                 () => null!,
                 _ => { },
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-                (_, _) => false);
+                (_, _) => false,
+                () => true,
+                () => MainViewUpdateMode.FolderFilterSelected,
+                () => Task.CompletedTask,
+                () => false,
+                () => { },
+                _ => { });
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
 
             List<PlaylistWorkspaceEntriesChangedEventArgs> changes = [];
@@ -1279,7 +1283,13 @@ public sealed class BmsPlaylistUpdateTests
                 () => null!,
                 warnings.Add,
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-                (_, _) => false);
+                (_, _) => false,
+                () => true,
+                () => MainViewUpdateMode.FolderFilterSelected,
+                () => Task.CompletedTask,
+                () => false,
+                () => { },
+                _ => { });
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
@@ -6446,7 +6456,13 @@ public sealed class BmsPlaylistUpdateTests
                 () => null!,
                 _ => { },
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-                (_, _) => false);
+                (_, _) => false,
+                () => true,
+                () => MainViewUpdateMode.FolderFilterSelected,
+                () => Task.CompletedTask,
+                () => false,
+                () => { },
+                _ => { });
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
             {

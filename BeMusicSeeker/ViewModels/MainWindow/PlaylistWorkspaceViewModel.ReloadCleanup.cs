@@ -24,41 +24,17 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private long playlistReloadCleanupWorkerId;
 
-    private Func<bool> playlistReloadCleanupStartupOperableProvider;
+    private readonly Func<bool> playlistReloadCleanupStartupOperableProvider;
 
-    private Func<MainViewUpdateMode> playlistReloadCleanupCurrentTreeModeProvider;
+    private readonly Func<MainViewUpdateMode> playlistReloadCleanupCurrentTreeModeProvider;
 
-    private Func<Task> playlistReloadCleanupDispatcherIdleWaiter;
+    private readonly Func<Task> playlistReloadCleanupDispatcherIdleWaiter;
 
-    private Func<bool> playlistReloadCleanupShutdownRequestedProvider;
+    private readonly Func<bool> playlistReloadCleanupShutdownRequestedProvider;
 
-    private Action playlistReloadCleanupGarbageCollector;
+    private readonly Action playlistReloadCleanupGarbageCollector;
 
-    private Action<string> playlistReloadCleanupLog;
-
-    internal void ConfigurePlaylistReloadCleanup(
-        Func<bool> startupOperableProvider,
-        Func<MainViewUpdateMode> currentTreeModeProvider,
-        Func<Task> dispatcherIdleWaiter,
-        Func<bool> shutdownRequestedProvider,
-        Action garbageCollector,
-        Action<string> log)
-    {
-        playlistReloadCleanupStartupOperableProvider = startupOperableProvider
-            ?? throw new ArgumentNullException(nameof(startupOperableProvider));
-        playlistReloadCleanupCurrentTreeModeProvider = currentTreeModeProvider
-            ?? throw new ArgumentNullException(nameof(currentTreeModeProvider));
-        playlistReloadCleanupDispatcherIdleWaiter = dispatcherIdleWaiter
-            ?? throw new ArgumentNullException(nameof(dispatcherIdleWaiter));
-        playlistReloadCleanupShutdownRequestedProvider = shutdownRequestedProvider
-            ?? throw new ArgumentNullException(nameof(shutdownRequestedProvider));
-        playlistReloadCleanupGarbageCollector = garbageCollector
-            ?? throw new ArgumentNullException(nameof(garbageCollector));
-        playlistReloadCleanupLog = log
-            ?? throw new ArgumentNullException(nameof(log));
-    }
-
-    internal bool IsPlaylistReloadCleanupConfigured => playlistReloadCleanupLog != null;
+    private readonly Action<string> playlistReloadCleanupLog;
 
     internal static string GetPlaylistReloadOperationKindText(string reason, bool fromReloadTables)
     {
@@ -93,7 +69,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistReloadCleanupOperationKind operationKind,
         int tableCount)
     {
-        EnsurePlaylistReloadCleanupConfigured();
         if (operationKind != PlaylistReloadCleanupOperationKind.StartupFullReload
             && operationKind != PlaylistReloadCleanupOperationKind.ManualFullReload)
         {
@@ -152,10 +127,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal void TrySchedulePlaylistReloadCleanup()
     {
-        if (playlistReloadCleanupLog == null)
-        {
-            return;
-        }
         long workerId = 0L;
         lock (playlistReloadCleanupSync)
         {
@@ -358,15 +329,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void WritePlaylistReloadCleanupLog(string message)
     {
-        playlistReloadCleanupLog?.Invoke(message);
-    }
-
-    private void EnsurePlaylistReloadCleanupConfigured()
-    {
-        if (playlistReloadCleanupLog == null)
-        {
-            throw new InvalidOperationException("Playlist reload cleanup is not configured.");
-        }
+        playlistReloadCleanupLog(message);
     }
 
     private static PlaylistReloadCleanupOperationKind DeterminePlaylistReloadOperationKind(

@@ -116,7 +116,13 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false));
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { }));
     }
 
     [TestMethod]
@@ -250,7 +256,13 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
@@ -289,7 +301,13 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
@@ -325,6 +343,12 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             _ => { },
             new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-            (_, _) => false);
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { });
     }
 }

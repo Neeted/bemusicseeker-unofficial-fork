@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -3451,7 +3452,13 @@ public sealed class PlayHistoryReadModelTests
                 () => null!,
                 _ => { },
                 new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
-                (_, _) => false));
+                (_, _) => false,
+                () => true,
+                () => MainViewUpdateMode.FolderFilterSelected,
+                () => Task.CompletedTask,
+                () => false,
+                () => { },
+                _ => { }));
     }
 
     [TestMethod]

@@ -4567,7 +4567,13 @@ public partial class MainWindowViewModel : ViewModel
             FlushPlaylistOperationNotifications,
             LogPlaylistSummaryBulkWarning,
             new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher),
-            (reason, work) => QueueStartupBackgroundTask("playlist_library_index_prewarm", reason, null, work));
+            (reason, work) => QueueStartupBackgroundTask("playlist_library_index_prewarm", reason, null, work),
+            () => startupReadyOperableReached,
+            () => treeViewFilterTypeSelected,
+            WaitForPlaylistReloadCleanupDispatcherIdleAsync,
+            () => IsShutdownRequested,
+            CollectPlaylistReloadCleanupGarbage,
+            LogPlaylistReload);
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
@@ -6249,13 +6255,6 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
             PlaylistWorkspace.SetDetailDataSource(
                 applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
-            PlaylistWorkspace.ConfigurePlaylistReloadCleanup(
-                () => startupReadyOperableReached,
-                () => treeViewFilterTypeSelected,
-                WaitForPlaylistReloadCleanupDispatcherIdleAsync,
-                () => IsShutdownRequested,
-                CollectPlaylistReloadCleanupGarbage,
-                LogPlaylistReload);
             tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2SongDbSyncMutationBlockedForPlaylist(operation);
             tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
             tables.CustomFolderOutputPhysicalSurfaceProvider = () => files.GetCurrentAppManagedCustomFolderOutputPhysicalSurface();

@@ -161,7 +161,13 @@ internal sealed class ApplicationComposition
         Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications,
         Action<string> summaryBulkWarningLog,
         DispatcherCollection<BMSTable> emptyPlaylistTreeSource,
-        Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler)
+        Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler,
+        Func<bool> playlistReloadCleanupStartupOperableProvider,
+        Func<MainViewUpdateMode> playlistReloadCleanupCurrentTreeModeProvider,
+        Func<Task> playlistReloadCleanupDispatcherIdleWaiter,
+        Func<bool> playlistReloadCleanupShutdownRequestedProvider,
+        Action playlistReloadCleanupGarbageCollector,
+        Action<string> playlistReloadCleanupLog)
     {
         var playlistPropertySaveService = new PlaylistPropertySaveService(
             tablesProvider,
@@ -196,7 +202,13 @@ internal sealed class ApplicationComposition
             lr2ConfigProvider,
             summaryBulkWarningLog,
             emptyPlaylistTreeSource,
-            playlistLibraryIndexPrewarmScheduler);
+            playlistLibraryIndexPrewarmScheduler,
+            playlistReloadCleanupStartupOperableProvider,
+            playlistReloadCleanupCurrentTreeModeProvider,
+            playlistReloadCleanupDispatcherIdleWaiter,
+            playlistReloadCleanupShutdownRequestedProvider,
+            playlistReloadCleanupGarbageCollector,
+            playlistReloadCleanupLog);
         return playlistWorkspace;
     }
 

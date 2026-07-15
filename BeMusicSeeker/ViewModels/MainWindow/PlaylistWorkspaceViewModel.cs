@@ -115,7 +115,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<LR2Config> lr2ConfigProvider,
         Action<string> summaryBulkWarningLog,
         DispatcherCollection<BMSTable> emptyPlaylistTreeSource,
-        Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler)
+        Func<string, Func<Task>, bool> playlistLibraryIndexPrewarmScheduler,
+        Func<bool> playlistReloadCleanupStartupOperableProvider,
+        Func<MainViewUpdateMode> playlistReloadCleanupCurrentTreeModeProvider,
+        Func<Task> playlistReloadCleanupDispatcherIdleWaiter,
+        Func<bool> playlistReloadCleanupShutdownRequestedProvider,
+        Action playlistReloadCleanupGarbageCollector,
+        Action<string> playlistReloadCleanupLog)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -167,6 +173,18 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         playlistTreeTables = emptyPlaylistTreeTables;
         this.playlistLibraryIndexPrewarmScheduler = playlistLibraryIndexPrewarmScheduler
             ?? throw new ArgumentNullException(nameof(playlistLibraryIndexPrewarmScheduler));
+        this.playlistReloadCleanupStartupOperableProvider = playlistReloadCleanupStartupOperableProvider
+            ?? throw new ArgumentNullException(nameof(playlistReloadCleanupStartupOperableProvider));
+        this.playlistReloadCleanupCurrentTreeModeProvider = playlistReloadCleanupCurrentTreeModeProvider
+            ?? throw new ArgumentNullException(nameof(playlistReloadCleanupCurrentTreeModeProvider));
+        this.playlistReloadCleanupDispatcherIdleWaiter = playlistReloadCleanupDispatcherIdleWaiter
+            ?? throw new ArgumentNullException(nameof(playlistReloadCleanupDispatcherIdleWaiter));
+        this.playlistReloadCleanupShutdownRequestedProvider = playlistReloadCleanupShutdownRequestedProvider
+            ?? throw new ArgumentNullException(nameof(playlistReloadCleanupShutdownRequestedProvider));
+        this.playlistReloadCleanupGarbageCollector = playlistReloadCleanupGarbageCollector
+            ?? throw new ArgumentNullException(nameof(playlistReloadCleanupGarbageCollector));
+        this.playlistReloadCleanupLog = playlistReloadCleanupLog
+            ?? throw new ArgumentNullException(nameof(playlistReloadCleanupLog));
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
