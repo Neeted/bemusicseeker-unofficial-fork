@@ -1215,7 +1215,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.MainChartList.RequestSort(e.SortMemberPath, e.Direction);
     }
 
-    private async void customTablePlaylistSummary_SortRequested(object sender, CustomTableSortRequestedEventArgs e)
+    private void customTablePlaylistSummary_SortRequested(object sender, CustomTableSortRequestedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("custom_table_playlist_summary_sort"))
         {
@@ -1225,10 +1225,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await Task.Run(delegate
-        {
-            viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);
-        }).Logging("customTablePlaylistSummary_SortRequested");
+        viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);
     }
 
     private void customTablePlaylistSummary_PreviewDragOver(object sender, DragEventArgs e)

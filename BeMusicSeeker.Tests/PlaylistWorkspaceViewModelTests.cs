@@ -540,6 +540,12 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, mainWindowSource.IndexOf("private async void customTableView_SortRequested(", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainChartListSource.IndexOf("CaptureSortRequest", StringComparison.Ordinal));
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
+        string playlistSummarySortRequested = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private void customTablePlaylistSummary_SortRequested(");
+        Assert.AreEqual(-1, playlistSummarySortRequested.IndexOf("Task.Run", StringComparison.Ordinal));
+        Assert.AreEqual(-1, playlistSummarySortRequested.IndexOf("Logging", StringComparison.Ordinal));
+        StringAssert.Contains(playlistSummarySortRequested, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
     }
 
     [TestMethod]
@@ -2049,18 +2055,36 @@ public sealed class PlaylistWorkspaceViewModelTests
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         Assert.IsTrue(workspace.TrySetPlaylistSummaryRowsCache(
-            new[] { new PlaylistSummaryRow { TotalCharts = 3 } },
+            new[]
+            {
+                new PlaylistSummaryRow { TotalCharts = 1 },
+                new PlaylistSummaryRow { TotalCharts = 3 }
+            },
             dataGeneration));
         long presentationGenerationBefore = workspace.CurrentPlaylistSummaryPresentationGeneration;
+        int callerThreadId = Thread.CurrentThread.ManagedThreadId;
+        int propertyChangedCount = 0;
+        int propertyChangedThreadId = 0;
+        workspace.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummarySortParameters))
+            {
+                propertyChangedCount++;
+                propertyChangedThreadId = Thread.CurrentThread.ManagedThreadId;
+            }
+        };
 
         workspace.RequestPlaylistSummarySort(
             nameof(PlaylistSummaryRow.TotalCharts),
             System.ComponentModel.ListSortDirection.Descending);
 
+        Assert.AreEqual(1, propertyChangedCount);
+        Assert.AreEqual(callerThreadId, propertyChangedThreadId);
         Assert.AreEqual(nameof(PlaylistSummaryRow.TotalCharts), workspace.PlaylistSummarySortParameters.ColumnsName);
         Assert.AreEqual(System.ComponentModel.ListSortDirection.Descending, workspace.PlaylistSummarySortParameters.Direction);
         Assert.IsTrue(workspace.CurrentPlaylistSummaryPresentationGeneration > presentationGenerationBefore);
-        Assert.AreEqual(1, workspace.PlaylistSummaryView.Count);
+        Assert.AreEqual(2, workspace.PlaylistSummaryView.Count);
+        Assert.AreEqual(3, workspace.PlaylistSummaryView[0].TotalCharts);
     }
 
     [TestMethod]
