@@ -4659,29 +4659,38 @@ public partial class MainWindowViewModel : ViewModel
         object sender,
         PlaylistDetailScoreSnapshotRefreshRequestedEventArgs request)
     {
-        if (request == null || !PlaylistWorkspace.IsPlaylistDetailViewActive)
+        if (request == null)
         {
             return;
         }
-        if (!request.RefreshRequired)
-        {
-            LogPlaylistWorker("playlist_score_snapshot_refresh_deferred scoreSnapshotVersion="
-                + request.ScoreSnapshotVersion
-                + " lastBuiltScoreSnapshotVersion="
-                + request.LastBuiltVersion
-                + " reason=editing");
-            return;
-        }
-        LogPlaylistWorker("playlist_score_snapshot_refresh_requested scoreSnapshotVersion="
-            + request.ScoreSnapshotVersion
-            + " lastBuiltScoreSnapshotVersion="
-            + request.LastBuiltVersion
-            + " deferredByEdit="
-            + request.DeferredByEdit.ToString().ToLowerInvariant());
-        if (!TrySuppress(UiRefreshChannel.LibraryMainView))
-        {
-            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-        }
+        InvokeMainChartListPresentationAction(
+            () =>
+            {
+                if (!PlaylistWorkspace.IsPlaylistDetailViewActive
+                    || PlaylistWorkspace.IsPlaylistSummaryMode)
+                {
+                    return;
+                }
+                if (!request.RefreshRequired)
+                {
+                    LogPlaylistWorker("playlist_score_snapshot_refresh_deferred scoreSnapshotVersion="
+                        + request.ScoreSnapshotVersion
+                        + " lastBuiltScoreSnapshotVersion="
+                        + request.LastBuiltVersion
+                        + " reason=editing");
+                    return;
+                }
+                LogPlaylistWorker("playlist_score_snapshot_refresh_requested scoreSnapshotVersion="
+                    + request.ScoreSnapshotVersion
+                    + " lastBuiltScoreSnapshotVersion="
+                    + request.LastBuiltVersion
+                    + " deferredByEdit="
+                    + request.DeferredByEdit.ToString().ToLowerInvariant());
+                if (!TrySuppress(UiRefreshChannel.LibraryMainView))
+                {
+                    RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
+                }
+            });
     }
 
     private void PlaylistWorkspaceTreeSelectionRequested(

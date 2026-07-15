@@ -544,6 +544,19 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal void RequestPlaylistDetailScoreSnapshotRefresh(int scoreSnapshotVersion)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.RequestPlaylistDetailScoreSnapshotRefresh(files.ScoreSnapshotVersion);");
+        string scoreSnapshotRefreshSource = SourceTextTestHelper.ExtractMethodBody(
+            logicalSource,
+            "private void PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested(");
+        StringAssert.Contains(scoreSnapshotRefreshSource, "InvokeMainChartListPresentationAction(");
+        int scoreSnapshotDispatchIndex = scoreSnapshotRefreshSource.IndexOf(
+            "InvokeMainChartListPresentationAction(",
+            StringComparison.Ordinal);
+        int scoreSnapshotRefreshIndex = scoreSnapshotRefreshSource.IndexOf(
+            "RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged)",
+            StringComparison.Ordinal);
+        StringAssert.Contains(scoreSnapshotRefreshSource, "|| PlaylistWorkspace.IsPlaylistSummaryMode");
+        Assert.IsTrue(scoreSnapshotDispatchIndex >= 0);
+        Assert.IsTrue(scoreSnapshotRefreshIndex > scoreSnapshotDispatchIndex);
         Assert.AreEqual(-1, rootSource.IndexOf("RequestPlaylistScoreSnapshotRefresh(", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("EvaluateScoreSnapshotRefresh(", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistDetailEditRefreshRequested", StringComparison.Ordinal));
