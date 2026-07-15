@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -627,6 +628,140 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, playlistSummarySortRequested.IndexOf("Task.Run", StringComparison.Ordinal));
         Assert.AreEqual(-1, playlistSummarySortRequested.IndexOf("Logging", StringComparison.Ordinal));
         StringAssert.Contains(playlistSummarySortRequested, "viewModel.PlaylistWorkspace.RequestPlaylistSummarySort(e.SortMemberPath, e.Direction);");
+    }
+
+    [TestMethod]
+    public void PlaylistTableExternalLinks_AreOwnedByWorkspace()
+    {
+        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string mainWindowSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "MainWindow.cs");
+
+        foreach (string member in new[]
+        {
+            "CanReloadPlaylistTable",
+            "CanOpenPlaylistTablePage",
+            "CanOpenPlaylistTableClearLamp",
+            "TryResolvePlaylistTablePageUri",
+            "TryResolvePlaylistTableClearLampUri"
+        })
+        {
+            StringAssert.Contains(workspaceSource, member);
+        }
+
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.CanReloadPlaylistTable(dataContext)");
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.CanOpenPlaylistTablePage(dataContext)");
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.CanOpenPlaylistTableClearLamp(dataContext)");
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.TryResolvePlaylistTablePageUri(dataContext, out Uri uri)");
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.TryResolvePlaylistTableClearLampUri(dataContext, out Uri uri)");
+        StringAssert.Contains(mainWindowSource, "Process.Start(uri.OriginalString)");
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("bmseeker:table.estimation", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("bmseeker:table.recommended", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("recommended_mypage", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("clearlampUri", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("EscapeDataString(mainWindowViewModel.LR2ID", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
+    public void PlaylistTableExternalLinks_PreserveNormalHeaderAndSpecialRoutes()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+
+        BMSTable pageTable = new() { Page_url = new Uri("https://example.test/table") };
+        Assert.IsTrue(workspace.CanReloadPlaylistTable(pageTable));
+        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(pageTable));
+        Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(pageTable, out Uri pageUri));
+        Assert.AreEqual("https://example.test/table", pageUri.ToString());
+
+        BMSTable headerTable = new() { Header_url = new Uri("https://example.test/header.json") };
+        Assert.IsTrue(workspace.CanReloadPlaylistTable(headerTable));
+        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(headerTable));
+        Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(headerTable, out Uri headerUri));
+        Assert.AreEqual("https://example.test/header.json", headerUri.ToString());
+
+        BMSTable estimationTable = new() { Page_url = new Uri("bmseeker:table.estimation") };
+        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(estimationTable));
+        Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(estimationTable, out Uri estimationUri));
+        Assert.AreEqual("http://walkure.net/hakkyou/bms.html", estimationUri.ToString());
+
+        BMSTable recommendedTable = new() { Page_url = new Uri("bmseeker:table.recommended") };
+        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(recommendedTable));
+        Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(recommendedTable, out _));
+
+        BMSTable unsupportedTable = new() { Page_url = new Uri("bmseeker:table.other") };
+        Assert.IsTrue(workspace.CanOpenPlaylistTablePage(unsupportedTable));
+        Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(unsupportedTable, out _));
+    }
+
+    [TestMethod]
+    public void PlaylistTableExternalLinks_UseLibraryPlayerIdForRecommendedAndClearLampRoutes()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSLibrary library = new(songDbPath);
+            typeof(BMSLibrary)
+                .GetField("_LR2ID", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .SetValue(library, 123);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistLibraryProvider: () => library);
+
+            BMSTable recommendedTable = new() { Page_url = new Uri("bmseeker:table.recommended") };
+            Assert.IsTrue(workspace.TryResolvePlaylistTablePageUri(recommendedTable, out Uri recommendedUri));
+            Assert.AreEqual(
+                "http://walkure.net/hakkyou/recommended_mypage.html?playerid=123",
+                recommendedUri.ToString());
+
+            BMSTable clearLampTable = new()
+            {
+                Page_url = new Uri("https://example.test/table?a=1&b=%E6%97%A5%E6%9C%AC"),
+                is_external_sync = true
+            };
+            Assert.IsTrue(workspace.CanOpenPlaylistTableClearLamp(clearLampTable));
+            Assert.IsTrue(workspace.TryResolvePlaylistTableClearLampUri(clearLampTable, out Uri clearLampUri));
+            string expectedTableQuery = Uri.EscapeDataString(clearLampTable.Page_url.ToString());
+            Assert.AreEqual(
+                "http://xyzzz.net/bms/clearlamp?lr2ID=123&table_url=" + expectedTableQuery,
+                clearLampUri.OriginalString);
+
+            clearLampTable.Page_url = new Uri("bmseeker:table.recommended");
+            Assert.IsFalse(workspace.CanOpenPlaylistTableClearLamp(clearLampTable));
+            Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(clearLampTable, out _));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistTableExternalLinks_SkipLibraryLookupForIneligibleClearLampTables()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistLibraryProvider: () => throw new InvalidOperationException("library lookup should not run"));
+
+        Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(null, out _));
+        Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(
+            new BMSTable { Page_url = new Uri("bmseeker:table.recommended"), is_external_sync = true },
+            out _));
+        Assert.IsFalse(workspace.TryResolvePlaylistTableClearLampUri(
+            new BMSTable { Page_url = new Uri("https://example.test/table"), is_external_sync = false },
+            out _));
+        Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(
+            new BMSTable { Page_url = new Uri("bmseeker:table.other") },
+            out _));
     }
 
     [TestMethod]

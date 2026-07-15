@@ -282,8 +282,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private TreeSelectionSection _currentTreeSelectionSection = TreeSelectionSection.None;
 
 
-    private static readonly string clearlampUri = "http://xyzzz.net/bms/clearlamp";
-
     private CancellationTokenSource tableContextMenuTaskTokenSource;
 
     private Task changeSubmenuOpenDocumentTask;
@@ -3968,11 +3966,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
                     break;
             }
         }
-        Uri uri = dataContext.Page_url ?? dataContext.Header_url;
-        bool flag = uri != null && uri.IsAbsoluteUri;
-        menuItem7.IsEnabled = flag;
-        menuItem.IsEnabled = dataContext.Page_url != null || dataContext.GetAbsoluteHeaderUrl() != null;
-        menuItem2.IsEnabled = dataContext.Page_url != null && dataContext.Page_url.Scheme != "bmseeker" && dataContext.is_external_sync && mainWindowViewModel.LR2ID != 0;
+        menuItem7.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanReloadPlaylistTable(dataContext);
+        menuItem.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanOpenPlaylistTablePage(dataContext);
+        menuItem2.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanOpenPlaylistTableClearLamp(dataContext);
         menuItem4.IsEnabled = !dataContext.is_external_sync;
         menuItem3.IsEnabled = true;
         menuItem5.IsEnabled = true;
@@ -4053,25 +4049,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistTableContextMenuItemOpenPageURIClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel mainWindowViewModel || !(sender is MenuItem { DataContext: BMSTable dataContext }))
+        if (base.DataContext is not MainWindowViewModel mainWindowViewModel
+            || sender is not MenuItem { DataContext: BMSTable dataContext })
         {
             return;
         }
-        Uri uri = dataContext.Page_url ?? dataContext.GetAbsoluteHeaderUrl();
-        if (uri.Scheme != "bmseeker")
+        if (mainWindowViewModel.PlaylistWorkspace.TryResolvePlaylistTablePageUri(dataContext, out Uri uri))
         {
-            if (uri != null)
-            {
-                Process.Start(uri.ToString());
-            }
-        }
-        else if (uri.ToString().StartsWith("bmseeker:table.estimation"))
-        {
-            Process.Start("http://walkure.net/hakkyou/bms.html");
-        }
-        else if (uri.ToString().StartsWith("bmseeker:table.recommended") && mainWindowViewModel.LR2ID != 0)
-        {
-            Process.Start("http://walkure.net/hakkyou/recommended_mypage.html?playerid=" + mainWindowViewModel.LR2ID);
+            Process.Start(uri.ToString());
         }
     }
 
@@ -4081,9 +4066,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private void treeViewPlaylistTableContextMenuItemOpenClearLampClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel && sender is MenuItem { DataContext: BMSTable dataContext } && dataContext.Page_url != null && dataContext.is_external_sync && mainWindowViewModel.LR2ID != 0)
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel
+            && sender is MenuItem { DataContext: BMSTable dataContext }
+            && mainWindowViewModel.PlaylistWorkspace.TryResolvePlaylistTableClearLampUri(dataContext, out Uri uri))
         {
-            Process.Start(clearlampUri + "?lr2ID=" + Uri.EscapeDataString(mainWindowViewModel.LR2ID.ToString()) + "&table_url=" + Uri.EscapeDataString(dataContext.Page_url.ToString()));
+            Process.Start(uri.OriginalString);
         }
     }
 
