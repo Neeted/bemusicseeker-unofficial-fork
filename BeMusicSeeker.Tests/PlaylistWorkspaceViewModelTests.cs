@@ -392,9 +392,29 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal long ClearPlaylistDetailSelection()");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryExecuteCurrentPlaylistSummarySelection(");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.TryExecuteCurrentPlaylistDetailSelection(");
+        string treeSelectionHandlerSource = SourceTextTestHelper.ExtractMethodBody(
+            logicalSource,
+            "private void PlaylistWorkspaceTreeSelectionRequested(");
+        StringAssert.Contains(treeSelectionHandlerSource, "InvokeMainChartListPresentationAction(");
         StringAssert.Contains(logicalSource, "CapturePlaylistDetailSelection(out long selectionRevision)");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestSummarySelection();");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);");
+        foreach (string selectionRoute in new[]
+        {
+            "private void playlistRootSelect(",
+            "private void ForceRefreshPlaylistTreeSelection(",
+            "private void playlistTableSelected("
+        })
+        {
+            string selectionRouteSource = SourceTextTestHelper.ExtractMethodBody(mainWindowSource, selectionRoute);
+            Assert.AreEqual(-1, selectionRouteSource.IndexOf("Task.Run", StringComparison.Ordinal));
+            Assert.AreEqual(-1, selectionRouteSource.IndexOf("Logging", StringComparison.Ordinal));
+        }
+        string tableRemoveSelectionSource = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick(");
+        Assert.AreEqual(-1, tableRemoveSelectionSource.IndexOf("Task.Run", StringComparison.Ordinal));
+        StringAssert.Contains(tableRemoveSelectionSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(null);");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ApplyPlaylistSummaryCellActionAsync(");
         StringAssert.Contains(bulkEditSource, "ownerWorkspace.ApplyPlaylistSummaryBmtOutput(");
         StringAssert.Contains(workspaceSource, "internal void ApplyPlaylistSummaryBmtOutput(");
@@ -1446,6 +1466,20 @@ public sealed class PlaylistWorkspaceViewModelTests
 
         Assert.AreEqual(2, requestCount);
         Assert.IsNull(workspace.CapturePlaylistDetailSelection());
+    }
+
+    [TestMethod]
+    public void TreeSelectionRequestsPublishOnCallerThread()
+    {
+        var workspace = CreateDetailWorkspace(out _);
+        int callerThreadId = Thread.CurrentThread.ManagedThreadId;
+        List<int> requestThreadIds = [];
+        workspace.TreeSelectionRequested += (_, _) => requestThreadIds.Add(Thread.CurrentThread.ManagedThreadId);
+
+        workspace.RequestSummarySelection();
+        workspace.RequestDetailSelection(new BMSTable());
+
+        CollectionAssert.AreEqual(new[] { callerThreadId, callerThreadId }, requestThreadIds);
     }
 
     [TestMethod]

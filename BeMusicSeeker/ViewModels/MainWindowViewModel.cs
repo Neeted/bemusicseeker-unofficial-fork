@@ -4694,26 +4694,34 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (request.IsSummary)
         {
-            PlaylistWorkspace.TryExecuteCurrentPlaylistSummarySelection(
-                request.SelectionRevision,
-                ApplyPlaylistSummarySelection);
+            InvokeMainChartListPresentationAction(
+                () =>
+                {
+                    PlaylistWorkspace.TryExecuteCurrentPlaylistSummarySelection(
+                        request.SelectionRevision,
+                        ApplyPlaylistSummarySelection);
+                });
             return;
         }
         PlaylistDetailSelection selection = request.Detail;
-        PlaylistWorkspace.TryExecuteCurrentPlaylistDetailSelection(
-            selection,
-            request.SelectionRevision,
+        InvokeMainChartListPresentationAction(
             () =>
             {
-                if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
-                {
-                    UpdateKeywordSearchPresentation();
-                }
-                RefreshChartRowsView(
-                    selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
-                        ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
-                        : MainViewUpdateMode.PlaylistFilterSelected,
-                    selection);
+                PlaylistWorkspace.TryExecuteCurrentPlaylistDetailSelection(
+                    selection,
+                    request.SelectionRevision,
+                    () =>
+                    {
+                        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
+                        {
+                            UpdateKeywordSearchPresentation();
+                        }
+                        RefreshChartRowsView(
+                            selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
+                                ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
+                                : MainViewUpdateMode.PlaylistFilterSelected,
+                            selection);
+                    });
             });
     }
 

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -916,6 +917,56 @@ public sealed class ApplicationCompositionTests
         {
             BeMusicSeeker.Properties.Settings.Default.OperationModeLR2DB = operationMode;
             BeMusicSeeker.Properties.Settings.Default.PlayHistorySelectedDisplayTargetIdentity = displayTargetIdentity;
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistTreeSelectionFromWorkerAppliesOnUiDispatcher()
+    {
+        Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
+        Dispatcher uiDispatcher = Dispatcher.CurrentDispatcher;
+        DispatcherHelper.UIDispatcher = uiDispatcher;
+        try
+        {
+            var composition = new ApplicationComposition(
+                () => new BmsLibraryOptionsSnapshot(),
+                firstStartupProvider: () => false,
+                completeFirstStartup: () =>
+                {
+                });
+            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+            int uiThreadId = Thread.CurrentThread.ManagedThreadId;
+            int propertyChangedThreadId = 0;
+            viewModel.PlaylistWorkspace.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode))
+                {
+                    propertyChangedThreadId = Thread.CurrentThread.ManagedThreadId;
+                }
+            };
+
+            Task worker = Task.Run(() => viewModel.PlaylistWorkspace.RequestSummarySelection());
+            var frame = new DispatcherFrame();
+            void PumpDispatcher()
+            {
+                if (worker.IsCompleted)
+                {
+                    frame.Continue = false;
+                    return;
+                }
+                uiDispatcher.BeginInvoke(DispatcherPriority.Background, (Action)PumpDispatcher);
+            }
+
+            uiDispatcher.BeginInvoke(DispatcherPriority.Background, (Action)PumpDispatcher);
+            Dispatcher.PushFrame(frame);
+            worker.GetAwaiter().GetResult();
+
+            Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryMode);
+            Assert.AreEqual(uiThreadId, propertyChangedThreadId);
+        }
+        finally
+        {
+            DispatcherHelper.UIDispatcher = previousDispatcher;
         }
     }
 

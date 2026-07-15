@@ -2633,10 +2633,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (e.Source is TreeViewItem)
         {
             var viewModel = base.DataContext as MainWindowViewModel;
-            Task.Run(delegate
-            {
-                viewModel.PlaylistWorkspace.RequestSummarySelection();
-            }).Logging("playlistRootSelect");
+            viewModel.PlaylistWorkspace.RequestSummarySelection();
         }
     }
 
@@ -2869,10 +2866,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (selectedItem == treeViewItemPlaylist)
         {
-            Task.Run(delegate
-            {
-                viewModel.PlaylistWorkspace.RequestSummarySelection();
-            }).Logging("ForceRefreshPlaylistTreeSelection");
+            viewModel.PlaylistWorkspace.RequestSummarySelection();
             return;
         }
         BMSTable bmsTable = null;
@@ -2897,10 +2891,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (bmsTable != null)
         {
-            Task.Run(delegate
-            {
-                viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
-            }).Logging("ForceRefreshPlaylistTreeSelection");
+            viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
         }
     }
 
@@ -3028,10 +3019,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             selectedFolderNode = folderNode;
         }
         e.Handled = true;
-        Task.Run(delegate
-        {
-            viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
-        }).Logging("playlistTableSelected");
+        viewModel.PlaylistWorkspace.RequestDetailSelection(bmsTable, selectedFolderNode);
     }
 
     private void treeViewItemOnRightClick(object sender, MouseButtonEventArgs e)
@@ -4215,10 +4203,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         await viewModel.PlaylistWorkspace.RemoveTableAsync(bmsTable).Logging("treeViewPlaylistTableContextMenuItemRemoveTableClick");
         if (treeViewItemPlaylist.IsSelected && treeViewItemPlaylist.Items.Count == 0)
         {
-            await Task.Run(delegate
-            {
-                viewModel.PlaylistWorkspace.RequestDetailSelection(null);
-            }).Logging("treeViewPlaylistTableContextMenuItemRemoveTableClick");
+            viewModel.PlaylistWorkspace.RequestDetailSelection(null);
         }
     }
 
