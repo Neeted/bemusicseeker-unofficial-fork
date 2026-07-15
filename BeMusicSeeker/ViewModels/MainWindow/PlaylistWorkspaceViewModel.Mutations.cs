@@ -16,8 +16,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> MutationRejected;
 
-    internal event EventHandler<PlaylistWorkspaceEntriesChangedEventArgs> EntriesChanged;
-
     internal event EventHandler PlaylistReferenceSortInvalidationRequested;
 
     internal event EventHandler<PlaylistTableRemovalInvalidOutputDirectoryEventArgs> PlaylistTableRemovalInvalidOutputDirectoryRequested;
@@ -561,12 +559,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool detailContentChanged = MarkCurrentPlaylistDetailEntriesChanged(table, "playlist_updated");
         try
         {
-            EntriesChanged?.Invoke(
-                this,
-                new PlaylistWorkspaceEntriesChangedEventArgs(
-                    table,
-                    detailContentChanged,
-                    refreshSummaryIfVisible));
+            if (detailContentChanged
+                && IsPlaylistDetailViewActive
+                && !IsPlaylistSummaryMode)
+            {
+                RequestPlaylistDetailReloadRefresh();
+            }
+            PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);
         }
         finally
         {
@@ -597,25 +596,6 @@ internal sealed class PlaylistWorkspaceMutationRejectedEventArgs : EventArgs
     }
 
     internal PlaylistWorkspaceMutationKind Kind { get; }
-}
-
-internal sealed class PlaylistWorkspaceEntriesChangedEventArgs : EventArgs
-{
-    internal PlaylistWorkspaceEntriesChangedEventArgs(
-        BMSTable table,
-        bool detailContentChanged = false,
-        bool refreshSummaryIfVisible = true)
-    {
-        Table = table ?? throw new ArgumentNullException(nameof(table));
-        DetailContentChanged = detailContentChanged;
-        RefreshSummaryIfVisible = refreshSummaryIfVisible;
-    }
-
-    internal BMSTable Table { get; }
-
-    internal bool DetailContentChanged { get; }
-
-    internal bool RefreshSummaryIfVisible { get; }
 }
 
 internal sealed class PlaylistTableRemovalInvalidOutputDirectoryEventArgs : EventArgs

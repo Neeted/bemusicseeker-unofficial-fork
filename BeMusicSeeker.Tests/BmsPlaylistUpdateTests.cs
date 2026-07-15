@@ -777,14 +777,12 @@ public sealed class BmsPlaylistUpdateTests
                 _ => { },
                 (exception, message) => { });
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
+            workspace.IsPlaylistDetailViewActive = true;
 
-            List<PlaylistWorkspaceEntriesChangedEventArgs> changes = [];
-            PlaylistWorkspaceEntriesChangedEventArgs? changed = null;
-            workspace.EntriesChanged += (_, request) =>
-            {
-                changed = request;
-                changes.Add(request);
-            };
+            int detailReloadCount = 0;
+            int referenceSortInvalidationCount = 0;
+            workspace.PlaylistDetailReloadRefreshRequested += (_, _) => detailReloadCount++;
+            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => referenceSortInvalidationCount++;
             long initialRevision = workspace.DetailViewState.Source.PlaylistContentRevision;
 
             await workspace.RenameFolderAsync(table, PlaylistFolderNode.CreateFolder("Mutation"), "Renamed");
@@ -794,12 +792,9 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual(string.Empty, workspace.CapturePlaylistDetailSelection()!.FolderName);
             await workspace.DeleteEntriesAsync([entry], table);
 
-            Assert.IsNotNull(changed);
-            Assert.AreSame(table, changed!.Table);
-            Assert.IsTrue(changed.DetailContentChanged);
-            Assert.AreEqual(4, changes.Count);
-            Assert.IsTrue(changes.All(request => request.DetailContentChanged));
-            Assert.AreEqual(initialRevision + changes.Count, workspace.DetailViewState.Source.PlaylistContentRevision);
+            Assert.AreEqual(4, detailReloadCount);
+            Assert.AreEqual(4, referenceSortInvalidationCount);
+            Assert.AreEqual(initialRevision + detailReloadCount, workspace.DetailViewState.Source.PlaylistContentRevision);
         }
         finally
         {
@@ -1171,8 +1166,11 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("tables", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, playlist);
             viewModel.PlaylistWorkspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("1"));
-            PlaylistWorkspaceEntriesChangedEventArgs? detailContentChange = null;
-            viewModel.PlaylistWorkspace.EntriesChanged += (_, request) => detailContentChange = request;
+            viewModel.PlaylistWorkspace.IsPlaylistDetailViewActive = true;
+            int detailReloadCount = 0;
+            int referenceSortInvalidationCount = 0;
+            viewModel.PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += (_, _) => detailReloadCount++;
+            viewModel.PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += (_, _) => referenceSortInvalidationCount++;
             long initialDetailContentRevision = viewModel.PlaylistWorkspace.DetailViewState.Source.PlaylistContentRevision;
 
             await viewModel.PlaylistWorkspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
@@ -1193,10 +1191,8 @@ public sealed class BmsPlaylistUpdateTests
             Assert.AreEqual("★1", table.entries[0].folder);
             Assert.AreEqual("★★1", table.entries[1].folder);
             CollectionAssert.AreEqual(new[] { "★1", "★★1" }, table.Folder_order);
-            Assert.IsNotNull(detailContentChange);
-            Assert.AreSame(table, detailContentChange!.Table);
-            Assert.IsTrue(detailContentChange.DetailContentChanged);
-            Assert.IsFalse(detailContentChange.RefreshSummaryIfVisible);
+            Assert.AreEqual(1, detailReloadCount);
+            Assert.AreEqual(1, referenceSortInvalidationCount);
             Assert.AreEqual("★1", viewModel.PlaylistWorkspace.CapturePlaylistDetailSelection().FolderName);
             Assert.AreEqual(initialDetailContentRevision + 1, viewModel.PlaylistWorkspace.DetailViewState.Source.PlaylistContentRevision);
             using var verify = new LR2SongDBExtended(songDbPath);

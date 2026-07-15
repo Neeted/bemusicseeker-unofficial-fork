@@ -4523,7 +4523,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
-        PlaylistWorkspace.EntriesChanged += PlaylistWorkspaceEntriesChanged;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistTableRemovalInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistTableRemovalInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested;
@@ -4776,14 +4775,6 @@ public partial class MainWindowViewModel : ViewModel
         ShowUiMessage(message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
     }
 
-    private void PlaylistWorkspaceEntriesChanged(
-        object sender,
-        PlaylistWorkspaceEntriesChangedEventArgs request)
-    {
-        ApplyPlaylistEntriesChanged(
-            detailContentChanged: request.DetailContentChanged);
-    }
-
     private void PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested(
         object sender,
         PlaylistSummaryBulkInvalidOutputDirectoryEventArgs request)
@@ -4826,16 +4817,6 @@ public partial class MainWindowViewModel : ViewModel
                     RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
                 }
             });
-    }
-
-    private void ApplyPlaylistEntriesChanged(
-        bool detailContentChanged)
-    {
-        if (IsPlaylistDetailWorkflowActive && detailContentChanged)
-        {
-            RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
-        }
-        InvalidateNormalLibraryReferenceTableSortKeys();
     }
 
     private void RegularChartListOwnerSortChanged(object sender, MainChartListSortRequestedEventArgs request)

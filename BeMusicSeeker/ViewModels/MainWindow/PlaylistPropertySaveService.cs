@@ -43,7 +43,7 @@ internal sealed class PlaylistPropertySaveService
 
     internal event EventHandler<PlaylistSummaryDataRefreshRequestedEventArgs> PlaylistPropertySummaryDataRefreshRequested;
 
-    internal event EventHandler<PlaylistWorkspaceEntriesChangedEventArgs> PlaylistPropertyEntriesChanged;
+    internal event EventHandler<PlaylistPropertyEntriesChangedEventArgs> PlaylistPropertyEntriesChanged;
 
     internal event EventHandler<PlaylistPropertyNotificationsFlushRequestedEventArgs> PlaylistPropertyNotificationsFlushRequested;
 
@@ -428,7 +428,7 @@ internal sealed class PlaylistPropertySaveService
             {
                 RaiseRequiredEvent(
                     PlaylistPropertyEntriesChanged,
-                    new PlaylistWorkspaceEntriesChangedEventArgs(table),
+                    new PlaylistPropertyEntriesChangedEventArgs(table),
                     "Playlist property entries-changed publication");
             }
             else
@@ -445,7 +445,7 @@ internal sealed class PlaylistPropertySaveService
         {
             RaiseRequiredEvent(
                 PlaylistPropertyEntriesChanged,
-                new PlaylistWorkspaceEntriesChangedEventArgs(table),
+                new PlaylistPropertyEntriesChangedEventArgs(table),
                 "Playlist property entries-changed publication");
         }
 
@@ -909,6 +909,21 @@ internal sealed class PlaylistPropertyExternalSyncFailedEventArgs : EventArgs
     internal Uri Uri { get; }
 
     internal Exception Exception { get; }
+}
+
+internal sealed class PlaylistPropertyEntriesChangedEventArgs : EventArgs
+{
+    internal PlaylistPropertyEntriesChangedEventArgs(
+        BMSTable table,
+        bool refreshSummaryIfVisible = true)
+    {
+        Table = table ?? throw new ArgumentNullException(nameof(table));
+        RefreshSummaryIfVisible = refreshSummaryIfVisible;
+    }
+
+    internal BMSTable Table { get; }
+
+    internal bool RefreshSummaryIfVisible { get; }
 }
 
 internal sealed class PlaylistPropertyNotificationsFlushRequestedEventArgs : EventArgs
