@@ -117,7 +117,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         PlaylistSyncResultReportedEventArgs request)
     {
         RecordPlaylistSyncResult(request?.Result);
-        RaiseRequiredEvent(PlaylistSyncResultReported, request, nameof(PlaylistSyncResultReported));
+        LogPlaylistSyncFailure(request?.Result);
     }
 
     private void ForwardPlaylistPropertyExternalSyncFailed(
@@ -127,11 +127,22 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (request != null)
         {
             RecordPlaylistSyncResult(PlaylistSyncAttemptResult.CreateFailure(request.Table, request.Uri, request.Exception));
+            LogPlaylistPropertyExternalSyncFailure(request);
         }
         RaiseRequiredEvent(
             PlaylistPropertyExternalSyncFailed,
             request,
             nameof(PlaylistPropertyExternalSyncFailed));
+    }
+
+    private void LogPlaylistPropertyExternalSyncFailure(PlaylistPropertyExternalSyncFailedEventArgs request)
+    {
+        playlistSyncFailureLog(
+            request.Exception,
+            "playlist_property_resync_failed table="
+            + (request.Table?.name ?? string.Empty)
+            + " uri="
+            + (request.Uri?.ToString() ?? string.Empty));
     }
 
     private void ForwardPlaylistSummaryDataRefreshRequested(

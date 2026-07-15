@@ -34,7 +34,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly Action playlistReloadCleanupGarbageCollector;
 
-    private readonly Action<string> playlistReloadCleanupLog;
+    private readonly Action<string> playlistReloadLog;
 
     internal static string GetPlaylistReloadOperationKindText(string reason, bool fromReloadTables)
     {
@@ -329,7 +329,12 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void WritePlaylistReloadCleanupLog(string message)
     {
-        playlistReloadCleanupLog(message);
+        WritePlaylistReloadLog(message);
+    }
+
+    private void WritePlaylistReloadLog(string message)
+    {
+        playlistReloadLog(message);
     }
 
     private static PlaylistReloadCleanupOperationKind DeterminePlaylistReloadOperationKind(

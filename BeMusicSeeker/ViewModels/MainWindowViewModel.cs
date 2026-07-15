@@ -4564,7 +4564,8 @@ public partial class MainWindowViewModel : ViewModel
             WaitForPlaylistReloadCleanupDispatcherIdleAsync,
             () => IsShutdownRequested,
             CollectPlaylistReloadCleanupGarbage,
-            LogPlaylistReload);
+            LogPlaylistReload,
+            (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message));
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
@@ -4583,12 +4584,9 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
         PlaylistWorkspace.BeatorajaTableUrlImportSummaryReady += PlaylistWorkspaceBeatorajaTableUrlImportSummaryReady;
         PlaylistWorkspace.PlaylistSummaryBulkInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistSummaryBulkInvalidOutputDirectoryRequested;
-        PlaylistWorkspace.PlaylistReloadStarted += PlaylistWorkspacePlaylistReloadStarted;
         PlaylistWorkspace.PlaylistSyncProgressChanged += PlaylistWorkspacePlaylistSyncProgressChanged;
-        PlaylistWorkspace.PlaylistSyncResultReported += PlaylistWorkspacePlaylistSyncResultReported;
         PlaylistWorkspace.PlaylistReferenceTableReplaced += PlaylistWorkspacePlaylistReferenceTableReplaced;
         PlaylistWorkspace.PlaylistDetailReloadRefreshRequested += PlaylistWorkspacePlaylistDetailReloadRefreshRequested;
-        PlaylistWorkspace.PlaylistReloadCompleted += PlaylistWorkspacePlaylistReloadCompleted;
         PlaylistWorkspace.PlaylistPropertyValidationError += PlaylistWorkspacePlaylistPropertyValidationError;
         PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistPropertyExternalSyncConfirmationRequested;
         PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested;
@@ -4869,43 +4867,11 @@ public partial class MainWindowViewModel : ViewModel
             request.RouteName);
     }
 
-    private void PlaylistWorkspacePlaylistReloadStarted(
-        object sender,
-        PlaylistReloadStartedEventArgs request)
-    {
-        string operationKind = PlaylistWorkspaceViewModel.GetPlaylistReloadOperationKindText(request.TableCount > 1);
-        LogPlaylistReload(
-            "playlist_reload_operation started operationKind="
-            + operationKind
-            + " reason=manual_resync tableCount="
-            + request.TableCount);
-    }
-
     private void PlaylistWorkspacePlaylistSyncProgressChanged(
         object sender,
         PlaylistSyncProgressChangedEventArgs request)
     {
         UpdatePlaylistSyncProgressStatus(request.Snapshot);
-    }
-
-    private void PlaylistWorkspacePlaylistSyncResultReported(
-        object sender,
-        PlaylistSyncResultReportedEventArgs request)
-    {
-        PlaylistSyncAttemptResult result = request.Result;
-        if (result == null)
-        {
-            return;
-        }
-        if (!result.Succeeded)
-        {
-            NLogWrapper.FileLogger?.Warn(
-                result.Exception,
-                "playlist_manual_resync_failed table="
-                + (result.SourceTable?.name ?? string.Empty)
-                + " uri="
-                + (result.PageUri?.ToString() ?? string.Empty));
-        }
     }
 
     private void PlaylistWorkspacePlaylistReferenceTableReplaced(
@@ -4932,27 +4898,6 @@ public partial class MainWindowViewModel : ViewModel
                     RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
                 }
             });
-    }
-
-    private void PlaylistWorkspacePlaylistReloadCompleted(
-        object sender,
-        PlaylistReloadCompletedEventArgs request)
-    {
-        LogPlaylistReload(
-            "playlist_reload_operation completed operationKind="
-            + PlaylistWorkspaceViewModel.GetPlaylistReloadOperationKindText(request.IsFullReload)
-            + " reason=manual_resync tableCount="
-            + request.TableCount
-            + " processedCount="
-            + request.ProcessedCount
-            + " summaryRebuildMs="
-            + PlaylistWorkspace.LastPlaylistSummaryBuildElapsedMs
-            + " detailRefreshMs="
-            + PlaylistWorkspace.LastDetailBuildElapsedMs
-            + " cleanupQueued="
-            + request.CleanupQueued.ToString().ToLowerInvariant()
-            + " elapsedMs="
-            + request.ElapsedMilliseconds);
     }
 
     private void ApplyPlaylistEntriesChanged(

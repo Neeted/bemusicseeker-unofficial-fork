@@ -865,7 +865,8 @@ public sealed class ChartListVirtualViewTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         SelectSummaryFilter(workflowOwner, "exhard");
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
@@ -943,7 +944,8 @@ public sealed class ChartListVirtualViewTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
         workflowOwner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = nameof(PlayHistoryRow.Title),
@@ -1015,7 +1017,8 @@ public sealed class ChartListVirtualViewTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
         SelectSummaryFilter(workflowOwner, "exhard");
 
@@ -1085,7 +1088,8 @@ public sealed class ChartListVirtualViewTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
         workspace.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
@@ -1501,7 +1505,8 @@ public sealed class ChartListVirtualViewTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
         var owner = new PlayHistoryTerminalHarness(
             workflowOwner,
             table,
@@ -1636,7 +1641,8 @@ public sealed class ChartListVirtualViewTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
         var sourceClear = new PlaylistSourceClearCommitResult(
             [],
             new List<object>(),
@@ -4128,7 +4134,8 @@ public sealed class ChartListVirtualViewTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
         configureWorkspace(workspace);
         return new PlayHistoryTerminalHarness(
             workflowOwner,

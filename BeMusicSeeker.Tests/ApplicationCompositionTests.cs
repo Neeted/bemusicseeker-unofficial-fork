@@ -78,7 +78,8 @@ public sealed class ApplicationCompositionTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { });
+                _ => { },
+                (exception, message) => { });
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
 
@@ -106,7 +107,8 @@ public sealed class ApplicationCompositionTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { });
+                _ => { },
+                (exception, message) => { });
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
             DateTime completedAt = DateTime.Now;
@@ -414,7 +416,8 @@ public sealed class ApplicationCompositionTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
 
         Assert.IsNotNull(mainChartList);
         Assert.IsNotNull(playlistWorkspace);
@@ -459,7 +462,8 @@ public sealed class ApplicationCompositionTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
@@ -545,7 +549,8 @@ public sealed class ApplicationCompositionTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { });
+                _ => { },
+                (exception, message) => { });
             workspace.IsPlaylistSummaryMode = true;
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
@@ -647,7 +652,8 @@ public sealed class ApplicationCompositionTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { });
+                _ => { },
+                (exception, message) => { });
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
                 workspace,
@@ -840,7 +846,8 @@ public sealed class ApplicationCompositionTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { });
+                _ => { },
+                (exception, message) => { });
             var refreshRequests = new List<PlaylistSummaryDataRefreshRequestedEventArgs>();
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => refreshRequests.Add(request);
             var queuedReasons = new List<string>();

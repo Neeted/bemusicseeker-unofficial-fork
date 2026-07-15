@@ -9,19 +9,13 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    internal event EventHandler<PlaylistReloadStartedEventArgs> PlaylistReloadStarted;
+    private readonly Action<Exception, string> playlistSyncFailureLog;
 
     internal event EventHandler<PlaylistSyncProgressChangedEventArgs> PlaylistSyncProgressChanged;
-
-    internal event EventHandler<PlaylistSyncResultReportedEventArgs> PlaylistSyncResultReported;
 
     internal event EventHandler<PlaylistReferenceTableReplacedEventArgs> PlaylistReferenceTableReplaced;
 
     internal event EventHandler PlaylistDetailReloadRefreshRequested;
-
-    internal event EventHandler<PlaylistReloadCompletedEventArgs> PlaylistReloadCompleted;
-
-    internal event EventHandler PlaylistReloadFinished;
 
     internal bool ShouldRefreshPlaylistDetailAfterReload(MainViewUpdateMode currentTreeMode)
     {
@@ -92,16 +86,18 @@ public sealed partial class PlaylistWorkspaceViewModel
             try
             {
                 BeginPlaylistSyncProgressOperation();
-                PlaylistReloadStarted?.Invoke(this, new PlaylistReloadStartedEventArgs(activeTables.Count));
+                WritePlaylistReloadLog(
+                    "playlist_reload_operation started operationKind="
+                    + GetPlaylistReloadOperationKindText(isFullReload)
+                    + " reason=manual_resync tableCount="
+                    + activeTables.Count);
                 results = await playlists.ReloadPlaylistTargetsAsync(
                     activeTables,
                     [CreateReferenceReplaceUpdateCallback(playlists, library)],
                     result =>
                     {
                         RecordPlaylistSyncResult(result);
-                        PlaylistSyncResultReported?.Invoke(
-                            this,
-                            new PlaylistSyncResultReportedEventArgs(result));
+                        LogPlaylistSyncFailure(result);
                     },
                     ReportPlaylistSyncProgress,
                     "manual_resync",
@@ -114,18 +110,24 @@ public sealed partial class PlaylistWorkspaceViewModel
                         invalidateTableCountCache: true));
                 RequestPlaylistDetailReloadRefresh();
                 bool cleanupQueued = QueuePlaylistReloadCleanup(isFullReload, activeTables.Count);
-                PlaylistReloadCompleted?.Invoke(
-                    this,
-                    new PlaylistReloadCompletedEventArgs(
-                        activeTables.Count,
-                        results?.Count ?? 0,
-                        isFullReload,
-                        stopwatch.ElapsedMilliseconds,
-                        cleanupQueued));
+                WritePlaylistReloadLog(
+                    "playlist_reload_operation completed operationKind="
+                    + GetPlaylistReloadOperationKindText(isFullReload)
+                    + " reason=manual_resync tableCount="
+                    + activeTables.Count
+                    + " processedCount="
+                    + (results?.Count ?? 0)
+                    + " summaryRebuildMs="
+                    + LastPlaylistSummaryBuildElapsedMs
+                    + " detailRefreshMs="
+                    + LastDetailBuildElapsedMs
+                    + " cleanupQueued="
+                    + cleanupQueued.ToString().ToLowerInvariant()
+                    + " elapsedMs="
+                    + stopwatch.ElapsedMilliseconds);
             }
             finally
             {
-                PlaylistReloadFinished?.Invoke(this, EventArgs.Empty);
                 EndPlaylistSyncProgressOperation();
             }
         }
@@ -133,6 +135,20 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             manualReloadSemaphore.Release();
         }
+    }
+
+    private void LogPlaylistSyncFailure(PlaylistSyncAttemptResult result)
+    {
+        if (result == null || result.Succeeded)
+        {
+            return;
+        }
+        playlistSyncFailureLog(
+            result.Exception,
+            "playlist_manual_resync_failed table="
+            + (result.SourceTable?.name ?? string.Empty)
+            + " uri="
+            + (result.PageUri?.ToString() ?? string.Empty));
     }
 
     private Action<BMSPlaylist.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback(
@@ -191,16 +207,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 }
 
-internal sealed class PlaylistReloadStartedEventArgs : EventArgs
-{
-    internal PlaylistReloadStartedEventArgs(int tableCount)
-    {
-        TableCount = tableCount;
-    }
-
-    internal int TableCount { get; }
-}
-
 internal sealed class PlaylistSyncProgressChangedEventArgs : EventArgs
 {
     internal PlaylistSyncProgressChangedEventArgs(PlaylistSyncProgressSnapshot snapshot)
@@ -238,31 +244,4 @@ internal sealed class PlaylistReferenceTableReplacedEventArgs : EventArgs
     internal BMSTable NewTable { get; }
 
     internal bool ReferenceIndexChanged { get; }
-}
-
-internal sealed class PlaylistReloadCompletedEventArgs : EventArgs
-{
-    internal PlaylistReloadCompletedEventArgs(
-        int tableCount,
-        int processedCount,
-        bool isFullReload,
-        long elapsedMilliseconds,
-        bool cleanupQueued)
-    {
-        TableCount = tableCount;
-        ProcessedCount = processedCount;
-        IsFullReload = isFullReload;
-        ElapsedMilliseconds = elapsedMilliseconds;
-        CleanupQueued = cleanupQueued;
-    }
-
-    internal int TableCount { get; }
-
-    internal int ProcessedCount { get; }
-
-    internal bool IsFullReload { get; }
-
-    internal long ElapsedMilliseconds { get; }
-
-    internal bool CleanupQueued { get; }
 }

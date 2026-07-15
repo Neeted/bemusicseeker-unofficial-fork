@@ -122,7 +122,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { }));
+            _ => { },
+            (exception, message) => { }));
     }
 
     [TestMethod]
@@ -262,7 +263,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
@@ -307,7 +309,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
@@ -349,6 +352,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => Task.CompletedTask,
             () => false,
             () => { },
-            _ => { });
+            _ => { },
+            (exception, message) => { });
     }
 }

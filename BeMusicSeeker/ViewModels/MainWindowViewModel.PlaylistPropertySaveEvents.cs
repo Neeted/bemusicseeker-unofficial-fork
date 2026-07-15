@@ -1,6 +1,5 @@
 using System;
 using BeMusicSeeker.Models;
-using Ribbit.Logging;
 using System.Windows;
 
 namespace BeMusicSeeker.ViewModels;
@@ -194,12 +193,6 @@ public partial class MainWindowViewModel
         object sender,
         PlaylistPropertyExternalSyncFailedEventArgs request)
     {
-        NLogWrapper.FileLogger?.Warn(
-            request.Exception,
-            "playlist_property_resync_failed table="
-                + (request.Table?.name ?? string.Empty)
-                + " uri="
-                + (request.Uri?.ToString() ?? string.Empty));
         ShowPlaylistLoadFailure(request.Exception);
     }
 

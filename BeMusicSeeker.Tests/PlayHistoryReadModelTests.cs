@@ -3458,7 +3458,8 @@ public sealed class PlayHistoryReadModelTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { }));
+                _ => { },
+                (exception, message) => { }));
     }
 
     [TestMethod]

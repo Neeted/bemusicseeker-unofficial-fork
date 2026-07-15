@@ -595,6 +595,8 @@ public sealed class BmsPlaylistUpdateTests
                 }
             }
             var library = new BMSLibrary(songDbPath);
+            var lifecycleLogs = new List<string>();
+            var failureLogs = new List<(Exception Exception, string Message)>();
             var workspace = new PlaylistWorkspaceViewModel(
                 action => action(),
                 new MainChartListViewModel(action => action()),
@@ -627,21 +629,15 @@ public sealed class BmsPlaylistUpdateTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { });
-            int startedCount = 0;
+                message => lifecycleLogs.Add(message),
+                (exception, message) => failureLogs.Add((exception, message)));
             int progressCount = 0;
-            int resultCount = 0;
             int referenceReplacementCount = 0;
             BMSTable? referenceReplacementOldTable = null;
             BMSTable? referenceReplacementNewTable = null;
             bool referenceIndexChanged = false;
-            int completedCount = 0;
-            int finishedCount = 0;
             PlaylistSummaryDataRefreshRequestedEventArgs? summaryRefresh = null;
-            PlaylistReloadCompletedEventArgs? completion = null;
-            workspace.PlaylistReloadStarted += (_, _) => startedCount++;
             workspace.PlaylistSyncProgressChanged += (_, _) => progressCount++;
-            workspace.PlaylistSyncResultReported += (_, _) => resultCount++;
             workspace.PlaylistReferenceTableReplaced += (_, request) =>
             {
                 referenceReplacementCount++;
@@ -649,12 +645,6 @@ public sealed class BmsPlaylistUpdateTests
                 referenceReplacementNewTable = request.NewTable;
                 referenceIndexChanged = request.ReferenceIndexChanged;
             };
-            workspace.PlaylistReloadCompleted += (_, request) =>
-            {
-                completedCount++;
-                completion = request;
-            };
-            workspace.PlaylistReloadFinished += (_, _) => finishedCount++;
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) => summaryRefresh = request;
 
             Assert.IsTrue(workspace.ContainsActivePlaylistTable(table));
@@ -663,20 +653,20 @@ public sealed class BmsPlaylistUpdateTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
             await workspace.ResyncPlaylistsAsync([table]);
 
-            Assert.AreEqual(1, startedCount);
+            Assert.AreEqual(
+                1,
+                lifecycleLogs.Count(log => log.StartsWith(
+                    "playlist_reload_operation started operationKind=single reason=manual_resync tableCount=1",
+                    StringComparison.Ordinal)));
             Assert.IsTrue(progressCount >= 3);
-            Assert.AreEqual(1, resultCount);
             Assert.AreEqual(1, referenceReplacementCount);
             Assert.IsTrue(referenceIndexChanged);
-            Assert.AreEqual(1, completedCount);
-            Assert.AreEqual(1, finishedCount);
+            Assert.IsTrue(lifecycleLogs.Any(log => log.StartsWith(
+                "playlist_reload_operation completed operationKind=single reason=manual_resync tableCount=1 processedCount=1",
+                StringComparison.Ordinal)));
             Assert.IsNotNull(summaryRefresh);
             Assert.AreEqual("manual_playlist_resync", summaryRefresh!.Reason);
             Assert.IsTrue(summaryRefresh.InvalidateTableCountCache);
-            Assert.IsNotNull(completion);
-            Assert.AreEqual(1, completion!.TableCount);
-            Assert.AreEqual(1, completion.ProcessedCount);
-            Assert.IsFalse(completion.IsFullReload);
 
             BMSTable reloadedTable = playlist.BMSTables.Single();
             Assert.AreNotSame(table, reloadedTable);
@@ -698,9 +688,21 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsFalse(workspace.ContainsActivePlaylistTable(reloadedTable));
             Assert.IsTrue(workspace.ContainsActivePlaylistTable(headerRefreshedTable));
 
-            await workspace.ResyncPlaylistsAsync([table]);
-            Assert.AreEqual(2, startedCount);
-            Assert.AreEqual(2, finishedCount);
+            Assert.AreEqual(
+                2,
+                lifecycleLogs.Count(log => log.StartsWith(
+                    "playlist_reload_operation started operationKind=single reason=manual_resync tableCount=1",
+                    StringComparison.Ordinal)));
+
+            headerRefreshedTable.header_sha256 = null;
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{"));
+            Uri failureUri = headerRefreshedTable.Page_url ?? headerRefreshedTable.Header_url;
+            await workspace.ResyncPlaylistsAsync([headerRefreshedTable]);
+            Assert.AreEqual(1, failureLogs.Count);
+            Assert.IsNotNull(failureLogs[0].Exception);
+            Assert.AreEqual(
+                "playlist_manual_resync_failed table=WorkspaceTarget uri=" + failureUri,
+                failureLogs[0].Message);
         }
         finally
         {
@@ -776,7 +778,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { });
+                _ => { },
+                (exception, message) => { });
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
 
             List<PlaylistWorkspaceEntriesChangedEventArgs> changes = [];
@@ -1289,7 +1292,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { });
+                _ => { },
+                (exception, message) => { });
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
@@ -6462,7 +6466,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => Task.CompletedTask,
                 () => false,
                 () => { },
-                _ => { });
+                _ => { },
+                (exception, message) => { });
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
             {

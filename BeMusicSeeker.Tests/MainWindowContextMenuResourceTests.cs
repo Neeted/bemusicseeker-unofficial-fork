@@ -2790,12 +2790,26 @@ public sealed class MainWindowContextMenuResourceTests
             "ViewModels",
             "MainWindow",
             "PlaylistWorkspaceViewModel.Reload.cs");
+        string propertyEditingCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.PropertyEditing.cs");
+        string propertySaveEventsCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.PlaylistPropertySaveEvents.cs");
 
         StringAssert.Contains(workspaceCode, "playlists.ReloadPlaylistTargetsAsync(");
         StringAssert.Contains(workspaceCode, "CreateReferenceReplaceUpdateCallback(playlists, library)");
         StringAssert.Contains(workspaceCode, "requireCurrentTargetForApply: true");
         StringAssert.Contains(workspaceCode, "playlists.QueueBeatorajaBmtExportAll(\"manual_resync\")");
-        StringAssert.Contains(viewModelCode, "PlaylistWorkspacePlaylistSyncResultReported");
+        StringAssert.Contains(workspaceCode, "LogPlaylistSyncFailure(result)");
+        StringAssert.Contains(workspaceCode, "playlist_manual_resync_failed table=");
+        StringAssert.Contains(propertyEditingCode, "LogPlaylistPropertyExternalSyncFailure(request)");
+        StringAssert.Contains(propertyEditingCode, "playlist_property_resync_failed table=");
+        Assert.IsFalse(viewModelCode.Contains("PlaylistWorkspacePlaylistSyncResultReported"));
+        Assert.IsFalse(propertySaveEventsCode.Contains("playlist_property_resync_failed table="));
         StringAssert.Contains(viewModelCode, "PlaylistWorkspacePlaylistReferenceTableReplaced");
         StringAssert.Contains(viewModelCode, "PlaylistWorkspace.ReplaceCurrentPlaylistDetailSelectionTable(request.OldTable, request.NewTable)");
         StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders)");

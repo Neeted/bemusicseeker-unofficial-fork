@@ -121,7 +121,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<Task> playlistReloadCleanupDispatcherIdleWaiter,
         Func<bool> playlistReloadCleanupShutdownRequestedProvider,
         Action playlistReloadCleanupGarbageCollector,
-        Action<string> playlistReloadCleanupLog)
+        Action<string> playlistReloadLog,
+        Action<Exception, string> playlistSyncFailureLog)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -183,8 +184,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistReloadCleanupShutdownRequestedProvider));
         this.playlistReloadCleanupGarbageCollector = playlistReloadCleanupGarbageCollector
             ?? throw new ArgumentNullException(nameof(playlistReloadCleanupGarbageCollector));
-        this.playlistReloadCleanupLog = playlistReloadCleanupLog
-            ?? throw new ArgumentNullException(nameof(playlistReloadCleanupLog));
+        this.playlistReloadLog = playlistReloadLog
+            ?? throw new ArgumentNullException(nameof(playlistReloadLog));
+        this.playlistSyncFailureLog = playlistSyncFailureLog
+            ?? throw new ArgumentNullException(nameof(playlistSyncFailureLog));
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
