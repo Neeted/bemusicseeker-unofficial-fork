@@ -113,6 +113,41 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "private readonly Action<string> summaryBulkWarningLog;");
         StringAssert.Contains(workspaceSource, "IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore");
         StringAssert.Contains(workspaceSource, "PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort");
+        StringAssert.Contains(workspaceSource, "internal Task ApplyCurrentVisibleBmtOrderAsync(");
+        StringAssert.Contains(workspaceSource, "internal Task MoveSummaryRowsToBmtTopAsync(");
+        StringAssert.Contains(workspaceSource, "internal Task MoveSummaryRowsToBmtBottomAsync(");
+        StringAssert.Contains(workspaceSource, "internal Task<long> DropSummaryRowsInBmtOrderAsync(");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("internal void ApplyCurrentVisibleBmtOrder(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, workspaceSource.IndexOf("internal void MoveSummaryRowsToBmtTop(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, workspaceSource.IndexOf("internal void MoveSummaryRowsToBmtBottom(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, workspaceSource.IndexOf("internal long DropSummaryRowsInBmtOrder(", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "return Task.Run(() => ApplyCurrentVisibleBmtOrderCore(visibleRowsSnapshot));");
+        StringAssert.Contains(workspaceSource, "return Task.Run(() => MoveSummaryRowsToBmtTopCore(rowsSnapshot));");
+        StringAssert.Contains(workspaceSource, "return Task.Run(() => MoveSummaryRowsToBmtBottomCore(rowsSnapshot));");
+        StringAssert.Contains(workspaceSource, "return Task.Run(() => DropSummaryRowsInBmtOrderCore(");
+        StringAssert.Contains(workspaceSource, "appliedDraggedTables =>");
+        StringAssert.Contains(workspaceSource, "var activeDraggedTableSet = new HashSet<BMSTable>(appliedDraggedTables);");
+        StringAssert.Contains(workspaceSource, "int? appliedCurrentPlaylistId = currentPlaylistId.HasValue");
+        StringAssert.Contains(bmtSortSource, "private readonly object reorderGate = new();");
+        StringAssert.Contains(bmtSortSource, "playlist.AcquireReaderLockBMSTables();");
+        StringAssert.Contains(bmtSortSource, "table.ReaderWriterLock.GetWriterGuard()");
+        StringAssert.Contains(bmtSortSource, "collectionReadLockHeld: true");
+        string summaryDropSource = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private async void customTablePlaylistSummary_Drop(");
+        StringAssert.Contains(summaryDropSource, "DropSummaryRowsInBmtOrderAsync(");
+        Assert.AreEqual(-1, summaryDropSource.IndexOf("Task.Run", StringComparison.Ordinal));
+        foreach (string summarySortHandler in new[]
+        {
+            "private async void playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick(",
+            "private async void playlistSummaryContextMenuMoveToBmtSortTopClick(",
+            "private async void playlistSummaryContextMenuMoveToBmtSortBottomClick("
+        })
+        {
+            string handlerSource = SourceTextTestHelper.ExtractMethodBody(mainWindowSource, summarySortHandler);
+            Assert.AreEqual(-1, handlerSource.IndexOf("Task.Run", StringComparison.Ordinal), summarySortHandler);
+            StringAssert.Contains(handlerSource, "Async(");
+        }
         StringAssert.Contains(workspaceSource, "internal void ResetPlaylistSummaryColumnsToDefault()");
         StringAssert.Contains(workspaceSource, "private bool isPlaylistTreeExpanded = true;");
         StringAssert.Contains(workspaceSource, "public bool IsPlaylistTreeExpanded");

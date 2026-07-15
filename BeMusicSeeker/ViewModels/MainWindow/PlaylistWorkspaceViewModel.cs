@@ -218,7 +218,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         PlaylistSummaryColumnsSettings = store.ResetPlaylistSummary();
     }
 
-    internal void ApplyCurrentVisibleBmtOrder(IEnumerable<PlaylistSummaryRow> visibleRows)
+    internal Task ApplyCurrentVisibleBmtOrderAsync(IEnumerable<PlaylistSummaryRow> visibleRows)
+    {
+        List<PlaylistSummaryRow> visibleRowsSnapshot = [.. (visibleRows ?? [])];
+        return Task.Run(() => ApplyCurrentVisibleBmtOrderCore(visibleRowsSnapshot));
+    }
+
+    private void ApplyCurrentVisibleBmtOrderCore(IReadOnlyList<PlaylistSummaryRow> visibleRows)
     {
         if (GetSummaryBmtSort().ApplyCurrentVisibleOrder(visibleRows))
         {
@@ -226,7 +232,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    internal void MoveSummaryRowsToBmtTop(IEnumerable<PlaylistSummaryRow> rows)
+    internal Task MoveSummaryRowsToBmtTopAsync(IEnumerable<PlaylistSummaryRow> rows)
+    {
+        List<PlaylistSummaryRow> rowsSnapshot = [.. (rows ?? [])];
+        return Task.Run(() => MoveSummaryRowsToBmtTopCore(rowsSnapshot));
+    }
+
+    private void MoveSummaryRowsToBmtTopCore(IReadOnlyList<PlaylistSummaryRow> rows)
     {
         if (GetSummaryBmtSort().MoveRowsToTop(rows))
         {
@@ -234,7 +246,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    internal void MoveSummaryRowsToBmtBottom(IEnumerable<PlaylistSummaryRow> rows)
+    internal Task MoveSummaryRowsToBmtBottomAsync(IEnumerable<PlaylistSummaryRow> rows)
+    {
+        List<PlaylistSummaryRow> rowsSnapshot = [.. (rows ?? [])];
+        return Task.Run(() => MoveSummaryRowsToBmtBottomCore(rowsSnapshot));
+    }
+
+    private void MoveSummaryRowsToBmtBottomCore(IReadOnlyList<PlaylistSummaryRow> rows)
     {
         if (GetSummaryBmtSort().MoveRowsToBottom(rows))
         {
@@ -242,38 +260,65 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    internal long DropSummaryRowsInBmtOrder(
+    internal Task<long> DropSummaryRowsInBmtOrderAsync(
         IEnumerable<PlaylistSummaryRow> visibleRows,
         IEnumerable<PlaylistSummaryRow> draggedRows,
         int visibleInsertIndex,
         int? currentPlaylistId = null)
     {
+        List<PlaylistSummaryRow> visibleRowsSnapshot = [.. (visibleRows ?? [])];
         List<PlaylistSummaryRow> draggedRowsSnapshot = [.. (draggedRows ?? [])];
-        long selectionRestoreOperationId = QueuePlaylistSummarySelectionRestore(
+        return Task.Run(() => DropSummaryRowsInBmtOrderCore(
+            visibleRowsSnapshot,
             draggedRowsSnapshot,
-            currentPlaylistId,
-            out PlaylistSummarySelectionRestoreRequest selectionRestoreRequest);
+            visibleInsertIndex,
+            currentPlaylistId));
+    }
+
+    private long DropSummaryRowsInBmtOrderCore(
+        IReadOnlyList<PlaylistSummaryRow> visibleRows,
+        IReadOnlyList<PlaylistSummaryRow> draggedRowsSnapshot,
+        int visibleInsertIndex,
+        int? currentPlaylistId)
+    {
+        long selectionRestoreOperationId = 0L;
+        PlaylistSummarySelectionRestoreRequest selectionRestoreRequest = null;
+        long dataRebuildGeneration = 0L;
         try
         {
-            if (!GetSummaryBmtSort().DropRows(visibleRows, draggedRowsSnapshot, visibleInsertIndex))
-            {
-                ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
-                return 0L;
-            }
-            long dataRebuildGeneration = RequestPlaylistSummaryBmtSortRefresh(
-                "playlist_summary_bmt_sort_drag_drop",
-                selectionRestoreOperationId > 0L
-                    ? generation => SetPlaylistSummarySelectionRestoreMinimumGenerationUnsafe(
-                        selectionRestoreOperationId,
-                        selectionRestoreRequest,
-                        generation)
-                    : null);
-            if (selectionRestoreOperationId > 0L)
-            {
-                if (dataRebuildGeneration <= 0L)
+            bool changed = GetSummaryBmtSort().DropRows(
+                visibleRows,
+                draggedRowsSnapshot,
+                visibleInsertIndex,
+                appliedDraggedTables =>
                 {
-                    ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
-                }
+                    var activeDraggedTableSet = new HashSet<BMSTable>(appliedDraggedTables);
+                    List<PlaylistSummaryRow> appliedDraggedRows = [.. draggedRowsSnapshot.Where(
+                        row => row?.TableRef != null && activeDraggedTableSet.Contains(row.TableRef))];
+                    int? appliedCurrentPlaylistId = currentPlaylistId.HasValue
+                        && appliedDraggedRows.Any(row => row.PlaylistId == currentPlaylistId)
+                        ? currentPlaylistId
+                        : null;
+                    selectionRestoreOperationId = QueuePlaylistSummarySelectionRestore(
+                        appliedDraggedRows,
+                        appliedCurrentPlaylistId,
+                        out selectionRestoreRequest);
+                    dataRebuildGeneration = RequestPlaylistSummaryBmtSortRefresh(
+                        "playlist_summary_bmt_sort_drag_drop",
+                        selectionRestoreOperationId > 0L
+                            ? generation => SetPlaylistSummarySelectionRestoreMinimumGenerationUnsafe(
+                                selectionRestoreOperationId,
+                                selectionRestoreRequest,
+                                generation)
+                            : null);
+                    if (selectionRestoreOperationId > 0L && dataRebuildGeneration <= 0L)
+                    {
+                        ClearPlaylistSummarySelectionRestore(selectionRestoreOperationId);
+                    }
+                });
+            if (!changed)
+            {
+                return 0L;
             }
             return dataRebuildGeneration;
         }

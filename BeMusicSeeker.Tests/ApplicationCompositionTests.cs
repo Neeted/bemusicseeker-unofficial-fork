@@ -502,7 +502,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
-    public void ComposedPlaylistWorkspacePersistsSummaryBmtOrderAndRefreshesSummary()
+    public async Task ComposedPlaylistWorkspacePersistsSummaryBmtOrderAndRefreshesSummary()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -565,7 +565,7 @@ public sealed class ApplicationCompositionTests
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
-                workspace.ApplyCurrentVisibleBmtOrder(
+                await workspace.ApplyCurrentVisibleBmtOrderAsync(
                 [
                     new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
                     new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first }
@@ -577,11 +577,13 @@ public sealed class ApplicationCompositionTests
                 Assert.AreEqual(
                     PlaylistSummaryDeferredRefreshKind.Data,
                     workspace.TakeDeferredPlaylistSummaryRefresh(dataRefreshRequired: false));
-                using var verify = new LR2SongDBExtended(songDbPath);
-                Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 1));
-                Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 2));
+                using (var verify = new LR2SongDBExtended(songDbPath))
+                {
+                    Assert.AreEqual(2, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 1));
+                    Assert.AreEqual(1, verify.ExecuteScalar<int>("SELECT bmt_sort FROM playlist WHERE playlist_id = ?;", 2));
+                }
                 workspace.IsPlaylistSummaryMode = false;
-                workspace.ApplyCurrentVisibleBmtOrder(
+                await workspace.ApplyCurrentVisibleBmtOrderAsync(
                 [
                     new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
                     new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }
@@ -606,7 +608,7 @@ public sealed class ApplicationCompositionTests
     }
 
     [TestMethod]
-    public void ComposedPlaylistWorkspaceRestoresBmtDropSelectionAfterMatchingSummaryApply()
+    public async Task ComposedPlaylistWorkspaceRestoresBmtDropSelectionAfterMatchingSummaryApply()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(ApplicationCompositionTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -670,7 +672,7 @@ public sealed class ApplicationCompositionTests
             {
                 workspace.IsPlaylistSummaryMode = true;
 
-                long dataRebuildGeneration = workspace.DropSummaryRowsInBmtOrder(
+                long dataRebuildGeneration = await workspace.DropSummaryRowsInBmtOrderAsync(
                     [
                         new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
                         new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
@@ -701,7 +703,7 @@ public sealed class ApplicationCompositionTests
                 Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
                 workspace.CompletePlaylistSummaryDataBuild(buildRequest);
 
-                long noOpGeneration = workspace.DropSummaryRowsInBmtOrder(
+                long noOpGeneration = await workspace.DropSummaryRowsInBmtOrderAsync(
                     [
                         new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
                         new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
@@ -713,7 +715,7 @@ public sealed class ApplicationCompositionTests
                 Assert.AreEqual(0L, noOpGeneration);
                 Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
 
-                long supersededGeneration = workspace.DropSummaryRowsInBmtOrder(
+                long supersededGeneration = await workspace.DropSummaryRowsInBmtOrderAsync(
                     [
                         new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
                         new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
@@ -726,7 +728,7 @@ public sealed class ApplicationCompositionTests
                 workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false);
                 Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
 
-                long synchronousGeneration = workspace.DropSummaryRowsInBmtOrder(
+                long synchronousGeneration = await workspace.DropSummaryRowsInBmtOrderAsync(
                     [
                         new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third },
                         new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },

@@ -1263,15 +1263,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             int? currentPlaylistId = primaryDraggedRow?.PlaylistId ?? draggedRows.FirstOrDefault(row => row?.PlaylistId != null)?.PlaylistId;
             if (base.DataContext is MainWindowViewModel viewModel)
             {
-                long dataRebuildGeneration = 0L;
-                await Task.Run(delegate
-                {
-                    dataRebuildGeneration = viewModel.PlaylistWorkspace.DropSummaryRowsInBmtOrder(
-                        visibleRows,
-                        draggedRows,
-                        visibleInsertIndex,
-                        currentPlaylistId);
-                }).Logging("customTablePlaylistSummary_Drop");
+                long dataRebuildGeneration = await viewModel.PlaylistWorkspace.DropSummaryRowsInBmtOrderAsync(
+                    visibleRows,
+                    draggedRows,
+                    visibleInsertIndex,
+                    currentPlaylistId).Logging("customTablePlaylistSummary_Drop");
                 if (dataRebuildGeneration > 0L)
                 {
                     TryApplyPlaylistSummarySelectionRestoreToView();
@@ -3413,10 +3409,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await Task.Run(delegate
-        {
-            viewModel.PlaylistWorkspace.ApplyCurrentVisibleBmtOrder(visibleRows);
-        }).Logging("playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick");
+        await viewModel.PlaylistWorkspace.ApplyCurrentVisibleBmtOrderAsync(visibleRows)
+            .Logging("playlistSummaryContextMenuApplyCurrentOrderToBmtSortClick");
     }
 
     private async void playlistSummaryContextMenuMoveToBmtSortTopClick(object sender, RoutedEventArgs e)
@@ -3427,10 +3421,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await Task.Run(delegate
-        {
-            viewModel.PlaylistWorkspace.MoveSummaryRowsToBmtTop(selectedPlaylistSummaryRows);
-        }).Logging("playlistSummaryContextMenuMoveToBmtSortTopClick");
+        await viewModel.PlaylistWorkspace.MoveSummaryRowsToBmtTopAsync(selectedPlaylistSummaryRows)
+            .Logging("playlistSummaryContextMenuMoveToBmtSortTopClick");
     }
 
     private async void playlistSummaryContextMenuMoveToBmtSortBottomClick(object sender, RoutedEventArgs e)
@@ -3441,10 +3433,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await Task.Run(delegate
-        {
-            viewModel.PlaylistWorkspace.MoveSummaryRowsToBmtBottom(selectedPlaylistSummaryRows);
-        }).Logging("playlistSummaryContextMenuMoveToBmtSortBottomClick");
+        await viewModel.PlaylistWorkspace.MoveSummaryRowsToBmtBottomAsync(selectedPlaylistSummaryRows)
+            .Logging("playlistSummaryContextMenuMoveToBmtSortBottomClick");
     }
 
     private void playlistSummaryContextMenuOpenBulkEditClick(object sender, RoutedEventArgs e)

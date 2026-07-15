@@ -76,6 +76,19 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void ReloadReconciliation_AcquiresCollectionReadBeforePersistenceGate()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string method = ExtractMethodBody(source, "private void ReconcileUnappliedReload(");
+        int collectionReadIndex = method.IndexOf("AcquireReaderLockBMSTables();", StringComparison.Ordinal);
+        int guardedCommitIndex = method.IndexOf("collectionReadLockHeld: true", StringComparison.Ordinal);
+
+        Assert.IsTrue(collectionReadIndex >= 0, "Reload reconciliation must take the collection read lock first.");
+        Assert.IsTrue(guardedCommitIndex > collectionReadIndex, "Reload reconciliation must carry the collection read lock into persistence.");
+        Assert.IsFalse(method.Contains("lock (playlistPersistenceGate)"), "Reload reconciliation must not wait for persistence while holding the collection read lock outside the guarded commit.");
+    }
+
+    [TestMethod]
     public void PlaylistUrlCompletionSettings_UseDedicatedProviderBoundary()
     {
         string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
