@@ -4234,7 +4234,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (menuItem.DataContext is not BMSTable bmsTable || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_playlist, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (menuItem.DataContext is not BMSTable bmsTable
+            || !viewModel.PlaylistWorkspace.ConfirmPlaylistTableRemoval(bmsTable))
         {
             return;
         }

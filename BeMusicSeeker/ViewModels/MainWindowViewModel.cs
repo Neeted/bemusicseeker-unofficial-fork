@@ -4483,6 +4483,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistOperationNotificationsFlushRequested += PlaylistWorkspacePlaylistOperationNotificationsFlushRequested;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistTableRemovalInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistTableRemovalInvalidOutputDirectoryRequested;
+        PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested += PlaylistWorkspacePlaylistTableRemovalConfirmationRequested;
         PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested;
         PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested += PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested;
         PlaylistWorkspace.PlaylistFolderRemovalConfirmationRequested += PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested;

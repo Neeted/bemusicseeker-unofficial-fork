@@ -268,8 +268,11 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "rebuildAsync: false");
         StringAssert.Contains(workspaceSource, "internal Task RemovePlaylistSummaryRowsAsync(");
         StringAssert.Contains(workspaceSource, "PlaylistSummaryRemovalConfirmationRequested");
+        StringAssert.Contains(workspaceSource, "PlaylistTableRemovalConfirmationRequested");
+        StringAssert.Contains(workspaceSource, "internal bool ConfirmPlaylistTableRemoval(BMSTable table)");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested += PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested;");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested += PlaylistWorkspacePlaylistTableRemovalConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistImportNotificationsFlushRequested += PlaylistWorkspacePlaylistImportNotificationsFlushRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
@@ -311,7 +314,13 @@ public sealed class PlaylistWorkspaceViewModelTests
             logicalSource,
             "private void PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested(");
         StringAssert.Contains(folderRemovalConfirmationSource, "MessageBoxResult.Cancel");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ConfirmPlaylistTableRemoval(bmsTable)");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RemoveTableAsync(");
+        string tableRemoveSource = SourceTextTestHelper.ExtractMethodBody(
+            mainWindowSource,
+            "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick(");
+        Assert.AreEqual(-1, tableRemoveSource.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
+        StringAssert.Contains(tableRemoveSource, "SelectNextSiblingOrRoot(");
         string summaryRemoveSource = SourceTextTestHelper.ExtractMethodBody(
             mainWindowSource,
             "private async void playlistSummaryContextMenuRemoveClick(");
@@ -560,6 +569,29 @@ public sealed class PlaylistWorkspaceViewModelTests
         table.is_external_sync = true;
         await workspace.RemovePlaylistFolderAsync(table, PlaylistFolderNode.CreateFolder("Folder"));
         Assert.IsFalse(confirmationRequested);
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceTableRemovalConfirmationIsOwnedByWorkspace()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        var table = new BMSTable();
+        bool confirmationRequested = false;
+        workspace.PlaylistTableRemovalConfirmationRequested += (_, request) =>
+        {
+            confirmationRequested = true;
+            request.Confirmed = false;
+        };
+
+        Assert.IsFalse(workspace.ConfirmPlaylistTableRemoval(null));
+        Assert.IsFalse(confirmationRequested);
+        Assert.IsFalse(workspace.ConfirmPlaylistTableRemoval(table));
+        Assert.IsTrue(confirmationRequested);
+
+        confirmationRequested = false;
+        workspace.PlaylistTableRemovalConfirmationRequested += (_, request) => request.Confirmed = true;
+        Assert.IsTrue(workspace.ConfirmPlaylistTableRemoval(table));
+        Assert.IsTrue(confirmationRequested);
     }
 
     [TestMethod]

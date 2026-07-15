@@ -77,6 +77,19 @@ public partial class MainWindowViewModel
             MessageBoxResult.Cancel);
     }
 
+    private void PlaylistWorkspacePlaylistTableRemovalConfirmationRequested(
+        object sender,
+        PlaylistTableRemovalConfirmationRequestedEventArgs request)
+    {
+        request.Confirmed = ShowUiConfirmation(
+            BeMusicSeeker.Properties.Resources.Msg_remove_playlist,
+            BeMusicSeeker.Properties.Resources.Confirm,
+            MessageBoxImage.Question,
+            MessageBoxButton.OKCancel,
+            "Playlist table removal confirmation",
+            MessageBoxResult.Cancel);
+    }
+
     private void PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady(
         object sender,
         ExternalPlaylistImportQueueSummaryReadyEventArgs request)

@@ -92,6 +92,21 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistTableRemoval_RoutesConfirmationThroughWorkspaceOwner()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string route = ExtractBetween(
+            mainWindowSource,
+            "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick",
+            "private void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick");
+
+        StringAssert.Contains(route, "ConfirmPlaylistTableRemoval(bmsTable)");
+        StringAssert.Contains(route, "SelectNextSiblingOrRoot(");
+        StringAssert.Contains(route, "RemoveTableAsync(bmsTable)");
+        Assert.AreEqual(-1, route.IndexOf("UiDialogRoute.ShowMessageBox", StringComparison.Ordinal));
+    }
+
+    [TestMethod]
     public void InstallPackageTreeHeaders_BindToPackageDisplayTitle()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
