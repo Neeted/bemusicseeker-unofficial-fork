@@ -857,7 +857,8 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         SelectSummaryFilter(workflowOwner, "exhard");
         Assert.IsTrue(workflowOwner.SnapshotSummaryFilterKeys().Contains("exhard"));
@@ -927,7 +928,8 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
         workflowOwner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = nameof(PlayHistoryRow.Title),
@@ -991,7 +993,8 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
         SelectSummaryFilter(workflowOwner, "exhard");
 
@@ -1053,7 +1056,8 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
         workspace.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.PlaylistSummaryColumnsSettings))
@@ -1461,7 +1465,8 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
         var owner = new PlayHistoryTerminalHarness(
             workflowOwner,
             table,
@@ -1588,7 +1593,8 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
         var sourceClear = new PlaylistSourceClearCommitResult(
             [],
             new List<object>(),
@@ -4072,7 +4078,8 @@ public sealed class ChartListVirtualViewTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
         configureWorkspace(workspace);
         return new PlayHistoryTerminalHarness(
             workflowOwner,

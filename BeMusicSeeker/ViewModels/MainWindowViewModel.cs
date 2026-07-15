@@ -4565,8 +4565,8 @@ public partial class MainWindowViewModel : ViewModel
             () => files,
             () => lr2config,
             FlushPlaylistOperationNotifications,
-            LogPlaylistSummaryBulkWarning);
-        PlaylistWorkspace.ConfigurePlaylistTreeSource(new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
+            LogPlaylistSummaryBulkWarning,
+            new DispatcherCollection<BMSTable>(DispatcherHelper.UIDispatcher));
         PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;

@@ -114,7 +114,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { }));
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher)));
     }
 
     [TestMethod]
@@ -246,7 +247,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
@@ -283,7 +285,8 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
@@ -317,6 +320,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => null!,
             (_, _) => { },
             () => null!,
-            _ => { });
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
     }
 }

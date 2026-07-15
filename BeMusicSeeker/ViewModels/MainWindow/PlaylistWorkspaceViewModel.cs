@@ -112,7 +112,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<BMSLibrary> playlistLibraryProvider,
         Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications,
         Func<LR2Config> lr2ConfigProvider,
-        Action<string> summaryBulkWarningLog)
+        Action<string> summaryBulkWarningLog,
+        DispatcherCollection<BMSTable> emptyPlaylistTreeSource)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -159,6 +160,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(lr2ConfigProvider));
         this.summaryBulkWarningLog = summaryBulkWarningLog
             ?? throw new ArgumentNullException(nameof(summaryBulkWarningLog));
+        emptyPlaylistTreeTables = emptyPlaylistTreeSource
+            ?? throw new ArgumentNullException(nameof(emptyPlaylistTreeSource));
+        playlistTreeTables = emptyPlaylistTreeTables;
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;

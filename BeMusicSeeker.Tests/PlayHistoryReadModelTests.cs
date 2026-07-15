@@ -3449,7 +3449,8 @@ public sealed class PlayHistoryReadModelTests
                 () => null!,
                 (_, _) => { },
                 () => null!,
-                _ => { }));
+                _ => { },
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher)));
     }
 
     [TestMethod]

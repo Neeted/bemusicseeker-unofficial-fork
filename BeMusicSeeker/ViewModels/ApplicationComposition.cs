@@ -8,6 +8,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
+using Livet;
 using Ribbit.Logging;
 
 namespace BeMusicSeeker.ViewModels;
@@ -157,7 +158,8 @@ internal sealed class ApplicationComposition
         Func<BMSLibrary> libraryProvider,
         Func<LR2Config> lr2ConfigProvider,
         Action<BMSPlaylist.OperationNotificationScope, string> presentPlaylistOperationNotifications,
-        Action<string> summaryBulkWarningLog)
+        Action<string> summaryBulkWarningLog,
+        DispatcherCollection<BMSTable> emptyPlaylistTreeSource)
     {
         var playlistPropertySaveService = new PlaylistPropertySaveService(
             tablesProvider,
@@ -190,7 +192,8 @@ internal sealed class ApplicationComposition
             libraryProvider,
             presentPlaylistOperationNotifications,
             lr2ConfigProvider,
-            summaryBulkWarningLog);
+            summaryBulkWarningLog,
+            emptyPlaylistTreeSource);
         return playlistWorkspace;
     }
 

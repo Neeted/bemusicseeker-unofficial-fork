@@ -619,7 +619,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => library,
                 (_, _) => { },
                 () => null!,
-                _ => { });
+                _ => { },
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
             workspace.ConfigurePlaylistReloadCleanup(
                 () => true,
                 () => MainViewUpdateMode.FolderFilterSelected,
@@ -768,7 +769,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => library,
                 (_, _) => { },
                 () => null!,
-                _ => { });
+                _ => { },
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
 
             List<PlaylistWorkspaceEntriesChangedEventArgs> changes = [];
@@ -1273,7 +1275,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => library,
                 (_, _) => { },
                 () => null!,
-                warnings.Add);
+                warnings.Add,
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
@@ -6438,7 +6441,8 @@ public sealed class BmsPlaylistUpdateTests
                 () => library,
                 (_, _) => { },
                 () => null!,
-                _ => { });
+                _ => { },
+                new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher));
             PlaylistSummaryDataRefreshRequestedEventArgs? removalRefresh = null;
             workspace.PlaylistSummaryDataRefreshRequested += (_, request) =>
             {

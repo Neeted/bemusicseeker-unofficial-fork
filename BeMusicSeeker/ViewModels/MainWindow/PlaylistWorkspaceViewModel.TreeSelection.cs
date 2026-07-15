@@ -7,7 +7,7 @@ namespace BeMusicSeeker.ViewModels;
 
 public sealed partial class PlaylistWorkspaceViewModel
 {
-    private DispatcherCollection<BMSTable> emptyPlaylistTreeTables;
+    private readonly DispatcherCollection<BMSTable> emptyPlaylistTreeTables;
 
     private DispatcherCollection<BMSTable> playlistTreeTables;
 
@@ -26,20 +26,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     /// </summary>
     public DispatcherCollection<BMSTable> PlaylistTreeTables => playlistTreeTables
         ?? throw new InvalidOperationException("Playlist tree source is not configured.");
-
-    internal void ConfigurePlaylistTreeSource(DispatcherCollection<BMSTable> emptySource)
-    {
-        if (emptySource == null)
-        {
-            throw new ArgumentNullException(nameof(emptySource));
-        }
-        if (emptyPlaylistTreeTables != null)
-        {
-            throw new InvalidOperationException("Playlist tree source is already configured.");
-        }
-        emptyPlaylistTreeTables = emptySource;
-        playlistTreeTables = emptySource;
-    }
 
     internal void RefreshPlaylistTreeTables(BMSPlaylist playlistStore)
     {
