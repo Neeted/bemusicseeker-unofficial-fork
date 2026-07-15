@@ -26,7 +26,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private long playlistDetailSelectionRevision;
 
-    internal event EventHandler<PlaylistTreeSelectionRequestedEventArgs> TreeSelectionRequested;
+    internal event EventHandler<PlaylistTreeSelectionActivatedEventArgs> TreeSelectionActivated;
 
     internal event EventHandler PlaylistTablesPresentationChanged;
 
@@ -161,7 +161,24 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal void RequestSummarySelection()
     {
         long selectionRevision = ClearPlaylistDetailSelection();
-        TreeSelectionRequested?.Invoke(this, PlaylistTreeSelectionRequestedEventArgs.Summary(selectionRevision));
+        dispatchPresentation(
+            () =>
+            {
+                lock (playlistDetailSelectionSyncRoot)
+                {
+                    if (!IsCurrentPlaylistSummarySelectionWithoutLock(selectionRevision))
+                    {
+                        return;
+                    }
+                    bool summaryModeChanged = SetPlaylistSummaryMode(enabled: true);
+                    TreeSelectionActivated?.Invoke(
+                        this,
+                        PlaylistTreeSelectionActivatedEventArgs.Summary(
+                            selectionRevision,
+                            summaryModeChanged));
+                    RequestPlaylistSummaryPresentationRefresh();
+                }
+            });
     }
 
     internal long ClearPlaylistDetailSelection()
@@ -188,9 +205,24 @@ public sealed partial class PlaylistWorkspaceViewModel
             playlistDetailSelection = selection;
             selectionRevision = ++playlistDetailSelectionRevision;
         }
-        TreeSelectionRequested?.Invoke(
-            this,
-            PlaylistTreeSelectionRequestedEventArgs.CreateDetail(selection, selectionRevision));
+        dispatchPresentation(
+            () =>
+            {
+                lock (playlistDetailSelectionSyncRoot)
+                {
+                    if (!IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision))
+                    {
+                        return;
+                    }
+                    bool summaryModeChanged = SetPlaylistSummaryMode(enabled: false);
+                    TreeSelectionActivated?.Invoke(
+                        this,
+                        PlaylistTreeSelectionActivatedEventArgs.CreateDetail(
+                            selection,
+                            selectionRevision,
+                            summaryModeChanged));
+                }
+            });
     }
 
     internal PlaylistDetailSelection CapturePlaylistDetailSelection()
@@ -220,55 +252,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         lock (playlistDetailSelectionSyncRoot)
         {
             return IsCurrentPlaylistSummarySelectionWithoutLock(selectionRevision);
-        }
-    }
-
-    internal bool TryExecuteCurrentPlaylistSummarySelection(long selectionRevision, Action apply)
-    {
-        if (apply == null)
-        {
-            throw new ArgumentNullException(nameof(apply));
-        }
-        lock (playlistDetailSelectionSyncRoot)
-        {
-            if (!IsCurrentPlaylistSummarySelectionWithoutLock(selectionRevision))
-            {
-                return false;
-            }
-            apply();
-            return true;
-        }
-    }
-
-    /// <summary>
-    /// Activates the playlist summary presentation and requests its initial refresh.
-    /// </summary>
-    /// <returns><see langword="true"/> when the summary mode itself changed.</returns>
-    internal bool ActivatePlaylistSummary()
-    {
-        bool changed = SetPlaylistSummaryMode(enabled: true);
-        RequestPlaylistSummaryPresentationRefresh();
-        return changed;
-    }
-
-    internal bool TryActivateCurrentPlaylistDetailSelection(
-        PlaylistDetailSelection selection,
-        long selectionRevision,
-        Action<bool> apply)
-    {
-        if (apply == null)
-        {
-            throw new ArgumentNullException(nameof(apply));
-        }
-        lock (playlistDetailSelectionSyncRoot)
-        {
-            if (!IsCurrentPlaylistDetailSelectionWithoutLock(selection, selectionRevision))
-            {
-                return false;
-            }
-            bool summaryModeChanged = SetPlaylistSummaryMode(enabled: false);
-            apply(summaryModeChanged);
-            return true;
         }
     }
 
@@ -385,16 +368,18 @@ internal sealed class PlaylistDetailSelection
     }
 }
 
-internal sealed class PlaylistTreeSelectionRequestedEventArgs : EventArgs
+internal sealed class PlaylistTreeSelectionActivatedEventArgs : EventArgs
 {
-    private PlaylistTreeSelectionRequestedEventArgs(
+    private PlaylistTreeSelectionActivatedEventArgs(
         bool isSummary,
         PlaylistDetailSelection detail,
-        long selectionRevision)
+        long selectionRevision,
+        bool summaryModeChanged)
     {
         IsSummary = isSummary;
         Detail = detail;
         SelectionRevision = selectionRevision;
+        SummaryModeChanged = summaryModeChanged;
     }
 
     internal bool IsSummary { get; }
@@ -403,15 +388,22 @@ internal sealed class PlaylistTreeSelectionRequestedEventArgs : EventArgs
 
     internal long SelectionRevision { get; }
 
-    internal static PlaylistTreeSelectionRequestedEventArgs Summary(long selectionRevision) => new(true, null, selectionRevision);
+    internal bool SummaryModeChanged { get; }
 
-    internal static PlaylistTreeSelectionRequestedEventArgs CreateDetail(
+    internal static PlaylistTreeSelectionActivatedEventArgs Summary(
+        long selectionRevision,
+        bool summaryModeChanged)
+        => new(true, null, selectionRevision, summaryModeChanged);
+
+    internal static PlaylistTreeSelectionActivatedEventArgs CreateDetail(
         PlaylistDetailSelection detail,
-        long selectionRevision)
+        long selectionRevision,
+        bool summaryModeChanged)
     {
-        return new PlaylistTreeSelectionRequestedEventArgs(
+        return new PlaylistTreeSelectionActivatedEventArgs(
             isSummary: false,
             detail ?? throw new ArgumentNullException(nameof(detail)),
-            selectionRevision);
+            selectionRevision,
+            summaryModeChanged);
     }
 }

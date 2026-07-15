@@ -4098,7 +4098,7 @@ public partial class MainWindowViewModel : ViewModel
                 reason,
                 null,
                 work));
-        PlaylistWorkspace.TreeSelectionRequested += PlaylistWorkspaceTreeSelectionRequested;
+        PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
         PlaylistWorkspace.PlaylistOperationNotificationsFlushRequested += PlaylistWorkspacePlaylistOperationNotificationsFlushRequested;
@@ -4324,9 +4324,9 @@ public partial class MainWindowViewModel : ViewModel
             });
     }
 
-    private void PlaylistWorkspaceTreeSelectionRequested(
+    private void PlaylistWorkspaceTreeSelectionActivated(
         object sender,
-        PlaylistTreeSelectionRequestedEventArgs request)
+        PlaylistTreeSelectionActivatedEventArgs request)
     {
         if (request == null)
         {
@@ -4334,50 +4334,31 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (request.IsSummary)
         {
-            InvokeMainChartListPresentationAction(
-                () =>
-                {
-                    PlaylistWorkspace.TryExecuteCurrentPlaylistSummarySelection(
-                        request.SelectionRevision,
-                        () =>
-                        {
-                            bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
-                            SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
-                            PlayHistory.ClearSummaryPresentation();
-                            if (wasPlayHistoryViewActive != IsPlayHistoryViewActive)
-                            {
-                                RaisePropertyChanged(() => IsPlayHistoryViewActive);
-                                RaisePropertyChanged(() => CurrentMainViewOperationSection);
-                                SyncMainChartListSortPresentation();
-                            }
-                            if (PlaylistWorkspace.ActivatePlaylistSummary())
-                            {
-                                UpdateKeywordSearchPresentation();
-                            }
-                        });
-                });
+            bool wasPlayHistoryViewActive = IsPlayHistoryViewActive;
+            SetTreeViewFilterSelection(MainViewUpdateMode.PlaylistFilterSelected, null);
+            PlayHistory.ClearSummaryPresentation();
+            if (wasPlayHistoryViewActive != IsPlayHistoryViewActive)
+            {
+                RaisePropertyChanged(() => IsPlayHistoryViewActive);
+                RaisePropertyChanged(() => CurrentMainViewOperationSection);
+                SyncMainChartListSortPresentation();
+            }
+            if (request.SummaryModeChanged)
+            {
+                UpdateKeywordSearchPresentation();
+            }
             return;
         }
         PlaylistDetailSelection selection = request.Detail;
-        InvokeMainChartListPresentationAction(
-            () =>
-            {
-                PlaylistWorkspace.TryActivateCurrentPlaylistDetailSelection(
-                    selection,
-                    request.SelectionRevision,
-                    summaryModeChanged =>
-                    {
-                        if (summaryModeChanged)
-                        {
-                            UpdateKeywordSearchPresentation();
-                        }
-                        RefreshChartRowsView(
-                            selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
-                                ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
-                                : MainViewUpdateMode.PlaylistFilterSelected,
-                            selection);
-                    });
-            });
+        if (request.SummaryModeChanged)
+        {
+            UpdateKeywordSearchPresentation();
+        }
+        RefreshChartRowsView(
+            selection.Filter == PlaylistDetailFilter.PlaylistNotOwnedFilterSelected
+                ? MainViewUpdateMode.PlaylistNotOwnedFilterSelected
+                : MainViewUpdateMode.PlaylistFilterSelected,
+            selection);
     }
 
     private static void PlaylistWorkspaceMutationRejected(
