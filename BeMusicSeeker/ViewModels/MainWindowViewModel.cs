@@ -7799,16 +7799,7 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (list.Count > 0)
         {
-            tables.AcquireReaderLockBMSTables();
-            try
-            {
-                files.AddReferenceBMSTablesToPackageCharts(PlaylistWorkspace.PlaylistTreeTables, list);
-                InvalidateNormalLibraryReferenceTableSortKeys();
-            }
-            finally
-            {
-                tables.FreeReaderLockBMSTables();
-            }
+            PlaylistWorkspace.AttachInstalledPackageReferences(list);
         }
         onEachCompleted?.Invoke(obj: !token.IsCancellationRequested);
     }

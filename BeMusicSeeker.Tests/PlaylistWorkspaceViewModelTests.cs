@@ -765,6 +765,152 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void InstallPackageReferenceAttachment_IsOwnedByWorkspace()
+    {
+        string rootSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string installMethod = SourceTextTestHelper.ExtractMethodBody(rootSource, "public void InstallChartPackages(");
+
+        StringAssert.Contains(installMethod, "PlaylistWorkspace.AttachInstalledPackageReferences(list);");
+        Assert.AreEqual(-1, installMethod.IndexOf("AddReferenceBMSTablesToPackageCharts", StringComparison.Ordinal));
+        Assert.AreEqual(-1, installMethod.IndexOf("AcquireReaderLockBMSTables", StringComparison.Ordinal));
+        Assert.AreEqual(-1, installMethod.IndexOf("FreeReaderLockBMSTables", StringComparison.Ordinal));
+        Assert.AreEqual(-1, installMethod.IndexOf("InvalidateNormalLibraryReferenceTableSortKeys", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal void AttachInstalledPackageReferences(IReadOnlyList<ChartPackage> packages)");
+        StringAssert.Contains(workspaceSource, "playlistStore.AcquireReaderLockBMSTables();");
+        StringAssert.Contains(workspaceSource, "GetPlaylistLibrary().AddReferenceBMSTablesToPackageCharts");
+        StringAssert.Contains(workspaceSource, "RequestPlaylistReferenceSortInvalidation();");
+    }
+
+    [TestMethod]
+    public void InstallPackageReferenceAttachment_AttachesBmsAndBmsonAndRaisesOneInvalidation()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            BMSLibrary library = new(songDbPath);
+            const string bmsMd5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+            const string bmsonSha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+            BMSFile bmsFile = BMSFile.FromSongTableRawValues(CreateSongTableRow(bmsMd5, @"C:\Installed\bms-chart.bms"));
+            BMSFile bmsonIdentity = BMSFile.FromSongTableRawValues(CreateSongTableRow(null, @"C:\Installed\bmson-chart.bmson"));
+            BMSTable table = new() { name = "Installed references", symbol = "P" };
+            table.entries.Add(new BMSTableEntry(bmsFile));
+            BMSTableEntry bmsonTableEntry = new BMSTableEntry(bmsonIdentity);
+            bmsonTableEntry.MarkAsBmsonPlaylistIdentity(bmsonSha256);
+            table.entries.Add(bmsonTableEntry);
+            playlist.BMSTables.Add(table);
+
+            LR2SongDBExtended.bmson_song bmsonSong = new()
+            {
+                path = @"C:\Installed\bmson-chart.bmson",
+                sha256 = bmsonSha256,
+                title = "Bmson chart",
+                artist = "Artist"
+            };
+            ChartPackage package = ChartPackageTestExtensions.CreatePackage(
+                ChartPackageTestExtensions.CreateEntryWithInstallDestination(
+                    bmsFile,
+                    @"C:\Installed",
+                    "Bms chart",
+                    "Artist"),
+                PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong)));
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library);
+            workspace.RefreshPlaylistTreeTables(playlist);
+            library.AddReferenceBMSTables([table]);
+            int invalidationCount = 0;
+            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => invalidationCount++;
+
+            workspace.AttachInstalledPackageReferences([package]);
+
+            Assert.AreEqual(1, invalidationCount);
+            Assert.AreEqual("P", library.GetPlaylistReferenceDisplay(package.ChartEntries[0].Chart).Symbols);
+            Assert.AreEqual("Installed references", library.GetPlaylistReferenceDisplay(package.ChartEntries[0].Chart).Names);
+            Assert.AreEqual("P", library.GetPlaylistReferenceDisplay(package.ChartEntries[1].Chart).Symbols);
+            Assert.AreEqual("Installed references", library.GetPlaylistReferenceDisplay(package.ChartEntries[1].Chart).Names);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void InstallPackageReferenceAttachment_EmptyOrMissingPlaylistIsNoOp()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+        int invalidationCount = 0;
+        workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => invalidationCount++;
+
+        workspace.AttachInstalledPackageReferences([]);
+        workspace.AttachInstalledPackageReferences([ChartPackage.FromChartEntries([])]);
+
+        Assert.AreEqual(0, invalidationCount);
+    }
+
+    [TestMethod]
+    public void InstallPackageReferenceAttachment_ReleasesReaderLockWhenLibraryFails()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            BMSPlaylist.EnsureSchema(songDbPath);
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([new BMSTable { name = "Lock target" }]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => null!);
+            workspace.RefreshPlaylistTreeTables(playlist);
+
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                workspace.AttachInstalledPackageReferences([ChartPackage.FromChartEntries([])]));
+
+            playlist.AcquireReaderLockBMSTables();
+            playlist.FreeReaderLockBMSTables();
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public async Task PlaylistWorkspaceSummaryCellActionRequiresExternalSyncConfirmation()
     {
         var workspace = CreateDetailWorkspace(out _);
@@ -4139,5 +4285,18 @@ public sealed class PlaylistWorkspaceViewModelTests
         await workspace.RenameFolderAsync(table, specialFolder, "Renamed");
         await workspace.RemoveFolderAsync(table, specialFolder);
         await workspace.AddRowsToFolderAsync([], table, specialFolder);
+    }
+
+    private static string[] CreateSongTableRow(string? md5, string path)
+    {
+        string[] values = new string[30];
+        if (md5 != null)
+        {
+            values[0] = md5;
+        }
+        values[1] = "Installed chart";
+        values[3] = "Artist";
+        values[7] = path;
+        return values;
     }
 }
