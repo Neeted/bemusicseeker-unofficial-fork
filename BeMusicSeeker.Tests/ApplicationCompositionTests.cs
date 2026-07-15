@@ -79,7 +79,7 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { });
+                (exception, message) => { }, request => request(false), request => request(false));
             await Assert.ThrowsExceptionAsync<InvalidOperationException>(
                 () => missingProviderWorkspace.CreatePlaylistAsync());
 
@@ -108,7 +108,7 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { });
+                (exception, message) => { }, request => request(false), request => request(false));
             DateTime startedAt = DateTime.Now;
             BMSTable created = await workspace.CreatePlaylistAsync();
             DateTime completedAt = DateTime.Now;
@@ -417,7 +417,7 @@ public sealed class ApplicationCompositionTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { });
+            (exception, message) => { }, request => request(false), request => request(false));
 
         Assert.IsNotNull(mainChartList);
         Assert.IsNotNull(playlistWorkspace);
@@ -463,7 +463,7 @@ public sealed class ApplicationCompositionTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { });
+            (exception, message) => { }, request => request(false), request => request(false));
         MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
             mainChartList,
             playlistWorkspace,
@@ -551,7 +551,7 @@ public sealed class ApplicationCompositionTests
                 () => { },
                 _ => { },
                 (exception, message) => { },
-                null,
+                request => request(false),
                 request => request(true));
             workspace.IsPlaylistSummaryMode = true;
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
@@ -657,7 +657,7 @@ public sealed class ApplicationCompositionTests
                 () => { },
                 _ => { },
                 (exception, message) => { },
-                null,
+                request => request(false),
                 request => request(true));
             MainWindowChildComposition childComposition = composition.CreateMainWindowChildComposition(
                 mainChartList,
@@ -845,7 +845,7 @@ public sealed class ApplicationCompositionTests
                 () => false,
                 () => { },
                 _ => { },
-                (exception, message) => { });
+                (exception, message) => { }, request => request(false), request => request(false));
             var queuedReasons = new List<string>();
             playlist.StartupBackgroundTaskScheduler = (_, reason, _, _) =>
             {

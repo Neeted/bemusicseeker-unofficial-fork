@@ -127,8 +127,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action playlistReloadCleanupGarbageCollector,
         Action<string> playlistReloadLog,
         Action<Exception, string> playlistSyncFailureLog,
-        Action<Action<bool>> playlistSummaryPresentationRefreshGate = null,
-        Action<Action<bool>> playlistSummaryDataRefreshGate = null)
+        Action<Action<bool>> playlistSummaryPresentationRefreshGate,
+        Action<Action<bool>> playlistSummaryDataRefreshGate)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -194,8 +194,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistReloadLog));
         this.playlistSyncFailureLog = playlistSyncFailureLog
             ?? throw new ArgumentNullException(nameof(playlistSyncFailureLog));
-        this.playlistSummaryPresentationRefreshGate = playlistSummaryPresentationRefreshGate;
-        this.playlistSummaryDataRefreshGate = playlistSummaryDataRefreshGate;
+        this.playlistSummaryPresentationRefreshGate = playlistSummaryPresentationRefreshGate
+            ?? throw new ArgumentNullException(nameof(playlistSummaryPresentationRefreshGate));
+        this.playlistSummaryDataRefreshGate = playlistSummaryDataRefreshGate
+            ?? throw new ArgumentNullException(nameof(playlistSummaryDataRefreshGate));
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;
@@ -1047,7 +1049,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             invalidateTableCountCache,
             beforeRefreshRequested);
         bool drainNow = true;
-        if (request.Queued && playlistSummaryDataRefreshGate != null)
+        if (request.Queued)
         {
             playlistSummaryDataRefreshGate(deferred => drainNow = !deferred);
         }
@@ -1097,26 +1099,16 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     /// </summary>
     internal void RequestPlaylistSummaryPresentationRefresh()
     {
-        if (playlistSummaryPresentationRefreshGate != null)
-        {
-            playlistSummaryPresentationRefreshGate(deferred =>
-            {
-                RequestDeferredPlaylistSummaryPresentationRefresh();
-                if (!deferred)
-                {
-                    DrainDeferredPlaylistSummaryRefresh(
-                        dataRefreshRequired: false,
-                        rebuildAsync: true);
-                }
-            });
-        }
-        else
+        playlistSummaryPresentationRefreshGate(deferred =>
         {
             RequestDeferredPlaylistSummaryPresentationRefresh();
-            DrainDeferredPlaylistSummaryRefresh(
-                dataRefreshRequired: false,
-                rebuildAsync: true);
-        }
+            if (!deferred)
+            {
+                DrainDeferredPlaylistSummaryRefresh(
+                    dataRefreshRequired: false,
+                    rebuildAsync: true);
+            }
+        });
     }
 
     /// <summary>

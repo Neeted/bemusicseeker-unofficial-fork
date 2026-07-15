@@ -347,7 +347,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { });
+            (exception, message) => { }, request => request(false), request => request(false));
         table.RowsReplacementCanceled += (_, _) =>
         {
             Task lockProbe = Task.Run(() =>
@@ -404,7 +404,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { });
+            (exception, message) => { }, request => request(false), request => request(false));
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         PlaylistDetailTerminalRequest request = CreatePlaylistTerminalRequest(
@@ -457,7 +457,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { });
+            (exception, message) => { }, request => request(false), request => request(false));
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -530,7 +530,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { });
+            (exception, message) => { }, request => request(false), request => request(false));
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };
@@ -2734,7 +2734,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { });
+            (exception, message) => { }, request => request(false), request => request(false));
         PlaylistDetailScoreSnapshotRefreshRequestedEventArgs? refresh = null;
         workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refresh = request;
         var context = new MainChartListCellEditContext(
@@ -2801,7 +2801,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { });
+            (exception, message) => { }, request => request(false), request => request(false));
         var context = new MainChartListCellEditContext(
             row,
             nameof(PlaylistDetailRow.Url),

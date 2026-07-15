@@ -169,8 +169,8 @@ internal sealed class ApplicationComposition
         Action playlistReloadCleanupGarbageCollector,
         Action<string> playlistReloadLog,
         Action<Exception, string> playlistSyncFailureLog,
-        Action<Action<bool>> playlistSummaryPresentationRefreshGate = null,
-        Action<Action<bool>> playlistSummaryDataRefreshGate = null)
+        Action<Action<bool>> playlistSummaryPresentationRefreshGate,
+        Action<Action<bool>> playlistSummaryDataRefreshGate)
     {
         var playlistPropertySaveService = new PlaylistPropertySaveService(
             tablesProvider,
