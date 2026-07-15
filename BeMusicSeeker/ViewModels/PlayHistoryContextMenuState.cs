@@ -29,7 +29,7 @@ internal sealed class PlayHistoryContextMenuState
 
     internal string ChartTitle { get; }
 
-    internal bool CanOpenBmsIr => !string.IsNullOrWhiteSpace(Md5);
+    internal bool CanOpenBmsIr => IsValidBmsIrHash(Md5);
 
     internal bool CanOpenRepository => !string.IsNullOrWhiteSpace(Sha256);
 
@@ -81,5 +81,65 @@ internal sealed class PlayHistoryContextMenuState
             CopySha256Kind => CanCopySha256 ? Sha256 : null,
             _ => null
         };
+    }
+
+    internal static bool IsValidBmsIrHash(string md5)
+    {
+        return !string.IsNullOrWhiteSpace(md5)
+            && System.Text.RegularExpressions.Regex.IsMatch(md5.Trim(), "^[A-F0-9]{32}$", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+    }
+}
+
+internal enum PlayHistoryContextMenuActionKind
+{
+    OpenBmsIr,
+    OpenMocha,
+    OpenMinIr,
+    OpenExplorer,
+    RegisterScoreViewer,
+    CopyMd5,
+    CopySha256
+}
+
+internal sealed class PlayHistoryContextMenuAction
+{
+    private PlayHistoryContextMenuAction(
+        string url,
+        string value,
+        string path,
+        ScoreViewerTarget scoreViewerTarget)
+    {
+        Url = url;
+        Value = value;
+        Path = path;
+        ScoreViewerTarget = scoreViewerTarget;
+    }
+
+    internal string Url { get; }
+
+    internal string Value { get; }
+
+    internal string Path { get; }
+
+    internal ScoreViewerTarget ScoreViewerTarget { get; }
+
+    internal static PlayHistoryContextMenuAction ForUrl(string url)
+    {
+        return new PlayHistoryContextMenuAction(url, null, null, null);
+    }
+
+    internal static PlayHistoryContextMenuAction ForValue(string value)
+    {
+        return new PlayHistoryContextMenuAction(null, value, null, null);
+    }
+
+    internal static PlayHistoryContextMenuAction ForPath(string path)
+    {
+        return new PlayHistoryContextMenuAction(null, null, path, null);
+    }
+
+    internal static PlayHistoryContextMenuAction ForScoreViewer(ScoreViewerTarget scoreViewerTarget)
+    {
+        return new PlayHistoryContextMenuAction(null, null, null, scoreViewerTarget);
     }
 }

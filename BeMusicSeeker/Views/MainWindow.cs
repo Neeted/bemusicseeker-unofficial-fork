@@ -2165,6 +2165,30 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return TryGetContextMenuRow(source, out _, out row);
     }
 
+    private bool TryGetPlayHistoryContextMenuState(object row, out PlayHistoryContextMenuState state)
+    {
+        if (base.DataContext is MainWindowViewModel viewModel)
+        {
+            return viewModel.PlayHistory.TryCreateContextMenuState(row, out state);
+        }
+        state = null;
+        return false;
+    }
+
+    private bool TryGetPlayHistoryContextMenuAction(
+        object source,
+        PlayHistoryContextMenuActionKind actionKind,
+        out PlayHistoryContextMenuAction action)
+    {
+        if (TryGetContextMenuRow(source, out object row)
+            && base.DataContext is MainWindowViewModel viewModel)
+        {
+            return viewModel.PlayHistory.TryCreateContextMenuAction(row, actionKind, out action);
+        }
+        action = null;
+        return false;
+    }
+
     private bool TryGetContextMenuChartTarget(object primarySource, object fallbackSource, out ChartOperationTarget target)
     {
         if (TryGetContextMenuRow(primarySource, out object row)
@@ -2191,7 +2215,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return false;
         }
         string resourceKey;
-        if (PlayHistoryContextMenuState.TryCreate(row, out _))
+        if (TryGetPlayHistoryContextMenuState(row, out _))
         {
             resourceKey = "playHistoryContextMenu";
             usePlaylistMissingContextMenu = false;
@@ -6157,7 +6181,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         if (!TryGetContextMenuRow(sender, out ContextMenu contextMenu, out object row)
-            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state))
+            || !TryGetPlayHistoryContextMenuState(row, out PlayHistoryContextMenuState state))
         {
             return;
         }
@@ -6205,68 +6229,101 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void playHistoryContextMenuItemOpenBMSIRClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out object row)
-            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state)
-            || !state.CanOpenBmsIr)
+        if (!TryGetPlayHistoryContextMenuAction(
+                e.Source,
+                PlayHistoryContextMenuActionKind.OpenBmsIr,
+                out PlayHistoryContextMenuAction action)
+            || string.IsNullOrWhiteSpace(action.Url))
         {
             return;
         }
 
-        string url = GetBmsIrSongUrl(state.Md5);
-        if (!string.IsNullOrWhiteSpace(url))
+        Process.Start(action.Url);
+        e.Handled = true;
+    }
+
+    private void playHistoryContextMenuItemOpenMochaClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetPlayHistoryContextMenuAction(
+                e.Source,
+                PlayHistoryContextMenuActionKind.OpenMocha,
+                out PlayHistoryContextMenuAction action)
+            || string.IsNullOrWhiteSpace(action.Url))
         {
-            Process.Start(url);
+            return;
         }
+
+        Process.Start(action.Url);
+        e.Handled = true;
+    }
+
+    private void playHistoryContextMenuItemOpenMinIRClick(object sender, RoutedEventArgs e)
+    {
+        if (!TryGetPlayHistoryContextMenuAction(
+                e.Source,
+                PlayHistoryContextMenuActionKind.OpenMinIr,
+                out PlayHistoryContextMenuAction action)
+            || string.IsNullOrWhiteSpace(action.Url))
+        {
+            return;
+        }
+
+        Process.Start(action.Url);
         e.Handled = true;
     }
 
     private void playHistoryContextMenuItemCopyHashClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not MenuItem { Tag: string copyKind }
-            || !TryGetContextMenuRow(sender, out object row)
-            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state))
+        if (sender is not MenuItem { Tag: string copyKind })
         {
             return;
         }
 
-        string value = state.GetCopyValue(copyKind);
-        if (string.IsNullOrWhiteSpace(value))
+        PlayHistoryContextMenuActionKind? actionKind = copyKind switch
+        {
+            PlayHistoryContextMenuState.CopyMd5Kind => PlayHistoryContextMenuActionKind.CopyMd5,
+            PlayHistoryContextMenuState.CopySha256Kind => PlayHistoryContextMenuActionKind.CopySha256,
+            _ => null
+        };
+        if (!actionKind.HasValue
+            || !TryGetPlayHistoryContextMenuAction(sender, actionKind.Value, out PlayHistoryContextMenuAction action)
+            || string.IsNullOrWhiteSpace(action.Value))
         {
             return;
         }
 
-        Clipboard.SetText(value);
+        Clipboard.SetText(action.Value);
         e.Handled = true;
     }
 
     private void playHistoryContextMenuItemOpenExplorerClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out object row)
-            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state)
-            || !state.CanOpenExplorer
-            || !LongPathFileSystem.FileExists(state.ChartPath))
+        if (!TryGetPlayHistoryContextMenuAction(
+                e.Source,
+                PlayHistoryContextMenuActionKind.OpenExplorer,
+                out PlayHistoryContextMenuAction action)
+            || string.IsNullOrWhiteSpace(action.Path)
+            || !LongPathFileSystem.FileExists(action.Path))
         {
             return;
         }
 
-        ExplorerOpenService.OpenFileAndSelect(state.ChartPath);
+        ExplorerOpenService.OpenFileAndSelect(action.Path);
         e.Handled = true;
     }
 
     private async void playHistoryContextMenuItemRegisterScoreViewerClick(object sender, RoutedEventArgs e)
     {
-        if (!TryGetContextMenuRow(e.Source, out object row)
-            || !PlayHistoryContextMenuState.TryCreate(row, out PlayHistoryContextMenuState state)
-            || !state.CanOpenScoreViewer)
-        {
-            return;
-        }
-        if (base.DataContext is not MainWindowViewModel)
+        if (!TryGetPlayHistoryContextMenuAction(
+                e.Source,
+                PlayHistoryContextMenuActionKind.RegisterScoreViewer,
+                out PlayHistoryContextMenuAction action)
+            || action.ScoreViewerTarget == null)
         {
             return;
         }
 
-        var targets = new List<ScoreViewerTarget> { new(state.Md5, state.ChartPath, state.ChartTitle) };
+        var targets = new List<ScoreViewerTarget> { action.ScoreViewerTarget };
         e.Handled = true;
         await RunScoreViewerRegistrationAsync(targets, openSingleViewerOnSuccess: true, "playHistoryContextMenuItemRegisterScoreViewerClick");
     }
@@ -6465,7 +6522,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemOpenMochaClick(object sender, RoutedEventArgs e)
     {
-        if (TryGetContextMenuRow(e.Source, out object row))
+        if (TryGetContextMenuRow(e.Source, out object row) && row is not PlayHistoryRow)
         {
             OpenRepositoryUrlForRow(row, GetMochaSongUrl);
         }
@@ -6473,7 +6530,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void tableContextMenuItemOpenMinIRClick(object sender, RoutedEventArgs e)
     {
-        if (TryGetContextMenuRow(e.Source, out object row))
+        if (TryGetContextMenuRow(e.Source, out object row) && row is not PlayHistoryRow)
         {
             OpenRepositoryUrlForRow(row, GetMinIrSongUrl);
         }

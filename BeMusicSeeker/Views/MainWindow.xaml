@@ -230,8 +230,8 @@
       </ContextMenu>
       <ContextMenu x:Key="playHistoryContextMenu" x:Shared="False" HasDropShadow="True" Opened="playHistoryContextMenuOpened">
         <MenuItem Name="playHistoryContextMenuItemOpenBMSIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_lr2ir, Mode=OneWay}" Click="playHistoryContextMenuItemOpenBMSIRClick" />
-        <MenuItem Name="playHistoryContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="tableContextMenuItemOpenMochaClick" />
-        <MenuItem Name="playHistoryContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="tableContextMenuItemOpenMinIRClick" />
+        <MenuItem Name="playHistoryContextMenuItemOpenMocha" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_mocha, Mode=OneWay}" Click="playHistoryContextMenuItemOpenMochaClick" />
+        <MenuItem Name="playHistoryContextMenuItemOpenMinIR" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_minir, Mode=OneWay}" Click="playHistoryContextMenuItemOpenMinIRClick" />
         <Separator Name="playHistoryContextMenuSeparatorLocal" />
         <MenuItem Name="playHistoryContextMenuItemOpenExplorer" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_file_explorer, Mode=OneWay}" Click="playHistoryContextMenuItemOpenExplorerClick" />
         <MenuItem Name="playHistoryContextMenuItemRegisterScore" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Open_chart_viewer, Mode=OneWay}" Click="playHistoryContextMenuItemRegisterScoreViewerClick" />

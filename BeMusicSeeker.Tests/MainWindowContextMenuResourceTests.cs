@@ -163,6 +163,7 @@ public sealed class MainWindowContextMenuResourceTests
         PlayHistoryRow playHistoryRow = CreateUnresolvedPlayHistoryRow();
         PlayHistoryRow resolvedPlayHistoryRow = CreateResolvedPlayHistoryRow();
         LibraryChartRow libraryRow = LibraryChartRow.FromBmsFile(CreateContextMenuBmsFile());
+        PlayHistoryWorkflowOwner playHistoryOwner = new();
 
         StringAssert.Contains(mainTable, "DataContext=\"{Binding MainChartList}\"");
         StringAssert.Contains(mainTable, "ItemsSource=\"{Binding Rows, Mode=OneWay}\"");
@@ -199,6 +200,13 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenBMSIR\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenMocha\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenMinIR\"");
+        StringAssert.Contains(playHistoryContextMenu, "Click=\"playHistoryContextMenuItemOpenMochaClick\"");
+        StringAssert.Contains(playHistoryContextMenu, "Click=\"playHistoryContextMenuItemOpenMinIRClick\"");
+        Assert.IsFalse(playHistoryContextMenu.Contains("Click=\"tableContextMenuItemOpenMochaClick\""));
+        Assert.IsFalse(playHistoryContextMenu.Contains("Click=\"tableContextMenuItemOpenMinIRClick\""));
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        Assert.IsFalse(mainWindowSource.Contains("PlayHistoryContextMenuState.TryCreate"));
+        StringAssert.Contains(mainWindowSource, "row is not PlayHistoryRow");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemOpenExplorer\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemRegisterScore\"");
         StringAssert.Contains(playHistoryContextMenu, "Name=\"playHistoryContextMenuItemCopyMd5\"");
@@ -219,10 +227,10 @@ public sealed class MainWindowContextMenuResourceTests
             Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.ResourceManager.GetString(resource)), resource);
         }
         Assert.IsFalse(Resources.Play_history_copy_sha256.Contains("Repository"));
-        Assert.IsFalse(PlayHistoryContextMenuState.TryCreate(playHistoryRow, out PlayHistoryContextMenuState unresolvedState));
+        Assert.IsFalse(playHistoryOwner.TryCreateContextMenuState(playHistoryRow, out PlayHistoryContextMenuState unresolvedState));
         Assert.IsNull(unresolvedState);
         Assert.IsNull(GridRowResolver.GetRepositorySha256(playHistoryRow));
-        Assert.IsTrue(PlayHistoryContextMenuState.TryCreate(resolvedPlayHistoryRow, out PlayHistoryContextMenuState resolvedState));
+        Assert.IsTrue(playHistoryOwner.TryCreateContextMenuState(resolvedPlayHistoryRow, out PlayHistoryContextMenuState resolvedState));
         Assert.AreEqual(new string('d', 64), GridRowResolver.GetRepositorySha256(resolvedPlayHistoryRow));
         Assert.IsTrue(resolvedState.CanOpenBmsIr);
         Assert.IsTrue(resolvedState.CanOpenRepository);
@@ -235,6 +243,43 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsTrue(resolvedState.HasHashCopyItem);
         Assert.AreEqual("cccccccccccccccccccccccccccccccc", resolvedState.GetCopyValue(PlayHistoryContextMenuState.CopyMd5Kind));
         Assert.AreEqual(new string('d', 64), resolvedState.GetCopyValue(PlayHistoryContextMenuState.CopySha256Kind));
+        Assert.IsTrue(playHistoryOwner.TryCreateContextMenuAction(
+            resolvedPlayHistoryRow,
+            PlayHistoryContextMenuActionKind.OpenBmsIr,
+            out PlayHistoryContextMenuAction bmsIrAction));
+        StringAssert.Contains(bmsIrAction.Url, "songmd5=cccccccccccccccccccccccccccccccc");
+        Assert.IsTrue(playHistoryOwner.TryCreateContextMenuAction(
+            resolvedPlayHistoryRow,
+            PlayHistoryContextMenuActionKind.OpenMocha,
+            out PlayHistoryContextMenuAction mochaAction));
+        StringAssert.Contains(mochaAction.Url, new string('d', 64));
+        Assert.IsTrue(playHistoryOwner.TryCreateContextMenuAction(
+            resolvedPlayHistoryRow,
+            PlayHistoryContextMenuActionKind.OpenMinIr,
+            out PlayHistoryContextMenuAction minIrAction));
+        StringAssert.Contains(minIrAction.Url, new string('d', 64));
+        Assert.IsTrue(playHistoryOwner.TryCreateContextMenuAction(
+            resolvedPlayHistoryRow,
+            PlayHistoryContextMenuActionKind.RegisterScoreViewer,
+            out PlayHistoryContextMenuAction scoreViewerAction));
+        Assert.AreEqual("C:\\BMS\\play-history-resolved.bms", scoreViewerAction.ScoreViewerTarget.Path);
+        Assert.IsFalse(playHistoryOwner.TryCreateContextMenuAction(
+            playHistoryRow,
+            PlayHistoryContextMenuActionKind.OpenMocha,
+            out _));
+    }
+
+    [TestMethod]
+    public void PlayHistoryContextMenuOwnerRejectsMalformedExternalIdentifiersWithoutFallback()
+    {
+        PlayHistoryRow row = CreateResolvedPlayHistoryRow("not-a-md5");
+        PlayHistoryWorkflowOwner owner = new();
+
+        Assert.IsFalse(owner.TryCreateContextMenuAction(
+            row,
+            PlayHistoryContextMenuActionKind.OpenBmsIr,
+            out PlayHistoryContextMenuAction rejectedAction));
+        Assert.IsNull(rejectedAction);
     }
 
     [TestMethod]
@@ -4138,9 +4183,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(installEstimationDoc, "loose chart が混じる手動 chart 群推定");
     }
 
-    private static PlayHistoryRow CreateResolvedPlayHistoryRow()
+    private static PlayHistoryRow CreateResolvedPlayHistoryRow(string hash = "cccccccccccccccccccccccccccccccc")
     {
-        const string hash = "cccccccccccccccccccccccccccccccc";
         string sha256 = new string('d', 64);
         BMSFile file = BMSFile.FromSongTableRawValues(
         [
