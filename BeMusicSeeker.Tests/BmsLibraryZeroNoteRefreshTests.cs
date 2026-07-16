@@ -144,7 +144,6 @@ public sealed class BmsLibraryZeroNoteRefreshTests
 
             List<ChartFile> result = [.. library.ChartFilesZeroNote];
 
-            Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
             Assert.AreEqual(1, result.Count);
             Assert.AreSame(zeroNoteFile, result.Single().GetBmsStorageOwner());
         });
@@ -220,13 +219,6 @@ public sealed class BmsLibraryZeroNoteRefreshTests
                 && library.ChartInfoHydrationCompletedVersion == library.ChartInfoHydrationRequestedVersion
                 && !library.ChartInfoHydrationRunning,
             10000);
-    }
-
-    private static bool IsOwnedChartCollectionInitialized(BMSLibrary library)
-    {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("ownedChartCollectionInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        return (bool)fieldInfo.GetValue(library);
     }
 
     private sealed class RecordingDialogService : IBmsLibraryDialogService

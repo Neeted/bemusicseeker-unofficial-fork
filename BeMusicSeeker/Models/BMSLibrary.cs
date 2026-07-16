@@ -624,17 +624,9 @@ public partial class BMSLibrary : NotificationObject
 
     private int bmsParentFolderListDirtyVersion;
 
-    private readonly object lockOwnedChartCollection = new();
+    private readonly CatalogOwnedCollectionOwner catalogOwnedCollectionOwner = new();
 
-    private OwnedChartCollectionState ownedChartCollection = new();
-
-    private bool ownedChartCollectionInitialized;
-
-    private int ownedChartCollectionBmsStorageRowsVersion = -1;
-
-    private int ownedChartCollectionBmsonStorageRowsVersion = -1;
-
-    private int ownedChartCollectionVersion;
+    private object lockOwnedChartCollection => catalogOwnedCollectionOwner.Gate;
 
     private int duplicateChartGroupsInvalidationVersion;
 
@@ -1148,7 +1140,7 @@ public partial class BMSLibrary : NotificationObject
         return normalLibraryRefreshPublisher.GetNotificationsAfter(handledVersion);
     }
 
-    internal int OwnedChartCollectionVersion => Volatile.Read(ref ownedChartCollectionVersion);
+    internal int OwnedChartCollectionVersion => catalogOwnedCollectionOwner.CollectionVersion;
 
     internal StorageRowsVersionSnapshot CatalogStorageRowsVersion => catalogStorageRowsOwner.CaptureVersionSnapshot();
 
@@ -1334,7 +1326,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreatePathSnapshot();
+            return catalogOwnedCollectionOwner.Collection.CreatePathSnapshot();
         }
     }
 
@@ -7197,8 +7189,8 @@ public partial class BMSLibrary : NotificationObject
             EnsureOwnedChartCollectionBuiltUnsafe();
             lock (lockOwnedChartCollection)
             {
-                snapshot = ownedChartCollectionInitialized
-                    ? ownedChartCollection.CreateLibraryChartRefIndexSnapshot()
+                snapshot = catalogOwnedCollectionOwner.IsInitialized
+                    ? catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefIndexSnapshot()
                     : LibraryChartRefIndexSnapshot.Empty;
             }
             return snapshot;
@@ -9835,18 +9827,12 @@ public partial class BMSLibrary : NotificationObject
 
     private void InvalidateOwnedChartCollection()
     {
-        lock (lockOwnedChartCollection)
-        {
-            ownedChartCollection = new OwnedChartCollectionState();
-            ownedChartCollectionInitialized = false;
-            ownedChartCollectionBmsStorageRowsVersion = -1;
-            ownedChartCollectionBmsonStorageRowsVersion = -1;
-        }
+        catalogOwnedCollectionOwner.Invalidate();
     }
 
     private int NotifyOwnedChartCollectionChanged()
     {
-        int version = Interlocked.Increment(ref ownedChartCollectionVersion);
+        int version = catalogOwnedCollectionOwner.IncrementVersion();
         RaisePropertyChanged(() => OwnedChartCollectionVersion);
         return version;
     }
@@ -10438,14 +10424,12 @@ public partial class BMSLibrary : NotificationObject
             StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
             lock (lockOwnedChartCollection)
             {
-                if (!ownedChartCollectionInitialized
-                    || ownedChartCollectionBmsStorageRowsVersion != currentVersion.BmsRowsVersion
-                    || ownedChartCollectionBmsonStorageRowsVersion != currentVersion.BmsonRowsVersion)
+                if (!catalogOwnedCollectionOwner.IsCurrent(currentVersion.BmsRowsVersion, currentVersion.BmsonRowsVersion))
                 {
                     throw new InvalidOperationException("Owned chart collection storage row version is not current.");
                 }
                 storageRowsVersion = currentVersion;
-                return ownedChartCollection.CreateOwnedHashIndexSnapshot(cancellationToken);
+                return catalogOwnedCollectionOwner.Collection.CreateOwnedHashIndexSnapshot(cancellationToken);
             }
         }
     }
@@ -10455,7 +10439,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateSnapshot(
+            return catalogOwnedCollectionOwner.Collection.CreateSnapshot(
                 includeWarningSnapshot: false,
                 includeResourceReferences: false,
                 includeScoreSnapshot: false);
@@ -10485,7 +10469,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateCanonicalChartLookupSnapshot();
+            return catalogOwnedCollectionOwner.Collection.CreateCanonicalChartLookupSnapshot();
         }
     }
 
@@ -10494,7 +10478,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateLibraryChartRefsUnderRealPath(directoryPath);
+            return catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefsUnderRealPath(directoryPath);
         }
     }
 
@@ -10514,8 +10498,8 @@ public partial class BMSLibrary : NotificationObject
             EnsureOwnedChartCollectionBuiltUnsafe();
             lock (lockOwnedChartCollection)
             {
-                status = ownedChartCollection.IsLibraryChartRefIndexSnapshotInitialized ? "cached" : "built";
-                snapshot = ownedChartCollection.CreateLibraryChartRefIndexSnapshot();
+                status = catalogOwnedCollectionOwner.Collection.IsLibraryChartRefIndexSnapshotInitialized ? "cached" : "built";
+                snapshot = catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefIndexSnapshot();
                 ownedVersion = OwnedChartCollectionVersion;
             }
         }
@@ -10667,7 +10651,7 @@ public partial class BMSLibrary : NotificationObject
             EnsureOwnedChartCollectionBuiltUnsafe();
             lock (lockOwnedChartCollection)
             {
-                return ownedChartCollection.CountLibraryChartRefsUnderRealPath(directoryPath) > 0;
+                return catalogOwnedCollectionOwner.Collection.CountLibraryChartRefsUnderRealPath(directoryPath) > 0;
             }
         }
     }
@@ -10677,7 +10661,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateChartDirectoriesUnderRealPath(directoryPath);
+            return catalogOwnedCollectionOwner.Collection.CreateChartDirectoriesUnderRealPath(directoryPath);
         }
     }
 
@@ -10685,12 +10669,12 @@ public partial class BMSLibrary : NotificationObject
     {
         lock (lockOwnedChartCollection)
         {
-            if (!ownedChartCollectionInitialized)
+            if (!catalogOwnedCollectionOwner.IsInitialized)
             {
                 chartRefs = null;
                 return false;
             }
-            chartRefs = ownedChartCollection.CreateLibraryChartRefsForPaths(paths);
+            chartRefs = catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefsForPaths(paths);
             return true;
         }
     }
@@ -10699,12 +10683,12 @@ public partial class BMSLibrary : NotificationObject
     {
         lock (lockOwnedChartCollection)
         {
-            if (!ownedChartCollectionInitialized)
+            if (!catalogOwnedCollectionOwner.IsInitialized)
             {
                 chartRefs = null;
                 return false;
             }
-            chartRefs = ownedChartCollection.CreateLibraryChartRefsForPathsByScan(paths);
+            chartRefs = catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefsForPathsByScan(paths);
             return true;
         }
     }
@@ -10714,7 +10698,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateStorageTargetsForSubtreeDirectory(directoryPath);
+            return catalogOwnedCollectionOwner.Collection.CreateStorageTargetsForSubtreeDirectory(directoryPath);
         }
     }
 
@@ -10730,14 +10714,12 @@ public partial class BMSLibrary : NotificationObject
             StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
             lock (lockOwnedChartCollection)
             {
-                if (!ownedChartCollectionInitialized
-                    || ownedChartCollectionBmsStorageRowsVersion != currentVersion.BmsRowsVersion
-                    || ownedChartCollectionBmsonStorageRowsVersion != currentVersion.BmsonRowsVersion)
+                if (!catalogOwnedCollectionOwner.IsCurrent(currentVersion.BmsRowsVersion, currentVersion.BmsonRowsVersion))
                 {
                     throw new InvalidOperationException("Owned chart collection storage row version is not current.");
                 }
                 storageRowsVersion = currentVersion;
-                refs = ownedChartCollection.CreatePlaylistLibraryResolveRefSnapshot(cancellationToken.ThrowIfCancellationRequested);
+                refs = catalogOwnedCollectionOwner.Collection.CreatePlaylistLibraryResolveRefSnapshot(cancellationToken.ThrowIfCancellationRequested);
             }
         }
         cancellationToken.ThrowIfCancellationRequested();
@@ -10751,7 +10733,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateChartInfoHydrationOwnerSummary(
+            return catalogOwnedCollectionOwner.Collection.CreateChartInfoHydrationOwnerSummary(
                 currentChartInfoSha256s,
                 currentParseFailureMd5s);
         }
@@ -10765,7 +10747,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateSnapshotForDirectChildDirectories(
+            return catalogOwnedCollectionOwner.Collection.CreateSnapshotForDirectChildDirectories(
                 directoryPaths,
                 includeWarningSnapshot: includeWarningSnapshot,
                 includeResourceReferences: includeResourceReferences,
@@ -10781,7 +10763,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateSnapshotForMd5Hashes(
+            return catalogOwnedCollectionOwner.Collection.CreateSnapshotForMd5Hashes(
                 md5Hashes,
                 includeWarningSnapshot: includeWarningSnapshot,
                 includeResourceReferences: includeResourceReferences,
@@ -10797,7 +10779,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateSnapshotForPaths(
+            return catalogOwnedCollectionOwner.Collection.CreateSnapshotForPaths(
                 paths,
                 includeWarningSnapshot: includeWarningSnapshot,
                 includeResourceReferences: includeResourceReferences,
@@ -10810,7 +10792,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateBmsSnapshot(
+            return catalogOwnedCollectionOwner.Collection.CreateBmsSnapshot(
                 includeWarningSnapshot: false,
                 includeResourceReferences: includeResourceReferences,
                 includeScoreSnapshot: false);
@@ -10822,7 +10804,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateDuplicateChartRowSnapshot();
+            return catalogOwnedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot();
         }
     }
 
@@ -10831,7 +10813,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateStorageOwnerView();
+            return catalogOwnedCollectionOwner.Collection.CreateStorageOwnerView();
         }
     }
 
@@ -10842,7 +10824,7 @@ public partial class BMSLibrary : NotificationObject
             EnsureOwnedChartCollectionBuiltUnsafe();
             lock (lockOwnedChartCollection)
             {
-                return ownedChartCollection.CreateNormalLibrarySourceStorageOwnerView();
+                return catalogOwnedCollectionOwner.Collection.CreateNormalLibrarySourceStorageOwnerView();
             }
         }
     }
@@ -10852,7 +10834,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateInstalledChartLookupIndexState(out bmsCount, out bmsonCount);
+            return catalogOwnedCollectionOwner.Collection.CreateInstalledChartLookupIndexState(out bmsCount, out bmsonCount);
         }
     }
 
@@ -10861,7 +10843,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreatePrimaryHashLookupState(out bmsCount, out bmsonCount);
+            return catalogOwnedCollectionOwner.Collection.CreatePrimaryHashLookupState(out bmsCount, out bmsonCount);
         }
     }
 
@@ -10870,7 +10852,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.CreateInstallDestinationRuntimeStateKeySnapshot();
+            return catalogOwnedCollectionOwner.Collection.CreateInstallDestinationRuntimeStateKeySnapshot();
         }
     }
 
@@ -10881,7 +10863,7 @@ public partial class BMSLibrary : NotificationObject
             EnsureOwnedChartCollectionBuiltUnsafe();
             lock (lockOwnedChartCollection)
             {
-                return ownedChartCollection.CreateChartRuntimeStatePrimaryKeySnapshot();
+                return catalogOwnedCollectionOwner.Collection.CreateChartRuntimeStatePrimaryKeySnapshot();
             }
         }
     }
@@ -10901,14 +10883,9 @@ public partial class BMSLibrary : NotificationObject
                 out List<LR2SongDBExtended.bmson_song> bmsonSongs,
                 out int bmsRowsVersion,
                 out int bmsonRowsVersion);
-            lock (lockOwnedChartCollection)
+            if (catalogOwnedCollectionOwner.IsCurrent(bmsRowsVersion, bmsonRowsVersion))
             {
-                if (ownedChartCollectionInitialized
-                    && ownedChartCollectionBmsStorageRowsVersion == bmsRowsVersion
-                    && ownedChartCollectionBmsonStorageRowsVersion == bmsonRowsVersion)
-                {
-                    return;
-                }
+                return;
             }
 
             OwnedChartCollectionState rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
@@ -10925,19 +10902,15 @@ public partial class BMSLibrary : NotificationObject
                 {
                     continue;
                 }
-                lock (lockOwnedChartCollection)
+                if (catalogOwnedCollectionOwner.IsCurrent(bmsRowsVersion, bmsonRowsVersion))
                 {
-                    if (ownedChartCollectionInitialized
-                        && ownedChartCollectionBmsStorageRowsVersion == bmsRowsVersion
-                        && ownedChartCollectionBmsonStorageRowsVersion == bmsonRowsVersion)
-                    {
-                        return;
-                    }
-                    ownedChartCollection = rebuiltCollection;
-                    ownedChartCollectionInitialized = true;
-                    SetOwnedChartCollectionStorageRowsVersionUnsafe(bmsRowsVersion, bmsonRowsVersion);
                     return;
                 }
+                catalogOwnedCollectionOwner.ApplyBuiltCollection(
+                    rebuiltCollection,
+                    bmsRowsVersion,
+                    bmsonRowsVersion);
+                return;
             }
         }
     }
@@ -10948,34 +10921,12 @@ public partial class BMSLibrary : NotificationObject
         {
             return;
         }
-        lock (lockOwnedChartCollection)
-        {
-            if (!ownedChartCollectionInitialized)
-            {
-                return;
-            }
-            if (ownedChartCollectionBmsStorageRowsVersion != storageRowsVersion.PreviousBmsRowsVersion
-                || ownedChartCollectionBmsonStorageRowsVersion != storageRowsVersion.PreviousBmsonRowsVersion)
-            {
-                ownedChartCollection = new OwnedChartCollectionState();
-                ownedChartCollectionInitialized = false;
-                SetOwnedChartCollectionStorageRowsVersionUnsafe(-1, -1);
-                return;
-            }
-            if (mutation.RemoveRequests.Count > 0)
-            {
-                ownedChartCollection.RemoveChartRequests(mutation.RemoveRequests);
-            }
-            if (mutation.PathChanges.Count > 0)
-            {
-                ownedChartCollection.ApplyPathChanges(mutation.PathChanges);
-            }
-            if (mutation.AddedCount > 0)
-            {
-                ownedChartCollection.UpsertStorageRows(mutation.AddedBmsFiles, mutation.AddedBmsonSongs);
-            }
-            SetOwnedChartCollectionStorageRowsVersionUnsafe(storageRowsVersion.BmsRowsVersion, storageRowsVersion.BmsonRowsVersion);
-        }
+        catalogOwnedCollectionOwner.ApplyMutation(
+            mutation.RemoveRequests,
+            mutation.PathChanges,
+            mutation.AddedBmsFiles,
+            mutation.AddedBmsonSongs,
+            storageRowsVersion);
     }
 
     private void ApplyOwnedChartCollectionDigestChanges(IEnumerable<LibraryChartDigestChange> digestChanges)
@@ -10985,48 +10936,26 @@ public partial class BMSLibrary : NotificationObject
         {
             return;
         }
-        lock (lockOwnedChartCollection)
-        {
-            if (!ownedChartCollectionInitialized)
-            {
-                return;
-            }
-            ownedChartCollection.ApplyDigestChanges(changes);
-        }
+        catalogOwnedCollectionOwner.ApplyDigestChanges(changes);
     }
 
     private void ApplyOwnedChartCollectionStorageReplacement(StorageRowsSnapshot storageRows)
     {
-        lock (lockOwnedChartCollection)
+        StorageRowsVersionSnapshot currentVersion = CaptureStorageRowsVersionUnsafe();
+        if (storageRows.BmsRowsVersion != currentVersion.BmsRowsVersion
+            || storageRows.BmsonRowsVersion != currentVersion.BmsonRowsVersion)
         {
-            if (!ownedChartCollectionInitialized)
-            {
-                return;
-            }
+            return;
         }
-
-        OwnedChartCollectionState replacementCollection = OwnedChartCollectionState.FromStorageRows(
-            storageRows.BmsFiles,
-            storageRows.BmsonSongs,
-            out OwnedChartStorageRowFilterSummary filterSummary);
-        LogOwnedChartCollectionSkippedRows("replace", filterSummary);
-        lock (lockStorageRowsVersion)
+        CatalogOwnedCollectionReplacementResult result = catalogOwnedCollectionOwner.ReplaceForFileScan(
+            new CatalogStorageRowsSnapshot(
+                [.. storageRows.BmsFiles],
+                [.. storageRows.BmsonSongs],
+                storageRows.BmsRowsVersion,
+                storageRows.BmsonRowsVersion));
+        if (result.Applied)
         {
-            if (storageRows.BmsRowsVersion != bmsStorageRowsVersion
-                || storageRows.BmsonRowsVersion != bmsonStorageRowsVersion)
-            {
-                return;
-            }
-            lock (lockOwnedChartCollection)
-            {
-                if (!ownedChartCollectionInitialized)
-                {
-                    return;
-                }
-                ownedChartCollection = replacementCollection;
-                ownedChartCollectionInitialized = true;
-                SetOwnedChartCollectionStorageRowsVersionUnsafe(storageRows.BmsRowsVersion, storageRows.BmsonRowsVersion);
-            }
+            LogOwnedChartCollectionSkippedRows("replace", result.FilterSummary);
         }
     }
 
@@ -11320,26 +11249,12 @@ public partial class BMSLibrary : NotificationObject
         {
             return true;
         }
-        lock (lockStorageRowsVersion)
-        {
-            int bmsRowsVersion = bmsStorageRowsVersion;
-            int bmsonRowsVersion = bmsonStorageRowsVersion;
-            lock (lockOwnedChartCollection)
-            {
-                if (!ownedChartCollectionInitialized
-                    || ownedChartCollectionBmsStorageRowsVersion != bmsRowsVersion
-                    || ownedChartCollectionBmsonStorageRowsVersion != bmsonRowsVersion)
-                {
-                    return false;
-                }
-                removedCharts = ownedChartCollection.CreateFileScanRemovedStorageOwnerIdentityCharts(
-                    fileCheckResult.DeletedPaths,
-                    fileCheckResult.DeletedBmsonPaths,
-                    fileCheckResult.NextFiles,
-                    fileCheckResult.NextBmsonSongs);
-                return true;
-            }
-        }
+        StorageRowsVersionSnapshot storageRowsVersion = CaptureStorageRowsVersionUnsafe();
+        return catalogOwnedCollectionOwner.TryCreateFileScanRemovedStorageOwnerIdentityCharts(
+            fileCheckResult,
+            storageRowsVersion.BmsRowsVersion,
+            storageRowsVersion.BmsonRowsVersion,
+            out removedCharts);
     }
 
     private InstalledChartLookupMutation BuildInstalledChartLookupFileScanMutation(
@@ -11442,12 +11357,6 @@ public partial class BMSLibrary : NotificationObject
         return new StorageRowsSnapshot(snapshot.BmsRows, snapshot.BmsonRows, snapshot.BmsRowsVersion, snapshot.BmsonRowsVersion);
     }
 
-    private void SetOwnedChartCollectionStorageRowsVersionUnsafe(int bmsRowsVersion, int bmsonRowsVersion)
-    {
-        ownedChartCollectionBmsStorageRowsVersion = bmsRowsVersion;
-        ownedChartCollectionBmsonStorageRowsVersion = bmsonRowsVersion;
-    }
-
     private readonly struct StorageRowsSnapshot
     {
         internal StorageRowsSnapshot(
@@ -11545,9 +11454,7 @@ public partial class BMSLibrary : NotificationObject
             int bmsonRowsVersion = bmsonStorageRowsVersion;
             lock (lockOwnedChartCollection)
             {
-                if (!ownedChartCollectionInitialized
-                    || ownedChartCollectionBmsStorageRowsVersion != bmsRowsVersion
-                    || ownedChartCollectionBmsonStorageRowsVersion != bmsonRowsVersion)
+                if (!catalogOwnedCollectionOwner.IsCurrent(bmsRowsVersion, bmsonRowsVersion))
                 {
                     resolvedRequests = [.. removeRequests
                         .Where(request => request?.Mode == OwnedChartRemoveMode.OwnerReference
@@ -11555,7 +11462,7 @@ public partial class BMSLibrary : NotificationObject
                 }
                 else
                 {
-                    resolvedRequests = ownedChartCollection.ResolveCurrentRemoveRequests(removeRequests);
+                    resolvedRequests = catalogOwnedCollectionOwner.Collection.ResolveCurrentRemoveRequests(removeRequests);
                 }
             }
         }
@@ -13226,10 +13133,10 @@ public partial class BMSLibrary : NotificationObject
         int ownedCollectionVersion;
         lock (lockOwnedChartCollection)
         {
-            targets = ownedChartCollection.CreateFullResourceMaintenanceTargetSnapshot();
+            targets = catalogOwnedCollectionOwner.Collection.CreateFullResourceMaintenanceTargetSnapshot();
             storageRowsVersion = new StorageRowsVersionSnapshot(
-                ownedChartCollectionBmsStorageRowsVersion,
-                ownedChartCollectionBmsonStorageRowsVersion);
+                catalogOwnedCollectionOwner.BmsRowsVersion,
+                catalogOwnedCollectionOwner.BmsonRowsVersion);
             ownedCollectionVersion = OwnedChartCollectionVersion;
         }
         LogInstallPerformance("resource_maintenance_target build mode=full"
@@ -14817,7 +14724,7 @@ public partial class BMSLibrary : NotificationObject
         EnsureOwnedChartCollectionBuiltUnsafe();
         lock (lockOwnedChartCollection)
         {
-            return ownedChartCollection.ContainsKnownChart(chart);
+            return catalogOwnedCollectionOwner.Collection.ContainsKnownChart(chart);
         }
     }
 

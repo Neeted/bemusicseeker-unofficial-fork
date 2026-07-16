@@ -51,7 +51,7 @@ public partial class BMSLibrary : IPlaylistReferenceApplyHost
             List<LibraryChartRef> charts;
             lock (lockOwnedChartCollection)
             {
-                charts = ownedChartCollection.CreateLibraryChartRefsForHashes(md5Hashes, sha256Hashes);
+                charts = catalogOwnedCollectionOwner.Collection.CreateLibraryChartRefsForHashes(md5Hashes, sha256Hashes);
             }
             return charts.Count == 0 ? null : charts;
         }

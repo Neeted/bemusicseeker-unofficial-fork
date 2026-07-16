@@ -2248,7 +2248,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(createPlaylistLibraryIndex.Contains("files?.BmsonSongs"));
         Assert.IsFalse(viewModelCode.Contains("playlistLibraryIndexSync"));
         Assert.IsFalse(viewModelCode.Contains("GetOrCreatePlaylistLibraryIndexSnapshot"));
-        StringAssert.Contains(resolveIndexHelper, "ownedChartCollection.CreatePlaylistLibraryResolveRefSnapshot(cancellationToken.ThrowIfCancellationRequested)");
+        StringAssert.Contains(resolveIndexHelper, "catalogOwnedCollectionOwner.Collection.CreatePlaylistLibraryResolveRefSnapshot(cancellationToken.ThrowIfCancellationRequested)");
         StringAssert.Contains(resolveIndexHelper, "PlaylistLibraryResolveIndexSnapshot.FromLibraryChartRefs(refs, cancellationToken.ThrowIfCancellationRequested)");
     }
 
@@ -2299,7 +2299,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(pruneHelper.Contains("foreach (BeMusicSeeker.Models.BMSFile"));
         Assert.IsFalse(pruneHelper.Contains("foreach (LR2SongDBExtended.bmson_song"));
         StringAssert.Contains(modelKeyHelper, "rwlockBMSFiles.GetReaderGuard()");
-        StringAssert.Contains(modelKeyHelper, "ownedChartCollection.CreateChartRuntimeStatePrimaryKeySnapshot()");
+        StringAssert.Contains(modelKeyHelper, "catalogOwnedCollectionOwner.Collection.CreateChartRuntimeStatePrimaryKeySnapshot()");
         Assert.IsFalse(modelKeyHelper.Contains("CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe()"));
     }
 
@@ -4104,6 +4104,7 @@ public sealed class MainWindowContextMenuResourceTests
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string pipelineOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "LibraryFileScanPipelineOwner.cs"));
         string ownedCollectionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "OwnedChartCollectionState.cs"));
+        string ownedCollectionOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "CatalogOwnedCollectionOwner.cs"));
         string coordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "LibraryFileScanStorageMutationCoordinator.cs"));
         string coordinatorApplyMethod = ExtractMethodBody(coordinatorCode, "internal void Apply");
         string buildMethod = ExtractMethodBody(libraryCode, "private OwnedChartCollectionMutationResult BuildOwnedChartCollectionFileScanMutationResult");
@@ -4126,7 +4127,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(buildMethod, "storageMutation.RemoveRequests.AddRange((removedCharts ?? [])");
         Assert.IsFalse(buildMethod.Contains("IReadOnlyList<BMSFile> currentBmsFiles"));
         Assert.IsFalse(buildMethod.Contains("IReadOnlyList<LR2SongDBExtended.bmson_song> currentBmsonSongs"));
-        StringAssert.Contains(libraryCode, "ownedChartCollection.CreateFileScanRemovedStorageOwnerIdentityCharts(");
+        StringAssert.Contains(ownedCollectionOwnerCode, "collection.CreateFileScanRemovedStorageOwnerIdentityCharts(");
         StringAssert.Contains(ownedCollectionCode, "internal List<ChartFile> CreateFileScanRemovedStorageOwnerIdentityCharts(");
     }
 

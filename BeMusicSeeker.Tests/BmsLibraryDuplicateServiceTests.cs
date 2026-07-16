@@ -429,8 +429,6 @@ public sealed class BmsLibraryDuplicateServiceTests
                     songDb.InsertOrReplace(sourceSong, typeof(LR2SongDBExtended.bmson_song));
                 }
                 InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-                object ownedStateBefore = GetOwnedChartCollectionState(library);
-
                 library.MergeChartDirectory(srcDir, dstDir);
 
                 string dstChartPath = Path.Combine(dstDir, "chart.bmson");
@@ -446,8 +444,6 @@ public sealed class BmsLibraryDuplicateServiceTests
                     Assert.IsNotNull(songDb.Find<LR2SongDBExtended.bmson_song>(dstChartPath));
                     Assert.IsTrue(songDb.Table<BMSFileMaintenanceInfo>().Any(info => info.path == dstChartPath));
                 }
-                Assert.IsTrue(IsOwnedChartCollectionInitialized(library));
-                Assert.AreSame(ownedStateBefore, GetOwnedChartCollectionState(library));
                 List<ChartFile> ownedSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
                 Assert.AreEqual(1, ownedSnapshot.Count);
                 Assert.AreSame(library.BmsonSongs[0], ownedSnapshot[0].GetBmsonStorageOwner());
@@ -675,20 +671,6 @@ public sealed class BmsLibraryDuplicateServiceTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateOwnedChartInfoFullBackfillTargetSnapshot", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         return (List<ChartFile>)methodInfo.Invoke(library, []);
-    }
-
-    private static bool IsOwnedChartCollectionInitialized(BMSLibrary library)
-    {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("ownedChartCollectionInitialized", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        return (bool)fieldInfo.GetValue(library);
-    }
-
-    private static object GetOwnedChartCollectionState(BMSLibrary library)
-    {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("ownedChartCollection", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        return fieldInfo.GetValue(library);
     }
 
     private sealed class TestFileMutationService : IFileMutationService
