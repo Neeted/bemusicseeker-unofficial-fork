@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -77,13 +76,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
     }
 
     [TestMethod]
-    public void ApplyFileScanRequest_NoRootsUsesOwnedApplyRoute()
+    public void ApplyActiveFileScan_NoRootsUsesOwnedApplyRoute()
     {
         var host = new RecordingLibraryFileScanPipelineHost();
         var owner = CreateOwner(host);
-        var request = new LibraryFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_request");
+        long generation = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_request");
 
-        SongTableFileCheckResult result = owner.ApplyFileScanRequest(request, trackLibraryFileCheckProgress: true);
+        SongTableFileCheckResult result = owner.ApplyActiveFileScan(generation, trackLibraryFileCheckProgress: true);
 
         Assert.IsNotNull(result);
         Assert.AreEqual(1, host.EnumerationCompletedCount);
@@ -94,17 +93,41 @@ public sealed class LibraryFileScanPipelineOwnerTests
     }
 
     [TestMethod]
-    public void ResolveChartScanPrefetch_FailedTaskReportsFailureAndReturnsNull()
+    public void BeginFileScanRequest_RejectsOverlapUntilTerminal()
     {
         var host = new RecordingLibraryFileScanPipelineHost();
         var owner = CreateOwner(host);
-        var request = new LibraryFileScanRequest(new BmsLibraryOptionsSnapshot(), ["C:\\charts"], "test_prefetch");
-        request.ChartScanPrefetchTask = Task.FromException<ChartScanPrefetchInfo>(new InvalidOperationException("prefetch_failed"));
+        long firstGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_first");
 
-        ChartScanPrefetchInfo result = owner.ResolveChartScanPrefetch(request);
+        Assert.ThrowsException<InvalidOperationException>(
+            () => owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_overlap"));
 
-        Assert.IsNull(result);
-        StringAssert.Contains(host.EverythingMessages[0], "chart_scan_prefetch failed");
+        SongTableFileCheckResult result = owner.ApplyActiveFileScan(firstGeneration, trackLibraryFileCheckProgress: true);
+        Assert.IsNotNull(result);
+        long secondGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_second");
+        Assert.IsTrue(secondGeneration > firstGeneration);
+        owner.AbortActiveFileScan(secondGeneration);
+    }
+
+    [TestMethod]
+    public void AbortActiveFileScan_PreventsApplyAndAllowsNextRequest()
+    {
+        var host = new RecordingLibraryFileScanPipelineHost();
+        var owner = CreateOwner(host);
+        long abortedGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_abort");
+
+        owner.AbortActiveFileScan(abortedGeneration);
+        long nextGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_after_abort");
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => owner.ApplyActiveFileScan(abortedGeneration, trackLibraryFileCheckProgress: true));
+        Assert.AreEqual(0, host.EnumerationCompletedCount);
+        Assert.AreEqual(0, host.DiffCompletedCount);
+
+        SongTableFileCheckResult result = owner.ApplyActiveFileScan(nextGeneration, trackLibraryFileCheckProgress: true);
+        Assert.IsNotNull(result);
+        Assert.AreEqual(1, host.EnumerationCompletedCount);
+        Assert.AreEqual(1, host.DiffCompletedCount);
     }
 
     [TestMethod]

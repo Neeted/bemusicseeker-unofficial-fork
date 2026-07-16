@@ -18,29 +18,27 @@ internal sealed class ChartScanPrefetchInfo
 }
 
 /// <summary>
-/// Captures the scan inputs and asynchronous preparation owned by one library file-scan request.
-/// </summary>
-internal sealed class LibraryFileScanRequest(
-    BmsLibraryOptionsSnapshot options,
-    List<string> rootDirectories,
-    string reason)
-{
-    internal BmsLibraryOptionsSnapshot Options { get; } = options;
-
-    internal List<string> RootDirectories { get; } = rootDirectories ?? [];
-
-    internal string Reason { get; } = reason ?? string.Empty;
-
-    internal Task<ChartScanPrefetchInfo> ChartScanPrefetchTask { get; set; }
-
-    internal Task<Lr2NormalFolderMtimeSnapshot> NormalFolderMtimeSnapshotTask { get; set; }
-}
-
-/// <summary>
 /// Owns the shared chart file scan, diff, parse, commit, and terminal apply route.
 /// </summary>
 internal sealed class LibraryFileScanPipelineOwner
 {
+    private sealed class ActiveFileScan
+    {
+        internal long Generation { get; init; }
+
+        internal BmsLibraryOptionsSnapshot Options { get; init; }
+
+        internal List<string> RootDirectories { get; init; }
+
+        internal string Reason { get; init; }
+
+        internal Task<ChartScanPrefetchInfo> ChartScanPrefetchTask { get; set; }
+
+        internal Task<Lr2NormalFolderMtimeSnapshot> NormalFolderMtimeSnapshotTask { get; set; }
+
+        internal bool Applying { get; set; }
+    }
+
     private readonly ILibraryFileScanPipelineHost host;
 
     private readonly ILibraryFileScanLr2FolderHost lr2Host;
@@ -54,6 +52,12 @@ internal sealed class LibraryFileScanPipelineOwner
     private readonly Func<LibraryFileScanStorageMutationCoordinator> storageMutationCoordinatorFactory;
 
     private readonly Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory;
+
+    private readonly object fileScanGate = new();
+
+    private ActiveFileScan activeFileScan;
+
+    private long fileScanGeneration;
 
     internal LibraryFileScanPipelineOwner(
         ILibraryFileScanPipelineHost host,
@@ -72,63 +76,212 @@ internal sealed class LibraryFileScanPipelineOwner
         this.mutationDeltaApplyCoordinatorFactory = mutationDeltaApplyCoordinatorFactory ?? throw new ArgumentNullException(nameof(mutationDeltaApplyCoordinatorFactory));
     }
 
-    internal LibraryFileScanRequest StartFileScanRequest(
+    internal long BeginFileScanRequest(
         BmsLibraryOptionsSnapshot options,
         List<string> rootDirectories,
         string reason,
         Action<string> reportScanner = null)
     {
-        var request = new LibraryFileScanRequest(options, rootDirectories, reason);
-        if (request.RootDirectories.Count == 0)
+        ActiveFileScan scan;
+        lock (fileScanGate)
         {
-            return request;
+            if (activeFileScan != null)
+            {
+                throw new InvalidOperationException(
+                    "A library file scan is already active. Complete or abort it before starting another scan.");
+            }
+
+            scan = new ActiveFileScan
+            {
+                Generation = checked(++fileScanGeneration),
+                Options = options,
+                RootDirectories = [.. rootDirectories ?? []],
+                Reason = reason ?? string.Empty
+            };
+            activeFileScan = scan;
         }
 
-        request.ChartScanPrefetchTask = Task.Run(() =>
+        if (scan.RootDirectories.Count == 0)
         {
-            var stopwatchPrefetch = Stopwatch.StartNew();
-            ChartScanExecutionResult scanResult = ExecuteChartScanWithManagedFallback(
-                request.RootDirectories,
-                BMSLibrary.ShouldIncludeLr2TextSurface(request.Options),
-                BMSLibrary.ShouldIncludeLr2DirectorySurface(request.Options),
-                reportScanner);
-            stopwatchPrefetch.Stop();
-            return new ChartScanPrefetchInfo
+            return scan.Generation;
+        }
+
+        try
+        {
+            scan.ChartScanPrefetchTask = Task.Run(() =>
             {
-                ScanResult = scanResult,
-                ElapsedMs = stopwatchPrefetch.ElapsedMilliseconds
-            };
-        });
-        return request;
+                var stopwatchPrefetch = Stopwatch.StartNew();
+                ChartScanExecutionResult scanResult = ExecuteChartScanWithManagedFallback(
+                    scan.RootDirectories,
+                    BMSLibrary.ShouldIncludeLr2TextSurface(scan.Options),
+                    BMSLibrary.ShouldIncludeLr2DirectorySurface(scan.Options),
+                    reportScanner,
+                    () => IsActiveGeneration(scan.Generation));
+                stopwatchPrefetch.Stop();
+                return new ChartScanPrefetchInfo
+                {
+                    ScanResult = scanResult,
+                    ElapsedMs = stopwatchPrefetch.ElapsedMilliseconds
+                };
+            });
+            return scan.Generation;
+        }
+        catch
+        {
+            lock (fileScanGate)
+            {
+                if (ReferenceEquals(activeFileScan, scan))
+                {
+                    activeFileScan = null;
+                }
+            }
+            throw;
+        }
     }
 
-    internal void StartNormalFolderMtimeSnapshot(LibraryFileScanRequest request)
+    internal void StartActiveNormalFolderMtimeSnapshot(long generation)
     {
-        if (request?.Options?.OperationModeLR2DB != true
-            || request.RootDirectories.Count == 0
-            || request.NormalFolderMtimeSnapshotTask != null)
+        ActiveFileScan scan = GetActiveFileScan(generation);
+        lock (fileScanGate)
+        {
+            if (!ReferenceEquals(activeFileScan, scan)
+                || scan.Applying)
+            {
+                throw new InvalidOperationException("The active library file scan is no longer available.");
+            }
+            if (scan.Options?.OperationModeLR2DB != true
+                || scan.RootDirectories.Count == 0
+                || scan.NormalFolderMtimeSnapshotTask != null)
+            {
+                return;
+            }
+
+            scan.NormalFolderMtimeSnapshotTask = Task.Run(() =>
+                initializationService.LoadNormalFolderMtimeSnapshot(
+                    host.DbGateway,
+                    scan.Options,
+                    scan.RootDirectories,
+                    message =>
+                    {
+                        if (IsActiveGeneration(scan.Generation))
+                        {
+                            host.LogInstallPerformance(message);
+                        }
+                    })).Logging("Lr2NormalFolderMtimeSnapshotPrefetch");
+        }
+    }
+
+    internal SongTableFileCheckResult ApplyActiveFileScan(
+        long generation,
+        bool trackLibraryFileCheckProgress)
+    {
+        ActiveFileScan scan = GetActiveFileScan(generation);
+        lock (fileScanGate)
+        {
+            if (!ReferenceEquals(activeFileScan, scan))
+            {
+                throw new InvalidOperationException("The active library file scan is no longer available.");
+            }
+            if (scan.Applying)
+            {
+                throw new InvalidOperationException("The active library file scan is already being applied.");
+            }
+            scan.Applying = true;
+        }
+
+        try
+        {
+            ChartScanPrefetchInfo chartScanPrefetchInfo = ResolveChartScanPrefetch(scan);
+            SongTableFileCheckResult result = ApplyFileScanDiff(
+                scan.Options,
+                scan.RootDirectories,
+                chartScanPrefetchInfo,
+                scan.NormalFolderMtimeSnapshotTask,
+                trackLibraryFileCheckProgress,
+                scan.Reason);
+            CompleteFileScan(scan);
+            return result;
+        }
+        catch
+        {
+            CompleteFileScan(scan);
+            throw;
+        }
+    }
+
+    internal void AbortActiveFileScan(long generation)
+    {
+        ActiveFileScan scan;
+        lock (fileScanGate)
+        {
+            scan = activeFileScan;
+            if (scan == null || scan.Generation != generation || scan.Applying)
+            {
+                return;
+            }
+            activeFileScan = null;
+        }
+        ObserveTaskFailure(scan.ChartScanPrefetchTask);
+        ObserveTaskFailure(scan.NormalFolderMtimeSnapshotTask);
+    }
+
+    private static void ObserveTaskFailure(Task task)
+    {
+        if (task == null)
         {
             return;
         }
 
-        request.NormalFolderMtimeSnapshotTask = Task.Run(() =>
-            initializationService.LoadNormalFolderMtimeSnapshot(
-                host.DbGateway,
-                request.Options,
-                request.RootDirectories,
-                host.LogInstallPerformance)).Logging("Lr2NormalFolderMtimeSnapshotPrefetch");
+        _ = task.ContinueWith(
+            completed => _ = completed.Exception,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously);
     }
 
-    internal ChartScanPrefetchInfo ResolveChartScanPrefetch(LibraryFileScanRequest request)
+    private void CompleteFileScan(ActiveFileScan scan)
     {
-        if (request?.ChartScanPrefetchTask == null)
+        lock (fileScanGate)
+        {
+            if (ReferenceEquals(activeFileScan, scan))
+            {
+                activeFileScan = null;
+            }
+        }
+    }
+
+    private ActiveFileScan GetActiveFileScan(long generation)
+    {
+        lock (fileScanGate)
+        {
+            if (activeFileScan == null)
+            {
+                throw new InvalidOperationException("No active library file scan exists.");
+            }
+            if (activeFileScan.Generation != generation)
+            {
+                throw new InvalidOperationException("The active library file scan generation is stale.");
+            }
+            return activeFileScan;
+        }
+    }
+
+    private bool IsActiveGeneration(long generation)
+    {
+        lock (fileScanGate)
+        {
+            return activeFileScan?.Generation == generation;
+        }
+    }
+
+    private ChartScanPrefetchInfo ResolveChartScanPrefetch(ActiveFileScan scan)
+    {
+        if (scan?.ChartScanPrefetchTask == null)
         {
             return null;
         }
 
         try
         {
-            return request.ChartScanPrefetchTask.GetAwaiter().GetResult();
+            return scan.ChartScanPrefetchTask.GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {
@@ -137,32 +290,53 @@ internal sealed class LibraryFileScanPipelineOwner
         }
     }
 
-    internal SongTableFileCheckResult ApplyFileScanRequest(
-        LibraryFileScanRequest request,
-        bool trackLibraryFileCheckProgress)
-    {
-        if (request == null)
-        {
-            throw new ArgumentNullException(nameof(request));
-        }
-
-        return ApplyFileScanDiff(
-            request.Options,
-            request.RootDirectories,
-            ResolveChartScanPrefetch(request),
-            request.NormalFolderMtimeSnapshotTask,
-            trackLibraryFileCheckProgress,
-            request.Reason);
-    }
-
     internal ChartScanExecutionResult ExecuteChartScanWithManagedFallback(
         List<string> bmsDirectories,
         bool includeTextSurface,
         bool includeDirectorySurface,
         Action<string> reportScanner = null)
     {
+        return ExecuteChartScanWithManagedFallback(
+            bmsDirectories,
+            includeTextSurface,
+            includeDirectorySurface,
+            reportScanner,
+            () => true);
+    }
+
+    private ChartScanExecutionResult ExecuteChartScanWithManagedFallback(
+        List<string> bmsDirectories,
+        bool includeTextSurface,
+        bool includeDirectorySurface,
+        Action<string> reportScanner,
+        Func<bool> isActive)
+    {
         IChartFileScanner scanner = new EverythingFileScanner();
-        reportScanner?.Invoke("Native");
+        void ReportScanner(string label)
+        {
+            if (isActive())
+            {
+                reportScanner?.Invoke(label);
+            }
+        }
+
+        void LogEverythingScan(string message)
+        {
+            if (isActive())
+            {
+                host.LogEverythingScan(message);
+            }
+        }
+
+        void QueueEverythingFallbackWarning(string reason)
+        {
+            if (isActive())
+            {
+                host.QueueEverythingFallbackWarning(reason);
+            }
+        }
+
+        ReportScanner("Native");
         ChartScanExecutionResult scanResult = scanner.Scan(
             bmsDirectories,
             ChartDirectoryScanBuilder.ChartExtensions,
@@ -177,13 +351,13 @@ internal sealed class LibraryFileScanPipelineOwner
         string nativeFailureReason = scanResult?.ErrorReason ?? "unknown";
         if (IsNativeBridgeContractFailure(nativeFailureReason))
         {
-            host.LogEverythingScan("chart native file scan failed reason=" + nativeFailureReason);
+            LogEverythingScan("chart native file scan failed reason=" + nativeFailureReason);
             throw new InvalidOperationException("chart native file scan failed: " + nativeFailureReason);
         }
 
-        host.LogEverythingScan("chart native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
-        host.QueueEverythingFallbackWarning(nativeFailureReason);
-        reportScanner?.Invoke("Fallback");
+        LogEverythingScan("chart native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
+        QueueEverythingFallbackWarning(nativeFailureReason);
+        ReportScanner("Fallback");
         ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(
             bmsDirectories,
             ChartDirectoryScanBuilder.ChartExtensions,
@@ -193,7 +367,7 @@ internal sealed class LibraryFileScanPipelineOwner
         if (!IsAuthoritativeChartScan(fallbackResult))
         {
             string fallbackFailureReason = GetChartScanFailureReason(fallbackResult);
-            host.LogEverythingScan("chart fallback file scan failed nativeReason=" + nativeFailureReason + " fallbackReason=" + fallbackFailureReason);
+            LogEverythingScan("chart fallback file scan failed nativeReason=" + nativeFailureReason + " fallbackReason=" + fallbackFailureReason);
             return new ChartScanExecutionResult
             {
                 ScanSource = ChartScanSource.Fallback,
@@ -208,7 +382,7 @@ internal sealed class LibraryFileScanPipelineOwner
         fallbackResult.ScanSource = ChartScanSource.Fallback;
         fallbackResult.FallbackUsed = true;
         fallbackResult.FallbackReason = nativeFailureReason;
-        host.LogEverythingScan("chart fallback file scan succeeded nativeReason=" + nativeFailureReason + " charts=" + fallbackResult.Result.ChartFilePaths.Count + " dirs=" + fallbackResult.Result.ChartDirectories.Count);
+        LogEverythingScan("chart fallback file scan succeeded nativeReason=" + nativeFailureReason + " charts=" + fallbackResult.Result.ChartFilePaths.Count + " dirs=" + fallbackResult.Result.ChartDirectories.Count);
         return fallbackResult;
     }
 
