@@ -2875,7 +2875,9 @@ public partial class BMSLibrary : NotificationObject
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             new LibraryFileScanPipelineHost(this),
-            initializationService);
+            initializationService,
+            () => new LibraryFileScanStorageMutationCoordinator(new LibraryFileScanStorageMutationHost(this)),
+            () => new LibraryMutationDeltaApplyCoordinator(new LibraryMutationDeltaApplyHost(this)));
         stateApplier = new BmsLibraryStateApplier(
             dbGateway,
             () => ChartPackagesPending,
@@ -4333,16 +4335,6 @@ public partial class BMSLibrary : NotificationObject
         public void DispatchWarningPresentationChanged(string reason)
         {
             owner.DispatchWarningPresentationChanged(reason);
-        }
-
-        public void ApplyLibraryFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
-        {
-            owner.ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
-        }
-
-        public void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
-        {
-            owner.ApplyLibraryMutationDelta(delta);
         }
 
         public void CaptureLr2SongDbSyncScanSurface(
@@ -11287,12 +11279,6 @@ public partial class BMSLibrary : NotificationObject
                 SetOwnedChartCollectionStorageRowsVersionUnsafe(storageRows.BmsRowsVersion, storageRows.BmsonRowsVersion);
             }
         }
-    }
-
-    private void ApplyLibraryFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
-    {
-        var coordinator = new LibraryFileScanStorageMutationCoordinator(new LibraryFileScanStorageMutationHost(this));
-        coordinator.Apply(fileCheckResult, reason);
     }
 
     internal sealed class LibraryFileScanStorageMutationHost(BMSLibrary owner) : ILibraryFileScanStorageMutationHost

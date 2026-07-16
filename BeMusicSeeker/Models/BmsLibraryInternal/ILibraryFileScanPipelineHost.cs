@@ -87,10 +87,6 @@ internal interface ILibraryFileScanPipelineHost
 
     void DispatchWarningPresentationChanged(string reason);
 
-    void ApplyLibraryFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason);
-
-    void ApplyLibraryMutationDelta(LibraryMutationDelta delta);
-
     void CaptureLr2SongDbSyncScanSurface(
         BmsLibraryOptionsSnapshot options,
         IEnumerable<string> rootDirectories,

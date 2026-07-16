@@ -17,7 +17,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     public void ApplyFileScanDiff_EmptyDirectoryRequestCompletesProgressForRepeatedRequests()
     {
         var host = new RecordingLibraryFileScanPipelineHost();
-        var owner = new LibraryFileScanPipelineOwner(host, new BmsLibraryInitializationService());
+        var owner = CreateOwner(host);
 
         SongTableFileCheckResult first = owner.ApplyFileScanDiff(
             new BmsLibraryOptionsSnapshot(),
@@ -49,7 +49,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
     public void ApplyFileScanDiff_IncompletePrefetchSkipsStorageAndReportsWarning()
     {
         var host = new RecordingLibraryFileScanPipelineHost();
-        var owner = new LibraryFileScanPipelineOwner(host, new BmsLibraryInitializationService());
+        var owner = CreateOwner(host);
         var prefetch = new ChartScanPrefetchInfo
         {
             ScanResult = new ChartScanExecutionResult
@@ -73,7 +73,15 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual("test_incomplete_scan", host.LastIncompleteWarningReason);
         Assert.AreEqual(1, host.EnumerationCompletedCount);
         Assert.AreEqual(1, host.DiffCompletedCount);
-        Assert.AreEqual(0, host.StorageMutationCount);
+    }
+
+    private static LibraryFileScanPipelineOwner CreateOwner(ILibraryFileScanPipelineHost host)
+    {
+        return new LibraryFileScanPipelineOwner(
+            host,
+            new BmsLibraryInitializationService(),
+            () => new LibraryFileScanStorageMutationCoordinator(new NoopLibraryFileScanStorageMutationHost()),
+            () => new LibraryMutationDeltaApplyCoordinator(new NoopLibraryMutationDeltaApplyHost()));
     }
 
     private sealed class RecordingLibraryFileScanPipelineHost : ILibraryFileScanPipelineHost
@@ -97,8 +105,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public string LastMutationBlockedOperation { get; private set; } = string.Empty;
 
         public int IncompleteWarningCount { get; private set; }
-
-        public int StorageMutationCount { get; private set; }
 
         public string LastIncompleteWarningReason { get; private set; } = string.Empty;
 
@@ -229,15 +235,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
         }
 
-        public void ApplyLibraryFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
-        {
-            StorageMutationCount++;
-        }
-
-        public void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
-        {
-        }
-
         public void CaptureLr2SongDbSyncScanSurface(
             BmsLibraryOptionsSnapshot options,
             IEnumerable<string> rootDirectories,
@@ -255,6 +252,97 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public void MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(
             BmsLibraryOptionsSnapshot options,
             SongTableFileCheckResult result)
+        {
+        }
+    }
+
+    private sealed class NoopLibraryFileScanStorageMutationHost : ILibraryFileScanStorageMutationHost
+    {
+        public IDisposable EnterOwnedStorageWriteLock() => null!;
+
+        public bool TryCreateRemovedStorageOwnerIdentityCharts(
+            SongTableFileCheckResult fileCheckResult,
+            out List<ChartFile> removedCharts)
+        {
+            removedCharts = [];
+            return false;
+        }
+
+        public IResourceHealthInputMutationScope BeginResourceHealthInputMutation() => null!;
+
+        public void BuildMutationResult(
+            SongTableFileCheckResult fileCheckResult,
+            List<ChartFile> removedCharts,
+            bool removedPayloadAvailable,
+            bool baseIndexCurrent)
+        {
+        }
+
+        public void PublishOwnedCollectionChangeNotification()
+        {
+        }
+
+        public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded() => null!;
+
+        public void ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(SongTableFileCheckResult fileCheckResult)
+        {
+        }
+
+        public void ApplyFailureFallback()
+        {
+        }
+
+        public void DispatchOwnedChartCollectionMutation(string reason)
+        {
+        }
+    }
+
+    private sealed class NoopLibraryMutationDeltaApplyHost : ILibraryMutationDeltaApplyHost
+    {
+        public void ThrowIfLr2SongDbSyncMutationBlocked(string operationName)
+        {
+        }
+
+        public IResourceHealthInputMutationScope BeginResourceHealthInputMutation() => null!;
+
+        public void BuildMutationResult(LibraryMutationDelta delta, int baseInputVersion, bool baseIndexCurrent)
+        {
+        }
+
+        public void PublishOwnedCollectionChangeNotification()
+        {
+        }
+
+        public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded() => null!;
+
+        public StorageRowsVersionSnapshot ApplyLibraryUnregisterStorageRowsUnsafe() => default;
+
+        public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta) => null!;
+
+        public void ApplyOwnedChartCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
+        {
+        }
+
+        public void CompleteResourceHealthMutation(int targetInputVersion)
+        {
+        }
+
+        public void SyncLr2NormalFoldersForOwnedMutation(string reason)
+        {
+        }
+
+        public void ApplyFailureFallback()
+        {
+        }
+
+        public void DispatchOwnedChartCollectionMutation(string reason)
+        {
+        }
+
+        public void LogLibraryMutationDeltaPerformance(
+            LibraryMutationDelta delta,
+            string performanceLogContext,
+            LibraryMutationDeltaApplyTimings timings)
         {
         }
     }

@@ -26,12 +26,20 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly BmsLibraryInitializationService initializationService;
 
+    private readonly Func<LibraryFileScanStorageMutationCoordinator> storageMutationCoordinatorFactory;
+
+    private readonly Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory;
+
     internal LibraryFileScanPipelineOwner(
         ILibraryFileScanPipelineHost host,
-        BmsLibraryInitializationService initializationService)
+        BmsLibraryInitializationService initializationService,
+        Func<LibraryFileScanStorageMutationCoordinator> storageMutationCoordinatorFactory,
+        Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory)
     {
         this.host = host ?? throw new ArgumentNullException(nameof(host));
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
+        this.storageMutationCoordinatorFactory = storageMutationCoordinatorFactory ?? throw new ArgumentNullException(nameof(storageMutationCoordinatorFactory));
+        this.mutationDeltaApplyCoordinatorFactory = mutationDeltaApplyCoordinatorFactory ?? throw new ArgumentNullException(nameof(mutationDeltaApplyCoordinatorFactory));
     }
 
     internal ChartScanExecutionResult ExecuteChartScanWithManagedFallback(
@@ -279,7 +287,7 @@ internal sealed class LibraryFileScanPipelineOwner
         LogFileScanFailures(fileCheckResult, reason);
         host.ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
-        host.ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
+        storageMutationCoordinatorFactory().Apply(fileCheckResult, reason);
         host.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
         {
@@ -293,7 +301,7 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             host.DispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
         }
-        host.ApplyLibraryMutationDelta(fileCheckResult.MutationDelta);
+        mutationDeltaApplyCoordinatorFactory().Apply(fileCheckResult.MutationDelta);
         host.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
         host.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
         host.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
