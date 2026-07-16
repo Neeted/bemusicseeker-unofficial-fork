@@ -2498,6 +2498,10 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly IBmsLibraryDialogService scopedOperationDialogService;
 
+    private readonly object everythingFallbackWarningGate = new();
+
+    private long everythingFallbackWarningEpoch;
+
     private int everythingFallbackWarningQueued;
     private int fileScanSkippedIncompleteWarningQueued;
     private int emptyScanWithExistingDbWarningQueued;
@@ -4526,6 +4530,7 @@ public partial class BMSLibrary : NotificationObject
             {
                 libraryFileScanPipelineOwner.AbortActiveFileScan(fileScanGeneration);
             }
+            ResetEverythingFallbackWarningQueue();
             throw;
         }
         if (flag)
@@ -4938,6 +4943,7 @@ public partial class BMSLibrary : NotificationObject
         catch (Exception ex)
         {
             libraryFileScanPipelineOwner.AbortActiveFileScan(fileScanGeneration);
+            ResetEverythingFallbackWarningQueue();
             stopwatch.Stop();
             LogInstallPerformance("library_file_diff_reload failed elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + ex.Message);
             MarkLr2SongDbSyncIncompleteAfterFileDiffSongDbWriteFailure(options, ex, "reload_file_diff");
@@ -4958,19 +4964,30 @@ public partial class BMSLibrary : NotificationObject
 
     internal bool QueueEverythingFallbackWarning(string fallbackReason)
     {
-        if (Interlocked.Exchange(ref everythingFallbackWarningQueued, 1) != 0)
+        long epoch;
+        bool alreadyQueued;
+        lock (everythingFallbackWarningGate)
+        {
+            epoch = everythingFallbackWarningEpoch;
+            alreadyQueued = everythingFallbackWarningQueued != 0;
+            if (!alreadyQueued)
+            {
+                everythingFallbackWarningQueued = 1;
+            }
+        }
+        if (alreadyQueued)
         {
             LogEverythingScan("everything fallback warning skipped reason=already_queued fallbackReason=" + (fallbackReason ?? string.Empty));
             return false;
         }
 
-        if (TryQueueEverythingFallbackWarningOnDispatcher(fallbackReason))
+        if (TryQueueEverythingFallbackWarningOnDispatcher(fallbackReason, epoch))
         {
             return true;
         }
 
         LogEverythingScan("everything fallback warning queued target=thread_pool fallbackReason=" + (fallbackReason ?? string.Empty));
-        Task.Run(() => ShowEverythingFallbackWarningSafely(fallbackReason)).Logging("EverythingFallbackWarningDialog");
+        Task.Run(() => ShowEverythingFallbackWarningSafely(fallbackReason, epoch)).Logging("EverythingFallbackWarningDialog");
         return true;
     }
 
@@ -5034,12 +5051,16 @@ public partial class BMSLibrary : NotificationObject
 
     private void ResetEverythingFallbackWarningQueue()
     {
-        Interlocked.Exchange(ref everythingFallbackWarningQueued, 0);
+        lock (everythingFallbackWarningGate)
+        {
+            everythingFallbackWarningEpoch++;
+            everythingFallbackWarningQueued = 0;
+        }
         Interlocked.Exchange(ref fileScanSkippedIncompleteWarningQueued, 0);
         Interlocked.Exchange(ref emptyScanWithExistingDbWarningQueued, 0);
     }
 
-    private bool TryQueueEverythingFallbackWarningOnDispatcher(string fallbackReason)
+    private bool TryQueueEverythingFallbackWarningOnDispatcher(string fallbackReason, long epoch)
     {
         Dispatcher dispatcher = Application.Current?.Dispatcher;
         if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
@@ -5052,7 +5073,7 @@ public partial class BMSLibrary : NotificationObject
             LogEverythingScan("everything fallback warning queued target=ui_dispatcher fallbackReason=" + (fallbackReason ?? string.Empty));
             dispatcher.BeginInvoke(DispatcherPriority.Normal, (Action)delegate
             {
-                ShowEverythingFallbackWarningSafely(fallbackReason);
+                ShowEverythingFallbackWarningSafely(fallbackReason, epoch);
             });
         }
         catch (Exception ex)
@@ -5111,11 +5132,19 @@ public partial class BMSLibrary : NotificationObject
         return true;
     }
 
-    private void ShowEverythingFallbackWarningSafely(string fallbackReason)
+    private void ShowEverythingFallbackWarningSafely(string fallbackReason, long epoch)
     {
         try
         {
-            ShowEverythingFallbackWarning(fallbackReason);
+            lock (everythingFallbackWarningGate)
+            {
+                if (epoch != everythingFallbackWarningEpoch)
+                {
+                    LogEverythingScan("everything fallback warning skipped reason=stale_epoch fallbackReason=" + (fallbackReason ?? string.Empty));
+                    return;
+                }
+                ShowEverythingFallbackWarning(fallbackReason);
+            }
             LogEverythingScan("everything fallback warning shown fallbackReason=" + (fallbackReason ?? string.Empty));
         }
         catch (Exception ex)

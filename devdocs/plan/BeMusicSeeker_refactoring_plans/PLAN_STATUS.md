@@ -13,42 +13,37 @@
 
 ## Active outcome
 
-### `LIB-01 Scan pipeline core ownership`
+### `LIB-03 Catalog storage, mutation, maintenance and resource-health ownership`
 
 状態: in progress
 
-- active outcome base commit: `f8a0fc2b`
-- last outcome-wide verified commit: `f8a0fc2b`
+- active outcome base commit: `d040b210`
+- last outcome-wide verified commit: `d040b210`
 
 目的:
 
-startup scan の request lifecycle、列挙、file diff、parse、durable commit、progress / failure / terminal result を明示的な pipeline owner に集約する。package、catalog mutation / maintenance、LR2 freshness の production owner が未成立のまま residual bridge を増やすことはせず、scan core の結果と downstream side effect の境界を明確にしたところで閉じる。
+session BMS / bmson catalog rows、owned chart collection、catalog 固有の index / digest / version と、runtime catalog mutation の canonical writer、write serialization、hydration、post-scan maintenance / resource-health を bounded owner family に集約する。scan、package、file operation、LR2 は catalog state を直接変更せず、immutable な request / snapshot / receipt / lease / event facts で接続する。
 
 Acceptance criteria:
 
-- startup scan の request generation、overlap / cancellation、scan-request freshness、failure、terminal completion と、列挙、file diff、parse、durable DB commit の production 通常経路が明示的な pipeline owner を通る。
-- pipeline owner は scan result / commit facts と downstream catalog mutation への handoff point までを持ち、install-destination state、共有 catalog の in-memory apply、post-scan maintenance / resource-health、LR2 trust / freshness / folder sync を自分の state として所有しない。恒久的な immutable catalog request / snapshot / receipt は `LIB-03` で成立させる。
-- `b6f2ef7e` に存在する package、storage / maintenance、LR2 の residual bridge を `LIB-01` で削除するための新しい adapter、host member、coordinator factory、test-only production seam を追加しない。
-- scan core の production route、request lifecycle、skip / failure contract、commit ordering を behavior test で検証し、private host の形を test contract にしない。
+- catalog rows、owned collection、digest / owned-hash、parent-folder / duplicate / resource / directory index、version、mutation ordering / failure atomicity、hydration、maintenance / resource-health の state と behavior に新 owner がある。
+- canonical writer と write serialization は一つの production owner 境界にあり、scan の通常 mutation route がその writer を使う。package、file operation、LR2 は catalog state の直接書き込みを行わず、catalog mutation request / receipt / lease を使う。
+- immutable な catalog snapshot、catalog mutation request / receipt、catalog-changed notification は consumer 固有の install-destination、LR2 freshness、playlist cache / status を含めず、各 consumer owner が自分の state を更新できる事実だけを持つ。
+- production の旧 writer、旧 storage / mutation / maintenance host、不要な forwarding / callback path を、担当する vertical unit で削除する。baseline residual bridge は `b6f2ef7e` から追加・拡張せず、`LIB-03` が担当する category を減らす場合だけ一時的に残す。
+- behavior test で mutation ordering、version / receipt、failure atomicity、hydration、maintenance / resource-health の observable behavior を検証し、private class / method 配置を test contract にしない。
 - DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約を維持する。
-- outcome-wide Full verification、変更範囲に対応する startup / scan / progress / cancel / failure の UI smoke check、重大な指摘なしの outcome review が完了する。
-
-再基準化監査:
-
-- 次の安全な作業は downstream bridge の抽出ではなく、`f8a0fc2b..HEAD` と現行 production route を対象にした上記 criteria の outcome-wide audit である。
-- 無修正で criteria を満たす場合は、Codex 共通実行ルールの plan rebaseline audit 例外で `LIB-01` を `completed`、canonical catalog writer を先に成立させる `LIB-03` を `ready` にする。
-- 欠陥が見つかった場合は scan core の behavior / ownership だけを同じ outcome で修正する。package、catalog、LR2 の owner を代行する seam は追加しない。
+- outcome-wide Full verification、変更範囲に対応する startup / catalog mutation / progress / failure の UI smoke check、重大な指摘なしの outcome review が完了する。
 
 Non-goals:
 
-- package / install-destination / library file-operation ownership と、scan host の package callback 削除（LIB-02）。
-- storage rows、owned collection、catalog mutation、post-scan maintenance / resource-health ownership と、storage / mutation bridge 削除（LIB-03）。
-- LR2 request / run / status、LR2 run reservation、scan-surface、trust / freshness、folder sync ownership と、scan LR2 bridge 削除（LIB-04）。
+- package / install-destination / library file-operation ownership（LIB-02）。
+- LR2 request / run / status、LR2 run reservation、scan-surface、trust / freshness、folder sync ownership（LIB-04）。
 - playlist-reference maps / index / display ownership（LIB-05）。
 - residual scan host、nested host / factory、facade private workflow の最終削除（LIB-06）。
 - playlist persistence / external-sync / output、shell closure（PL-01、PL-02、UI-05）。
+- feature 内に残る `Settings.Default` の除去（各 feature outcome と `MIG-01`）。
 - `.NET 10` TFM 変更、NuGet の一括更新、native dependency の置換。
-- public modifier の変更だけを理由にした完了 outcome の再開、または過去の repository-internal call shape の復元。
+- public modifier の変更だけを理由にした completed outcome の再開、または過去の repository-internal call shape の復元。
 
 ## Outcome states
 
@@ -59,8 +54,8 @@ Non-goals:
 | UI-02 Playback ownership | completed |
 | UI-03 Playlist workspace ownership | completed |
 | UI-04 Play history ownership | completed |
-| LIB-01 Scan pipeline core ownership | in progress |
-| LIB-03 Catalog storage, mutation, maintenance and resource-health ownership | not started |
+| LIB-01 Scan pipeline core ownership | completed |
+| LIB-03 Catalog storage, mutation, maintenance and resource-health ownership | in progress |
 | LIB-02 Package, install-destination and file-operation ownership | not started |
 | LIB-04 LR2 synchronization ownership | not started |
 | LIB-05 Playlist-reference ownership | not started |
@@ -82,15 +77,15 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Gate area | State | Current evidence |
 |---|---|---|
 | UI ownership | not met | UI-01 の main table / regular owner、UI-02 の playback owner、UI-03 の playlist workspace owner、UI-04 の play-history owner は completed。設定画面と残る code-behind workflow は UI-05 の対象。settings の composition / adapter 境界は APP-01 で扱う |
-| Library ownership | not met | scan core の production route は pipeline owner へ移行中。catalog mutation / maintenance、package、LR2、playlist reference の production owner と、facade private state / host bridge の削除は LIB-03、LIB-02、LIB-04〜LIB-06 の対象 |
+| Library ownership | not met | scan core の production route は pipeline owner へ移行済み。catalog mutation / maintenance、package、LR2、playlist reference の production owner と、facade private state / host bridge の削除は LIB-03、LIB-02、LIB-04〜LIB-06 の対象 |
 | Playlist ownership | not met | persistence / sync / output が同居する。playlist-reference lifecycle は LR2 から分離して LIB-05 で扱う |
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
 | Migration readiness | not met | library owner 境界と依存順は定義済みだが、canonical catalog writer / mutation serialization と各 consumer owner への移管は未実装 |
-| Quality | in progress | code baseline と UI-04 outcome-wide Full verification / review / UI smoke は完了。LIB-01 は implementation unit 検証済みの変更を含むが、再編後 criteria に対する outcome-wide Full verification / review / UI smoke は未完了 |
+| Quality | in progress | code baseline と UI-04 outcome-wide Full verification / review / UI smoke、LIB-01 の再編後 criteria に対する outcome-wide Full verification / review / UI smoke は完了。LIB-03 は outcome-wide 検証待ち |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 
 ## Active outcome blockers
 
-なし。次の作業は `LIB-01` の再基準化監査であり、downstream owner 未成立を埋める adapter 実装ではない。
+なし。次の作業は `LIB-03` の canonical catalog writer / mutation serialization を成立させる vertical unit であり、未成立の downstream owner を埋める adapter 実装ではない。

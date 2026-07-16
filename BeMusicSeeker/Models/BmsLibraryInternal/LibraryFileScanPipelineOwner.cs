@@ -116,7 +116,8 @@ internal sealed class LibraryFileScanPipelineOwner
                     BMSLibrary.ShouldIncludeLr2TextSurface(scan.Options),
                     BMSLibrary.ShouldIncludeLr2DirectorySurface(scan.Options),
                     reportScanner,
-                    () => IsActiveGeneration(scan.Generation));
+                    () => IsActiveGeneration(scan.Generation),
+                    reason => QueueFallbackWarningForGeneration(scan.Generation, reason));
                 stopwatchPrefetch.Stop();
                 return new ChartScanPrefetchInfo
                 {
@@ -272,6 +273,17 @@ internal sealed class LibraryFileScanPipelineOwner
         }
     }
 
+    private void QueueFallbackWarningForGeneration(long generation, string reason)
+    {
+        lock (fileScanGate)
+        {
+            if (activeFileScan?.Generation == generation)
+            {
+                host.QueueEverythingFallbackWarning(reason);
+            }
+        }
+    }
+
     private ChartScanPrefetchInfo ResolveChartScanPrefetch(ActiveFileScan scan)
     {
         if (scan?.ChartScanPrefetchTask == null)
@@ -301,7 +313,8 @@ internal sealed class LibraryFileScanPipelineOwner
             includeTextSurface,
             includeDirectorySurface,
             reportScanner,
-            () => true);
+            () => true,
+            reason => host.QueueEverythingFallbackWarning(reason));
     }
 
     private ChartScanExecutionResult ExecuteChartScanWithManagedFallback(
@@ -309,7 +322,8 @@ internal sealed class LibraryFileScanPipelineOwner
         bool includeTextSurface,
         bool includeDirectorySurface,
         Action<string> reportScanner,
-        Func<bool> isActive)
+        Func<bool> isActive,
+        Action<string> queueFallbackWarning)
     {
         IChartFileScanner scanner = new EverythingFileScanner();
         void ReportScanner(string label)
@@ -330,10 +344,7 @@ internal sealed class LibraryFileScanPipelineOwner
 
         void QueueEverythingFallbackWarning(string reason)
         {
-            if (isActive())
-            {
-                host.QueueEverythingFallbackWarning(reason);
-            }
+            queueFallbackWarning(reason);
         }
 
         ReportScanner("Native");
