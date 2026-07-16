@@ -4135,24 +4135,25 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string initializationCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryInitializationService.cs"));
+        string parseCommitOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "FileScanParseCommitOwner.cs"));
         string planDoc = File.ReadAllText(Path.Combine(root, "devdocs", "plan", "empty-db-first-startup-optimization-plan.md"));
         string startupFlowDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "startup-initialization-flow.md"));
 
-        StringAssert.Contains(initializationCode, "private const int DefaultInlineChartInfoBatchSize = 2048;");
-        StringAssert.Contains(initializationCode, "var postParseQueue = new BlockingCollection<FileDiffPostParseWorkItem>(postParseQueueCapacity);");
-        StringAssert.Contains(initializationCode, "BlockingCollection<FileScanDiffCommitChunk> commitQueue = streamCommitChunks");
-        StringAssert.Contains(initializationCode, "BlockingCollection<FileDiffCommitWriterItem> writerQueue");
-        StringAssert.Contains(initializationCode, "commitContext.AddChunk(chunk);");
+        StringAssert.Contains(parseCommitOwnerCode, "private const int DefaultInlineChartInfoBatchSize = 2048;");
+        StringAssert.Contains(parseCommitOwnerCode, "var postParseQueue = new BlockingCollection<FileDiffPostParseWorkItem>(postParseQueueCapacity);");
+        StringAssert.Contains(parseCommitOwnerCode, "BlockingCollection<FileScanDiffCommitChunk> commitQueue = streamCommitChunks");
+        StringAssert.Contains(parseCommitOwnerCode, "BlockingCollection<FileDiffCommitWriterItem> writerQueue");
+        StringAssert.Contains(parseCommitOwnerCode, "commitContext.AddChunk(chunk);");
         StringAssert.Contains(initializationCode, "commit_streaming_enabled=");
         StringAssert.Contains(initializationCode, "commit_writer_queue_wait_ms=");
         StringAssert.Contains(initializationCode, "inline_maintenance_shared_resource_cache_entries=");
-        StringAssert.Contains(initializationCode, "BuildInlineBmsMaintenanceBatch(");
-        StringAssert.Contains(initializationCode, "Task[] workerTasks = [.. Enumerable.Range(0, parserDegree)");
-        StringAssert.Contains(initializationCode, "Parallel.For(0, candidates.Count");
+        StringAssert.Contains(parseCommitOwnerCode, "BuildInlineBmsMaintenanceBatch(");
+        StringAssert.Contains(parseCommitOwnerCode, "Task[] workerTasks = [.. Enumerable.Range(0, parserDegree)");
+        StringAssert.Contains(parseCommitOwnerCode, "Parallel.For(0, candidates.Count");
         StringAssert.Contains(initializationCode, "inline_maintenance_wall_ms=");
         StringAssert.Contains(initializationCode, "parser_output_wait_ms=");
-        StringAssert.Contains(initializationCode, "\" bms=\" + metrics.BmsCount");
-        StringAssert.Contains(initializationCode, "\" bmson=\" + metrics.BmsonCount");
+        StringAssert.Contains(parseCommitOwnerCode, "\" bms=\" + metrics.BmsCount");
+        StringAssert.Contains(parseCommitOwnerCode, "\" bmson=\" + metrics.BmsonCount");
 
         StringAssert.Contains(planDoc, "parser output queue capacity");
         StringAssert.Contains(planDoc, "2048");

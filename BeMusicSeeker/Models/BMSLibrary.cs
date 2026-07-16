@@ -2877,9 +2877,10 @@ public partial class BMSLibrary : NotificationObject
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             libraryFileScanHost,
             libraryFileScanHost,
-            initializationService,
-            () => new LibraryFileScanStorageMutationCoordinator(new LibraryFileScanStorageMutationHost(this)),
-            () => new LibraryMutationDeltaApplyCoordinator(new LibraryMutationDeltaApplyHost(this)));
+             initializationService,
+             () => new LibraryFileScanStorageMutationCoordinator(new LibraryFileScanStorageMutationHost(this)),
+             () => new LibraryMutationDeltaApplyCoordinator(new LibraryMutationDeltaApplyHost(this)),
+             initializationService.ParseCommitOwner);
         stateApplier = new BmsLibraryStateApplier(
             dbGateway,
             () => ChartPackagesPending,
@@ -8635,7 +8636,7 @@ public partial class BMSLibrary : NotificationObject
         {
             var inlineBuildService = new ChartInfoInlineBuildService(
                 owner.chartInfoBuildService,
-                BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
+                FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree());
             return inlineBuildService.BuildForExistingCharts(
                 owner.dbGateway,
                 targetCharts,

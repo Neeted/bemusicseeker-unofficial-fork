@@ -1380,8 +1380,8 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(2048, result.InlineChartInfoBatchSize);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReaderDegree(Environment.ProcessorCount, 2), result.FileDiffReaderDegree);
             Assert.AreEqual(ChartFileReadPipelinePolicy.ResolveReadQueueCapacity(result.FileDiffParserDegree, result.FileDiffReaderDegree), result.ReadQueueCapacity);
-            Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffParsedQueueCapacity(result.FileDiffParserDegree), result.ParsedQueueCapacity);
-            Assert.AreEqual(BmsLibraryInitializationService.ResolveFileDiffPostParseQueueCapacity(result.FileDiffPostParseWorkerDegree), result.PostParseQueueCapacity);
+            Assert.AreEqual(FileScanParseCommitOwner.ResolveFileDiffParsedQueueCapacity(result.FileDiffParserDegree), result.ParsedQueueCapacity);
+            Assert.AreEqual(FileScanParseCommitOwner.ResolveFileDiffPostParseQueueCapacity(result.FileDiffPostParseWorkerDegree), result.PostParseQueueCapacity);
             Assert.AreEqual(1, result.CommitQueueCapacity);
             Assert.AreEqual(2, result.CommitWriterQueueCapacity);
             Assert.IsTrue(result.CommitStreamingEnabled);
@@ -4065,18 +4065,18 @@ public sealed class BmsLibraryInitializationServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            int expectedDefault = BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(Environment.ProcessorCount);
-            Assert.AreEqual(expectedDefault, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree());
-            Assert.AreEqual(1, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(1));
-            Assert.AreEqual(1, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(2));
-            Assert.AreEqual(2, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(4));
-            Assert.AreEqual(4, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(8));
-            Assert.AreEqual(8, BmsLibraryInitializationService.ResolveDefaultFileDiffParserDegree(16));
-            Assert.AreEqual(1, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(1, 1));
-            Assert.AreEqual(3, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(4, 2));
-            Assert.AreEqual(6, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(8, 4));
-            Assert.AreEqual(12, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(16, 8));
-            Assert.AreEqual(12, BmsLibraryInitializationService.ResolveDefaultFileDiffPostParseWorkerDegree(8, 12));
+            int expectedDefault = FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree(Environment.ProcessorCount);
+            Assert.AreEqual(expectedDefault, FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree());
+            Assert.AreEqual(1, FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree(1));
+            Assert.AreEqual(1, FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree(2));
+            Assert.AreEqual(2, FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree(4));
+            Assert.AreEqual(4, FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree(8));
+            Assert.AreEqual(8, FileScanParseCommitOwner.ResolveDefaultFileDiffParserDegree(16));
+            Assert.AreEqual(1, FileScanParseCommitOwner.ResolveDefaultFileDiffPostParseWorkerDegree(1, 1));
+            Assert.AreEqual(3, FileScanParseCommitOwner.ResolveDefaultFileDiffPostParseWorkerDegree(4, 2));
+            Assert.AreEqual(6, FileScanParseCommitOwner.ResolveDefaultFileDiffPostParseWorkerDegree(8, 4));
+            Assert.AreEqual(12, FileScanParseCommitOwner.ResolveDefaultFileDiffPostParseWorkerDegree(16, 8));
+            Assert.AreEqual(12, FileScanParseCommitOwner.ResolveDefaultFileDiffPostParseWorkerDegree(8, 12));
 
             Assert.AreEqual(expectedDefault, RunWithParserDegreeOverride(null, songDbPath).FileDiffParserDegree);
             Assert.AreEqual(1, RunWithParserDegreeOverride(0, songDbPath).FileDiffParserDegree);
@@ -4091,7 +4091,7 @@ public sealed class BmsLibraryInitializationServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            Assert.AreEqual(10000, BmsLibraryInitializationService.ResolveDefaultFileDiffCommitChunkSize());
+            Assert.AreEqual(10000, FileScanParseCommitOwner.ResolveDefaultFileDiffCommitChunkSize());
 
             Assert.AreEqual(10000, RunWithCommitChunkSizeOverride(null, songDbPath).DbCommitChunkSize);
             Assert.AreEqual(1, RunWithCommitChunkSizeOverride(0, songDbPath).DbCommitChunkSize);
@@ -4107,7 +4107,7 @@ public sealed class BmsLibraryInitializationServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
         {
-            Assert.AreEqual(2048, BmsLibraryInitializationService.ResolveDefaultInlineChartInfoBatchSize());
+            Assert.AreEqual(2048, FileScanParseCommitOwner.ResolveDefaultInlineChartInfoBatchSize());
 
             Assert.AreEqual(2048, RunWithInlineChartInfoBatchSizeOverride(null, songDbPath).InlineChartInfoBatchSize);
             Assert.AreEqual(1, RunWithInlineChartInfoBatchSizeOverride(0, songDbPath).InlineChartInfoBatchSize);

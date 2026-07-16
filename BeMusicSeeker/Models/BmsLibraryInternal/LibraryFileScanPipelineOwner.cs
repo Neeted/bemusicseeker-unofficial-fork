@@ -49,6 +49,8 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly BmsLibraryInitializationService initializationService;
 
+    private readonly FileScanParseCommitOwner fileScanParseCommitOwner;
+
     private readonly Func<LibraryFileScanStorageMutationCoordinator> storageMutationCoordinatorFactory;
 
     private readonly Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory;
@@ -58,12 +60,14 @@ internal sealed class LibraryFileScanPipelineOwner
         ILibraryFileScanLr2FolderHost lr2Host,
         BmsLibraryInitializationService initializationService,
         Func<LibraryFileScanStorageMutationCoordinator> storageMutationCoordinatorFactory,
-        Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory)
+        Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory,
+        FileScanParseCommitOwner fileScanParseCommitOwner = null)
     {
         this.host = host ?? throw new ArgumentNullException(nameof(host));
         this.lr2Host = lr2Host ?? throw new ArgumentNullException(nameof(lr2Host));
         lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(this.host, lr2Host);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
+        this.fileScanParseCommitOwner = fileScanParseCommitOwner ?? this.initializationService.ParseCommitOwner;
         this.storageMutationCoordinatorFactory = storageMutationCoordinatorFactory ?? throw new ArgumentNullException(nameof(storageMutationCoordinatorFactory));
         this.mutationDeltaApplyCoordinatorFactory = mutationDeltaApplyCoordinatorFactory ?? throw new ArgumentNullException(nameof(mutationDeltaApplyCoordinatorFactory));
     }
@@ -378,6 +382,7 @@ internal sealed class LibraryFileScanPipelineOwner
             lr2FolderExcludedDirectories: initialAppManagedOutputScope.IsComplete
                 ? initialAppManagedOutputScope.Directories
                 : [],
+            fileScanParseCommitOwner: fileScanParseCommitOwner,
             catalogProjectionApplied: projectionResult => ApplyCatalogProjection(projectionResult, currentInstallDestinationCharts));
         if (fileCheckResult.EmptyScanWithExistingDbSkipped)
         {
