@@ -483,7 +483,6 @@ internal sealed class BmsLibraryInitializationService
         Action<int, int, string> reportParseProgress = null,
         Action<string> logInstallPerformanceWarn = null,
         Action<IReadOnlyList<LR2SongDBExtended.chart_info>> inlineChartInfoRowsCommitted = null,
-        IEnumerable<ChartFile> currentInstallDestinationCharts = null,
         IEnumerable<string> lr2NormalFolderSyncRootDirectories = null,
         IEnumerable<string> lr2FolderDiscoveryRootDirectories = null,
         Lr2BuiltinCustomFolderSettings lr2BuiltinCustomFolderSettings = null,
@@ -491,7 +490,8 @@ internal sealed class BmsLibraryInitializationService
         Func<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotProvider = null,
         Action<SongTableFileCheckResult> lr2ScanSurfacePrepared = null,
         bool protectExistingBmsRowsFromLr2SongDbSyncMigration = false,
-        IEnumerable<string> lr2FolderExcludedDirectories = null)
+        IEnumerable<string> lr2FolderExcludedDirectories = null,
+        Action<SongTableFileCheckResult> catalogProjectionApplied = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -624,7 +624,6 @@ internal sealed class BmsLibraryInitializationService
 
         var stopwatchDiff = Stopwatch.StartNew();
         var stopwatchCurrentIndex = Stopwatch.StartNew();
-        var currentFileList = new List<BMSFile>();
         var currentBmsByPath = new Dictionary<string, BMSFile>(StringComparer.Ordinal);
         foreach (BMSFile file in currentFiles ?? [])
         {
@@ -632,13 +631,11 @@ internal sealed class BmsLibraryInitializationService
             {
                 continue;
             }
-            currentFileList.Add(file);
             if (!string.IsNullOrWhiteSpace(file.path) && !currentBmsByPath.ContainsKey(file.path))
             {
                 currentBmsByPath[file.path] = file;
             }
         }
-        var currentBmsonList = new List<LR2SongDBExtended.bmson_song>();
         var currentBmsonByPath = new Dictionary<string, LR2SongDBExtended.bmson_song>(StringComparer.Ordinal);
         foreach (LR2SongDBExtended.bmson_song song in currentBmsonSongs ?? [])
         {
@@ -646,7 +643,6 @@ internal sealed class BmsLibraryInitializationService
             {
                 continue;
             }
-            currentBmsonList.Add(song);
             currentBmsonByPath[song.path] = song;
         }
         stopwatchCurrentIndex.Stop();
@@ -826,60 +822,7 @@ internal sealed class BmsLibraryInitializationService
             commitContext.AddDeletedBmsonPath(deletedBmsonPath);
         }
 
-        var stopwatchApply = Stopwatch.StartNew();
-        var deletedPathSet = new HashSet<string>(result.DeletedPaths, StringComparer.Ordinal);
-        foreach (string updatedPath in pipelineResult.SuccessfullyReplacedBmsPaths)
-        {
-            deletedPathSet.Add(updatedPath);
-        }
-        result.NextFiles.AddRange(currentFileList.Where(file => !deletedPathSet.Contains(file.path)));
-        result.NextFiles.AddRange(result.AddedFiles);
-        var removedBmsonPaths = new HashSet<string>(result.DeletedBmsonPaths, StringComparer.Ordinal);
-        foreach (string updatedPath in pipelineResult.SuccessfullyParsedBmsonPaths)
-        {
-            removedBmsonPaths.Add(updatedPath);
-        }
-        List<LR2SongDBExtended.bmson_song> nextBmsonSongs = [.. currentBmsonList.Where(song => song != null && !removedBmsonPaths.Contains(song.path))];
-        nextBmsonSongs.AddRange(result.AddedBmsonSongs);
-        var directoryKeys = new HashSet<string>(result.NextDirectoryResourceLookupCache?.Keys ?? [], StringComparer.OrdinalIgnoreCase);
-        var stopwatchInstlDstCleanup = Stopwatch.StartNew();
-        int clearedInstallDestinationCountBefore = result.MutationDelta.UpdatedInstallDestinations.Count;
-        var nextFileOwners = new HashSet<BMSFile>(result.NextFiles.Where(file => file != null));
-        var nextFilePaths = new HashSet<string>(
-            result.NextFiles.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.Ordinal);
-        var nextBmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(nextBmsonSongs.Where(song => song != null));
-        var nextBmsonPaths = new HashSet<string>(
-            nextBmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.Ordinal);
-        IEnumerable<ChartFile> installDestinationCleanupCharts = currentInstallDestinationCharts
-            ?? [];
-        foreach (ChartFile chart in installDestinationCleanupCharts
-            .Where(IsCurrentChartOwner)
-            .Where(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination)))
-        {
-            if (!directoryKeys.Contains(chart.InstallDestination))
-            {
-                result.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
-                {
-                    Chart = chart,
-                    NewInstallDestination = null,
-                    ClearInstallDestinationState = true
-                });
-            }
-        }
-        if (result.MutationDelta.UpdatedInstallDestinations.Count > clearedInstallDestinationCountBefore)
-        {
-            result.MutationDelta.InvalidateInstalledDirectoryIndex = true;
-            result.MutationDelta.ClearDuplicatedCache = true;
-        }
-        stopwatchInstlDstCleanup.Stop();
-        result.InstlDstCleanupMs = stopwatchInstlDstCleanup.ElapsedMilliseconds;
-        stopwatchApply.Stop();
-        result.ApplyMs = stopwatchApply.ElapsedMilliseconds;
-
-        result.NextBmsonSongs.Clear();
-        result.NextBmsonSongs.AddRange(nextBmsonSongs);
+        catalogProjectionApplied?.Invoke(result);
         logEverythingScan?.Invoke("bmson_scan totalPaths=" + scannedBmsonPaths.Count + " deleted=" + result.DeletedBmsonPaths.Count + " upserted=" + result.AddedBmsonSongs.Count);
         result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
 
@@ -943,20 +886,6 @@ internal sealed class BmsLibraryInitializationService
             logInstallPerformance,
             logInstallPerformanceWarn,
             bmsFileScanSucceeded);
-
-        bool IsCurrentChartOwner(ChartFile chart)
-        {
-            BMSFile bmsOwner = chart?.GetBmsStorageOwner();
-            if (bmsOwner != null)
-            {
-                return nextFileOwners.Contains(bmsOwner)
-                    || (!string.IsNullOrWhiteSpace(chart.Path) && nextFilePaths.Contains(chart.Path));
-            }
-
-            LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
-            return (bmsonOwner != null && nextBmsonOwners.Contains(bmsonOwner))
-                || (!string.IsNullOrWhiteSpace(chart?.Path) && nextBmsonPaths.Contains(chart.Path));
-        }
 
         logInstallPerformance?.Invoke(
             "song_tbl_file_check_breakdown scan_ms=" + result.ScanElapsedMs

@@ -601,6 +601,12 @@ public sealed class BmsLibraryInitializationServiceTests
             }
 
             int executeScanCount = 0;
+            List<ChartFile> cleanupCharts = [ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsFile(keepFile, includeWarningSnapshot: false),
+                staleDirectoryPath,
+                string.Empty,
+                string.Empty,
+                [])];
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
@@ -629,13 +635,8 @@ public sealed class BmsLibraryInitializationServiceTests
                     Interlocked.Increment(ref executeScanCount);
                     return null;
                 },
-                null,
-                currentInstallDestinationCharts: [ChartFileProjection.WithPackageState(
-                    ChartFileProjection.FromBmsFile(keepFile, includeWarningSnapshot: false),
-                    staleDirectoryPath,
-                    string.Empty,
-                    string.Empty,
-                    [])]);
+                null);
+            ProjectCatalogState(result, [keepFile, deletedFile], [], cleanupCharts);
 
             Assert.AreEqual(0, executeScanCount);
             Assert.IsTrue(result.PrefetchedScanUsed);
@@ -1216,6 +1217,12 @@ public sealed class BmsLibraryInitializationServiceTests
                 songDb.InsertOrReplace(keepSong, typeof(LR2SongDBExtended.bmson_song));
             }
 
+            List<ChartFile> cleanupCharts = [ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(keepSong, includeWarningSnapshot: false),
+                staleDirectoryPath,
+                string.Empty,
+                string.Empty,
+                [])];
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
@@ -1239,18 +1246,56 @@ public sealed class BmsLibraryInitializationServiceTests
                         {
                             { Path.GetDirectoryName(keepBmsonPath), Array.Empty<string>() }
                         })
-                },
-                currentInstallDestinationCharts: [ChartFileProjection.WithPackageState(
-                    ChartFileProjection.FromBmsonSong(keepSong, includeWarningSnapshot: false),
-                    staleDirectoryPath,
-                    string.Empty,
-                    string.Empty,
-                    [])]);
+                });
+            ProjectCatalogState(result, [], [keepSong], cleanupCharts);
 
             LibraryInstallDestinationChange installDestinationChange = result.MutationDelta.UpdatedInstallDestinations.Single();
             Assert.AreSame(keepSong, installDestinationChange.Chart.GetBmsonStorageOwner());
             Assert.IsNull(installDestinationChange.NewInstallDestination);
             Assert.IsTrue(installDestinationChange.ClearInstallDestinationState);
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_CatalogProjectionCallbackRunsBeforeBreakdownLog()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporaryLr2SongDb(delegate (string lr2RootPath, string songDbPath)
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+            }
+
+            List<string> events = [];
+            var service = new BmsLibraryInitializationService();
+            service.ApplyFileScanDiff(
+                new BmsLibraryDbGateway(songDbPath),
+                new BmsLibraryOptionsSnapshot(),
+                [],
+                new ChartScanExecutionResult
+                {
+                    Success = true,
+                    Result = CreateScanResult([], new Dictionary<string, IEnumerable<string>>(StringComparer.OrdinalIgnoreCase))
+                },
+                0L,
+                () => null,
+                null,
+                currentBmsonSongs: [],
+                logInstallPerformance: message => events.Add(message),
+                catalogProjectionApplied: projection =>
+                {
+                    projection.ApplyMs = 17;
+                    projection.InstlDstCleanupMs = 23;
+                    events.Add("catalog_projection");
+                });
+
+            int projectionIndex = events.IndexOf("catalog_projection");
+            int breakdownIndex = events.FindIndex(message => message.StartsWith("song_tbl_file_check_breakdown", StringComparison.Ordinal));
+            Assert.IsTrue(projectionIndex >= 0);
+            Assert.IsTrue(breakdownIndex > projectionIndex);
+            StringAssert.Contains(events[breakdownIndex], "apply_ms=17");
+            StringAssert.Contains(events[breakdownIndex], "instl_dst_cleanup_ms=23");
         });
     }
 
@@ -1641,6 +1686,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 currentBmsonSongs: []);
+            ProjectCatalogState(result, []);
 
             Assert.AreEqual(1, result.AddedFiles.Count);
             BMSFile added = result.AddedFiles[0];
@@ -1691,6 +1737,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 currentBmsonSongs: []);
+            ProjectCatalogState(result, []);
 
             Assert.AreEqual(1, result.AddedFiles.Count);
             BMSFile added = result.AddedFiles[0];
@@ -4646,6 +4693,7 @@ public sealed class BmsLibraryInitializationServiceTests
                             { Path.GetDirectoryName(addedBmsonPath), Array.Empty<string>() }
                         })
                 });
+            ProjectCatalogState(result, [], [keepSong, deletedSong]);
 
             CollectionAssert.Contains(result.DeletedBmsonPaths, deletedBmsonPath);
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
@@ -4711,6 +4759,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null);
+            ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(1, result.BmsAddedTargetCount);
             Assert.AreEqual(1, result.BmsDateOnlyUpdateCount);
@@ -4792,6 +4841,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null);
+            ProjectCatalogState(first, [existingFile]);
 
             Assert.AreEqual(1, first.BmsAddedTargetCount);
             Assert.AreEqual(1, first.BmsDeletedTargetCount);
@@ -4905,6 +4955,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 protectExistingBmsRowsFromLr2SongDbSyncMigration: true);
+            ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(0, result.BmsAddedTargetCount);
             Assert.AreEqual(1, result.BmsLegacyExistingProtectedCount);
@@ -4980,6 +5031,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 protectExistingBmsRowsFromLr2SongDbSyncMigration: true);
+            ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(0, result.BmsAddedTargetCount);
             Assert.AreEqual(1, result.BmsLegacyExistingProtectedCount);
@@ -5053,6 +5105,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null);
+            ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(1, result.BmsAddedTargetCount);
             Assert.AreEqual(0, result.BmsDateOnlyUpdateCount);
@@ -5127,6 +5180,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 logInstallPerformance: logs.Add);
+            ProjectCatalogState(result, [existingFile]);
 
             CollectionAssert.Contains(result.DeletedPaths, oldPath);
             Assert.AreEqual(1, result.BmsMovedHashRelinkCount);
@@ -5213,6 +5267,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null);
+            ProjectCatalogState(result, [existingFile1, existingFile2]);
 
             Assert.AreEqual(0, result.BmsMovedHashRelinkCount);
             Assert.AreEqual(1, result.BmsMovedHashRelinkAmbiguousCount);
@@ -5285,6 +5340,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null);
+            ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(0, result.BmsMovedHashRelinkCount);
             Assert.AreEqual(2, result.BmsMovedHashRelinkAmbiguousCount);
@@ -5410,6 +5466,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null);
+            ProjectCatalogState(result, [existingFile]);
 
             Assert.AreEqual(1, result.BmsAddedTargetCount);
             Assert.AreEqual(0, result.BmsDateOnlyUpdateCount);
@@ -5507,6 +5564,12 @@ public sealed class BmsLibraryInitializationServiceTests
                 songDb.InsertOrReplace(existingSong, typeof(LR2SongDBExtended.bmson_song));
             }
 
+            List<ChartFile> cleanupCharts = [ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsonSong(existingSong, includeWarningSnapshot: false),
+                Path.Combine(lr2RootPath, "Stale"),
+                string.Empty,
+                string.Empty,
+                [])];
             var service = new BmsLibraryInitializationService();
             SongTableFileCheckResult result = service.ApplyFileScanDiff(
                 new BmsLibraryDbGateway(songDbPath),
@@ -5525,13 +5588,8 @@ public sealed class BmsLibraryInitializationServiceTests
                 0L,
                 () => null,
                 null,
-                currentBmsonSongs: [existingSong],
-                currentInstallDestinationCharts: [ChartFileProjection.WithPackageState(
-                    ChartFileProjection.FromBmsonSong(existingSong, includeWarningSnapshot: false),
-                    Path.Combine(lr2RootPath, "Stale"),
-                    string.Empty,
-                    string.Empty,
-                    [])]);
+                currentBmsonSongs: [existingSong]);
+            ProjectCatalogState(result, [], [existingSong], cleanupCharts);
 
             Assert.AreEqual(1, result.AddedBmsonSongs.Count);
             Assert.AreEqual("New", result.AddedBmsonSongs[0].title);
@@ -5671,6 +5729,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 currentBmsonSongs: [existingSong]);
+            ProjectCatalogState(first, [], [existingSong]);
 
             Assert.AreEqual(1, first.BmsonDeletedTargetCount);
             Assert.AreEqual(1, first.BmsonUpsertTargetCount);
@@ -5801,6 +5860,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 currentBmsonSongs: [currentSong]);
+            ProjectCatalogState(result, [], [currentSong]);
 
             Assert.AreEqual(0, result.BmsonUpsertTargetCount);
             Assert.AreEqual(0, result.AddedBmsonSongs.Count);
@@ -5910,6 +5970,7 @@ public sealed class BmsLibraryInitializationServiceTests
                 () => null,
                 null,
                 currentBmsonSongs: [existingSong]);
+            ProjectCatalogState(result, [], [existingSong]);
 
             Assert.AreEqual(1, result.BmsonUpsertTargetCount);
             Assert.AreEqual(0, result.AddedBmsonSongs.Count);
@@ -6482,6 +6543,19 @@ public sealed class BmsLibraryInitializationServiceTests
     private static int ToUnixSeconds(DateTime utcTime)
     {
         return (int)new DateTimeOffset(DateTime.SpecifyKind(utcTime, DateTimeKind.Utc)).ToUnixTimeSeconds();
+    }
+
+    private static void ProjectCatalogState(
+        SongTableFileCheckResult result,
+        IEnumerable<BMSFile> currentFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs = null!,
+        IEnumerable<ChartFile> currentInstallDestinationCharts = null!)
+    {
+        LibraryFileScanPipelineOwner.ApplyCatalogProjection(
+            result,
+            currentFiles,
+            currentBmsonSongs,
+            currentInstallDestinationCharts);
     }
 
     private static string ToFolderPath(string path)

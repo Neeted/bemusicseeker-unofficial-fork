@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -106,6 +107,61 @@ public sealed class LibraryFileScanPipelineOwnerTests
         StringAssert.Contains(host.EverythingMessages[0], "chart_scan_prefetch failed");
     }
 
+    [TestMethod]
+    public void ApplyCatalogProjection_ReplacesDeletedAndAddedCatalogItems()
+    {
+        var keepFile = new BMSFile { path = "keep.bms" };
+        var replacedFile = new BMSFile { path = "replace.bms" };
+        var replacementFile = new BMSFile { path = "replace.bms" };
+        var host = new RecordingLibraryFileScanPipelineHost
+        {
+            BmsFiles = [keepFile, replacedFile]
+        };
+        var owner = CreateOwner(host);
+        var result = new SongTableFileCheckResult
+        {
+            NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
+        };
+        result.DeletedPaths.Add(replacedFile.path);
+        result.AddedFiles.Add(replacementFile);
+
+        owner.ApplyCatalogProjection(result, []);
+
+        Assert.AreEqual(2, result.NextFiles.Count);
+        Assert.AreSame(keepFile, result.NextFiles[0]);
+        Assert.AreSame(replacementFile, result.NextFiles[1]);
+    }
+
+    [TestMethod]
+    public void ApplyCatalogProjection_ClearsStaleInstallDestinationForCurrentOwner()
+    {
+        var keepFile = new BMSFile { path = "keep.bms" };
+        var host = new RecordingLibraryFileScanPipelineHost
+        {
+            BmsFiles = [keepFile]
+        };
+        var owner = CreateOwner(host);
+        var result = new SongTableFileCheckResult
+        {
+            NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
+        };
+        ChartFile chart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(keepFile, includeWarningSnapshot: false),
+            "stale-install-destination",
+            string.Empty,
+            string.Empty,
+            []);
+
+        owner.ApplyCatalogProjection(result, [chart]);
+
+        LibraryInstallDestinationChange change = result.MutationDelta.UpdatedInstallDestinations.Single();
+        Assert.AreSame(chart, change.Chart);
+        Assert.IsNull(change.NewInstallDestination);
+        Assert.IsTrue(change.ClearInstallDestinationState);
+        Assert.IsTrue(result.MutationDelta.InvalidateInstalledDirectoryIndex);
+        Assert.IsTrue(result.MutationDelta.ClearDuplicatedCache);
+    }
+
     private static LibraryFileScanPipelineOwner CreateOwner(ILibraryFileScanPipelineHost host)
     {
         return new LibraryFileScanPipelineOwner(
@@ -120,9 +176,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
     {
         public BmsLibraryDbGateway DbGateway => null!;
 
-        public IReadOnlyList<BMSFile> BmsFiles => [];
+        public IReadOnlyList<BMSFile> BmsFiles { get; set; } = [];
 
-        public IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs => [];
+        public IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs { get; set; } = [];
 
         public IBmsLibraryDialogService DialogService => null!;
 

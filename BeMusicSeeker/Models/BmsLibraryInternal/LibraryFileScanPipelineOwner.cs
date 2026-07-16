@@ -368,7 +368,6 @@ internal sealed class LibraryFileScanPipelineOwner
                 }
                 committedInlineChartInfoRows.AddRange(rows.Where(row => row != null));
             },
-            currentInstallDestinationCharts,
             bmsDirectories,
             bmsDirectories,
             lr2Host.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
@@ -378,7 +377,8 @@ internal sealed class LibraryFileScanPipelineOwner
             protectExistingBmsRowsFromLr2SongDbSyncMigration: protectExistingBmsRowsFromLr2SongDbSyncMigration,
             lr2FolderExcludedDirectories: initialAppManagedOutputScope.IsComplete
                 ? initialAppManagedOutputScope.Directories
-                : []);
+                : [],
+            catalogProjectionApplied: projectionResult => ApplyCatalogProjection(projectionResult, currentInstallDestinationCharts));
         if (fileCheckResult.EmptyScanWithExistingDbSkipped)
         {
             string skipReason = string.IsNullOrWhiteSpace(fileCheckResult.EmptyScanWithExistingDbSkipReason)
@@ -422,6 +422,113 @@ internal sealed class LibraryFileScanPipelineOwner
         host.LogStartupMemoryCheckpoint("file_diff", "after_release");
         host.LogInstallPerformance("library_file_scan_pipeline completed operation=" + (reason ?? string.Empty));
         return fileCheckResult;
+    }
+
+    internal void ApplyCatalogProjection(
+        SongTableFileCheckResult fileCheckResult,
+        IEnumerable<ChartFile> currentInstallDestinationCharts)
+    {
+        ApplyCatalogProjection(
+            fileCheckResult,
+            host.BmsFiles,
+            host.BmsonSongs,
+            currentInstallDestinationCharts);
+    }
+
+    internal static void ApplyCatalogProjection(
+        SongTableFileCheckResult fileCheckResult,
+        IEnumerable<BMSFile> currentFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> currentBmsonSongs,
+        IEnumerable<ChartFile> currentInstallDestinationCharts)
+    {
+        if (fileCheckResult == null)
+        {
+            throw new ArgumentNullException(nameof(fileCheckResult));
+        }
+
+        var stopwatchApply = Stopwatch.StartNew();
+        var deletedPathSet = new HashSet<string>(fileCheckResult.DeletedPaths, StringComparer.Ordinal);
+        foreach (BMSFile addedFile in fileCheckResult.AddedFiles)
+        {
+            if (addedFile != null && !string.IsNullOrWhiteSpace(addedFile.path))
+            {
+                deletedPathSet.Add(addedFile.path);
+            }
+        }
+
+        fileCheckResult.NextFiles.Clear();
+        fileCheckResult.NextFiles.AddRange((currentFiles ?? [])
+            .Where(file => file != null && !deletedPathSet.Contains(file.path)));
+        fileCheckResult.NextFiles.AddRange(fileCheckResult.AddedFiles);
+
+        var removedBmsonPaths = new HashSet<string>(fileCheckResult.DeletedBmsonPaths, StringComparer.Ordinal);
+        foreach (LR2SongDBExtended.bmson_song addedSong in fileCheckResult.AddedBmsonSongs)
+        {
+            if (addedSong != null && !string.IsNullOrWhiteSpace(addedSong.path))
+            {
+                removedBmsonPaths.Add(addedSong.path);
+            }
+        }
+
+        List<LR2SongDBExtended.bmson_song> nextBmsonSongs = [.. (currentBmsonSongs ?? [])
+            .Where(song => song != null
+                && !string.IsNullOrWhiteSpace(song.path)
+                && !removedBmsonPaths.Contains(song.path))];
+        nextBmsonSongs.AddRange(fileCheckResult.AddedBmsonSongs);
+
+        var directoryKeys = new HashSet<string>(
+            fileCheckResult.NextDirectoryResourceLookupCache?.Keys ?? [],
+            StringComparer.OrdinalIgnoreCase);
+        var stopwatchInstlDstCleanup = Stopwatch.StartNew();
+        int clearedInstallDestinationCountBefore = fileCheckResult.MutationDelta.UpdatedInstallDestinations.Count;
+        var nextFileOwners = new HashSet<BMSFile>(fileCheckResult.NextFiles.Where(file => file != null));
+        var nextFilePaths = new HashSet<string>(
+            fileCheckResult.NextFiles.Select(file => file?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.Ordinal);
+        var nextBmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(nextBmsonSongs.Where(song => song != null));
+        var nextBmsonPaths = new HashSet<string>(
+            nextBmsonSongs.Select(song => song?.path).Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.Ordinal);
+        foreach (ChartFile chart in (currentInstallDestinationCharts ?? [])
+            .Where(IsCurrentChartOwner)
+            .Where(chart => !string.IsNullOrWhiteSpace(chart.InstallDestination)))
+        {
+            if (!directoryKeys.Contains(chart.InstallDestination))
+            {
+                fileCheckResult.MutationDelta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+                {
+                    Chart = chart,
+                    NewInstallDestination = null,
+                    ClearInstallDestinationState = true
+                });
+            }
+        }
+        if (fileCheckResult.MutationDelta.UpdatedInstallDestinations.Count > clearedInstallDestinationCountBefore)
+        {
+            fileCheckResult.MutationDelta.InvalidateInstalledDirectoryIndex = true;
+            fileCheckResult.MutationDelta.ClearDuplicatedCache = true;
+        }
+
+        stopwatchInstlDstCleanup.Stop();
+        fileCheckResult.InstlDstCleanupMs = stopwatchInstlDstCleanup.ElapsedMilliseconds;
+        stopwatchApply.Stop();
+        fileCheckResult.ApplyMs = stopwatchApply.ElapsedMilliseconds;
+        fileCheckResult.NextBmsonSongs.Clear();
+        fileCheckResult.NextBmsonSongs.AddRange(nextBmsonSongs);
+
+        bool IsCurrentChartOwner(ChartFile chart)
+        {
+            BMSFile bmsOwner = chart?.GetBmsStorageOwner();
+            if (bmsOwner != null)
+            {
+                return nextFileOwners.Contains(bmsOwner)
+                    || (!string.IsNullOrWhiteSpace(chart.Path) && nextFilePaths.Contains(chart.Path));
+            }
+
+            LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
+            return (bmsonOwner != null && nextBmsonOwners.Contains(bmsonOwner))
+                || (!string.IsNullOrWhiteSpace(chart?.Path) && nextBmsonPaths.Contains(chart.Path));
+        }
     }
 
     private static bool IsAuthoritativeChartScan(ChartScanExecutionResult scanResult)
