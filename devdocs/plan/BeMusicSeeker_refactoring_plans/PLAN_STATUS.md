@@ -14,7 +14,10 @@
 
 ### `LIB-01 Initialization and scan ownership`
 
-状態: ready
+状態: in progress
+
+- active outcome base commit: `f8a0fc2b`
+- last outcome-wide verified commit: `f8a0fc2b`
 
 目的:
 
@@ -44,7 +47,7 @@ Non-goals:
 | UI-02 Playback ownership | completed |
 | UI-03 Playlist workspace ownership | completed |
 | UI-04 Play history ownership | completed |
-| LIB-01 Initialization and scan ownership | ready |
+| LIB-01 Initialization and scan ownership | in progress |
 | LIB-02 Package and file-operation ownership | not started |
 | LIB-03 Maintenance and resource-health ownership | not started |
 | LIB-04 LR2 sync and playlist-reference ownership | not started |
@@ -70,7 +73,7 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
 | Migration readiness | not met | architecture refactor と `.NET 10` 固有作業がまだ分離し切れていない |
-| Quality | in progress | code baseline と UI-04 outcome-wide Full verification / review / UI smoke は完了。LIB-01 は ready で、次の outcome-wide 検証は未開始 |
+| Quality | in progress | code baseline と UI-04 outcome-wide Full verification / review / UI smoke は完了。LIB-01 の実装単位検証を進行中で、outcome-wide Full verification / review / UI smoke は未完了 |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 

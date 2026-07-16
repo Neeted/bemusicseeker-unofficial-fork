@@ -2520,6 +2520,8 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryInitializationService initializationService = new();
 
+    private readonly LibraryFileScanPipelineOwner libraryFileScanPipelineOwner;
+
     private readonly ChartInfoBuildService chartInfoBuildService = new();
 
     private readonly IBmsLibraryIrClient irClient = new BmsLibraryIrClient();
@@ -2871,6 +2873,9 @@ public partial class BMSLibrary : NotificationObject
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new ScopedOperationDialogService(this);
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
+        libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
+            new LibraryFileScanPipelineHost(this),
+            initializationService);
         stateApplier = new BmsLibraryStateApplier(
             dbGateway,
             () => ChartPackagesPending,
@@ -4185,74 +4190,183 @@ public partial class BMSLibrary : NotificationObject
         LibraryFileDiffCompletedVersion++;
     }
 
-    /// <summary>
-    /// Chart file scan prefetch result and elapsed time.
-    /// </summary>
-    private sealed class ChartScanPrefetchInfo
+    internal sealed class LibraryFileScanPipelineHost(BMSLibrary owner) : ILibraryFileScanPipelineHost
     {
-        public ChartScanExecutionResult ScanResult { get; set; }
+        public BmsLibraryDbGateway DbGateway => owner.dbGateway;
 
-        public long ElapsedMs { get; set; }
-    }
+        public IReadOnlyList<BMSFile> BmsFiles => owner.BMSFiles;
 
-    /// <summary>
-    /// native bridge を優先し、Everything API が使えない場合は managed scan で chart files を走査します。
-    /// </summary>
-    private ChartScanExecutionResult ExecuteChartScanWithManagedFallback(
-        List<string> bmsDirectories,
-        bool includeTextSurface,
-        bool includeDirectorySurface,
-        Action<string> reportScanner = null)
-    {
-        IChartFileScanner scanner = new EverythingFileScanner();
-        reportScanner?.Invoke("Native");
-        ChartScanExecutionResult scanResult = scanner.Scan(
-            bmsDirectories,
-            ChartDirectoryScanBuilder.ChartExtensions,
-            everythingScanLoggingEnabled,
-            includeTextSurface,
-            includeDirectorySurface);
-        if (IsAuthoritativeChartScan(scanResult))
+        public IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs => owner.BmsonSongs;
+
+        public IBmsLibraryDialogService DialogService => owner.dialogService;
+
+        public bool EverythingScanLoggingEnabled => everythingScanLoggingEnabled;
+
+        public void ThrowIfLr2SongDbSyncMutationBlocked(string operation)
         {
-            return scanResult;
+            owner.ThrowIfLr2SongDbSyncMutationBlocked(operation);
         }
 
-        string nativeFailureReason = scanResult?.ErrorReason ?? "unknown";
-        if (IsNativeBridgeContractFailure(nativeFailureReason))
+        public void ReportLibraryInitializationProgress(
+            LibraryInitializationProgressStage stage,
+            string scannerLabel = null,
+            int totalCount = 0,
+            int processedCount = 0,
+            string currentPath = null,
+            bool force = false)
         {
-            LogEverythingScan("chart native file scan failed reason=" + nativeFailureReason);
-            throw new InvalidOperationException("chart native file scan failed: " + nativeFailureReason);
+            owner.ReportLibraryInitializationProgress(stage, scannerLabel, totalCount, processedCount, currentPath, force);
         }
 
-        LogEverythingScan("chart native file scan unavailable reason=" + nativeFailureReason + " fallback=managed");
-        QueueEverythingFallbackWarning(nativeFailureReason);
-        reportScanner?.Invoke("Fallback");
-        ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(
-            bmsDirectories,
-            ChartDirectoryScanBuilder.ChartExtensions,
-            everythingScanLoggingEnabled,
-            includeTextSurface,
-            includeDirectorySurface);
-        if (!IsAuthoritativeChartScan(fallbackResult))
+        public void CompleteLibraryFileEnumerationProgress()
         {
-            string fallbackFailureReason = GetChartScanFailureReason(fallbackResult);
-            LogEverythingScan("chart fallback file scan failed nativeReason=" + nativeFailureReason + " fallbackReason=" + fallbackFailureReason);
-            return new ChartScanExecutionResult
-            {
-                ScanSource = ChartScanSource.Fallback,
-                Success = false,
-                IsComplete = false,
-                ErrorReason = "chart_fallback_file_scan_failed:" + fallbackFailureReason + " (native: " + nativeFailureReason + ")",
-                IncompleteReason = fallbackFailureReason,
-                FallbackUsed = true,
-                FallbackReason = nativeFailureReason
-            };
+            owner.CompleteLibraryFileEnumerationProgress();
         }
-        fallbackResult.ScanSource = ChartScanSource.Fallback;
-        fallbackResult.FallbackUsed = true;
-        fallbackResult.FallbackReason = nativeFailureReason;
-        LogEverythingScan("chart fallback file scan succeeded nativeReason=" + nativeFailureReason + " charts=" + fallbackResult.Result.ChartFilePaths.Count + " dirs=" + fallbackResult.Result.ChartDirectories.Count);
-        return fallbackResult;
+
+        public void CompleteLibraryFileDiffProgress()
+        {
+            owner.CompleteLibraryFileDiffProgress();
+        }
+
+        public void LogInstallPerformance(string message)
+        {
+            BMSLibrary.LogInstallPerformance(message);
+        }
+
+        public void LogInstallPerformanceWarn(string message)
+        {
+            BMSLibrary.LogInstallPerformanceWarn(message);
+        }
+
+        public void LogEverythingScan(string message)
+        {
+            BMSLibrary.LogEverythingScan(message);
+        }
+
+        public void LogStartupMemoryCheckpoint(string phase, string point)
+        {
+            BMSLibrary.LogStartupMemoryCheckpoint(phase, point);
+        }
+
+        public string GetDisplayedExceptionMessage(Exception exception)
+        {
+            return BMSLibrary.GetDisplayedExceptionMessage(exception);
+        }
+
+        public void QueueEverythingFallbackWarning(string fallbackReason)
+        {
+            owner.QueueEverythingFallbackWarning(fallbackReason);
+        }
+
+        public void QueueFileScanSkippedIncompleteWarning(string failureReason)
+        {
+            owner.QueueFileScanSkippedIncompleteWarning(failureReason);
+        }
+
+        public void QueueEmptyScanWithExistingDbWarning(string failureReason)
+        {
+            owner.QueueEmptyScanWithExistingDbWarning(failureReason);
+        }
+
+        public bool CanPrepareLr2FolderFileDiff(
+            BmsLibraryOptionsSnapshot options,
+            SongTableFileCheckResult fileCheckResult)
+        {
+            return BMSLibrary.CanPrepareLr2FolderFileDiff(options, fileCheckResult);
+        }
+
+        public Lr2FolderFileDiffPreparationResult PrepareLr2FolderFileDiffSync(
+            BmsLibraryOptionsSnapshot options,
+            IReadOnlyList<string> rootDirectories,
+            SongTableFileCheckResult fileCheckResult,
+            string reason)
+        {
+            return owner.PrepareLr2FolderFileDiffSync(options, rootDirectories, fileCheckResult, reason);
+        }
+
+        public void ApplyLr2FolderFileDiffSync(
+            BmsLibraryOptionsSnapshot options,
+            IReadOnlyList<string> rootDirectories,
+            SongTableFileCheckResult fileCheckResult,
+            string reason,
+            Task<Lr2FolderFileDiffPreparationResult> preparationTask)
+        {
+            owner.ApplyLr2FolderFileDiffSync(options, rootDirectories, fileCheckResult, reason, preparationTask);
+        }
+
+        public List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
+        {
+            return owner.CreateCurrentInstallDestinationCleanupCharts();
+        }
+
+        public Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope()
+        {
+            return owner.CreateLr2SongDbSyncAppManagedOutputScope();
+        }
+
+        public Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
+        {
+            return owner.CreateCurrentLr2BuiltinCustomFolderSettings(nowUtc);
+        }
+
+        public bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options)
+        {
+            return owner.ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(options);
+        }
+
+        public void CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
+            BmsLibraryOptionsSnapshot options,
+            SongTableFileCheckResult fileCheckResult,
+            string reason)
+        {
+            owner.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
+        }
+
+        public void UpsertChartInfoIndexRows(
+            IEnumerable<LR2SongDBExtended.chart_info> rows,
+            string reason,
+            bool dispatchPresentation = true)
+        {
+            owner.UpsertChartInfoIndexRows(rows, reason, dispatchPresentation);
+        }
+
+        public void DispatchWarningPresentationChanged(string reason)
+        {
+            owner.DispatchWarningPresentationChanged(reason);
+        }
+
+        public void ApplyLibraryFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
+        {
+            owner.ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
+        }
+
+        public void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
+        {
+            owner.ApplyLibraryMutationDelta(delta);
+        }
+
+        public void CaptureLr2SongDbSyncScanSurface(
+            BmsLibraryOptionsSnapshot options,
+            IEnumerable<string> rootDirectories,
+            SongTableFileCheckResult fileCheckResult)
+        {
+            owner.CaptureLr2SongDbSyncScanSurface(options, rootDirectories, fileCheckResult);
+        }
+
+        public void CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(
+            BmsLibraryOptionsSnapshot options,
+            SongTableFileCheckResult fileCheckResult,
+            string reason)
+        {
+            owner.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
+        }
+
+        public void MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(
+            BmsLibraryOptionsSnapshot options,
+            SongTableFileCheckResult result)
+        {
+            owner.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, result);
+        }
     }
 
     internal static bool ShouldIncludeLr2TextSurface(BmsLibraryOptionsSnapshot options)
@@ -4263,19 +4377,6 @@ public partial class BMSLibrary : NotificationObject
     internal static bool ShouldIncludeLr2DirectorySurface(BmsLibraryOptionsSnapshot options)
     {
         return options?.OperationModeLR2DB == true;
-    }
-
-    private static bool IsNativeBridgeContractFailure(string reason)
-    {
-        if (string.IsNullOrWhiteSpace(reason))
-        {
-            return false;
-        }
-        if (reason.StartsWith("directory_surface_failed:", StringComparison.OrdinalIgnoreCase))
-        {
-            return RootFileEnumerationService.IsBridgeContractFailure(reason.Substring("directory_surface_failed:".Length));
-        }
-        return RootFileEnumerationService.IsBridgeContractFailure(reason);
     }
 
     public void Initialize(List<Action> tasksContinuation, SemaphoreSlim semaphore = null, bool? reloadScoresOnly = null)
@@ -4341,7 +4442,7 @@ public partial class BMSLibrary : NotificationObject
                 chartScanPrefetchTask = Task.Run(delegate
                 {
                     var stopwatchPrefetch = Stopwatch.StartNew();
-                    ChartScanExecutionResult scanResult = ExecuteChartScanWithManagedFallback(
+                    ChartScanExecutionResult scanResult = libraryFileScanPipelineOwner.ExecuteChartScanWithManagedFallback(
                         fileCheckPrefetchDirectories,
                         ShouldIncludeLr2TextSurface(options),
                         ShouldIncludeLr2DirectorySurface(options),
@@ -4737,7 +4838,7 @@ public partial class BMSLibrary : NotificationObject
         if (songTblFileCheck)
         {
             var stopwatchSongTblFileCheck = Stopwatch.StartNew();
-            ApplyLibraryFileScanDiff(
+            libraryFileScanPipelineOwner.ApplyFileScanDiff(
                 options,
                 bMSDirectories,
                 chartScanPrefetchInfo,
@@ -4829,7 +4930,7 @@ public partial class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFilesInitializedAll.GetWriterGuard())
             {
-                SongTableFileCheckResult result = ApplyLibraryFileScanDiff(options, bmsDirectories, null, null, trackLibraryFileCheckProgress: true, "reload_file_diff");
+                SongTableFileCheckResult result = libraryFileScanPipelineOwner.ApplyFileScanDiff(options, bmsDirectories, null, null, trackLibraryFileCheckProgress: true, "reload_file_diff");
                 stopwatch.Stop();
                 LogInstallPerformance("library_file_diff_reload done added=" + result.BmsAddedTargetCount
                     + " deleted=" + result.BmsDeletedTargetCount
@@ -5053,276 +5154,6 @@ public partial class BMSLibrary : NotificationObject
             LogEverythingScan("empty scan with existing db warning failed failureReason=" + (failureReason ?? string.Empty) + " message=" + ex.Message);
         }
     }
-
-    private static bool IsAuthoritativeChartScan(ChartScanExecutionResult scanResult)
-    {
-        return scanResult?.Success == true
-            && scanResult.IsComplete
-            && scanResult.Result != null;
-    }
-
-    private static string GetChartScanFailureReason(ChartScanExecutionResult scanResult)
-    {
-        if (scanResult == null)
-        {
-            return "scan_result_missing";
-        }
-        if (!string.IsNullOrWhiteSpace(scanResult.IncompleteReason))
-        {
-            return scanResult.IncompleteReason;
-        }
-        if (!string.IsNullOrWhiteSpace(scanResult.ErrorReason))
-        {
-            return scanResult.ErrorReason;
-        }
-        if (scanResult.Result == null)
-        {
-            return "scan_result_missing";
-        }
-        return scanResult.Success ? "scan_incomplete" : "scan_failed";
-    }
-
-    private SongTableFileCheckResult ApplyLibraryFileScanDiff(
-        BmsLibraryOptionsSnapshot options,
-        List<string> bmsDirectories,
-        ChartScanPrefetchInfo chartScanPrefetchInfo,
-        Task<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotTask,
-        bool trackLibraryFileCheckProgress,
-        string reason)
-    {
-        ThrowIfLr2SongDbSyncMutationBlocked(nameof(ApplyLibraryFileScanDiff));
-        var emptyResult = new SongTableFileCheckResult();
-        if (bmsDirectories == null || bmsDirectories.Count == 0)
-        {
-            if (trackLibraryFileCheckProgress)
-            {
-                CompleteLibraryFileEnumerationProgress();
-                CompleteLibraryFileDiffProgress();
-            }
-            LogInstallPerformance("song_tbl_file_check skipped reason=no_bms_directories operation=" + (reason ?? string.Empty));
-            return emptyResult;
-        }
-
-        LogStartupMemoryCheckpoint("file_diff", "before");
-        bool fileEnumerationCompleted = false;
-        void completeFileEnumerationOnce()
-        {
-            if (fileEnumerationCompleted)
-            {
-                return;
-            }
-            fileEnumerationCompleted = true;
-            if (trackLibraryFileCheckProgress)
-            {
-                CompleteLibraryFileEnumerationProgress();
-            }
-        }
-        ChartScanPrefetchInfo resolvedChartScanPrefetchInfo = chartScanPrefetchInfo;
-        if (resolvedChartScanPrefetchInfo?.ScanResult == null)
-        {
-            var stopwatchResolveScan = Stopwatch.StartNew();
-            ChartScanExecutionResult resolvedScanResult = ExecuteChartScanWithManagedFallback(
-                bmsDirectories,
-                ShouldIncludeLr2TextSurface(options),
-                ShouldIncludeLr2DirectorySurface(options),
-                reportScanner: scannerLabel =>
-                {
-                    if (trackLibraryFileCheckProgress)
-                    {
-                        ReportLibraryInitializationProgress(
-                            LibraryInitializationProgressStage.FileEnumeration,
-                            scannerLabel,
-                            force: true);
-                    }
-                });
-            stopwatchResolveScan.Stop();
-            resolvedChartScanPrefetchInfo = new ChartScanPrefetchInfo
-            {
-                ScanResult = resolvedScanResult,
-                ElapsedMs = stopwatchResolveScan.ElapsedMilliseconds
-            };
-        }
-        if (!IsAuthoritativeChartScan(resolvedChartScanPrefetchInfo?.ScanResult))
-        {
-            string failureReason = GetChartScanFailureReason(resolvedChartScanPrefetchInfo?.ScanResult);
-            LogEverythingScan("song_tbl_file_check skipped reason=incomplete_file_scan operation=" + (reason ?? string.Empty) + " detail=" + failureReason);
-            QueueFileScanSkippedIncompleteWarning(failureReason);
-            completeFileEnumerationOnce();
-            if (trackLibraryFileCheckProgress)
-            {
-                CompleteLibraryFileDiffProgress();
-            }
-            return emptyResult;
-        }
-        Lr2NormalFolderMtimeSnapshot resolveNormalFolderMtimeSnapshot()
-        {
-            if (normalFolderMtimeSnapshotTask == null)
-            {
-                return null;
-            }
-
-            var stopwatchSnapshotWait = Stopwatch.StartNew();
-            try
-            {
-                Lr2NormalFolderMtimeSnapshot snapshot = normalFolderMtimeSnapshotTask.GetAwaiter().GetResult();
-                stopwatchSnapshotWait.Stop();
-                LogInstallPerformance("lr2_normal_folder_mtime_snapshot_prefetch_wait"
-                    + " status=completed"
-                    + " waitMs=" + stopwatchSnapshotWait.ElapsedMilliseconds
-                    + " rows=" + (snapshot?.ExistingRowCount ?? 0)
-                    + " elapsedMs=" + (snapshot?.ElapsedMs ?? 0L));
-                return snapshot;
-            }
-            catch (Exception ex)
-            {
-                stopwatchSnapshotWait.Stop();
-                LogInstallPerformanceWarn("lr2_normal_folder_mtime_snapshot_prefetch failed"
-                    + " waitMs=" + stopwatchSnapshotWait.ElapsedMilliseconds
-                    + " message=" + GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
-                return null;
-            }
-        }
-
-        List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
-        List<ChartFile> currentInstallDestinationCharts = CreateCurrentInstallDestinationCleanupCharts();
-        Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = CreateLr2SongDbSyncAppManagedOutputScope();
-        Task<Lr2FolderFileDiffPreparationResult> lr2FolderFileDiffPreparationTask = null;
-        bool protectExistingBmsRowsFromLr2SongDbSyncMigration = ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(options);
-        void StartLr2FolderFileDiffPreparation(SongTableFileCheckResult partialResult)
-        {
-            if (lr2FolderFileDiffPreparationTask != null)
-            {
-                return;
-            }
-            if (!CanPrepareLr2FolderFileDiff(options, partialResult))
-            {
-                return;
-            }
-
-            lr2FolderFileDiffPreparationTask = Task.Run(() =>
-                PrepareLr2FolderFileDiffSync(options, bmsDirectories, partialResult, reason))
-                .Logging("Lr2FolderFileDiffPrepare");
-        }
-
-        SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
-            dbGateway,
-            options,
-            BMSFiles,
-            resolvedChartScanPrefetchInfo?.ScanResult,
-            resolvedChartScanPrefetchInfo?.ElapsedMs ?? 0L,
-            null,
-            dialogService,
-            LogInstallPerformance,
-            LogEverythingScan,
-            BmsonSongs,
-            null,
-completeFileEnumerationOnce,
-            () =>
-            {
-                if (trackLibraryFileCheckProgress)
-                {
-                    ReportLibraryInitializationProgress(LibraryInitializationProgressStage.FileDiff, force: true);
-                }
-            },
-            (total, processed, path) =>
-            {
-                if (trackLibraryFileCheckProgress)
-                {
-                    ReportLibraryInitializationProgress(
-                        LibraryInitializationProgressStage.FileDiff,
-                        totalCount: total,
-                        processedCount: processed,
-                        currentPath: path,
-                        force: processed >= total);
-                }
-            },
-            LogInstallPerformanceWarn,
-            delegate (IReadOnlyList<LR2SongDBExtended.chart_info> rows)
-            {
-                if (rows == null || rows.Count == 0)
-                {
-                    return;
-                }
-                committedInlineChartInfoRows.AddRange(rows.Where(row => row != null));
-            },
-            currentInstallDestinationCharts,
-            bmsDirectories,
-            lr2FolderDiscoveryRootDirectories: bmsDirectories,
-            lr2BuiltinCustomFolderSettings: CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
-            lr2FolderExcludedDirectories: initialAppManagedOutputScope.IsComplete
-                ? initialAppManagedOutputScope.Directories
-                : [],
-            normalFolderMtimeSnapshotProvider: resolveNormalFolderMtimeSnapshot,
-            lr2ScanSurfacePrepared: StartLr2FolderFileDiffPreparation,
-            protectExistingBmsRowsFromLr2SongDbSyncMigration: protectExistingBmsRowsFromLr2SongDbSyncMigration);
-        if (fileCheckResult.EmptyScanWithExistingDbSkipped)
-        {
-            string skipReason = string.IsNullOrWhiteSpace(fileCheckResult.EmptyScanWithExistingDbSkipReason)
-                ? "empty_scan_with_existing_db"
-                : fileCheckResult.EmptyScanWithExistingDbSkipReason;
-            LogEverythingScan("song_tbl_file_check skipped reason=empty_scan_with_existing_db operation=" + (reason ?? string.Empty) + " detail=" + skipReason);
-            QueueEmptyScanWithExistingDbWarning(skipReason);
-            completeFileEnumerationOnce();
-            if (trackLibraryFileCheckProgress)
-            {
-                CompleteLibraryFileDiffProgress();
-            }
-            return fileCheckResult;
-        }
-        LogFileScanFailures(fileCheckResult, reason);
-        ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
-        completeFileEnumerationOnce();
-        ApplyLibraryFileScanStorageMutation(fileCheckResult, reason);
-        CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
-        if (committedInlineChartInfoRows.Count > 0)
-        {
-            UpsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline");
-            committedInlineChartInfoRows.Clear();
-        }
-        if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0
-            || fileCheckResult.InlineChartInfoParseFailureDeleteMd5s.Count > 0
-            || fileCheckResult.InlineChartInfoFailurePersistedCount > 0
-            || fileCheckResult.InlineChartInfoFailureClearedCount > 0)
-        {
-            DispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
-        }
-        ApplyLibraryMutationDelta(fileCheckResult.MutationDelta);
-        CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
-        CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
-        MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
-        if (trackLibraryFileCheckProgress)
-        {
-            CompleteLibraryFileDiffProgress();
-        }
-        fileCheckResult.ReleasePostApplyTransientBuffers();
-        LogStartupMemoryCheckpoint("file_diff", "after_release");
-        return fileCheckResult;
-    }
-
-    private static void LogFileScanFailures(SongTableFileCheckResult result, string reason)
-    {
-        if (result?.FileScanFailures == null || result.FileScanFailures.Count == 0)
-        {
-            return;
-        }
-
-        LogInstallPerformanceWarn("song_tbl_file_check_failures reason=" + (reason ?? string.Empty) + " count=" + result.FileScanFailures.Count);
-        foreach (ChartFileScanFailure failure in result.FileScanFailures)
-        {
-            if (failure == null)
-            {
-                continue;
-            }
-
-            LogInstallPerformanceWarn(
-                "song_tbl_file_check_file_failed kind=" + failure.ChartKind
-                + " stage=" + failure.Stage
-                + " exception=" + failure.ExceptionType
-                + " path=" + failure.Path
-                + " message=" + (failure.Message ?? string.Empty).Replace(Environment.NewLine, " | "));
-        }
-    }
-
     private bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options)
     {
         if (options?.OperationModeLR2DB != true)
@@ -5339,53 +5170,6 @@ completeFileEnumerationOnce,
             DateTime.UtcNow);
         return status == null || status.Status != Lr2SongDbSyncStatusKind.Completed;
     }
-
-    private sealed class Lr2FolderFileDiffPreparationResult(
-        Lr2SongDbSyncRequest request,
-        IReadOnlyList<string> appManagedOutputDirectories,
-        IReadOnlyList<string> appManagedOutputFilePaths,
-        IReadOnlyList<string> appManagedPruneExcludedPaths,
-        CustomFolderOutputPhysicalSurface appManagedPhysicalSurface,
-        int appManagedCandidateCount,
-        long rootsMs,
-        long builtinSourceMs,
-        long appManagedScopeMs,
-        long filterMs,
-        long parentSurfaceMs,
-        long extraTextRootsMs,
-        long textMetadataMs,
-        long totalElapsedMs)
-    {
-        public Lr2SongDbSyncRequest Request { get; } = request;
-
-        public IReadOnlyList<string> AppManagedOutputDirectories { get; } = appManagedOutputDirectories ?? [];
-
-        public IReadOnlyList<string> AppManagedOutputFilePaths { get; } = appManagedOutputFilePaths ?? [];
-
-        public IReadOnlyList<string> AppManagedPruneExcludedPaths { get; } = appManagedPruneExcludedPaths ?? [];
-
-        public CustomFolderOutputPhysicalSurface AppManagedPhysicalSurface { get; } =
-            appManagedPhysicalSurface ?? CustomFolderOutputPhysicalSurface.Empty;
-
-        public int AppManagedCandidateCount { get; } = appManagedCandidateCount;
-
-        public long RootsMs { get; } = rootsMs;
-
-        public long BuiltinSourceMs { get; } = builtinSourceMs;
-
-        public long AppManagedScopeMs { get; } = appManagedScopeMs;
-
-        public long FilterMs { get; } = filterMs;
-
-        public long ParentSurfaceMs { get; } = parentSurfaceMs;
-
-        public long ExtraTextRootsMs { get; } = extraTextRootsMs;
-
-        public long TextMetadataMs { get; } = textMetadataMs;
-
-        public long TotalElapsedMs { get; } = totalElapsedMs;
-    }
-
     private void ApplyLr2FolderFileDiffSync(
         BmsLibraryOptionsSnapshot options,
         IReadOnlyList<string> rootDirectories,

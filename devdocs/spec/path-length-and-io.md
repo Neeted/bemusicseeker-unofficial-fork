@@ -23,7 +23,7 @@ root scan 用の列挙結果は、`Success == true` かつ `IsComplete == true` 
 
 Everything bridge が正常成功した scan は authoritative complete とみなす。Everything bridge が失敗して managed fallback を使った場合でも、managed fallback が同じ条件を満たす場合だけ authoritative complete とみなす。bridge contract mismatch は配置やバージョン不整合なので、通常の incomplete filesystem scan warning には丸めず hard failure として扱う。
 
-incomplete scan の場合、`BMSLibrary.ApplyLibraryFileScanDiff()` は警告を queue し、file diff / LR2 folder sync / storage mutation / DB commit / resource index 差し替えに進まない。`BmsLibraryInitializationService.ApplyFileScanDiff()` 側も二重防御として、非 authoritative scan から diff を作らず空 result を返す。
+incomplete scan の場合、`LibraryFileScanPipelineOwner.ApplyFileScanDiff()` は警告を queue し、file diff / LR2 folder sync / storage mutation / DB commit / resource index 差し替えに進まない。`BmsLibraryInitializationService.ApplyFileScanDiff()` 側も二重防御として、非 authoritative scan から diff を作らず空 result を返す。
 
 scan が incomplete でも、既存 `song.db` の読み込み結果はそのまま使用する。これは「古い DB の内容を保護する」ためではなく、異常なファイルシステム状態から得られた部分列挙で cache を中途半端に更新しないためである。
 
