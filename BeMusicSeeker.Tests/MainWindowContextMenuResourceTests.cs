@@ -4117,7 +4117,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "internal sealed class LibraryFileScanStorageMutationHost(BMSLibrary owner) : ILibraryFileScanStorageMutationHost");
         StringAssert.Contains(libraryCode, "return owner.TryCreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(");
         StringAssert.Contains(libraryCode, "mutationResult = owner.BuildOwnedChartCollectionFileScanMutationResult(");
-        StringAssert.Contains(libraryCode, "owner.ApplyOwnedChartCollectionStorageReplacement(storageRows)");
+        StringAssert.Contains(libraryCode, "owner.catalogStorageRowsOwner.ReplaceRowsAndCaptureSnapshot(");
+        StringAssert.Contains(libraryCode, "owner.catalogOwnedCollectionOwner.ReplaceForFileScan(storageRows)");
         StringAssert.Contains(coordinatorApplyMethod, "bool removedPayloadAvailable = host.TryCreateRemovedStorageOwnerIdentityCharts(");
         StringAssert.Contains(coordinatorApplyMethod, "out List<ChartFile> removedCharts");
         StringAssert.Contains(coordinatorApplyMethod, "resourceHealthMutation.BaseIndexCurrent");
