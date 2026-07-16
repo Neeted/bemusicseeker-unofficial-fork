@@ -395,7 +395,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded() => null!;
 
-        public StorageRowsVersionSnapshot ApplyLibraryUnregisterStorageRowsUnsafe() => default;
+        public StorageRowsVersionSnapshot ApplyCatalogStorageRowsRemoval() => default;
 
         public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta) => null!;
 

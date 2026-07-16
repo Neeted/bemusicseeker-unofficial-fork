@@ -39,10 +39,10 @@ internal interface ILibraryMutationDeltaApplyHost
     IDisposable SuppressResourceHealthIndexInvalidationIfNeeded();
 
     /// <summary>
-    /// Applies storage-row unregister requests for the current mutation result.
+    /// Applies catalog storage-row removal for the current mutation result.
     /// </summary>
-    /// <returns>The storage-row version snapshot after unregister processing.</returns>
-    StorageRowsVersionSnapshot ApplyLibraryUnregisterStorageRowsUnsafe();
+    /// <returns>The storage-row version snapshot after removal processing.</returns>
+    StorageRowsVersionSnapshot ApplyCatalogStorageRowsRemoval();
 
     /// <summary>
     /// Applies the library delta to the broader BMSLibrary state.

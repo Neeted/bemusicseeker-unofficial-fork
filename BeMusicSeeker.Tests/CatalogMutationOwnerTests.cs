@@ -151,6 +151,72 @@ public sealed class CatalogMutationOwnerTests
     }
 
     [TestMethod]
+    public void ApplyStorageRowsRemoval_RemovesOwnerAndPathRowsWithPerKindVersions()
+    {
+        var removedBms = CreateBms("removed.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var keptBms = CreateBms("kept.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var removedBmson = CreateBmson("removed.bmson", "cccccccccccccccccccccccccccccccc");
+        var keptBmson = CreateBmson("kept.bmson", "dddddddddddddddddddddddddddddddd");
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
+            [removedBms, keptBms],
+            [removedBmson, keptBmson]);
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+            OwnedChartCollectionState.FromStorageRows([removedBms, keptBms], [removedBmson, keptBmson]),
+            initialRows.BmsRowsVersion,
+            initialRows.BmsonRowsVersion));
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+
+        CatalogStorageRowsRemovalRequest request = owner.CreateStorageRowsRemovalRequest(
+        [
+            OwnedChartRemoveRequest.FromOwnerReference(removedBms),
+            OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, removedBmson.path)
+        ]);
+        CatalogStorageRowsRemovalReceipt receipt = owner.ApplyStorageRowsRemoval(request);
+
+        Assert.IsTrue(receipt.Applied);
+        Assert.AreEqual(CatalogMutationApplyKind.StorageRowsRemoval, receipt.Kind);
+        Assert.IsTrue(receipt.BmsRowsChanged);
+        Assert.IsTrue(receipt.BmsonRowsChanged);
+        Assert.IsTrue(ownedCollectionOwner.IsInitialized);
+        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
+        Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion + 1, receipt.StorageRowsVersion.BmsonRowsVersion);
+        Assert.AreSame(keptBms, storageRowsOwner.BmsRows.Single());
+        Assert.AreSame(keptBmson, storageRowsOwner.BmsonRows.Single());
+    }
+
+    [TestMethod]
+    public void ApplyStorageRowsRemoval_EmptyRequestIsNoOp()
+    {
+        var bms = CreateBms("kept.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var bmson = CreateBmson("kept.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], [bmson]);
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+            OwnedChartCollectionState.FromStorageRows([bms], [bmson]),
+            initialRows.BmsRowsVersion,
+            initialRows.BmsonRowsVersion));
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+
+        CatalogStorageRowsRemovalReceipt receipt = owner.ApplyStorageRowsRemoval(
+            owner.CreateStorageRowsRemovalRequest([]));
+
+        Assert.IsFalse(receipt.Applied);
+        Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
+        Assert.IsFalse(receipt.BmsRowsChanged);
+        Assert.IsFalse(receipt.BmsonRowsChanged);
+        Assert.IsTrue(ownedCollectionOwner.IsInitialized);
+        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.BmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
+        Assert.AreSame(bms, storageRowsOwner.BmsRows.Single());
+        Assert.AreSame(bmson, storageRowsOwner.BmsonRows.Single());
+    }
+
+    [TestMethod]
     public void ApplyInstalledTargetUpsert_EmitsReceiptAndReplacesSamePathRows()
     {
         var oldBms = CreateBms("same.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");

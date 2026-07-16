@@ -80,6 +80,45 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    internal CatalogStorageRowsRemovalRequest CreateStorageRowsRemovalRequest(
+        IEnumerable<OwnedChartRemoveRequest> removeRequests)
+    {
+        return new CatalogStorageRowsRemovalRequest(removeRequests);
+    }
+
+    internal CatalogStorageRowsRemovalReceipt ApplyStorageRowsRemoval(
+        CatalogStorageRowsRemovalRequest request)
+    {
+        if (request == null)
+        {
+            return CatalogStorageRowsRemovalReceipt.NotApplied;
+        }
+
+        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        {
+            StorageRowsVersionSnapshot previousVersions = storageRowsOwner.CaptureVersionSnapshot();
+            if (!request.HasChanges)
+            {
+                return new CatalogStorageRowsRemovalReceipt(
+                    applied: false,
+                    bmsRowsChanged: false,
+                    bmsonRowsChanged: false,
+                    previousVersions);
+            }
+
+            StorageRowsVersionSnapshot storageRowsVersion = storageRowsOwner.RemoveRows(
+                new HashSet<BMSFile>(request.RemovedBmsRows),
+                new HashSet<string>(request.BmsPathCleanupKeys, StringComparer.OrdinalIgnoreCase),
+                new HashSet<LR2SongDBExtended.bmson_song>(request.RemovedBmsonRows),
+                new HashSet<string>(request.BmsonPathCleanupKeys, StringComparer.OrdinalIgnoreCase));
+            return new CatalogStorageRowsRemovalReceipt(
+                applied: true,
+                storageRowsVersion.BmsRowsVersion != previousVersions.BmsRowsVersion,
+                storageRowsVersion.BmsonRowsVersion != previousVersions.BmsonRowsVersion,
+                storageRowsVersion);
+        }
+    }
+
     internal CatalogFileScanStorageReplacementRequest CreateFileScanStorageReplacementRequest(
         bool hasDbDiff,
         IEnumerable<BMSFile> nextBmsRows,
@@ -253,9 +292,98 @@ internal enum CatalogMutationApplyKind
 {
     NoOp,
     StorageRowsReplacement,
+    StorageRowsRemoval,
     FileScanStorageReplacement,
     InstalledTargetUpsert,
     DigestMutation
+}
+
+/// <summary>
+/// Immutable input snapshot for catalog storage-row removal.
+/// </summary>
+internal sealed class CatalogStorageRowsRemovalRequest
+{
+    internal CatalogStorageRowsRemovalRequest(IEnumerable<OwnedChartRemoveRequest> removeRequests)
+    {
+        List<OwnedChartRemoveRequest> requests = [.. (removeRequests ?? []).Where(request => request != null)];
+        RemovedBmsRows = Snapshot(requests
+            .Select(request => request.BmsOwner)
+            .Where(file => file != null)
+            .Distinct());
+        BmsPathCleanupKeys = CreatePathCleanupKeys(requests, ChartFileKind.Bms);
+        RemovedBmsonRows = Snapshot(requests
+            .Select(request => request.BmsonOwner)
+            .Where(song => song != null)
+            .Distinct());
+        BmsonPathCleanupKeys = CreatePathCleanupKeys(requests, ChartFileKind.Bmson);
+    }
+
+    internal IReadOnlyList<BMSFile> RemovedBmsRows { get; }
+
+    internal IReadOnlyList<string> BmsPathCleanupKeys { get; }
+
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> RemovedBmsonRows { get; }
+
+    internal IReadOnlyList<string> BmsonPathCleanupKeys { get; }
+
+    internal bool HasChanges => RemovedBmsRows.Count > 0
+        || BmsPathCleanupKeys.Count > 0
+        || RemovedBmsonRows.Count > 0
+        || BmsonPathCleanupKeys.Count > 0;
+
+    private static IReadOnlyList<string> CreatePathCleanupKeys(
+        IEnumerable<OwnedChartRemoveRequest> requests,
+        ChartFileKind kind)
+    {
+        return Snapshot(requests
+            .Where(request => request.Mode == OwnedChartRemoveMode.PathCleanup && request.Kind == kind)
+            .Select(request => OwnedChartCollectionState.CreateOwnedPathKey(request.Path))
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase));
+    }
+
+    private static IReadOnlyList<T> Snapshot<T>(IEnumerable<T> values)
+    {
+        return Array.AsReadOnly([.. values ?? []]);
+    }
+}
+
+/// <summary>
+/// Canonical facts emitted after catalog storage-row removal.
+/// </summary>
+internal sealed class CatalogStorageRowsRemovalReceipt
+{
+    internal static CatalogStorageRowsRemovalReceipt NotApplied { get; } =
+        new(
+            applied: false,
+            bmsRowsChanged: false,
+            bmsonRowsChanged: false,
+            new StorageRowsVersionSnapshot(0, 0));
+
+    internal CatalogStorageRowsRemovalReceipt(
+        bool applied,
+        bool bmsRowsChanged,
+        bool bmsonRowsChanged,
+        StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        Applied = applied;
+        Kind = applied
+            ? CatalogMutationApplyKind.StorageRowsRemoval
+            : CatalogMutationApplyKind.NoOp;
+        BmsRowsChanged = bmsRowsChanged;
+        BmsonRowsChanged = bmsonRowsChanged;
+        StorageRowsVersion = storageRowsVersion;
+    }
+
+    internal bool Applied { get; }
+
+    internal CatalogMutationApplyKind Kind { get; }
+
+    internal bool BmsRowsChanged { get; }
+
+    internal bool BmsonRowsChanged { get; }
+
+    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
 }
 
 /// <summary>

@@ -60,7 +60,7 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
                 using (host.SuppressResourceHealthIndexInvalidationIfNeeded())
                 {
                     Stopwatch unregisterStorageRowsStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    StorageRowsVersionSnapshot storageRowsVersion = host.ApplyLibraryUnregisterStorageRowsUnsafe();
+                    StorageRowsVersionSnapshot storageRowsVersion = host.ApplyCatalogStorageRowsRemoval();
                     timings.UnregisterStorageRowsMs = StopPerformanceStepStopwatch(unregisterStorageRowsStopwatch);
 
                     Stopwatch stateApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);

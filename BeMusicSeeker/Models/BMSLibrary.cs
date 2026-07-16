@@ -15368,9 +15368,12 @@ public partial class BMSLibrary : NotificationObject
                 : null;
         }
 
-        public StorageRowsVersionSnapshot ApplyLibraryUnregisterStorageRowsUnsafe()
+        public StorageRowsVersionSnapshot ApplyCatalogStorageRowsRemoval()
         {
-            return owner.ApplyLibraryUnregisterStorageRowsUnsafe(mutationResult.StorageMutation);
+            CatalogStorageRowsRemovalRequest request = owner.catalogMutationOwner.CreateStorageRowsRemovalRequest(
+                mutationResult.StorageMutation.RemoveRequests);
+            CatalogStorageRowsRemovalReceipt receipt = owner.catalogMutationOwner.ApplyStorageRowsRemoval(request);
+            return receipt.StorageRowsVersion;
         }
 
         public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta)
@@ -15471,52 +15474,6 @@ public partial class BMSLibrary : NotificationObject
                 + " dispatchMs=" + timings.DispatchMs
                 + " elapsedMs=" + timings.ElapsedMs);
         }
-    }
-
-    private StorageRowsVersionSnapshot ApplyLibraryUnregisterStorageRowsUnsafe(OwnedChartCollectionStorageMutation mutation)
-    {
-        List<OwnedChartRemoveRequest> removeRequests = [.. (mutation?.RemoveRequests ?? []).Where(request => request != null)];
-        if (removeRequests.Count == 0)
-        {
-            return CaptureStorageRowsVersionUnsafe();
-        }
-
-        List<BMSFile> bmsFilesToUnregister = [.. removeRequests
-            .Select(request => request.BmsOwner)
-            .Where(file => file != null)
-            .Distinct()];
-        HashSet<BMSFile> removedFileRefs = null;
-        if (bmsFilesToUnregister.Count > 0)
-        {
-            removedFileRefs = new HashSet<BMSFile>(bmsFilesToUnregister);
-        }
-
-        var bmsPathCleanupKeys = new HashSet<string>(
-            removeRequests
-                .Where(request => request.Mode == OwnedChartRemoveMode.PathCleanup && request.Kind == ChartFileKind.Bms)
-                .Select(request => CreateOwnedPathKey(request.Path))
-                .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        List<LR2SongDBExtended.bmson_song> bmsonSongsToUnregister = [.. removeRequests
-            .Select(request => request.BmsonOwner)
-            .Where(song => song != null)
-            .Distinct()];
-        HashSet<LR2SongDBExtended.bmson_song> removedSongRefs = null;
-        if (bmsonSongsToUnregister.Count > 0)
-        {
-            removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(bmsonSongsToUnregister);
-        }
-        var bmsonPathCleanupKeys = new HashSet<string>(
-            removeRequests
-                .Where(request => request.Mode == OwnedChartRemoveMode.PathCleanup && request.Kind == ChartFileKind.Bmson)
-                .Select(request => CreateOwnedPathKey(request.Path))
-                .Where(path => !string.IsNullOrWhiteSpace(path)),
-            StringComparer.OrdinalIgnoreCase);
-        return catalogStorageRowsOwner.RemoveRows(
-            removedFileRefs,
-            bmsPathCleanupKeys,
-            removedSongRefs,
-            bmsonPathCleanupKeys);
     }
 
     private void PublishNormalLibraryRefreshNotification(OwnedChartCollectionMutationResult result)
