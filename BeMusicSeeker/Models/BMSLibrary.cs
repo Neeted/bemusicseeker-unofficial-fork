@@ -4436,37 +4436,22 @@ public partial class BMSLibrary : NotificationObject
         bool songTblFileCheck = mode == LibraryInitializeMode.FullReinitialize || (isStartup && (options.ScanBmsFilesOnStartup || startupFileScanRequired));
         bool setMaintenanceInfo = !isScoreOnly;
         bool flag = !isScoreOnly;
-        Task<ChartScanPrefetchInfo> chartScanPrefetchTask = null;
-        Task<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotTask = null;
-        List<string> fileCheckPrefetchDirectories = null;
+        LibraryFileScanRequest fileScanRequest = null;
         if (startupFileScanRequired)
         {
             LogInstallPerformance("startup_file_scan_required reason=" + startupRequiredFileScanReason + " scanSetting=" + options.ScanBmsFilesOnStartup.ToString().ToLowerInvariant());
         }
         if (songTblFileCheck)
         {
-            fileCheckPrefetchDirectories = getBMSDirectories();
-            if (fileCheckPrefetchDirectories.Count > 0)
-            {
-                chartScanPrefetchTask = Task.Run(delegate
-                {
-                    var stopwatchPrefetch = Stopwatch.StartNew();
-                    ChartScanExecutionResult scanResult = libraryFileScanPipelineOwner.ExecuteChartScanWithManagedFallback(
-                        fileCheckPrefetchDirectories,
-                        ShouldIncludeLr2TextSurface(options),
-                        ShouldIncludeLr2DirectorySurface(options),
-                        reportScanner: scannerLabel => ReportLibraryInitializationProgress(
-                            LibraryInitializationProgressStage.FileEnumeration,
-                            scannerLabel,
-                            force: true));
-                    stopwatchPrefetch.Stop();
-                    return new ChartScanPrefetchInfo
-                    {
-                        ScanResult = scanResult,
-                        ElapsedMs = stopwatchPrefetch.ElapsedMilliseconds
-                    };
-                });
-            }
+            List<string> fileCheckPrefetchDirectories = getBMSDirectories();
+            fileScanRequest = libraryFileScanPipelineOwner.StartFileScanRequest(
+                options,
+                fileCheckPrefetchDirectories,
+                isStartup ? "initialize" : "full_reinitialize",
+                scannerLabel => ReportLibraryInitializationProgress(
+                    LibraryInitializationProgressStage.FileEnumeration,
+                    scannerLabel,
+                    force: true));
         }
         GC.Collect();
         NLogWrapper.DebuggerLogger?.Trace("hazimari: " + GC.GetTotalMemory(forceFullCollection: false));
@@ -4489,39 +4474,19 @@ public partial class BMSLibrary : NotificationObject
                 {
                     using (rwlockBMSFilesInitializedMin.GetWriterGuard())
                     {
-                        _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, chartScanPrefetchInfo: null, trackLibraryDatabaseProgress: true);
+                        _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, fileScanRequest: null, trackLibraryDatabaseProgress: true);
                         if (songTblLoad)
                         {
                             startupInstallReadinessState.MarkCatalogLoaded();
                         }
-                        if (songTblFileCheck
-                            && options?.OperationModeLR2DB == true
-                            && fileCheckPrefetchDirectories?.Count > 0)
+                        if (songTblFileCheck)
                         {
-                            normalFolderMtimeSnapshotTask = Task.Run(() =>
-                                initializationService.LoadNormalFolderMtimeSnapshot(
-                                    dbGateway,
-                                    options,
-                                    fileCheckPrefetchDirectories,
-                                    LogInstallPerformance)).Logging("Lr2NormalFolderMtimeSnapshotPrefetch");
+                            libraryFileScanPipelineOwner.StartNormalFolderMtimeSnapshot(fileScanRequest);
                         }
                     }
                 },
                 delegate
                 {
-                    ChartScanPrefetchInfo chartScanPrefetchInfo = null;
-                    if (songTblFileCheck && chartScanPrefetchTask != null)
-                    {
-                        try
-                        {
-                            chartScanPrefetchInfo = chartScanPrefetchTask.GetAwaiter().GetResult();
-                        }
-                        catch (Exception ex)
-                        {
-                            LogEverythingScan("chart_scan_prefetch failed message=" + ex.Message);
-                            chartScanPrefetchInfo = null;
-                        }
-                    }
                     _initialize(
                         songTblLoad: false,
                         scoreTblrLoad: false,
@@ -4529,8 +4494,7 @@ public partial class BMSLibrary : NotificationObject
                         setMainteInfo: false,
                         updateIrScore: true,
                         installTblCheck: false,
-                        chartScanPrefetchInfo,
-                        normalFolderMtimeSnapshotTask,
+                        fileScanRequest: fileScanRequest,
                         trackLibraryFileCheckProgress: true,
                         fileScanReason: isStartup ? "initialize" : "full_reinitialize");
                     if (!isScoreOnly)
@@ -4710,8 +4674,7 @@ public partial class BMSLibrary : NotificationObject
         bool setMainteInfo = true,
         bool updateIrScore = true,
         bool installTblCheck = true,
-        ChartScanPrefetchInfo chartScanPrefetchInfo = null,
-        Task<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotTask = null,
+        LibraryFileScanRequest fileScanRequest = null,
         bool trackLibraryDatabaseProgress = false,
         bool trackLibraryFileCheckProgress = false,
         string fileScanReason = "initialize")
@@ -4847,13 +4810,9 @@ public partial class BMSLibrary : NotificationObject
         if (songTblFileCheck)
         {
             var stopwatchSongTblFileCheck = Stopwatch.StartNew();
-            libraryFileScanPipelineOwner.ApplyFileScanDiff(
-                options,
-                bMSDirectories,
-                chartScanPrefetchInfo,
-                normalFolderMtimeSnapshotTask,
-                trackLibraryFileCheckProgress,
-                fileScanReason);
+            libraryFileScanPipelineOwner.ApplyFileScanRequest(
+                fileScanRequest,
+                trackLibraryFileCheckProgress);
             stopwatchSongTblFileCheck.Stop();
             songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
         }
@@ -4932,6 +4891,7 @@ public partial class BMSLibrary : NotificationObject
         BmsLibraryOptionsSnapshot options = CurrentOptionsSnapshot;
         List<string> bmsDirectories = getBMSDirectories(out BmsSearchRootNormalizationSnapshot rootNormalization);
         ResetEverythingFallbackWarningQueue();
+        LibraryFileScanRequest fileScanRequest;
         var stopwatch = Stopwatch.StartNew();
         LogBmsSearchRootNormalization("reload_file_diff", options, rootNormalization, bmsDirectories);
         LogInstallPerformance("library_file_diff_reload start directories=" + bmsDirectories.Count);
@@ -4939,7 +4899,18 @@ public partial class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFilesInitializedAll.GetWriterGuard())
             {
-                SongTableFileCheckResult result = libraryFileScanPipelineOwner.ApplyFileScanDiff(options, bmsDirectories, null, null, trackLibraryFileCheckProgress: true, "reload_file_diff");
+                fileScanRequest = libraryFileScanPipelineOwner.StartFileScanRequest(
+                    options,
+                    bmsDirectories,
+                    "reload_file_diff",
+                    scannerLabel => ReportLibraryInitializationProgress(
+                        LibraryInitializationProgressStage.FileEnumeration,
+                        scannerLabel,
+                        force: true));
+                libraryFileScanPipelineOwner.StartNormalFolderMtimeSnapshot(fileScanRequest);
+                SongTableFileCheckResult result = libraryFileScanPipelineOwner.ApplyFileScanRequest(
+                    fileScanRequest,
+                    trackLibraryFileCheckProgress: true);
                 stopwatch.Stop();
                 LogInstallPerformance("library_file_diff_reload done added=" + result.BmsAddedTargetCount
                     + " deleted=" + result.BmsDeletedTargetCount

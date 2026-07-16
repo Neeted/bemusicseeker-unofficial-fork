@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -74,6 +75,37 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual(1, host.DiffCompletedCount);
     }
 
+    [TestMethod]
+    public void ApplyFileScanRequest_NoRootsUsesOwnedApplyRoute()
+    {
+        var host = new RecordingLibraryFileScanPipelineHost();
+        var owner = CreateOwner(host);
+        var request = new LibraryFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_request");
+
+        SongTableFileCheckResult result = owner.ApplyFileScanRequest(request, trackLibraryFileCheckProgress: true);
+
+        Assert.IsNotNull(result);
+        Assert.AreEqual(1, host.EnumerationCompletedCount);
+        Assert.AreEqual(1, host.DiffCompletedCount);
+        Assert.AreEqual(1, host.MutationBlockedChecks);
+        Assert.AreEqual("ApplyLibraryFileScanDiff", host.LastMutationBlockedOperation);
+        StringAssert.Contains(host.PerformanceMessages[0], "reason=no_bms_directories");
+    }
+
+    [TestMethod]
+    public void ResolveChartScanPrefetch_FailedTaskReportsFailureAndReturnsNull()
+    {
+        var host = new RecordingLibraryFileScanPipelineHost();
+        var owner = CreateOwner(host);
+        var request = new LibraryFileScanRequest(new BmsLibraryOptionsSnapshot(), ["C:\\charts"], "test_prefetch");
+        request.ChartScanPrefetchTask = Task.FromException<ChartScanPrefetchInfo>(new InvalidOperationException("prefetch_failed"));
+
+        ChartScanPrefetchInfo result = owner.ResolveChartScanPrefetch(request);
+
+        Assert.IsNull(result);
+        StringAssert.Contains(host.EverythingMessages[0], "chart_scan_prefetch failed");
+    }
+
     private static LibraryFileScanPipelineOwner CreateOwner(ILibraryFileScanPipelineHost host)
     {
         return new LibraryFileScanPipelineOwner(
@@ -109,6 +141,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public string LastIncompleteWarningReason { get; private set; } = string.Empty;
 
         public List<string> PerformanceMessages { get; } = [];
+
+        public List<string> EverythingMessages { get; } = [];
 
         public void ThrowIfLr2SongDbSyncMutationBlocked(string operation)
         {
@@ -147,6 +181,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public void LogEverythingScan(string message)
         {
+            EverythingMessages.Add(message);
         }
 
         public void LogStartupMemoryCheckpoint(string phase, string point)

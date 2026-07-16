@@ -18,6 +18,25 @@ internal sealed class ChartScanPrefetchInfo
 }
 
 /// <summary>
+/// Captures the scan inputs and asynchronous preparation owned by one library file-scan request.
+/// </summary>
+internal sealed class LibraryFileScanRequest(
+    BmsLibraryOptionsSnapshot options,
+    List<string> rootDirectories,
+    string reason)
+{
+    internal BmsLibraryOptionsSnapshot Options { get; } = options;
+
+    internal List<string> RootDirectories { get; } = rootDirectories ?? [];
+
+    internal string Reason { get; } = reason ?? string.Empty;
+
+    internal Task<ChartScanPrefetchInfo> ChartScanPrefetchTask { get; set; }
+
+    internal Task<Lr2NormalFolderMtimeSnapshot> NormalFolderMtimeSnapshotTask { get; set; }
+}
+
+/// <summary>
 /// Owns the shared chart file scan, diff, parse, commit, and terminal apply route.
 /// </summary>
 internal sealed class LibraryFileScanPipelineOwner
@@ -47,6 +66,89 @@ internal sealed class LibraryFileScanPipelineOwner
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.storageMutationCoordinatorFactory = storageMutationCoordinatorFactory ?? throw new ArgumentNullException(nameof(storageMutationCoordinatorFactory));
         this.mutationDeltaApplyCoordinatorFactory = mutationDeltaApplyCoordinatorFactory ?? throw new ArgumentNullException(nameof(mutationDeltaApplyCoordinatorFactory));
+    }
+
+    internal LibraryFileScanRequest StartFileScanRequest(
+        BmsLibraryOptionsSnapshot options,
+        List<string> rootDirectories,
+        string reason,
+        Action<string> reportScanner = null)
+    {
+        var request = new LibraryFileScanRequest(options, rootDirectories, reason);
+        if (request.RootDirectories.Count == 0)
+        {
+            return request;
+        }
+
+        request.ChartScanPrefetchTask = Task.Run(() =>
+        {
+            var stopwatchPrefetch = Stopwatch.StartNew();
+            ChartScanExecutionResult scanResult = ExecuteChartScanWithManagedFallback(
+                request.RootDirectories,
+                BMSLibrary.ShouldIncludeLr2TextSurface(request.Options),
+                BMSLibrary.ShouldIncludeLr2DirectorySurface(request.Options),
+                reportScanner);
+            stopwatchPrefetch.Stop();
+            return new ChartScanPrefetchInfo
+            {
+                ScanResult = scanResult,
+                ElapsedMs = stopwatchPrefetch.ElapsedMilliseconds
+            };
+        });
+        return request;
+    }
+
+    internal void StartNormalFolderMtimeSnapshot(LibraryFileScanRequest request)
+    {
+        if (request?.Options?.OperationModeLR2DB != true
+            || request.RootDirectories.Count == 0
+            || request.NormalFolderMtimeSnapshotTask != null)
+        {
+            return;
+        }
+
+        request.NormalFolderMtimeSnapshotTask = Task.Run(() =>
+            initializationService.LoadNormalFolderMtimeSnapshot(
+                host.DbGateway,
+                request.Options,
+                request.RootDirectories,
+                host.LogInstallPerformance)).Logging("Lr2NormalFolderMtimeSnapshotPrefetch");
+    }
+
+    internal ChartScanPrefetchInfo ResolveChartScanPrefetch(LibraryFileScanRequest request)
+    {
+        if (request?.ChartScanPrefetchTask == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return request.ChartScanPrefetchTask.GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            host.LogEverythingScan("chart_scan_prefetch failed message=" + ex.Message);
+            return null;
+        }
+    }
+
+    internal SongTableFileCheckResult ApplyFileScanRequest(
+        LibraryFileScanRequest request,
+        bool trackLibraryFileCheckProgress)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+
+        return ApplyFileScanDiff(
+            request.Options,
+            request.RootDirectories,
+            ResolveChartScanPrefetch(request),
+            request.NormalFolderMtimeSnapshotTask,
+            trackLibraryFileCheckProgress,
+            request.Reason);
     }
 
     internal ChartScanExecutionResult ExecuteChartScanWithManagedFallback(
