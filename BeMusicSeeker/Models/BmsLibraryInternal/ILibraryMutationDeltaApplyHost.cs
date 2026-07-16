@@ -55,7 +55,7 @@ internal interface ILibraryMutationDeltaApplyHost
     /// Applies the current owned-chart collection mutation after storage rows and state have been updated.
     /// </summary>
     /// <param name="storageRowsVersion">The storage-row version snapshot returned by unregister processing.</param>
-    void ApplyOwnedChartCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion);
+    void ApplyCatalogOwnedCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion);
 
     /// <summary>
     /// Completes resource-health mutation metadata after the input mutation scope is disposed.

@@ -217,6 +217,132 @@ public sealed class CatalogMutationOwnerTests
     }
 
     [TestMethod]
+    public void ApplyOwnedCollectionMutation_EmitsReceiptAndAppliesRemovePathAndAddFacts()
+    {
+        string oldPath = Path.Combine("C:\\Library", "old", "moved.bms");
+        string newPath = Path.Combine("C:\\Library", "new", "moved.bms");
+        var movedBms = CreateBms("moved.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        movedBms.path = oldPath;
+        var removedBms = CreateBms("removed.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var keptBmson = CreateBmson("kept.bmson", "cccccccccccccccccccccccccccccccc");
+        var addedBms = CreateBms("added.bms", "dddddddddddddddddddddddddddddddd");
+        var addedBmson = CreateBmson("added.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
+            [movedBms, removedBms],
+            [keptBmson]);
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+            OwnedChartCollectionState.FromStorageRows([movedBms, removedBms], [keptBmson]),
+            initialRows.BmsRowsVersion,
+            initialRows.BmsonRowsVersion));
+        int expectedCollectionVersion = ownedCollectionOwner.IncrementVersion();
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+
+        movedBms.path = newPath;
+        CatalogOwnedCollectionMutationRequest request = owner.CreateOwnedCollectionMutationRequest(
+            [OwnedChartRemoveRequest.FromOwnerReference(removedBms)],
+            [new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
+                OldPath = oldPath,
+                NewPath = newPath
+            }],
+            [addedBms],
+            [addedBmson],
+            new StorageRowsVersionSnapshot(
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion,
+                initialRows.BmsRowsVersion + 1,
+                initialRows.BmsonRowsVersion + 1));
+        CatalogStorageRowsSnapshot appliedRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
+            [movedBms, addedBms],
+            [keptBmson, addedBmson]);
+        CatalogOwnedCollectionMutationReceipt receipt = owner.ApplyOwnedCollectionMutation(request);
+
+        Assert.IsTrue(receipt.Applied);
+        Assert.AreEqual(CatalogMutationApplyKind.OwnedCollectionMutation, receipt.Kind);
+        Assert.IsTrue(receipt.OwnedCollectionApplied);
+        Assert.AreEqual(expectedCollectionVersion, receipt.OwnedCollectionVersion);
+        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
+        Assert.AreEqual(appliedRows.BmsRowsVersion, receipt.StorageRowsVersion.BmsRowsVersion);
+        Assert.AreEqual(appliedRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
+        Assert.IsTrue(ownedCollectionOwner.IsCurrent(
+            receipt.StorageRowsVersion.BmsRowsVersion,
+            receipt.StorageRowsVersion.BmsonRowsVersion));
+        OwnedChartStorageOwnerView view = ownedCollectionOwner.Collection.CreateStorageOwnerView();
+        Assert.IsFalse(view.ContainsOwnerPath(removedBms.path));
+        Assert.IsTrue(view.ContainsOwnerPath(newPath));
+        Assert.IsTrue(view.ContainsOwnerPath(addedBms.path));
+        Assert.IsTrue(view.ContainsOwnerPath(addedBmson.path));
+    }
+
+    [TestMethod]
+    public void ApplyOwnedCollectionMutation_StaleRequestResetsCollectionWithoutThrowing()
+    {
+        var bms = CreateBms("current.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var addedBms = CreateBms("added.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+            OwnedChartCollectionState.FromStorageRows([bms], []),
+            initialRows.BmsRowsVersion,
+            initialRows.BmsonRowsVersion));
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+
+        CatalogOwnedCollectionMutationReceipt receipt = owner.ApplyOwnedCollectionMutation(
+            owner.CreateOwnedCollectionMutationRequest(
+                [],
+                [],
+                [addedBms],
+                [],
+                new StorageRowsVersionSnapshot(
+                    initialRows.BmsRowsVersion + 1,
+                    initialRows.BmsonRowsVersion,
+                    initialRows.BmsRowsVersion + 2,
+                    initialRows.BmsonRowsVersion + 1)));
+
+        Assert.IsFalse(receipt.Applied);
+        Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
+        Assert.IsFalse(receipt.OwnedCollectionApplied);
+        Assert.IsFalse(ownedCollectionOwner.IsInitialized);
+        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
+        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.BmsRowsVersion);
+    }
+
+    [TestMethod]
+    public void ApplyOwnedCollectionMutation_EmptyRequestIsNoOp()
+    {
+        var bms = CreateBms("current.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+            OwnedChartCollectionState.FromStorageRows([bms], []),
+            initialRows.BmsRowsVersion,
+            initialRows.BmsonRowsVersion));
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+
+        CatalogOwnedCollectionMutationReceipt receipt = owner.ApplyOwnedCollectionMutation(
+            owner.CreateOwnedCollectionMutationRequest(
+                [],
+                [],
+                [],
+                [],
+                new StorageRowsVersionSnapshot(initialRows.BmsRowsVersion, initialRows.BmsonRowsVersion)));
+
+        Assert.IsFalse(receipt.Applied);
+        Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
+        Assert.IsFalse(receipt.OwnedCollectionApplied);
+        Assert.IsTrue(ownedCollectionOwner.IsInitialized);
+        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.BmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
+    }
+
+    [TestMethod]
     public void ApplyInstalledTargetUpsert_EmitsReceiptAndReplacesSamePathRows()
     {
         var oldBms = CreateBms("same.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");

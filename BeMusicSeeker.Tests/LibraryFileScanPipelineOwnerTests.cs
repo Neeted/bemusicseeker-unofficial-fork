@@ -399,7 +399,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta) => null!;
 
-        public void ApplyOwnedChartCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
+        public void ApplyCatalogOwnedCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
         {
         }
 

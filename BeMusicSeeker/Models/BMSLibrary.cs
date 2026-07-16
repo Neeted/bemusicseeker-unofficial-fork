@@ -10929,20 +10929,6 @@ public partial class BMSLibrary : NotificationObject
         }
     }
 
-    private void ApplyOwnedChartCollectionMutation(OwnedChartCollectionStorageMutation mutation, StorageRowsVersionSnapshot storageRowsVersion)
-    {
-        if (mutation == null)
-        {
-            return;
-        }
-        catalogOwnedCollectionOwner.ApplyMutation(
-            mutation.RemoveRequests,
-            mutation.PathChanges,
-            mutation.AddedBmsFiles,
-            mutation.AddedBmsonSongs,
-            storageRowsVersion);
-    }
-
     internal void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
     {
         if (fileCheckResult == null)
@@ -15381,9 +15367,15 @@ public partial class BMSLibrary : NotificationObject
             return owner.stateApplier.ApplyLibraryMutationDelta(delta, mutationResult.StorageMutation.RemoveRequests);
         }
 
-        public void ApplyOwnedChartCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
+        public void ApplyCatalogOwnedCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
         {
-            owner.ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
+            CatalogOwnedCollectionMutationRequest request = owner.catalogMutationOwner.CreateOwnedCollectionMutationRequest(
+                mutationResult.StorageMutation.RemoveRequests,
+                mutationResult.StorageMutation.PathChanges,
+                mutationResult.StorageMutation.AddedBmsFiles,
+                mutationResult.StorageMutation.AddedBmsonSongs,
+                storageRowsVersion);
+            owner.catalogMutationOwner.ApplyOwnedCollectionMutation(request);
         }
 
         public void CompleteResourceHealthMutation(int targetInputVersion)

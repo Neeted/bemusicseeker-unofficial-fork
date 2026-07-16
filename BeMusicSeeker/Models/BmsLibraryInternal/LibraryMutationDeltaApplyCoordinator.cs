@@ -73,7 +73,7 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
                     timings.StatePackageApplyMs = stateApplyResult?.PackageApplyMs ?? 0;
 
                     Stopwatch ownedCollectionApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    host.ApplyOwnedChartCollectionMutation(storageRowsVersion);
+                    host.ApplyCatalogOwnedCollectionMutation(storageRowsVersion);
                     timings.OwnedCollectionApplyMs = StopPerformanceStepStopwatch(ownedCollectionApplyStopwatch);
                 }
             }

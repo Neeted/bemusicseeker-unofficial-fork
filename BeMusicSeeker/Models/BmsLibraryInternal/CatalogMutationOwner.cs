@@ -119,6 +119,53 @@ internal sealed class CatalogMutationOwner
         }
     }
 
+    internal CatalogOwnedCollectionMutationRequest CreateOwnedCollectionMutationRequest(
+        IEnumerable<OwnedChartRemoveRequest> removeRequests,
+        IEnumerable<LibraryChartPathChange> pathChanges,
+        IEnumerable<BMSFile> addedBmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs,
+        StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        return new CatalogOwnedCollectionMutationRequest(
+            removeRequests,
+            pathChanges,
+            addedBmsFiles,
+            addedBmsonSongs,
+            storageRowsVersion);
+    }
+
+    internal CatalogOwnedCollectionMutationReceipt ApplyOwnedCollectionMutation(
+        CatalogOwnedCollectionMutationRequest request)
+    {
+        if (request == null)
+        {
+            return CatalogOwnedCollectionMutationReceipt.NotApplied;
+        }
+
+        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        {
+            bool ownerApplied = ownedCollectionOwner.ApplyMutation(
+                request.RemoveRequests,
+                request.PathChanges,
+                request.AddedBmsFiles,
+                request.AddedBmsonSongs,
+                request.StorageRowsVersion);
+            StorageRowsVersionSnapshot currentStorageRowsVersion = storageRowsOwner.CaptureVersionSnapshot();
+            bool applied = request.HasChanges && ownerApplied;
+            return new CatalogOwnedCollectionMutationReceipt(
+                applied,
+                ownedCollectionApplied: applied,
+                ownedCollectionVersion: ownedCollectionOwner.CollectionVersion,
+                applied
+                    ? new StorageRowsVersionSnapshot(
+                        request.StorageRowsVersion.PreviousBmsRowsVersion,
+                        request.StorageRowsVersion.PreviousBmsonRowsVersion,
+                        currentStorageRowsVersion.BmsRowsVersion,
+                        currentStorageRowsVersion.BmsonRowsVersion)
+                    : currentStorageRowsVersion);
+        }
+    }
+
     internal CatalogFileScanStorageReplacementRequest CreateFileScanStorageReplacementRequest(
         bool hasDbDiff,
         IEnumerable<BMSFile> nextBmsRows,
@@ -293,6 +340,7 @@ internal enum CatalogMutationApplyKind
     NoOp,
     StorageRowsReplacement,
     StorageRowsRemoval,
+    OwnedCollectionMutation,
     FileScanStorageReplacement,
     InstalledTargetUpsert,
     DigestMutation
@@ -382,6 +430,84 @@ internal sealed class CatalogStorageRowsRemovalReceipt
     internal bool BmsRowsChanged { get; }
 
     internal bool BmsonRowsChanged { get; }
+
+    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+}
+
+/// <summary>
+/// Immutable input snapshot for an owned collection mutation after catalog storage rows are applied.
+/// </summary>
+internal sealed class CatalogOwnedCollectionMutationRequest
+{
+    internal CatalogOwnedCollectionMutationRequest(
+        IEnumerable<OwnedChartRemoveRequest> removeRequests,
+        IEnumerable<LibraryChartPathChange> pathChanges,
+        IEnumerable<BMSFile> addedBmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs,
+        StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        RemoveRequests = Snapshot(removeRequests);
+        PathChanges = Snapshot(pathChanges);
+        AddedBmsFiles = Snapshot(addedBmsFiles);
+        AddedBmsonSongs = Snapshot(addedBmsonSongs);
+        StorageRowsVersion = storageRowsVersion;
+    }
+
+    internal IReadOnlyList<OwnedChartRemoveRequest> RemoveRequests { get; }
+
+    internal IReadOnlyList<LibraryChartPathChange> PathChanges { get; }
+
+    internal IReadOnlyList<BMSFile> AddedBmsFiles { get; }
+
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; }
+
+    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+
+    internal bool HasChanges => RemoveRequests.Count > 0
+        || PathChanges.Count > 0
+        || AddedBmsFiles.Count > 0
+        || AddedBmsonSongs.Count > 0;
+
+    private static IReadOnlyList<T> Snapshot<T>(IEnumerable<T> values)
+    {
+        return Array.AsReadOnly([.. values ?? []]);
+    }
+}
+
+/// <summary>
+/// Canonical facts emitted after applying an owned collection mutation.
+/// </summary>
+internal sealed class CatalogOwnedCollectionMutationReceipt
+{
+    internal static CatalogOwnedCollectionMutationReceipt NotApplied { get; } =
+        new(
+            applied: false,
+            ownedCollectionApplied: false,
+            ownedCollectionVersion: 0,
+            new StorageRowsVersionSnapshot(0, 0));
+
+    internal CatalogOwnedCollectionMutationReceipt(
+        bool applied,
+        bool ownedCollectionApplied,
+        int ownedCollectionVersion,
+        StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        Applied = applied;
+        Kind = applied
+            ? CatalogMutationApplyKind.OwnedCollectionMutation
+            : CatalogMutationApplyKind.NoOp;
+        OwnedCollectionApplied = ownedCollectionApplied;
+        OwnedCollectionVersion = ownedCollectionVersion;
+        StorageRowsVersion = storageRowsVersion;
+    }
+
+    internal bool Applied { get; }
+
+    internal CatalogMutationApplyKind Kind { get; }
+
+    internal bool OwnedCollectionApplied { get; }
+
+    internal int OwnedCollectionVersion { get; }
 
     internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
 }
