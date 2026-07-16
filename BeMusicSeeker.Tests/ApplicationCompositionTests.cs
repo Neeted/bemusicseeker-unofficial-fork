@@ -1297,7 +1297,7 @@ public sealed class ApplicationCompositionTests
         viewModel.PlayHistory.SelectedDisplayTargetIdentity = "all";
         Assert.AreEqual("all", store.SelectedDisplayTargetIdentity);
 
-        viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+        string replacementJson = PlayHistoryDisplayTargetSetStore.Serialize(
         [
             new PlayHistoryDisplayTargetSet
             {
@@ -1305,6 +1305,11 @@ public sealed class ApplicationCompositionTests
                 Targets = [new PlayHistoryDisplayTargetReference { PlaylistId = 456 }]
             }
         ]);
+        store.DisplayTargetSetsJson = replacementJson;
+        viewModel.PlayHistory.ReplaceDisplayTargetSetsFromSettings(
+            replacementJson,
+            viewModel.PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot(),
+            queueRefreshWhenSelectionChanges: false);
         Assert.AreEqual("replacement", PlayHistoryDisplayTargetSetStore.Deserialize(store.DisplayTargetSetsJson)[0].Name);
     }
 

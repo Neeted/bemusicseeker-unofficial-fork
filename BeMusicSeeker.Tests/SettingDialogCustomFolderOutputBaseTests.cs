@@ -288,7 +288,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
             var viewModel = new MainWindowViewModel();
 
-            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved")
             ]);
@@ -321,7 +321,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
 
             Assert.AreEqual(PlayHistoryDisplayTargetKind.All, viewModel.PlayHistory.SelectedDisplayTarget.Kind);
 
-            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved")
             ]);
@@ -346,7 +346,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
             var viewModel = new MainWindowViewModel();
 
-            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved")
             ]);
@@ -380,7 +380,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
             var viewModel = new MainWindowViewModel();
 
-            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved")
             ]);
@@ -412,7 +412,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.PlayHistoryDisplayTargetSetsJson = string.Empty;
             Settings.Default.PlayHistorySelectedDisplayTargetIdentity = "set-folder:SAVED";
             var viewModel = new MainWindowViewModel();
-            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved")
             ]);
@@ -420,7 +420,9 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
                 .GetField("selectedDisplayTarget", BindingFlags.Instance | BindingFlags.NonPublic)!
                 .SetValue(viewModel.PlayHistory, PlayHistoryDisplayTargetItem.All);
 
-            viewModel.BeginPlayHistoryFilterRequest(PlayHistoryPeriodRequest.All());
+            viewModel.PlayHistory.ActivatePeriod(
+                PlayHistoryPeriodRequest.All(),
+                viewModel.ChartFilters.KeywordFilter);
 
             Assert.AreEqual("set-folder:SAVED", viewModel.PlayHistory.SelectedDisplayTarget.Identity);
         }
@@ -441,7 +443,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.PlayHistoryDisplayTargetSetsJson = string.Empty;
             Settings.Default.PlayHistorySelectedDisplayTargetIdentity = string.Empty;
             var viewModel = new MainWindowViewModel();
-            viewModel.ReplacePlayHistoryDisplayTargetSetsForTest(
+            ReplacePlayHistoryDisplayTargetSets(viewModel,
             [
                 CreateTargetSet("Saved", playlistId: 101)
             ]);
@@ -1337,6 +1339,18 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
         typeof(MainWindowViewModel)
             .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(viewModel, value);
+    }
+
+    private static void ReplacePlayHistoryDisplayTargetSets(
+        MainWindowViewModel viewModel,
+        IEnumerable<PlayHistoryDisplayTargetSet> targetSets)
+    {
+        string serializedTargetSets = PlayHistoryDisplayTargetSetStore.Serialize(targetSets);
+        Settings.Default.PlayHistoryDisplayTargetSetsJson = serializedTargetSets;
+        viewModel.PlayHistory.ReplaceDisplayTargetSetsFromSettings(
+            serializedTargetSets,
+            viewModel.PlaylistWorkspace.CapturePlaylistTreeTablesSnapshot(),
+            queueRefreshWhenSelectionChanges: false);
     }
 
     private static T GetViewModelField<T>(MainWindowViewModel viewModel, string fieldName)

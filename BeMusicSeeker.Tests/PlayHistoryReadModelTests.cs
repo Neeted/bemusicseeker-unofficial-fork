@@ -765,8 +765,7 @@ public sealed class PlayHistoryReadModelTests
                 PlayHistoryPeriodRequest.All(),
                 string.Empty,
                 PlayHistoryDisplayTargetItem.All.Identity,
-                owner.DisplayTargetRevision,
-                activateRequest: null);
+                owner.DisplayTargetRevision);
 
             PlayHistoryReadWorkflowResult first = owner.BuildReadView(
                 new PlayHistoryReadWorkflowRequest(
@@ -805,8 +804,7 @@ public sealed class PlayHistoryReadModelTests
                 PlayHistoryPeriodRequest.All(),
                 string.Empty,
                 PlayHistoryDisplayTargetItem.All.Identity,
-                owner.DisplayTargetRevision,
-                activateRequest: null);
+                owner.DisplayTargetRevision);
             PlayHistoryReadWorkflowResult second = owner.BuildReadView(
                 new PlayHistoryReadWorkflowRequest(
                     secondRequest,
@@ -826,8 +824,7 @@ public sealed class PlayHistoryReadModelTests
                 PlayHistoryPeriodRequest.All(),
                 string.Empty,
                 PlayHistoryDisplayTargetItem.All.Identity,
-                owner.DisplayTargetRevision,
-                activateRequest: null);
+                owner.DisplayTargetRevision);
             Assert.ThrowsException<OperationCanceledException>(() => owner.BuildReadView(
                 new PlayHistoryReadWorkflowRequest(
                     thirdRequest,
@@ -855,14 +852,12 @@ public sealed class PlayHistoryReadModelTests
             PlayHistoryPeriodRequest.All(),
             string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            owner.DisplayTargetRevision,
-            activateRequest: null);
+            owner.DisplayTargetRevision);
         owner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            owner.DisplayTargetRevision,
-            activateRequest: null);
+            owner.DisplayTargetRevision);
 
         PlayHistoryReadWorkflowResult result = owner.BuildReadView(
             new PlayHistoryReadWorkflowRequest(
@@ -1088,21 +1083,16 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void ResolveViewRequest_ActiveRequestDoesNotReadFallbackPeriod()
+    public void SnapshotActiveRequest_ReturnsCurrentRequest()
     {
         var owner = new PlayHistoryWorkflowOwner();
         PlayHistoryViewRequest active = owner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             string.Empty,
             string.Empty,
-            displayTargetRevision: 0L,
-            activateRequest: null);
+            displayTargetRevision: 0L);
 
-        PlayHistoryViewRequest resolved = owner.ResolveViewRequest(
-            parameter: null,
-            fallbackPeriodRequestFactory: () => throw new AssertFailedException("Active request must be resolved before reading fallback selection."));
-
-        Assert.AreSame(active, resolved);
+        Assert.AreSame(active, owner.SnapshotActiveRequest());
     }
 
     [TestMethod]
@@ -1143,8 +1133,7 @@ public sealed class PlayHistoryReadModelTests
             PlayHistoryPeriodRequest.All(),
             string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: owner.DisplayTargetRevision,
-            activateRequest: null);
+            displayTargetRevision: owner.DisplayTargetRevision);
         owner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = nameof(PlayHistoryRow.PlayedAt),
@@ -3070,26 +3059,22 @@ public sealed class PlayHistoryReadModelTests
     public void WorkflowOwner_TransfersRequestIdentityAndCancelsPreviousLifecycle()
     {
         var owner = new PlayHistoryWorkflowOwner();
-        PlayHistoryViewRequest? activated = null;
         PlayHistoryViewRequest first = owner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             "keyword-a",
             "target-a",
-            displayTargetRevision: 3,
-            request => activated = request);
+            displayTargetRevision: 3);
         System.Threading.CancellationToken firstToken = owner.GetCancellationToken(first.RequestId);
 
         PlayHistoryViewRequest second = owner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             "keyword-b",
             "target-b",
-            displayTargetRevision: 4,
-            request => activated = request);
+            displayTargetRevision: 4);
 
         Assert.IsTrue(firstToken.IsCancellationRequested);
         Assert.IsFalse(owner.IsCurrentRequest(first.RequestId));
         Assert.IsTrue(owner.IsCurrentRequest(second.RequestId));
-        Assert.AreSame(second, activated);
         Assert.AreSame(second, owner.SnapshotActiveRequest());
         Assert.AreEqual("keyword-b", owner.PresentationState.CurrentKeywordIdentity);
         Assert.AreEqual("target-b", owner.PresentationState.CurrentDisplayTargetIdentity);
@@ -3106,23 +3091,24 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void WorkflowOwner_CallbackFailureDoesNotLeaveRequestLifecycleActive()
+    public void WorkflowOwner_PeriodActivationFailureDoesNotLeaveRequestLifecycleActive()
     {
         var owner = new PlayHistoryWorkflowOwner();
+        owner.ConfigureDisplayTargetCatalogRefresh(
+            () => false,
+            () => [],
+            _ => { });
         PlayHistoryViewRequest first = owner.BeginRequest(
             PlayHistoryPeriodRequest.All(),
             string.Empty,
             string.Empty,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         System.Threading.CancellationToken firstToken = owner.GetCancellationToken(first.RequestId);
 
-        Assert.ThrowsException<InvalidOperationException>(() => owner.BeginRequest(
+        owner.PeriodRequestActivated += (_, _) => throw new InvalidOperationException("selection failed");
+        Assert.ThrowsException<InvalidOperationException>(() => owner.ActivatePeriod(
             PlayHistoryPeriodRequest.All(),
-            string.Empty,
-            string.Empty,
-            displayTargetRevision: 0,
-            _ => throw new InvalidOperationException("selection failed")));
+            string.Empty));
 
         Assert.IsTrue(firstToken.IsCancellationRequested);
         Assert.IsNull(owner.SnapshotActiveRequest());
@@ -3132,8 +3118,7 @@ public sealed class PlayHistoryReadModelTests
             PlayHistoryPeriodRequest.All(),
             string.Empty,
             string.Empty,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         System.Threading.CancellationToken nextToken = owner.GetCancellationToken(next.RequestId);
         Assert.ThrowsException<InvalidOperationException>(() => owner.Deactivate(
             () => throw new InvalidOperationException("deactivation failed")));
@@ -3142,10 +3127,36 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
+    public void WorkflowOwner_ActivatePeriodRaisesAfterRequestLockIsReleased()
+    {
+        var owner = new PlayHistoryWorkflowOwner();
+        owner.ConfigureDisplayTargetCatalogRefresh(
+            () => false,
+            () => [],
+            _ => { });
+        PlayHistoryViewRequest? activated = null;
+        bool lockWasHeld = false;
+        owner.PeriodRequestActivated += (_, args) =>
+        {
+            activated = args.Request;
+            lockWasHeld = Monitor.IsEntered(owner.PresentationState.SyncRoot);
+        };
+
+        PlayHistoryViewRequest request = owner.ActivatePeriod(
+            PlayHistoryPeriodRequest.All(),
+            "  keyword  ");
+
+        Assert.AreSame(request, activated);
+        Assert.IsFalse(lockWasHeld);
+        Assert.AreEqual(PlaylistRequestFactory.NormalizeKeywordFilter("  keyword  "), owner.CurrentKeywordIdentity);
+        Assert.IsTrue(owner.IsCurrentRequest(request.RequestId));
+    }
+
+    [TestMethod]
     public void WorkflowOwner_OwnsRefreshRevisionCoalescingAndActivity()
     {
         var owner = new PlayHistoryWorkflowOwner();
-        owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0, activateRequest: null);
+        owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0);
 
         Assert.IsTrue(owner.TryBeginKeywordRefresh(string.Empty, advanceRevision: false, out PlayHistoryViewRequest initialRequest));
         Assert.AreEqual(0L, initialRequest.KeywordFilterRevision);
@@ -3199,7 +3210,7 @@ public sealed class PlayHistoryReadModelTests
     public void WorkflowOwner_QueuesViewRefreshAndCompletesRevisionAfterRefreshCallback()
     {
         var owner = new PlayHistoryWorkflowOwner();
-        owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0, activateRequest: null);
+        owner.BeginRequest(PlayHistoryPeriodRequest.All(), string.Empty, string.Empty, 0);
         using var refreshed = new ManualResetEventSlim();
         var requests = new List<PlayHistoryViewRequest>();
         owner.ConfigureViewRefreshScheduler(
@@ -3232,8 +3243,7 @@ public sealed class PlayHistoryReadModelTests
             PlayHistoryPeriodRequest.All(),
             string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         bool dependencyCalled = false;
         owner.ConfigureViewExecution(CreateViewExecutionDependencies(
             () =>
@@ -3257,52 +3267,49 @@ public sealed class PlayHistoryReadModelTests
     }
 
     [TestMethod]
-    public void WorkflowOwner_ExecuteViewFromShellRegistersAndActivatesFallbackPeriod()
+    public void WorkflowOwner_ExecuteViewUsesExplicitActiveRequest()
     {
         var owner = new PlayHistoryWorkflowOwner();
-        PlayHistoryViewRequest? activated = null;
-        int activationCount = 0;
-        owner.ConfigureViewExecution(CreateViewExecutionDependencies(
-            activateRequest: request =>
-            {
-                activated = request;
-                activationCount++;
-            }));
-        PlayHistoryPeriodRequest fallbackPeriod = PlayHistoryPeriodRequest.Create(
+        owner.ConfigureViewExecution(CreateViewExecutionDependencies());
+        PlayHistoryPeriodRequest period = PlayHistoryPeriodRequest.Create(
             PlayHistoryPeriodKind.Today,
             new DateTimeOffset(2026, 7, 12, 12, 0, 0, TimeSpan.Zero),
             TimeZoneInfo.Utc);
+        PlayHistoryViewRequest active = owner.BeginRequest(
+            period,
+            PlaylistRequestFactory.NormalizeKeywordFilter("  title  "),
+            PlayHistoryDisplayTargetItem.All.Identity,
+            displayTargetRevision: 0);
 
-        PlayHistoryViewExecutionResult result = owner.ExecuteViewFromShell(
-            MainViewUpdateMode.PlayHistorySelected,
-            MainViewUpdateMode.SortUpdated,
-            parameter: null,
-            () => fallbackPeriod,
-            Stopwatch.StartNew(),
-            keywordFilter: "  title  ",
-            PlayHistoryDisplayTargetItem.All);
+        PlayHistoryViewExecutionResult result = owner.ExecuteView(
+            new PlayHistoryViewExecutionRequest(
+                MainViewUpdateMode.PlayHistorySelected,
+                MainViewUpdateMode.SortUpdated,
+                parameter: null,
+                Stopwatch.StartNew(),
+                active,
+                keywordFilter: "  title  ",
+                PlayHistoryDisplayTargetItem.All));
 
         Assert.AreEqual(PlayHistoryViewExecutionStatus.NoCurrentMatchingState, result.Status);
-        Assert.IsNotNull(activated);
-        Assert.AreEqual(1, activationCount);
-        Assert.AreEqual(fallbackPeriod.Kind, activated.PeriodRequest.Kind);
-        Assert.AreEqual(owner.CurrentRequestId, activated.RequestId);
+        Assert.AreEqual(period.Kind, active.PeriodRequest.Kind);
+        Assert.AreEqual(owner.CurrentRequestId, active.RequestId);
         Assert.AreEqual(
             PlaylistRequestFactory.NormalizeKeywordFilter("  title  "),
             owner.CurrentKeywordIdentity);
 
-        PlayHistoryViewExecutionResult existingRequestResult = owner.ExecuteViewFromShell(
-            MainViewUpdateMode.PlayHistorySelected,
-            MainViewUpdateMode.SortUpdated,
-            activated,
-            () => fallbackPeriod,
-            Stopwatch.StartNew(),
-            keywordFilter: "ignored",
-            PlayHistoryDisplayTargetItem.All);
+        PlayHistoryViewExecutionResult existingRequestResult = owner.ExecuteView(
+            new PlayHistoryViewExecutionRequest(
+                MainViewUpdateMode.PlayHistorySelected,
+                MainViewUpdateMode.SortUpdated,
+                parameter: active,
+                Stopwatch.StartNew(),
+                active,
+                keywordFilter: "ignored",
+                PlayHistoryDisplayTargetItem.All));
 
         Assert.AreEqual(PlayHistoryViewExecutionStatus.NoCurrentMatchingState, existingRequestResult.Status);
-        Assert.AreEqual(activated.RequestId, owner.CurrentRequestId);
-        Assert.AreEqual(1, activationCount);
+        Assert.AreEqual(active.RequestId, owner.CurrentRequestId);
     }
 
     [TestMethod]
@@ -3313,8 +3320,7 @@ public sealed class PlayHistoryReadModelTests
             PlayHistoryPeriodRequest.All(),
             string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         PlayHistoryViewState state = new(
             active.RequestId,
             active.PeriodRequest,
@@ -3372,8 +3378,7 @@ public sealed class PlayHistoryReadModelTests
             PlayHistoryPeriodRequest.All(),
             string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         owner.PresentationState.CurrentView = new PlayHistoryViewState(
             active.RequestId,
             active.PeriodRequest,
@@ -3406,8 +3411,7 @@ public sealed class PlayHistoryReadModelTests
 
     private static PlayHistoryViewExecutionDependencies CreateViewExecutionDependencies(
         Func<PlayHistoryReadSourceContext>? sourceResolver = null,
-        bool invokePresentation = true,
-        Action<PlayHistoryViewRequest>? activateRequest = null)
+        bool invokePresentation = true)
     {
         return new PlayHistoryViewExecutionDependencies(
             () => null,
@@ -3424,7 +3428,6 @@ public sealed class PlayHistoryReadModelTests
             },
             (_, _) => { },
             () => MainViewUpdateMode.PlayHistorySelected,
-            activateRequest ?? (_ => { }),
             new MainChartListViewModel(),
             new PlaylistWorkspaceViewModel(
                 action => action(),

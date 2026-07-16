@@ -3078,7 +3078,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private async void playHistoryPeriodSelect(object sender, RoutedEventArgs e)
+    private void playHistoryPeriodSelect(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockStartupUiInteraction("tree_play_history_period_select"))
         {
@@ -3115,11 +3115,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        long requestId = viewModel.BeginPlayHistoryFilterRequest(request);
-        await Task.Run(delegate
-        {
-            viewModel.ExecPlayHistoryFilter(request, requestId);
-        }).Logging("playHistoryPeriodSelect");
+        viewModel.PlayHistory.ActivatePeriod(
+            request,
+            viewModel.ChartFilters.KeywordFilter);
         treeRoot.IsExpanded = true;
     }
 

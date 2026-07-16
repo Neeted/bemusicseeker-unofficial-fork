@@ -36,6 +36,8 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
 
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortRefreshRequested;
 
+    internal event EventHandler<PlayHistoryViewRequestActivatedEventArgs> PeriodRequestActivated;
+
     internal void ConfigureViewRefreshScheduler(
         Func<bool> isShutdownRequested,
         Action<PlayHistoryViewRequest> refresh)
@@ -1434,13 +1436,10 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         PlayHistoryPeriodRequest periodRequest,
         string keywordIdentity,
         string displayTargetIdentity,
-        long displayTargetRevision,
-        Action<PlayHistoryViewRequest> activateRequest)
+        long displayTargetRevision)
     {
         CancellationTokenSource previousCancellation;
-        CancellationTokenSource failedCancellation = null;
         PlayHistoryViewRequest request;
-        ExceptionDispatchInfo activationException = null;
         lock (PresentationState.SyncRoot)
         {
             previousCancellation = InvalidateRequestUnsafe();
@@ -1454,33 +1453,37 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
                 PresentationState.KeywordRevision,
                 displayTargetRevision);
             ActiveRequest = request;
-            try
-            {
-                activateRequest?.Invoke(request);
-            }
-            catch (Exception ex)
-            {
-                activationException = ExceptionDispatchInfo.Capture(ex);
-                failedCancellation = InvalidateRequestUnsafe();
-            }
         }
         Cancel(previousCancellation);
-        Cancel(failedCancellation);
-        if (activationException != null)
-        {
-            activationException.Throw();
-        }
         return request;
     }
 
-    internal long RegisterRequest(
+    internal PlayHistoryViewRequest ActivatePeriod(
         PlayHistoryPeriodRequest periodRequest,
-        string keywordIdentity,
-        string displayTargetIdentity,
-        long displayTargetRevision,
-        Action<PlayHistoryViewRequest> activateRequest)
+        string keywordFilter)
     {
-        return BeginRequest(periodRequest, keywordIdentity, displayTargetIdentity, displayTargetRevision, activateRequest).RequestId;
+        EnsureDisplayTargetCatalogRefreshConfigured();
+        ReplaceDisplayTargetCatalog(
+            snapshotDisplayTargetCatalogTables(),
+            queueRefreshWhenSelectionChanges: false);
+        PlayHistoryDisplayTargetItem safeDisplayTarget = SelectedDisplayTarget;
+        PlayHistoryViewRequest request = BeginRequest(
+            periodRequest,
+            PlaylistRequestFactory.NormalizeKeywordFilter(keywordFilter),
+            safeDisplayTarget.Identity,
+            DisplayTargetRevision);
+        try
+        {
+            PeriodRequestActivated?.Invoke(
+                this,
+                new PlayHistoryViewRequestActivatedEventArgs(request));
+        }
+        catch
+        {
+            Deactivate();
+            throw;
+        }
+        return request;
     }
 
     internal bool IsCurrentRequest(long requestId)
@@ -1496,24 +1499,6 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         lock (PresentationState.SyncRoot)
         {
             return ActiveRequest;
-        }
-    }
-
-    internal PlayHistoryViewRequest ResolveViewRequest(object parameter, Func<PlayHistoryPeriodRequest> fallbackPeriodRequestFactory)
-    {
-        if (parameter is PlayHistoryViewRequest request)
-        {
-            return request;
-        }
-        if (parameter is PlayHistoryPeriodRequest periodRequest)
-        {
-            return new PlayHistoryViewRequest(periodRequest, SnapshotActiveRequest()?.RequestId ?? 0L);
-        }
-        lock (PresentationState.SyncRoot)
-        {
-            return ActiveRequest ?? new PlayHistoryViewRequest(
-                fallbackPeriodRequestFactory?.Invoke() ?? PlayHistoryPeriodRequest.All(),
-                requestId: 0L);
         }
     }
 
@@ -2092,6 +2077,16 @@ public sealed partial class PlayHistoryWorkflowOwner : ViewModel
         {
         }
     }
+}
+
+internal sealed class PlayHistoryViewRequestActivatedEventArgs : EventArgs
+{
+    internal PlayHistoryViewRequestActivatedEventArgs(PlayHistoryViewRequest request)
+    {
+        Request = request ?? throw new ArgumentNullException(nameof(request));
+    }
+
+    internal PlayHistoryViewRequest Request { get; }
 }
 
 internal sealed class PlayHistoryViewRequest

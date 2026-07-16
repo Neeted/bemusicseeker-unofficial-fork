@@ -830,8 +830,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         var table = new MainChartListViewModel { Rows = new List<object>() };
         var workspace = new PlaylistWorkspaceViewModel(
             action => action(),
@@ -907,8 +906,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         var table = new MainChartListViewModel { Rows = new List<object>() };
         var workspace = new PlaylistWorkspaceViewModel(
@@ -978,8 +976,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         var oldRows = new List<object>();
         var table = new MainChartListViewModel { Rows = oldRows };
@@ -1049,8 +1046,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         var table = new MainChartListViewModel { Rows = new List<object>() };
         var workspace = new PlaylistWorkspaceViewModel(
@@ -1143,8 +1139,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         var projectedRows = new List<PlayHistoryRow>();
         var state = new PlayHistoryViewState(
             activeRequest.RequestId,
@@ -1200,8 +1195,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         long keywordRevision = workflowOwner.UpdateKeywordIdentity("changed", advanceRevision: true);
 
@@ -1229,8 +1223,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         PlayHistoryViewState state = CreateEmptyPlayHistoryViewState(activeRequest.RequestId);
         long keywordRevision = workflowOwner.UpdateKeywordIdentity("changed", advanceRevision: true);
         PlayHistoryDisplayTargetItem changedTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Changed" });
@@ -1258,8 +1251,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         PlayHistoryDisplayTargetItem previousTarget = PlayHistoryDisplayTargetItem.FromPlaylist(new BMSTable { name = "Previous" });
         var sourceRows = new List<PlayHistoryRow> { null! };
         var state = new PlayHistoryViewState(
@@ -1306,8 +1298,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         workflowOwner.UpdateSortParameters(new ChartListSortParameters
         {
             ColumnsName = "LibraryChartRowOnlyColumn",
@@ -1367,8 +1358,7 @@ public sealed class ChartListVirtualViewTests
             PlayHistoryPeriodRequest.All(),
             keywordIdentity: string.Empty,
             PlayHistoryDisplayTargetItem.All.Identity,
-            displayTargetRevision: 0,
-            activateRequest: null);
+            displayTargetRevision: 0);
         workflowOwner.PresentationState.RequestCancellation.Cancel();
 
         PlayHistoryReadPresentationBuildResult result = workflowOwner.BuildReadPresentation(
