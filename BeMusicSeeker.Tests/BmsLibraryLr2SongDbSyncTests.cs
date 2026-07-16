@@ -6836,9 +6836,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         SongTableFileCheckResult result,
         string reason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("ApplyLr2FolderFileDiffSync", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [options, rootDirectories, result, reason, null]);
+        var host = new BMSLibrary.LibraryFileScanPipelineHost(library);
+        var owner = new Lr2FolderFileDiffOwner(host, host);
+        owner.Apply(options, rootDirectories, result, reason);
     }
 
     private static void InvokeSetModeAndCommitToDb(BMSLibrary library, IEnumerable<BMSFile> files)

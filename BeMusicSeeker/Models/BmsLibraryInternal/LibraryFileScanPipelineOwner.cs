@@ -24,6 +24,10 @@ internal sealed class LibraryFileScanPipelineOwner
 {
     private readonly ILibraryFileScanPipelineHost host;
 
+    private readonly ILibraryFileScanLr2FolderHost lr2Host;
+
+    private readonly Lr2FolderFileDiffOwner lr2FolderFileDiffOwner;
+
     private readonly BmsLibraryInitializationService initializationService;
 
     private readonly Func<LibraryFileScanStorageMutationCoordinator> storageMutationCoordinatorFactory;
@@ -32,11 +36,14 @@ internal sealed class LibraryFileScanPipelineOwner
 
     internal LibraryFileScanPipelineOwner(
         ILibraryFileScanPipelineHost host,
+        ILibraryFileScanLr2FolderHost lr2Host,
         BmsLibraryInitializationService initializationService,
         Func<LibraryFileScanStorageMutationCoordinator> storageMutationCoordinatorFactory,
         Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory)
     {
         this.host = host ?? throw new ArgumentNullException(nameof(host));
+        this.lr2Host = lr2Host ?? throw new ArgumentNullException(nameof(lr2Host));
+        lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(this.host, lr2Host);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.storageMutationCoordinatorFactory = storageMutationCoordinatorFactory ?? throw new ArgumentNullException(nameof(storageMutationCoordinatorFactory));
         this.mutationDeltaApplyCoordinatorFactory = mutationDeltaApplyCoordinatorFactory ?? throw new ArgumentNullException(nameof(mutationDeltaApplyCoordinatorFactory));
@@ -202,19 +209,19 @@ internal sealed class LibraryFileScanPipelineOwner
 
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
         List<ChartFile> currentInstallDestinationCharts = host.CreateCurrentInstallDestinationCleanupCharts();
-        Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = host.CreateLr2SongDbSyncAppManagedOutputScope();
+        Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = lr2Host.CreateLr2SongDbSyncAppManagedOutputScope();
         Task<Lr2FolderFileDiffPreparationResult> lr2FolderFileDiffPreparationTask = null;
         bool protectExistingBmsRowsFromLr2SongDbSyncMigration = host.ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(options);
         void StartLr2FolderFileDiffPreparation(SongTableFileCheckResult partialResult)
         {
             if (lr2FolderFileDiffPreparationTask != null
-                || !host.CanPrepareLr2FolderFileDiff(options, partialResult))
+                || !lr2FolderFileDiffOwner.CanPrepare(options, partialResult))
             {
                 return;
             }
 
             lr2FolderFileDiffPreparationTask = Task.Run(() =>
-                host.PrepareLr2FolderFileDiffSync(options, bmsDirectories, partialResult, reason))
+                lr2FolderFileDiffOwner.Prepare(options, bmsDirectories, partialResult, reason))
                 .Logging("Lr2FolderFileDiffPrepare");
         }
 
@@ -262,7 +269,7 @@ internal sealed class LibraryFileScanPipelineOwner
             currentInstallDestinationCharts,
             bmsDirectories,
             bmsDirectories,
-            host.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
+            lr2Host.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
             null,
             resolveNormalFolderMtimeSnapshot,
             StartLr2FolderFileDiffPreparation,
@@ -285,7 +292,7 @@ internal sealed class LibraryFileScanPipelineOwner
             return fileCheckResult;
         }
         LogFileScanFailures(fileCheckResult, reason);
-        host.ApplyLr2FolderFileDiffSync(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
+        lr2FolderFileDiffOwner.Apply(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
         storageMutationCoordinatorFactory().Apply(fileCheckResult, reason);
         host.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);

@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -50,28 +49,7 @@ internal interface ILibraryFileScanPipelineHost
 
     void QueueEmptyScanWithExistingDbWarning(string failureReason);
 
-    bool CanPrepareLr2FolderFileDiff(
-        BmsLibraryOptionsSnapshot options,
-        SongTableFileCheckResult fileCheckResult);
-
-    Lr2FolderFileDiffPreparationResult PrepareLr2FolderFileDiffSync(
-        BmsLibraryOptionsSnapshot options,
-        IReadOnlyList<string> rootDirectories,
-        SongTableFileCheckResult fileCheckResult,
-        string reason);
-
-    void ApplyLr2FolderFileDiffSync(
-        BmsLibraryOptionsSnapshot options,
-        IReadOnlyList<string> rootDirectories,
-        SongTableFileCheckResult fileCheckResult,
-        string reason,
-        Task<Lr2FolderFileDiffPreparationResult> preparationTask);
-
     List<ChartFile> CreateCurrentInstallDestinationCleanupCharts();
-
-    Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope();
-
-    Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc);
 
     bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options);
 

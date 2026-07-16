@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -79,12 +78,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
     {
         return new LibraryFileScanPipelineOwner(
             host,
+            (ILibraryFileScanLr2FolderHost)host,
             new BmsLibraryInitializationService(),
             () => new LibraryFileScanStorageMutationCoordinator(new NoopLibraryFileScanStorageMutationHost()),
             () => new LibraryMutationDeltaApplyCoordinator(new NoopLibraryMutationDeltaApplyHost()));
     }
 
-    private sealed class RecordingLibraryFileScanPipelineHost : ILibraryFileScanPipelineHost
+    private sealed class RecordingLibraryFileScanPipelineHost : ILibraryFileScanPipelineHost, ILibraryFileScanLr2FolderHost
     {
         public BmsLibraryDbGateway DbGateway => null!;
 
@@ -172,34 +172,38 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
         }
 
-        public bool CanPrepareLr2FolderFileDiff(
-            BmsLibraryOptionsSnapshot options,
-            SongTableFileCheckResult fileCheckResult)
-        {
-            return false;
-        }
-
-        public Lr2FolderFileDiffPreparationResult PrepareLr2FolderFileDiffSync(
-            BmsLibraryOptionsSnapshot options,
-            IReadOnlyList<string> rootDirectories,
-            SongTableFileCheckResult fileCheckResult,
-            string reason)
-        {
-            return null!;
-        }
-
-        public void ApplyLr2FolderFileDiffSync(
-            BmsLibraryOptionsSnapshot options,
-            IReadOnlyList<string> rootDirectories,
-            SongTableFileCheckResult fileCheckResult,
-            string reason,
-            Task<Lr2FolderFileDiffPreparationResult> preparationTask)
-        {
-        }
-
         public List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
         {
             return [];
+        }
+
+        public BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => new();
+
+        public List<string> CreateLr2SongDbSyncBuiltinFolderSourceDirectories(BmsLibraryOptionsSnapshot options)
+        {
+            return [];
+        }
+
+        public List<string> CreateLr2SongDbSyncLr2FolderPruneDirectories(
+            IEnumerable<string> rootDirectories,
+            IEnumerable<string> builtinSourceDirectories,
+            BmsLibraryOptionsSnapshot options)
+        {
+            return [];
+        }
+
+        public Lr2FolderFileDbSyncResult SyncLr2FolderFileRows(
+            BmsLibraryOptionsSnapshot options,
+            Lr2SongDbSyncRequest request,
+            string reason,
+            string logName,
+            bool allowPrune = true,
+            IReadOnlyCollection<string> pruneExcludedDirectories = null!,
+            IReadOnlyCollection<string> pruneExcludedPaths = null!,
+            bool scopeReadLr2FolderRowsOnly = false,
+            bool updateParentDirectoryRowsForPreservedItems = true)
+        {
+            return null!;
         }
 
         public Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope()
