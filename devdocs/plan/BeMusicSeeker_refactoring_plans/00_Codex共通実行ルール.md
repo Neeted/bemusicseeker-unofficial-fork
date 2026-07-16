@@ -13,7 +13,7 @@
 
 ## 実行ロール
 
-- **planner**: `unit-planner`（Sol High、read-only、approval never）。active outcome に対して exactly one vertical implementation unit を計画する。出力は Codex task 内だけに保持し、per-unit plan 文書、checkpoint、progress log を repository に作らない。
+- **planner**: `unit-planner`（Sol High、read-only、approval never）。active outcome の通常実装 branch に対して exactly one vertical implementation unit を計画する。plan rebaseline audit と `GATE-01` の audit-only branch では、監査で修正対象が見つかるまで unit を計画しない。出力は Codex task 内だけに保持し、per-unit plan 文書、checkpoint、progress log を repository に作らない。
 - **implementation root**: Luna Max。唯一の writer / stager / committer とし、planner の提案を実ソースに照らして実装・検証する。サブエージェントへ書き込みを委譲しない。
 - **reviewer**: fresh `repo-static-review`（Sol High、read-only、approval never）。実装担当から独立して frozen snapshot を評価し、`/fork` は使用しない。build / test / format / analyzer は root が担当する。
 
@@ -31,15 +31,24 @@ review依頼には review kind、absolute repo path、scope、base/head SHA、un
 
 - `not started` → `ready`: 先行 outcome と依存条件が満たされ、次に着手できるときだけ遷移する。
 - `ready` → `in progress`: active outcome として選択し、最初の implementation unit を開始するときに遷移する。同時に開始時の clean commit を `active outcome base commit` として記録する。
+- `GATE-01 ready` → `GATE-01 in progress`: implementation unit ではなく、gate review scope の snapshot を凍結して Full verification を開始するときに遷移する。gate review は `code baseline commit` を base にするため、新しい `active outcome base commit` は記録しない。
 - `ready` → `blocked`: planner が最初の unit を開始する前に、ユーザー入力または外部状態変更なしには解消できない具体的な阻害条件を確認し、`NO_SAFE_UNIT` とした場合だけ遷移する。
 - `in progress` → `blocked`: 同じ外部阻害条件が繰り返し確認され、安全な unit を作れず、ユーザー入力または外部状態変更なしに進めない場合だけ遷移する。難しい、調査が必要、変更量が大きいことは理由にしない。
-- `blocked` → `ready` または `in progress`: 阻害条件が解消し、再開可能になったときだけ遷移する。
+- `blocked` → `ready`: 最初の unit 開始前に blocked となり、`active outcome base commit` をまだ記録していない outcome の阻害条件が解消したときに遷移する。その後の `ready` → `in progress` で base を記録する。
+- `blocked` → `in progress`: unit 開始後に blocked となり、既に `active outcome base commit` がある outcome の阻害条件が解消したときに限り、同じ base を保持して遷移する。
+- `in progress` → `not started`: internal owner dependency により安全な vertical unit がなく、ユーザー承認済みの backlog / ownership 再編で未完了 criteria を named outcome へ移す場合だけ使う。変更前の outcome base から frozen snapshot までを re-plan review し、移動先、依存順、必要な bridge baseline と retirement outcome を正本へ記録してから、prerequisite を唯一の active outcome にする。criteria の破棄や通常の延期には使わず、元 outcome を再開するときはその時点の clean commit を新しい base とする。
 - `in progress` → `completed`: acceptance criteria、outcome-wide Full verification、outcome review、UI smoke check（該当時）が完了したときだけ遷移する。
-- `GATE-01 in progress` → `gate met`: 全 Gate criteria、Full verification、gate review が完了したときだけ遷移する。`gate met` は GATE-01 以外に使わない。
+- `completed` → `in progress`: `GATE-01` の監査で、その outcome の acceptance criteria が現行 production code で満たされていないことが判明した場合だけ使う。`GATE-01` を `not started` に戻し、修正開始時の clean commit を新しい active outcome base として記録する。
+- `GATE-01 in progress` → `GATE-01 not started`: Gate の Full verification、UI smoke check、または gate review で未達 criteria が見つかり、指摘が属する completed outcome を再開するときだけ遷移する。
+- `GATE-01 in progress` → `gate met`: 全 Gate criteria、Full verification、該当する UI smoke check、gate review が完了したときだけ遷移する。`gate met` は GATE-01 以外に使わない。
 
 通常 outcome の `completed` への状態更新は、最後の production code implementation unit と同じ commit に含める。最後のコード変更を先に commit し、後から docs-only completion commit を作ることを禁止する。完了条件がコード変更なしで初めて満たされたように見える場合は、完了監査が遅れていないか再確認し、安全な最後の vertical unit と一緒に閉じる。
 
-`GATE-01` は production implementation unit を持たない最終監査 outcome なので、この禁止の唯一の例外とする。全 Gate criteria、Full verification、gate review が無修正で完了した場合は、`gate met` と Release Freeze の状態だけを記録する audit/status commit を作ってよい。監査を通すための無意味な production code変更を行ってはならない。
+ただし、ユーザー承認済みの計画再編により `in progress` outcome を一貫した責務境界へ縮小し、移動した責務、後続 outcome、bridge retirement outcome が正本に明記され、縮小後の acceptance criteria が再編前の production code ですでに満たされている場合は、plan rebaseline audit 例外を使ってよい。Full verification、outcome review、該当する UI smoke check を再編後の criteria で実施し、無修正で通った場合に限り completion と次 outcome の `ready` を記録する audit/status commit を作る。監査のための無意味な production code変更は行わない。監査で欠陥が見つかった場合は、修正を含む最後の vertical unit と同じ commit で閉じる。
+
+本再編では `b6f2ef7e` を bridge baseline とした `LIB-01 Scan pipeline core ownership` だけが上記例外の対象である。この例外を通常の outcome completion、遅れた完了記録、未達 criteria の切り捨てに流用しない。
+
+`GATE-01` は production implementation unit を持たない最終監査 outcome なので、同様に audit/status commit を許可する。全 Gate criteria、Full verification、該当する UI smoke check、gate review が無修正で完了した場合は、`gate met` と Release Freeze の状態だけを記録してよい。監査を通すための無意味な production code変更を行ってはならない。
 
 ## 互換性契約の判定
 
@@ -54,11 +63,24 @@ review依頼には review kind、absolute repo path、scope、base/head SHA、un
 
 1. [PLAN_STATUS](./PLAN_STATUS.md) の active outcome と acceptance criteria を読む。
 2. `git status --short` で既存差分を確認する。
-3. active outcome がなければ、総合計画の ordered backlog から最初の未完・非 blocked outcome を選ぶ。
-4. `unit-planner` に exactly one unit を計画させ、通常経路の owner 変更と旧経路削除が一緒に終わる vertical slice であることを root が確認する。
-5. checkpoint、decision、inventory、調査メモを新規作成せず実装へ進む。
+3. `PLAN_STATUS.md` が plan rebaseline audit を次の作業として明記している場合、または active outcome が `GATE-01` の場合は、`unit-planner` を呼ばず下記 audit-only branch へ進む。
+4. active outcome がなければ、総合計画の ordered backlog から最初の `ready` outcome を選ぶ。`ready` がなければ、先行 outcome と依存条件を確認して一つだけ `ready` にする。
+5. 通常実装 branch では `unit-planner` に exactly one unit を計画させ、通常経路の owner 変更と旧経路削除が一緒に終わる vertical slice であることを root が確認する。
+6. checkpoint、decision、inventory、調査メモを新規作成せず実装へ進む。
 
-future outcome を先に詳細設計しない。active outcome に必要な範囲だけ、実ソースと behavior test を読んで判断する。
+future outcome の class / interface / method 配置を先に詳細設計しない。ただし active outcome の安全な vertical unit が後続 owner 未確定のため作れない場合は、adapter を追加する前に、総合計画の正本へ owner が持つ state / behavior、handoff direction、依存順、residual bridge の retirement outcome を定義する。これは class-level design ではなく production ownership boundary の確定であり、必要な場合は先に行う。
+
+internal owner dependency は `blocked` の理由にしない。既存 bridge を凍結し、ユーザー承認が必要な backlog 再編を行ったうえで prerequisite outcome を進める。難しさを隠すための host、adapter、factory、test seam を追加して active outcome を継続しない。
+
+## Audit-only branch
+
+plan rebaseline audit と `GATE-01` は implementation unit ではないため、開始時に `unit-planner` を呼ばない。
+
+1. plan rebaseline audit は outcome review、`GATE-01` は gate review の scope で snapshot を凍結する。
+2. Full verification、該当する UI smoke check、fresh read-only review を順に行う。
+3. 未達 criteria または重大指摘が見つかった場合、status を完了へ進めない。plan rebaseline audit では修正対象を exactly one vertical unit として planner に渡し、通常の実装ループへ入る。`GATE-01` では指摘が属する completed outcome を上記遷移で唯一の active outcome に戻してから、planner に修正 unit を計画させる。
+4. 無修正で監査を通過した場合だけ status を更新し、その status 差分を含む frozen snapshot を fresh reviewer に再レビューさせる。
+5. 最終差分の format / whitespace と `git diff --check` を確認し、対象 outcome ID を含む audit/status commit を作る。監査ログや定型的な証跡資料は追加しない。
 
 ## Implementation unit の条件
 
@@ -68,9 +90,12 @@ implementation unit は次を満たすまとまりにする。原則として 1 
 - build 可能で、関連 behavior を検証できる。
 - 新しい abstraction を追加する場合、production 経路へ接続する。
 - 旧 owner の責務、旧 route、旧 binding、旧 test seam のいずれかを減らす。
+- cross-owner handoff は immutable request / snapshot / receipt / event facts / lease とし、相手 owner の private state や callback 一覧を contract にしない。
 - 構造変更と意図的な挙動変更を混ぜない。
 
 DTO、interface、result、planner、host、diagnostics API の追加だけで implementation unit を完了しない。安全上どうしても一時 scaffolding が必要でも、同じ未コミット unit 内で通常経路への接続と旧経路削除まで進める。build 可能な中間 commit を作るためだけに ownership 移管を分割しない。
+
+library ownership phase では、総合計画の bridge baseline に既に存在し、retirement outcome が明記された bridge だけを一時的に残してよい。既存 bridge の member / factory / callback category を増やさず、当該 outcome が担当する category を同じ unit で減らす。consumer 固有の invalidation、freshness、presentation 更新を一つの巨大 mutation result または総合 host に移し替えない。
 
 ## 実装・レビュー・commit ループ
 
@@ -168,7 +193,10 @@ git diff / git status / rg / Get-Content などの読み取りだけを使って
 - active outcome の acceptance criteria を実際に前進させているか
 - state と behavior の owner が明確になり、root の責務が減っているか
 - abstraction / host / adapter / DTO を増やしただけになっていないか
+- cross-owner handoff が immutable facts ではなく、相手 owner の private callback / mutable state / lock を列挙する contract になっていないか
+- library ownership phase の residual bridge が baseline から追加・拡張されていないか。担当 category の bridge が同じ unit で減っているか
 - 旧 route、旧 binding、root relay、callback host、test-only production seam が不要に残っていないか
+- consumer 固有の cache / freshness / reference 更新を一つの巨大 mutation result に束ねていないか
 - 挙動、DB schema、setting key、serialized value、外部形式、lock ordering を意図せず変えていないか
 - public modifier の差分自体を互換性問題にしていないか。supported external contract を主張する場合は具体的な out-of-repository consumer が特定されているか
 - View / global singleton / Settings / NLog / DB / Dispatcher への依存方向を悪化させていないか
@@ -192,7 +220,7 @@ git diff / git status / rg / Get-Content などの読み取りだけを使って
 
 implementation unit の積み重ねだけで outcome を自動完了にしない。開始 commit からの全差分と現行コードを確認し、総合計画の Outcome completion rule をすべて満たすことを確認する。
 
-完了候補の unit を commit する前に、サブエージェントへ開始 commit 以降の commit 済み変更、現在の未コミット差分、現行コードをまとめて静的レビューさせる。重大指摘の修正、再テスト、再レビュー、`PLAN_STATUS.md` の完了更新を同じ最終 unit に含める。完了だけを記録する docs-only commit は作らない。
+完了候補の unit を commit する前に、サブエージェントへ開始 commit 以降の commit 済み変更、現在の未コミット差分、現行コードをまとめて静的レビューさせる。重大指摘の修正、再テスト、再レビュー、`PLAN_STATUS.md` の完了更新を同じ最終 unit に含める。完了だけを記録する docs-only commit は作らない。ただし Outcome state 遷移で定義した plan rebaseline audit と `GATE-01` の例外は、それぞれの条件をすべて満たす場合に限り audit/status commit を許可する。
 
 ## 計画資料と ADR
 

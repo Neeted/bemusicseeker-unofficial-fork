@@ -18,7 +18,8 @@
 | ID | Area | Current coupling | Refactoring Gate の境界条件 | Gate 後の migration work | State |
 |---|---|---|---|---|---|
 | CFG-01 | `Settings.Default` / `System.Configuration` | ViewModel、domain、XAML、tests が global settings と save timing に直接依存 | load / edit / save / upgrade を configuration owner に集約し、workflow は snapshot / interface を受け取る | ConfigurationManager 継続か新 store かを決め、既存 user.config migration を実装する | open |
-| DB-01 | SQLite / raw SQL / schema / transaction | `BMSLibrary`、`BMSPlaylist`、LR2、internal service に connection、SQL、schema、transaction ownership が分散 | bounded workflow ごとに repository / gateway と transaction owner を明示し、application / domain workflow が raw connection / SQL を直接所有しない。schema 変更は構造整理と分離する | SQLite provider / native runtime の互換性を検証し、必要な package / API 移行を行う | open |
+| DB-01 | SQLite / raw SQL / schema / transaction | `BMSLibrary`、`BMSPlaylist`、LR2、internal service に connection、SQL、schema、transaction ownership が分散 | `LIB-01` の scan commit、`LIB-03` の catalog mutation、`LIB-04` の LR2 sync、`PL-01` の playlist persistence ごとに repository / gateway と transaction owner を明示し、application / domain workflow が raw connection / SQL を直接所有しない。schema 変更は構造整理と分離する | SQLite provider / native runtime の互換性を検証し、必要な package / API 移行を行う | open |
+| CONC-01 | Library mutation serialization / lock ordering | scan、package / file operation、maintenance / resource-health、LR2 が `BMSLibrary` の lock、version、mutation-block flag、callback ordering を共有する | `LIB-03` の catalog owner が canonical write serialization と failure atomicity を持ち、他 owner は immutable request / snapshot / receipt と mutation lease で接続する。owner が他 owner の lock / mutable collection を直接取得しない | .NET 10 上で cancellation、synchronization primitive、dispatcher interaction、failure / shutdown ordering を再検証する | open |
 | LAYOUT-01 | `app.config` probing / managed output | build 後に managed DLL を `libs` へ移動し root から削除 | output policy と path owner を project / loader 境界へ閉じ、business workflow に漏らさない | deps.json / apphost / publish layout に置換する | open |
 | DEP-01 | HintPath managed DLL | Livet、MetroRadiance、Expression、sqlite.net、Bass.Net 等の互換性と identity が未確定 | DLL 固有型を application / domain contract から排除する | 各 DLL の互換性を検証し、NuGet / replacement / retention を決定する | open |
 | NAT-01 | Native DLL layout | app / tests で copy 先と load path が不統一 | base directory と native load を用途別 adapter に閉じる | RID native asset / explicit copy / publish layout を決定する | open |
@@ -36,7 +37,7 @@
 1. `boundary met`: architecture 上の owner / adapter / gateway があり、残作業が package、TFM、runtime、deployment、data migration の変更だけである。
 2. `not applicable`: 実使用がなく、安全に削除済みである。
 
-「巨大型の private workflow を分けないと移行判断できない」「UI / domain の owner が未定」「global settings の save timing が複数箇所に分散」は `boundary met` ではない。
+「巨大型の private workflow を分けないと移行判断できない」「UI / domain の owner が未定」「global settings の save timing が複数箇所に分散」「複数 workflow が同じ facade lock / mutation-block flag / callback host を共有する」は `boundary met` ではない。
 
 ## Update rule
 
