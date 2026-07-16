@@ -1,0 +1,277 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
+
+namespace BeMusicSeeker.Models.BmsLibraryInternal;
+
+/// <summary>
+/// Owns the in-memory BMS/bmson storage rows, their versions, and the shared row write gate.
+/// Derived catalog indexes and consumer-specific state remain composed by <see cref="BMSLibrary"/>.
+/// </summary>
+internal sealed class CatalogStorageRowsOwner
+{
+    private readonly ReaderWriterLockSlimWrapper writeGate = new();
+
+    private readonly object versionGate = new();
+
+    private List<BMSFile> bmsRows = [];
+
+    private List<LR2SongDBExtended.bmson_song> bmsonRows = [];
+
+    private int bmsRowsVersion;
+
+    private int bmsonRowsVersion;
+
+    internal ReaderWriterLockSlimWrapper WriteGate => writeGate;
+
+    internal object VersionGate => versionGate;
+
+    internal IReadOnlyList<BMSFile> BmsRows => bmsRows;
+
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonRows => bmsonRows;
+
+    internal IReadOnlyList<BMSFile> GetBmsRowsReadOnly() => bmsRows.AsReadOnly();
+
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> GetBmsonRowsReadOnly() => bmsonRows.AsReadOnly();
+
+    internal int BmsRowsVersion => Volatile.Read(ref bmsRowsVersion);
+
+    internal int BmsonRowsVersion => Volatile.Read(ref bmsonRowsVersion);
+
+    internal StorageRowsVersionSnapshot ReplaceBmsRows(List<BMSFile> rows)
+    {
+        using (writeGate.GetWriterGuard())
+        {
+            lock (versionGate)
+            {
+                int previousBmsRowsVersion = bmsRowsVersion;
+                bmsRows = rows ?? [];
+                IncrementBmsRowsVersion();
+                return CreateVersionSnapshot(previousBmsRowsVersion, bmsonRowsVersion);
+            }
+        }
+    }
+
+    internal StorageRowsVersionSnapshot ReplaceBmsonRows(List<LR2SongDBExtended.bmson_song> rows)
+    {
+        using (writeGate.GetWriterGuard())
+        {
+            lock (versionGate)
+            {
+                int previousBmsonRowsVersion = bmsonRowsVersion;
+                bmsonRows = rows ?? [];
+                IncrementBmsonRowsVersion();
+                return CreateVersionSnapshot(bmsRowsVersion, previousBmsonRowsVersion);
+            }
+        }
+    }
+
+    internal CatalogStorageRowsSnapshot ReplaceRowsAndCaptureSnapshot(
+        List<BMSFile> nextBmsRows,
+        List<LR2SongDBExtended.bmson_song> nextBmsonRows)
+    {
+        using (writeGate.GetWriterGuard())
+        {
+            lock (versionGate)
+            {
+                bmsRows = nextBmsRows ?? [];
+                bmsonRows = nextBmsonRows ?? [];
+                IncrementBmsRowsVersion();
+                IncrementBmsonRowsVersion();
+                return new CatalogStorageRowsSnapshot(
+                    bmsRows,
+                    bmsonRows,
+                    bmsRowsVersion,
+                    bmsonRowsVersion);
+            }
+        }
+    }
+
+    internal StorageRowsVersionSnapshot ApplyInstalledTargets(ChartStorageTargetSet addedTargets)
+    {
+        if (addedTargets == null)
+        {
+            return CaptureVersionSnapshot();
+        }
+
+        using (writeGate.GetWriterGuard())
+        {
+            lock (versionGate)
+            {
+                int previousBmsRowsVersion = bmsRowsVersion;
+                int previousBmsonRowsVersion = bmsonRowsVersion;
+                if (addedTargets.BmsFiles.Count > 0)
+                {
+                    var addedBmsPathSet = new HashSet<string>(
+                        addedTargets.BmsFiles
+                            .Select(file => CreateOwnedPathKey(file?.path))
+                            .Where(path => !string.IsNullOrWhiteSpace(path)),
+                        StringComparer.OrdinalIgnoreCase);
+                    bmsRows = [.. (bmsRows ?? [])
+                        .Where(file => file != null && !addedBmsPathSet.Contains(CreateOwnedPathKey(file.path))),
+                        .. addedTargets.BmsFiles];
+                    IncrementBmsRowsVersion();
+                }
+                if (addedTargets.BmsonSongs.Count > 0)
+                {
+                    var nextBmsonByPath = (bmsonRows ?? [])
+                        .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                        .GroupBy(song => CreateOwnedPathKey(song.path), StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+                    foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedTargets.BmsonSongs)
+                    {
+                        nextBmsonByPath[CreateOwnedPathKey(addedBmsonSong.path)] = addedBmsonSong;
+                    }
+                    bmsonRows = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
+                    IncrementBmsonRowsVersion();
+                }
+                return new StorageRowsVersionSnapshot(
+                    previousBmsRowsVersion,
+                    previousBmsonRowsVersion,
+                    bmsRowsVersion,
+                    bmsonRowsVersion);
+            }
+        }
+    }
+
+    internal StorageRowsVersionSnapshot RemoveRows(
+        ISet<BMSFile> removedBmsRows,
+        ISet<string> bmsPathCleanupKeys,
+        ISet<LR2SongDBExtended.bmson_song> removedBmsonRows,
+        ISet<string> bmsonPathCleanupKeys)
+    {
+        using (writeGate.GetWriterGuard())
+        {
+            lock (versionGate)
+            {
+                int previousBmsRowsVersion = bmsRowsVersion;
+                int previousBmsonRowsVersion = bmsonRowsVersion;
+                if (removedBmsRows?.Count > 0 || bmsPathCleanupKeys?.Count > 0)
+                {
+                    bmsRows = [.. (bmsRows ?? [])
+                        .Where(file => !IsMatchedBmsRow(file, removedBmsRows, bmsPathCleanupKeys))];
+                    IncrementBmsRowsVersion();
+                }
+                if (removedBmsonRows?.Count > 0 || bmsonPathCleanupKeys?.Count > 0)
+                {
+                    bmsonRows = [.. (bmsonRows ?? [])
+                        .Where(song => !IsMatchedBmsonRow(song, removedBmsonRows, bmsonPathCleanupKeys))];
+                    IncrementBmsonRowsVersion();
+                }
+                return new StorageRowsVersionSnapshot(
+                    previousBmsRowsVersion,
+                    previousBmsonRowsVersion,
+                    bmsRowsVersion,
+                    bmsonRowsVersion);
+            }
+        }
+    }
+
+    internal StorageRowsVersionSnapshot CaptureVersionSnapshot()
+    {
+        lock (versionGate)
+        {
+            return new StorageRowsVersionSnapshot(bmsRowsVersion, bmsonRowsVersion);
+        }
+    }
+
+    internal CatalogStorageRowsSnapshot CaptureSnapshot()
+    {
+        lock (versionGate)
+        {
+            return new CatalogStorageRowsSnapshot(
+                bmsRows,
+                bmsonRows,
+                bmsRowsVersion,
+                bmsonRowsVersion);
+        }
+    }
+
+    private void IncrementBmsRowsVersion()
+    {
+        Interlocked.Increment(ref bmsRowsVersion);
+    }
+
+    private void IncrementBmsonRowsVersion()
+    {
+        Interlocked.Increment(ref bmsonRowsVersion);
+    }
+
+    private StorageRowsVersionSnapshot CreateVersionSnapshot(
+        int previousBmsRowsVersion,
+        int previousBmsonRowsVersion)
+    {
+        return new StorageRowsVersionSnapshot(
+            previousBmsRowsVersion,
+            previousBmsonRowsVersion,
+            bmsRowsVersion,
+            bmsonRowsVersion);
+    }
+
+    private static bool IsMatchedBmsRow(
+        BMSFile file,
+        ISet<BMSFile> removedRows,
+        ISet<string> pathCleanupKeys)
+    {
+        if (file == null)
+        {
+            return false;
+        }
+        if (removedRows?.Contains(file) == true)
+        {
+            return true;
+        }
+        string pathKey = CreateOwnedPathKey(file.path);
+        return !string.IsNullOrWhiteSpace(pathKey)
+            && pathCleanupKeys?.Contains(pathKey) == true;
+    }
+
+    private static bool IsMatchedBmsonRow(
+        LR2SongDBExtended.bmson_song song,
+        ISet<LR2SongDBExtended.bmson_song> removedRows,
+        ISet<string> pathCleanupKeys)
+    {
+        if (song == null)
+        {
+            return false;
+        }
+        if (removedRows?.Contains(song) == true)
+        {
+            return true;
+        }
+        string pathKey = CreateOwnedPathKey(song.path);
+        return !string.IsNullOrWhiteSpace(pathKey)
+            && pathCleanupKeys?.Contains(pathKey) == true;
+    }
+
+    private static string CreateOwnedPathKey(string path)
+    {
+        return OwnedChartCollectionState.CreateOwnedPathKey(path);
+    }
+}
+
+internal sealed class CatalogStorageRowsSnapshot
+{
+    internal CatalogStorageRowsSnapshot(
+        List<BMSFile> bmsRows,
+        List<LR2SongDBExtended.bmson_song> bmsonRows,
+        int bmsRowsVersion,
+        int bmsonRowsVersion)
+    {
+        BmsRows = bmsRows ?? [];
+        BmsonRows = bmsonRows ?? [];
+        BmsRowsVersion = bmsRowsVersion;
+        BmsonRowsVersion = bmsonRowsVersion;
+    }
+
+    internal IReadOnlyList<BMSFile> BmsRows { get; }
+
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonRows { get; }
+
+    internal int BmsRowsVersion { get; }
+
+    internal int BmsonRowsVersion { get; }
+}

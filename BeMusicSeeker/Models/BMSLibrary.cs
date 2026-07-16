@@ -676,13 +676,15 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly ReaderWriterLockSlimWrapper rwlockBMSScores = new();
 
-    private readonly ReaderWriterLockSlimWrapper rwlockBMSFiles = new();
+    private readonly CatalogStorageRowsOwner catalogStorageRowsOwner = new();
+
+    private ReaderWriterLockSlimWrapper rwlockBMSFiles => catalogStorageRowsOwner.WriteGate;
 
     private readonly ReaderWriterLockSlimWrapper rwlockSongDBInstall = new();
 
     private readonly ReaderWriterLockSlimWrapper rwlockSongDBMaintenance = new();
 
-    private readonly object lockStorageRowsVersion = new();
+    private object lockStorageRowsVersion => catalogStorageRowsOwner.VersionGate;
 
     private int deferredInstallableMaintenanceRequestedVersion;
 
@@ -848,13 +850,13 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly PropertyChangedEventListener listenerForRwlockBMSFiles;
 
-    private List<BMSFile> _BMSFiles = [];
+    private IReadOnlyList<BMSFile> _BMSFiles => catalogStorageRowsOwner.BmsRows;
 
-    private List<LR2SongDBExtended.bmson_song> _BmsonSongs = [];
+    private IReadOnlyList<LR2SongDBExtended.bmson_song> _BmsonSongs => catalogStorageRowsOwner.BmsonRows;
 
-    private int bmsStorageRowsVersion;
+    private int bmsStorageRowsVersion => catalogStorageRowsOwner.BmsRowsVersion;
 
-    private int bmsonStorageRowsVersion;
+    private int bmsonStorageRowsVersion => catalogStorageRowsOwner.BmsonRowsVersion;
 
     private readonly NormalLibraryRefreshPublisher normalLibraryRefreshPublisher = new();
 
@@ -1044,37 +1046,95 @@ public partial class BMSLibrary : NotificationObject
     {
         get
         {
-            return (_BMSFiles ?? []).AsReadOnly();
+            return catalogStorageRowsOwner.GetBmsRowsReadOnly();
         }
-        set
+        internal set
         {
-            List<BMSFile> normalized = NormalizeBmsStorageRows(value);
-            if (!ReferenceEquals(_BMSFiles, normalized))
+            ApplyCatalogStorageRows(
+                value,
+                BmsonSongs,
+                replaceBmsRows: true,
+                replaceBmsonRows: false,
+                notifyBmsRows: true,
+                notifyBmsonRows: false);
+        }
+    }
+
+    /// <summary>
+    /// Replaces the selected raw catalog storage rows through the canonical storage-row owner.
+    /// Derived collection and cache invalidation remains composed by this facade; the startup
+    /// composition path controls the per-kind notification ordering explicitly.
+    /// </summary>
+    private void ApplyCatalogStorageRows(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
+        bool replaceBmsRows,
+        bool replaceBmsonRows,
+        bool notifyBmsRows,
+        bool notifyBmsonRows)
+    {
+        List<BMSFile> normalizedBmsRows = NormalizeBmsStorageRows(bmsFiles?.ToList());
+        List<LR2SongDBExtended.bmson_song> normalizedBmsonRows = NormalizeBmsonStorageRows(bmsonSongs?.ToList());
+        bool bmsRowsChanged = replaceBmsRows && !ReferenceEquals(_BMSFiles, normalizedBmsRows);
+        bool bmsonRowsChanged = replaceBmsonRows && !ReferenceEquals(_BmsonSongs, normalizedBmsonRows);
+        if (!bmsRowsChanged && !bmsonRowsChanged)
+        {
+            return;
+        }
+
+        using (BeginResourceHealthInputMutation())
+        {
+            InvalidatePlaylistSummaryOwnedHashSnapshot();
+            InvalidatePlaylistLibraryResolveIndexSnapshot();
+            if (bmsRowsChanged)
             {
-                using (BeginResourceHealthInputMutation())
-                {
-                    InvalidatePlaylistSummaryOwnedHashSnapshot();
-                    InvalidatePlaylistLibraryResolveIndexSnapshot();
-                    SetBmsStorageRowsCoreUnsafe(normalized);
-                    InvalidateOwnedChartCollection();
-                    int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
-                    InvalidatePlaylistSummaryOwnedHashSnapshot(ownedCollectionVersion);
-                    InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
-                    PublishExternalReplacementNormalLibraryRefreshNotification(
-                        notifiesBmsFiles: true,
-                        notifiesBmsonSongs: false);
-                    InvalidateInstalledDirectoryIndex();
-                    InvalidateBMSParentFolderListCache();
-                    InvalidateDuplicateChartGroupsCache();
-                    InvalidateResourceHealthIndex("bmsfiles_changed");
-                    PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
-                }
-                Task.Run(delegate
-                {
-                    RaisePropertyChanged("BMSFiles");
-                }).Logging("BMSFiles");
-                RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
+                catalogStorageRowsOwner.ReplaceBmsRows(normalizedBmsRows);
+                MarkDuplicateWarningFullClearPending();
             }
+            if (bmsonRowsChanged)
+            {
+                catalogStorageRowsOwner.ReplaceBmsonRows(normalizedBmsonRows);
+            }
+            InvalidateOwnedChartCollection();
+            int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
+            InvalidatePlaylistSummaryOwnedHashSnapshot(ownedCollectionVersion);
+            InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
+            if ((notifyBmsRows && bmsRowsChanged) || (notifyBmsonRows && bmsonRowsChanged))
+            {
+                PublishExternalReplacementNormalLibraryRefreshNotification(
+                    notifiesBmsFiles: notifyBmsRows && bmsRowsChanged,
+                    notifiesBmsonSongs: notifyBmsonRows && bmsonRowsChanged);
+            }
+            InvalidateInstalledDirectoryIndex();
+            InvalidateBMSParentFolderListCache();
+            if (bmsonRowsChanged)
+            {
+                InvalidateInstallEstimationMetadataProfileCache();
+            }
+            InvalidateDuplicateChartGroupsCache();
+            InvalidateResourceHealthIndex(bmsRowsChanged && bmsonRowsChanged
+                ? "catalog_storage_rows_changed"
+                : (bmsRowsChanged ? "bmsfiles_changed" : "bmsons_changed"));
+            PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+        }
+
+        if (notifyBmsRows && bmsRowsChanged)
+        {
+            Task.Run(delegate
+            {
+                RaisePropertyChanged("BMSFiles");
+            }).Logging("BMSFiles");
+        }
+        if (notifyBmsonRows && bmsonRowsChanged)
+        {
+            Task.Run(delegate
+            {
+                RaisePropertyChanged("BmsonSongs");
+            }).Logging("BmsonSongs");
+        }
+        if ((notifyBmsRows && bmsRowsChanged) || (notifyBmsonRows && bmsonRowsChanged))
+        {
+            RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
         }
     }
 
@@ -1090,44 +1150,25 @@ public partial class BMSLibrary : NotificationObject
 
     internal int OwnedChartCollectionVersion => Volatile.Read(ref ownedChartCollectionVersion);
 
+    internal StorageRowsVersionSnapshot CatalogStorageRowsVersion => catalogStorageRowsOwner.CaptureVersionSnapshot();
+
     internal IEnumerable<ChartFile> ChartFilesNeedResourceFix => GetChartsNeedResourceFix(null);
 
     public IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs
     {
         get
         {
-            return (_BmsonSongs ?? []).AsReadOnly();
+            return catalogStorageRowsOwner.GetBmsonRowsReadOnly();
         }
-        set
+        internal set
         {
-            List<LR2SongDBExtended.bmson_song> normalized = NormalizeBmsonStorageRows(value);
-            if (!ReferenceEquals(_BmsonSongs, normalized))
-            {
-                using (BeginResourceHealthInputMutation())
-                {
-                    InvalidatePlaylistSummaryOwnedHashSnapshot();
-                    InvalidatePlaylistLibraryResolveIndexSnapshot();
-                    SetBmsonStorageRowsCoreUnsafe(normalized);
-                    InvalidateOwnedChartCollection();
-                    int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
-                    InvalidatePlaylistSummaryOwnedHashSnapshot(ownedCollectionVersion);
-                    InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
-                    PublishExternalReplacementNormalLibraryRefreshNotification(
-                        notifiesBmsFiles: false,
-                        notifiesBmsonSongs: true);
-                    InvalidateInstalledDirectoryIndex();
-                    InvalidateBMSParentFolderListCache();
-                    InvalidateInstallEstimationMetadataProfileCache();
-                    InvalidateDuplicateChartGroupsCache();
-                    InvalidateResourceHealthIndex("bmsons_changed");
-                    PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
-                }
-                Task.Run(delegate
-                {
-                    RaisePropertyChanged("BmsonSongs");
-                }).Logging("BmsonSongs");
-                RaisePropertyChanged(() => BMSParentFolderListCacheVersion);
-            }
+            ApplyCatalogStorageRows(
+                BMSFiles,
+                value,
+                replaceBmsRows: false,
+                replaceBmsonRows: true,
+                notifyBmsRows: false,
+                notifyBmsonRows: true);
         }
     }
 
@@ -5592,8 +5633,8 @@ public partial class BMSLibrary : NotificationObject
                 lr2FolderFileEntries,
                 lr2FolderFileDiscoveryComplete,
                 OwnedChartCollectionVersion,
-                Volatile.Read(ref bmsStorageRowsVersion),
-                Volatile.Read(ref bmsonStorageRowsVersion));
+                catalogStorageRowsOwner.BmsRowsVersion,
+                catalogStorageRowsOwner.BmsonRowsVersion);
             lr2SongDbSyncScanSurfaceSnapshot = snapshot;
             appManagedCustomFolderOutputPhysicalSurface = new CustomFolderOutputPhysicalSurface(
                 fileCheckResult.Lr2ScanAppManagedCustomFolderOutputFileEntries,
@@ -6611,8 +6652,8 @@ public partial class BMSLibrary : NotificationObject
     {
         if (input == null
             || OwnedChartCollectionVersion != input.OwnedChartCollectionVersion
-            || Volatile.Read(ref bmsStorageRowsVersion) != input.BmsRowsVersion
-            || Volatile.Read(ref bmsonStorageRowsVersion) != input.BmsonRowsVersion)
+            || catalogStorageRowsOwner.BmsRowsVersion != input.BmsRowsVersion
+            || catalogStorageRowsOwner.BmsonRowsVersion != input.BmsonRowsVersion)
         {
             return false;
         }
@@ -7755,8 +7796,8 @@ public partial class BMSLibrary : NotificationObject
             result.BackfillCandidateOwnerCount = ownerSummary.BackfillCandidateOwnerCount;
             result.OwnerApplySkippedCount = ownerSummary.OwnerApplySkippedCount;
             ownedCollectionVersionAtSummary = OwnedChartCollectionVersion;
-            bmsRowsVersionAtSummary = Volatile.Read(ref bmsStorageRowsVersion);
-            bmsonRowsVersionAtSummary = Volatile.Read(ref bmsonStorageRowsVersion);
+            bmsRowsVersionAtSummary = catalogStorageRowsOwner.BmsRowsVersion;
+            bmsonRowsVersionAtSummary = catalogStorageRowsOwner.BmsonRowsVersion;
         }
         ownerClassifyStopwatch.Stop();
         result.OwnerApplyMs = ownerClassifyStopwatch.ElapsedMilliseconds;
@@ -7881,8 +7922,8 @@ public partial class BMSLibrary : NotificationObject
             return new ChartInfoOwnerVersionSnapshot
             {
                 OwnedCollectionVersion = OwnedChartCollectionVersion,
-                BmsRowsVersion = Volatile.Read(ref bmsStorageRowsVersion),
-                BmsonRowsVersion = Volatile.Read(ref bmsonStorageRowsVersion),
+                BmsRowsVersion = catalogStorageRowsOwner.BmsRowsVersion,
+                BmsonRowsVersion = catalogStorageRowsOwner.BmsonRowsVersion,
                 BmsOwnerCount = _BMSFiles?.Count ?? 0,
                 BmsonOwnerCount = _BmsonSongs?.Count ?? 0
             };
@@ -8038,8 +8079,8 @@ public partial class BMSLibrary : NotificationObject
         }
         if (snapshot == null
             || snapshot.OwnedCollectionVersion != OwnedChartCollectionVersion
-            || snapshot.BmsRowsVersion != Volatile.Read(ref bmsStorageRowsVersion)
-            || snapshot.BmsonRowsVersion != Volatile.Read(ref bmsonStorageRowsVersion)
+            || snapshot.BmsRowsVersion != catalogStorageRowsOwner.BmsRowsVersion
+            || snapshot.BmsonRowsVersion != catalogStorageRowsOwner.BmsonRowsVersion
             || snapshot.ParserVersion != BmsLibraryDbGateway.CurrentChartInfoParserVersion
             || snapshot.ParseTimeoutMs != Math.Max(0L, (long)Math.Ceiling(chartInfoBuildService.CurrentParseTimeout.TotalMilliseconds)))
         {
@@ -10130,8 +10171,8 @@ public partial class BMSLibrary : NotificationObject
     {
         return snapshot != null
             && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion
-            && Volatile.Read(ref bmsStorageRowsVersion) == snapshot.BmsRowsVersion
-            && Volatile.Read(ref bmsonStorageRowsVersion) == snapshot.BmsonRowsVersion;
+            && catalogStorageRowsOwner.BmsRowsVersion == snapshot.BmsRowsVersion
+            && catalogStorageRowsOwner.BmsonRowsVersion == snapshot.BmsonRowsVersion;
     }
 
     /// <summary>
@@ -10367,14 +10408,14 @@ public partial class BMSLibrary : NotificationObject
     {
         return snapshot != null
             && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion
-            && Volatile.Read(ref bmsStorageRowsVersion) == snapshot.BmsRowsVersion
-            && Volatile.Read(ref bmsonStorageRowsVersion) == snapshot.BmsonRowsVersion;
+            && catalogStorageRowsOwner.BmsRowsVersion == snapshot.BmsRowsVersion
+            && catalogStorageRowsOwner.BmsonRowsVersion == snapshot.BmsonRowsVersion;
     }
 
     private bool IsStorageRowsVersionCurrent(StorageRowsVersionSnapshot storageRowsVersion)
     {
-        return Volatile.Read(ref bmsStorageRowsVersion) == storageRowsVersion.BmsRowsVersion
-            && Volatile.Read(ref bmsonStorageRowsVersion) == storageRowsVersion.BmsonRowsVersion;
+        return catalogStorageRowsOwner.BmsRowsVersion == storageRowsVersion.BmsRowsVersion
+            && catalogStorageRowsOwner.BmsonRowsVersion == storageRowsVersion.BmsonRowsVersion;
     }
 
     private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe()
@@ -10437,29 +10478,6 @@ public partial class BMSLibrary : NotificationObject
     internal List<ChartFile> CreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlayForDiagnostics()
     {
         return OverlayInstallDestinationRuntimeStates(CreateOwnedChartInfoFullBackfillTargetSnapshot());
-    }
-
-    /// <summary>
-    /// Seeds storage rows for diagnostics without raising public collection notifications.
-    /// </summary>
-    /// <param name="files">The BMS storage rows.</param>
-    /// <param name="songs">The bmson storage rows.</param>
-    internal void SetStorageRowsForDiagnostics(
-        IEnumerable<BMSFile> files,
-        IEnumerable<LR2SongDBExtended.bmson_song> songs)
-    {
-        SetStorageRowsFromInternalMutationUnsafe(
-            files?.ToList(),
-            songs?.ToList());
-        InvalidateOwnedChartCollection();
-        InvalidatePlaylistSummaryOwnedHashSnapshot();
-        InvalidatePlaylistLibraryResolveIndexSnapshot();
-        InvalidateInstalledDirectoryIndex();
-        InvalidateBMSParentFolderListCache();
-        InvalidateInstallEstimationMetadataProfileCache();
-        InvalidateDuplicateChartGroupsCache();
-        InvalidateResourceHealthIndex("diagnostics_storage_rows_seeded");
-        PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
     }
 
     private ILibraryChartCanonicalLookup CreateOwnedCanonicalChartLookupUnsafe()
@@ -11063,7 +11081,7 @@ public partial class BMSLibrary : NotificationObject
         public void ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(SongTableFileCheckResult fileCheckResult)
         {
             StorageRowsSnapshot storageRows = fileCheckResult.HasDbDiff
-                ? owner.SetStorageRowsFromInternalMutationUnsafe(
+                ? owner.ReplaceCatalogStorageRowsForFileScan(
                     fileCheckResult.NextFiles,
                     fileCheckResult.NextBmsonSongs)
                 : owner.CreateStorageRowsSnapshotUnsafe();
@@ -11351,48 +11369,20 @@ public partial class BMSLibrary : NotificationObject
 
     private StorageRowsVersionSnapshot ApplyInstalledChartStorageRowsUnsafe(ChartStorageTargetSet addedTargets)
     {
-        lock (lockStorageRowsVersion)
-        {
-            int previousBmsRowsVersion = bmsStorageRowsVersion;
-            int previousBmsonRowsVersion = bmsonStorageRowsVersion;
-            if (addedTargets.BmsFiles.Count > 0)
-            {
-                var addedBmsPathSet = new HashSet<string>(
-                    addedTargets.BmsFiles.Select(file => CreateOwnedPathKey(file?.path)).Where(path => !string.IsNullOrWhiteSpace(path)),
-                    StringComparer.OrdinalIgnoreCase);
-                _BMSFiles = [.. (_BMSFiles ?? []).Where(file => file != null && !addedBmsPathSet.Contains(CreateOwnedPathKey(file.path))), .. addedTargets.BmsFiles];
-                IncrementBmsStorageRowsVersion();
-            }
-            if (addedTargets.BmsonSongs.Count > 0)
-            {
-                var nextBmsonByPath = (_BmsonSongs ?? [])
-                    .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-                    .GroupBy(song => CreateOwnedPathKey(song.path), StringComparer.OrdinalIgnoreCase)
-                    .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
-                foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedTargets.BmsonSongs)
-                {
-                    nextBmsonByPath[CreateOwnedPathKey(addedBmsonSong.path)] = addedBmsonSong;
-                }
-                _BmsonSongs = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
-                IncrementBmsonStorageRowsVersion();
-            }
-            return CreateStorageRowsVersionSnapshotUnsafe(previousBmsRowsVersion, previousBmsonRowsVersion);
-        }
+        return catalogStorageRowsOwner.ApplyInstalledTargets(addedTargets);
     }
 
-    private StorageRowsSnapshot SetStorageRowsFromInternalMutationUnsafe(
+    private StorageRowsSnapshot ReplaceCatalogStorageRowsForFileScan(
         List<BMSFile> files,
         List<LR2SongDBExtended.bmson_song> songs)
     {
-        lock (lockStorageRowsVersion)
-        {
-            _BMSFiles = files ?? [];
-            _BmsonSongs = songs ?? [];
-            MarkDuplicateWarningFullClearPending();
-            IncrementBmsStorageRowsVersion();
-            IncrementBmsonStorageRowsVersion();
-            return CreateStorageRowsSnapshotUnsafe();
-        }
+        CatalogStorageRowsSnapshot snapshot = catalogStorageRowsOwner.ReplaceRowsAndCaptureSnapshot(files, songs);
+        MarkDuplicateWarningFullClearPending();
+        return new StorageRowsSnapshot(
+            snapshot.BmsRows,
+            snapshot.BmsonRows,
+            snapshot.BmsRowsVersion,
+            snapshot.BmsonRowsVersion);
     }
 
     private static string CreateOwnedPathKey(string path)
@@ -11406,10 +11396,11 @@ public partial class BMSLibrary : NotificationObject
     {
         lock (lockStorageRowsVersion)
         {
-            bmsFiles = _BMSFiles ?? [];
-            bmsonSongs = _BmsonSongs ?? [];
-            bmsRowsVersion = bmsStorageRowsVersion;
-            bmsonRowsVersion = bmsonStorageRowsVersion;
+            CatalogStorageRowsSnapshot snapshot = catalogStorageRowsOwner.CaptureSnapshot();
+            bmsFiles = [.. snapshot.BmsRows];
+            bmsonSongs = [.. snapshot.BmsonRows];
+            bmsRowsVersion = snapshot.BmsRowsVersion;
+            bmsonRowsVersion = snapshot.BmsonRowsVersion;
         }
     }
 
@@ -11417,27 +11408,6 @@ public partial class BMSLibrary : NotificationObject
     {
         lock (lockStorageRowsVersion)
         {
-            return CreateCurrentStorageRowsVersionSnapshotUnsafe();
-        }
-    }
-
-    private StorageRowsVersionSnapshot SetBmsStorageRowsCoreUnsafe(List<BMSFile> files)
-    {
-        lock (lockStorageRowsVersion)
-        {
-            _BMSFiles = files ?? [];
-            MarkDuplicateWarningFullClearPending();
-            IncrementBmsStorageRowsVersion();
-            return CreateCurrentStorageRowsVersionSnapshotUnsafe();
-        }
-    }
-
-    private StorageRowsVersionSnapshot SetBmsonStorageRowsCoreUnsafe(List<LR2SongDBExtended.bmson_song> songs)
-    {
-        lock (lockStorageRowsVersion)
-        {
-            _BmsonSongs = songs ?? [];
-            IncrementBmsonStorageRowsVersion();
             return CreateCurrentStorageRowsVersionSnapshotUnsafe();
         }
     }
@@ -11452,19 +11422,9 @@ public partial class BMSLibrary : NotificationObject
         return songs == null ? [] : [.. songs];
     }
 
-    private void IncrementBmsStorageRowsVersion()
-    {
-        Interlocked.Increment(ref bmsStorageRowsVersion);
-    }
-
-    private void IncrementBmsonStorageRowsVersion()
-    {
-        Interlocked.Increment(ref bmsonStorageRowsVersion);
-    }
-
     private StorageRowsVersionSnapshot CreateCurrentStorageRowsVersionSnapshotUnsafe()
     {
-        return new StorageRowsVersionSnapshot(bmsStorageRowsVersion, bmsonStorageRowsVersion);
+        return catalogStorageRowsOwner.CaptureVersionSnapshot();
     }
 
     private StorageRowsVersionSnapshot CreateStorageRowsVersionSnapshotUnsafe(int previousBmsRowsVersion, int previousBmsonRowsVersion)
@@ -11472,13 +11432,14 @@ public partial class BMSLibrary : NotificationObject
         return new StorageRowsVersionSnapshot(
             previousBmsRowsVersion,
             previousBmsonRowsVersion,
-            bmsStorageRowsVersion,
-            bmsonStorageRowsVersion);
+            catalogStorageRowsOwner.BmsRowsVersion,
+            catalogStorageRowsOwner.BmsonRowsVersion);
     }
 
     private StorageRowsSnapshot CreateStorageRowsSnapshotUnsafe()
     {
-        return new StorageRowsSnapshot(_BMSFiles ?? [], _BmsonSongs ?? [], bmsStorageRowsVersion, bmsonStorageRowsVersion);
+        CatalogStorageRowsSnapshot snapshot = catalogStorageRowsOwner.CaptureSnapshot();
+        return new StorageRowsSnapshot(snapshot.BmsRows, snapshot.BmsonRows, snapshot.BmsRowsVersion, snapshot.BmsonRowsVersion);
     }
 
     private void SetOwnedChartCollectionStorageRowsVersionUnsafe(int bmsRowsVersion, int bmsonRowsVersion)
@@ -11490,8 +11451,8 @@ public partial class BMSLibrary : NotificationObject
     private readonly struct StorageRowsSnapshot
     {
         internal StorageRowsSnapshot(
-            List<BMSFile> bmsFiles,
-            List<LR2SongDBExtended.bmson_song> bmsonSongs,
+            IReadOnlyList<BMSFile> bmsFiles,
+            IReadOnlyList<LR2SongDBExtended.bmson_song> bmsonSongs,
             int bmsRowsVersion,
             int bmsonRowsVersion)
         {
@@ -11501,9 +11462,9 @@ public partial class BMSLibrary : NotificationObject
             BmsonRowsVersion = bmsonRowsVersion;
         }
 
-        internal List<BMSFile> BmsFiles { get; }
+        internal IReadOnlyList<BMSFile> BmsFiles { get; }
 
-        internal List<LR2SongDBExtended.bmson_song> BmsonSongs { get; }
+        internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs { get; }
 
         internal int BmsRowsVersion { get; }
 
@@ -13543,8 +13504,8 @@ public partial class BMSLibrary : NotificationObject
         return ResourceHealthFullOwnedTargetFreshness.IsCurrent(
             targetSet,
             new StorageRowsVersionSnapshot(
-                Volatile.Read(ref bmsStorageRowsVersion),
-                Volatile.Read(ref bmsonStorageRowsVersion)),
+                catalogStorageRowsOwner.BmsRowsVersion,
+                catalogStorageRowsOwner.BmsonRowsVersion),
             OwnedChartCollectionVersion,
             currentResourceHealthInputVersion,
             IsStableResourceHealthInputVersion(currentResourceHealthInputVersion));
@@ -15746,58 +15707,11 @@ public partial class BMSLibrary : NotificationObject
                 .Select(request => CreateOwnedPathKey(request.Path))
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
-        lock (lockStorageRowsVersion)
-        {
-            int previousBmsRowsVersion = bmsStorageRowsVersion;
-            int previousBmsonRowsVersion = bmsonStorageRowsVersion;
-            if (bmsFilesToUnregister.Count > 0 || bmsPathCleanupKeys.Count > 0)
-            {
-                _BMSFiles = [.. (_BMSFiles ?? []).Where(file => !IsMatchedUnregisteredBmsFile(file, removedFileRefs, bmsPathCleanupKeys))];
-                IncrementBmsStorageRowsVersion();
-            }
-            if (bmsonSongsToUnregister.Count > 0 || bmsonPathCleanupKeys.Count > 0)
-            {
-                _BmsonSongs = [.. (_BmsonSongs ?? []).Where(song => !IsMatchedUnregisteredBmsonSong(song, removedSongRefs, bmsonPathCleanupKeys))];
-                IncrementBmsonStorageRowsVersion();
-            }
-            return CreateStorageRowsVersionSnapshotUnsafe(previousBmsRowsVersion, previousBmsonRowsVersion);
-        }
-    }
-
-    private static bool IsMatchedUnregisteredBmsFile(BMSFile file, ISet<BMSFile> removedFiles, ISet<string> pathCleanupKeys)
-    {
-        if (file == null)
-        {
-            return false;
-        }
-        if (removedFiles?.Contains(file) == true)
-        {
-            return true;
-        }
-        if (pathCleanupKeys?.Count > 0 != true)
-        {
-            return false;
-        }
-        string pathKey = CreateOwnedPathKey(file.path);
-        return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupKeys?.Contains(pathKey) == true;
-    }
-
-    private static bool IsMatchedUnregisteredBmsonSong(LR2SongDBExtended.bmson_song song, ISet<LR2SongDBExtended.bmson_song> removedSongs, ISet<string> pathCleanupKeys)
-    {
-        if (song == null)
-        {
-            return false;
-        }
-        if (removedSongs?.Contains(song) == true)
-        {
-            return true;
-        }
-        if (pathCleanupKeys?.Count > 0 != true)
-        {
-            return false;
-        }
-        string pathKey = CreateOwnedPathKey(song.path);
-        return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupKeys?.Contains(pathKey) == true;
+        return catalogStorageRowsOwner.RemoveRows(
+            removedFileRefs,
+            bmsPathCleanupKeys,
+            removedSongRefs,
+            bmsonPathCleanupKeys);
     }
 
     private void PublishNormalLibraryRefreshNotification(OwnedChartCollectionMutationResult result)

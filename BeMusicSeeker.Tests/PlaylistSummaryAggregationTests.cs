@@ -563,12 +563,26 @@ public sealed class PlaylistSummaryAggregationTests
 
     private static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)
     {
-        library.SetStorageRowsForDiagnostics(files, library.BmsonSongs);
+        var result = new SongTableFileCheckResult
+        {
+            HasDbDiff = true
+        };
+        result.NextFiles.AddRange(files ?? []);
+        result.NextBmsonSongs.AddRange(library.BmsonSongs);
+        new BMSLibrary.LibraryFileScanStorageMutationHost(library)
+            .ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(result);
     }
 
     private static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
     {
-        library.SetStorageRowsForDiagnostics(library.BMSFiles, songs);
+        var result = new SongTableFileCheckResult
+        {
+            HasDbDiff = true
+        };
+        result.NextFiles.AddRange(library.BMSFiles);
+        result.NextBmsonSongs.AddRange(songs ?? []);
+        new BMSLibrary.LibraryFileScanStorageMutationHost(library)
+            .ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(result);
     }
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)

@@ -2529,8 +2529,8 @@ public sealed class OwnedChartCollectionStateTests
             SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
             InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            int bmsRowsVersion = GetPrivateIntField(library, "bmsStorageRowsVersion");
-            int bmsonRowsVersion = GetPrivateIntField(library, "bmsonStorageRowsVersion");
+            int bmsRowsVersion = library.CatalogStorageRowsVersion.BmsRowsVersion;
+            int bmsonRowsVersion = library.CatalogStorageRowsVersion.BmsonRowsVersion;
             int bmsFilesChanged = 0;
             int bmsonSongsChanged = 0;
             int normalLibraryRefreshNotifications = 0;
@@ -2560,8 +2560,8 @@ public sealed class OwnedChartCollectionStateTests
             Assert.AreEqual(0, bmsFilesChanged);
             Assert.AreEqual(0, bmsonSongsChanged);
             Assert.AreEqual(0, normalLibraryRefreshNotifications);
-            Assert.AreEqual(bmsRowsVersion, GetPrivateIntField(library, "bmsStorageRowsVersion"));
-            Assert.AreEqual(bmsonRowsVersion, GetPrivateIntField(library, "bmsonStorageRowsVersion"));
+            Assert.AreEqual(bmsRowsVersion, library.CatalogStorageRowsVersion.BmsRowsVersion);
+            Assert.AreEqual(bmsonRowsVersion, library.CatalogStorageRowsVersion.BmsonRowsVersion);
             Assert.IsTrue(IsResourceHealthIndexInvalidated(library));
             Assert.AreEqual(2, InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library).Count);
         });
@@ -2579,7 +2579,7 @@ public sealed class OwnedChartCollectionStateTests
             SetLibraryBmsonSongsWithoutNotification(library, []);
             SetCurrentResourceHealthIndex(library, [ChartFileProjection.FromBmsFile(bmsFile)]);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            int bmsRowsVersion = GetPrivateIntField(library, "bmsStorageRowsVersion");
+            int bmsRowsVersion = library.CatalogStorageRowsVersion.BmsRowsVersion;
             int bmsFilesChanged = 0;
             int normalLibraryRefreshNotifications = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -2601,7 +2601,7 @@ public sealed class OwnedChartCollectionStateTests
 
             Assert.IsTrue(IsResourceHealthIndexInvalidated(library));
             Assert.AreEqual(0, bmsFilesChanged);
-            Assert.AreEqual(bmsRowsVersion, GetPrivateIntField(library, "bmsStorageRowsVersion"));
+            Assert.AreEqual(bmsRowsVersion, library.CatalogStorageRowsVersion.BmsRowsVersion);
             Assert.AreEqual(1, normalLibraryRefreshNotifications);
             Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
@@ -3561,12 +3561,26 @@ public sealed class OwnedChartCollectionStateTests
 
     private static void SetLibraryFilesWithoutNotification(BMSLibrary library, IEnumerable<BMSFile> files)
     {
-        library.SetStorageRowsForDiagnostics(files, library.BmsonSongs);
+        var result = new SongTableFileCheckResult
+        {
+            HasDbDiff = true
+        };
+        result.NextFiles.AddRange(files ?? []);
+        result.NextBmsonSongs.AddRange(library.BmsonSongs);
+        new BMSLibrary.LibraryFileScanStorageMutationHost(library)
+            .ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(result);
     }
 
     private static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
     {
-        library.SetStorageRowsForDiagnostics(library.BMSFiles, songs);
+        var result = new SongTableFileCheckResult
+        {
+            HasDbDiff = true
+        };
+        result.NextFiles.AddRange(library.BMSFiles);
+        result.NextBmsonSongs.AddRange(songs ?? []);
+        new BMSLibrary.LibraryFileScanStorageMutationHost(library)
+            .ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(result);
     }
 
     private static void SetDuplicateChartGroupsWithoutNotification(BMSLibrary library, IEnumerable<DuplicateGroup> groups)
@@ -3595,13 +3609,6 @@ public sealed class OwnedChartCollectionStateTests
         FieldInfo fieldInfo = typeof(BMSLibrary).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(fieldInfo);
         fieldInfo.SetValue(library, value);
-    }
-
-    private static int GetPrivateIntField(BMSLibrary library, string fieldName)
-    {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        return (int)fieldInfo.GetValue(library);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)
