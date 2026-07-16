@@ -9901,6 +9901,8 @@ public partial class BMSLibrary : NotificationObject
 
         public List<LibraryChartDigestChange> DigestChanges { get; } = [];
 
+        public CatalogDigestMutationRequest DigestMutationRequest { get; set; }
+
         public InstalledChartLookupMutation InstalledLookupMutation { get; set; } = new();
 
         public InstallDestinationRuntimeStateMutation InstallDestinationRuntimeStateMutation { get; } = new();
@@ -10938,16 +10940,6 @@ public partial class BMSLibrary : NotificationObject
             storageRowsVersion);
     }
 
-    private void ApplyOwnedChartCollectionDigestChanges(IEnumerable<LibraryChartDigestChange> digestChanges)
-    {
-        List<LibraryChartDigestChange> changes = [.. (digestChanges ?? []).Where(change => change?.Md5Changed == true)];
-        if (changes.Count == 0)
-        {
-            return;
-        }
-        catalogOwnedCollectionOwner.ApplyDigestChanges(changes);
-    }
-
     internal void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
     {
         if (fileCheckResult == null)
@@ -11509,46 +11501,53 @@ public partial class BMSLibrary : NotificationObject
         return !string.IsNullOrWhiteSpace(pathKey) && pathKeys.Add(pathKey);
     }
 
-    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionDigestMutationResult(
+    private OwnedChartCollectionMutationResult CreateOwnedChartCollectionDigestMutationResult(
         IEnumerable<LibraryChartDigestChange> digestChanges,
         bool resourceHealthIndexInvalidated = true)
     {
-        return CreateOwnedChartCollectionDigestMutationResult(
-            OwnedChartDigestMutationDispatchCoordinator.BuildDigestMutationPlan(
-                digestChanges,
-                resourceHealthIndexInvalidated));
+        List<LibraryChartDigestChange> changes = [.. (digestChanges ?? [])
+            .Where(change => change?.HasDigestChange == true)];
+        bool anyChanges = changes.Count > 0;
+        bool primaryHashChanged = changes.Any(change => change.PrimaryHashChanged);
+        bool md5Changed = changes.Any(change => change.Md5Changed);
+        var result = new OwnedChartCollectionMutationResult
+        {
+            InstalledLookupMutation = BuildInstalledChartLookupDigestMutation(changes),
+            InstallEstimationMetadataProfileCacheInvalidated = anyChanges,
+            DuplicateCacheInvalidated = primaryHashChanged,
+            PlaylistSummaryOwnedHashInvalidated = anyChanges,
+            OwnedCollectionChanged = anyChanges,
+            ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated && md5Changed,
+            WarningPresentationChanged = primaryHashChanged || (resourceHealthIndexInvalidated && md5Changed),
+            BmsFilesStorageRowsChanged = changes.Any(change => change.Kind == LibraryChartKind.Bms),
+            BmsonSongsStorageRowsChanged = changes.Any(change => change.Kind == LibraryChartKind.Bmson)
+        };
+        result.DigestChanges.AddRange(changes);
+        return result;
     }
 
-    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionPotentialDigestMutationResult(
+    private static OwnedChartCollectionMutationResult CreateOwnedChartCollectionPotentialDigestMutationResult(
         IEnumerable<ChartFile> charts,
         bool resourceHealthIndexInvalidated = true)
     {
-        return CreateOwnedChartCollectionDigestMutationResult(
-            OwnedChartDigestMutationDispatchCoordinator.BuildPotentialDigestMutationPlan(
-                charts,
-                resourceHealthIndexInvalidated));
-    }
-
-    private OwnedChartCollectionMutationResult CreateOwnedChartCollectionDigestMutationResult(
-        OwnedChartDigestMutationPlan plan)
-    {
-        plan ??= OwnedChartDigestMutationPlan.Empty;
-        var result = new OwnedChartCollectionMutationResult
+        List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart != null)];
+        if (targetCharts.Count == 0)
         {
-            InstalledLookupMutation = plan.RequiresInstalledLookupFullInvalidate
-                ? new InstalledChartLookupMutation { RequiresFullInvalidate = true }
-                : BuildInstalledChartLookupDigestMutation(plan.DigestChanges),
-            InstallEstimationMetadataProfileCacheInvalidated = plan.InstallEstimationMetadataProfileCacheInvalidated,
-            DuplicateCacheInvalidated = plan.DuplicateCacheInvalidated,
-            PlaylistSummaryOwnedHashInvalidated = plan.PlaylistSummaryOwnedHashInvalidated,
-            OwnedCollectionChanged = plan.OwnedCollectionChanged,
-            ResourceHealthIndexInvalidated = plan.ResourceHealthIndexInvalidated,
-            WarningPresentationChanged = plan.WarningPresentationChanged,
-            BmsFilesStorageRowsChanged = plan.BmsFilesStorageRowsChanged,
-            BmsonSongsStorageRowsChanged = plan.BmsonSongsStorageRowsChanged
+            return new OwnedChartCollectionMutationResult();
+        }
+
+        return new OwnedChartCollectionMutationResult
+        {
+            InstalledLookupMutation = new InstalledChartLookupMutation { RequiresFullInvalidate = true },
+            InstallEstimationMetadataProfileCacheInvalidated = true,
+            DuplicateCacheInvalidated = true,
+            PlaylistSummaryOwnedHashInvalidated = true,
+            OwnedCollectionChanged = true,
+            ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated,
+            WarningPresentationChanged = resourceHealthIndexInvalidated,
+            BmsFilesStorageRowsChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bms),
+            BmsonSongsStorageRowsChanged = targetCharts.Any(chart => chart.Kind == ChartFileKind.Bmson)
         };
-        result.DigestChanges.AddRange(plan.DigestChanges);
-        return result;
     }
 
     private OwnedChartCollectionMutationResult BuildOwnedChartCollectionMaintenanceMutationResult(
@@ -11632,7 +11631,10 @@ public partial class BMSLibrary : NotificationObject
         if (result.DigestChangedCount > 0)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            ApplyOwnedChartCollectionDigestChanges(result.DigestChanges);
+            if (result.DigestMutationRequest != null)
+            {
+                catalogMutationOwner.ApplyDigestMutation(result.DigestMutationRequest);
+            }
             digestMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.ParentFolderInvalidated)
@@ -11768,8 +11770,12 @@ public partial class BMSLibrary : NotificationObject
         string reason,
         bool resourceHealthIndexInvalidated = true)
     {
-        var coordinator = new OwnedChartDigestMutationDispatchCoordinator(new OwnedChartDigestMutationDispatchHost(this));
-        coordinator.DispatchDigestChanges(digestChanges, reason, resourceHealthIndexInvalidated);
+        CatalogDigestMutationRequest request = catalogMutationOwner.CreateDigestMutationRequest(digestChanges);
+        OwnedChartCollectionMutationResult mutationResult = CreateOwnedChartCollectionDigestMutationResult(
+            request.DigestChanges,
+            resourceHealthIndexInvalidated);
+        mutationResult.DigestMutationRequest = request;
+        DispatchOwnedChartCollectionMutation(mutationResult, reason);
     }
 
     private void DispatchOwnedPotentialDigestChanges(
@@ -11777,17 +11783,9 @@ public partial class BMSLibrary : NotificationObject
         string reason,
         bool resourceHealthIndexInvalidated = true)
     {
-        var coordinator = new OwnedChartDigestMutationDispatchCoordinator(new OwnedChartDigestMutationDispatchHost(this));
-        coordinator.DispatchPotentialDigestChanges(charts, reason, resourceHealthIndexInvalidated);
-    }
-
-    internal sealed class OwnedChartDigestMutationDispatchHost(BMSLibrary owner) : IOwnedChartDigestMutationDispatchHost
-    {
-        public void DispatchOwnedChartDigestMutation(OwnedChartDigestMutationPlan plan, string reason)
-        {
-            OwnedChartCollectionMutationResult mutationResult = owner.CreateOwnedChartCollectionDigestMutationResult(plan);
-            owner.DispatchOwnedChartCollectionMutation(mutationResult, reason);
-        }
+        DispatchOwnedChartCollectionMutation(
+            CreateOwnedChartCollectionPotentialDigestMutationResult(charts, resourceHealthIndexInvalidated),
+            reason);
     }
 
     private void DispatchWarningPresentationChanged(string reason)

@@ -160,7 +160,100 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(0, storageRowsOwner.BmsonRows.Count);
     }
 
-    private static BMSFile CreateBms(string fileName, string hash)
+    [TestMethod]
+    public void ApplyDigestMutation_EmitsImmutableReceiptAndUpdatesOwnedDigestRows()
+    {
+        var bms = CreateBms("digest.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        bms.SetSha256(new string('b', 64));
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+            OwnedChartCollectionState.FromStorageRows([bms], []),
+            initialRows.BmsRowsVersion,
+            initialRows.BmsonRowsVersion));
+        ownedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot();
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        string newMd5 = "cccccccccccccccccccccccccccccccc";
+        string newSha256 = new string('d', 64);
+        var change = new LibraryChartDigestChange(
+            LibraryChartKind.Bms,
+            bms.path,
+            bms.hash,
+            bms.sha256,
+            newMd5,
+            newSha256);
+
+        CatalogDigestMutationRequest request = owner.CreateDigestMutationRequest([change]);
+        CatalogDigestMutationReceipt receipt = owner.ApplyDigestMutation(request);
+
+        Assert.IsTrue(receipt.Applied);
+        Assert.AreEqual(CatalogMutationApplyKind.DigestMutation, receipt.Kind);
+        Assert.IsTrue(receipt.OwnedCollectionApplied);
+        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.BmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
+        Assert.AreEqual(1, receipt.DigestChanges.Count);
+        Assert.AreSame(change, receipt.DigestChanges[0]);
+        Assert.AreEqual(newMd5, ownedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot().Rows.Single().LookupHash);
+        Assert.AreEqual(ownedCollectionOwner.CollectionVersion, receipt.OwnedCollectionVersion);
+    }
+
+    [TestMethod]
+    public void ApplyDigestMutation_EmptyRequestIsNoOpAndSnapshotsInput()
+    {
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        var ignored = new LibraryChartDigestChange(
+            LibraryChartKind.Bms,
+            Path.Combine("C:\\Library", "unchanged.bms"),
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            null,
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            null);
+
+        CatalogDigestMutationRequest request = owner.CreateDigestMutationRequest([ignored]);
+        CatalogDigestMutationReceipt receipt = owner.ApplyDigestMutation(request);
+
+        Assert.IsFalse(receipt.Applied);
+        Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
+        Assert.IsFalse(receipt.OwnedCollectionApplied);
+        Assert.AreEqual(0, receipt.DigestChanges.Count);
+        Assert.AreEqual(0, receipt.StorageRowsVersion.BmsRowsVersion);
+        Assert.AreEqual(0, receipt.StorageRowsVersion.BmsonRowsVersion);
+    }
+
+    [TestMethod]
+    public void ApplyDigestMutation_ShaOnlyChangeKeepsDuplicateLookupHash()
+    {
+        var bms = CreateBms("sha-only.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        bms.SetSha256(new string('b', 64));
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+            OwnedChartCollectionState.FromStorageRows([bms], []),
+            initialRows.BmsRowsVersion,
+            initialRows.BmsonRowsVersion));
+        ownedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot();
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        var change = new LibraryChartDigestChange(
+            LibraryChartKind.Bms,
+            bms.path,
+            bms.hash,
+            bms.sha256,
+            bms.hash,
+            new string('c', 64));
+
+        CatalogDigestMutationReceipt receipt = owner.ApplyDigestMutation(
+            owner.CreateDigestMutationRequest([change]));
+
+        Assert.IsTrue(receipt.Applied);
+        Assert.AreEqual(1, receipt.DigestChanges.Count);
+        Assert.AreEqual(bms.hash, ownedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot().Rows.Single().LookupHash);
+    }
+
+    private static TestableBmsFile CreateBms(string fileName, string hash)
     {
         var file = new TestableBmsFile
         {
@@ -186,6 +279,8 @@ public sealed class CatalogMutationOwnerTests
     private sealed class TestableBmsFile : BMSFile
     {
         internal void SetHash(string value) => hash = value;
+
+        internal void SetSha256(string value) => sha256 = value;
 
         internal void SetTitle(string value) => title = value;
 

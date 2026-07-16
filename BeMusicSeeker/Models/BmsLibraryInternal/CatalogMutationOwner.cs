@@ -164,13 +164,40 @@ internal sealed class CatalogMutationOwner
             ownedCollectionOwner.CollectionVersion,
             request.AddedCharts);
     }
+
+    internal CatalogDigestMutationRequest CreateDigestMutationRequest(
+        IEnumerable<LibraryChartDigestChange> digestChanges)
+    {
+        return new CatalogDigestMutationRequest(digestChanges);
+    }
+
+    internal CatalogDigestMutationReceipt ApplyDigestMutation(
+        CatalogDigestMutationRequest request)
+    {
+        if (request == null)
+        {
+            return CatalogDigestMutationReceipt.NotApplied;
+        }
+
+        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        {
+            bool ownedCollectionApplied = ownedCollectionOwner.ApplyDigestChanges(request.DigestChanges);
+            return new CatalogDigestMutationReceipt(
+                applied: request.DigestChanges.Count > 0,
+                ownedCollectionApplied,
+                storageRowsOwner.CaptureVersionSnapshot(),
+                ownedCollectionOwner.CollectionVersion,
+                request.DigestChanges);
+        }
+    }
 }
 
 internal enum CatalogMutationApplyKind
 {
     NoOp,
     FileScanStorageReplacement,
-    InstalledTargetUpsert
+    InstalledTargetUpsert,
+    DigestMutation
 }
 
 /// <summary>
@@ -255,6 +282,64 @@ internal sealed class CatalogInstalledTargetUpsertReceipt
     internal int OwnedCollectionVersion { get; }
 
     internal IReadOnlyList<CatalogChartMutationFact> AddedCharts { get; }
+}
+
+/// <summary>
+/// Immutable input snapshot for a catalog digest mutation.
+/// </summary>
+internal sealed class CatalogDigestMutationRequest
+{
+    internal CatalogDigestMutationRequest(IEnumerable<LibraryChartDigestChange> digestChanges)
+    {
+        DigestChanges = Array.AsReadOnly((digestChanges ?? [])
+            .Where(change => change?.HasDigestChange == true)
+            .ToArray());
+    }
+
+    internal IReadOnlyList<LibraryChartDigestChange> DigestChanges { get; }
+}
+
+/// <summary>
+/// Canonical facts emitted after a catalog digest mutation.
+/// </summary>
+internal sealed class CatalogDigestMutationReceipt
+{
+    internal static CatalogDigestMutationReceipt NotApplied { get; } =
+        new(
+            applied: false,
+            ownedCollectionApplied: false,
+            default,
+            ownedCollectionVersion: 0,
+            []);
+
+    internal CatalogDigestMutationReceipt(
+        bool applied,
+        bool ownedCollectionApplied,
+        StorageRowsVersionSnapshot storageRowsVersion,
+        int ownedCollectionVersion,
+        IEnumerable<LibraryChartDigestChange> digestChanges)
+    {
+        Applied = applied;
+        Kind = applied
+            ? CatalogMutationApplyKind.DigestMutation
+            : CatalogMutationApplyKind.NoOp;
+        OwnedCollectionApplied = ownedCollectionApplied;
+        StorageRowsVersion = storageRowsVersion;
+        OwnedCollectionVersion = ownedCollectionVersion;
+        DigestChanges = Array.AsReadOnly([.. digestChanges ?? []]);
+    }
+
+    internal bool Applied { get; }
+
+    internal CatalogMutationApplyKind Kind { get; }
+
+    internal bool OwnedCollectionApplied { get; }
+
+    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
+
+    internal int OwnedCollectionVersion { get; }
+
+    internal IReadOnlyList<LibraryChartDigestChange> DigestChanges { get; }
 }
 
 /// <summary>
