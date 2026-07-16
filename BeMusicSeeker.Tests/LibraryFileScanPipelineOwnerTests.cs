@@ -191,7 +191,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
             host,
             (ILibraryFileScanLr2FolderHost)host,
             new BmsLibraryInitializationService(),
-            () => new LibraryFileScanStorageMutationCoordinator(new NoopLibraryFileScanStorageMutationHost()),
             () => new LibraryMutationDeltaApplyCoordinator(new NoopLibraryMutationDeltaApplyHost()));
     }
 
@@ -286,6 +285,10 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
         }
 
+        public void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
+        {
+        }
+
         public List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
         {
             return [];
@@ -370,47 +373,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public void MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(
             BmsLibraryOptionsSnapshot options,
             SongTableFileCheckResult result)
-        {
-        }
-    }
-
-    private sealed class NoopLibraryFileScanStorageMutationHost : ILibraryFileScanStorageMutationHost
-    {
-        public IDisposable EnterOwnedStorageWriteLock() => null!;
-
-        public bool TryCreateRemovedStorageOwnerIdentityCharts(
-            SongTableFileCheckResult fileCheckResult,
-            out List<ChartFile> removedCharts)
-        {
-            removedCharts = [];
-            return false;
-        }
-
-        public IResourceHealthInputMutationScope BeginResourceHealthInputMutation() => null!;
-
-        public void BuildMutationResult(
-            SongTableFileCheckResult fileCheckResult,
-            List<ChartFile> removedCharts,
-            bool removedPayloadAvailable,
-            bool baseIndexCurrent)
-        {
-        }
-
-        public void PublishOwnedCollectionChangeNotification()
-        {
-        }
-
-        public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded() => null!;
-
-        public void ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(SongTableFileCheckResult fileCheckResult)
-        {
-        }
-
-        public void ApplyFailureFallback()
-        {
-        }
-
-        public void DispatchOwnedChartCollectionMutation(string reason)
         {
         }
     }

@@ -49,8 +49,6 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly FileScanParseCommitOwner fileScanParseCommitOwner;
 
-    private readonly Func<LibraryFileScanStorageMutationCoordinator> storageMutationCoordinatorFactory;
-
     private readonly Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory;
 
     private readonly object fileScanGate = new();
@@ -63,7 +61,6 @@ internal sealed class LibraryFileScanPipelineOwner
         ILibraryFileScanPipelineHost host,
         ILibraryFileScanLr2FolderHost lr2Host,
         BmsLibraryInitializationService initializationService,
-        Func<LibraryFileScanStorageMutationCoordinator> storageMutationCoordinatorFactory,
         Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory,
         FileScanParseCommitOwner fileScanParseCommitOwner = null)
     {
@@ -72,7 +69,6 @@ internal sealed class LibraryFileScanPipelineOwner
         lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(this.host, lr2Host);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.fileScanParseCommitOwner = fileScanParseCommitOwner ?? this.initializationService.ParseCommitOwner;
-        this.storageMutationCoordinatorFactory = storageMutationCoordinatorFactory ?? throw new ArgumentNullException(nameof(storageMutationCoordinatorFactory));
         this.mutationDeltaApplyCoordinatorFactory = mutationDeltaApplyCoordinatorFactory ?? throw new ArgumentNullException(nameof(mutationDeltaApplyCoordinatorFactory));
     }
 
@@ -586,7 +582,7 @@ internal sealed class LibraryFileScanPipelineOwner
         LogFileScanFailures(fileCheckResult, reason);
         lr2FolderFileDiffOwner.Apply(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
-        storageMutationCoordinatorFactory().Apply(fileCheckResult, reason);
+        host.ApplyFileScanStorageMutation(fileCheckResult, reason);
         host.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
         {

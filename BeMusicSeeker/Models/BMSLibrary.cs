@@ -670,6 +670,8 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly CatalogStorageRowsOwner catalogStorageRowsOwner = new();
 
+    private readonly CatalogFileScanStorageReplacementOwner catalogFileScanStorageReplacementOwner;
+
     private ReaderWriterLockSlimWrapper rwlockBMSFiles => catalogStorageRowsOwner.WriteGate;
 
     private readonly ReaderWriterLockSlimWrapper rwlockSongDBInstall = new();
@@ -2911,11 +2913,13 @@ public partial class BMSLibrary : NotificationObject
         scopedOperationDialogService = new ScopedOperationDialogService(this);
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
         var libraryFileScanHost = new LibraryFileScanPipelineHost(this);
+        catalogFileScanStorageReplacementOwner = new(
+            catalogStorageRowsOwner,
+            catalogOwnedCollectionOwner);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             libraryFileScanHost,
             libraryFileScanHost,
              initializationService,
-             () => new LibraryFileScanStorageMutationCoordinator(new LibraryFileScanStorageMutationHost(this)),
              () => new LibraryMutationDeltaApplyCoordinator(new LibraryMutationDeltaApplyHost(this)),
              initializationService.ParseCommitOwner);
         stateApplier = new BmsLibraryStateApplier(
@@ -4308,6 +4312,11 @@ public partial class BMSLibrary : NotificationObject
         public void QueueEmptyScanWithExistingDbWarning(string failureReason)
         {
             owner.QueueEmptyScanWithExistingDbWarning(failureReason);
+        }
+
+        public void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
+        {
+            owner.ApplyFileScanStorageMutation(fileCheckResult, reason);
         }
 
         public List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
@@ -10939,121 +10948,112 @@ public partial class BMSLibrary : NotificationObject
         catalogOwnedCollectionOwner.ApplyDigestChanges(changes);
     }
 
-    internal sealed class LibraryFileScanStorageMutationHost(BMSLibrary owner) : ILibraryFileScanStorageMutationHost
+    internal void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
     {
-        private OwnedChartCollectionMutationResult mutationResult;
-
-        public IDisposable EnterOwnedStorageWriteLock()
+        if (fileCheckResult == null)
         {
-            return owner.rwlockBMSFiles.GetWriterGuard();
+            return;
         }
 
-        public bool TryCreateRemovedStorageOwnerIdentityCharts(
-            SongTableFileCheckResult fileCheckResult,
-            out List<ChartFile> removedCharts)
+        OwnedChartCollectionMutationResult mutationResult = null;
+        using (rwlockBMSFiles.GetWriterGuard())
         {
-            return owner.TryCreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(
-                fileCheckResult,
-                out removedCharts);
-        }
-
-        public IResourceHealthInputMutationScope BeginResourceHealthInputMutation()
-        {
-            return owner.BeginResourceHealthInputMutation();
-        }
-
-        public void BuildMutationResult(
-            SongTableFileCheckResult fileCheckResult,
-            List<ChartFile> removedCharts,
-            bool removedPayloadAvailable,
-            bool baseIndexCurrent)
-        {
-            mutationResult = owner.BuildOwnedChartCollectionFileScanMutationResult(
-                fileCheckResult,
-                removedCharts,
-                removedPayloadAvailable,
-                baseIndexCurrent);
-        }
-
-        public void PublishOwnedCollectionChangeNotification()
-        {
-            owner.PublishOwnedCollectionChangeNotification(mutationResult);
-        }
-
-        public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded()
-        {
-            return mutationResult?.ResourceHealthIndexInvalidated == true
-                ? owner.SuppressResourceHealthIndexInvalidation()
-                : null;
-        }
-
-        public void ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(SongTableFileCheckResult fileCheckResult)
-        {
-            CatalogStorageRowsSnapshot storageRows = fileCheckResult.HasDbDiff
-                ? owner.catalogStorageRowsOwner.ReplaceRowsAndCaptureSnapshot(
-                    fileCheckResult.NextFiles,
-                    fileCheckResult.NextBmsonSongs)
-                : owner.catalogStorageRowsOwner.CaptureSnapshot();
-            if (fileCheckResult.HasDbDiff)
+            CatalogFileScanStorageReplacementRequest request = catalogFileScanStorageReplacementOwner.CreateRequest(
+                fileCheckResult.HasDbDiff,
+                fileCheckResult.NextFiles,
+                fileCheckResult.NextBmsonSongs,
+                fileCheckResult.DeletedPaths,
+                fileCheckResult.DeletedBmsonPaths,
+                fileCheckResult.AddedFiles,
+                fileCheckResult.AddedBmsonSongs);
+            IResourceHealthInputMutationScope resourceHealthMutation = BeginResourceHealthInputMutation();
+            try
             {
-                owner.MarkDuplicateWarningFullClearPending();
-            }
-            owner.libraryResourceIndex = fileCheckResult.NextResourceIndex ?? LibraryResourceIndex.CreateFromScanResult(new ChartScanResult());
-            owner.directoryResourceLookupCache = owner.libraryResourceIndex.DirectoryLookupCache ?? new DirectoryResourceLookupCache();
-            if (fileCheckResult.HasDbDiff)
-            {
-                CatalogOwnedCollectionReplacementResult result = owner.catalogOwnedCollectionOwner.ReplaceForFileScan(storageRows);
-                if (result.Applied)
+                request = request.WithAddedTargets(
+                    ChartStorageTargetSet.FromRows(request.AddedBmsFiles, request.AddedBmsonSongs));
+                mutationResult = CreateFileScanMutationProjection(
+                    request,
+                    resourceHealthMutation.BaseIndexCurrent);
+                PublishOwnedCollectionChangeNotification(mutationResult);
+                try
                 {
-                    owner.LogOwnedChartCollectionSkippedRows("replace", result.FilterSummary);
+                    using (mutationResult.ResourceHealthIndexInvalidated
+                        ? SuppressResourceHealthIndexInvalidation()
+                        : null)
+                    {
+                        CatalogFileScanStorageReplacementReceipt receipt = catalogFileScanStorageReplacementOwner.Apply(
+                            request,
+                            storageRows =>
+                            {
+                                if (fileCheckResult.HasDbDiff)
+                                {
+                                    MarkDuplicateWarningFullClearPending();
+                                }
+                                libraryResourceIndex = fileCheckResult.NextResourceIndex ?? LibraryResourceIndex.CreateFromScanResult(new ChartScanResult());
+                                directoryResourceLookupCache = libraryResourceIndex.DirectoryLookupCache ?? new DirectoryResourceLookupCache();
+                            });
+                        if (receipt.OwnedCollectionApplied)
+                        {
+                            LogOwnedChartCollectionSkippedRows("replace", receipt.FilterSummary);
+                        }
+                    }
+                }
+                catch
+                {
+                    ApplyFileScanStorageMutationFailureFallback(mutationResult);
+                    throw;
                 }
             }
+            finally
+            {
+                resourceHealthMutation.Dispose();
+            }
         }
 
-        public void ApplyFailureFallback()
-        {
-            if (mutationResult.ShouldDispatchInstalledLookup)
-            {
-                owner.InvalidateInstalledDirectoryIndex();
-            }
-            else if (mutationResult.InstallEstimationMetadataProfileCacheInvalidated)
-            {
-                owner.InvalidateInstallEstimationMetadataProfileCache();
-            }
-            if (mutationResult.ParentFolderInvalidated)
-            {
-                owner.InvalidateBMSParentFolderListCacheAndNotify();
-            }
-            if (mutationResult.DuplicateCacheInvalidated)
-            {
-                owner.InvalidateDuplicateChartGroupsCache();
-            }
-            if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
-            {
-                owner.InvalidatePlaylistSummaryOwnedHashSnapshot();
-            }
-            if (mutationResult.OwnedCollectionChanged)
-            {
-                owner.InvalidatePlaylistLibraryResolveIndexSnapshot();
-                owner.PublishOwnedCollectionChangeNotification(mutationResult);
-            }
-            if (mutationResult.ResourceHealthMutation.HasChanges)
-            {
-                owner.ForceInvalidateResourceHealthIndex("file_scan_storage_failed");
-            }
-            if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges
-                || mutationResult.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
-            {
-                owner.PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
-            }
-            owner.InvalidateOwnedChartCollection();
-            owner.ClearNormalLibraryRefreshNotification(mutationResult);
-        }
+        string dispatchReason = string.IsNullOrWhiteSpace(reason)
+            ? "file_scan"
+            : "file_scan_" + reason;
+        DispatchOwnedChartCollectionMutation(mutationResult, dispatchReason);
+    }
 
-        public void DispatchOwnedChartCollectionMutation(string reason)
+    private void ApplyFileScanStorageMutationFailureFallback(OwnedChartCollectionMutationResult mutationResult)
+    {
+        if (mutationResult.ShouldDispatchInstalledLookup)
         {
-            owner.DispatchOwnedChartCollectionMutation(mutationResult, CreateFileScanMutationReason(reason));
+            InvalidateInstalledDirectoryIndex();
         }
+        else if (mutationResult.InstallEstimationMetadataProfileCacheInvalidated)
+        {
+            InvalidateInstallEstimationMetadataProfileCache();
+        }
+        if (mutationResult.ParentFolderInvalidated)
+        {
+            InvalidateBMSParentFolderListCacheAndNotify();
+        }
+        if (mutationResult.DuplicateCacheInvalidated)
+        {
+            InvalidateDuplicateChartGroupsCache();
+        }
+        if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
+        {
+            InvalidatePlaylistSummaryOwnedHashSnapshot();
+        }
+        if (mutationResult.OwnedCollectionChanged)
+        {
+            InvalidatePlaylistLibraryResolveIndexSnapshot();
+            PublishOwnedCollectionChangeNotification(mutationResult);
+        }
+        if (mutationResult.ResourceHealthMutation.HasChanges)
+        {
+            ForceInvalidateResourceHealthIndex("file_scan_storage_failed");
+        }
+        if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges
+            || mutationResult.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
+        {
+            PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+        }
+        InvalidateOwnedChartCollection();
+        ClearNormalLibraryRefreshNotification(mutationResult);
     }
 
     private void LogOwnedChartCollectionSkippedRows(string reason, OwnedChartStorageRowFilterSummary filterSummary)
@@ -11183,35 +11183,35 @@ public partial class BMSLibrary : NotificationObject
         }
     }
 
-    private OwnedChartCollectionMutationResult BuildOwnedChartCollectionFileScanMutationResult(
-        SongTableFileCheckResult fileCheckResult,
-        List<ChartFile> removedCharts,
-        bool removedPayloadAvailable,
+    private OwnedChartCollectionMutationResult CreateFileScanMutationProjection(
+        CatalogFileScanStorageReplacementRequest request,
         bool? resourceHealthIndexCurrentAtBase = null)
     {
         var storageMutation = new OwnedChartCollectionStorageMutation();
-        if (removedPayloadAvailable)
+        if (request.RemovedPayloadAvailable)
         {
-            storageMutation.RemoveRequests.AddRange((removedCharts ?? [])
+            storageMutation.RemoveRequests.AddRange((request.RemovedCharts ?? [])
                 .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
                 .Where(request => request != null));
         }
-        storageMutation.AddAddedTargets(ChartStorageTargetSet.FromRows(fileCheckResult.AddedFiles, fileCheckResult.AddedBmsonSongs));
-        bool bmsRowsChanged = fileCheckResult.DeletedPaths.Count > 0 || fileCheckResult.AddedFiles.Count > 0;
-        bool bmsonRowsChanged = fileCheckResult.DeletedBmsonPaths.Count > 0 || fileCheckResult.AddedBmsonSongs.Count > 0;
-        bool storageRowsChanged = bmsRowsChanged || bmsonRowsChanged || fileCheckResult.HasDbDiff;
-        bool resourceHealthShouldInvalidate = fileCheckResult.HasDbDiff || (resourceHealthIndexCurrentAtBase ?? IsResourceHealthIndexCurrent());
-        bool fileScanPresentationChanged = fileCheckResult.HasDbDiff || resourceHealthShouldInvalidate;
+        storageMutation.AddAddedTargets(request.AddedTargets);
+        bool bmsRowsChanged = request.DeletedBmsPaths.Count > 0 || request.AddedBmsFiles.Count > 0;
+        bool bmsonRowsChanged = request.DeletedBmsonPaths.Count > 0 || request.AddedBmsonSongs.Count > 0;
+        bool storageRowsChanged = bmsRowsChanged || bmsonRowsChanged || request.HasDbDiff;
+        bool resourceHealthShouldInvalidate = request.HasDbDiff || (resourceHealthIndexCurrentAtBase ?? IsResourceHealthIndexCurrent());
+        bool fileScanPresentationChanged = request.HasDbDiff || resourceHealthShouldInvalidate;
 
         var result = new OwnedChartCollectionMutationResult
         {
-            InstalledLookupMutation = BuildInstalledChartLookupFileScanMutation(storageMutation, removedPayloadAvailable, fileCheckResult),
-            InstallEstimationMetadataProfileCacheInvalidated = fileCheckResult.HasDbDiff,
+            InstalledLookupMutation = BuildInstalledChartLookupFileScanMutation(storageMutation, request.RemovedPayloadAvailable, request.HasDbDiff),
+            InstallEstimationMetadataProfileCacheInvalidated = request.HasDbDiff,
             AddedCount = storageMutation.AddedCount,
-            RemovedCount = removedPayloadAvailable ? storageMutation.RemovedCount : fileCheckResult.DeletedPaths.Count + fileCheckResult.DeletedBmsonPaths.Count,
+            RemovedCount = request.RemovedPayloadAvailable
+                ? storageMutation.RemovedCount
+                : request.DeletedBmsPaths.Count + request.DeletedBmsonPaths.Count,
             MovedCount = storageMutation.MovedCount,
-            ParentFolderInvalidated = fileCheckResult.HasDbDiff,
-            DuplicateCacheInvalidated = fileCheckResult.HasDbDiff,
+            ParentFolderInvalidated = request.HasDbDiff,
+            DuplicateCacheInvalidated = request.HasDbDiff,
             PlaylistSummaryOwnedHashInvalidated = storageRowsChanged,
             OwnedCollectionChanged = storageRowsChanged,
             ResourceHealthIndexInvalidated = resourceHealthShouldInvalidate,
@@ -11228,30 +11228,13 @@ public partial class BMSLibrary : NotificationObject
         return result;
     }
 
-    private bool TryCreateOwnedFileScanRemovedStorageOwnerIdentityChartsUnsafe(
-        SongTableFileCheckResult fileCheckResult,
-        out List<ChartFile> removedCharts)
-    {
-        removedCharts = [];
-        if (fileCheckResult == null)
-        {
-            return true;
-        }
-        StorageRowsVersionSnapshot storageRowsVersion = CaptureStorageRowsVersionUnsafe();
-        return catalogOwnedCollectionOwner.TryCreateFileScanRemovedStorageOwnerIdentityCharts(
-            fileCheckResult,
-            storageRowsVersion.BmsRowsVersion,
-            storageRowsVersion.BmsonRowsVersion,
-            out removedCharts);
-    }
-
     private InstalledChartLookupMutation BuildInstalledChartLookupFileScanMutation(
         OwnedChartCollectionStorageMutation storageMutation,
         bool removedPayloadAvailable,
-        SongTableFileCheckResult fileCheckResult)
+        bool hasDbDiff)
     {
         InstalledChartLookupMutation mutation = BuildInstalledChartLookupMutation(storageMutation, null);
-        if (!removedPayloadAvailable && fileCheckResult?.HasDbDiff == true)
+        if (!removedPayloadAvailable && hasDbDiff)
         {
             mutation.RequiresFullInvalidate = true;
             return mutation;
@@ -11261,13 +11244,6 @@ public partial class BMSLibrary : NotificationObject
             mutation.Added.Add(CreateInstalledChartLookupMutationEntry(chart));
         }
         return mutation;
-    }
-
-    private static string CreateFileScanMutationReason(string reason)
-    {
-        return string.IsNullOrWhiteSpace(reason)
-            ? "file_scan"
-            : "file_scan_" + reason;
     }
 
     private StorageRowsVersionSnapshot ApplyInstalledChartStorageRowsUnsafe(ChartStorageTargetSet addedTargets)

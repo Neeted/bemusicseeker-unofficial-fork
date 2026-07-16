@@ -147,17 +147,15 @@ internal sealed class CatalogOwnedCollectionOwner
     }
 
     internal bool TryCreateFileScanRemovedStorageOwnerIdentityCharts(
-        SongTableFileCheckResult fileCheckResult,
+        IReadOnlyList<string> deletedPaths,
+        IReadOnlyList<string> deletedBmsonPaths,
+        IReadOnlyList<BMSFile> nextFiles,
+        IReadOnlyList<LR2SongDBExtended.bmson_song> nextBmsonSongs,
         int currentBmsRowsVersion,
         int currentBmsonRowsVersion,
         out List<ChartFile> removedCharts)
     {
         removedCharts = [];
-        if (fileCheckResult == null)
-        {
-            return true;
-        }
-
         lock (gate)
         {
             if (!initialized
@@ -167,10 +165,10 @@ internal sealed class CatalogOwnedCollectionOwner
                 return false;
             }
             removedCharts = collection.CreateFileScanRemovedStorageOwnerIdentityCharts(
-                fileCheckResult.DeletedPaths,
-                fileCheckResult.DeletedBmsonPaths,
-                fileCheckResult.NextFiles,
-                fileCheckResult.NextBmsonSongs);
+                deletedPaths,
+                deletedBmsonPaths,
+                nextFiles,
+                nextBmsonSongs);
             return true;
         }
     }

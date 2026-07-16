@@ -3494,8 +3494,27 @@ public sealed class OwnedChartCollectionStateTests
         SongTableFileCheckResult result,
         string reason)
     {
-        var coordinator = new LibraryFileScanStorageMutationCoordinator(new BMSLibrary.LibraryFileScanStorageMutationHost(library));
-        coordinator.Apply(result, reason);
+        library.ApplyFileScanStorageMutation(result, reason);
+    }
+
+    private static void InvokeApplyCatalogStorageRowsWithoutNotification(
+        BMSLibrary library,
+        SongTableFileCheckResult result)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod(
+            "ApplyCatalogStorageRows",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(
+            library,
+            [
+                result.NextFiles,
+                result.NextBmsonSongs,
+                true,
+                true,
+                false,
+                false
+            ]);
     }
 
     private static ChartInfoInlineBuildResult InvokeBuildAndPersistInlineChartInfoForInstalledCharts(
@@ -3522,8 +3541,7 @@ public sealed class OwnedChartCollectionStateTests
         };
         result.NextFiles.AddRange(files ?? []);
         result.NextBmsonSongs.AddRange(library.BmsonSongs);
-        new BMSLibrary.LibraryFileScanStorageMutationHost(library)
-            .ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(result);
+        InvokeApplyCatalogStorageRowsWithoutNotification(library, result);
     }
 
     private static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
@@ -3534,8 +3552,7 @@ public sealed class OwnedChartCollectionStateTests
         };
         result.NextFiles.AddRange(library.BMSFiles);
         result.NextBmsonSongs.AddRange(songs ?? []);
-        new BMSLibrary.LibraryFileScanStorageMutationHost(library)
-            .ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(result);
+        InvokeApplyCatalogStorageRowsWithoutNotification(library, result);
     }
 
     private static void SetDuplicateChartGroupsWithoutNotification(BMSLibrary library, IEnumerable<DuplicateGroup> groups)

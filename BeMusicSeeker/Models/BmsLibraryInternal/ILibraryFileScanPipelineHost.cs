@@ -49,6 +49,13 @@ internal interface ILibraryFileScanPipelineHost
 
     void QueueEmptyScanWithExistingDbWarning(string failureReason);
 
+    /// <summary>
+    /// Applies the catalog storage replacement phase for a completed file scan.
+    /// </summary>
+    /// <param name="fileCheckResult">The immutable-by-convention scan result owned by the pipeline.</param>
+    /// <param name="reason">The file-scan operation reason used for dispatch diagnostics.</param>
+    void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason);
+
     List<ChartFile> CreateCurrentInstallDestinationCleanupCharts();
 
     bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options);

@@ -569,8 +569,7 @@ public sealed class PlaylistSummaryAggregationTests
         };
         result.NextFiles.AddRange(files ?? []);
         result.NextBmsonSongs.AddRange(library.BmsonSongs);
-        new BMSLibrary.LibraryFileScanStorageMutationHost(library)
-            .ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(result);
+        InvokeApplyCatalogStorageRowsWithoutNotification(library, result);
     }
 
     private static void SetLibraryBmsonSongsWithoutNotification(BMSLibrary library, IEnumerable<LR2SongDBExtended.bmson_song> songs)
@@ -581,8 +580,27 @@ public sealed class PlaylistSummaryAggregationTests
         };
         result.NextFiles.AddRange(library.BMSFiles);
         result.NextBmsonSongs.AddRange(songs ?? []);
-        new BMSLibrary.LibraryFileScanStorageMutationHost(library)
-            .ApplyStorageRowsResourceIndexAndOwnedCollectionReplacement(result);
+        InvokeApplyCatalogStorageRowsWithoutNotification(library, result);
+    }
+
+    private static void InvokeApplyCatalogStorageRowsWithoutNotification(
+        BMSLibrary library,
+        SongTableFileCheckResult result)
+    {
+        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod(
+            "ApplyCatalogStorageRows",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(methodInfo);
+        methodInfo.Invoke(
+            library,
+            [
+                result.NextFiles,
+                result.NextBmsonSongs,
+                true,
+                true,
+                false,
+                false
+            ]);
     }
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
