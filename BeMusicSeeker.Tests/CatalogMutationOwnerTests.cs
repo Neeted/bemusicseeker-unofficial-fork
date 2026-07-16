@@ -86,6 +86,71 @@ public sealed class CatalogMutationOwnerTests
     }
 
     [TestMethod]
+    public void ApplyStorageRowsReplacement_EmitsChangedKindsAndVersions()
+    {
+        var oldBms = CreateBms("old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var oldBmson = CreateBmson("old.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var newBms = CreateBms("new.bms", "cccccccccccccccccccccccccccccccc");
+        var newBmson = CreateBmson("new.bmson", "dddddddddddddddddddddddddddddddd");
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([oldBms], [oldBmson]);
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+            OwnedChartCollectionState.FromStorageRows([oldBms], [oldBmson]),
+            initialRows.BmsRowsVersion,
+            initialRows.BmsonRowsVersion));
+        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+
+        CatalogStorageRowsReplacementRequest request = owner.CreateStorageRowsReplacementRequest(
+            [newBms],
+            [newBmson],
+            replaceBmsRows: true,
+            replaceBmsonRows: true);
+        CatalogStorageRowsReplacementReceipt receipt = owner.ApplyStorageRowsReplacement(request);
+
+        Assert.IsTrue(receipt.Applied);
+        Assert.AreEqual(CatalogMutationApplyKind.StorageRowsReplacement, receipt.Kind);
+        Assert.IsTrue(receipt.BmsRowsChanged);
+        Assert.IsTrue(receipt.BmsonRowsChanged);
+        Assert.IsTrue(receipt.OwnedCollectionInvalidated);
+        Assert.IsFalse(ownedCollectionOwner.IsInitialized);
+        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
+        Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion + 1, receipt.StorageRowsVersion.BmsonRowsVersion);
+        Assert.AreSame(newBms, storageRowsOwner.BmsRows.Single());
+        Assert.AreSame(newBmson, storageRowsOwner.BmsonRows.Single());
+    }
+
+    [TestMethod]
+    public void ApplyStorageRowsReplacement_LeavesUnselectedRowsUntouched()
+    {
+        var oldBms = CreateBms("old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var oldBmson = CreateBmson("old.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        var newBms = CreateBms("new.bms", "cccccccccccccccccccccccccccccccc");
+        var newBmson = CreateBmson("new.bmson", "dddddddddddddddddddddddddddddddd");
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([oldBms], [oldBmson]);
+        var owner = new CatalogMutationOwner(storageRowsOwner, new CatalogOwnedCollectionOwner());
+
+        CatalogStorageRowsReplacementReceipt receipt = owner.ApplyStorageRowsReplacement(
+            owner.CreateStorageRowsReplacementRequest(
+                [newBms],
+                [newBmson],
+                replaceBmsRows: true,
+                replaceBmsonRows: false));
+
+        Assert.IsTrue(receipt.Applied);
+        Assert.IsTrue(receipt.BmsRowsChanged);
+        Assert.IsFalse(receipt.BmsonRowsChanged);
+        Assert.IsTrue(receipt.OwnedCollectionInvalidated);
+        Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
+        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
+        Assert.AreSame(newBms, storageRowsOwner.BmsRows.Single());
+        Assert.AreSame(oldBmson, storageRowsOwner.BmsonRows.Single());
+    }
+
+    [TestMethod]
     public void ApplyInstalledTargetUpsert_EmitsReceiptAndReplacesSamePathRows()
     {
         var oldBms = CreateBms("same.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");

@@ -23,6 +23,63 @@ internal sealed class CatalogMutationOwner
         this.ownedCollectionOwner = ownedCollectionOwner ?? throw new ArgumentNullException(nameof(ownedCollectionOwner));
     }
 
+    internal CatalogStorageRowsReplacementRequest CreateStorageRowsReplacementRequest(
+        IEnumerable<BMSFile> bmsRows,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
+        bool replaceBmsRows,
+        bool replaceBmsonRows)
+    {
+        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        {
+            CatalogStorageRowsSnapshot currentRows = storageRowsOwner.CaptureSnapshot();
+            return new CatalogStorageRowsReplacementRequest(
+                bmsRows,
+                bmsonRows,
+                replaceBmsRows,
+                replaceBmsonRows,
+                replaceBmsRows && !ReferenceEquals(currentRows.BmsRows, bmsRows),
+                replaceBmsonRows && !ReferenceEquals(currentRows.BmsonRows, bmsonRows));
+        }
+    }
+
+    internal CatalogStorageRowsReplacementReceipt ApplyStorageRowsReplacement(
+        CatalogStorageRowsReplacementRequest request)
+    {
+        if (request == null)
+        {
+            return CatalogStorageRowsReplacementReceipt.NotApplied;
+        }
+
+        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        {
+            StorageRowsVersionSnapshot previousVersions = storageRowsOwner.CaptureVersionSnapshot();
+            if (request.ReplaceBmsRows && request.BmsRowsChanged)
+            {
+                storageRowsOwner.ReplaceBmsRows([.. request.BmsRows]);
+            }
+            if (request.ReplaceBmsonRows && request.BmsonRowsChanged)
+            {
+                storageRowsOwner.ReplaceBmsonRows([.. request.BmsonRows]);
+            }
+            bool applied = request.BmsRowsChanged || request.BmsonRowsChanged;
+            if (applied)
+            {
+                ownedCollectionOwner.Invalidate();
+            }
+            StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
+            return new CatalogStorageRowsReplacementReceipt(
+                applied,
+                request.BmsRowsChanged,
+                request.BmsonRowsChanged,
+                ownedCollectionInvalidated: applied,
+                new StorageRowsVersionSnapshot(
+                    previousVersions.BmsRowsVersion,
+                    previousVersions.BmsonRowsVersion,
+                    currentVersions.BmsRowsVersion,
+                    currentVersions.BmsonRowsVersion));
+        }
+    }
+
     internal CatalogFileScanStorageReplacementRequest CreateFileScanStorageReplacementRequest(
         bool hasDbDiff,
         IEnumerable<BMSFile> nextBmsRows,
@@ -195,9 +252,92 @@ internal sealed class CatalogMutationOwner
 internal enum CatalogMutationApplyKind
 {
     NoOp,
+    StorageRowsReplacement,
     FileScanStorageReplacement,
     InstalledTargetUpsert,
     DigestMutation
+}
+
+/// <summary>
+/// Immutable input snapshot for a selected catalog storage-row replacement.
+/// </summary>
+internal sealed class CatalogStorageRowsReplacementRequest
+{
+    internal CatalogStorageRowsReplacementRequest(
+        IEnumerable<BMSFile> bmsRows,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
+        bool replaceBmsRows,
+        bool replaceBmsonRows,
+        bool bmsRowsChanged,
+        bool bmsonRowsChanged)
+    {
+        BmsRows = Snapshot(bmsRows);
+        BmsonRows = Snapshot(bmsonRows);
+        ReplaceBmsRows = replaceBmsRows;
+        ReplaceBmsonRows = replaceBmsonRows;
+        BmsRowsChanged = bmsRowsChanged;
+        BmsonRowsChanged = bmsonRowsChanged;
+    }
+
+    internal IReadOnlyList<BMSFile> BmsRows { get; }
+
+    internal IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonRows { get; }
+
+    internal bool ReplaceBmsRows { get; }
+
+    internal bool ReplaceBmsonRows { get; }
+
+    internal bool BmsRowsChanged { get; }
+
+    internal bool BmsonRowsChanged { get; }
+
+    private static IReadOnlyList<T> Snapshot<T>(IEnumerable<T> values)
+    {
+        return Array.AsReadOnly([.. values ?? []]);
+    }
+}
+
+/// <summary>
+/// Canonical facts emitted after a catalog storage-row replacement.
+/// </summary>
+internal sealed class CatalogStorageRowsReplacementReceipt
+{
+    internal static CatalogStorageRowsReplacementReceipt NotApplied { get; } =
+        new(
+            applied: false,
+            bmsRowsChanged: false,
+            bmsonRowsChanged: false,
+            ownedCollectionInvalidated: false,
+            default);
+
+    internal CatalogStorageRowsReplacementReceipt(
+        bool applied,
+        bool bmsRowsChanged,
+        bool bmsonRowsChanged,
+        bool ownedCollectionInvalidated,
+        StorageRowsVersionSnapshot storageRowsVersion)
+    {
+        Applied = applied;
+        Kind = applied
+            ? CatalogMutationApplyKind.StorageRowsReplacement
+            : CatalogMutationApplyKind.NoOp;
+        BmsRowsChanged = bmsRowsChanged;
+        BmsonRowsChanged = bmsonRowsChanged;
+        OwnedCollectionInvalidated = ownedCollectionInvalidated;
+        StorageRowsVersion = storageRowsVersion;
+    }
+
+    internal bool Applied { get; }
+
+    internal CatalogMutationApplyKind Kind { get; }
+
+    internal bool BmsRowsChanged { get; }
+
+    internal bool BmsonRowsChanged { get; }
+
+    internal bool OwnedCollectionInvalidated { get; }
+
+    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
 }
 
 /// <summary>

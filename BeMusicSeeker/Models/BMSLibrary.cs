@@ -1056,8 +1056,8 @@ public partial class BMSLibrary : NotificationObject
 
     /// <summary>
     /// Replaces the selected raw catalog storage rows through the canonical storage-row owner.
-    /// Derived collection and cache invalidation remains composed by this facade; the startup
-    /// composition path controls the per-kind notification ordering explicitly.
+    /// The mutation owner applies the raw rows and invalidates the derived owned collection;
+    /// this facade composes cache, resource-health, and per-kind notification ordering.
     /// </summary>
     private void ApplyCatalogStorageRows(
         IEnumerable<BMSFile> bmsFiles,
@@ -1069,27 +1069,30 @@ public partial class BMSLibrary : NotificationObject
     {
         List<BMSFile> normalizedBmsRows = NormalizeBmsStorageRows(bmsFiles?.ToList());
         List<LR2SongDBExtended.bmson_song> normalizedBmsonRows = NormalizeBmsonStorageRows(bmsonSongs?.ToList());
-        bool bmsRowsChanged = replaceBmsRows && !ReferenceEquals(_BMSFiles, normalizedBmsRows);
-        bool bmsonRowsChanged = replaceBmsonRows && !ReferenceEquals(_BmsonSongs, normalizedBmsonRows);
+        CatalogStorageRowsReplacementRequest request = catalogMutationOwner.CreateStorageRowsReplacementRequest(
+            normalizedBmsRows,
+            normalizedBmsonRows,
+            replaceBmsRows,
+            replaceBmsonRows);
+        bool bmsRowsChanged = request.BmsRowsChanged;
+        bool bmsonRowsChanged = request.BmsonRowsChanged;
         if (!bmsRowsChanged && !bmsonRowsChanged)
         {
             return;
         }
 
+        CatalogStorageRowsReplacementReceipt replacementReceipt;
         using (BeginResourceHealthInputMutation())
         {
             InvalidatePlaylistSummaryOwnedHashSnapshot();
             InvalidatePlaylistLibraryResolveIndexSnapshot();
+            replacementReceipt = catalogMutationOwner.ApplyStorageRowsReplacement(request);
+            bmsRowsChanged = replacementReceipt.BmsRowsChanged;
+            bmsonRowsChanged = replacementReceipt.BmsonRowsChanged;
             if (bmsRowsChanged)
             {
-                catalogStorageRowsOwner.ReplaceBmsRows(normalizedBmsRows);
                 MarkDuplicateWarningFullClearPending();
             }
-            if (bmsonRowsChanged)
-            {
-                catalogStorageRowsOwner.ReplaceBmsonRows(normalizedBmsonRows);
-            }
-            InvalidateOwnedChartCollection();
             int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
             InvalidatePlaylistSummaryOwnedHashSnapshot(ownedCollectionVersion);
             InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
