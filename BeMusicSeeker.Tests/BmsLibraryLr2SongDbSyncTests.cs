@@ -154,7 +154,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 BMSFiles = []
             };
 
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_lr2_normal_folder_add");
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []));
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder[] folders = [.. verify.Table<LR2SongDB.folder>()];
@@ -194,7 +194,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 BMSFiles = []
             };
 
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_lr2_normal_folder_add_disabled");
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []));
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
@@ -237,7 +237,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 SearchTargets = [rootDirectory],
                 BMSFiles = []
             };
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([keepFile, removeFile], []), "test_lr2_normal_folder_seed");
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([keepFile, removeFile], []));
             var delta = new LibraryMutationDelta();
             delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removeFile));
 
@@ -292,7 +292,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 SearchTargets = [rootDirectory],
                 BMSFiles = []
             };
-            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_lr2_normal_folder_seed");
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []));
             var delta = new LibraryMutationDelta();
             delta.ChartPathChanges.Add(new LibraryChartPathChange
             {
@@ -344,7 +344,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             InvokeBeginLr2SongDbSyncRequest(library);
 
             InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-                () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_blocked_add"));
+                () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], [])));
             Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.Message);
         }
         finally
@@ -380,7 +380,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             InvokeBeginLr2SongDbSyncRequest(library);
 
             InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
-                () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []), "test_running_add"));
+                () => InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], [])));
             Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.Message);
         }
         finally
@@ -6705,10 +6705,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         }, typeof(LR2SongDB.folder));
     }
 
-    private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets, string reason)
+    private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets)
     {
-        var coordinator = new InstalledChartStorageTargetsApplyCoordinator(new BMSLibrary.InstalledChartStorageTargetsApplyHost(library));
-        coordinator.Apply(targets, reason);
+        ((IPackageInstallHost)library).ApplyInstalledChartStorageTargets(targets);
     }
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)

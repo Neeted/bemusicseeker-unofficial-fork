@@ -670,7 +670,7 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly CatalogStorageRowsOwner catalogStorageRowsOwner = new();
 
-    private readonly CatalogFileScanStorageReplacementOwner catalogFileScanStorageReplacementOwner;
+    private readonly CatalogMutationOwner catalogMutationOwner;
 
     private ReaderWriterLockSlimWrapper rwlockBMSFiles => catalogStorageRowsOwner.WriteGate;
 
@@ -2913,7 +2913,7 @@ public partial class BMSLibrary : NotificationObject
         scopedOperationDialogService = new ScopedOperationDialogService(this);
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
         var libraryFileScanHost = new LibraryFileScanPipelineHost(this);
-        catalogFileScanStorageReplacementOwner = new(
+        catalogMutationOwner = new(
             catalogStorageRowsOwner,
             catalogOwnedCollectionOwner);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
@@ -10958,7 +10958,7 @@ public partial class BMSLibrary : NotificationObject
         OwnedChartCollectionMutationResult mutationResult = null;
         using (rwlockBMSFiles.GetWriterGuard())
         {
-            CatalogFileScanStorageReplacementRequest request = catalogFileScanStorageReplacementOwner.CreateRequest(
+            CatalogFileScanStorageReplacementRequest request = catalogMutationOwner.CreateFileScanStorageReplacementRequest(
                 fileCheckResult.HasDbDiff,
                 fileCheckResult.NextFiles,
                 fileCheckResult.NextBmsonSongs,
@@ -10969,8 +10969,6 @@ public partial class BMSLibrary : NotificationObject
             IResourceHealthInputMutationScope resourceHealthMutation = BeginResourceHealthInputMutation();
             try
             {
-                request = request.WithAddedTargets(
-                    ChartStorageTargetSet.FromRows(request.AddedBmsFiles, request.AddedBmsonSongs));
                 mutationResult = CreateFileScanMutationProjection(
                     request,
                     resourceHealthMutation.BaseIndexCurrent);
@@ -10981,7 +10979,7 @@ public partial class BMSLibrary : NotificationObject
                         ? SuppressResourceHealthIndexInvalidation()
                         : null)
                     {
-                        CatalogFileScanStorageReplacementReceipt receipt = catalogFileScanStorageReplacementOwner.Apply(
+                        CatalogFileScanStorageReplacementReceipt receipt = catalogMutationOwner.ApplyFileScanStorageReplacement(
                             request,
                             storageRows =>
                             {
@@ -11073,113 +11071,94 @@ public partial class BMSLibrary : NotificationObject
 
     private void ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets, string lookupReason)
     {
-        var coordinator = new InstalledChartStorageTargetsApplyCoordinator(new InstalledChartStorageTargetsApplyHost(this));
-        coordinator.Apply(addedTargets, lookupReason);
-    }
-
-    internal sealed class InstalledChartStorageTargetsApplyHost(BMSLibrary owner) : IInstalledChartStorageTargetsApplyHost
-    {
-        private OwnedChartCollectionMutationResult mutationResult;
-
-        public void ThrowIfLr2SongDbSyncMutationBlocked(string operationName)
+        if (addedTargets == null)
         {
-            owner.ThrowIfLr2SongDbSyncMutationBlocked(operationName);
+            return;
         }
 
-        public IResourceHealthInputMutationScope BeginResourceHealthInputMutation()
+        ThrowIfLr2SongDbSyncMutationBlocked("ApplyInstalledChartStorageTargets");
+        OwnedChartCollectionMutationResult mutationResult = null;
+        IResourceHealthInputMutationScope resourceHealthMutation = null;
+        try
         {
-            return owner.BeginResourceHealthInputMutation();
-        }
+            resourceHealthMutation = BeginResourceHealthInputMutation();
+            try
+            {
+                mutationResult = BuildOwnedChartCollectionUpsertMutationResult(
+                    addedTargets,
+                    resourceHealthMutation.BaseInputVersion,
+                    resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
+                PublishOwnedCollectionChangeNotification(mutationResult);
+                using (mutationResult.ResourceHealthIndexInvalidated
+                    ? SuppressResourceHealthIndexInvalidation()
+                    : null)
+                {
+                    catalogMutationOwner.ApplyInstalledTargetUpsert(
+                        addedTargets.BmsFiles,
+                        addedTargets.BmsonSongs);
+                }
+            }
+            finally
+            {
+                resourceHealthMutation.Dispose();
+            }
 
-        public void BuildMutationResult(ChartStorageTargetSet addedTargets, int baseInputVersion, bool baseIndexCurrent)
-        {
-            mutationResult = owner.BuildOwnedChartCollectionUpsertMutationResult(
-                addedTargets,
-                baseInputVersion,
-                resourceHealthIndexCurrentAtBase: baseIndexCurrent);
-        }
-
-        public void PublishOwnedCollectionChangeNotification()
-        {
-            owner.PublishOwnedCollectionChangeNotification(mutationResult);
-        }
-
-        public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded()
-        {
-            return mutationResult?.ResourceHealthIndexInvalidated == true
-                ? owner.SuppressResourceHealthIndexInvalidation()
-                : null;
-        }
-
-        public StorageRowsVersionSnapshot ApplyInstalledChartStorageRowsUnsafe(ChartStorageTargetSet addedTargets)
-        {
-            return owner.ApplyInstalledChartStorageRowsUnsafe(addedTargets);
-        }
-
-        public void ApplyOwnedChartCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
-        {
-            owner.ApplyOwnedChartCollectionMutation(mutationResult.StorageMutation, storageRowsVersion);
-        }
-
-        public void CompleteResourceHealthMutation(int targetInputVersion)
-        {
-            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= targetInputVersion;
+            mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion ??= resourceHealthMutation.TargetInputVersion;
             if (mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion.Value < 0)
             {
                 mutationResult.ResourceHealthMutation.Invalidate = true;
             }
+            SyncLr2NormalFoldersForOwnedMutation(
+                mutationResult.StorageMutation,
+                lookupReason ?? "install_package");
+            DispatchOwnedChartCollectionMutation(mutationResult, lookupReason);
         }
-
-        public void SyncLr2NormalFoldersForOwnedMutation(string reason)
+        catch
         {
-            owner.SyncLr2NormalFoldersForOwnedMutation(mutationResult.StorageMutation, reason);
+            ApplyInstalledChartStorageTargetsFailureFallback(mutationResult);
+            throw;
         }
+    }
 
-        public void DispatchOwnedChartCollectionMutation(string reason)
+    private void ApplyInstalledChartStorageTargetsFailureFallback(OwnedChartCollectionMutationResult mutationResult)
+    {
+        if (mutationResult?.ShouldDispatchInstalledLookup != false)
         {
-            owner.DispatchOwnedChartCollectionMutation(mutationResult, reason);
+            InvalidateInstalledDirectoryIndex();
         }
-
-        public void ApplyFailureFallback()
+        if (mutationResult?.PlaylistSummaryOwnedHashInvalidated == true)
         {
-            if (mutationResult?.ShouldDispatchInstalledLookup != false)
-            {
-                owner.InvalidateInstalledDirectoryIndex();
-            }
-            if (mutationResult?.PlaylistSummaryOwnedHashInvalidated == true)
-            {
-                owner.InvalidatePlaylistSummaryOwnedHashSnapshot();
-            }
-            if (mutationResult?.OwnedCollectionChanged == true)
-            {
-                owner.InvalidatePlaylistLibraryResolveIndexSnapshot();
-            }
-            if (mutationResult?.ParentFolderInvalidated == true)
-            {
-                owner.InvalidateBMSParentFolderListCacheAndNotify();
-            }
-            if (mutationResult?.DuplicateCacheInvalidated == true)
-            {
-                owner.InvalidateDuplicateChartGroupsCache();
-            }
-            if (mutationResult?.InstallDestinationRuntimeStateMutation.HasChanges == true
-                || mutationResult?.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts == true)
-            {
-                owner.PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
-            }
-            if (mutationResult?.OwnedCollectionChanged == true)
-            {
-                owner.PublishOwnedCollectionChangeNotification(mutationResult);
-            }
-            if (mutationResult?.ResourceHealthMutation.HasChanges == true)
-            {
-                owner.ForceInvalidateResourceHealthIndex("install_package_failed");
-            }
-            owner.InvalidateOwnedChartCollection();
-            if (mutationResult != null)
-            {
-                owner.ClearNormalLibraryRefreshNotification(mutationResult);
-            }
+            InvalidatePlaylistSummaryOwnedHashSnapshot();
+        }
+        if (mutationResult?.OwnedCollectionChanged == true)
+        {
+            InvalidatePlaylistLibraryResolveIndexSnapshot();
+        }
+        if (mutationResult?.ParentFolderInvalidated == true)
+        {
+            InvalidateBMSParentFolderListCacheAndNotify();
+        }
+        if (mutationResult?.DuplicateCacheInvalidated == true)
+        {
+            InvalidateDuplicateChartGroupsCache();
+        }
+        if (mutationResult?.InstallDestinationRuntimeStateMutation.HasChanges == true
+            || mutationResult?.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts == true)
+        {
+            PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+        }
+        if (mutationResult?.OwnedCollectionChanged == true)
+        {
+            PublishOwnedCollectionChangeNotification(mutationResult);
+        }
+        if (mutationResult?.ResourceHealthMutation.HasChanges == true)
+        {
+            ForceInvalidateResourceHealthIndex("install_package_failed");
+        }
+        InvalidateOwnedChartCollection();
+        if (mutationResult != null)
+        {
+            ClearNormalLibraryRefreshNotification(mutationResult);
         }
     }
 
@@ -11194,7 +11173,8 @@ public partial class BMSLibrary : NotificationObject
                 .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
                 .Where(request => request != null));
         }
-        storageMutation.AddAddedTargets(request.AddedTargets);
+        storageMutation.AddAddedTargets(
+            ChartStorageTargetSet.FromRows(request.AddedBmsFiles, request.AddedBmsonSongs));
         bool bmsRowsChanged = request.DeletedBmsPaths.Count > 0 || request.AddedBmsFiles.Count > 0;
         bool bmsonRowsChanged = request.DeletedBmsonPaths.Count > 0 || request.AddedBmsonSongs.Count > 0;
         bool storageRowsChanged = bmsRowsChanged || bmsonRowsChanged || request.HasDbDiff;
@@ -11244,11 +11224,6 @@ public partial class BMSLibrary : NotificationObject
             mutation.Added.Add(CreateInstalledChartLookupMutationEntry(chart));
         }
         return mutation;
-    }
-
-    private StorageRowsVersionSnapshot ApplyInstalledChartStorageRowsUnsafe(ChartStorageTargetSet addedTargets)
-    {
-        return catalogStorageRowsOwner.ApplyInstalledTargets(addedTargets);
     }
 
     private static string CreateOwnedPathKey(string path)

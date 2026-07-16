@@ -611,8 +611,7 @@ public sealed class PlaylistSummaryAggregationTests
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)
     {
-        var coordinator = new InstalledChartStorageTargetsApplyCoordinator(new BMSLibrary.InstalledChartStorageTargetsApplyHost(library));
-        coordinator.Apply(addedTargets, "test");
+        ((IPackageInstallHost)library).ApplyInstalledChartStorageTargets(addedTargets);
     }
 
     private static IDisposable BeginOwnedDigestMutationWindow(BMSLibrary library)

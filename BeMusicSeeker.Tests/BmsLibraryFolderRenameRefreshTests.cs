@@ -864,8 +864,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
             addedFile.SetHash("cccccccccccccccccccccccccccccccc");
             InvokeApplyInstalledChartStorageTargets(
                 library,
-                ChartStorageTargetSet.FromRows([addedFile], []),
-                "test");
+                ChartStorageTargetSet.FromRows([addedFile], []));
 
             NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(0);
             Assert.IsFalse(notificationBatch.ResetsPriorNotifications);
@@ -891,8 +890,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
             InvokeApplyInstalledChartStorageTargets(
                 library,
-                ChartStorageTargetSet.FromRows([addedFile], []),
-                "test");
+                ChartStorageTargetSet.FromRows([addedFile], []));
 
             NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(0);
             Assert.AreNotEqual(0, notificationBatch.LatestVersion);
@@ -1693,10 +1691,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         return coordinator.Apply(plans);
     }
 
-    private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets, string reason)
+    private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets)
     {
-        var coordinator = new InstalledChartStorageTargetsApplyCoordinator(new BMSLibrary.InstalledChartStorageTargetsApplyHost(library));
-        coordinator.Apply(targets, reason);
+        ((ILibraryMergeDirectoryHost)library).ApplyInstalledChartStorageTargets(targets);
     }
 
     private static InstalledChartLookupIndexSnapshot InvokeCreateInstalledChartLookupSnapshot(BMSLibrary library)

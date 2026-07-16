@@ -4105,24 +4105,29 @@ public sealed class MainWindowContextMenuResourceTests
         string pipelineOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "LibraryFileScanPipelineOwner.cs"));
         string ownedCollectionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "OwnedChartCollectionState.cs"));
         string ownedCollectionOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "CatalogOwnedCollectionOwner.cs"));
-        string replacementOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "CatalogFileScanStorageReplacementOwner.cs"));
+        string mutationOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "CatalogMutationOwner.cs"));
         string projectionMethod = ExtractMethodBody(libraryCode, "private OwnedChartCollectionMutationResult CreateFileScanMutationProjection");
 
-        StringAssert.Contains(libraryCode, "catalogFileScanStorageReplacementOwner.CreateRequest(");
-        StringAssert.Contains(libraryCode, "catalogFileScanStorageReplacementOwner.Apply(");
+        StringAssert.Contains(libraryCode, "catalogMutationOwner.CreateFileScanStorageReplacementRequest(");
+        StringAssert.Contains(libraryCode, "catalogMutationOwner.ApplyFileScanStorageReplacement(");
+        StringAssert.Contains(libraryCode, "catalogMutationOwner.ApplyInstalledTargetUpsert(");
+        StringAssert.Contains(mutationOwnerCode, "CreateInstalledTargetUpsertRequestUnsafe(");
         StringAssert.Contains(pipelineOwnerCode, "host.ApplyFileScanStorageMutation(fileCheckResult, reason)");
         StringAssert.Contains(libraryCode, "new LibraryMutationDeltaApplyCoordinator(");
         StringAssert.Contains(pipelineOwnerCode, "mutationDeltaApplyCoordinatorFactory().Apply(fileCheckResult.MutationDelta)");
         Assert.IsFalse(libraryCode.Contains("LibraryFileScanStorageMutationHost"));
+        Assert.IsFalse(libraryCode.Contains("InstalledChartStorageTargetsApplyHost"));
+        Assert.IsFalse(libraryCode.Contains("ApplyInstalledChartStorageRowsUnsafe"));
         Assert.IsFalse(libraryCode.Contains("BuildOwnedChartCollectionFileScanMutationResult"));
         Assert.IsFalse(pipelineOwnerCode.Contains("storageMutationCoordinatorFactory"));
         Assert.IsFalse(projectionMethod.Contains("SongTableFileCheckResult fileCheckResult"));
         StringAssert.Contains(projectionMethod, "request.RemovedPayloadAvailable");
-        StringAssert.Contains(projectionMethod, "request.AddedTargets");
-        StringAssert.Contains(replacementOwnerCode, "TryCreateFileScanRemovedStorageOwnerIdentityCharts(");
-        StringAssert.Contains(replacementOwnerCode, "ReplaceRowsAndCaptureSnapshot(");
-        StringAssert.Contains(replacementOwnerCode, "ReplaceForFileScan(storageRows)");
-        StringAssert.Contains(replacementOwnerCode, "CatalogFileScanStorageReplacementReceipt");
+        StringAssert.Contains(projectionMethod, "request.AddedBmsFiles");
+        StringAssert.Contains(mutationOwnerCode, "TryCreateFileScanRemovedStorageOwnerIdentityCharts(");
+        StringAssert.Contains(mutationOwnerCode, "ReplaceRowsAndCaptureSnapshot(");
+        StringAssert.Contains(mutationOwnerCode, "ReplaceForFileScan(storageRows)");
+        StringAssert.Contains(mutationOwnerCode, "CatalogFileScanStorageReplacementReceipt");
+        StringAssert.Contains(mutationOwnerCode, "CatalogInstalledTargetUpsertReceipt");
         StringAssert.Contains(ownedCollectionOwnerCode, "collection.CreateFileScanRemovedStorageOwnerIdentityCharts(");
         StringAssert.Contains(ownedCollectionCode, "internal List<ChartFile> CreateFileScanRemovedStorageOwnerIdentityCharts(");
     }
