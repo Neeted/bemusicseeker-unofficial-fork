@@ -19,7 +19,7 @@
 
 active outcome base commit: `37925d8b`
 active execution package: `LIB-02 Package, install-destination and file-operation ownership`
-sequence cursor: `LIB-02-C5b pending package source, resource, and zero-note host retirement`
+sequence cursor: `LIB-02-C5c installable-maintenance queue, mode, status, outcome closure`
 
 目的:
 
