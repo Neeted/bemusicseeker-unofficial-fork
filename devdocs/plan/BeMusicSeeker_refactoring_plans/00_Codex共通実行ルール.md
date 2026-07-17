@@ -13,11 +13,19 @@
 
 ## 実行ロール
 
-- **planner**: `unit-planner`（Sol High、read-only、approval never）。active outcome の通常実装 branch に対して exactly one vertical implementation unit を計画する。plan rebaseline audit と `GATE-01` の audit-only branch では、監査で修正対象が見つかるまで unit を計画しない。出力は Codex task 内だけに保持し、per-unit plan 文書、checkpoint、progress log を repository に作らない。
-- **implementation root**: Luna Max。唯一の writer / stager / committer とし、planner の提案を実ソースに照らして実装・検証する。サブエージェントへ書き込みを委譲しない。
+- **planner**: `unit-planner`（Sol High、read-only、approval never）。active outcome の active execution package を、現在の committed HEAD から実装可能な 1〜5 個の順序付き vertical unit へ分解する。planner は package 内の production route / caller / writer / lock / transaction / failure path / tests / deletion scope の read-only inventory を一度だけ担当し、内部複雑性を停止判定に使わない。出力は task 内だけに保持し、per-unit plan 文書、checkpoint、progress log を repository に作らない。
+- **implementation root**: Luna Max。唯一の writer / stager / committer とし、planner が示した sequence を継続して実装・検証する。planner の調査を root 側で独立に再実行せず、結果受領後は named route / symbol / test の bounded feasibility check と実装へ進む。サブエージェントへ書き込みを委譲しない。
 - **reviewer**: fresh `repo-static-review`（Sol High、read-only、approval never）。実装担当から独立して frozen snapshot を評価し、`/fork` は使用しない。build / test / format / analyzer は root が担当する。
 
 モデルを利用できない場合に別モデルへ黙って置き換えない。作業を開始せず、利用不能なロールと理由を報告する。
+
+## Single-flight orchestration
+
+- active にできるサブエージェントは常に 1 つだけとする。planner、reviewer、第 2 の調査 agent を並行起動しない。
+- planner または reviewer を起動した時点から結果を受領するまで、root は repository に対する `git` / `rg` / file read、追加調査、編集、build、test、format、analyzer、stage、commit を凍結する。別 scope を名目にした並行調査も行わない。
+- planner の route inventory と同じ問いを root の「独立調査」や別 planner の consensus で再検証しない。前提不一致が見つかった場合は、差異を限定して同じ planner contract に repair request を出すか、既存 sequence を局所的に分解する。
+- reviewer 起動後は frozen snapshot を一切変更しない。reviewer の結果後に修正した場合は別 snapshot として fresh reviewer を一つだけ起動する。
+- subagent 待機中に root が行ってよいのは、受領後に行う作業の思考整理だけである。repository evidence を新たに収集しない。
 
 ## Review scope
 
@@ -32,11 +40,11 @@ review依頼には review kind、absolute repo path、scope、base/head SHA、un
 - `not started` → `ready`: 先行 outcome と依存条件が満たされ、次に着手できるときだけ遷移する。
 - `ready` → `in progress`: active outcome として選択し、最初の implementation unit を開始するときに遷移する。同時に開始時の clean commit を `active outcome base commit` として記録する。
 - `GATE-01 ready` → `GATE-01 in progress`: implementation unit ではなく、gate review scope の snapshot を凍結して Full verification を開始するときに遷移する。gate review は `code baseline commit` を base にするため、新しい `active outcome base commit` は記録しない。
-- `ready` → `blocked`: planner が最初の unit を開始する前に、ユーザー入力または外部状態変更なしには解消できない具体的な阻害条件を確認し、`NO_SAFE_UNIT` とした場合だけ遷移する。
-- `in progress` → `blocked`: 同じ外部阻害条件が繰り返し確認され、安全な unit を作れず、ユーザー入力または外部状態変更なしに進めない場合だけ遷移する。難しい、調査が必要、変更量が大きいことは理由にしない。
+- `ready` → `blocked`: planner または root が、ユーザー入力または外部状態変更なしには解消できない具体的な `EXTERNAL_BLOCKER` を確認した場合だけ遷移する。内部の ownership 分解、複数 caller、broad host、lock / transaction、変更量は該当しない。
+- `in progress` → `blocked`: 同じ `EXTERNAL_BLOCKER` が実装中にも確認され、ユーザー入力または外部状態変更なしに進めない場合だけ遷移する。難しい、調査が必要、変更量が大きい、既存 route が broad であることは理由にしない。
 - `blocked` → `ready`: 最初の unit 開始前に blocked となり、`active outcome base commit` をまだ記録していない outcome の阻害条件が解消したときに遷移する。その後の `ready` → `in progress` で base を記録する。
 - `blocked` → `in progress`: unit 開始後に blocked となり、既に `active outcome base commit` がある outcome の阻害条件が解消したときに限り、同じ base を保持して遷移する。
-- `in progress` → `not started`: internal owner dependency により安全な vertical unit がなく、ユーザー承認済みの backlog / ownership 再編で未完了 criteria を named outcome へ移す場合だけ使う。変更前の outcome base から frozen snapshot までを re-plan review し、移動先、依存順、必要な bridge baseline と retirement outcome を正本へ記録してから、prerequisite を唯一の active outcome にする。criteria の破棄や通常の延期には使わず、元 outcome を再開するときはその時点の clean commit を新しい base とする。
+- `in progress` → `not started`: production evidence により責務が active outcome ではなく別の prerequisite outcome に属すると判明し、target architecture / ordered backlog を変えるユーザー承認済みの ownership 再編を行う場合だけ使う。planner が broad route を分解できない、内部調査が増えた、安全な unit が大きいという理由では使わない。変更前の outcome base から frozen snapshot までを re-plan review し、移動先、依存順、必要な bridge baseline と retirement outcome を正本へ記録してから、prerequisite を唯一の active outcome にする。criteria の破棄や通常の延期には使わず、元 outcome を再開するときはその時点の clean commit を新しい base とする。
 - `in progress` → `completed`: acceptance criteria、outcome-wide Full verification、outcome review、UI smoke check（該当時）が完了したときだけ遷移する。
 - `completed` → `in progress`: `GATE-01` の監査で、その outcome の acceptance criteria が現行 production code で満たされていないことが判明した場合だけ使う。`GATE-01` を `not started` に戻し、修正開始時の clean commit を新しい active outcome base として記録する。
 - `GATE-01 in progress` → `GATE-01 not started`: Gate の Full verification、UI smoke check、または gate review で未達 criteria が見つかり、指摘が属する completed outcome を再開するときだけ遷移する。
@@ -61,18 +69,19 @@ review依頼には review kind、absolute repo path、scope、base/head SHA、un
 
 ## 作業開始
 
-1. [PLAN_STATUS](./PLAN_STATUS.md) の active outcome と acceptance criteria を読む。
+1. [PLAN_STATUS](./PLAN_STATUS.md) の active outcome、active execution package、sequence cursor、acceptance criteria を読む。
 2. `git status --short` で既存差分を確認する。
 3. `PLAN_STATUS.md` が plan rebaseline audit を次の作業として明記している場合、または active outcome が `GATE-01` の場合は、`unit-planner` を呼ばず下記 audit-only branch へ進む。
 4. active outcome がなければ、総合計画の ordered backlog から最初の `ready` outcome を選ぶ。`ready` がなければ、先行 outcome と依存条件を確認して一つだけ `ready` にする。
-5. 通常実装 branch では `unit-planner` に exactly one unit を計画させ、通常経路の owner 変更と旧経路削除が一緒に終わる vertical slice であることを root が確認する。
-6. checkpoint、decision、inventory、調査メモを新規作成せず実装へ進む。
+5. 通常実装 branch では single-flight で `unit-planner` を一度だけ呼び、現在の cursor から 1〜5 unit の `IMPLEMENTATION_SEQUENCE` を作らせる。root は planner 実行中の repository 調査を凍結する。
+6. planner 結果後、root は最初の unit が named production route、削除または縮小する旧 responsibility corridor、behavior test、検証を持つことだけを bounded check する。別の architecture survey、独立調査、第 2 planner の consensus を行わない。
+7. checkpoint、decision、inventory、調査メモを新規作成せず、sequence の最初の unit を実装する。
 
-future outcome の class / interface / method 配置を先に詳細設計しない。ただし active outcome の安全な vertical unit が後続 owner 未確定のため作れない場合は、adapter を追加する前に、総合計画の正本へ owner が持つ state / behavior、handoff direction、依存順、residual bridge の retirement outcome を定義する。これは class-level design ではなく production ownership boundary の確定であり、必要な場合は先に行う。
+future outcome の class / interface / method 配置を先に詳細設計しない。ただし active outcome の実装に必要な owner state / behavior、handoff direction、依存順、residual bridge の retirement outcome は正本の boundary として先に定義してよい。これは class-level design ではなく、planner が安全な sequence を作るための production ownership contract である。
 
-internal owner dependency は `blocked` の理由にしない。既存 bridge を凍結し、ユーザー承認が必要な backlog 再編を行ったうえで prerequisite outcome を進める。難しさを隠すための host、adapter、factory、test seam を追加して active outcome を継続しない。
+internal owner dependency、複数 caller、broad host、lock ordering、DB / live atomicity、package / LR2 / resource-health residual は `blocked` の理由にしない。planner は immutable request の prepare、durable write、canonical live apply、receipt publish、consumer residual apply、host retirement の responsibility corridor へ再帰的に分解する。既存 bridge は凍結し、難しさを隠すための host、adapter、factory、test seam を追加しない。
 
-planner が `NO_SAFE_UNIT` を返した理由が外部阻害ではなく、active outcome 内の ownership boundary、handoff direction、旧 route の retirement scope が不十分なことである場合は、production code を変更せず再計画する。ユーザー承認後、active outcome の state、base commit、last outcome-wide verified commit を維持したまま、総合計画と acceptance criteria に complete vertical unit の依存順と削除境界を反映し、検証と fresh read-only review 後に docs-only replan commit を作ってよい。これは progress log や completion commit の例外ではなく、再計画 commit 後は planner に exactly one unit を改めて選ばせる。
+planner の有効な出力は `IMPLEMENTATION_SEQUENCE` または具体的な `EXTERNAL_BLOCKER` だけである。`NO_SAFE_UNIT` は無効な出力として扱う。内部複雑性を理由に返された場合、root は作業を停止せず、上記 corridor と正本の named sequence を引用して planner に repair request を出し、実装可能な sequence を返させる。再び無効な出力になった場合は、正本の sequence cursor が指す named unit をそのまま開始し、同じ問いの再調査を繰り返さない。正本の target architecture / ordered backlog を変えない局所的な sequence 修正はユーザー承認を要しない。意味のある外部契約または target architecture の選択が必要な場合だけ escalation する。
 
 ## Audit-only branch
 
@@ -80,45 +89,50 @@ plan rebaseline audit と `GATE-01` は implementation unit ではないため�
 
 1. plan rebaseline audit は outcome review、`GATE-01` は gate review の scope で snapshot を凍結する。
 2. Full verification、該当する UI smoke check、fresh read-only review を順に行う。
-3. 未達 criteria または重大指摘が見つかった場合、status を完了へ進めない。plan rebaseline audit では修正対象を exactly one vertical unit として planner に渡し、通常の実装ループへ入る。`GATE-01` では指摘が属する completed outcome を上記遷移で唯一の active outcome に戻してから、planner に修正 unit を計画させる。
+3. 未達 criteria または重大指摘が見つかった場合、status を完了へ進めない。plan rebaseline audit では修正対象を planner に渡して最初の実装可能 unit を含む sequence を作らせ、通常の実装ループへ入る。`GATE-01` では指摘が属する completed outcome を上記遷移で唯一の active outcome に戻してから、planner に修正 sequence を計画させる。
 4. 無修正で監査を通過した場合だけ status を更新し、その status 差分を含む frozen snapshot を fresh reviewer に再レビューさせる。
 5. 最終差分の format / whitespace と `git diff --check` を確認し、対象 outcome ID を含む audit/status commit を作る。監査ログや定型的な証跡資料は追加しない。
 
 ## Implementation unit の条件
 
-implementation unit は次を満たすまとまりにする。原則として 1 つの user-visible workflow または 1 つの ownership boundary を端から端まで閉じ、seam 1 個、method 1 個、test 1 個を単位にしない。
+implementation unit は、1 つの user-visible workflow、1 つの ownership boundary、または broad route を横断する 1 つの responsibility corridor を、production 経路から behavior test まで閉じるまとまりにする。seam 1 個、method 1 個、test 1 個を単位にしない。
 
 - 同じ outcome の acceptance criteria を少なくとも 1 つ前進させる。
 - build 可能で、関連 behavior を検証できる。
-- 新しい abstraction を追加する場合、production 経路へ接続する。
-- 旧 owner の責務、旧 route、旧 binding、旧 test seam のいずれかを減らす。
-- cross-owner handoff は immutable request / snapshot / receipt / event facts / lease とし、相手 owner の private state や callback 一覧を contract にしない。
+- 新しい abstraction を追加する場合、同じ unit で production 経路へ接続する。
+- 移管した responsibility corridor の旧 writer、旧 callback、旧 binding、旧 test seam のいずれかを削除し、少なくとも bridge surface を減らす。
+- cross-owner handoff は immutable request / snapshot / receipt / event facts / lease とし、相手 owner の private state、lock、callback 一覧を contract にしない。
+- durable state と live state を扱う unit は、prepare → durable commit → canonical live apply → guard release → receipt publish の順序と failure atomicity を behavior test で固定する。
+- package、LR2、playlist、UI など後続 owner の baseline residual は canonical receipt publish 後の composition として残してよい。catalog guard を保持したまま別 owner を callback しない。
 - 構造変更と意図的な挙動変更を混ぜない。
 
-DTO、interface、result、planner、host、diagnostics API の追加だけで implementation unit を完了しない。安全上どうしても一時 scaffolding が必要でも、同じ未コミット unit 内で通常経路への接続と旧経路削除まで進める。build 可能な中間 commit を作るためだけに ownership 移管を分割しない。
+DTO、interface、result、planner、host、diagnostics API の追加だけで implementation unit を完了しない。安全上どうしても一時 scaffolding が必要でも、同じ未コミット unit 内で production 接続と corridor 固有の旧 route 削除まで進める。
 
-library ownership phase では、総合計画の bridge baseline に既に存在し、retirement outcome が明記された bridge だけを一時的に残してよい。既存 bridge の member / factory / callback category を増やさず、当該 outcome が担当する category を同じ unit で減らす。consumer 固有の invalidation、freshness、presentation 更新を一つの巨大 mutation result または総合 host に移し替えない。
+broad host 全体、全 operation-specific caller、全 consumer residual の削除を毎 unit に強制しない。正本に依存順付き retirement unit がある場合、既存 host / composition は member、factory、callback category を増やさず、各 unit で担当 corridor の surface を減らす限り、その retirement unit まで残してよい。これを build 可能な中間 commit のための新規 forwarding seam に置き換えない。
+
+library ownership phase では、総合計画の bridge baseline に既に存在し、retirement outcome または active execution package の retirement unit が明記された bridge だけを一時的に残してよい。consumer 固有の invalidation、freshness、presentation 更新を一つの巨大 mutation result または総合 host に移し替えない。
 
 ## 実装・レビュー・commit ループ
 
-1. implementation unit を実装し、必要な behavior test を追加または更新する。
+1. planner が返した sequence の最初の unit を実装し、必要な behavior test を追加または更新する。
 2. 関連 build / targeted test を実行する。
 3. format / whitespace と `git diff --check` を確認する。
-4. サブエージェントに未コミット差分の静的レビューを依頼する。レビュー担当は編集・build・test・format・analyzer・commit を行わない。
-5. 重大指摘を修正する。
-6. 修正の影響を受ける build / test を再実行する。
-7. 重大指摘がなくなるまで、修正後の各 frozen snapshot を履歴 `/fork` なしの fresh `repo-static-review` へ再レビュー依頼する。同じ reviewer を再利用しない。
-8. この unit で outcome を閉じる場合は、開始 commit からの全変更と現行コードを対象に full test とサブエージェント静的アーキテクチャレビューを行う。指摘があれば同じ unit で修正・再テスト・再レビューする。
-9. outcome の全 acceptance criteria を満たした場合は、`PLAN_STATUS.md` で当該 outcome を `completed`、次 outcome を `ready` にする。Active outcome セクションを次 outcome の目的 / acceptance criteria / non-goals へ置き換える。この status 更新を含む最終未コミット差分を再レビューする。
+4. single-flight でサブエージェントに未コミット差分の静的レビューを依頼する。起動後は root の repository 操作を凍結する。レビュー担当は編集・build・test・format・analyzer・commit を行わない。
+5. 結果受領後に重大指摘を修正し、修正の影響を受ける build / test を再実行する。
+6. 重大指摘がなくなるまで、修正後の各 frozen snapshot を履歴 `/fork` なしの fresh `repo-static-review` へ一つずつ再レビュー依頼する。同じ reviewer を再利用せず、複数 reviewer を並行起動しない。
+7. この unit で outcome を閉じる場合は、開始 commit からの全変更と現行コードを対象に Full verification と outcome review を行う。指摘があれば同じ unit で修正・再テスト・再レビューする。
+8. outcome の全 acceptance criteria を満たした場合は、`PLAN_STATUS.md` で当該 outcome を `completed`、次 outcome を `ready` にする。Active outcome セクションを次 outcome の目的 / acceptance criteria / non-goals へ置き換える。この status 更新を含む最終未コミット差分を再レビューする。
+9. outcome が未完で named execution sequence を進めた場合は、`PLAN_STATUS.md` の sequence cursor を次の未完 unit へ進める。履歴を追記せず現在 cursor だけを置換し、production code unit と同じ commit に含める。
 10. 最終差分に対して必要な build / test / format / analyzer / `git diff --check` を実行する。
 11. outcome ID を含む commit message で commit する。検証・レビュー結果は command output と Git diff / commit で追跡し、定型的な証跡資料は追加しない。
-12. outcome が未完なら docs-only checkpoint を挟まず同じ outcome の次 unit へ、完了したなら `ready` にした次 outcome へ進む。
+12. **commit は内部 checkpoint であり、ユーザーへの応答境界ではない。** outcome が未完なら planner sequence の次 unit を直ちに開始する。sequence を使い切っても outcome が未完なら、ユーザー承認待ちにせず single-flight で planner を再実行する。outcome が完了したなら `ready` にした次 outcome へ進む。
+13. planner sequence の前提が実装 evidence で崩れた場合だけ、その差異を限定して planner に局所的な再分解を依頼する。root の broad な独立調査、同じ package の全面再調査、docs-only checkpoint を挟まない。
 
 `GATE-01` だけは完了時に `completed` ではなく `gate met` とし、Active outcome を `none`、次 outcome を設定しない。Release Freeze は `gate met / explicit release instruction required` と記録し、`.NET 10` migration plan またはリリース作業を自動開始しない。
 
 レビュー修正後の再テストを省略しない。レビュー前の test 結果を最終差分の検証結果として扱わない。
 
-root agent を唯一の writer / stager / committer とする。planner・調査・レビューのサブエージェントは読み取り専用とし、review 依頼後は root も対象差分を変更しない。修正した場合は新しい snapshot として fresh reviewer に再レビューさせる。
+root agent を唯一の writer / stager / committer とする。planner・reviewer は読み取り専用とし、同時に 1 agent だけを使う。subagent 実行中は root の repository 操作を凍結し、結果後にだけ次の phase へ進む。
 
 ## 標準確認
 
@@ -233,7 +247,7 @@ active な計画資料は次の 4 ファイルに限定する。
 - `PLAN_STATUS.md`
 - `DOTNET10_MIGRATION_BLOCKERS.md`
 
-`PLAN_STATUS.md` は baseline、active outcome と acceptance criteria、outcome states、Gate scorecard、active outcome blocker だけを持つ。更新は outcome transition、blocker の発生 / 解消、Gate evidence の実質的変化に限定する。完了履歴、テスト件数、行数推移、次 unit / seam の調査ログは Git commit とコード差分に残す。
+`PLAN_STATUS.md` は baseline、active outcome と acceptance criteria、active execution package と現在の sequence cursor、outcome states、Gate scorecard、active outcome blocker だけを持つ。更新は outcome transition、cursor の前進、blocker の発生 / 解消、Gate evidence の実質的変化に限定する。過去 cursor、完了履歴、テスト件数、行数推移、seam の調査ログは追記せず、Git commit とコード差分に残す。
 
 永続判断は原則として関連する正本の target / Gate / blocker policy へ反映する。独立 ADR は次をすべて満たす場合だけ、4文書制を拡張する理由とともにユーザーへ提案し、承認後に追加する。
 
@@ -245,11 +259,18 @@ active な計画資料は次の 4 ファイルに限定する。
 
 ## 自走と escalation
 
-Codex は、active outcome の範囲内で設計・実装・test・review・commit を継続する。次の場合だけユーザーへ確認する。
+Codex は、active outcome の範囲内で planning、設計、実装、test、review、commit を連続して行う。planner sequence、unit commit、review 完了は自走の checkpoint であり、ユーザーへの応答理由にしない。次の場合だけユーザーへ確認する。
 
 - UI observable behavior、失敗契約、persisted data、supported external contract の意味を変える必要がある。supported external contract を理由にする場合は具体的な out-of-repository consumer を特定する。
-- 目標アーキテクチャまたは ordered backlog を実質的に変更する必要がある。
-- 外部資産、資格情報、手動 UI 操作など、Codex だけでは取得できない情報が必要である。
-- 安全な選択肢を調査しても、複数案の trade-off をユーザーが決める必要がある。
+- 目標アーキテクチャまたは ordered backlog を実質的に変更する、相互に排他的で後戻り困難な選択をユーザーが決める必要がある。
+- 外部資産、資格情報、手動 UI 操作、利用不能な必須 tool / model など、Codex だけでは取得・解消できない具体的な外部状態が必要である。
 
-単に実装が大きい、難しい、時間がかかる、追加調査が必要という理由では停止しない。outcome を implementation unit に分けて進める。
+次は escalation、`blocked`、応答終了の理由にしない。
+
+- 複数 caller、broad host、nested host、callback fan-out がある。
+- lock order、DB / live atomicity、failure fallback が複数責務にまたがる。
+- package、LR2、playlist、resource-health、UI の residual が同じ旧 route に残る。
+- 実装が大きい、難しい、時間がかかる、追加調査が必要である。
+- planner の最初の候補が広すぎる、または一つの unit に閉じない。
+
+これらは planner が responsibility corridor と依存順へ再分解して解消する。root は planner 実行中に独立調査せず、結果後は sequence を継続して実装する。

@@ -19,6 +19,9 @@
 
 - active outcome base commit: `d040b210`
 - last outcome-wide verified commit: `d040b210`
+- active execution package: `LIB-03-GM Generic catalog mutation closure`
+- sequence cursor: `LIB-03-GM-A Catalog relocation corridor`
+- cursor policy: unit commit は応答境界にせず、同じ commit で現在 cursor だけを次の未完 unit へ進めて実装を継続する
 
 目的:
 
@@ -33,7 +36,7 @@ Acceptance criteria:
 - resource-health の index snapshot、input / index version、invalidation / suppression、full / delta / defer / failure behavior と全 production route を一つの owner 境界へ移し、`BMSLibrary` の resource-health private state と full-rebuild / mutation-dispatch / input-mutation host を削除する。
 - catalog-owned maintenance / maintenance-table hydration の queue state、load、attach、stale-row detection、maintenance evaluation / durable write request、resource-health request、progress / failure を一つの owner family へ移し、hydration queue state / lock、apply / dispatch host と package-install / fix-install / pending estimated-install の facade maintenance forwarding を削除する。catalog mutation owner を non-scan runtime song / bmson / maintenance-table durable write / delete の command owner とし、maintenance owner は DB gateway を直接書かない。`LIB-01` の scan durable commit は immutable facts を返す別境界として維持する。installable maintenance の queue / mode / package target / progress は `LIB-02` に残すが、maintenance request は immutable snapshot で同じ maintenance owner へ渡す。
 - chart-info hydration / backfill の queue / currentness / progress state、DB load / materialize / attach、candidate / parse / digest / chunk-write workflow と、startup metadata import / file-scan / LR2 committed-row / package inline-build / parse-failure delete の全 writer route を catalog owner family へ移し、`BMSLibrary` の queue / lock / private writer workflow、direct DB writer route、broad inline-build host を削除する。LR2 completion / trust は `LIB-04` まで immutable input の residual bridge とする。
-- generic mutation production route は catalog mutation owner の bounded mutation lease / receipt と resource-health owner を直接使い、旧 state applier の catalog row / path / folder / maintenance 直接 writer と mutation-delta broad host を削除する。既存の apply ordering / atomicity を維持し、package state apply と LR2 mutation block / normal-folder sync の baseline bridge は `LIB-02` / `LIB-04` まで composition に残してよいが、新しい catalog callback host へ移し替えない。
+- generic mutation production route は `LIB-03-GM-A`〜`D` の依存順で、relocation、removal、canonical receipt / intrinsic projection、direct composition / broad-host retirement を閉じる。catalog mutation owner は prepare → durable commit → canonical live apply / version → guard release → canonical receipt / event publish を所有し、旧 state applier の catalog row / path / folder / maintenance writer と mutation-delta broad host を削除する。package state apply と LR2 mutation block / normal-folder sync は canonical receipt 後の baseline composition として `LIB-02` / `LIB-04` まで残してよいが、新しい catalog callback host へ移し替えない。既存の owned-collection version / PropertyChanged timing は behavior test で維持し、public event を catalog guard 内の cross-owner callback にしない。
 - behavior test で mutation ordering、version / receipt、failure atomicity、hydration、maintenance / resource-health の observable behavior を検証し、private class / method 配置を test contract にしない。
 - DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約を維持する。
 - outcome-wide Full verification、変更範囲に対応する startup / catalog mutation / progress / failure の UI smoke check、重大な指摘なしの outcome review が完了する。
@@ -70,7 +73,7 @@ Non-goals:
 | MIG-01 Platform boundary closure | not started |
 | GATE-01 Refactoring completion audit | not started |
 
-許可する状態は `not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。`completed` は個別 outcome の全 acceptance criteria を満たした場合だけ、`gate met` は `GATE-01` にだけ使う。internal owner dependency は `blocked` にせず、ordered backlog の prerequisite outcome で解消する。
+許可する状態は `not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。`completed` は個別 outcome の全 acceptance criteria を満たした場合だけ、`gate met` は `GATE-01` にだけ使う。internal complexity は execution package 内で分解し、責務が別 outcome に属することが production evidence で確定した場合だけ ordered backlog の prerequisite outcome を再編する。
 
 UI-01 の完了境界は main table presentation、regular chart workflow、playlist / play-history の result-to-table production contract、および main-table subtree の binding / event adapter とする。playlist source query / cache / queue、play history の feature action、playback、playlist summary、tree / dialog workflow、`MainWindow.cs` 全体の thin-shell 化は、対応する後続 outcome が active になった段階で閉じる。UI-01 はこれらを `MainChartList` に吸収しない。
 
@@ -81,15 +84,15 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Gate area | State | Current evidence |
 |---|---|---|
 | UI ownership | not met | UI-01 の main table / regular owner、UI-02 の playback owner、UI-03 の playlist workspace owner、UI-04 の play-history owner は completed。設定画面と残る code-behind workflow は UI-05 の対象。settings の composition / adapter 境界は APP-01 で扱う |
-| Library ownership | not met | scan core の production route と catalog rows / digest / owned collection の一部 route は owner へ移行済み。resource-health、catalog-owned maintenance / maintenance-table hydration、chart-info hydration / backfill、generic mutation broad host、package、LR2、playlist reference と残る facade private state / bridge の削除は LIB-03、LIB-02、LIB-04〜LIB-06 の対象 |
+| Library ownership | not met | scan core、catalog rows / digest / owned collection、resource-health、catalog-owned maintenance / maintenance-table hydration、chart-info hydration / backfill の owner 境界は成立済み。generic mutation の relocation / removal protocol、canonical receipt、broad host retirement と、package、LR2、playlist reference、残る facade bridge の削除は LIB-03-GM、LIB-02、LIB-04〜LIB-06 の対象 |
 | Playlist ownership | not met | persistence / sync / output が同居する。playlist-reference lifecycle は LR2 から分離して LIB-05 で扱う |
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
-| Migration readiness | not met | library owner 境界と依存順は定義済みで、catalog writer への移管は進行中。resource-health / maintenance / chart-info owner、generic mutation broad host retirement と各 consumer owner への移管は未完了 |
+| Migration readiness | not met | resource-health / maintenance / chart-info owner は成立済み。generic mutation の prepare / durable commit / live apply / receipt publish protocol、broad host retirement と各 consumer owner への移管は未完了 |
 | Quality | in progress | code baseline と UI-04 outcome-wide Full verification / review / UI smoke、LIB-01 の再編後 criteria に対する outcome-wide Full verification / review / UI smoke は完了。LIB-03 は outcome-wide 検証待ち |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 
 ## Active outcome blockers
 
-なし。
+なし。複数 caller、broad host、lock ordering、DB / live atomicity、package / LR2 / resource-health residual は `LIB-03-GM` の内部分解条件であり、`EXTERNAL_BLOCKER` ではない。planner は sequence cursor から実装可能な順序列を返し、root は planner / reviewer 実行中の独立調査を行わない。

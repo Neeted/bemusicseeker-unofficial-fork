@@ -3,7 +3,7 @@
 ## 正本と作業範囲
 
 - リファクタリング中は `devdocs/plan/BeMusicSeeker_refactoring_plans/BeMusicSeekerリファクタリング計画.md`、`PLAN_STATUS.md`、`00_Codex共通実行ルール.md` を正本とする。
-- `PLAN_STATUS.md` の active outcome を、完了条件を満たすまで連続して進める。細かな seam、helper、DTO、調査資料を独立した成果にしない。
+- `PLAN_STATUS.md` の active outcome を、完了条件を満たすまで連続して進める。implementation unit の commit は内部 checkpoint であり、ユーザーへの応答境界にしない。細かな seam、helper、DTO、調査資料を独立した成果にしない。
 - 差分の小ささではなく、state と behavior が同じ owner に収まり、旧経路を削除できる実装単位を選ぶ。
 - DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約、明示的にサポートする SDK / plugin / CLI / IPC / COM / automation contract の意味を変える必要がある場合だけ、実装前にユーザーへ確認する。
 - 意味の変わる fallback を追加しない。失敗を隠さず、既存の失敗契約を維持する。
@@ -43,8 +43,10 @@
 
 ## サブエージェント
 
-- 調査とレビューにサブエージェントを活用する。root agent だけを writer / stager / committer とし、並列作業は読み取り専用の調査・静的レビューに限定する。
-- review 中は対象 snapshot を変更せず、修正した場合は新しい snapshot として再レビューする。
-- サブエージェントは原則として履歴を fork しない。
-- 静的レビュー担当には編集、build、test、format、analyzer、commit を禁止し、読み取りだけで重大度順に報告させる。
-- 実装後は重大指摘がなくなるまで修正と再レビューを行う。レビュー完了後の検証結果を最終結果とする。
+- planner と reviewer は single-flight で使い、同時に active にするサブエージェントは 1 つだけとする。
+- planner または reviewer を起動してから結果を受け取るまで、root agent は repository の読み取り調査、検索、編集、build、test、format、analyzer、stage、commit を凍結する。root による「独立調査」、第 2 planner、consensus 取得、同じ scope の並列読み直しを行わない。
+- planner は active execution package を実装可能な順序列へ分解する責任を持つ。複数 caller、broad host、lock ordering、DB / live atomicity、後続 owner の residual が絡むことを停止理由にせず、責務 corridor ごとに再分解する。
+- root agent だけを writer / stager / committer とする。planner の結果後は、指定された route / symbol / test に対する bounded feasibility check と実装に進み、別の architecture survey をやり直さない。
+- review 中は対象 snapshot を変更せず、修正した場合は新しい snapshot として fresh reviewer に再レビューする。サブエージェントは履歴を fork しない。
+- 静的レビュー担当には編集、build、test、format、analyzer、commit を禁止し、指定 scope の読み取りだけで重大度順に報告させる。
+- 実装後は重大指摘がなくなるまで修正と再レビューを行う。レビュー完了後の最終差分に対する検証結果を最終結果とする。
