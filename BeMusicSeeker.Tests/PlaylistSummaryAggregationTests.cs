@@ -605,8 +605,7 @@ public sealed class PlaylistSummaryAggregationTests
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
     {
-        var coordinator = new LibraryMutationDeltaApplyCoordinator(new BMSLibrary.LibraryMutationDeltaApplyHost(library));
-        coordinator.Apply(delta);
+        library.ApplyLibraryMutationDelta(delta);
     }
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)

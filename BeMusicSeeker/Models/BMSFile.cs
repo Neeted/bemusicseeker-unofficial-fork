@@ -537,6 +537,164 @@ public class BMSFile : LR2SongDB.song
         }
     }
 
+    /// <summary>
+    /// maintenance evaluation が durable write 前に触れる runtime state を保存します。
+    /// durable write が失敗した場合に live state と notification を元へ戻すために使います。
+    /// </summary>
+    internal sealed class MaintenanceMutationSnapshot
+    {
+        private readonly BMSFile file;
+        private readonly string title;
+        private readonly string subtitle;
+        private readonly string artist;
+        private readonly string subartist;
+        private readonly string genre;
+        private readonly int? date;
+        private readonly int? adddate;
+        private readonly string hash;
+        private readonly string sha256;
+        private readonly HashSet<string> wavFiles;
+        private readonly HashSet<string> bgaFiles;
+        private readonly List<ChartResourceReference> resourceReferences;
+        private readonly List<UnsupportedChartResourceReference> unsupportedResourceReferences;
+        private readonly BMSFileMaintenanceInfo originalMaintenanceInfo;
+        private readonly BMSFileMaintenanceInfo maintenanceInfo;
+        private readonly MaintenanceInfoOrigin maintenanceInfoOrigin;
+
+        private MaintenanceMutationSnapshot(BMSFile file)
+        {
+            this.file = file ?? throw new ArgumentNullException(nameof(file));
+            title = file._title;
+            subtitle = file._subtitle;
+            artist = file._artist;
+            subartist = file._subartist;
+            genre = file.genre;
+            date = file.date;
+            adddate = file.adddate;
+            hash = file.hash;
+            sha256 = file.sha256;
+            wavFiles = file.WAVfiles == null ? null : new HashSet<string>(file.WAVfiles, StringComparer.OrdinalIgnoreCase);
+            bgaFiles = file.BGAfiles == null ? null : new HashSet<string>(file.BGAfiles, StringComparer.OrdinalIgnoreCase);
+            resourceReferences = file.ResourceReferences == null ? null : [.. file.ResourceReferences];
+            unsupportedResourceReferences = file.UnsupportedResourceReferences == null ? null : [.. file.UnsupportedResourceReferences];
+            originalMaintenanceInfo = file._maintenanceInfo;
+            maintenanceInfo = file._maintenanceInfo?.CreatePersistenceCopy();
+            maintenanceInfoOrigin = file.maintenanceInfoOrigin;
+        }
+
+        internal static MaintenanceMutationSnapshot Capture(BMSFile file)
+        {
+            return file == null ? null : new MaintenanceMutationSnapshot(file);
+        }
+
+        internal void Restore()
+        {
+            using (SuppressPropertyChangedScope())
+            using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
+            {
+                file._title = title;
+                file._subtitle = subtitle;
+                file._artist = artist;
+                file._subartist = subartist;
+                if (!string.Equals(file.genre, genre, StringComparison.Ordinal))
+                {
+                    file.genre = genre;
+                }
+                file.date = date;
+                file.adddate = adddate;
+                file.hash = hash;
+                file.sha256 = sha256;
+                file.WAVfiles = wavFiles == null ? null : new HashSet<string>(wavFiles, StringComparer.OrdinalIgnoreCase);
+                file.BGAfiles = bgaFiles == null ? null : new HashSet<string>(bgaFiles, StringComparer.OrdinalIgnoreCase);
+                file.ResourceReferences = resourceReferences == null ? null : [.. resourceReferences];
+                file.UnsupportedResourceReferences = unsupportedResourceReferences == null ? null : [.. unsupportedResourceReferences];
+                RestoreMaintenanceInfo(originalMaintenanceInfo, maintenanceInfo);
+                file.maintenanceInfoOrigin = maintenanceInfoOrigin;
+                file._cachedComposedTitle = null;
+                file._cachedComposedTitleSource = null;
+                file._cachedComposedSubtitleSource = null;
+                file.ReplaceWarningsByCategory(
+                    ChartWarningCategory.Lr2Compatibility,
+                    Lr2CompatibilityWarningProjection.BuildWarnings(file._maintenanceInfo));
+            }
+        }
+
+        internal void ApplyPreparedState()
+        {
+            using (SuppressPropertyChangedScope())
+            using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
+            {
+                file._title = title;
+                file._subtitle = subtitle;
+                file._artist = artist;
+                file._subartist = subartist;
+                file.genre = genre;
+                file.date = date;
+                file.adddate = adddate;
+                file.hash = hash;
+                file.sha256 = sha256;
+                file.WAVfiles = wavFiles == null ? null : new HashSet<string>(wavFiles, StringComparer.OrdinalIgnoreCase);
+                file.BGAfiles = bgaFiles == null ? null : new HashSet<string>(bgaFiles, StringComparer.OrdinalIgnoreCase);
+                file.ResourceReferences = resourceReferences == null ? null : [.. resourceReferences];
+                file.UnsupportedResourceReferences = unsupportedResourceReferences == null ? null : [.. unsupportedResourceReferences];
+                RestoreMaintenanceInfo(file._maintenanceInfo, maintenanceInfo);
+                file.maintenanceInfoOrigin = maintenanceInfoOrigin;
+                file._cachedComposedTitle = null;
+                file._cachedComposedTitleSource = null;
+                file._cachedComposedSubtitleSource = null;
+                file.ReplaceWarningsByCategory(
+                    ChartWarningCategory.Lr2Compatibility,
+                    Lr2CompatibilityWarningProjection.BuildWarnings(file._maintenanceInfo));
+            }
+        }
+
+        internal void NotifyCommittedChanges()
+        {
+            bool titleChanged = !string.Equals(file._title, title, StringComparison.Ordinal)
+                || !string.Equals(file._subtitle, subtitle, StringComparison.Ordinal);
+            bool artistChanged = !string.Equals(file._artist, artist, StringComparison.Ordinal)
+                || !string.Equals(file._subartist, subartist, StringComparison.Ordinal);
+            bool encodingChanged = !string.Equals(
+                file.TryGetMaintenanceInfoWithoutCreating()?.encoding,
+                maintenanceInfo?.encoding,
+                StringComparison.Ordinal);
+            bool healthChanged = !HasSameHealth(file.TryGetMaintenanceInfoWithoutCreating(), maintenanceInfo);
+            if (titleChanged)
+            {
+                file.RaisePropertyChanged("Title");
+            }
+            if (artistChanged)
+            {
+                file.RaisePropertyChanged("Artist");
+            }
+            file.NotifyMaintenanceInfoChanged(encodingChanged, healthChanged);
+        }
+
+        private static bool HasSameHealth(BMSFileMaintenanceInfo left, BMSFileMaintenanceInfo right)
+        {
+            return left?.WAVHealth == right?.WAVHealth
+                && left?.BGAHealth == right?.BGAHealth
+                && left?.MovieHealth == right?.MovieHealth
+                && left?.StagefileHealth == right?.StagefileHealth
+                && left?.BannerHealth == right?.BannerHealth
+                && left?.BackbmpHealth == right?.BackbmpHealth;
+        }
+
+        private void RestoreMaintenanceInfo(
+            BMSFileMaintenanceInfo target,
+            BMSFileMaintenanceInfo source)
+        {
+            if (source == null)
+            {
+                file._maintenanceInfo = null;
+                return;
+            }
+            target ??= new BMSFileMaintenanceInfo();
+            target.ApplyPersistenceCopyFrom(source);
+            file._maintenanceInfo = target;
+        }
+    }
+
     public BMSScore bmsScore
     {
         get

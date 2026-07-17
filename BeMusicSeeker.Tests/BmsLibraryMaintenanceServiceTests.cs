@@ -1913,6 +1913,19 @@ public sealed class BmsLibraryMaintenanceServiceTests
         {
             BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
             Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> noOpWriter = _ => CatalogMaintenanceWriteReceipt.NotApplied;
+            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                encoding = "shift_jis"
+            }, suppressPropertyChanged: true);
+            string originalTitle = file.Title;
+            string originalHash = file.hash;
+            BMSFileMaintenanceInfo originalMaintenanceInfo = file.TryGetMaintenanceInfoWithoutCreating();
+            List<string> propertyNames = [];
+            file.PropertyChanged += delegate (object sender, System.ComponentModel.PropertyChangedEventArgs e)
+            {
+                propertyNames.Add(e.PropertyName);
+            };
 
             Assert.ThrowsException<InvalidOperationException>(() =>
                 new BmsLibraryMaintenanceService(1).UpdateMaintenanceInfo(
@@ -1920,6 +1933,11 @@ public sealed class BmsLibraryMaintenanceServiceTests
                     forceUpdate: true,
                     noOpWriter,
                     null));
+
+            Assert.AreEqual(originalTitle, file.Title);
+            Assert.AreEqual(originalHash, file.hash);
+            Assert.AreSame(originalMaintenanceInfo, file.TryGetMaintenanceInfoWithoutCreating());
+            Assert.AreEqual(0, propertyNames.Count);
         }
         finally
         {
@@ -2359,13 +2377,20 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 songDb.CreateTable<LR2SongDB.song>();
             }
 
+            int durableWriteCount = 0;
+            Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWriter = request =>
+            {
+                durableWriteCount++;
+                return CreateDurableWriter(songDbPath)(request);
+            };
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(bmsFile), ChartFileProjection.FromBmsonSong(bmsonSong)],
                 forceUpdate: true,
-                CreateDurableWriter(songDbPath),
+                durableWriter,
                 null);
 
             Assert.IsTrue(result.HasUpdates);
+            Assert.AreEqual(1, durableWriteCount);
             Assert.AreEqual(1, result.BmsResourceTargetCount);
             Assert.AreEqual(1, result.BmsonResourceTargetCount);
             Assert.AreEqual("Bmson", bmsonSong.title);

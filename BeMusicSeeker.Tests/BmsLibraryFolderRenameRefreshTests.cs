@@ -857,6 +857,87 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_CommitsCatalogBeforePublishingOwnedCollectionChange()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "Committed", "chart.bms");
+            var library = new BMSLibrary(songDbPath);
+            var file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            SetLibraryFilesWithoutNotification(library, [file]);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+            }
+
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            bool rowStillExistsWhenNotificationWasPublished = false;
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName != nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
+                {
+                    return;
+                }
+                using var notificationSongDb = new LR2SongDBExtended(songDbPath);
+                rowStillExistsWhenNotificationWasPublished = notificationSongDb.Table<BMSFile>().Any(row => row.path == chartPath);
+            };
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+
+            InvokeApplyLibraryMutationDelta(library, delta);
+
+            Assert.AreEqual(0, library.BMSFiles.Count);
+            NormalLibraryRefreshNotificationBatch notificationBatch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(notificationBatch.NotifiesStorageRows);
+            Assert.IsFalse(rowStillExistsWhenNotificationWasPublished);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(row => row.path == chartPath));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_PostCommitNotificationFailureKeepsCatalogCommit()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "CommittedNotificationFailure", "chart.bms");
+            var library = new BMSLibrary(songDbPath);
+            var file = new TestableBmsFile
+            {
+                path = chartPath
+            };
+            file.SetHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            SetLibraryFilesWithoutNotification(library, [file]);
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+            }
+
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                if (args.PropertyName == nameof(BMSLibrary.OwnedChartCollectionVersion))
+                {
+                    throw new InvalidOperationException("post-commit notification failure");
+                }
+            };
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+
+            Assert.ThrowsException<InvalidOperationException>(() => InvokeApplyLibraryMutationDelta(library, delta));
+
+            Assert.AreEqual(0, library.BMSFiles.Count);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(row => row.path == chartPath));
+        });
+    }
+
+    [TestMethod]
     public void NormalLibraryRefreshNotifications_ExternalReplacementPublishesResetBarrier()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1299,6 +1380,17 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                     }
                 };
                 SetLibraryFilesWithoutNotification(library, [file]);
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(new BMSFileMaintenanceInfo
+                    {
+                        path = chartPath,
+                        hash = file.hash,
+                        encoding = "unknown",
+                        is_encoding_fixed = false
+                    }, typeof(LR2SongDBExtended.maintenance));
+                }
                 Interlocked.Exchange(ref garbledChangedCount, 0);
                 Interlocked.Exchange(ref garbledFixedChangedCount, 0);
                 Interlocked.Exchange(ref encodingChangedCount, 0);
@@ -1310,6 +1402,9 @@ public sealed class BmsLibraryFolderRenameRefreshTests
                 Assert.AreEqual(0, Volatile.Read(ref garbledFixedChangedCount));
                 Assert.IsTrue(Volatile.Read(ref encodingChangedCount) > 0);
                 Assert.AreEqual("gb2312", file.maintenanceInfo.encoding);
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                BMSFileMaintenanceInfo persistedMaintenance = verifySongDb.Table<BMSFileMaintenanceInfo>().Single(row => row.path == chartPath);
+                Assert.AreEqual("gb2312", persistedMaintenance.encoding);
             }
             finally
             {
@@ -1739,8 +1834,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)
     {
-        var coordinator = new LibraryMutationDeltaApplyCoordinator(new BMSLibrary.LibraryMutationDeltaApplyHost(library));
-        coordinator.Apply(delta);
+        library.ApplyLibraryMutationDelta(delta);
     }
 
     private static bool InvokeApplyAutoRenamePlans(BMSLibrary library, IEnumerable<FolderAutoRenamePlan> plans)

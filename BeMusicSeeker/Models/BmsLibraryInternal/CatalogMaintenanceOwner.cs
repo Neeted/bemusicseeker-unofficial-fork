@@ -48,7 +48,7 @@ internal sealed class CatalogMaintenanceOwner
 
     private readonly Func<Exception, string> displayedExceptionMessageProvider;
 
-    private readonly Action<CatalogMaintenanceHydrationReceipt> publishHydration;
+    private readonly Func<CatalogMaintenanceHydrationReceipt, long> publishHydration;
 
     private readonly Action<string> logPerformance;
 
@@ -81,7 +81,7 @@ internal sealed class CatalogMaintenanceOwner
         Func<Func<string, string, string, Func<Task>, bool>> startupBackgroundTaskSchedulerProvider,
         Action<string, string, long, bool, string> reportStartupBackgroundTask,
         Func<Exception, string> displayedExceptionMessageProvider,
-        Action<CatalogMaintenanceHydrationReceipt> publishHydration,
+        Func<CatalogMaintenanceHydrationReceipt, long> publishHydration,
         Action<string> logPerformance,
         Action<Exception, string> markMaintenanceWriteFailure,
         Action hydrationStateChanged)
@@ -175,6 +175,8 @@ internal sealed class CatalogMaintenanceOwner
         int targetInputVersion;
         bool indexCurrentBeforeUpdate;
         ResourceMaintenanceTargetSet currentTargetSet = targetSet;
+        Action postCommitEffects = null;
+        bool durableCommitBoundaryReached = false;
         using (catalogMutationOwner.EnterMaintenanceWriteGuard())
         {
             ResourceHealthIndexOwner.ResourceHealthInputMutation inputMutation = resourceHealthOwner.BeginInputMutation();
@@ -190,7 +192,12 @@ internal sealed class CatalogMaintenanceOwner
                     new ResourceHealthLookupContext(resourceLookupCache),
                     logPerformance,
                     progressReporter,
-                    cancellationToken);
+                    cancellationToken,
+                    () => durableCommitBoundaryReached = true,
+                    effects =>
+                    {
+                        postCommitEffects = effects;
+                    });
                 if (workflowResult?.HasUpdates == true)
                 {
                     targetCharts = RefreshTargetsFromCurrentStorageOwners(targetCharts);
@@ -199,7 +206,10 @@ internal sealed class CatalogMaintenanceOwner
             }
             catch (Exception ex)
             {
-                markMaintenanceWriteFailure?.Invoke(ex, mutationReason);
+                if (!durableCommitBoundaryReached)
+                {
+                    markMaintenanceWriteFailure?.Invoke(ex, mutationReason);
+                }
                 throw;
             }
             finally
@@ -208,6 +218,10 @@ internal sealed class CatalogMaintenanceOwner
             }
             targetInputVersion = inputMutation.TargetInputVersion;
         }
+
+        // Publish property changes and terminal progress after the catalog write
+        // guard and the resource-health input mutation have both been released.
+        postCommitEffects?.Invoke();
 
         ResourceHealthIndexMutation mutation = ResourceHealthIndexMutationPlanner.BuildMaintenanceMutation(
             currentTargetSet.WithResourceHealthInputVersion(targetInputVersion),
@@ -219,7 +233,6 @@ internal sealed class CatalogMaintenanceOwner
         return new CatalogMaintenanceOperationReceipt(
             workflowResult ?? new MaintenanceWorkflowResult(),
             mutation,
-            targetCharts,
             mutationReason);
     }
 
@@ -293,25 +306,43 @@ internal sealed class CatalogMaintenanceOwner
             return new CatalogMaintenanceOperationReceipt(
                 new MaintenanceWorkflowResult(),
                 mutation,
-                targets,
                 reason ?? "resource_health_ignore");
         }
     }
 
     internal void ApplyEncoding(IEnumerable<BMSFile> bmsFiles, string encoding)
     {
+        BMSFile[] fileSnapshot = [.. (bmsFiles ?? []).Where(file => file != null)];
+        IReadOnlyList<BMSFile.MaintenanceMutationSnapshot> mutationSnapshots = [.. fileSnapshot
+            .Select(BMSFile.MaintenanceMutationSnapshot.Capture)
+            .Where(snapshot => snapshot != null)];
+        IReadOnlyList<BMSFile.MaintenanceMutationSnapshot> preparedSnapshots = [];
         using (catalogMutationOwner.EnterMaintenanceWriteGuard())
         {
-            MaintenanceEncodingUpdateResult updateResult = maintenanceService.ApplyEncoding(bmsFiles, encoding);
-            if (updateResult.SongsToUpsert.Count == 0 && updateResult.MaintenanceInfosToUpsert.Count == 0)
-            {
-                return;
-            }
             try
             {
-                CatalogMaintenanceWriteReceipt writeReceipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(new CatalogMaintenanceWriteRequest(
+                MaintenanceEncodingUpdateResult updateResult;
+                CatalogMaintenanceWriteRequest writeRequest;
+                using (BMSFile.SuppressPropertyChangedScope())
+                using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
+                {
+                    updateResult = maintenanceService.ApplyEncodingForCatalogOwner(fileSnapshot, encoding);
+                }
+                preparedSnapshots = [.. fileSnapshot
+                    .Select(BMSFile.MaintenanceMutationSnapshot.Capture)
+                    .Where(snapshot => snapshot != null)];
+                writeRequest = new CatalogMaintenanceWriteRequest(
                     updateResult.MaintenanceInfosToUpsert,
-                    updateResult.SongsToUpsert));
+                    updateResult.SongsToUpsert);
+                foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
+                {
+                    snapshot.Restore();
+                }
+                if (updateResult.SongsToUpsert.Count == 0 && updateResult.MaintenanceInfosToUpsert.Count == 0)
+                {
+                    return;
+                }
+                CatalogMaintenanceWriteReceipt writeReceipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(writeRequest);
                 if ((updateResult.SongsToUpsert.Count > 0 || updateResult.MaintenanceInfosToUpsert.Count > 0)
                     && !writeReceipt.Applied)
                 {
@@ -320,10 +351,26 @@ internal sealed class CatalogMaintenanceOwner
             }
             catch (Exception ex)
             {
+                foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
+                {
+                    snapshot.Restore();
+                }
                 resourceHealthOwner.ForceInvalidate("lr2_song_db_encoding_upsert_failed");
                 markMaintenanceWriteFailure?.Invoke(ex, "lr2_song_db_encoding_upsert_failed");
                 throw;
             }
+        }
+
+        // The catalog write has committed.  Do not include live-state apply or
+        // notification callbacks in the rollback region: their failures cannot
+        // undo the durable write, and they must not be classified as write errors.
+        foreach (BMSFile.MaintenanceMutationSnapshot snapshot in preparedSnapshots)
+        {
+            snapshot.ApplyPreparedState();
+        }
+        foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
+        {
+            snapshot.NotifyCommittedChanges();
         }
     }
 
@@ -434,7 +481,8 @@ internal sealed class CatalogMaintenanceOwner
                 CatalogMaintenanceHydrationReceipt receipt = ApplyHydration(result);
                 stopwatch.Stop();
                 result.TotalMs = stopwatch.ElapsedMilliseconds;
-                publishHydration(receipt);
+                long resourceHealthIndexMs = publishHydration(receipt);
+                result.ResourceHealthIndexMs = resourceHealthIndexMs;
                 LogHydrationCompleted(requestVersion, result, stopwatch.ElapsedMilliseconds);
                 if (reportDirect)
                 {
@@ -657,25 +705,21 @@ internal sealed class CatalogMaintenanceOwner
 internal sealed class CatalogMaintenanceOperationReceipt
 {
     internal static CatalogMaintenanceOperationReceipt NotApplied { get; } =
-        new(new MaintenanceWorkflowResult(), new ResourceHealthIndexMutation(), [], "maintenance");
+        new(new MaintenanceWorkflowResult(), new ResourceHealthIndexMutation(), "maintenance");
 
     internal CatalogMaintenanceOperationReceipt(
         MaintenanceWorkflowResult workflowResult,
         ResourceHealthIndexMutation resourceHealthMutation,
-        IEnumerable<ChartFile> targetCharts,
         string reason)
     {
-        WorkflowResult = workflowResult ?? new MaintenanceWorkflowResult();
-        ResourceHealthMutation = resourceHealthMutation ?? new ResourceHealthIndexMutation();
-        TargetCharts = Array.AsReadOnly([.. (targetCharts ?? []).Where(chart => chart != null)]);
+        WorkflowResult = MaintenanceWorkflowResultFacts.From(workflowResult);
+        ResourceHealthMutation = (resourceHealthMutation ?? new ResourceHealthIndexMutation()).ToFacts();
         Reason = reason ?? "maintenance";
     }
 
-    internal MaintenanceWorkflowResult WorkflowResult { get; }
+    internal MaintenanceWorkflowResultFacts WorkflowResult { get; }
 
-    internal ResourceHealthIndexMutation ResourceHealthMutation { get; }
-
-    internal IReadOnlyList<ChartFile> TargetCharts { get; }
+    internal ResourceHealthIndexMutationFacts ResourceHealthMutation { get; }
 
     internal string Reason { get; }
 }
@@ -689,13 +733,13 @@ internal sealed class CatalogMaintenanceHydrationReceipt
         MaintenanceTableHydrationResult result,
         ResourceHealthIndexMutation resourceHealthMutation)
     {
-        Result = result ?? new MaintenanceTableHydrationResult();
-        ResourceHealthMutation = resourceHealthMutation ?? new ResourceHealthIndexMutation();
+        ViewRefreshQueued = result?.ViewRefreshQueued == true;
+        ResourceHealthMutation = (resourceHealthMutation ?? new ResourceHealthIndexMutation()).ToFacts();
     }
 
-    internal MaintenanceTableHydrationResult Result { get; }
+    internal bool ViewRefreshQueued { get; }
 
-    internal ResourceHealthIndexMutation ResourceHealthMutation { get; }
+    internal ResourceHealthIndexMutationFacts ResourceHealthMutation { get; }
 }
 
 internal sealed class MaintenanceTableHydrationResult

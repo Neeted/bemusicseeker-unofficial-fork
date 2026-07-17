@@ -49,7 +49,7 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly FileScanParseCommitOwner fileScanParseCommitOwner;
 
-    private readonly Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory;
+    private readonly Action<LibraryMutationDelta> applyLibraryMutationDelta;
 
     private readonly object fileScanGate = new();
 
@@ -61,7 +61,7 @@ internal sealed class LibraryFileScanPipelineOwner
         ILibraryFileScanPipelineHost host,
         ILibraryFileScanLr2FolderHost lr2Host,
         BmsLibraryInitializationService initializationService,
-        Func<LibraryMutationDeltaApplyCoordinator> mutationDeltaApplyCoordinatorFactory,
+        Action<LibraryMutationDelta> applyLibraryMutationDelta,
         FileScanParseCommitOwner fileScanParseCommitOwner = null)
     {
         this.host = host ?? throw new ArgumentNullException(nameof(host));
@@ -69,7 +69,7 @@ internal sealed class LibraryFileScanPipelineOwner
         lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(this.host, lr2Host);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.fileScanParseCommitOwner = fileScanParseCommitOwner ?? this.initializationService.ParseCommitOwner;
-        this.mutationDeltaApplyCoordinatorFactory = mutationDeltaApplyCoordinatorFactory ?? throw new ArgumentNullException(nameof(mutationDeltaApplyCoordinatorFactory));
+        this.applyLibraryMutationDelta = applyLibraryMutationDelta ?? throw new ArgumentNullException(nameof(applyLibraryMutationDelta));
     }
 
     internal long BeginFileScanRequest(
@@ -596,7 +596,7 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             host.DispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
         }
-        mutationDeltaApplyCoordinatorFactory().Apply(fileCheckResult.MutationDelta);
+        applyLibraryMutationDelta(fileCheckResult.MutationDelta);
         host.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
         host.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
         host.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);

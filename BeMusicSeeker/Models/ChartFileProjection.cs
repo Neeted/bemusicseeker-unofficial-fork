@@ -33,6 +33,20 @@ internal static class ChartFileProjection
             return null;
         }
 
+        bool resourceHealthWarningsIgnored = source.ResourceHealthWarningsIgnored;
+        ResourceHealthMaintenanceSnapshot resourceHealthMaintenanceSnapshot = source.ResourceHealthMaintenanceSnapshot;
+        BMSFile bmsFile = source.GetBmsStorageOwner();
+        if (bmsFile?.TryGetMaintenanceInfoWithoutCreating() is BMSFileMaintenanceInfo bmsMaintenanceInfo)
+        {
+            resourceHealthWarningsIgnored = bmsMaintenanceInfo.is_files_warning_ignored;
+            resourceHealthMaintenanceSnapshot = ResourceHealthMaintenanceSnapshot.From(bmsMaintenanceInfo);
+        }
+        else if (source.GetBmsonStorageOwner()?.MaintenanceInfo is BMSFileMaintenanceInfo bmsonMaintenanceInfo)
+        {
+            resourceHealthWarningsIgnored = bmsonMaintenanceInfo.is_files_warning_ignored;
+            resourceHealthMaintenanceSnapshot = ResourceHealthMaintenanceSnapshot.From(bmsonMaintenanceInfo);
+        }
+
         return new ChartFile(
             source.Kind,
             source.Path,
@@ -47,20 +61,20 @@ internal static class ChartFileProjection
             source.LevelText,
             source.Level,
             source.Mode,
-            source.ChartInfo,
+            null,
             null,
             null,
             source.Subtitle,
-            source.AudioResourcePaths,
-            source.VisualResourcePaths,
+            [.. (source.AudioResourcePaths ?? [])],
+            [.. (source.VisualResourcePaths ?? [])],
             source.Stagefile,
             source.Backbmp,
             source.Banner,
             source.InstallDestination,
             source.InstallDestinationTitle,
             source.InstallDestinationArtist,
-            source.InstallDestinationSuggestions,
-            source.Warnings,
+            [.. (source.InstallDestinationSuggestions ?? [])],
+            [.. (source.Warnings ?? [])],
             source.WAVHealth,
             source.BGAHealth,
             source.MovieHealth,
@@ -69,7 +83,9 @@ internal static class ChartFileProjection
             source.BackbmpHealth,
             source.EncodingName,
             source.Score,
-            source.Status);
+            source.Status,
+            resourceHealthWarningsIgnored,
+            resourceHealthMaintenanceSnapshot);
     }
 
     internal static ChartFile FromIdentitySnapshot(
@@ -516,7 +532,9 @@ internal static class ChartFileProjection
             maintenanceInfo?.BackbmpHealth,
             maintenanceInfo?.encoding,
             score,
-            status);
+            status,
+            maintenanceInfo?.is_files_warning_ignored == true,
+            ResourceHealthMaintenanceSnapshot.From(maintenanceInfo));
     }
 
     internal static ChartFile FromBmsonSong(
@@ -577,7 +595,11 @@ internal static class ChartFileProjection
             song.MaintenanceInfo?.StagefileHealth ?? transientState.StagefileHealth,
             song.MaintenanceInfo?.BannerHealth ?? transientState.BannerHealth,
             song.MaintenanceInfo?.BackbmpHealth ?? transientState.BackbmpHealth,
-            song.MaintenanceInfo?.encoding ?? transientState.EncodingName);
+            song.MaintenanceInfo?.encoding ?? transientState.EncodingName,
+            null,
+            ChartFileStatus.NONE,
+            song.MaintenanceInfo?.is_files_warning_ignored == true,
+            ResourceHealthMaintenanceSnapshot.From(song.MaintenanceInfo));
     }
 
     internal static ChartFile FromStorageOwner(

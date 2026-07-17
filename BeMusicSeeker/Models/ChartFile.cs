@@ -95,6 +95,10 @@ internal sealed class ChartFile
 
     internal ChartFileStatus Status { get; }
 
+    internal bool ResourceHealthWarningsIgnored { get; }
+
+    internal BmsLibraryInternal.ResourceHealthMaintenanceSnapshot ResourceHealthMaintenanceSnapshot { get; }
+
     private BMSFile BmsFile { get; }
 
     private LR2SongDBExtended.bmson_song BmsonSong { get; }
@@ -145,7 +149,9 @@ internal sealed class ChartFile
         bool? backbmpHealth = null,
         string encodingName = null,
         ChartScoreSnapshot score = null,
-        ChartFileStatus status = ChartFileStatus.NONE)
+        ChartFileStatus status = ChartFileStatus.NONE,
+        bool resourceHealthWarningsIgnored = false,
+        BmsLibraryInternal.ResourceHealthMaintenanceSnapshot resourceHealthMaintenanceSnapshot = null)
     {
         Kind = kind;
         Path = string.IsNullOrWhiteSpace(path) ? null : path;
@@ -183,6 +189,8 @@ internal sealed class ChartFile
         EncodingName = encodingName ?? string.Empty;
         Score = score ?? ChartScoreSnapshot.NoScore(Path);
         Status = status;
+        ResourceHealthWarningsIgnored = resourceHealthWarningsIgnored;
+        ResourceHealthMaintenanceSnapshot = resourceHealthMaintenanceSnapshot;
         BmsFile = bmsFile;
         BmsonSong = bmsonSong;
     }

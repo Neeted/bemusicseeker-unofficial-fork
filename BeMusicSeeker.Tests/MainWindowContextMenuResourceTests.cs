@@ -2432,7 +2432,7 @@ public sealed class MainWindowContextMenuResourceTests
         {
             Assert.IsFalse(libraryCode.Contains(removedSuppression), removedSuppression);
         }
-        StringAssert.Contains(libraryCode, "SuppressResourceHealthIndexInvalidation");
+        StringAssert.Contains(libraryCode, "resourceHealthOwner.SuppressInvalidation()");
     }
 
     [TestMethod]
@@ -4012,8 +4012,6 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "catalogMutationOwner.ApplyInstalledTargetUpsert(");
         StringAssert.Contains(mutationOwnerCode, "CreateInstalledTargetUpsertRequestUnsafe(");
         StringAssert.Contains(pipelineOwnerCode, "host.ApplyFileScanStorageMutation(fileCheckResult, reason)");
-        StringAssert.Contains(libraryCode, "new LibraryMutationDeltaApplyCoordinator(");
-        StringAssert.Contains(pipelineOwnerCode, "mutationDeltaApplyCoordinatorFactory().Apply(fileCheckResult.MutationDelta)");
         Assert.IsFalse(libraryCode.Contains("LibraryFileScanStorageMutationHost"));
         Assert.IsFalse(libraryCode.Contains("InstalledChartStorageTargetsApplyHost"));
         Assert.IsFalse(libraryCode.Contains("ApplyInstalledChartStorageRowsUnsafe"));

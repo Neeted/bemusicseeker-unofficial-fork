@@ -409,6 +409,34 @@ public class BMSFileMaintenanceInfo : LR2SongDBExtended.maintenance
         };
     }
 
+    internal void ApplyPersistenceCopyFrom(BMSFileMaintenanceInfo source)
+    {
+        if (source == null)
+        {
+            return;
+        }
+        hash = source.hash;
+        path = source.path;
+        encoding = source.encoding;
+        is_encoding_fixed = source.is_encoding_fixed;
+        wav_files_existing = source.wav_files_existing;
+        wav_files_defined = source.wav_files_defined;
+        bga_files_existing = source.bga_files_existing;
+        bga_files_defined = source.bga_files_defined;
+        movie_files_existing = source.movie_files_existing;
+        movie_files_defined = source.movie_files_defined;
+        is_stagefile_existing = source.is_stagefile_existing;
+        is_stagefile_defined = source.is_stagefile_defined;
+        is_banner_existing = source.is_banner_existing;
+        is_banner_defined = source.is_banner_defined;
+        is_backbmp_existing = source.is_backbmp_existing;
+        is_backbmp_defined = source.is_backbmp_defined;
+        is_files_warning_ignored = source.is_files_warning_ignored;
+        lr2_warning_flags = source.lr2_warning_flags;
+        lr2_resource_max_relative_cp932_bytes = source.lr2_resource_max_relative_cp932_bytes;
+        lr2_resource_has_parent_traversal = source.lr2_resource_has_parent_traversal;
+    }
+
     internal void ApplyLr2CompatibilityEvaluation(
         Lr2ChartPathEvaluation pathEvaluation,
         Lr2ResourceReferenceEvaluation resourceEvaluation)

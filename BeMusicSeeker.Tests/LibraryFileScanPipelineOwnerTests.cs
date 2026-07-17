@@ -191,7 +191,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             host,
             (ILibraryFileScanLr2FolderHost)host,
             new BmsLibraryInitializationService(),
-            () => new LibraryMutationDeltaApplyCoordinator(new NoopLibraryMutationDeltaApplyHost()));
+            _ => { });
     }
 
     private sealed class RecordingLibraryFileScanPipelineHost : ILibraryFileScanPipelineHost, ILibraryFileScanLr2FolderHost
@@ -377,54 +377,4 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
     }
 
-    private sealed class NoopLibraryMutationDeltaApplyHost : ILibraryMutationDeltaApplyHost
-    {
-        public void ThrowIfLr2SongDbSyncMutationBlocked(string operationName)
-        {
-        }
-
-        public ResourceHealthIndexOwner.ResourceHealthInputMutation BeginResourceHealthInputMutation() => null!;
-
-        public void BuildMutationResult(LibraryMutationDelta delta, int baseInputVersion, bool baseIndexCurrent)
-        {
-        }
-
-        public void PublishOwnedCollectionChangeNotification()
-        {
-        }
-
-        public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded() => null!;
-
-        public BmsLibraryStateApplyResult ApplyCatalogMutationToState(LibraryMutationDelta delta) => null!;
-
-        public BmsLibraryStateApplyResult ApplyConsumerResidualState(LibraryMutationDelta delta) => null!;
-
-        public void CompleteResourceHealthMutation(int targetInputVersion)
-        {
-        }
-
-        public void RebaseResourceHealthAfterFailure(
-            ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation)
-        {
-        }
-
-        public void SyncLr2NormalFoldersForOwnedMutation(string reason)
-        {
-        }
-
-        public void ApplyFailureFallback()
-        {
-        }
-
-        public void DispatchOwnedChartCollectionMutation(string reason)
-        {
-        }
-
-        public void LogLibraryMutationDeltaPerformance(
-            LibraryMutationDelta delta,
-            string performanceLogContext,
-            LibraryMutationDeltaApplyTimings timings)
-        {
-        }
-    }
 }

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models;
@@ -49,8 +50,8 @@ internal sealed class ResourceHealthIndexMutationFacts
         bool defer,
         bool invalidateIfDeltaFails)
     {
-        UpdatedTargets = updatedTargets ?? [];
-        RemovedTargets = removedTargets ?? [];
+        UpdatedTargets = Array.AsReadOnly([.. (updatedTargets ?? []).Where(chart => chart != null)]);
+        RemovedTargets = Array.AsReadOnly([.. (removedTargets ?? []).Where(chart => chart != null)]);
         FullOwnedTargetSet = fullOwnedTargetSet;
         DeltaBaseResourceHealthInputVersion = deltaBaseResourceHealthInputVersion;
         DeltaTargetResourceHealthInputVersion = deltaTargetResourceHealthInputVersion;
@@ -84,6 +85,21 @@ internal sealed class ResourceHealthIndexMutationFacts
 
     internal bool HasChanges => Invalidate || RebuildFull || Defer || HasDeltaTargets;
 
+    internal ResourceHealthIndexMutation ToMutation()
+    {
+        var mutation = new ResourceHealthIndexMutation();
+        mutation.UpdatedTargets.AddRange(UpdatedTargets ?? []);
+        mutation.RemovedTargets.AddRange(RemovedTargets ?? []);
+        mutation.FullOwnedTargetSet = FullOwnedTargetSet;
+        mutation.DeltaBaseResourceHealthInputVersion = DeltaBaseResourceHealthInputVersion;
+        mutation.DeltaTargetResourceHealthInputVersion = DeltaTargetResourceHealthInputVersion;
+        mutation.Invalidate = Invalidate;
+        mutation.RebuildFull = RebuildFull;
+        mutation.Defer = Defer;
+        mutation.InvalidateIfDeltaFails = InvalidateIfDeltaFails;
+        return mutation;
+    }
+
     internal static ResourceHealthIndexMutationFacts From(ResourceHealthIndexMutation mutation)
     {
         if (mutation == null)
@@ -91,14 +107,42 @@ internal sealed class ResourceHealthIndexMutationFacts
             return new ResourceHealthIndexMutationFacts([], [], default, null, null, false, false, false, false);
         }
         return new ResourceHealthIndexMutationFacts(
-            [.. (mutation.UpdatedTargets ?? []).Where(chart => chart != null)],
-            [.. (mutation.RemovedTargets ?? []).Where(chart => chart != null)],
-            mutation.FullOwnedTargetSet,
+            SnapshotCharts(mutation.UpdatedTargets),
+            SnapshotCharts(mutation.RemovedTargets),
+            SnapshotTargetSet(mutation.FullOwnedTargetSet),
             mutation.DeltaBaseResourceHealthInputVersion,
             mutation.DeltaTargetResourceHealthInputVersion,
             mutation.Invalidate,
             mutation.RebuildFull,
             mutation.Defer,
             mutation.InvalidateIfDeltaFails);
+    }
+
+    private static IReadOnlyList<ChartFile> SnapshotCharts(IEnumerable<ChartFile> charts)
+    {
+        return [.. (charts ?? [])
+            .Where(chart => chart != null)
+            .Select(ChartFileProjection.ToImmutableSnapshot)
+            .Where(chart => chart != null)];
+    }
+
+    private static ResourceMaintenanceTargetSet SnapshotTargetSet(ResourceMaintenanceTargetSet targetSet)
+    {
+        if (!targetSet.IsSpecified)
+        {
+            return default;
+        }
+
+        IReadOnlyList<ChartFile> charts = SnapshotCharts(targetSet.Charts);
+        if (!targetSet.IsFullOwned || !targetSet.HasFullOwnedVersion)
+        {
+            return ResourceMaintenanceTargetSet.ForSubset(charts);
+        }
+
+        return ResourceMaintenanceTargetSet.ForFullOwned(
+            charts,
+            targetSet.StorageRowsVersion!.Value,
+            targetSet.OwnedCollectionVersion!.Value,
+            targetSet.ResourceHealthInputVersion!.Value);
     }
 }
