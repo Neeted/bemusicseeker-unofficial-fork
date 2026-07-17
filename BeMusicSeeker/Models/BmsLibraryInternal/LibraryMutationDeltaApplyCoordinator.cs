@@ -58,19 +58,22 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
                 using (host.SuppressResourceHealthIndexInvalidationIfNeeded())
                 {
                     Stopwatch stateApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    BmsLibraryStateApplyResult stateApplyResult = host.ApplyLibraryMutationDeltaToState(delta);
+                    BmsLibraryStateApplyResult catalogStateApplyResult = host.ApplyCatalogMutationToState(delta);
                     timings.StateApplyMs = StopPerformanceStepStopwatch(stateApplyStopwatch);
-                    timings.StateFolderDbMs = stateApplyResult?.FolderDbMs ?? 0;
-                    timings.StatePathMemoryApplyMs = stateApplyResult?.PathMemoryApplyMs ?? 0;
-                    timings.StateBmsPathDbMs = stateApplyResult?.BmsPathDbMs ?? 0;
-                    timings.StateBmsonPathDbMs = stateApplyResult?.BmsonPathDbMs ?? 0;
-                    timings.StateBmsRemovalDbMs = stateApplyResult?.BmsRemovalDbMs ?? 0;
-                    timings.StateBmsonRemovalDbMs = stateApplyResult?.BmsonRemovalDbMs ?? 0;
-                    timings.StatePackageApplyMs = stateApplyResult?.PackageApplyMs ?? 0;
+                    timings.StateFolderDbMs = catalogStateApplyResult?.FolderDbMs ?? 0;
+                    timings.StatePathMemoryApplyMs = catalogStateApplyResult?.PathMemoryApplyMs ?? 0;
+                    timings.StateBmsPathDbMs = catalogStateApplyResult?.BmsPathDbMs ?? 0;
+                    timings.StateBmsonPathDbMs = catalogStateApplyResult?.BmsonPathDbMs ?? 0;
+                    timings.StateBmsRemovalDbMs = catalogStateApplyResult?.BmsRemovalDbMs ?? 0;
+                    timings.StateBmsonRemovalDbMs = catalogStateApplyResult?.BmsonRemovalDbMs ?? 0;
                 }
                 Stopwatch publishNotificationStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                 host.PublishOwnedCollectionChangeNotification();
                 timings.PublishNotificationMs = StopPerformanceStepStopwatch(publishNotificationStopwatch);
+                Stopwatch residualApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
+                BmsLibraryStateApplyResult residualStateApplyResult = host.ApplyConsumerResidualState(delta);
+                timings.StateApplyMs += StopPerformanceStepStopwatch(residualApplyStopwatch);
+                timings.StatePackageApplyMs = residualStateApplyResult?.PackageApplyMs ?? 0;
             }
             finally
             {

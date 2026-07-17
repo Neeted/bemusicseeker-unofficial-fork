@@ -13604,6 +13604,8 @@ public partial class BMSLibrary : NotificationObject
 
         private bool catalogMutationCommitted;
 
+        private CatalogMutationReceipt catalogReceipt;
+
         public void ThrowIfLr2SongDbSyncMutationBlocked(string operationName)
         {
             owner.ThrowIfLr2SongDbSyncMutationBlocked(operationName);
@@ -13618,6 +13620,7 @@ public partial class BMSLibrary : NotificationObject
         {
             catalogMutationExpected = false;
             catalogMutationCommitted = false;
+            catalogReceipt = null;
             mutationResult = owner.BuildOwnedChartCollectionMutationResult(
                 delta,
                 baseInputVersion,
@@ -13636,33 +13639,40 @@ public partial class BMSLibrary : NotificationObject
                 : null;
         }
 
-        public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta)
+        public BmsLibraryStateApplyResult ApplyCatalogMutationToState(LibraryMutationDelta delta)
         {
             catalogMutationExpected = delta?.FolderPathChanges?.Count > 0
                 || delta?.ChartPathChanges?.Count > 0
                 || mutationResult?.StorageMutation?.RemoveRequests?.Count > 0;
-            CatalogMutationReceipt catalogReceipt = owner.catalogMutationOwner.ApplyCatalogMutation(
+            catalogReceipt = owner.catalogMutationOwner.ApplyCatalogMutation(
                 delta,
                 mutationResult.StorageMutation.RemoveRequests,
                 mutationResult.StorageMutation.AddedBmsFiles,
                 mutationResult.StorageMutation.AddedBmsonSongs,
                 () => catalogMutationCommitted = true);
             owner.ApplyCatalogMutationReceiptProjection(mutationResult, catalogReceipt);
-            BmsLibraryStateApplyResult stateApplyResult = owner.stateApplier.ApplyLibraryMutationDelta(
-                delta,
-                catalogReceipt.RemovedCharts,
-                catalogReceipt.PathFacts);
-            stateApplyResult.StorageRowsVersion = catalogReceipt.StorageRowsVersion;
+            var catalogStateApplyResult = new BmsLibraryStateApplyResult
+            {
+                StorageRowsVersion = catalogReceipt.StorageRowsVersion
+            };
             if (catalogReceipt.Applied)
             {
-                stateApplyResult.FolderDbMs = catalogReceipt.FolderDbMs;
-                stateApplyResult.PathMemoryApplyMs = catalogReceipt.LiveApplyMs;
-                stateApplyResult.BmsPathDbMs = catalogReceipt.BmsPathDbMs;
-                stateApplyResult.BmsonPathDbMs = catalogReceipt.BmsonPathDbMs;
-                stateApplyResult.BmsRemovalDbMs = catalogReceipt.BmsRemovalDbMs;
-                stateApplyResult.BmsonRemovalDbMs = catalogReceipt.BmsonRemovalDbMs;
+                catalogStateApplyResult.FolderDbMs = catalogReceipt.FolderDbMs;
+                catalogStateApplyResult.PathMemoryApplyMs = catalogReceipt.LiveApplyMs;
+                catalogStateApplyResult.BmsPathDbMs = catalogReceipt.BmsPathDbMs;
+                catalogStateApplyResult.BmsonPathDbMs = catalogReceipt.BmsonPathDbMs;
+                catalogStateApplyResult.BmsRemovalDbMs = catalogReceipt.BmsRemovalDbMs;
+                catalogStateApplyResult.BmsonRemovalDbMs = catalogReceipt.BmsonRemovalDbMs;
             }
-            return stateApplyResult;
+            return catalogStateApplyResult;
+        }
+
+        public BmsLibraryStateApplyResult ApplyConsumerResidualState(LibraryMutationDelta delta)
+        {
+            return owner.stateApplier.ApplyLibraryMutationDelta(
+                delta,
+                catalogReceipt?.RemovedCharts,
+                catalogReceipt?.PathFacts);
         }
 
         public void CompleteResourceHealthMutation(int targetInputVersion)

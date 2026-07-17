@@ -28,8 +28,8 @@ internal interface ILibraryMutationDeltaApplyHost
     void BuildMutationResult(LibraryMutationDelta delta, int baseInputVersion, bool baseIndexCurrent);
 
     /// <summary>
-    /// Publishes the owned collection change notification after the catalog command and
-    /// package residual have been applied successfully.
+    /// Publishes the owned collection change notification after the canonical catalog
+    /// command and receipt projection have completed, before consumer residual apply.
     /// </summary>
     void PublishOwnedCollectionChangeNotification();
 
@@ -40,11 +40,19 @@ internal interface ILibraryMutationDeltaApplyHost
     IDisposable SuppressResourceHealthIndexInvalidationIfNeeded();
 
     /// <summary>
-    /// Applies the library delta to the broader BMSLibrary state.
+    /// Applies the delta to the canonical catalog owner and projects its receipt.
     /// </summary>
     /// <param name="delta">The library mutation delta being applied.</param>
     /// <returns>Timing information reported by the state applier.</returns>
-    BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta);
+    BmsLibraryStateApplyResult ApplyCatalogMutationToState(LibraryMutationDelta delta);
+
+    /// <summary>
+    /// Applies package and installable residual state after the canonical catalog
+    /// receipt has been projected and the owned-collection notification has been sent.
+    /// </summary>
+    /// <param name="delta">The library mutation delta being applied.</param>
+    /// <returns>Timing information reported by the residual state applier.</returns>
+    BmsLibraryStateApplyResult ApplyConsumerResidualState(LibraryMutationDelta delta);
 
     /// <summary>
     /// Completes resource-health mutation metadata after the input mutation scope is disposed.

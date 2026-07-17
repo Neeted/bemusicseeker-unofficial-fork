@@ -20,7 +20,7 @@
 - active outcome base commit: `d040b210`
 - last outcome-wide verified commit: `d040b210`
 - active execution package: `LIB-03-GM Generic catalog mutation closure`
-- sequence cursor: `LIB-03-GM-C2 Consumer residual composition split`
+- sequence cursor: `LIB-03-GM-D Direct composition, broad-host retirement and outcome closure`
 - cursor policy: unit commit は応答境界にせず、同じ commit で現在 cursor だけを次の未完 unit へ進めて実装を継続する
 
 目的:

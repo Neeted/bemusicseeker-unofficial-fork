@@ -395,7 +395,9 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded() => null!;
 
-        public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta) => null!;
+        public BmsLibraryStateApplyResult ApplyCatalogMutationToState(LibraryMutationDelta delta) => null!;
+
+        public BmsLibraryStateApplyResult ApplyConsumerResidualState(LibraryMutationDelta delta) => null!;
 
         public void CompleteResourceHealthMutation(int targetInputVersion)
         {
