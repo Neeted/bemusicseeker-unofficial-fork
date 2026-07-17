@@ -610,7 +610,7 @@ public sealed class PlaylistSummaryAggregationTests
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)
     {
-        ((IPackageInstallHost)library).ApplyInstalledTargetCatalogMutation(addedTargets);
+        library.ApplyInstalledChartStorageTargets(addedTargets, "install_package");
     }
 
     private static IDisposable BeginOwnedDigestMutationWindow(BMSLibrary library)

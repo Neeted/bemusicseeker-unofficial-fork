@@ -9672,7 +9672,7 @@ public partial class BMSLibrary : NotificationObject
             + " duplicatePathBmson=" + filterSummary.DuplicatePathBmsonCount);
     }
 
-    private void ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets, string lookupReason)
+    internal void ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets, string lookupReason)
     {
         if (addedTargets == null)
         {
