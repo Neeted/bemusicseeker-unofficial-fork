@@ -164,18 +164,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
 
     public void DeleteInstallRows(IEnumerable<string> installPaths)
     {
-        List<string> paths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.Ordinal)];
-        if (paths.Count == 0)
-        {
-            return;
-        }
-        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
-        {
-            foreach (string path in paths)
-            {
-                songDb.Delete<LR2SongDBExtended.install>(path);
-            }
-        });
+        ApplyInstallTableMutation(installPaths, []);
     }
 
     public void UpsertInstallRows(IEnumerable<ChartPackage> packages)
@@ -188,6 +177,43 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
         {
             songDb.InsertAll(items, typeof(LR2SongDBExtended.install));
+        });
+    }
+
+    public void ReplaceInstallRows(IEnumerable<string> installPathsToDelete, ChartPackage packageToUpsert)
+    {
+        if (packageToUpsert == null || string.IsNullOrWhiteSpace(packageToUpsert.path))
+        {
+            throw new ArgumentNullException(nameof(packageToUpsert));
+        }
+
+        ApplyInstallTableMutation(installPathsToDelete, [packageToUpsert]);
+    }
+
+    public void ApplyInstallTableMutation(
+        IEnumerable<string> installPathsToDelete,
+        IEnumerable<ChartPackage> packagesToUpsert)
+    {
+        List<string> paths = [.. (installPathsToDelete ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.Ordinal)];
+        List<ChartPackage> packages = [.. (packagesToUpsert ?? [])
+            .Where(package => package != null && !string.IsNullOrWhiteSpace(package.path))];
+        if (paths.Count == 0 && packages.Count == 0)
+        {
+            return;
+        }
+
+        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
+        {
+            foreach (string path in paths)
+            {
+                songDb.Delete<LR2SongDBExtended.install>(path);
+            }
+            if (packages.Count > 0)
+            {
+                songDb.InsertAll(packages, typeof(LR2SongDBExtended.install));
+            }
         });
     }
 

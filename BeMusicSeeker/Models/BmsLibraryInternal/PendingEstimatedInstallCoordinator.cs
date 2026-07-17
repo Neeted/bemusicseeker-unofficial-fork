@@ -41,11 +41,11 @@ internal interface IPendingEstimatedInstallHost
 
     (bool Success, CleanupSourceKind SourceKind) TryCleanupPendingPackageSourceForEstimatedInstall(ChartPackage package);
 
-    void DeleteInstallRows(IEnumerable<string> paths);
-
     void ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context);
 
-    PendingEstimatedInstallCollectionApplyResult ApplyPendingPackageRemovals(IReadOnlyCollection<ChartPackage> packagesToRemove);
+    PendingEstimatedInstallCollectionApplyResult ApplyEstimatedInstallPendingPackageMutation(
+        IReadOnlyCollection<ChartPackage> packagesToRemove,
+        IEnumerable<string> installRowsToDelete);
 
     PendingEstimatedInstallCollectionApplyResult MergeDeferredInstalledPackages(IReadOnlyCollection<ChartPackage> deferredInstalledPackages);
 
@@ -149,7 +149,11 @@ internal static class PendingEstimatedInstallCoordinator
                 host.CreateInstalledDisplayPackageForResourceOnlyMerge,
                 host.TryCleanupPendingPackageSourceForEstimatedInstall,
                 host.LogInstallPerformance);
-            host.DeleteInstallRows(batchResult.InstallRowsToDelete);
+            var pendingApplyStopwatch = Stopwatch.StartNew();
+            PendingEstimatedInstallCollectionApplyResult pendingApplyResult = host.ApplyEstimatedInstallPendingPackageMutation(
+                batchResult.PendingPackagesToRemove,
+                batchResult.InstallRowsToDelete);
+            pendingApplyStopwatch.Stop();
 
             var libraryStateApplyStopwatch = Stopwatch.StartNew();
             bool canUseResourceHealthIndexDelta = resourceHealthOwner.IsCurrent();
@@ -158,10 +162,6 @@ internal static class PendingEstimatedInstallCoordinator
                 host.ApplyEstimatedInstallBatchLibraryState(batchApplyContext);
             }
             libraryStateApplyStopwatch.Stop();
-
-            var pendingApplyStopwatch = Stopwatch.StartNew();
-            PendingEstimatedInstallCollectionApplyResult pendingApplyResult = host.ApplyPendingPackageRemovals(batchResult.PendingPackagesToRemove);
-            pendingApplyStopwatch.Stop();
 
             var installedApplyStopwatch = Stopwatch.StartNew();
             PendingEstimatedInstallCollectionApplyResult installedApplyResult = host.MergeDeferredInstalledPackages(batchResult.DeferredInstalledPackages);

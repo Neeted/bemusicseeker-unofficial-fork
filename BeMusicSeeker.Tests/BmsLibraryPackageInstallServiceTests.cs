@@ -254,7 +254,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.IsTrue(delta.HasChanges);
         Assert.AreEqual(1, delta.RemainingPackages.Count);
         Assert.AreSame(keepPackage, delta.RemainingPackages[0]);
-        CollectionAssert.AreEqual(new[] { keepFile }, keepPackage.GetBmsOwnersForTest());
+        CollectionAssert.AreEqual(new[] { keepFile, removeFile }, keepPackage.GetBmsOwnersForTest());
+        Assert.AreEqual(1, delta.EntryMutations.Count);
+        Assert.AreSame(keepPackage, delta.EntryMutations[0].Package);
+        CollectionAssert.AreEqual(new[] { keepFile }, delta.EntryMutations[0].RemainingEntries.Select(entry => entry.Chart.GetBmsStorageOwner()).Where(owner => owner != null).ToArray());
         CollectionAssert.AreEquivalent(new[] { "C:\\Pending\\Pkg2" }, delta.InstallPathsToDelete);
     }
 
@@ -287,8 +290,10 @@ public sealed class BmsLibraryPackageInstallServiceTests
         Assert.AreSame(package, delta.RemainingPackages[0]);
         Assert.IsNull(keepEntry.GetBmsOwnerForTest());
         Assert.IsNull(removeEntry.GetBmsOwnerForTest());
-        Assert.AreEqual(1, package.ChartEntries.Count);
-        Assert.AreEqual(keepEntry.Chart.Path, package.ChartEntries[0].Chart.Path);
+        Assert.AreEqual(2, package.ChartEntries.Count);
+        Assert.AreEqual(1, delta.EntryMutations.Count);
+        Assert.AreSame(package, delta.EntryMutations[0].Package);
+        Assert.AreEqual(keepEntry.Chart.Path, delta.EntryMutations[0].RemainingEntries.Single().Chart.Path);
         Assert.IsNull(package.ChartEntries[0].GetBmsOwnerForTest());
         Assert.AreEqual(0, delta.InstallPathsToDelete.Count);
     }

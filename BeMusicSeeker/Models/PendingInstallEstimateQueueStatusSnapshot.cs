@@ -2,6 +2,8 @@ namespace BeMusicSeeker.Models;
 
 internal sealed class PendingInstallEstimateQueueStatusSnapshot
 {
+    public long Sequence { get; set; }
+
     public bool IsActive { get; set; }
 
     public PendingInstallEstimateBatchSource Source { get; set; }
@@ -18,6 +20,7 @@ internal sealed class PendingInstallEstimateQueueStatusSnapshot
     {
         return new PendingInstallEstimateQueueStatusSnapshot
         {
+            Sequence = Sequence,
             IsActive = IsActive,
             Source = Source,
             PendingBatchCount = PendingBatchCount,

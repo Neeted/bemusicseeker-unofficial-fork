@@ -19,7 +19,7 @@
 
 active outcome base commit: `37925d8b`
 active execution package: `LIB-02 Package, install-destination and file-operation ownership`
-sequence cursor: `LIB-02-B Package aggregate, install-table and estimation lifecycle ownership`
+sequence cursor: `LIB-02-C Library file-operation orchestration and catalog handoff`
 
 目的:
 

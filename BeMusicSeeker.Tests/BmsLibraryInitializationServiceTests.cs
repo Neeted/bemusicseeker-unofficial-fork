@@ -6156,6 +6156,15 @@ public sealed class BmsLibraryInitializationServiceTests
     }
 
     [TestMethod]
+    public void LoadInstallTable_DatabaseFailureIsPropagated()
+    {
+        string missingSongDbPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_MissingInitTests_" + Guid.NewGuid().ToString("N"), "song.db");
+        var service = new BmsLibraryInitializationService();
+
+        Assert.ThrowsException<SQLite.SQLiteException>(() => service.LoadInstallTable(new BmsLibraryDbGateway(missingSongDbPath)));
+    }
+
+    [TestMethod]
     public void LoadInstallTable_ChecksInstalledChartsWithoutMaterializingUnmatchedBmsonEntries()
     {
         TestResourceInitializer.EnsureJapaneseResources();

@@ -1703,7 +1703,7 @@ internal sealed class BmsLibraryInitializationService
         var result = new InstallTableLoadResult();
         if (dbGateway == null)
         {
-            return result;
+            throw new ArgumentNullException(nameof(dbGateway));
         }
         var totalStopwatch = Stopwatch.StartNew();
         var loadStopwatch = Stopwatch.StartNew();
@@ -1718,7 +1718,7 @@ internal sealed class BmsLibraryInitializationService
         {
             totalStopwatch.Stop();
             result.TotalMs = totalStopwatch.ElapsedMilliseconds;
-            return result;
+            throw;
         }
         loadStopwatch.Stop();
         result.LoadMs = loadStopwatch.ElapsedMilliseconds;

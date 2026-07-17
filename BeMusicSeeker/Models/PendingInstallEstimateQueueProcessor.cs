@@ -31,6 +31,8 @@ internal sealed class PendingInstallEstimateQueueProcessor(
 
     private int activeCompletedPackageCount;
 
+    private long statusSequence;
+
     public bool IsIdle
     {
         get
@@ -195,6 +197,7 @@ internal sealed class PendingInstallEstimateQueueProcessor(
         int pendingCount = (activeBatch != null) ? pendingBatches.Count : Math.Max(0, pendingBatches.Count - 1);
         return new PendingInstallEstimateQueueStatusSnapshot
         {
+            Sequence = ++statusSequence,
             IsActive = displayedBatch != null,
             Source = displayedBatch?.Source ?? PendingInstallEstimateBatchSource.StartupRestore,
             PendingBatchCount = pendingCount,

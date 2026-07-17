@@ -121,7 +121,7 @@ public partial class BMSLibrary : IPackageInstallHost
 
     void IPackageInstallHost.RegisterInstalledPackages(IEnumerable<ChartPackage> installedPackages)
     {
-        ChartPackagesInstalled.AddRange(installedPackages);
+        packageLifecycleOwner.AddInstalledPackages(installedPackages);
     }
 
     void IPackageInstallHost.LogInstallPerformance(string message)

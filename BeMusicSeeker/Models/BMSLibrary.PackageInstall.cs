@@ -96,14 +96,14 @@ public partial class BMSLibrary
                             (packagesToInstall) => installChartPackages(packagesToInstall),
                             token);
                         LogInstallPerformance("auto_install_apply pendingAdd=" + applyResult.PendingPackagesToAdd.Count + " pendingRemove=" + applyResult.PendingPackagesToRemove.Count + " autoInstalled=" + applyResult.AutoInstalledPackages.Count + " autoFailed=" + applyResult.AutoInstallFailures.Count + " installMs=" + applyResult.InstallMs + " applyMs=" + applyResult.ApplyMs + " totalMs=" + applyResult.TotalMs);
-                        if (applyResult.PendingPackagesToRemove.Count > 0)
+                        if (applyResult.PendingPackagesToRemove.Count > 0
+                            || applyResult.PendingPackagesToAdd.Count > 0
+                            || applyResult.InstallRowsToUpsert.Count > 0)
                         {
-                            stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: applyResult.PendingPackagesToRemove));
-                        }
-                        if (applyResult.InstallRowsToUpsert.Count > 0)
-                        {
-                            dbGateway.UpsertInstallRows(applyResult.InstallRowsToUpsert);
-                            ChartPackagesPending.AddRange(applyResult.PendingPackagesToAdd);
+                            packageLifecycleOwner.ApplyPendingPackageMutationDelta(
+                                BuildPendingPackageMutationDelta(packagesToRemove: applyResult.PendingPackagesToRemove),
+                                applyResult.PendingPackagesToAdd,
+                                applyResult.InstallRowsToUpsert);
                         }
                         BackgroundPendingEstimatePreparationResult estimatePreparation = PrepareBackgroundPendingEstimatePackagesUnsafe(applyResult.EstimateTargets, PendingInstallEstimateBatchSource.AutoInstall);
                         pendingPackagesToEstimate = estimatePreparation.EstimablePackages;
@@ -1088,7 +1088,7 @@ public partial class BMSLibrary
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    ChartPackagesInstalled.Remove(packages);
+                    packageLifecycleOwner.RemoveInstalledPackages(packages);
                 }
             }
         }
@@ -1101,7 +1101,7 @@ public partial class BMSLibrary
 
     private void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
     {
-        stateApplier.ApplyPendingPackageMutationDelta(delta);
+        packageLifecycleOwner.ApplyPendingPackageMutationDelta(delta);
     }
 
     /// <summary>
@@ -1135,7 +1135,7 @@ public partial class BMSLibrary
             {
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
-                    ChartPackagesInstalled.Clear();
+                    packageLifecycleOwner.ClearInstalledPackages();
                 }
             }
         }
@@ -1154,7 +1154,7 @@ public partial class BMSLibrary
                 using (rwlockSongDBInstall.GetWriterGuard())
                 {
                     managedPackagesToCleanup = ResolveManagedPendingPackagesForCleanup(ChartPackagesPending);
-                    stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(clearAll: true));
+                    packageLifecycleOwner.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(clearAll: true));
                 }
             }
         }
@@ -1253,9 +1253,7 @@ public partial class BMSLibrary
             return;
         }
         ReinitializePendingWarningsForPackageUnsafe(regroupedPackage, CreateInstalledChartKeySnapshotExcludingChartsUnsafe([]));
-        ReplacePendingPackagesWithRegroupedPackageUnsafe(sourcePackages, regroupedPackage);
-        dbGateway.DeleteInstallRows(sourcePackages.Select(pendingPackage => pendingPackage.path));
-        dbGateway.UpsertInstallRows([regroupedPackage]);
+        packageLifecycleOwner.ReplacePendingPackagesWithRegroupedPackage(sourcePackages, regroupedPackage);
         List<PackageChartEntry> regroupedPackageEntries = regroupedPackage.ChartEntries;
         bool metadataResolved = regroupedPackageEntries.Any(entry => !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestinationTitle) || !string.IsNullOrWhiteSpace(entry?.Chart?.InstallDestinationArtist));
         LogInstallPerformance("pending_regroup success source=" + sourceDirectoryPath + " packages=" + sourcePackages.Count + " files=" + regroupedPackageEntries.Count + " dst=" + resolvedDestinationDirectory + " metadataResolved=" + metadataResolved);
@@ -1398,23 +1396,6 @@ public partial class BMSLibrary
         BmsLibraryPackageInstallService.ApplyNestedChartFileWarnings(package);
     }
 
-    private void ReplacePendingPackagesWithRegroupedPackageUnsafe(List<ChartPackage> sourcePackages, ChartPackage regroupedPackage)
-    {
-        if (sourcePackages == null || sourcePackages.Count == 0 || regroupedPackage == null)
-        {
-            return;
-        }
-        List<ChartPackage> currentPendingPackages = [.. ChartPackagesPending.Where(pendingPackage => pendingPackage != null)];
-        int insertIndex = currentPendingPackages.FindIndex(pendingPackage => sourcePackages.Contains(pendingPackage));
-        if (insertIndex < 0)
-        {
-            insertIndex = currentPendingPackages.Count;
-        }
-        List<ChartPackage> replacedPendingPackages = [.. currentPendingPackages.Where(pendingPackage => !sourcePackages.Contains(pendingPackage))];
-        replacedPendingPackages.Insert(insertIndex, regroupedPackage);
-        ChartPackagesPending = new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(replacedPendingPackages), DispatcherHelper.UIDispatcher);
-    }
-
     private static string GetPendingPackageSourceDirectoryPath(ChartPackage package)
     {
         return NormalizePendingPackagePath(package?.path) switch
@@ -1507,6 +1488,6 @@ public partial class BMSLibrary
 
     private void RemovePendingPackagesFromPendingListAndInstallRows(IEnumerable<ChartPackage> packages)
     {
-        stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: packages));
+        packageLifecycleOwner.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: packages));
     }
 }

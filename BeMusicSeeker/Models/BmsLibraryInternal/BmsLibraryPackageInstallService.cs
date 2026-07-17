@@ -1504,14 +1504,14 @@ internal sealed class BmsLibraryPackageInstallService
         if (clearAll)
         {
             delta.HasChanges = currentPending.Count > 0;
-            delta.InstallPathsToDelete = [.. currentPending.Where(pkg => !string.IsNullOrWhiteSpace(pkg.path)).Select(pkg => pkg.path).Distinct(StringComparer.OrdinalIgnoreCase)];
+            delta.InstallPathsToDelete = [.. currentPending.Where(pkg => !string.IsNullOrWhiteSpace(pkg.path)).Select(pkg => pkg.path).Distinct(StringComparer.Ordinal)];
             return delta;
         }
         var removedPackages = new HashSet<ChartPackage>((packagesToRemove ?? []).Where(pkg => pkg != null));
         var removedPackagePaths = new HashSet<string>((packagesToRemove ?? []).Where(pkg => pkg != null && !string.IsNullOrWhiteSpace(pkg.path)).Select(pkg => pkg.path), StringComparer.OrdinalIgnoreCase);
         var removedPaths = new HashSet<string>((chartPathsToRemove ?? []).Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
         bool removeFiles = removedPaths.Count > 0;
-        var installPathsToDelete = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var installPathsToDelete = new HashSet<string>(StringComparer.Ordinal);
         foreach (ChartPackage package in currentPending)
         {
             if (removedPackages.Contains(package) || (!string.IsNullOrWhiteSpace(package.path) && removedPackagePaths.Contains(package.path)))
@@ -1549,7 +1549,7 @@ internal sealed class BmsLibraryPackageInstallService
                 }
                 continue;
             }
-            package.ReplaceChartEntries(remainingEntries);
+            delta.EntryMutations.Add(new PendingPackageEntryMutation(package, remainingEntries));
             delta.RemainingPackages.Add(package);
         }
         delta.InstallPathsToDelete = [.. installPathsToDelete];

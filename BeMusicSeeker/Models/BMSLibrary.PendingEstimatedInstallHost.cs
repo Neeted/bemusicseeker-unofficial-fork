@@ -96,24 +96,27 @@ public partial class BMSLibrary : IPendingEstimatedInstallHost
         return (cleanupSucceeded, sourceKind);
     }
 
-    void IPendingEstimatedInstallHost.DeleteInstallRows(IEnumerable<string> paths)
-    {
-        dbGateway.DeleteInstallRows(paths);
-    }
-
     void IPendingEstimatedInstallHost.ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context)
     {
         ApplyEstimatedInstallBatchLibraryState(context);
     }
 
-    PendingEstimatedInstallCollectionApplyResult IPendingEstimatedInstallHost.ApplyPendingPackageRemovals(IReadOnlyCollection<ChartPackage> packagesToRemove)
+    PendingEstimatedInstallCollectionApplyResult IPendingEstimatedInstallHost.ApplyEstimatedInstallPendingPackageMutation(
+        IReadOnlyCollection<ChartPackage> packagesToRemove,
+        IEnumerable<string> installRowsToDelete)
     {
         int pendingCountBeforeApply = ChartPackagesPending.Count;
-        int pendingRemovedTotal = packagesToRemove.Count;
-        if (pendingRemovedTotal > 0)
+        int pendingRemovedTotal = packagesToRemove?.Count ?? 0;
+        PendingPackageMutationDelta delta = BuildPendingPackageMutationDelta(packagesToRemove: packagesToRemove);
+        List<string> installPathsToDelete = [.. delta.InstallPathsToDelete
+            .Concat(installRowsToDelete ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.Ordinal)];
+        delta.InstallPathsToDelete = installPathsToDelete;
+        delta.HasChanges = delta.HasChanges || installPathsToDelete.Count > 0;
+        if (delta.HasChanges)
         {
-            List<ChartPackage> remainingPending = [.. ChartPackagesPending.Where(pkg => pkg != null && !packagesToRemove.Contains(pkg))];
-            ChartPackagesPending = new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(remainingPending), DispatcherHelper.UIDispatcher);
+            packageLifecycleOwner.ApplyPendingPackageMutationDelta(delta);
         }
 
         return new PendingEstimatedInstallCollectionApplyResult
@@ -139,7 +142,7 @@ public partial class BMSLibrary : IPendingEstimatedInstallHost
                     mergedInstalled.Add(installedPackage);
                 }
             }
-            ChartPackagesInstalled = new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(mergedInstalled), DispatcherHelper.UIDispatcher);
+            packageLifecycleOwner.ReplaceInstalledPackages(mergedInstalled);
         }
 
         return new PendingEstimatedInstallCollectionApplyResult

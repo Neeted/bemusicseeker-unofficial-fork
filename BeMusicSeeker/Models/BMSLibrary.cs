@@ -503,7 +503,7 @@ public partial class BMSLibrary : NotificationObject
         }
         try
         {
-            pendingInstallEstimateQueueProcessor?.CancelAll();
+            packageLifecycleOwner?.CancelPendingEstimateQueue();
         }
         catch (Exception ex)
         {
@@ -520,7 +520,7 @@ public partial class BMSLibrary : NotificationObject
         || InstallableMaintenanceDeferredRunning
         || ScoreHydrationRunning
         || RankingRefreshRunning
-        || (pendingInstallEstimateQueueProcessor != null && !pendingInstallEstimateQueueProcessor.IsIdle);
+        || (packageLifecycleOwner != null && !packageLifecycleOwner.IsPendingEstimateQueueIdle);
 
     internal string GetShutdownBlockingWorkLogFields()
     {
@@ -532,7 +532,7 @@ public partial class BMSLibrary : NotificationObject
             + " installableMaintenanceDeferredRunning=" + FormatBool(InstallableMaintenanceDeferredRunning)
             + " scoreHydrationRunning=" + FormatBool(ScoreHydrationRunning)
             + " rankingRefreshRunning=" + FormatBool(RankingRefreshRunning)
-            + " pendingInstallEstimateQueueIdle=" + FormatBool(pendingInstallEstimateQueueProcessor == null || pendingInstallEstimateQueueProcessor.IsIdle);
+            + " pendingInstallEstimateQueueIdle=" + FormatBool(packageLifecycleOwner == null || packageLifecycleOwner.IsPendingEstimateQueueIdle);
     }
 
     private static string FormatBool(bool value)
@@ -609,8 +609,6 @@ public partial class BMSLibrary : NotificationObject
     private DirectoryResourceLookupCache directoryResourceLookupCache = new();
 
     private LibraryResourceIndex libraryResourceIndex = LibraryResourceIndex.CreateFromScanResult(new ChartScanResult());
-
-    private readonly StartupInstallReadinessState startupInstallReadinessState = new();
 
     private readonly int innerWavHealthThreshForNormalBMSFile = 70;
 
@@ -860,18 +858,6 @@ public partial class BMSLibrary : NotificationObject
 
     private bool irScorePrefetchEnabled;
 
-    private readonly object lockPendingEstimateQueueStatus = new();
-
-    private readonly object lockInstallEstimationProgress = new();
-
-    private readonly SemaphoreSlim pendingEstimateExecutionGate = new(1, 1);
-
-    private readonly PendingInstallEstimateQueueProcessor pendingInstallEstimateQueueProcessor;
-
-    private PendingInstallEstimateQueueStatusSnapshot pendingEstimateQueueStatus = new();
-
-    private InstallEstimationProgressSnapshot installEstimationProgress = new();
-
     private readonly PropertyChangedEventListener listenerForRwlockBMSFilesInitializedAll;
 
     private readonly PropertyChangedEventListener listenerForRwlockBMSFilesInitializedMin;
@@ -896,10 +882,6 @@ public partial class BMSLibrary : NotificationObject
 
     private List<DuplicateGroup> _DuplicateChartGroups;
 
-    private DispatcherCollection<ChartPackage> _ChartPackagesPending = new(DispatcherHelper.UIDispatcher);
-
-    private DispatcherCollection<ChartPackage> _ChartPackagesInstalled = new(DispatcherHelper.UIDispatcher);
-
     private List<string> bmsParentFolderListCache = [];
 
     private List<BMSScore> _BMSScores = [];
@@ -921,10 +903,6 @@ public partial class BMSLibrary : NotificationObject
     private int _RankingRefreshRequestedVersion;
 
     private int _RankingRefreshCompletedVersion;
-
-    private int _PendingEstimateQueueStatusVersion;
-
-    private int _InstallEstimationProgressVersion;
 
     private bool _ChartDigestBackfillRunning
     {
@@ -1340,18 +1318,8 @@ public partial class BMSLibrary : NotificationObject
     /// </summary>
     public DispatcherCollection<ChartPackage> ChartPackagesPending
     {
-        get
-        {
-            return _ChartPackagesPending;
-        }
-        set
-        {
-            if (_ChartPackagesPending != value)
-            {
-                _ChartPackagesPending = value;
-                RaisePropertyChanged("ChartPackagesPending");
-            }
-        }
+        get => packageLifecycleOwner.PendingPackages;
+        set => packageLifecycleOwner.SetPendingPackages(value);
     }
 
     /// <summary>
@@ -1359,18 +1327,8 @@ public partial class BMSLibrary : NotificationObject
     /// </summary>
     public DispatcherCollection<ChartPackage> ChartPackagesInstalled
     {
-        get
-        {
-            return _ChartPackagesInstalled;
-        }
-        set
-        {
-            if (_ChartPackagesInstalled != value)
-            {
-                _ChartPackagesInstalled = value;
-                RaisePropertyChanged("ChartPackagesInstalled");
-            }
-        }
+        get => packageLifecycleOwner.InstalledPackages;
+        set => packageLifecycleOwner.SetInstalledPackages(value);
     }
 
     /// <summary>
@@ -1717,34 +1675,12 @@ public partial class BMSLibrary : NotificationObject
 
     public int PendingEstimateQueueStatusVersion
     {
-        get
-        {
-            return _PendingEstimateQueueStatusVersion;
-        }
-        private set
-        {
-            if (_PendingEstimateQueueStatusVersion != value)
-            {
-                _PendingEstimateQueueStatusVersion = value;
-                RaisePropertyChanged(() => PendingEstimateQueueStatusVersion);
-            }
-        }
+        get => packageLifecycleOwner.PendingEstimateQueueStatusVersion;
     }
 
     public int InstallEstimationProgressVersion
     {
-        get
-        {
-            return _InstallEstimationProgressVersion;
-        }
-        private set
-        {
-            if (_InstallEstimationProgressVersion != value)
-            {
-                _InstallEstimationProgressVersion = value;
-                RaisePropertyChanged(() => InstallEstimationProgressVersion);
-            }
-        }
+        get => packageLifecycleOwner.InstallEstimationProgressVersion;
     }
 
     /// <summary>
@@ -2645,7 +2581,7 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryMaintenanceService maintenanceService = new();
 
-    private readonly BmsLibraryStateApplier stateApplier;
+    private readonly PackageLifecycleOwner packageLifecycleOwner;
 
     private readonly string startupRequiredFileScanReason;
 
@@ -2893,14 +2829,13 @@ public partial class BMSLibrary : NotificationObject
             initializationService,
             ApplyLibraryMutationDelta,
             initializationService.ParseCommitOwner);
-        stateApplier = new BmsLibraryStateApplier(
+        packageLifecycleOwner = new PackageLifecycleOwner(
             dbGateway,
-            () => ChartPackagesPending,
-            pendingPackages => ChartPackagesPending = pendingPackages,
-            () => ChartPackagesInstalled,
-            installedPackages => ChartPackagesInstalled = installedPackages,
+            ProcessPendingInstallEstimateBatch,
+            HandlePendingEstimateBatchException,
+            propertyName => RaisePropertyChanged(propertyName),
+            packages => new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(packages), DispatcherHelper.UIDispatcher),
             () => RaisePropertyChanged(() => ChartPackagesInstalled));
-        pendingInstallEstimateQueueProcessor = new PendingInstallEstimateQueueProcessor(ProcessPendingInstallEstimateBatch, UpdatePendingEstimateQueueStatus, HandlePendingEstimateBatchException);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         using (LR2SongDBExtended lR2SongDBExtended = dbGateway.OpenSongDb())
         {
@@ -3045,53 +2980,22 @@ public partial class BMSLibrary : NotificationObject
 
     internal PendingInstallEstimateQueueStatusSnapshot GetPendingEstimateQueueStatusSnapshot()
     {
-        lock (lockPendingEstimateQueueStatus)
-        {
-            return pendingEstimateQueueStatus?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
-        }
+        return packageLifecycleOwner.GetPendingEstimateQueueStatusSnapshot();
     }
 
     internal InstallEstimationProgressSnapshot GetInstallEstimationProgressSnapshot()
     {
-        lock (lockInstallEstimationProgress)
-        {
-            return installEstimationProgress?.Clone() ?? new InstallEstimationProgressSnapshot();
-        }
-    }
-
-    private void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
-    {
-        lock (lockPendingEstimateQueueStatus)
-        {
-            pendingEstimateQueueStatus = snapshot?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
-            PendingEstimateQueueStatusVersion++;
-        }
-    }
-
-    private void UpdateInstallEstimationProgress(InstallEstimationProgressSnapshot snapshot)
-    {
-        lock (lockInstallEstimationProgress)
-        {
-            installEstimationProgress = snapshot?.Clone() ?? new InstallEstimationProgressSnapshot();
-            InstallEstimationProgressVersion++;
-        }
+        return packageLifecycleOwner.GetInstallEstimationProgressSnapshot();
     }
 
     private void SetInstallEstimationProgress(InstallEstimationProgressSource source, int totalWorkCount, int completedWorkCount, string currentDisplayName)
     {
-        UpdateInstallEstimationProgress(new InstallEstimationProgressSnapshot
-        {
-            IsActive = totalWorkCount > 0,
-            Source = source,
-            TotalWorkCount = Math.Max(totalWorkCount, 0),
-            CompletedWorkCount = Math.Max(0, Math.Min(completedWorkCount, Math.Max(totalWorkCount, 0))),
-            CurrentDisplayName = currentDisplayName ?? string.Empty
-        });
+        packageLifecycleOwner.SetInstallEstimationProgress(source, totalWorkCount, completedWorkCount, currentDisplayName);
     }
 
     private void ClearInstallEstimationProgress()
     {
-        UpdateInstallEstimationProgress(new InstallEstimationProgressSnapshot());
+        packageLifecycleOwner.ClearInstallEstimationProgress();
     }
 
     private static int GetPendingEstimateQueuedBatchCount(PendingInstallEstimateQueueStatusSnapshot snapshot)
@@ -3113,16 +3017,19 @@ public partial class BMSLibrary : NotificationObject
         {
             return;
         }
-        pendingInstallEstimateQueueProcessor.Enqueue(request);
-        PendingInstallEstimateQueueStatusSnapshot snapshot = pendingInstallEstimateQueueProcessor.GetStatusSnapshot();
-        int queuedBatchCount = GetPendingEstimateQueuedBatchCount(snapshot);
-        if (request.Source == PendingInstallEstimateBatchSource.StartupRestore)
+        bool queued = packageLifecycleOwner.TryEnqueuePendingEstimateBatch(request, TrySkipForShutdown);
+        if (queued)
         {
-            LogInstallPerformance("startup_pending_estimate_queue queued batches=" + queuedBatchCount + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount);
-        }
-        else
-        {
-            LogInstallPerformance("pending_estimate_batch queued source=" + ToPendingEstimateBatchSourceLogValue(request.Source) + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " pendingBatches=" + snapshot.PendingBatchCount);
+            PendingInstallEstimateQueueStatusSnapshot snapshot = packageLifecycleOwner.GetPendingEstimateQueueStatusSnapshot();
+            int queuedBatchCount = GetPendingEstimateQueuedBatchCount(snapshot);
+            if (request.Source == PendingInstallEstimateBatchSource.StartupRestore)
+            {
+                LogInstallPerformance("startup_pending_estimate_queue queued batches=" + queuedBatchCount + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount);
+            }
+            else
+            {
+                LogInstallPerformance("pending_estimate_batch queued source=" + ToPendingEstimateBatchSourceLogValue(request.Source) + " packages=" + request.PackageCount + " totalPackages=" + request.TotalPackageCount + " deferredPackages=" + request.DeferredPackageCount + " pendingBatches=" + snapshot.PendingBatchCount);
+            }
         }
     }
 
@@ -3473,7 +3380,7 @@ public partial class BMSLibrary : NotificationObject
             lowConfidenceCount++;
         }
         SetInstallEstimationProgress(ToInstallEstimationProgressSource(batchRequest.Source), batchRequest.PackageCount, completed, currentDisplayName);
-        pendingInstallEstimateQueueProcessor.ReportActiveBatchProgress(completed);
+        packageLifecycleOwner.ReportPendingEstimateBatchProgress(completed);
         LogInstallPerformance("pending_estimate_batch progress source=" + source + " packageDegree=" + packageDegree + " completed=" + completed + "/" + batchRequest.PackageCount + " current=" + currentDisplayName);
     }
 
@@ -3659,15 +3566,7 @@ public partial class BMSLibrary : NotificationObject
 
     private void RunPendingEstimateExclusive(Action action)
     {
-        pendingEstimateExecutionGate.Wait();
-        try
-        {
-            action?.Invoke();
-        }
-        finally
-        {
-            pendingEstimateExecutionGate.Release();
-        }
+        packageLifecycleOwner.RunPendingEstimateExclusive(action);
     }
 
     private BackgroundPendingEstimatePreparationResult PrepareBackgroundPendingEstimatePackagesUnsafe(IEnumerable<ChartPackage> packages, PendingInstallEstimateBatchSource source)
@@ -4480,7 +4379,7 @@ public partial class BMSLibrary : NotificationObject
             {
                 TryImportChartInfoMetadataBundleAtStartup();
             }
-            startupInstallReadinessState.Reset();
+            packageLifecycleOwner.StartupReadiness.Reset();
             using (rwlockBMSFilesInitializedAll.GetWriterGuard())
             {
                 LogInstallPerformance("init_library_lock_acquired rwlockInitAll currentRead=" + rwlockBMSFilesInitializedAll.CurrentReadCount + " lockingRead=" + rwlockBMSFilesInitializedAll.LockingReadCount + " lockingWrite=" + rwlockBMSFilesInitializedAll.LockingWriteCount + " waitingWrite=" + rwlockBMSFilesInitializedAll.WaitingWriteCount);
@@ -4495,7 +4394,7 @@ public partial class BMSLibrary : NotificationObject
                             _initialize(songTblLoad, scoreTblrLoad: true, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, installTblCheck: false, trackLibraryDatabaseProgress: true);
                             if (songTblLoad)
                             {
-                                startupInstallReadinessState.MarkCatalogLoaded();
+                                packageLifecycleOwner.StartupReadiness.MarkCatalogLoaded();
                             }
                             if (songTblFileCheck)
                             {
@@ -4517,7 +4416,7 @@ public partial class BMSLibrary : NotificationObject
                             fileScanReason: isStartup ? "initialize" : "full_reinitialize");
                         if (!isScoreOnly)
                         {
-                            startupInstallReadinessState.MarkDestinationResourceIndexReady();
+                            packageLifecycleOwner.StartupReadiness.MarkDestinationResourceIndexReady();
                         }
                     },
                     delegate
@@ -4525,7 +4424,7 @@ public partial class BMSLibrary : NotificationObject
                         _initialize(songTblLoad: false, scoreTblrLoad: false, songTblFileCheck: false, setMainteInfo: false, updateIrScore: false, flag);
                         if (flag)
                         {
-                            startupInstallReadinessState.MarkPendingPackagesRestored();
+                            packageLifecycleOwner.StartupReadiness.MarkPendingPackagesRestored();
                         }
                     });
                 scheduleDeferredInstallableMaintenance = setMaintenanceInfo;
@@ -4544,7 +4443,7 @@ public partial class BMSLibrary : NotificationObject
         }
         if (flag)
         {
-            if (startupInstallReadinessState.CanStartInstallEstimation())
+            if (packageLifecycleOwner.StartupReadiness.CanStartInstallEstimation())
             {
                 BackgroundPendingEstimatePreparationResult startupEstimatePreparation;
                 using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -4574,7 +4473,7 @@ public partial class BMSLibrary : NotificationObject
             }
             else
             {
-                LogInstallPerformance("startup_install_estimation_blocked reason=" + startupInstallReadinessState.GetInstallEstimationBlockedReason());
+                LogInstallPerformance("startup_install_estimation_blocked reason=" + packageLifecycleOwner.StartupReadiness.GetInstallEstimationBlockedReason());
             }
         }
         DirectoryResourceLookupCache installableLookupCacheSnapshot = null;
@@ -4597,12 +4496,12 @@ public partial class BMSLibrary : NotificationObject
         pendingEstimateQueueBatchCount = GetPendingEstimateQueuedBatchCount(GetPendingEstimateQueueStatusSnapshot());
         long installableElapsedMs = (long)(DateTime.Now - now).TotalMilliseconds;
         bool scheduleDeferredMaintenanceHydration = !isScoreOnly && songTblLoad;
-        if (startupInstallReadinessState.TryMarkInstallEstimationReady())
+        if (packageLifecycleOwner.StartupReadiness.TryMarkInstallEstimationReady())
         {
             LogInstallPerformance("startup_install_estimation_ready elapsedMs=" + installableElapsedMs
                 + " catalogRows=" + catalogRowCount
                 + " bmsonRows=" + bmsonRowCount
-                + " resourceIndexReady=" + startupInstallReadinessState.DestinationResourceIndexReady.ToString().ToLowerInvariant()
+                + " resourceIndexReady=" + packageLifecycleOwner.StartupReadiness.DestinationResourceIndexReady.ToString().ToLowerInvariant()
                 + " resourceIndexDirectories=" + resourceIndexDirectoryCount
                 + " pendingPackages=" + pendingPackageCount
                 + " pendingEstimateQueueBatches=" + pendingEstimateQueueBatchCount
@@ -4610,7 +4509,7 @@ public partial class BMSLibrary : NotificationObject
                 + " lazy_hash_build_ms=" + (installableLookupCacheSnapshot?.LazyHashBuildMs ?? 0L)
                 + " lazy_hash_lookup_count=" + (installableLookupCacheSnapshot?.LazyHashLookupCount ?? 0L));
         }
-        if (startupInstallReadinessState.TryMarkInstallReady())
+        if (packageLifecycleOwner.StartupReadiness.TryMarkInstallReady())
         {
             LogInstallPerformance("startup_install_ready elapsedMs=" + installableElapsedMs
                 + " pendingPackages=" + pendingPackageCount);
@@ -4893,16 +4792,10 @@ public partial class BMSLibrary : NotificationObject
             {
                 using (rwlockBMSFiles.GetReaderGuard())
                 {
-                    ChartPackagesPending.Clear();
-                    ChartPackagesInstalled.Clear();
-                    InstallTableLoadResult installTableLoadResult = initializationService.LoadInstallTable(
+                    InstallTableLoadResult installTableLoadResult = packageLifecycleOwner.ReloadInstallTable(
+                        initializationService,
                         dbGateway,
                         ContainsInstalledChartUnsafe);
-                    if (installTableLoadResult.StaleInstallPaths.Count > 0)
-                    {
-                        dbGateway.DeleteInstallRows(installTableLoadResult.StaleInstallPaths);
-                    }
-                    ChartPackagesPending.AddRange(installTableLoadResult.PendingPackages);
                     installTblCheckMs = installTableLoadResult.TotalMs;
                 }
             }
@@ -13192,7 +13085,7 @@ public partial class BMSLibrary : NotificationObject
         {
             return;
         }
-        stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(chartPathsToRemove: paths));
+        packageLifecycleOwner.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(chartPathsToRemove: paths));
     }
 
     internal void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
@@ -13263,7 +13156,7 @@ public partial class BMSLibrary : NotificationObject
                 timings.PublishNotificationMs = StopPerformanceStepStopwatch(publishNotificationStopwatch);
 
                 Stopwatch residualApplyStopwatch = collectPerformanceLog ? Stopwatch.StartNew() : null;
-                BmsLibraryStateApplyResult residualStateApplyResult = stateApplier.ApplyLibraryMutationDelta(
+                BmsLibraryStateApplyResult residualStateApplyResult = packageLifecycleOwner.ApplyLibraryMutationDelta(
                     delta,
                     catalogReceipt?.RemovedCharts,
                     catalogReceipt?.PathFacts);

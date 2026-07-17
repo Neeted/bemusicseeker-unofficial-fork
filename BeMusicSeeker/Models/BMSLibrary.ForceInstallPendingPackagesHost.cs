@@ -72,12 +72,12 @@ public partial class BMSLibrary : IForceInstallPendingPackagesHost
 
     void IForceInstallPendingPackagesHost.ApplyPendingPackageRemovals(IEnumerable<ChartPackage> packagesToRemove)
     {
-        stateApplier.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: packagesToRemove));
+        packageLifecycleOwner.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(packagesToRemove: packagesToRemove));
     }
 
     void IForceInstallPendingPackagesHost.ReplaceInstalledPackages(IEnumerable<ChartPackage> packages)
     {
-        ChartPackagesInstalled = new DispatcherCollection<ChartPackage>(new ObservableCollection<ChartPackage>(packages), DispatcherHelper.UIDispatcher);
+        packageLifecycleOwner.ReplaceInstalledPackages(packages);
     }
 
     void IForceInstallPendingPackagesHost.LogInfo(string info)
