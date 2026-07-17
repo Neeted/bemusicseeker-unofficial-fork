@@ -655,48 +655,12 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         return false;
     }
 
-    public void ReplaceSongPathWithMaintenance(BMSFile bmsFile, string oldPath)
-    {
-        if (bmsFile == null)
-        {
-            throw new ArgumentNullException(nameof(bmsFile));
-        }
-        if (string.IsNullOrWhiteSpace(oldPath))
-        {
-            throw new ArgumentNullException(nameof(oldPath));
-        }
-        BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
-            ? bmsFile.TryGetMaintenanceInfoWithoutCreating()
-            : null;
-        Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(
-            maintenanceInfo,
-            bmsFile.path,
-            () => ChartFileContentReader.ReadSnapshot(bmsFile.path));
-        if (maintenanceInfo != null)
-        {
-            bmsFile.SetMaintenanceInfo(maintenanceInfo, suppressPropertyChanged: true, origin: MaintenanceInfoOrigin.Calculated);
-        }
-        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
-        {
-            EnsureBmsonSchema(songDb);
-            Lr2SongUserColumns userColumns = ReadSongUserColumns(songDb, oldPath);
-            songDb.Delete<LR2SongDB.song>(oldPath);
-            songDb.Delete<LR2SongDBExtended.maintenance>(oldPath);
-            if (maintenanceInfo != null)
-            {
-                songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
-            }
-            Lr2SongDbWriter.UpsertGeneratedSong(songDb, bmsFile);
-            ApplySongUserColumns(songDb, bmsFile.path, userColumns);
-        });
-    }
-
-    public BmsLibraryStateApplyResult ReplaceLibraryMutationRows(
-        IEnumerable<LibraryFolderPathChange> folderPathChanges,
+    internal CatalogRelocationDbReceipt ReplaceLibraryMutationRows(
+        IEnumerable<CatalogFolderPathReplacement> folderPathChanges,
         IEnumerable<BmsSongPathReplacement> bmsPathReplacements,
         IEnumerable<BmsonSongPathReplacement> bmsonPathReplacements)
     {
-        List<LibraryFolderPathChange> folderRows = [.. (folderPathChanges ?? [])
+        List<CatalogFolderPathReplacement> folderRows = [.. (folderPathChanges ?? [])
             .Where(change => !string.IsNullOrWhiteSpace(change?.OldFolderPath)
                 && !string.IsNullOrWhiteSpace(change.NewFolderPath))
             .GroupBy(change => NormalizeFolderRecordPath(change.OldFolderPath), StringComparer.OrdinalIgnoreCase)
@@ -713,12 +677,12 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 && !string.IsNullOrWhiteSpace(replacement.OldPath))
             .GroupBy(replacement => replacement.OldPath, StringComparer.Ordinal)
             .Select(group => group.Last())];
-        var result = new BmsLibraryStateApplyResult();
+        var result = new CatalogRelocationDbReceipt();
         if (folderRows.Count == 0 && bmsRows.Count == 0 && bmsonRows.Count == 0)
         {
             return result;
         }
-        foreach (LibraryFolderPathChange row in folderRows)
+        foreach (CatalogFolderPathReplacement row in folderRows)
         {
             if (!LongPathFileSystem.DirectoryExists(row.NewFolderPath))
             {
@@ -1652,95 +1616,6 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         });
     }
 
-    public void ReplaceBmsonSongPath(LR2SongDBExtended.bmson_song song, string oldPath)
-    {
-        if (song == null)
-        {
-            throw new ArgumentNullException(nameof(song));
-        }
-        if (string.IsNullOrWhiteSpace(song.path))
-        {
-            throw new ArgumentNullException(nameof(song.path));
-        }
-        if (string.IsNullOrWhiteSpace(oldPath))
-        {
-            throw new ArgumentNullException(nameof(oldPath));
-        }
-        ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
-        {
-            EnsureBmsonSchema(songDb);
-            bool hasMaintenanceTable = TableExists(songDb, SQLiteTable<LR2SongDBExtended.maintenance>.GetTableName());
-            songDb.Delete<LR2SongDBExtended.bmson_song>(oldPath);
-            if (hasMaintenanceTable)
-            {
-                songDb.Delete<LR2SongDBExtended.maintenance>(oldPath);
-            }
-            songDb.InsertOrReplace(song, typeof(LR2SongDBExtended.bmson_song));
-            if (hasMaintenanceTable && song.MaintenanceInfo != null)
-            {
-                song.MaintenanceInfo.NormalizeForBmson(song.path, song.md5);
-                songDb.InsertOrReplace(song.MaintenanceInfo, typeof(LR2SongDBExtended.maintenance));
-            }
-        });
-    }
-
-    public bool ReplaceFolderRecord(string oldFolderPath, string newFolderPath)
-    {
-        if (string.IsNullOrWhiteSpace(oldFolderPath) || string.IsNullOrWhiteSpace(newFolderPath))
-        {
-            throw new ArgumentNullException(string.IsNullOrWhiteSpace(oldFolderPath) ? nameof(oldFolderPath) : nameof(newFolderPath));
-        }
-        if (!LongPathFileSystem.DirectoryExists(newFolderPath))
-        {
-            throw new DirectoryNotFoundException(string.Format(Resources.Error_RenameDestDirNotFound, newFolderPath));
-        }
-        try
-        {
-            bool replaced = false;
-            ExecuteSongDbTransaction(delegate (LR2SongDBExtended songDb)
-            {
-                LR2SongDB.folder folder = songDb.Table<LR2SongDB.folder>()
-                    .ToList()
-                    .FirstOrDefault(item => item.path.Equals(oldFolderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
-                if (folder == null)
-                {
-                    return;
-                }
-                replaced = true;
-                songDb.Delete<LR2SongDB.folder>(folder.path);
-                folder.title = Path.GetFileName(newFolderPath);
-                folder.path = newFolderPath.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-                if (folder.parent != Lr2SongFolderParentNormalizer.RootParentHash)
-                {
-                    string directoryName = Path.GetDirectoryName(newFolderPath.TrimEnd(Path.DirectorySeparatorChar));
-                    folder.parent = Lr2SongFolderParentNormalizer.ComputeDirectoryHash(directoryName);
-                }
-                songDb.InsertOrReplace(folder, typeof(LR2SongDB.folder));
-            });
-            return replaced;
-        }
-        catch (DirectoryNotFoundException)
-        {
-            throw;
-        }
-        catch (FileNotFoundException)
-        {
-            throw;
-        }
-        catch (IOException)
-        {
-            return false;
-        }
-        catch (SecurityException)
-        {
-            return false;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return false;
-        }
-    }
-
     private static string NormalizeFolderRecordPath(string path)
     {
         return path?.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
@@ -1811,7 +1686,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         }
     }
 
-    private static int ReplaceFolderRecords(LR2SongDBExtended songDb, IReadOnlyCollection<LibraryFolderPathChange> rows)
+    private static int ReplaceFolderRecords(LR2SongDBExtended songDb, IReadOnlyCollection<CatalogFolderPathReplacement> rows)
     {
         if (songDb == null || rows == null || rows.Count == 0)
         {
@@ -1819,13 +1694,13 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         }
 
         int replaced = 0;
-        Dictionary<string, LibraryFolderPathChange> changesByOldPath = rows.ToDictionary(
+        Dictionary<string, CatalogFolderPathReplacement> changesByOldPath = rows.ToDictionary(
             change => NormalizeFolderRecordPath(change.OldFolderPath),
             change => change,
             StringComparer.OrdinalIgnoreCase);
         foreach (LR2SongDB.folder folder in songDb.Table<LR2SongDB.folder>().ToList())
         {
-            if (folder == null || !changesByOldPath.TryGetValue(folder.path, out LibraryFolderPathChange change))
+            if (folder == null || !changesByOldPath.TryGetValue(folder.path, out CatalogFolderPathReplacement change))
             {
                 continue;
             }

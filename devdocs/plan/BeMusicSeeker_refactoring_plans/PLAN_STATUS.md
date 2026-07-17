@@ -20,7 +20,7 @@
 - active outcome base commit: `d040b210`
 - last outcome-wide verified commit: `d040b210`
 - active execution package: `LIB-03-GM Generic catalog mutation closure`
-- sequence cursor: `LIB-03-GM-A Catalog relocation corridor`
+- sequence cursor: `LIB-03-GM-B Catalog removal corridor`
 - cursor policy: unit commit は応答境界にせず、同じ commit で現在 cursor だけを次の未完 unit へ進めて実装を継続する
 
 目的:

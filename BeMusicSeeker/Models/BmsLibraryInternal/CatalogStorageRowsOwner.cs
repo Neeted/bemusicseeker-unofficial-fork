@@ -170,6 +170,33 @@ internal sealed class CatalogStorageRowsOwner
         }
     }
 
+    internal StorageRowsVersionSnapshot ApplyRelocationVersion(
+        bool bmsRowsChanged,
+        bool bmsonRowsChanged)
+    {
+        using (writeGate.GetWriterGuard())
+        {
+            lock (versionGate)
+            {
+                int previousBmsRowsVersion = bmsRowsVersion;
+                int previousBmsonRowsVersion = bmsonRowsVersion;
+                if (bmsRowsChanged)
+                {
+                    IncrementBmsRowsVersion();
+                }
+                if (bmsonRowsChanged)
+                {
+                    IncrementBmsonRowsVersion();
+                }
+                return new StorageRowsVersionSnapshot(
+                    previousBmsRowsVersion,
+                    previousBmsonRowsVersion,
+                    bmsRowsVersion,
+                    bmsonRowsVersion);
+            }
+        }
+    }
+
     internal StorageRowsVersionSnapshot CaptureVersionSnapshot()
     {
         lock (versionGate)

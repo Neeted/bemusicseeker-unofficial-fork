@@ -60,7 +60,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UpdatesStorageRowsAndInstalledPackages()
+    public void ApplyCatalogRelocation_UpdatesStorageRowsAndInstalledPackages()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -170,6 +170,9 @@ public sealed class BmsLibraryStateApplierTests
                     NewPath = newDirectoryPath
                 });
 
+                CatalogRelocationReceipt relocationReceipt = ApplyCatalogRelocation(songDbPath, delta, callbacks);
+                Assert.IsTrue(relocationReceipt.Applied);
+                Assert.AreEqual(2, relocationReceipt.PathFacts.Count);
                 applier.ApplyLibraryMutationDelta(delta);
 
                 Assert.AreEqual(newChartPath, movedFile.path);
@@ -205,7 +208,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_BatchPathReplacePreservesUserColumnsMaintenanceDigestAndFolderMetadata()
+    public void ApplyCatalogRelocation_BatchPathReplacePreservesUserColumnsMaintenanceDigestAndFolderMetadata()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -296,10 +299,7 @@ public sealed class BmsLibraryStateApplierTests
                     }, typeof(LR2SongDBExtended.chart_digest_map));
                 }
 
-                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
                 var callbacks = new TrackingCallbacks();
-                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 var delta = new LibraryMutationDelta();
                 delta.FolderPathChanges.Add(new LibraryFolderPathChange
                 {
@@ -325,9 +325,11 @@ public sealed class BmsLibraryStateApplierTests
                     NewPath = newBmsonPath
                 });
 
-                BmsLibraryStateApplyResult result = applier.ApplyLibraryMutationDelta(delta);
+                CatalogRelocationReceipt result = ApplyCatalogRelocation(songDbPath, delta, callbacks);
 
                 Assert.IsTrue(result.BmsPathDbMs >= 0);
+                Assert.IsTrue(result.BmsonPathDbMs >= 0);
+                Assert.AreEqual(3, result.PathFacts.Count);
                 Assert.AreEqual(newFirstPath, firstFile.path);
                 Assert.AreEqual(newSecondPath, secondFile.path);
                 Assert.AreEqual(newBmsonPath, bmsonSong.path);
@@ -371,7 +373,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_WhenBatchDbFails_DoesNotMutateLivePath()
+    public void ApplyCatalogRelocation_WhenBatchDbFails_DoesNotMutateLivePath()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -398,10 +400,7 @@ public sealed class BmsLibraryStateApplierTests
                     songDb.Execute("CREATE TRIGGER fail_song_insert BEFORE INSERT ON song WHEN NEW.path = '" + escapedNewChartPath + "' BEGIN SELECT RAISE(ABORT, 'forced failure'); END;");
                 }
 
-                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
                 var callbacks = new TrackingCallbacks();
-                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 var delta = new LibraryMutationDelta();
                 delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
@@ -410,7 +409,7 @@ public sealed class BmsLibraryStateApplierTests
                     NewPath = newChartPath
                 });
 
-                Assert.ThrowsException<SQLite.SQLiteException>(() => applier.ApplyLibraryMutationDelta(delta));
+                Assert.ThrowsException<SQLite.SQLiteException>(() => ApplyCatalogRelocation(songDbPath, delta, callbacks));
 
                 Assert.AreEqual(oldChartPath, movedFile.path);
                 Assert.AreEqual(1, callbacks.SongDbWriteFailureCount);
@@ -431,7 +430,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_PathReplaceUsesSharedLr2CompatibilityNormalizer()
+    public void ApplyCatalogRelocation_PathReplaceUsesSharedLr2CompatibilityNormalizer()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -466,10 +465,7 @@ public sealed class BmsLibraryStateApplierTests
                     songDb.InsertOrReplace(oldRow, typeof(LR2SongDB.song));
                 }
 
-                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
                 var callbacks = new TrackingCallbacks();
-                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 var delta = new LibraryMutationDelta();
                 delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
@@ -478,7 +474,7 @@ public sealed class BmsLibraryStateApplierTests
                     NewPath = newChartPath
                 });
 
-                applier.ApplyLibraryMutationDelta(delta);
+                ApplyCatalogRelocation(songDbPath, delta, callbacks);
 
                 Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.folder));
                 Assert.IsTrue(string.IsNullOrWhiteSpace(movedFile.parent));
@@ -501,7 +497,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_ReevaluatesLr2CompatibilityFactsWithoutParentTraversal()
+    public void ApplyCatalogRelocation_ReevaluatesLr2CompatibilityFactsWithoutParentTraversal()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -534,10 +530,7 @@ public sealed class BmsLibraryStateApplierTests
                     songDb.InsertOrReplace(oldSongRow, typeof(LR2SongDB.song));
                 }
 
-                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
                 var callbacks = new TrackingCallbacks();
-                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 var delta = new LibraryMutationDelta();
                 delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
@@ -546,7 +539,7 @@ public sealed class BmsLibraryStateApplierTests
                     NewPath = newChartPath
                 });
 
-                applier.ApplyLibraryMutationDelta(delta);
+                ApplyCatalogRelocation(songDbPath, delta, callbacks);
 
                 int flags = movedFile.maintenanceInfo.lr2_warning_flags.GetValueOrDefault();
                 Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
@@ -566,7 +559,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_ReparsesLr2CompatibilityFactsWithParentTraversal()
+    public void ApplyCatalogRelocation_ReparsesLr2CompatibilityFactsWithParentTraversal()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -600,10 +593,7 @@ public sealed class BmsLibraryStateApplierTests
                     songDb.InsertOrReplace(oldSongRow, typeof(LR2SongDB.song));
                 }
 
-                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
-                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([]);
                 var callbacks = new TrackingCallbacks();
-                BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
                 var delta = new LibraryMutationDelta();
                 delta.ChartPathChanges.Add(new LibraryChartPathChange
                 {
@@ -612,7 +602,7 @@ public sealed class BmsLibraryStateApplierTests
                     NewPath = newChartPath
                 });
 
-                applier.ApplyLibraryMutationDelta(delta);
+                ApplyCatalogRelocation(songDbPath, delta, callbacks);
 
                 int flags = movedFile.maintenanceInfo.lr2_warning_flags.GetValueOrDefault();
                 Assert.IsTrue((flags & (int)Lr2CompatibilityWarningFlags.ResourcePathTooLong) != 0);
@@ -1084,6 +1074,24 @@ public sealed class BmsLibraryStateApplierTests
                 callbacks.LastSongDbWriteFailureStage = stage;
                 callbacks.LastSongDbWriteFailure = ex;
             });
+    }
+
+    private static CatalogRelocationReceipt ApplyCatalogRelocation(
+        string songDbPath,
+        LibraryMutationDelta delta,
+        TrackingCallbacks callbacks)
+    {
+        var owner = new CatalogMutationOwner(
+            new CatalogStorageRowsOwner(),
+            new CatalogOwnedCollectionOwner(),
+            new BmsLibraryDbGateway(songDbPath),
+            delegate (string stage, Exception ex)
+            {
+                callbacks.SongDbWriteFailureCount++;
+                callbacks.LastSongDbWriteFailureStage = stage;
+                callbacks.LastSongDbWriteFailure = ex;
+            });
+        return owner.ApplyRelocation(delta);
     }
 
     private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)

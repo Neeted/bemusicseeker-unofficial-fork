@@ -1982,12 +1982,19 @@ public sealed class OwnedChartCollectionStateTests
                 int ownedCollectionVersionChanged = 0;
                 int bmsFilesChanged = 0;
                 int bmsonSongsChanged = 0;
+                bool bmsonPathAvailableAtNotification = false;
                 string? firstChange = null;
                 int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
                 int parentFolderVersionChanged = 0;
                 library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
-                    firstChange ??= args.PropertyName;
+                    if (args.PropertyName == "OwnedChartCollectionVersion"
+                        || args.PropertyName == "BMSFiles"
+                        || args.PropertyName == nameof(BMSLibrary.BmsonSongs)
+                        || args.PropertyName == "BMSParentFolderListCacheVersion")
+                    {
+                        firstChange ??= args.PropertyName;
+                    }
                     if (args.PropertyName == "OwnedChartCollectionVersion")
                     {
                         ownedCollectionVersionChanged++;
@@ -1999,6 +2006,10 @@ public sealed class OwnedChartCollectionStateTests
                     if (args.PropertyName == nameof(BMSLibrary.BmsonSongs))
                     {
                         bmsonSongsChanged++;
+                    }
+                    if (args.PropertyName == "OwnedChartCollectionVersion")
+                    {
+                        bmsonPathAvailableAtNotification = library.BmsonSongs.Any(song => song.path == newBmsonPath);
                     }
                     if (args.PropertyName == "BMSParentFolderListCacheVersion")
                     {
@@ -2035,6 +2046,7 @@ public sealed class OwnedChartCollectionStateTests
                 Assert.IsTrue(batch.NotifiesBmsFiles);
                 Assert.IsTrue(batch.NotifiesBmsonSongs);
                 Assert.AreEqual("OwnedChartCollectionVersion", firstChange);
+                Assert.IsTrue(bmsonPathAvailableAtNotification);
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
                 Assert.IsNull(library.DuplicateChartGroups);
@@ -2073,10 +2085,16 @@ public sealed class OwnedChartCollectionStateTests
                 };
                 EnsureCurrentResourceHealthIndex(library);
                 Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+                int baselineOwnedCollectionVersion = library.OwnedChartCollectionVersion;
+                int ownedCollectionVersionChanged = 0;
                 int baselineParentFolderVersion = library.BMSParentFolderListCacheVersion;
                 int parentFolderVersionChanged = 0;
                 library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
                 {
+                    if (args.PropertyName == "OwnedChartCollectionVersion")
+                    {
+                        ownedCollectionVersionChanged++;
+                    }
                     if (args.PropertyName == "BMSParentFolderListCacheVersion")
                     {
                         parentFolderVersionChanged++;
@@ -2098,6 +2116,8 @@ public sealed class OwnedChartCollectionStateTests
                     InvokeApplyLibraryMutationDelta(library, delta));
 
                 Assert.IsNotNull(exception);
+                Assert.AreEqual(baselineOwnedCollectionVersion, library.OwnedChartCollectionVersion);
+                Assert.AreEqual(0, ownedCollectionVersionChanged);
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
                 Assert.IsNull(library.DuplicateChartGroups);

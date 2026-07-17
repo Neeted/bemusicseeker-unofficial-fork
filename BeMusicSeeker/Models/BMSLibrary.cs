@@ -2854,7 +2854,8 @@ public partial class BMSLibrary : NotificationObject
         catalogMutationOwner = new(
             catalogStorageRowsOwner,
             catalogOwnedCollectionOwner,
-            dbGateway);
+            dbGateway,
+            MarkLr2SongDbSyncIncompleteAfterStateApplierSongDbWriteFailure);
         catalogChartInfoOwner.ConfigureWorkflow(
             dbGateway,
             catalogMutationOwner,
@@ -13594,6 +13595,8 @@ public partial class BMSLibrary : NotificationObject
     {
         private OwnedChartCollectionMutationResult mutationResult;
 
+        private StorageRowsVersionSnapshot storageRowsVersion;
+
         public void ThrowIfLr2SongDbSyncMutationBlocked(string operationName)
         {
             owner.ThrowIfLr2SongDbSyncMutationBlocked(operationName);
@@ -13629,12 +13632,32 @@ public partial class BMSLibrary : NotificationObject
             CatalogStorageRowsRemovalRequest request = owner.catalogMutationOwner.CreateStorageRowsRemovalRequest(
                 mutationResult.StorageMutation.RemoveRequests);
             CatalogStorageRowsRemovalReceipt receipt = owner.catalogMutationOwner.ApplyStorageRowsRemoval(request);
+            storageRowsVersion = receipt.StorageRowsVersion;
             return receipt.StorageRowsVersion;
         }
 
         public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta)
         {
-            return owner.stateApplier.ApplyLibraryMutationDelta(delta, mutationResult.StorageMutation.RemoveRequests);
+            CatalogRelocationReceipt relocationReceipt = owner.catalogMutationOwner.ApplyRelocation(delta);
+            BmsLibraryStateApplyResult stateApplyResult = owner.stateApplier.ApplyLibraryMutationDelta(
+                delta,
+                mutationResult.StorageMutation.RemoveRequests);
+            StorageRowsVersionSnapshot currentStorageRowsVersion = relocationReceipt.Applied
+                ? relocationReceipt.StorageRowsVersion
+                : owner.catalogStorageRowsOwner.CaptureVersionSnapshot();
+            stateApplyResult.StorageRowsVersion = new StorageRowsVersionSnapshot(
+                storageRowsVersion.PreviousBmsRowsVersion,
+                storageRowsVersion.PreviousBmsonRowsVersion,
+                currentStorageRowsVersion.BmsRowsVersion,
+                currentStorageRowsVersion.BmsonRowsVersion);
+            if (relocationReceipt.Applied)
+            {
+                stateApplyResult.FolderDbMs = relocationReceipt.FolderDbMs;
+                stateApplyResult.PathMemoryApplyMs = relocationReceipt.LiveApplyMs;
+                stateApplyResult.BmsPathDbMs = relocationReceipt.BmsPathDbMs;
+                stateApplyResult.BmsonPathDbMs = relocationReceipt.BmsonPathDbMs;
+            }
+            return stateApplyResult;
         }
 
         public void ApplyCatalogOwnedCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
@@ -13687,7 +13710,6 @@ public partial class BMSLibrary : NotificationObject
             if (mutationResult?.OwnedCollectionChanged == true)
             {
                 owner.InvalidatePlaylistLibraryResolveIndexSnapshot();
-                owner.PublishOwnedCollectionChangeNotification(mutationResult);
             }
             if (mutationResult?.ResourceHealthMutation.HasChanges == true)
             {

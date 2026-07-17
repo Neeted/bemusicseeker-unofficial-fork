@@ -14,6 +14,138 @@ namespace BeMusicSeeker.Tests;
 public sealed class CatalogMutationOwnerTests
 {
     [TestMethod]
+    public void CreateRelocationRequest_SnapshotsPreparedPathFacts()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogRelocationRequest_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string oldPath = Path.Combine(tempRootPath, "old.bms");
+        string newPath = Path.Combine(tempRootPath, "new.bms");
+        string laterPath = Path.Combine(tempRootPath, "later.bms");
+        File.WriteAllText(newPath, "#PLAYER 1");
+        File.WriteAllText(laterPath, "#PLAYER 1");
+        try
+        {
+            var movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            movedBms.path = oldPath;
+            var delta = new LibraryMutationDelta();
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
+                OldPath = oldPath,
+                NewPath = newPath
+            });
+
+            var owner = new CatalogMutationOwner(new CatalogStorageRowsOwner(), new CatalogOwnedCollectionOwner());
+            CatalogRelocationRequest request = owner.CreateRelocationRequest(delta);
+
+            delta.ChartPathChanges[0].NewPath = laterPath;
+            movedBms.path = laterPath;
+
+            Assert.AreEqual(1, request.BmsPathReplacements.Count);
+            Assert.AreEqual(oldPath, request.BmsPathReplacements[0].OldPath);
+            Assert.AreEqual(newPath, request.BmsPathReplacements[0].Song.path);
+            Assert.AreSame(movedBms, request.BmsPathReplacements[0].LiveOwner);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyRelocation_CombinedBmsBmsonAndFolderEmitsDurableReceipt()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogRelocation_" + Guid.NewGuid().ToString("N"));
+        string oldDirectoryPath = Path.Combine(tempRootPath, "Old");
+        string newDirectoryPath = Path.Combine(tempRootPath, "New");
+        Directory.CreateDirectory(oldDirectoryPath);
+        Directory.CreateDirectory(newDirectoryPath);
+        string oldBmsPath = Path.Combine(oldDirectoryPath, "chart.bms");
+        string newBmsPath = Path.Combine(newDirectoryPath, "chart.bms");
+        string oldBmsonPath = Path.Combine(oldDirectoryPath, "chart.bmson");
+        string newBmsonPath = Path.Combine(newDirectoryPath, "chart.bmson");
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllText(newBmsPath, "#PLAYER 1");
+        File.WriteAllText(newBmsonPath, "{}");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            var bms = CreateBms(Path.GetFileName(oldBmsPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            bms.path = oldBmsPath;
+            var bmson = CreateBmson(Path.GetFileName(oldBmsonPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            bmson.path = oldBmsonPath;
+            bmson.folder = oldDirectoryPath;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                songDb.InsertOrReplace(bms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new LR2SongDB.folder
+                {
+                    path = oldDirectoryPath + Path.DirectorySeparatorChar,
+                    title = "Old",
+                    parent = "stale-parent"
+                }, typeof(LR2SongDB.folder));
+                songDb.InsertOrReplace(bmson, typeof(LR2SongDBExtended.bmson_song));
+            }
+
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            var owner = new CatalogMutationOwner(
+                storageRowsOwner,
+                new CatalogOwnedCollectionOwner(),
+                new BmsLibraryDbGateway(songDbPath));
+            var delta = new LibraryMutationDelta();
+            delta.FolderPathChanges.Add(new LibraryFolderPathChange
+            {
+                OldFolderPath = oldDirectoryPath,
+                NewFolderPath = newDirectoryPath
+            });
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(bms),
+                OldPath = oldBmsPath,
+                NewPath = newBmsPath
+            });
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsonStorageOwnerIdentity(bmson),
+                OldPath = oldBmsonPath,
+                NewPath = newBmsonPath
+            });
+
+            CatalogRelocationReceipt receipt = owner.ApplyRelocation(delta);
+
+            Assert.IsTrue(receipt.Applied);
+            Assert.AreEqual(2, receipt.PathFacts.Count);
+            Assert.AreEqual(0, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
+            Assert.AreEqual(1, receipt.StorageRowsVersion.BmsRowsVersion);
+            Assert.AreEqual(0, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
+            Assert.AreEqual(1, receipt.StorageRowsVersion.BmsonRowsVersion);
+            Assert.AreEqual(newBmsPath, bms.path);
+            Assert.AreEqual(newBmsonPath, bmson.path);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            verifySongDb.CreateTable<LR2SongDB.song>();
+            verifySongDb.CreateTable<LR2SongDB.folder>();
+            verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
+            Assert.IsTrue(verifySongDb.Table<BMSFile>().Any(row => row.path == newBmsPath));
+            Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(row => row.path == newBmsonPath));
+            Assert.IsTrue(verifySongDb.Table<LR2SongDB.folder>().Any(row => row.path == newDirectoryPath + Path.DirectorySeparatorChar));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void Apply_EmitsCanonicalReceiptForBmsAndBmsonReplacement()
     {
         var oldBms = CreateBms("old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");

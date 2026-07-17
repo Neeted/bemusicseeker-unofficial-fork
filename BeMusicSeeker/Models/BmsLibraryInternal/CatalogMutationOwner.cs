@@ -1,7 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
@@ -18,6 +21,8 @@ internal sealed class CatalogMutationOwner
 
     private readonly BmsLibraryDbGateway dbGateway;
 
+    private readonly Action<string, Exception> notifyLr2SongDbWriteFailure;
+
     private readonly ReaderWriterLockSlimWrapper maintenanceWriteGate = new();
 
     internal CatalogMutationOwner(
@@ -31,10 +36,20 @@ internal sealed class CatalogMutationOwner
         CatalogStorageRowsOwner storageRowsOwner,
         CatalogOwnedCollectionOwner ownedCollectionOwner,
         BmsLibraryDbGateway dbGateway)
+        : this(storageRowsOwner, ownedCollectionOwner, dbGateway, null)
+    {
+    }
+
+    internal CatalogMutationOwner(
+        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner ownedCollectionOwner,
+        BmsLibraryDbGateway dbGateway,
+        Action<string, Exception> notifyLr2SongDbWriteFailure)
     {
         this.storageRowsOwner = storageRowsOwner ?? throw new ArgumentNullException(nameof(storageRowsOwner));
         this.ownedCollectionOwner = ownedCollectionOwner ?? throw new ArgumentNullException(nameof(ownedCollectionOwner));
         this.dbGateway = dbGateway;
+        this.notifyLr2SongDbWriteFailure = notifyLr2SongDbWriteFailure;
     }
 
     /// <summary>
@@ -232,6 +247,283 @@ internal sealed class CatalogMutationOwner
     internal IDisposable EnterStorageRowsWriteGuard()
     {
         return storageRowsOwner.WriteGate.GetWriterGuard();
+    }
+
+    /// <summary>
+    /// Captures and validates the relocation facts before the durable catalog transaction.
+    /// </summary>
+    internal CatalogRelocationRequest CreateRelocationRequest(LibraryMutationDelta delta)
+    {
+        if (delta == null)
+        {
+            return new CatalogRelocationRequest([], [], []);
+        }
+
+        var folderChanges = new List<CatalogFolderPathReplacement>();
+        foreach (LibraryFolderPathChange change in delta.FolderPathChanges ?? [])
+        {
+            if (change == null
+                || string.IsNullOrWhiteSpace(change.OldFolderPath)
+                || string.IsNullOrWhiteSpace(change.NewFolderPath))
+            {
+                continue;
+            }
+            folderChanges.Add(new CatalogFolderPathReplacement(change.OldFolderPath, change.NewFolderPath));
+        }
+
+        var bmsChanges = new List<BmsSongPathReplacement>();
+        var bmsonChanges = new List<BmsonSongPathReplacement>();
+        var folderParentHashCache = new Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache();
+        foreach (LibraryChartPathChange change in delta.ChartPathChanges ?? [])
+        {
+            BMSFile bmsFile = change?.GetBmsStorageOwner();
+            if (bmsFile != null)
+            {
+                bmsChanges.Add(CreateBmsSongPathReplacement(
+                    bmsFile,
+                    change.NewPath,
+                    change.OldPath,
+                    folderParentHashCache));
+                continue;
+            }
+
+            LR2SongDBExtended.bmson_song bmsonSong = change?.GetBmsonStorageOwner();
+            if (bmsonSong != null)
+            {
+                bmsonChanges.Add(CreateBmsonSongPathReplacement(
+                    bmsonSong,
+                    change.NewPath,
+                    change.OldPath));
+            }
+        }
+
+        return new CatalogRelocationRequest(
+            folderChanges,
+            bmsChanges,
+            bmsonChanges);
+    }
+
+    /// <summary>
+    /// Prepares, commits, and applies one catalog relocation corridor under the canonical guards.
+    /// Consumer projections are composed after this method returns.
+    /// </summary>
+    internal CatalogRelocationReceipt ApplyRelocation(LibraryMutationDelta delta)
+    {
+        if (delta == null)
+        {
+            return CatalogRelocationReceipt.NotApplied;
+        }
+        if (dbGateway == null)
+        {
+            throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        }
+
+        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        using (maintenanceWriteGate.GetWriterGuard())
+        {
+            return ApplyRelocationUnderGuards(CreateRelocationRequest(delta));
+        }
+    }
+
+    private CatalogRelocationReceipt ApplyRelocationUnderGuards(CatalogRelocationRequest request)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogRelocationReceipt.NotApplied;
+        }
+
+        CatalogRelocationDbReceipt dbResult;
+        try
+        {
+            dbResult = dbGateway.ReplaceLibraryMutationRows(
+                request.FolderPathChanges,
+                request.BmsPathReplacements,
+                request.BmsonPathReplacements);
+        }
+        catch (Exception ex)
+        {
+            notifyLr2SongDbWriteFailure?.Invoke(
+                "lr2_song_db_library_mutation_path_replace_failed",
+                ex);
+            throw;
+        }
+
+        Stopwatch liveApplyStopwatch = Stopwatch.StartNew();
+        foreach (BmsSongPathReplacement replacement in request.BmsPathReplacements)
+        {
+            ApplyBmsFilePathInMemory(replacement);
+        }
+        foreach (BmsonSongPathReplacement replacement in request.BmsonPathReplacements)
+        {
+            ApplyBmsonSongPathInMemory(replacement);
+        }
+        liveApplyStopwatch.Stop();
+        StorageRowsVersionSnapshot storageRowsVersion = storageRowsOwner.ApplyRelocationVersion(
+            request.BmsPathReplacements.Count > 0,
+            request.BmsonPathReplacements.Count > 0);
+
+        return new CatalogRelocationReceipt(
+            applied: true,
+            storageRowsVersion,
+            dbResult.FolderDbMs,
+            dbResult.BmsPathDbMs,
+            dbResult.BmsonPathDbMs,
+            liveApplyStopwatch.ElapsedMilliseconds,
+            [
+                .. request.BmsPathReplacements.Select(replacement => new CatalogRelocationPathFact(
+                    ChartFileKind.Bms,
+                    replacement.OldPath,
+                    replacement.Song.path)),
+                .. request.BmsonPathReplacements.Select(replacement => new CatalogRelocationPathFact(
+                    ChartFileKind.Bmson,
+                    replacement.OldPath,
+                    replacement.Song.path))
+            ]);
+    }
+
+    private static BmsSongPathReplacement CreateBmsSongPathReplacement(
+        BMSFile bmsFile,
+        string newPath,
+        string oldPath,
+        Lr2SongFolderParentNormalizer.Lr2FolderParentHashCache folderParentHashCache)
+    {
+        ValidateBmsFilePathChange(bmsFile, newPath, oldPath);
+        BMSFile copy = bmsFile.CreateSongRowPersistenceCopy();
+        copy.path = newPath;
+        copy.SetTextGroupFlag(Lr2TextGroupResolver.ResolveFlag(newPath, bmsFile.txt.GetValueOrDefault()));
+        copy.folder = null;
+        copy.parent = null;
+        Lr2SongRowEnricher.EnrichGeneratedSong(copy, folderParentHashCache);
+        BMSFileMaintenanceInfo maintenanceInfo = bmsFile.HasValidMaintenanceInfoSnapshot
+            ? bmsFile.TryGetMaintenanceInfoWithoutCreating()?.CreatePersistenceCopy(newPath, bmsFile.hash)
+            : null;
+        RefreshRelocatedBmsMaintenanceInfo(maintenanceInfo, newPath);
+        return new BmsSongPathReplacement(
+            copy,
+            bmsFile,
+            string.IsNullOrWhiteSpace(oldPath) ? bmsFile.path : oldPath,
+            maintenanceInfo);
+    }
+
+    private static BmsonSongPathReplacement CreateBmsonSongPathReplacement(
+        LR2SongDBExtended.bmson_song bmsonSong,
+        string newPath,
+        string oldPath)
+    {
+        ValidateBmsonSongPathChange(bmsonSong, newPath, oldPath);
+        LR2SongDBExtended.bmson_song copy = CreateBmsonSongPersistenceCopy(bmsonSong);
+        copy.path = newPath;
+        copy.folder = Path.GetDirectoryName(newPath) ?? string.Empty;
+        copy.MaintenanceInfo = bmsonSong.MaintenanceInfo?.CreatePersistenceCopy();
+        copy.MaintenanceInfo?.NormalizeForBmson(copy.path, copy.md5);
+        return new BmsonSongPathReplacement(
+            copy,
+            bmsonSong,
+            string.IsNullOrWhiteSpace(oldPath) ? bmsonSong.path : oldPath);
+    }
+
+    private static void ApplyBmsFilePathInMemory(BmsSongPathReplacement replacement)
+    {
+        BMSFile bmsFile = replacement.LiveOwner;
+        bmsFile.path = replacement.Song.path;
+        bmsFile.SetTextGroupFlag(replacement.Song.txt.GetValueOrDefault());
+        bmsFile.folder = replacement.Song.folder;
+        bmsFile.parent = replacement.Song.parent;
+        Lr2SongRowEnricher.EnrichGeneratedSong(bmsFile);
+        if (replacement.MaintenanceInfo != null)
+        {
+            bmsFile.SetMaintenanceInfo(
+                replacement.MaintenanceInfo.CreatePersistenceCopy(bmsFile.path, bmsFile.hash),
+                suppressPropertyChanged: true,
+                origin: MaintenanceInfoOrigin.Calculated);
+        }
+    }
+
+    private static void ApplyBmsonSongPathInMemory(BmsonSongPathReplacement replacement)
+    {
+        LR2SongDBExtended.bmson_song bmsonSong = replacement.LiveOwner;
+        bmsonSong.path = replacement.Song.path;
+        bmsonSong.folder = replacement.Song.folder;
+        bmsonSong.MaintenanceInfo = replacement.Song.MaintenanceInfo?.CreatePersistenceCopy();
+        bmsonSong.MaintenanceInfo?.NormalizeForBmson(bmsonSong.path, bmsonSong.md5);
+    }
+
+    private static void RefreshRelocatedBmsMaintenanceInfo(BMSFileMaintenanceInfo maintenanceInfo, string newPath)
+    {
+        Lr2CompatibilityEvaluator.RefreshRelocatedMaintenanceFacts(
+            maintenanceInfo,
+            newPath,
+            () => ChartFileContentReader.ReadSnapshot(newPath));
+    }
+
+    private static void ValidateBmsFilePathChange(BMSFile bmsFile, string newPath, string oldPath)
+    {
+        if (bmsFile == null)
+        {
+            throw new ArgumentNullException(nameof(bmsFile));
+        }
+        if (newPath == null)
+        {
+            throw new ArgumentNullException(nameof(newPath));
+        }
+        if (!File.Exists(newPath))
+        {
+            throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
+        }
+        if (!string.IsNullOrWhiteSpace(oldPath)
+            && !string.Equals(bmsFile.path, oldPath, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(bmsFile.path, newPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidCastException(Resources.Error_OldPathMismatch);
+        }
+    }
+
+    private static void ValidateBmsonSongPathChange(
+        LR2SongDBExtended.bmson_song bmsonSong,
+        string newPath,
+        string oldPath)
+    {
+        if (bmsonSong == null)
+        {
+            throw new ArgumentNullException(nameof(bmsonSong));
+        }
+        if (newPath == null)
+        {
+            throw new ArgumentNullException(nameof(newPath));
+        }
+        if (!File.Exists(newPath))
+        {
+            throw new FileNotFoundException(Resources.Error_RenameDestFileNotFound, newPath);
+        }
+        if (!string.IsNullOrWhiteSpace(oldPath)
+            && !string.Equals(bmsonSong.path, oldPath, StringComparison.OrdinalIgnoreCase)
+            && !string.Equals(bmsonSong.path, newPath, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidCastException(Resources.Error_OldPathMismatch);
+        }
+    }
+
+    private static LR2SongDBExtended.bmson_song CreateBmsonSongPersistenceCopy(
+        LR2SongDBExtended.bmson_song source)
+    {
+        return new LR2SongDBExtended.bmson_song
+        {
+            path = source.path,
+            folder = source.folder,
+            title = source.title,
+            subtitle = source.subtitle,
+            artist = source.artist,
+            genre = source.genre,
+            level = source.level,
+            mode_hint = source.mode_hint,
+            md5 = source.md5,
+            sha256 = source.sha256,
+            banner = source.banner,
+            backbmp = source.backbmp,
+            stagefile = source.stagefile,
+            preview_music = source.preview_music,
+            updated_at = source.updated_at
+        };
     }
 
     internal CatalogStorageRowsReplacementRequest CreateStorageRowsReplacementRequest(

@@ -54,9 +54,6 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
                     resourceHealthMutation.BaseIndexCurrent);
                 timings.BuildMutationMs = StopPerformanceStepStopwatch(buildMutationStopwatch);
 
-                Stopwatch publishNotificationStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                host.PublishOwnedCollectionChangeNotification();
-                timings.PublishNotificationMs = StopPerformanceStepStopwatch(publishNotificationStopwatch);
                 using (host.SuppressResourceHealthIndexInvalidationIfNeeded())
                 {
                     Stopwatch unregisterStorageRowsStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
@@ -73,9 +70,13 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
                     timings.StatePackageApplyMs = stateApplyResult?.PackageApplyMs ?? 0;
 
                     Stopwatch ownedCollectionApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    host.ApplyCatalogOwnedCollectionMutation(storageRowsVersion);
+                    host.ApplyCatalogOwnedCollectionMutation(
+                        stateApplyResult?.StorageRowsVersion ?? storageRowsVersion);
                     timings.OwnedCollectionApplyMs = StopPerformanceStepStopwatch(ownedCollectionApplyStopwatch);
                 }
+                Stopwatch publishNotificationStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
+                host.PublishOwnedCollectionChangeNotification();
+                timings.PublishNotificationMs = StopPerformanceStepStopwatch(publishNotificationStopwatch);
             }
             finally
             {
