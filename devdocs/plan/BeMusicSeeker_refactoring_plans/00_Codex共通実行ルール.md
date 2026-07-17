@@ -72,6 +72,8 @@ future outcome の class / interface / method 配置を先に詳細設計しな�
 
 internal owner dependency は `blocked` の理由にしない。既存 bridge を凍結し、ユーザー承認が必要な backlog 再編を行ったうえで prerequisite outcome を進める。難しさを隠すための host、adapter、factory、test seam を追加して active outcome を継続しない。
 
+planner が `NO_SAFE_UNIT` を返した理由が外部阻害ではなく、active outcome 内の ownership boundary、handoff direction、旧 route の retirement scope が不十分なことである場合は、production code を変更せず再計画する。ユーザー承認後、active outcome の state、base commit、last outcome-wide verified commit を維持したまま、総合計画と acceptance criteria に complete vertical unit の依存順と削除境界を反映し、検証と fresh read-only review 後に docs-only replan commit を作ってよい。これは progress log や completion commit の例外ではなく、再計画 commit 後は planner に exactly one unit を改めて選ばせる。
+
 ## Audit-only branch
 
 plan rebaseline audit と `GATE-01` は implementation unit ではないため、開始時に `unit-planner` を呼ばない。

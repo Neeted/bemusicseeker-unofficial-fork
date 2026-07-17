@@ -2,7 +2,7 @@
 
 [リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md) / [Codex 共通実行ルール](./00_Codex共通実行ルール.md)
 
-最終更新日: 2026-07-16
+最終更新日: 2026-07-17
 
 ## Baseline
 
@@ -22,14 +22,18 @@
 
 目的:
 
-session BMS / bmson catalog rows、owned chart collection、catalog 固有の index / digest / version と、runtime catalog mutation の canonical writer、write serialization、hydration、post-scan maintenance / resource-health を bounded owner family に集約する。scan、package、file operation、LR2 は catalog state を直接変更せず、immutable な request / snapshot / receipt / lease / event facts で接続する。
+session BMS / bmson catalog rows、owned chart collection、catalog 固有の index / digest / version と、runtime catalog mutation の canonical writer、write serialization、maintenance-table hydration、chart-info hydration / backfill、post-scan maintenance / resource-health を bounded owner family に集約する。scan、package、file operation、LR2 は catalog state を直接変更せず、immutable な request / snapshot / receipt / lease / event facts で接続する。
 
 Acceptance criteria:
 
-- catalog rows、owned collection、digest / owned-hash、parent-folder / duplicate / resource / directory index、version、mutation ordering / failure atomicity、hydration、maintenance / resource-health の state と behavior に新 owner がある。
-- canonical writer と write serialization は一つの production owner 境界にあり、scan の通常 mutation route がその writer を使う。package、file operation、LR2 は catalog state の直接書き込みを行わず、catalog mutation request / receipt / lease を使う。
+- catalog rows、owned collection、digest / owned-hash、parent-folder / duplicate / resource / directory / chart-info index、version、mutation ordering / failure atomicity、maintenance-table hydration、chart-info hydration / backfill、catalog-owned maintenance / resource-health の state と behavior に新 owner がある。
+- non-scan runtime catalog writer と write serialization は一つの production owner 境界にあり、scan の通常 route は durable commit 後の immutable committed-row / maintenance facts をその owner に渡す。package、file operation、LR2 は catalog state の直接書き込みを行わず、catalog mutation request / receipt / lease を使う。
 - immutable な catalog snapshot、catalog mutation request / receipt、catalog-changed notification は consumer 固有の install-destination、LR2 freshness、playlist cache / status を含めず、各 consumer owner が自分の state を更新できる事実だけを持つ。
 - production の旧 writer、旧 storage / mutation / maintenance host、不要な forwarding / callback path を、担当する vertical unit で削除する。baseline residual bridge は `b6f2ef7e` から追加・拡張せず、`LIB-03` が担当する category を減らす場合だけ一時的に残す。
+- resource-health の index snapshot、input / index version、invalidation / suppression、full / delta / defer / failure behavior と全 production route を一つの owner 境界へ移し、`BMSLibrary` の resource-health private state と full-rebuild / mutation-dispatch / input-mutation host を削除する。
+- catalog-owned maintenance / maintenance-table hydration の queue state、load、attach、stale-row detection、maintenance evaluation / durable write request、resource-health request、progress / failure を一つの owner family へ移し、hydration queue state / lock、apply / dispatch host と package-install / fix-install / pending estimated-install の facade maintenance forwarding を削除する。catalog mutation owner を non-scan runtime song / bmson / maintenance-table durable write / delete の command owner とし、maintenance owner は DB gateway を直接書かない。`LIB-01` の scan durable commit は immutable facts を返す別境界として維持する。installable maintenance の queue / mode / package target / progress は `LIB-02` に残すが、maintenance request は immutable snapshot で同じ maintenance owner へ渡す。
+- chart-info hydration / backfill の queue / currentness / progress state、DB load / materialize / attach、candidate / parse / digest / chunk-write workflow と、startup metadata import / file-scan / LR2 committed-row / package inline-build / parse-failure delete の全 writer route を catalog owner family へ移し、`BMSLibrary` の queue / lock / private writer workflow、direct DB writer route、broad inline-build host を削除する。LR2 completion / trust は `LIB-04` まで immutable input の residual bridge とする。
+- generic mutation production route は catalog mutation owner の bounded mutation lease / receipt と resource-health owner を直接使い、旧 state applier の catalog row / path / folder / maintenance 直接 writer と mutation-delta broad host を削除する。既存の apply ordering / atomicity を維持し、package state apply と LR2 mutation block / normal-folder sync の baseline bridge は `LIB-02` / `LIB-04` まで composition に残してよいが、新しい catalog callback host へ移し替えない。
 - behavior test で mutation ordering、version / receipt、failure atomicity、hydration、maintenance / resource-health の observable behavior を検証し、private class / method 配置を test contract にしない。
 - DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約を維持する。
 - outcome-wide Full verification、変更範囲に対応する startup / catalog mutation / progress / failure の UI smoke check、重大な指摘なしの outcome review が完了する。
@@ -37,7 +41,7 @@ Acceptance criteria:
 Non-goals:
 
 - package / install-destination / library file-operation ownership（LIB-02）。
-- LR2 request / run / status、LR2 run reservation、scan-surface、trust / freshness、folder sync ownership（LIB-04）。
+- LR2 request / run / status、LR2 run reservation、scan-surface、trust / freshness、folder sync、LR2-specific mutation-block ownership（LIB-04）。
 - playlist-reference maps / index / display ownership（LIB-05）。
 - residual scan host、nested host / factory、facade private workflow の最終削除（LIB-06）。
 - playlist persistence / external-sync / output、shell closure（PL-01、PL-02、UI-05）。
@@ -77,15 +81,15 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Gate area | State | Current evidence |
 |---|---|---|
 | UI ownership | not met | UI-01 の main table / regular owner、UI-02 の playback owner、UI-03 の playlist workspace owner、UI-04 の play-history owner は completed。設定画面と残る code-behind workflow は UI-05 の対象。settings の composition / adapter 境界は APP-01 で扱う |
-| Library ownership | not met | scan core の production route は pipeline owner へ移行済み。catalog mutation / maintenance、package、LR2、playlist reference の production owner と、facade private state / host bridge の削除は LIB-03、LIB-02、LIB-04〜LIB-06 の対象 |
+| Library ownership | not met | scan core の production route と catalog rows / digest / owned collection の一部 route は owner へ移行済み。resource-health、catalog-owned maintenance / maintenance-table hydration、chart-info hydration / backfill、generic mutation broad host、package、LR2、playlist reference と残る facade private state / bridge の削除は LIB-03、LIB-02、LIB-04〜LIB-06 の対象 |
 | Playlist ownership | not met | persistence / sync / output が同居する。playlist-reference lifecycle は LR2 から分離して LIB-05 で扱う |
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
-| Migration readiness | not met | library owner 境界と依存順は定義済みだが、canonical catalog writer / mutation serialization と各 consumer owner への移管は未実装 |
+| Migration readiness | not met | library owner 境界と依存順は定義済みで、catalog writer への移管は進行中。resource-health / maintenance / chart-info owner、generic mutation broad host retirement と各 consumer owner への移管は未完了 |
 | Quality | in progress | code baseline と UI-04 outcome-wide Full verification / review / UI smoke、LIB-01 の再編後 criteria に対する outcome-wide Full verification / review / UI smoke は完了。LIB-03 は outcome-wide 検証待ち |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 
 ## Active outcome blockers
 
-なし。次の作業は `LIB-03` の canonical catalog writer / mutation serialization を成立させる vertical unit であり、未成立の downstream owner を埋める adapter 実装ではない。
+なし。
