@@ -159,6 +159,23 @@ internal sealed class CatalogOwnedCollectionOwner
         }
     }
 
+    internal void ValidateStorageRowUpsert(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        lock (gate)
+        {
+            if (initialized)
+            {
+                collection.ValidateStorageRows(bmsFiles, bmsonSongs);
+            }
+            else
+            {
+                OwnedChartCollectionState.ValidateStorageRowsWithoutExistingCollection(bmsFiles, bmsonSongs);
+            }
+        }
+    }
+
     internal bool ApplyDigestChanges(IReadOnlyList<LibraryChartDigestChange> digestChanges)
     {
         if (digestChanges?.Count == 0)

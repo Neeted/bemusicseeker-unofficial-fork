@@ -49,21 +49,6 @@ public partial class BMSLibrary : IPackageInstallHost
         return MoveChartPackageFiles(package, destinationDirectory, true, deleteAllContents, hashSnapshot, excludedComponentPaths);
     }
 
-    void IPackageInstallHost.UpsertInstalledChartRows(ChartStorageTargetSet addedTargets)
-    {
-        if (addedTargets.BmsFiles.Count > 0)
-        {
-            ExecuteLr2SongDbWrite(
-                () => dbGateway.UpsertSongs(addedTargets.BmsFiles),
-                stage: "lr2_song_db_install_upsert_failed",
-                logReason: "install_package");
-        }
-        if (addedTargets.BmsonSongs.Count > 0)
-        {
-            dbGateway.UpsertBmsonSongs(addedTargets.BmsonSongs);
-        }
-    }
-
     void IPackageInstallHost.AddDeferredMaintenanceCharts(List<ChartFile> deferredMaintenanceCharts, IEnumerable<ChartFile> addedCharts)
     {
         deferredMaintenanceCharts.AddRange(addedCharts);
@@ -87,7 +72,7 @@ public partial class BMSLibrary : IPackageInstallHost
         context.AddInstalledTargets(addedTargets, installationDirectory);
     }
 
-    void IPackageInstallHost.ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets)
+    void IPackageInstallHost.ApplyInstalledTargetCatalogMutation(ChartStorageTargetSet addedTargets)
     {
         ApplyInstalledChartStorageTargets(addedTargets, "install_package");
     }
@@ -132,11 +117,6 @@ public partial class BMSLibrary : IPackageInstallHost
     void IPackageInstallHost.BuildAndPersistInlineChartInfoForInstalledCharts(string reason, IEnumerable<ChartFile> charts)
     {
         BuildAndPersistInlineChartInfoForInstalledCharts(reason, charts);
-    }
-
-    void IPackageInstallHost.ApplyEstimatedInstallBatchStorageTargets(ChartStorageTargetSet addedTargets)
-    {
-        ApplyInstalledChartStorageTargets(addedTargets, "install_package_batch");
     }
 
     bool IPackageInstallHost.TryBuildAddedDirectoryScan(IEnumerable<string> directories, out ChartScanResult scan, out string scanFailureReason)

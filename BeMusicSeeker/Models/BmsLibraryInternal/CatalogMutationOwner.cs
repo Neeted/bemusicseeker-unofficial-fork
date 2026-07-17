@@ -751,17 +751,21 @@ internal sealed class CatalogMutationOwner
 
     internal CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsert(
         IEnumerable<BMSFile> bmsRows,
-        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows)
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
+        Action onValidationPassed = null)
     {
         using (storageRowsOwner.WriteGate.GetWriterGuard())
+        using (maintenanceWriteGate.GetWriterGuard())
         {
             return ApplyInstalledTargetUpsertUnsafe(
-                CreateInstalledTargetUpsertRequestUnsafe(bmsRows, bmsonRows));
+                CreateInstalledTargetUpsertRequestUnsafe(bmsRows, bmsonRows),
+                onValidationPassed);
         }
     }
 
     internal CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsert(
-        CatalogInstalledTargetUpsertRequest request)
+        CatalogInstalledTargetUpsertRequest request,
+        Action onValidationPassed = null)
     {
         if (request == null)
         {
@@ -769,8 +773,9 @@ internal sealed class CatalogMutationOwner
         }
 
         using (storageRowsOwner.WriteGate.GetWriterGuard())
+        using (maintenanceWriteGate.GetWriterGuard())
         {
-            return ApplyInstalledTargetUpsertUnsafe(request);
+            return ApplyInstalledTargetUpsertUnsafe(request, onValidationPassed);
         }
     }
 
@@ -787,7 +792,8 @@ internal sealed class CatalogMutationOwner
     }
 
     private CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertUnsafe(
-        CatalogInstalledTargetUpsertRequest request)
+        CatalogInstalledTargetUpsertRequest request,
+        Action onValidationPassed = null)
     {
         StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
         if (currentVersions.BmsRowsVersion != request.PreviousBmsRowsVersion
@@ -799,19 +805,75 @@ internal sealed class CatalogMutationOwner
         ChartStorageTargetSet targets = ChartStorageTargetSet.FromRows(
             request.BmsRows,
             request.BmsonRows);
+        if (targets.BmsFiles.Count == 0 && targets.BmsonSongs.Count == 0)
+        {
+            return CatalogInstalledTargetUpsertReceipt.NotApplied;
+        }
+        if (dbGateway == null)
+        {
+            throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        }
+
+        ownedCollectionOwner.ValidateStorageRowUpsert(
+            targets.BmsFiles,
+            targets.BmsonSongs);
+        onValidationPassed?.Invoke();
+
+        try
+        {
+            dbGateway.ExecuteSongDbTransaction(songDb =>
+            {
+                if (targets.BmsFiles.Count > 0)
+                {
+                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                    BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
+                    foreach (BMSFile bmsFile in targets.BmsFiles)
+                    {
+                        Lr2SongDbWriter.UpsertGeneratedSong(songDb, bmsFile);
+                    }
+                }
+                if (targets.BmsonSongs.Count > 0)
+                {
+                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                    foreach (LR2SongDBExtended.bmson_song bmsonSong in targets.BmsonSongs)
+                    {
+                        songDb.InsertOrReplace(bmsonSong, typeof(LR2SongDBExtended.bmson_song));
+                    }
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            notifyLr2SongDbWriteFailure?.Invoke(
+                "lr2_song_db_install_target_upsert_failed",
+                ex);
+            throw;
+        }
+
+        IReadOnlyList<CatalogChartMutationFact> addedCharts = CatalogChartMutationFact.CreateFacts(
+            ChartFileProjection.FromStorageRows(
+                targets.BmsFiles,
+                targets.BmsonSongs,
+                includeWarningSnapshot: false,
+                requirePath: true,
+                includeResourceReferences: false,
+                includeScoreSnapshot: false));
         StorageRowsVersionSnapshot versions = storageRowsOwner.ApplyInstalledTargets(targets);
         bool ownedCollectionApplied = ownedCollectionOwner.ApplyMutation(
             [],
             [],
-            request.BmsRows,
-            request.BmsonRows,
+            targets.BmsFiles,
+            targets.BmsonSongs,
             versions);
+        int ownedCollectionVersion = ownedCollectionApplied
+            ? ownedCollectionOwner.IncrementVersion()
+            : ownedCollectionOwner.CollectionVersion;
         return new CatalogInstalledTargetUpsertReceipt(
-            applied: request.BmsRows.Count > 0 || request.BmsonRows.Count > 0,
+            applied: targets.BmsFiles.Count > 0 || targets.BmsonSongs.Count > 0,
             ownedCollectionApplied,
             versions,
-            ownedCollectionOwner.CollectionVersion,
-            request.AddedCharts);
+            ownedCollectionVersion,
+            addedCharts);
     }
 
     internal CatalogDigestMutationRequest CreateDigestMutationRequest(

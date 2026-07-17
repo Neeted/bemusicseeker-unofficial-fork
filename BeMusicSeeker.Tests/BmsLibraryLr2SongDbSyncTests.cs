@@ -6729,7 +6729,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet targets)
     {
-        ((IPackageInstallHost)library).ApplyInstalledChartStorageTargets(targets);
+        ((IPackageInstallHost)library).ApplyInstalledTargetCatalogMutation(targets);
     }
 
     private static void InvokeApplyLibraryMutationDelta(BMSLibrary library, LibraryMutationDelta delta)

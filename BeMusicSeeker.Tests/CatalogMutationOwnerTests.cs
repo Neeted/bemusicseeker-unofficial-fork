@@ -706,39 +706,58 @@ public sealed class CatalogMutationOwnerTests
     [TestMethod]
     public void ApplyInstalledTargetUpsert_EmitsReceiptAndReplacesSamePathRows()
     {
-        var oldBms = CreateBms("same.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var oldBmson = CreateBmson("same.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var newBms = CreateBms("same.bms", "cccccccccccccccccccccccccccccccc");
-        var newBmson = CreateBmson("same.bmson", "dddddddddddddddddddddddddddddddd");
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([oldBms], [oldBmson]);
-        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
-            OwnedChartCollectionState.FromStorageRows([oldBms], [oldBmson]),
-            initialRows.BmsRowsVersion,
-            initialRows.BmsonRowsVersion));
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogInstalledTarget_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        try
+        {
+            var oldBms = CreateBms("same.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            var oldBmson = CreateBmson("same.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var newBms = CreateBms("same.bms", "cccccccccccccccccccccccccccccccc");
+            var newBmson = CreateBmson("same.bmson", "dddddddddddddddddddddddddddddddd");
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([oldBms], [oldBmson]);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([oldBms], [oldBmson]),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var owner = new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(songDbPath));
 
-        CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([newBms], [newBmson]);
-        CatalogInstalledTargetUpsertReceipt receipt = owner.ApplyInstalledTargetUpsert(request);
+            CatalogInstalledTargetUpsertRequest request = owner.CreateInstalledTargetUpsertRequest([newBms], [newBmson]);
+            CatalogInstalledTargetUpsertReceipt receipt = owner.ApplyInstalledTargetUpsert(request);
 
-        Assert.IsTrue(receipt.Applied);
-        Assert.AreEqual(CatalogMutationApplyKind.InstalledTargetUpsert, receipt.Kind);
-        Assert.IsTrue(receipt.OwnedCollectionApplied);
-        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
-        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
-        Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
-        Assert.AreEqual(initialRows.BmsonRowsVersion + 1, receipt.StorageRowsVersion.BmsonRowsVersion);
-        Assert.AreEqual(2, receipt.AddedCharts.Count);
-        CollectionAssert.AreEquivalent(
-            new[] { newBms.path, newBmson.path },
-            receipt.AddedCharts.Select(fact => fact.Path).ToArray());
-        Assert.AreEqual(ownedCollectionOwner.CollectionVersion, receipt.OwnedCollectionVersion);
-        Assert.AreSame(newBms, storageRowsOwner.BmsRows.Single());
-        Assert.AreSame(newBmson, storageRowsOwner.BmsonRows.Single());
-        OwnedChartStorageOwnerView view = ownedCollectionOwner.Collection.CreateStorageOwnerView();
-        Assert.IsTrue(view.ContainsOwnerPath(newBms.path));
-        Assert.IsTrue(view.ContainsOwnerPath(newBmson.path));
+            Assert.IsTrue(receipt.Applied);
+            Assert.AreEqual(CatalogMutationApplyKind.InstalledTargetUpsert, receipt.Kind);
+            Assert.IsTrue(receipt.OwnedCollectionApplied);
+            Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
+            Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
+            Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
+            Assert.AreEqual(initialRows.BmsonRowsVersion + 1, receipt.StorageRowsVersion.BmsonRowsVersion);
+            Assert.AreEqual(2, receipt.AddedCharts.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { newBms.path, newBmson.path },
+                receipt.AddedCharts.Select(fact => fact.Path).ToArray());
+            Assert.AreEqual(ownedCollectionOwner.CollectionVersion, receipt.OwnedCollectionVersion);
+            Assert.AreSame(newBms, storageRowsOwner.BmsRows.Single());
+            Assert.AreSame(newBmson, storageRowsOwner.BmsonRows.Single());
+            OwnedChartStorageOwnerView view = ownedCollectionOwner.Collection.CreateStorageOwnerView();
+            Assert.IsTrue(view.ContainsOwnerPath(newBms.path));
+            Assert.IsTrue(view.ContainsOwnerPath(newBmson.path));
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(newBms.path, verifySongDb.Table<LR2SongDB.song>().Single(row => row.path == newBms.path).path);
+            Assert.AreEqual(newBmson.path, verifySongDb.Table<LR2SongDBExtended.bmson_song>().Single(row => row.path == newBmson.path).path);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
@@ -757,6 +776,43 @@ public sealed class CatalogMutationOwnerTests
 
         Assert.ThrowsException<InvalidOperationException>(() => owner.ApplyInstalledTargetUpsert(request));
         Assert.AreSame(concurrent, storageRowsOwner.BmsRows.Single());
+    }
+
+    [TestMethod]
+    public void ApplyInstalledTargetUpsert_DatabaseFailureLeavesLiveRowsUnchanged()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogInstalledTargetFailure_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        try
+        {
+            var original = CreateBms("original.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            var replacement = CreateBms("replacement.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([original], []);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([original], []),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var owner = new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(tempRootPath));
+
+            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyInstalledTargetUpsert([replacement], []));
+
+            Assert.AreEqual(initialRows.BmsRowsVersion, storageRowsOwner.BmsRowsVersion);
+            Assert.AreSame(original, storageRowsOwner.BmsRows.Single());
+            Assert.IsTrue(ownedCollectionOwner.Collection.CreateStorageOwnerView().ContainsOwnerPath(original.path));
+            Assert.IsFalse(ownedCollectionOwner.Collection.CreateStorageOwnerView().ContainsOwnerPath(replacement.path));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
     }
 
     [TestMethod]

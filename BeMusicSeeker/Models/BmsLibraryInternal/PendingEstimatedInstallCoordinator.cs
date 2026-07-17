@@ -62,11 +62,14 @@ internal sealed class EstimatedInstallBatchApplyContext
 {
     public List<ChartFile> AddedCharts { get; } = [];
 
+    public List<BMSFile> AddedBmsFiles { get; } = [];
+
     public HashSet<string> AffectedDirectories { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     public void AddInstalledTargets(ChartStorageTargetSet addedTargets, string destinationDirectory)
     {
         AddedCharts.AddRange((addedTargets?.Charts ?? []).Where(chart => chart != null));
+        AddedBmsFiles.AddRange(addedTargets?.BmsFiles ?? []);
         AddAffectedDirectory(destinationDirectory);
         foreach (ChartFile addedChart in addedTargets?.Charts ?? [])
         {
@@ -149,12 +152,6 @@ internal static class PendingEstimatedInstallCoordinator
                 host.CreateInstalledDisplayPackageForResourceOnlyMerge,
                 host.TryCleanupPendingPackageSourceForEstimatedInstall,
                 host.LogInstallPerformance);
-            var pendingApplyStopwatch = Stopwatch.StartNew();
-            PendingEstimatedInstallCollectionApplyResult pendingApplyResult = host.ApplyEstimatedInstallPendingPackageMutation(
-                batchResult.PendingPackagesToRemove,
-                batchResult.InstallRowsToDelete);
-            pendingApplyStopwatch.Stop();
-
             var libraryStateApplyStopwatch = Stopwatch.StartNew();
             bool canUseResourceHealthIndexDelta = resourceHealthOwner.IsCurrent();
             using (canUseResourceHealthIndexDelta ? resourceHealthOwner.SuppressInvalidation() : null)
@@ -162,6 +159,12 @@ internal static class PendingEstimatedInstallCoordinator
                 host.ApplyEstimatedInstallBatchLibraryState(batchApplyContext);
             }
             libraryStateApplyStopwatch.Stop();
+
+            var pendingApplyStopwatch = Stopwatch.StartNew();
+            PendingEstimatedInstallCollectionApplyResult pendingApplyResult = host.ApplyEstimatedInstallPendingPackageMutation(
+                batchResult.PendingPackagesToRemove,
+                batchResult.InstallRowsToDelete);
+            pendingApplyStopwatch.Stop();
 
             var installedApplyStopwatch = Stopwatch.StartNew();
             PendingEstimatedInstallCollectionApplyResult installedApplyResult = host.MergeDeferredInstalledPackages(batchResult.DeferredInstalledPackages);

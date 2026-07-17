@@ -3488,7 +3488,7 @@ public sealed class OwnedChartCollectionStateTests
 
     private static void InvokeApplyInstalledChartStorageTargets(BMSLibrary library, ChartStorageTargetSet addedTargets)
     {
-        ((IPackageInstallHost)library).ApplyInstalledChartStorageTargets(addedTargets);
+        ((IPackageInstallHost)library).ApplyInstalledTargetCatalogMutation(addedTargets);
     }
 
     private static void InvokeApplyLibraryFileScanStorageMutation(

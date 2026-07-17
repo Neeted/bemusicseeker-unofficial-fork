@@ -9679,6 +9679,8 @@ public partial class BMSLibrary : NotificationObject
         ThrowIfLr2SongDbSyncMutationBlocked("ApplyInstalledChartStorageTargets");
         OwnedChartCollectionMutationResult mutationResult = null;
         ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = null;
+        StorageRowsVersionSnapshot storageRowsBefore = catalogStorageRowsOwner.CaptureVersionSnapshot();
+        bool catalogValidationPassed = false;
         try
         {
             resourceHealthMutation = resourceHealthOwner.BeginInputMutation();
@@ -9688,14 +9690,17 @@ public partial class BMSLibrary : NotificationObject
                     addedTargets,
                     resourceHealthMutation.BaseInputVersion,
                     resourceHealthIndexCurrentAtBase: resourceHealthMutation.BaseIndexCurrent);
-                PublishOwnedCollectionChangeNotification(mutationResult);
                 using (mutationResult.ResourceHealthIndexInvalidated
                     ? resourceHealthOwner.SuppressInvalidation()
                     : null)
                 {
-                    catalogMutationOwner.ApplyInstalledTargetUpsert(
+                    CatalogInstalledTargetUpsertReceipt receipt = catalogMutationOwner.ApplyInstalledTargetUpsert(
                         addedTargets.BmsFiles,
-                        addedTargets.BmsonSongs);
+                        addedTargets.BmsonSongs,
+                        () => catalogValidationPassed = true);
+                    mutationResult.OwnedCollectionVersion = receipt.OwnedCollectionVersion;
+                    mutationResult.OwnedCollectionVersionAlreadyAdvanced = receipt.OwnedCollectionApplied;
+                    PublishOwnedCollectionChangeNotification(mutationResult);
                 }
             }
             finally
@@ -9715,7 +9720,13 @@ public partial class BMSLibrary : NotificationObject
         }
         catch
         {
-            ApplyInstalledChartStorageTargetsFailureFallback(mutationResult);
+            StorageRowsVersionSnapshot storageRowsAfter = catalogStorageRowsOwner.CaptureVersionSnapshot();
+            if (!catalogValidationPassed
+                || storageRowsBefore.BmsRowsVersion != storageRowsAfter.BmsRowsVersion
+                || storageRowsBefore.BmsonRowsVersion != storageRowsAfter.BmsonRowsVersion)
+            {
+                ApplyInstalledChartStorageTargetsFailureFallback(mutationResult);
+            }
             throw;
         }
     }

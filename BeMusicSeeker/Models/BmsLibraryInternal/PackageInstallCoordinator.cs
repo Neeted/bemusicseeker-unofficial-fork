@@ -29,7 +29,7 @@ internal interface IPackageInstallHost
         IPrimaryHashLookup hashSnapshot,
         ISet<string> excludedComponentPaths);
 
-    void UpsertInstalledChartRows(ChartStorageTargetSet addedTargets);
+    void ApplyInstalledTargetCatalogMutation(ChartStorageTargetSet addedTargets);
 
     void AddDeferredMaintenanceCharts(List<ChartFile> deferredMaintenanceCharts, IEnumerable<ChartFile> addedCharts);
 
@@ -38,8 +38,6 @@ internal interface IPackageInstallHost
     void SetBmsScore(IEnumerable<BMSFile> bmsFiles);
 
     void AddEstimatedInstallBatchTargets(EstimatedInstallBatchApplyContext context, ChartStorageTargetSet addedTargets, string installationDirectory);
-
-    void ApplyInstalledChartStorageTargets(ChartStorageTargetSet addedTargets);
 
     void AddReverseLookupDirectoriesForInstall(IEnumerable<string> addedDirectories);
 
@@ -50,8 +48,6 @@ internal interface IPackageInstallHost
     void LogInstallPerformance(string message);
 
     void BuildAndPersistInlineChartInfoForInstalledCharts(string reason, IEnumerable<ChartFile> charts);
-
-    void ApplyEstimatedInstallBatchStorageTargets(ChartStorageTargetSet addedTargets);
 
     bool TryBuildAddedDirectoryScan(IEnumerable<string> directories, out ChartScanResult scan, out string scanFailureReason);
 
@@ -85,9 +81,18 @@ internal static class PackageInstallCoordinator
             return ChartStorageTargetSet.FromCharts(installResult?.AddedCharts);
         }
 
-        void UpsertInstalledChartRows(PackageInstallExecutionResult installResult)
+        void ApplyInstalledTargetCatalogMutation(PackageInstallExecutionResult installResult)
         {
-            host.UpsertInstalledChartRows(CreateAddedStorageTargets(installResult));
+            ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
+            if (estimatedInstallBatchApplyContext != null)
+            {
+                host.AddEstimatedInstallBatchTargets(
+                    estimatedInstallBatchApplyContext,
+                    addedTargets,
+                    installationDirectory);
+                return;
+            }
+            host.ApplyInstalledTargetCatalogMutation(addedTargets);
         }
 
         void UpdateInstalledChartMaintenance(PackageInstallExecutionResult installResult)
@@ -104,6 +109,16 @@ internal static class PackageInstallCoordinator
             }
         }
 
+        void ApplyInstalledChartScores(PackageInstallExecutionResult installResult)
+        {
+            ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
+            if (estimatedInstallBatchApplyContext != null)
+            {
+                return;
+            }
+            host.SetBmsScore(addedTargets.BmsFiles);
+        }
+
         void ApplyInstalledChartState(PackageInstallExecutionResult installResult)
         {
             ChartStorageTargetSet addedTargets = CreateAddedStorageTargets(installResult);
@@ -111,10 +126,8 @@ internal static class PackageInstallCoordinator
             addedChartsForChartInfo.AddRange(addedCharts);
             if (estimatedInstallBatchApplyContext != null)
             {
-                host.AddEstimatedInstallBatchTargets(estimatedInstallBatchApplyContext, addedTargets, installationDirectory);
                 return;
             }
-            host.ApplyInstalledChartStorageTargets(addedTargets);
             host.AddReverseLookupDirectoriesForInstall(addedTargets.GetDistinctChartDirectories());
         }
 
@@ -122,9 +135,9 @@ internal static class PackageInstallCoordinator
             installPackageList,
             installationDirectory,
             (package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths) => host.MoveChartPackageFiles(package, destinationDirectory, deleteAllContents, hashSnapshot, excludedComponentPaths),
-            UpsertInstalledChartRows,
+            ApplyInstalledTargetCatalogMutation,
             UpdateInstalledChartMaintenance,
-            installResult => host.SetBmsScore(CreateAddedStorageTargets(installResult).BmsFiles),
+            ApplyInstalledChartScores,
             ApplyInstalledChartState,
             excludedComponentPathsByPackage,
             existingHashes,
@@ -161,7 +174,8 @@ internal static class PackageInstallCoordinator
         {
             return DirectoryResourceLookupCache.ReverseLookupMutationResult.Empty;
         }
-        host.ApplyEstimatedInstallBatchStorageTargets(ChartStorageTargetSet.FromCharts(context.AddedCharts));
+        host.ApplyInstalledTargetCatalogMutation(ChartStorageTargetSet.FromCharts(context.AddedCharts));
+        host.SetBmsScore(context.AddedBmsFiles);
         List<string> affectedDirectories = [.. context.AffectedDirectories.Where(dir => !string.IsNullOrWhiteSpace(dir)).Distinct(StringComparer.OrdinalIgnoreCase)];
         if (affectedDirectories.Count == 0)
         {

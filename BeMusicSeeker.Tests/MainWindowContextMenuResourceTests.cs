@@ -3912,7 +3912,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "ApplyEstimatedInstallBatchLibraryState(context)");
         string batchContext = ExtractBetween(libraryCode, "internal sealed class EstimatedInstallBatchApplyContext", "internal sealed class PendingEstimatedInstallCollectionApplyResult");
         StringAssert.Contains(batchContext, "public List<ChartFile> AddedCharts { get; } = [];");
-        Assert.IsFalse(batchContext.Contains("AddedBmsFiles"));
+        StringAssert.Contains(batchContext, "public List<BMSFile> AddedBmsFiles { get; } = [];");
         Assert.IsFalse(batchContext.Contains("AddedBmsonSongs"));
         StringAssert.Contains(batchContext, "AddInstalledTargets(ChartStorageTargetSet addedTargets");
         StringAssert.Contains(libraryCode, "static ChartStorageTargetSet CreateAddedStorageTargets(PackageInstallExecutionResult installResult)");

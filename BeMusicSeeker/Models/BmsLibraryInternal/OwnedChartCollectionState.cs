@@ -1340,9 +1340,7 @@ internal sealed class OwnedChartCollectionState
     {
         List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
         List<LR2SongDBExtended.bmson_song> bmsonSongList = [.. (bmsonSongs ?? []).Where(song => song != null)];
-        ThrowIfInvalidStorageRows(bmsFileList, bmsonSongList);
-        ThrowIfDuplicateStorageRowPaths(bmsFileList, bmsonSongList);
-        ThrowIfCrossKindUpsertPathCollision(bmsFileList, bmsonSongList);
+        ValidateStorageRows(bmsFileList, bmsonSongList);
         if (bmsFileList.Count == 0 && bmsonSongList.Count == 0)
         {
             return;
@@ -1374,6 +1372,27 @@ internal sealed class OwnedChartCollectionState
                     .Concat(addedBmsCharts.Select(GetCurrentPath))
                     .Concat(addedBmsonCharts.Select(GetCurrentPath)));
         }
+    }
+
+    internal void ValidateStorageRows(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
+        List<LR2SongDBExtended.bmson_song> bmsonSongList = [.. (bmsonSongs ?? []).Where(song => song != null)];
+        ThrowIfInvalidStorageRows(bmsFileList, bmsonSongList);
+        ThrowIfDuplicateStorageRowPaths(bmsFileList, bmsonSongList);
+        ThrowIfCrossKindUpsertPathCollision(bmsFileList, bmsonSongList);
+    }
+
+    internal static void ValidateStorageRowsWithoutExistingCollection(
+        IEnumerable<BMSFile> bmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs)
+    {
+        List<BMSFile> bmsFileList = [.. (bmsFiles ?? []).Where(file => file != null)];
+        List<LR2SongDBExtended.bmson_song> bmsonSongList = [.. (bmsonSongs ?? []).Where(song => song != null)];
+        ThrowIfInvalidStorageRows(bmsFileList, bmsonSongList);
+        ThrowIfDuplicateStorageRowPaths(bmsFileList, bmsonSongList);
     }
 
     private List<ChartFile> RemoveMatchingStorageRows(
