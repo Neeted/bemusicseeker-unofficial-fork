@@ -75,9 +75,9 @@ public partial class BMSLibrary : ILibraryFixInstallationHost
         return NormalizeResourceMaintenanceTargetCharts(charts);
     }
 
-    void ILibraryFixInstallationHost.SetFixInstallationMaintenanceInfo(IEnumerable<ChartFile> charts)
+    void ILibraryFixInstallationHost.ApplyFixInstallationMaintenance(IEnumerable<ChartFile> charts)
     {
-        setMaintenanceInfo(
+        ApplyCatalogMaintenance(
             charts,
             forceUpdate: true,
             resourceHealthMutationReason: "fix_installation_directory");

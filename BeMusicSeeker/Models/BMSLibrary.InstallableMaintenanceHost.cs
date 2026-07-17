@@ -112,9 +112,9 @@ public partial class BMSLibrary : IInstallableMaintenanceDeferredHost
         return setModeAndCommitToDB(snapshot?.Files ?? []);
     }
 
-    MaintenanceWorkflowResult IInstallableMaintenanceDeferredHost.SetInstallableMaintenanceInfo()
+    MaintenanceWorkflowResult IInstallableMaintenanceDeferredHost.ApplyInstallableMaintenance()
     {
-        return setInstallableMaintenanceInfo("installable_maintenance_deferred");
+        return ApplyInstallableCatalogMaintenance("installable_maintenance_deferred");
     }
 
     void IInstallableMaintenanceDeferredHost.ResetInstallableMaintenanceWriteLockFlags()

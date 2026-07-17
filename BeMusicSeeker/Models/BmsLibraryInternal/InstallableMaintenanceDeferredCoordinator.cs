@@ -30,7 +30,7 @@ internal interface IInstallableMaintenanceDeferredHost
 
     int SetModeAndCommitToDb(InstallableMaintenanceSnapshot snapshot);
 
-    MaintenanceWorkflowResult SetInstallableMaintenanceInfo();
+    MaintenanceWorkflowResult ApplyInstallableMaintenance();
 
     void ResetInstallableMaintenanceWriteLockFlags();
 
@@ -149,7 +149,7 @@ internal static class InstallableMaintenanceDeferredCoordinator
                 setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                 var stopwatchSetHealth = Stopwatch.StartNew();
-                maintenanceResult = host.SetInstallableMaintenanceInfo() ?? new MaintenanceWorkflowResult();
+                maintenanceResult = host.ApplyInstallableMaintenance() ?? new MaintenanceWorkflowResult();
                 stopwatchSetHealth.Stop();
                 setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
                 host.ResetInstallableMaintenanceWriteLockFlags();

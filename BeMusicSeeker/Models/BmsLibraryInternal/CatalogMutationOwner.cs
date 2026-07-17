@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -15,12 +16,103 @@ internal sealed class CatalogMutationOwner
 
     private readonly CatalogOwnedCollectionOwner ownedCollectionOwner;
 
+    private readonly BmsLibraryDbGateway dbGateway;
+
+    private readonly ReaderWriterLockSlimWrapper maintenanceWriteGate = new();
+
     internal CatalogMutationOwner(
         CatalogStorageRowsOwner storageRowsOwner,
         CatalogOwnedCollectionOwner ownedCollectionOwner)
+        : this(storageRowsOwner, ownedCollectionOwner, null)
+    {
+    }
+
+    internal CatalogMutationOwner(
+        CatalogStorageRowsOwner storageRowsOwner,
+        CatalogOwnedCollectionOwner ownedCollectionOwner,
+        BmsLibraryDbGateway dbGateway)
     {
         this.storageRowsOwner = storageRowsOwner ?? throw new ArgumentNullException(nameof(storageRowsOwner));
         this.ownedCollectionOwner = ownedCollectionOwner ?? throw new ArgumentNullException(nameof(ownedCollectionOwner));
+        this.dbGateway = dbGateway;
+    }
+
+    /// <summary>
+    /// Applies maintenance rows and related song rows in one catalog transaction.
+    /// Maintenance evaluators submit immutable facts; they never write the database directly.
+    /// </summary>
+    internal CatalogMaintenanceWriteReceipt ApplyMaintenanceWrite(CatalogMaintenanceWriteRequest request)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogMaintenanceWriteReceipt.NotApplied;
+        }
+        if (dbGateway == null)
+        {
+            throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        }
+
+        using (maintenanceWriteGate.GetWriterGuard())
+        {
+            return ApplyMaintenanceWriteUnderGuard(request);
+        }
+    }
+
+    internal CatalogMaintenanceWriteReceipt ApplyMaintenanceWriteUnderGuard(CatalogMaintenanceWriteRequest request)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogMaintenanceWriteReceipt.NotApplied;
+        }
+        if (dbGateway == null)
+        {
+            throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        }
+
+        int deletedMaintenanceCount = 0;
+        dbGateway.ExecuteSongDbTransaction(songDb =>
+        {
+            if (request.MaintenanceInfos.Count > 0 || request.StaleMaintenancePaths.Count > 0)
+            {
+                BmsLibraryDbGateway.EnsureMaintenanceSchema(songDb);
+            }
+            if (request.BmsonSongs.Count > 0)
+            {
+                BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+            }
+            foreach (BMSFileMaintenanceInfo maintenanceInfo in request.MaintenanceInfos)
+            {
+                songDb.InsertOrReplace(maintenanceInfo, typeof(LR2SongDBExtended.maintenance));
+            }
+            foreach (BMSFile song in request.Songs)
+            {
+                Lr2SongDbWriter.UpsertGeneratedSong(songDb, song);
+            }
+            foreach (LR2SongDBExtended.bmson_song bmsonSong in request.BmsonSongs)
+            {
+                songDb.InsertOrReplace(bmsonSong, typeof(LR2SongDBExtended.bmson_song));
+            }
+            foreach (string path in request.StaleMaintenancePaths)
+            {
+                deletedMaintenanceCount += songDb.Delete<LR2SongDBExtended.maintenance>(path);
+            }
+        });
+        return new CatalogMaintenanceWriteReceipt(
+            applied: true,
+            request.MaintenanceInfos.Count,
+            request.Songs.Count,
+            request.BmsonSongs.Count,
+            deletedMaintenanceCount);
+    }
+
+    internal IDisposable EnterMaintenanceWriteGuard()
+    {
+        return maintenanceWriteGate.GetWriterGuard();
+    }
+
+    internal IDisposable EnterStorageRowsWriteGuard()
+    {
+        return storageRowsOwner.WriteGate.GetWriterGuard();
     }
 
     internal CatalogStorageRowsReplacementRequest CreateStorageRowsReplacementRequest(

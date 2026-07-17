@@ -49,7 +49,9 @@ internal interface IPendingEstimatedInstallHost
 
     PendingEstimatedInstallCollectionApplyResult MergeDeferredInstalledPackages(IReadOnlyCollection<ChartPackage> deferredInstalledPackages);
 
-    int ApplyEstimatedInstallMaintenanceAndInlineChartInfo(IEnumerable<ChartFile> deferredMaintenanceCharts, IEnumerable<ChartFile> addedCharts);
+    int ApplyEstimatedInstallMaintenance(IEnumerable<ChartFile> deferredMaintenanceCharts);
+
+    void BuildEstimatedInstallInlineChartInfo(IEnumerable<ChartFile> deferredMaintenanceCharts, IEnumerable<ChartFile> addedCharts);
 
     void ShowEstimatedCleanupOnlyCompletedWarning(int cleanupOnlySucceeded);
 
@@ -166,7 +168,9 @@ internal static class PendingEstimatedInstallCoordinator
             installedApplyStopwatch.Stop();
 
             var maintenanceStopwatch = Stopwatch.StartNew();
-            int estimatedInstallMaintenanceTargetCount = host.ApplyEstimatedInstallMaintenanceAndInlineChartInfo(
+            int estimatedInstallMaintenanceTargetCount = host.ApplyEstimatedInstallMaintenance(
+                batchResult.DeferredMaintenanceCharts);
+            host.BuildEstimatedInstallInlineChartInfo(
                 batchResult.DeferredMaintenanceCharts,
                 batchApplyContext.AddedCharts);
             maintenanceStopwatch.Stop();

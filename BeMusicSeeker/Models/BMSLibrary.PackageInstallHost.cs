@@ -69,9 +69,9 @@ public partial class BMSLibrary : IPackageInstallHost
         deferredMaintenanceCharts.AddRange(addedCharts);
     }
 
-    void IPackageInstallHost.SetInstallPackageMaintenanceInfo(IEnumerable<ChartFile> addedCharts)
+    void IPackageInstallHost.ApplyInstallPackageMaintenance(IEnumerable<ChartFile> addedCharts)
     {
-        setMaintenanceInfo(
+        ApplyCatalogMaintenance(
             addedCharts,
             forceUpdate: true,
             resourceHealthMutationReason: "install_package");

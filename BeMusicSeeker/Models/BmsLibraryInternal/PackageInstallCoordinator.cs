@@ -33,7 +33,7 @@ internal interface IPackageInstallHost
 
     void AddDeferredMaintenanceCharts(List<ChartFile> deferredMaintenanceCharts, IEnumerable<ChartFile> addedCharts);
 
-    void SetInstallPackageMaintenanceInfo(IEnumerable<ChartFile> addedCharts);
+    void ApplyInstallPackageMaintenance(IEnumerable<ChartFile> addedCharts);
 
     void SetBmsScore(IEnumerable<BMSFile> bmsFiles);
 
@@ -100,7 +100,7 @@ internal static class PackageInstallCoordinator
             }
             if (addedCharts.Count > 0)
             {
-                host.SetInstallPackageMaintenanceInfo(addedCharts);
+                host.ApplyInstallPackageMaintenance(addedCharts);
             }
         }
 

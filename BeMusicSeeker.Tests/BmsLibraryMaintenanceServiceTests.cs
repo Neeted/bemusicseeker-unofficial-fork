@@ -963,45 +963,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void ApplyMaintenanceHydrationResult_PublishesMaintenanceRefreshThroughOwnedDispatcher()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            file.path = Path.Combine(Path.GetDirectoryName(songDbPath), "hydrated.bms");
-            var hydrationResult = new MaintenanceTableHydrationResult();
-            hydrationResult.MaintenanceMap[file.path] = new BMSFileMaintenanceInfo(file)
-            {
-                hash = file.hash,
-                wav_files_defined = 2,
-                wav_files_existing = 1
-            };
-            var library = new BMSLibrary(songDbPath);
-            SetStorageRows(library, [file], []);
-            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            int refreshNotificationChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
-                {
-                    refreshNotificationChanged++;
-                }
-            };
-
-            ((IMaintenanceHydrationHost)library).ApplyMaintenanceHydrationResult(hydrationResult);
-
-            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
-            ResourceHealthIndexSnapshot currentResourceHealth = library.TryGetCurrentResourceHealthIndexSnapshotForView();
-            Assert.IsTrue(hydrationResult.ViewRefreshQueued);
-            Assert.AreEqual(1, currentResourceHealth.TargetCount);
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
-            Assert.AreEqual(1, refreshNotificationChanged);
-        });
-    }
-
-    [TestMethod]
     public void SetChartResourceWarningsIgnored_PublishesWarningRefreshThroughOwnedDispatcher()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1040,6 +1001,108 @@ public sealed class BmsLibraryMaintenanceServiceTests
             Assert.AreEqual(1, refreshNotificationChanged);
             Assert.AreEqual(0, updatedSnapshot.ActiveTargets.Count);
             Assert.AreEqual(1, updatedSnapshot.IgnoredTargets.Count);
+        });
+    }
+
+    [TestMethod]
+    public void DeferredMaintenanceHydration_UsesCurrentSchedulerAndPublishesState()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath);
+            var changedProperties = new List<string>();
+            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
+            {
+                changedProperties.Add(args.PropertyName);
+            };
+            bool schedulerInvoked = false;
+            library.StartupBackgroundTaskScheduler = delegate (string _, string _, string _, Func<System.Threading.Tasks.Task> work)
+            {
+                schedulerInvoked = true;
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+
+            MethodInfo queueMethod = typeof(BMSLibrary).GetMethod(
+                "QueueDeferredMaintenanceHydration",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(queueMethod);
+            queueMethod.Invoke(library, ["test_scheduler"]);
+
+            Assert.IsTrue(schedulerInvoked);
+            Assert.AreEqual(1, library.MaintenanceHydrationRequestedVersion);
+            Assert.AreEqual(1, library.MaintenanceHydrationCompletedVersion);
+            Assert.IsFalse(library.MaintenanceHydrationRunning);
+            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.MaintenanceHydrationRequestedVersion));
+            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.MaintenanceHydrationCompletedVersion));
+            CollectionAssert.Contains(changedProperties, nameof(BMSLibrary.MaintenanceHydrationRunning));
+        });
+    }
+
+    [TestMethod]
+    public void DeferredMaintenanceHydration_AttachesRowsRemovesStaleAndPublishesResourceHealth()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string root = Path.GetDirectoryName(songDbPath);
+            string chartPath = Path.Combine(root, "hydrated.bms");
+            string stalePath = Path.Combine(root, "stale.bms");
+            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            file.path = chartPath;
+            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                wav_files_defined = 0,
+                wav_files_existing = 0
+            }, suppressPropertyChanged: true);
+
+            var gateway = new BmsLibraryDbGateway(songDbPath);
+            gateway.UpsertMaintenanceInfos(
+            [
+                new BMSFileMaintenanceInfo
+                {
+                    path = chartPath,
+                    hash = file.hash,
+                    wav_files_defined = 2,
+                    wav_files_existing = 1
+                },
+                new BMSFileMaintenanceInfo
+                {
+                    path = stalePath,
+                    hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    wav_files_defined = 1,
+                    wav_files_existing = 0
+                }
+            ]);
+
+            var library = new BMSLibrary(songDbPath);
+            SetStorageRows(library, [file], []);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            library.StartupBackgroundTaskScheduler = delegate (string _, string _, string _, Func<System.Threading.Tasks.Task> work)
+            {
+                work().GetAwaiter().GetResult();
+                return true;
+            };
+            MethodInfo queueMethod = typeof(BMSLibrary).GetMethod(
+                "QueueDeferredMaintenanceHydration",
+                BindingFlags.Instance | BindingFlags.NonPublic);
+            Assert.IsNotNull(queueMethod);
+            queueMethod.Invoke(library, ["test_hydration"]);
+
+            Assert.AreEqual(2, file.maintenanceInfo.wav_files_defined);
+            Assert.AreEqual(1, file.maintenanceInfo.wav_files_existing);
+            using (var verify = new LR2SongDBExtended(songDbPath))
+            {
+                Assert.AreEqual(1, verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance;").Count());
+                Assert.AreEqual(chartPath, verify.Query<LR2SongDBExtended.maintenance>("SELECT * FROM maintenance;").Single().path);
+            }
+            ResourceHealthIndexSnapshot snapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.AreEqual(1, snapshot.TargetCount);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
         });
     }
 
@@ -1147,7 +1210,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(bmsFile)],
                 forceUpdate: false,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null,
                 new ResourceHealthLookupContext(null));
 
@@ -1836,6 +1899,38 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
+    public void UpdateMaintenanceInfo_RejectsDurableWriterThatReturnsNoReceipt()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string tempDirectoryPath = Path.Combine(Path.GetTempPath(), "BeMusicSeekerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectoryPath);
+        string bmsFilePath = Path.Combine(tempDirectoryPath, "chart.bms");
+        File.WriteAllText(
+            bmsFilePath,
+            "#PLAYER 1\r\n#TITLE Durable writer check\r\n#WAV01 missing.wav\r\n#00111:01\r\n",
+            Encoding.ASCII);
+        try
+        {
+            BMSFile file = BMSFile.CreateBMSFileFromFile(bmsFilePath);
+            Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> noOpWriter = _ => CatalogMaintenanceWriteReceipt.NotApplied;
+
+            Assert.ThrowsException<InvalidOperationException>(() =>
+                new BmsLibraryMaintenanceService(1).UpdateMaintenanceInfo(
+                    [ChartFileProjection.FromBmsFile(file)],
+                    forceUpdate: true,
+                    noOpWriter,
+                    null));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectoryPath))
+            {
+                Directory.Delete(tempDirectoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void UpdateMaintenanceInfo_RaisesHealthPropertyChangedWhenHealthChanges()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1870,7 +1965,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(file)],
                 forceUpdate: true,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsTrue(result.HasUpdates);
@@ -1910,7 +2005,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: true,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsTrue(result.HasUpdates);
@@ -1965,7 +2060,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: true,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsTrue(result.HasUpdates);
@@ -2014,7 +2109,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: false,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsTrue(result.HasUpdates);
@@ -2063,7 +2158,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: false,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsFalse(result.HasUpdates);
@@ -2121,7 +2216,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: false,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsFalse(result.HasUpdates);
@@ -2175,7 +2270,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsonSong(loadedLikeRow)],
                 forceUpdate: false,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsTrue(result.HasUpdates);
@@ -2219,7 +2314,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsonSong(song)],
                 forceUpdate: true,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsTrue(result.HasUpdates);
@@ -2267,7 +2362,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(bmsFile), ChartFileProjection.FromBmsonSong(bmsonSong)],
                 forceUpdate: true,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsTrue(result.HasUpdates);
@@ -2330,7 +2425,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(bmsFile)],
                 forceUpdate: true,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null,
                 lookupContext,
                 progressLogger: logs.Add);
@@ -2389,7 +2484,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(bmsFile)],
                 forceUpdate: false,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null,
                 progressLogger: logs.Add);
 
@@ -2441,7 +2536,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(bmsFile)],
                 forceUpdate: false,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null,
                 lookupContext);
 
@@ -2491,7 +2586,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(bmsFile)],
                 forceUpdate: false,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsTrue(bmsFile.maintenanceInfo.is_files_warning_ignored);
@@ -2501,7 +2596,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsFile(bmsFile)],
                 forceUpdate: true,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsFalse(bmsFile.maintenanceInfo.is_files_warning_ignored);
@@ -2650,7 +2745,7 @@ public sealed class BmsLibraryMaintenanceServiceTests
             MaintenanceWorkflowResult result = service.UpdateMaintenanceInfo(
                 [ChartFileProjection.FromBmsonSong(invalidRow), ChartFileProjection.FromBmsonSong(validRow)],
                 forceUpdate: true,
-                new BmsLibraryDbGateway(songDbPath),
+                CreateDurableWriter(songDbPath),
                 null);
 
             Assert.IsTrue(result.HasUpdates);
@@ -2947,6 +3042,15 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 Directory.Delete(tempRootPath, recursive: true);
             }
         }
+    }
+
+    private static Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> CreateDurableWriter(string songDbPath)
+    {
+        var owner = new CatalogMutationOwner(
+            new CatalogStorageRowsOwner(),
+            new CatalogOwnedCollectionOwner(),
+            new BmsLibraryDbGateway(songDbPath));
+        return owner.ApplyMaintenanceWrite;
     }
 
     private sealed class TestableBmsFile : BMSFile

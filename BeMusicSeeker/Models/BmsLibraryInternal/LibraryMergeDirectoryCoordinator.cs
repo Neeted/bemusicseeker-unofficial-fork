@@ -53,7 +53,7 @@ internal interface ILibraryMergeDirectoryHost
 
     ChartStorageTargetSet CreateOwnedStorageTargetsForSubtreeDirectory(string directoryPath);
 
-    void SetMergeFolderMaintenanceInfo(IEnumerable<ChartFile> charts);
+    void ApplyMergeFolderMaintenance(IEnumerable<ChartFile> charts);
 
     void ApplyInstalledChartStorageTargets(ChartStorageTargetSet targets);
 }
@@ -219,7 +219,7 @@ internal static class LibraryMergeDirectoryCoordinator
                     + " bmson=" + maintenanceTargets.BmsonSongs.Count
                     + " destinationBmson=" + destinationMaintenanceTargets.BmsonSongs.Count);
                 var maintenanceStopwatch = Stopwatch.StartNew();
-                host.SetMergeFolderMaintenanceInfo(maintenanceTargets.Charts);
+                host.ApplyMergeFolderMaintenance(maintenanceTargets.Charts);
                 host.LogInstallPerformance("duplicate_merge_model maintenance_done op=" + operationId + " elapsedMs=" + maintenanceStopwatch.ElapsedMilliseconds);
                 var upsertStopwatch = Stopwatch.StartNew();
                 host.ApplyInstalledChartStorageTargets(movedTargets);

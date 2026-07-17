@@ -16,8 +16,8 @@ using Ribbit.Util.Extensions;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Computes and persists maintenance state for snapshots owned by BMSLibrary.
-/// The facade must acquire the required locks before invoking this service.
+/// Computes maintenance state for snapshots owned by the catalog maintenance owner
+/// and emits durable write facts. The service never opens a database.
 /// </summary>
 internal sealed class BmsLibraryMaintenanceService
 {
@@ -674,6 +674,22 @@ internal sealed class BmsLibraryMaintenanceService
         return changes;
     }
 
+    private static void ApplyDurableWrite(
+        Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite,
+        CatalogMaintenanceWriteRequest request)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return;
+        }
+
+        CatalogMaintenanceWriteReceipt receipt = durableWrite?.Invoke(request);
+        if (receipt?.Applied != true)
+        {
+            throw new InvalidOperationException("Maintenance changes were not persisted.");
+        }
+    }
+
     private static void AttachResourceHealthMaintenanceInfo(ChartFile chart, BMSFileMaintenanceInfo maintenanceInfo)
     {
         LR2SongDBExtended.bmson_song song = chart?.GetBmsonStorageOwner();
@@ -840,7 +856,7 @@ internal sealed class BmsLibraryMaintenanceService
     public MaintenanceWorkflowResult UpdateMaintenanceInfo(
         IEnumerable<ChartFile> charts,
         bool forceUpdate,
-        BmsLibraryDbGateway dbGateway,
+        Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite,
         IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null,
         Action<string> progressLogger = null,
@@ -851,7 +867,7 @@ internal sealed class BmsLibraryMaintenanceService
         {
             return UpdateMaintenanceInfoSnapshotPipeline(
                 charts,
-                dbGateway,
+                durableWrite,
                 dialogService,
                 resourceLookupContext,
                 progressLogger,
@@ -884,26 +900,26 @@ internal sealed class BmsLibraryMaintenanceService
         List<LR2SongDBExtended.bmson_song> bmsonTargets = [.. bmsonTargetsByPath.Values];
         if (bmsonTargets.Count == 0)
         {
-            return UpdateBmsMaintenanceInfo(bmsTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+            return UpdateBmsMaintenanceInfo(bmsTargets, forceUpdate, durableWrite, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
         }
         if (bmsTargets.Count == 0)
         {
-            return UpdateBmsonMaintenanceInfo(bmsonTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+            return UpdateBmsonMaintenanceInfo(bmsonTargets, forceUpdate, durableWrite, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
         }
 
         resourceLookupContext ??= new ResourceHealthLookupContext(null);
-        MaintenanceWorkflowResult bmsResult = UpdateBmsMaintenanceInfo(bmsTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+        MaintenanceWorkflowResult bmsResult = UpdateBmsMaintenanceInfo(bmsTargets, forceUpdate, durableWrite, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
         if (bmsResult.Canceled || cancellationToken.IsCancellationRequested)
         {
             return bmsResult;
         }
-        MaintenanceWorkflowResult bmsonResult = UpdateBmsonMaintenanceInfo(bmsonTargets, forceUpdate, dbGateway, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
+        MaintenanceWorkflowResult bmsonResult = UpdateBmsonMaintenanceInfo(bmsonTargets, forceUpdate, durableWrite, dialogService, resourceLookupContext, progressLogger, progressReporter, cancellationToken);
         return CombineResults(bmsResult, bmsonResult);
     }
 
     private MaintenanceWorkflowResult UpdateMaintenanceInfoSnapshotPipeline(
         IEnumerable<ChartFile> charts,
-        BmsLibraryDbGateway dbGateway,
+        Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite,
         IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null,
         Action<string> progressLogger = null,
@@ -911,7 +927,7 @@ internal sealed class BmsLibraryMaintenanceService
         CancellationToken cancellationToken = default)
     {
         var result = new MaintenanceWorkflowResult();
-        if (charts == null || dbGateway == null)
+        if (charts == null || durableWrite == null)
         {
             return result;
         }
@@ -1057,17 +1073,7 @@ internal sealed class BmsLibraryMaintenanceService
             var commitStopwatch = Stopwatch.StartNew();
             if (changedMaintenanceInfos.Count > 0 || reloadedFiles.Count > 0)
             {
-                dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
-                {
-                    foreach (BMSFileMaintenanceInfo maintenanceInfo in changedMaintenanceInfos)
-                    {
-                        songDb.InsertOrReplace(maintenanceInfo, typeof(Models.LR2.LR2SongDBExtended.maintenance));
-                    }
-                    foreach (BMSFile reloadedFile in reloadedFiles)
-                    {
-                        Lr2SongDbWriter.UpsertGeneratedSong(songDb, reloadedFile);
-                    }
-                });
+                ApplyDurableWrite(durableWrite, new CatalogMaintenanceWriteRequest(changedMaintenanceInfos, reloadedFiles));
                 result.HasUpdates = true;
                 result.MaintenanceInfoUpsertCount += changedMaintenanceInfos.Count;
                 result.ReloadedSongCount += reloadedFiles.Count;
@@ -1599,7 +1605,7 @@ internal sealed class BmsLibraryMaintenanceService
     private MaintenanceWorkflowResult UpdateBmsMaintenanceInfo(
         IEnumerable<BMSFile> bmsFiles,
         bool forceUpdate,
-        BmsLibraryDbGateway dbGateway,
+        Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite,
         IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null,
         Action<string> progressLogger = null,
@@ -1607,7 +1613,7 @@ internal sealed class BmsLibraryMaintenanceService
         CancellationToken cancellationToken = default)
     {
         var result = new MaintenanceWorkflowResult();
-        if (bmsFiles == null || dbGateway == null)
+        if (bmsFiles == null || durableWrite == null)
         {
             return result;
         }
@@ -1778,17 +1784,7 @@ internal sealed class BmsLibraryMaintenanceService
                 List<BMSFileMaintenanceInfo> maintenanceInfos = [.. filesInSection.Where(file => file.maintenanceInfo.IsInformationChecked()).Select(file => file.maintenanceInfo)];
                 if (maintenanceInfos.Count > 0 || reloadedFiles.Count > 0)
                 {
-                    dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
-                    {
-                        foreach (BMSFileMaintenanceInfo maintenanceInfo in maintenanceInfos)
-                        {
-                            songDb.InsertOrReplace(maintenanceInfo, typeof(Models.LR2.LR2SongDBExtended.maintenance));
-                        }
-                        foreach (BMSFile reloadedFile in reloadedFiles)
-                        {
-                            Lr2SongDbWriter.UpsertGeneratedSong(songDb, reloadedFile);
-                        }
-                    });
+                    ApplyDurableWrite(durableWrite, new CatalogMaintenanceWriteRequest(maintenanceInfos, reloadedFiles));
                     result.HasUpdates = true;
                     result.MaintenanceInfoUpsertCount += maintenanceInfos.Count;
                     result.ReloadedSongCount += reloadedFiles.Count;
@@ -1850,7 +1846,7 @@ internal sealed class BmsLibraryMaintenanceService
     private MaintenanceWorkflowResult UpdateBmsonMaintenanceInfo(
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs,
         bool forceUpdate,
-        BmsLibraryDbGateway dbGateway,
+        Func<CatalogMaintenanceWriteRequest, CatalogMaintenanceWriteReceipt> durableWrite,
         IBmsLibraryDialogService dialogService,
         ResourceHealthLookupContext resourceLookupContext = null,
         Action<string> progressLogger = null,
@@ -1858,7 +1854,7 @@ internal sealed class BmsLibraryMaintenanceService
         CancellationToken cancellationToken = default)
     {
         var result = new MaintenanceWorkflowResult();
-        if (bmsonSongs == null || dbGateway == null)
+        if (bmsonSongs == null || durableWrite == null)
         {
             return result;
         }
@@ -2029,13 +2025,7 @@ internal sealed class BmsLibraryMaintenanceService
                 List<BMSFileMaintenanceInfo> maintenanceInfos = [.. updatedMaintenanceInfos.Where(info => info?.IsInformationChecked() == true)];
                 if (maintenanceInfos.Count > 0)
                 {
-                    dbGateway.ExecuteSongDbTransaction(delegate (Models.LR2.LR2SongDBExtended songDb)
-                    {
-                        foreach (BMSFileMaintenanceInfo maintenanceInfo in maintenanceInfos)
-                        {
-                            songDb.InsertOrReplace(maintenanceInfo, typeof(Models.LR2.LR2SongDBExtended.maintenance));
-                        }
-                    });
+                    ApplyDurableWrite(durableWrite, new CatalogMaintenanceWriteRequest(maintenanceInfos));
                     result.HasUpdates = true;
                     result.MaintenanceInfoUpsertCount += maintenanceInfos.Count;
                 }

@@ -654,7 +654,7 @@ public partial class BMSLibrary : NotificationObject
     // rwlockBMSFilesInitializedAll / rwlockBMSFilesInitializedMin
     // -> rwlockPendingInstallCharts
     // -> rwlockBMSFiles
-    // -> rwlockSongDBInstall / rwlockSongDBMaintenance
+    // -> rwlockSongDBInstall / catalog maintenance write gate
     // -> rwlockBMSScores
     private readonly ReaderWriterLockSlimWrapper rwlockBMSFilesInitializedAll = new();
 
@@ -672,11 +672,11 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly CatalogMutationOwner catalogMutationOwner;
 
+    private readonly CatalogMaintenanceOwner catalogMaintenanceOwner;
+
     private ReaderWriterLockSlimWrapper rwlockBMSFiles => catalogStorageRowsOwner.WriteGate;
 
     private readonly ReaderWriterLockSlimWrapper rwlockSongDBInstall = new();
-
-    private readonly ReaderWriterLockSlimWrapper rwlockSongDBMaintenance = new();
 
     private object lockStorageRowsVersion => catalogStorageRowsOwner.VersionGate;
 
@@ -689,14 +689,6 @@ public partial class BMSLibrary : NotificationObject
     private long deferredInstallableMaintenanceCriticalElapsedMs;
 
     private readonly object lockDeferredInstallableMaintenance = new();
-
-    private int deferredMaintenanceHydrationRequestedVersion;
-
-    private bool deferredMaintenanceHydrationRunning;
-
-    private int deferredMaintenanceHydrationLastCompletedVersion;
-
-    private readonly object lockDeferredMaintenanceHydration = new();
 
     private readonly object lockChartInfoBackfill = new();
 
@@ -1688,15 +1680,7 @@ public partial class BMSLibrary : NotificationObject
     {
         get
         {
-            return deferredMaintenanceHydrationRunning;
-        }
-        private set
-        {
-            if (deferredMaintenanceHydrationRunning != value)
-            {
-                deferredMaintenanceHydrationRunning = value;
-                RaisePropertyChanged(() => MaintenanceHydrationRunning);
-            }
+            return catalogMaintenanceOwner?.HydrationRunning == true;
         }
     }
 
@@ -1704,15 +1688,7 @@ public partial class BMSLibrary : NotificationObject
     {
         get
         {
-            return deferredMaintenanceHydrationRequestedVersion;
-        }
-        private set
-        {
-            if (deferredMaintenanceHydrationRequestedVersion != value)
-            {
-                deferredMaintenanceHydrationRequestedVersion = value;
-                RaisePropertyChanged(() => MaintenanceHydrationRequestedVersion);
-            }
+            return catalogMaintenanceOwner?.HydrationRequestedVersion ?? 0;
         }
     }
 
@@ -1720,16 +1696,15 @@ public partial class BMSLibrary : NotificationObject
     {
         get
         {
-            return deferredMaintenanceHydrationLastCompletedVersion;
+            return catalogMaintenanceOwner?.HydrationCompletedVersion ?? 0;
         }
-        private set
-        {
-            if (deferredMaintenanceHydrationLastCompletedVersion != value)
-            {
-                deferredMaintenanceHydrationLastCompletedVersion = value;
-                RaisePropertyChanged(() => MaintenanceHydrationCompletedVersion);
-            }
-        }
+    }
+
+    private void NotifyMaintenanceHydrationStateChanged()
+    {
+        RaisePropertyChanged(() => MaintenanceHydrationRunning);
+        RaisePropertyChanged(() => MaintenanceHydrationRequestedVersion);
+        RaisePropertyChanged(() => MaintenanceHydrationCompletedVersion);
     }
 
     public bool ChartDigestBackfillRunning
@@ -2906,11 +2881,33 @@ public partial class BMSLibrary : NotificationObject
         var libraryFileScanHost = new LibraryFileScanPipelineHost(this);
         catalogMutationOwner = new(
             catalogStorageRowsOwner,
-            catalogOwnedCollectionOwner);
+            catalogOwnedCollectionOwner,
+            dbGateway);
         resourceHealthOwner = new(
             maintenanceService,
             LogInstallPerformance,
             GetCurrentResourceHealthIndexVersion);
+        catalogMaintenanceOwner = new(
+            initializationService,
+            maintenanceService,
+            catalogMutationOwner,
+            dbGateway,
+            resourceHealthOwner,
+            () => CurrentOptionsSnapshot,
+            CreateOwnedChartStorageOwnerViewUnsafe,
+            CreateFullOwnedResourceMaintenanceTargetSet,
+            catalogMutationOwner.EnterStorageRowsWriteGuard,
+            directoryResourceLookupCache,
+            dialogService,
+            () => IsShutdownRequested,
+            TrySkipForShutdown,
+            () => StartupBackgroundTaskScheduler,
+            ReportStartupBackgroundTask,
+            GetDisplayedExceptionMessage,
+            PublishMaintenanceHydrationReceipt,
+            LogInstallPerformance,
+            MarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure,
+            NotifyMaintenanceHydrationStateChanged);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             libraryFileScanHost,
             libraryFileScanHost,
@@ -4888,7 +4885,7 @@ public partial class BMSLibrary : NotificationObject
                 stopwatchSetMode.Stop();
                 setModeMs = stopwatchSetMode.ElapsedMilliseconds;
                 var stopwatchSetHealth = Stopwatch.StartNew();
-                setOwnedMaintenanceInfo("initialize_set_maintenance");
+                ApplyOwnedCatalogMaintenance("initialize_set_maintenance");
                 stopwatchSetHealth.Stop();
                 setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
             }
@@ -7240,10 +7237,11 @@ public partial class BMSLibrary : NotificationObject
     private void MarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure(Exception ex, string reason)
     {
         string displayedMessage = GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | ");
+        bool encodingUpsert = string.Equals(reason, "lr2_song_db_encoding_upsert_failed", StringComparison.Ordinal);
         MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
             CurrentOptionsSnapshot,
-            stage: "lr2_song_db_maintenance_write_failed",
-            detail: "lr2_song_db_maintenance_write_failed: " + displayedMessage,
+            stage: encodingUpsert ? "lr2_song_db_encoding_upsert_failed" : "lr2_song_db_maintenance_write_failed",
+            detail: (encodingUpsert ? "lr2_song_db_encoding_upsert_failed: " : "lr2_song_db_maintenance_write_failed: ") + displayedMessage,
             logReason: string.IsNullOrWhiteSpace(reason) ? "maintenance_update" : reason);
     }
 
@@ -8961,48 +8959,24 @@ public partial class BMSLibrary : NotificationObject
 
     private void QueueDeferredMaintenanceHydration(string reason)
     {
-        MaintenanceHydrationCoordinator.Queue(this, reason);
+        catalogMaintenanceOwner.QueueHydration(reason);
     }
 
-    private void ApplyMaintenanceHydrationResult(MaintenanceTableHydrationResult result)
+    private void PublishMaintenanceHydrationReceipt(CatalogMaintenanceHydrationReceipt receipt)
     {
-        var coordinator = new MaintenanceHydrationApplyCoordinator(
-            new MaintenanceHydrationApplyHost(this),
-            resourceHealthOwner);
-        coordinator.Apply(result);
-    }
-
-    private sealed class MaintenanceHydrationApplyHost(BMSLibrary owner) : IMaintenanceHydrationApplyHost
-    {
-        public IDisposable EnterOwnedStorageWriteLock()
+        if (receipt == null)
         {
-            return owner.rwlockBMSFiles.GetWriterGuard();
+            return;
         }
-
-        public OwnedChartStorageOwnerView CreateOwnedChartStorageOwnerView()
+        var mutationResult = new OwnedChartCollectionMutationResult
         {
-            return owner.CreateOwnedChartStorageOwnerViewUnsafe();
-        }
-
-        public ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason)
-        {
-            return owner.CreateFullOwnedResourceMaintenanceTargetSet(reason);
-        }
-
-        public int DeleteStaleMaintenanceRows(IEnumerable<string> staleMaintenancePaths)
-        {
-            using (owner.rwlockSongDBMaintenance.GetWriterGuard())
-            {
-                return owner.dbGateway.DeleteMaintenanceRows(staleMaintenancePaths);
-            }
-        }
-
-        public void DispatchMaintenanceHydrationResult(
-            MaintenanceTableHydrationResult result,
-            ResourceMaintenanceTargetSet resourceHealthTargets)
-        {
-            owner.DispatchMaintenanceHydrationResult(result, resourceHealthTargets);
-        }
+            WarningPresentationChanged = receipt.ResourceHealthMutation.HasChanges,
+            MaintenancePresentationChanged = receipt.Result.ViewRefreshQueued
+                || receipt.ResourceHealthMutation.HasChanges
+        };
+        CopyResourceHealthIndexMutation(receipt.ResourceHealthMutation, mutationResult.ResourceHealthMutation);
+        DispatchOwnedChartCollectionMutation(mutationResult, "maintenance_hydration");
+        receipt.Result.ResourceHealthIndexMs = mutationResult.ResourceHealthDispatchResult?.IndexMs ?? 0L;
     }
 
     private void QueueDeferredInstallableMaintenance(string reason, long criticalElapsedMs, string dependency = null)
@@ -11572,22 +11546,6 @@ public partial class BMSLibrary : NotificationObject
         destination.InvalidateIfDeltaFails = source.InvalidateIfDeltaFails;
     }
 
-    private static OwnedChartCollectionMutationResult BuildResourceHealthWarningPresentationMutationResult(
-        IEnumerable<ChartFile> updatedTargets,
-        int? deltaBaseResourceHealthInputVersion = null,
-        int? deltaTargetResourceHealthInputVersion = null)
-    {
-        var result = new OwnedChartCollectionMutationResult
-        {
-            WarningPresentationChanged = true
-        };
-        result.ResourceHealthMutation.UpdatedTargets.AddRange((updatedTargets ?? []).Where(chart => chart != null));
-        result.ResourceHealthMutation.DeltaBaseResourceHealthInputVersion = deltaBaseResourceHealthInputVersion;
-        result.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion = deltaTargetResourceHealthInputVersion;
-        result.ResourceHealthMutation.InvalidateIfDeltaFails = true;
-        return result;
-    }
-
     private void DispatchOwnedChartCollectionMutation(OwnedChartCollectionMutationResult result, string reason)
     {
         if (result == null)
@@ -11820,44 +11778,6 @@ public partial class BMSLibrary : NotificationObject
                 WarningPresentationChanged = true
             },
             reason);
-    }
-
-    private void DispatchMaintenanceHydrationResult(
-        MaintenanceTableHydrationResult hydrationResult,
-        ResourceMaintenanceTargetSet fullOwnedTargets)
-    {
-        var coordinator = new MaintenanceHydrationDispatchCoordinator(new MaintenanceHydrationDispatchHost(this));
-        coordinator.Dispatch(hydrationResult, fullOwnedTargets);
-    }
-
-    private sealed class MaintenanceHydrationDispatchHost(BMSLibrary owner) : IMaintenanceHydrationDispatchHost
-    {
-        public long DispatchMaintenanceHydration(MaintenanceHydrationDispatchPlan plan)
-        {
-            return owner.DispatchMaintenanceHydration(plan);
-        }
-    }
-
-    private long DispatchMaintenanceHydration(MaintenanceHydrationDispatchPlan plan)
-    {
-        OwnedChartCollectionMutationResult mutationResult = CreateMaintenanceHydrationMutationResult(plan);
-        DispatchOwnedChartCollectionMutation(mutationResult, "maintenance_hydration");
-        return mutationResult.ResourceHealthDispatchResult?.IndexMs ?? 0L;
-    }
-
-    private static OwnedChartCollectionMutationResult CreateMaintenanceHydrationMutationResult(
-        MaintenanceHydrationDispatchPlan plan)
-    {
-        if (plan == null)
-        {
-            throw new ArgumentNullException(nameof(plan));
-        }
-        var result = new OwnedChartCollectionMutationResult(plan.ResourceHealthMutation)
-        {
-            WarningPresentationChanged = plan.WarningPresentationChanged,
-            MaintenancePresentationChanged = plan.MaintenancePresentationChanged
-        };
-        return result;
     }
 
     private void PublishOwnedCollectionChangeNotification(OwnedChartCollectionMutationResult result)
@@ -13134,7 +13054,7 @@ public partial class BMSLibrary : NotificationObject
         return resourceHealthOwner.TryGetCurrentSnapshot();
     }
 
-    private MaintenanceWorkflowResult setMaintenanceInfo(
+    private MaintenanceWorkflowResult ApplyCatalogMaintenance(
         IEnumerable<ChartFile> charts,
         bool forceUpdate = false,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
@@ -13149,7 +13069,7 @@ public partial class BMSLibrary : NotificationObject
         using (rwlockBMSFiles.GetReaderGuard())
         {
             ResourceMaintenanceTargetSet maintenanceTargets = CreateResourceMaintenanceTargetSet(charts);
-            return setMaintenanceInfoCoreLocked(
+            return ApplyCatalogMaintenanceCore(
                 maintenanceTargets,
                 forceUpdate,
                 progressReporter,
@@ -13160,7 +13080,7 @@ public partial class BMSLibrary : NotificationObject
         }
     }
 
-    private MaintenanceWorkflowResult setOwnedMaintenanceInfo(
+    private MaintenanceWorkflowResult ApplyOwnedCatalogMaintenance(
         string reason,
         bool forceUpdate = false,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
@@ -13171,7 +13091,7 @@ public partial class BMSLibrary : NotificationObject
         using (rwlockBMSFiles.GetReaderGuard())
         {
             ResourceMaintenanceTargetSet maintenanceTargets = CreateFullOwnedResourceMaintenanceTargetSet(reason);
-            return setMaintenanceInfoCoreLocked(
+            return ApplyCatalogMaintenanceCore(
                 maintenanceTargets,
                 forceUpdate,
                 progressReporter,
@@ -13182,14 +13102,14 @@ public partial class BMSLibrary : NotificationObject
         }
     }
 
-    private MaintenanceWorkflowResult setInstallableMaintenanceInfo(
+    private MaintenanceWorkflowResult ApplyInstallableCatalogMaintenance(
         string reason,
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
         if (!CanUseHydratedMaintenanceSnapshotForInstallableMaintenance())
         {
-            return setOwnedMaintenanceInfo(
+            return ApplyOwnedCatalogMaintenance(
                 reason,
                 forceUpdate: false,
                 progressReporter: progressReporter,
@@ -13201,7 +13121,7 @@ public partial class BMSLibrary : NotificationObject
         using (rwlockBMSFiles.GetReaderGuard())
         {
             ResourceMaintenanceTargetSet maintenanceTargets = CreatePendingInstallableMaintenanceTargetSetUnsafe(reason);
-            return setMaintenanceInfoCoreLocked(
+            return ApplyCatalogMaintenanceCore(
                 maintenanceTargets,
                 forceUpdate: false,
                 progressReporter,
@@ -13214,12 +13134,7 @@ public partial class BMSLibrary : NotificationObject
 
     private bool CanUseHydratedMaintenanceSnapshotForInstallableMaintenance()
     {
-        lock (lockDeferredMaintenanceHydration)
-        {
-            return MaintenanceHydrationRequestedVersion > 0
-                && MaintenanceHydrationCompletedVersion >= MaintenanceHydrationRequestedVersion
-                && !MaintenanceHydrationRunning;
-        }
+        return catalogMaintenanceOwner?.HydrationReadyForInstallableMaintenance == true;
     }
 
     private ResourceMaintenanceTargetSet CreatePendingInstallableMaintenanceTargetSetUnsafe(string reason)
@@ -13295,7 +13210,7 @@ public partial class BMSLibrary : NotificationObject
         return CreateResourceMaintenanceTargetSet(targets);
     }
 
-    private MaintenanceWorkflowResult setMaintenanceInfoCoreLocked(
+    private MaintenanceWorkflowResult ApplyCatalogMaintenanceCore(
         ResourceMaintenanceTargetSet maintenanceTargets,
         bool forceUpdate,
         Action<MaintenanceWorkflowProgress> progressReporter,
@@ -13304,67 +13219,17 @@ public partial class BMSLibrary : NotificationObject
         string resourceHealthMutationReason,
         out List<ChartFile> currentMaintenanceTargetCharts)
     {
-        List<ChartFile> maintenanceTargetCharts = [.. maintenanceTargets.Charts];
-        currentMaintenanceTargetCharts = maintenanceTargetCharts;
-        if (maintenanceTargetCharts == null || maintenanceTargetCharts.Count == 0)
-        {
-            return new MaintenanceWorkflowResult();
-        }
-        int bmsTargetCount = maintenanceTargetCharts.Count(chart => ChartFileKindResolver.IsBmsChartFile(chart?.GetBmsStorageOwner()));
-        int bmsonTargetCount = maintenanceTargetCharts
-            .Select(chart => chart?.GetBmsonStorageOwner())
-            .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
-            .Select(song => song.path)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .Count();
-        LogInstallPerformance("maintenance_update start inputCount=" + maintenanceTargetCharts.Count
-            + " forceUpdate=" + forceUpdate
-            + " bmsTargets=" + bmsTargetCount
-            + " bmsonTargets=" + bmsonTargetCount);
-        MaintenanceWorkflowResult workflowResult;
-        int deltaBaseResourceHealthInputVersion;
-        int deltaTargetResourceHealthInputVersion;
-        bool resourceHealthIndexCurrentBeforeUpdate;
-        try
-        {
-            using (rwlockSongDBMaintenance.GetWriterGuard())
-            {
-                var resourceLookupContext = new ResourceHealthLookupContext(directoryResourceLookupCache);
-                ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthInputMutation = resourceHealthOwner.BeginInputMutation();
-                deltaBaseResourceHealthInputVersion = resourceHealthInputMutation.BaseInputVersion;
-                resourceHealthIndexCurrentBeforeUpdate = resourceHealthInputMutation.BaseIndexCurrent;
-                try
-                {
-                    workflowResult = maintenanceService.UpdateMaintenanceInfo(maintenanceTargetCharts, forceUpdate, dbGateway, dialogService, resourceLookupContext, LogInstallPerformance, progressReporter, cancellationToken);
-                    if (ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(workflowResult))
-                    {
-                        maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);
-                        maintenanceTargets = maintenanceTargets.WithCharts(maintenanceTargetCharts);
-                    }
-                }
-                finally
-                {
-                    resourceHealthInputMutation.Dispose();
-                }
-                deltaTargetResourceHealthInputVersion = resourceHealthInputMutation.TargetInputVersion;
-            }
-        }
-        catch (Exception ex)
-        {
-            MarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure(ex, resourceHealthMutationReason);
-            throw;
-        }
-        currentMaintenanceTargetCharts = maintenanceTargetCharts;
-        ResourceHealthIndexMutation resourceHealthMutation = ResourceHealthIndexMutationPlanner.BuildMaintenanceMutation(
-            maintenanceTargets.WithResourceHealthInputVersion(deltaTargetResourceHealthInputVersion),
+        CatalogMaintenanceOperationReceipt receipt = catalogMaintenanceOwner.ApplyMaintenance(
+            maintenanceTargets,
+            forceUpdate,
+            progressReporter,
+            cancellationToken,
             resourceHealthIndexUpdateMode,
-            resourceHealthIndexCurrentBeforeUpdate,
-            workflowResult.HasUpdates,
-            deltaBaseResourceHealthInputVersion,
-            deltaTargetResourceHealthInputVersion);
-        resourceHealthMutationReason = string.IsNullOrWhiteSpace(resourceHealthMutationReason)
-            ? "setMaintenanceInfo"
-            : resourceHealthMutationReason;
+            resourceHealthMutationReason);
+        MaintenanceWorkflowResult workflowResult = receipt.WorkflowResult;
+        currentMaintenanceTargetCharts = [.. receipt.TargetCharts];
+        resourceHealthMutationReason = receipt.Reason;
+        ResourceHealthIndexMutation resourceHealthMutation = receipt.ResourceHealthMutation;
         OwnedChartCollectionMutationResult mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
             resourceHealthMutation,
             workflowResult.HasUpdates);
@@ -13468,7 +13333,7 @@ public partial class BMSLibrary : NotificationObject
                     : "resource_health_filter";
                 if (forceUpdate)
                 {
-                    setMaintenanceInfoCoreLocked(
+                    ApplyCatalogMaintenanceCore(
                         targetSet,
                         forceUpdate: true,
                         progressReporter: null,
@@ -13504,7 +13369,7 @@ public partial class BMSLibrary : NotificationObject
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
-        MaintenanceWorkflowResult result = setMaintenanceInfo(
+        MaintenanceWorkflowResult result = ApplyCatalogMaintenance(
             charts,
             forceUpdate: true,
             progressReporter: progressReporter,
@@ -13524,7 +13389,7 @@ public partial class BMSLibrary : NotificationObject
         Action<MaintenanceWorkflowProgress> progressReporter = null,
         CancellationToken cancellationToken = default)
     {
-        MaintenanceWorkflowResult result = setOwnedMaintenanceInfo(
+        MaintenanceWorkflowResult result = ApplyOwnedCatalogMaintenance(
             "manual_rescan_all_owned",
             forceUpdate: true,
             progressReporter: progressReporter,
@@ -13534,8 +13399,8 @@ public partial class BMSLibrary : NotificationObject
 
     internal void SetChartResourceWarningsIgnored(IEnumerable<ChartFile> charts, bool unset = false)
     {
-        OwnedChartCollectionMutationResult mutationResult = null;
         string reason = unset ? "resource_health_unignore" : "resource_health_ignore";
+        OwnedChartCollectionMutationResult mutationResult = null;
         using (rwlockBMSFilesInitializedMin.GetReaderGuard())
         {
             using (rwlockBMSFiles.GetReaderGuard())
@@ -13545,31 +13410,11 @@ public partial class BMSLibrary : NotificationObject
                 {
                     return;
                 }
-                using (rwlockSongDBMaintenance.GetWriterGuard())
-                {
-                    ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = resourceHealthOwner.BeginInputMutation();
-                    try
-                    {
-                        try
-                        {
-                            List<BMSFileMaintenanceInfo> changes = maintenanceService.SetChartResourceWarningsIgnored(targets, unset);
-                            dbGateway.UpsertMaintenanceInfos(changes);
-                        }
-                        catch
-                        {
-                            resourceHealthOwner.ForceInvalidate("resource_health_ignore_failed");
-                            throw;
-                        }
-                    }
-                    finally
-                    {
-                        resourceHealthMutation.Dispose();
-                    }
-                    mutationResult = BuildResourceHealthWarningPresentationMutationResult(
-                        targets,
-                        resourceHealthMutation.BaseInputVersion,
-                        resourceHealthMutation.TargetInputVersion);
-                }
+                CatalogMaintenanceOperationReceipt receipt = catalogMaintenanceOwner.ApplyWarningIgnore(targets, unset, reason);
+                mutationResult = BuildOwnedChartCollectionMaintenanceMutationResult(
+                    receipt.ResourceHealthMutation,
+                    receipt.WorkflowResult.HasUpdates);
+                mutationResult.MaintenancePresentationChanged = false;
             }
         }
         DispatchOwnedChartCollectionMutation(mutationResult, reason);
@@ -13615,21 +13460,7 @@ public partial class BMSLibrary : NotificationObject
         {
             using (rwlockBMSFiles.GetWriterGuard())
             {
-                MaintenanceEncodingUpdateResult updateResult = maintenanceService.ApplyEncoding(bmsFiles, encoding);
-                if (updateResult.SongsToUpsert.Count > 0)
-                {
-                    ExecuteLr2SongDbWrite(
-                        () => dbGateway.UpsertSongs(updateResult.SongsToUpsert),
-                        stage: "lr2_song_db_encoding_upsert_failed",
-                        logReason: nameof(SetBMSFilesEncoding));
-                }
-                if (updateResult.MaintenanceInfosToUpsert.Count > 0)
-                {
-                    using (rwlockSongDBMaintenance.GetWriterGuard())
-                    {
-                        dbGateway.UpsertMaintenanceInfos(updateResult.MaintenanceInfosToUpsert);
-                    }
-                }
+                catalogMaintenanceOwner.ApplyEncoding(bmsFiles, encoding);
             }
         }
     }

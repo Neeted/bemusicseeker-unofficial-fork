@@ -27,7 +27,7 @@ internal interface ILibraryFixInstallationHost
 
     List<ChartFile> NormalizeResourceMaintenanceTargetCharts(IEnumerable<ChartFile> charts);
 
-    void SetFixInstallationMaintenanceInfo(IEnumerable<ChartFile> charts);
+    void ApplyFixInstallationMaintenance(IEnumerable<ChartFile> charts);
 }
 
 internal static class LibraryFixInstallationCoordinator
@@ -68,7 +68,7 @@ internal static class LibraryFixInstallationCoordinator
             List<ChartFile> maintenanceTargets = host.NormalizeResourceMaintenanceTargetCharts(result.MaintenanceCharts);
             if (maintenanceTargets.Count > 0)
             {
-                host.SetFixInstallationMaintenanceInfo(maintenanceTargets);
+                host.ApplyFixInstallationMaintenance(maintenanceTargets);
             }
         });
     }

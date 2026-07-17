@@ -60,12 +60,4 @@ internal static class ResourceHealthIndexMutationPlanner
         };
     }
 
-    internal static MaintenanceHydrationDispatchPlan BuildMaintenanceHydrationDispatchPlan(
-        ResourceMaintenanceTargetSet fullOwnedTargets)
-    {
-        return new MaintenanceHydrationDispatchPlan(
-            warningPresentationChanged: true,
-            maintenancePresentationChanged: true,
-            BuildMaintenanceHydrationFullRebuildMutation(fullOwnedTargets));
-    }
 }

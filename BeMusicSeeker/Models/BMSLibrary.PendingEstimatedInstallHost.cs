@@ -150,24 +150,29 @@ public partial class BMSLibrary : IPendingEstimatedInstallHost
         };
     }
 
-    int IPendingEstimatedInstallHost.ApplyEstimatedInstallMaintenanceAndInlineChartInfo(IEnumerable<ChartFile> deferredMaintenanceCharts, IEnumerable<ChartFile> addedCharts)
+    int IPendingEstimatedInstallHost.ApplyEstimatedInstallMaintenance(IEnumerable<ChartFile> deferredMaintenanceCharts)
     {
         List<ChartFile> estimatedInstallMaintenanceTargets = BuildEstimatedInstallMaintenanceTargets(deferredMaintenanceCharts);
         if (estimatedInstallMaintenanceTargets.Count > 0)
         {
-            setMaintenanceInfo(
+            ApplyCatalogMaintenance(
                 estimatedInstallMaintenanceTargets,
                 forceUpdate: true,
                 resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeltaOnUpdates,
                 resourceHealthMutationReason: "install_package_estimated");
         }
+        return estimatedInstallMaintenanceTargets.Count;
+    }
+
+    void IPendingEstimatedInstallHost.BuildEstimatedInstallInlineChartInfo(IEnumerable<ChartFile> deferredMaintenanceCharts, IEnumerable<ChartFile> addedCharts)
+    {
+        List<ChartFile> estimatedInstallMaintenanceTargets = BuildEstimatedInstallMaintenanceTargets(deferredMaintenanceCharts);
         List<ChartFile> estimatedInstallInlineTargets = BuildEstimatedInstallMaintenanceTargets(
             estimatedInstallMaintenanceTargets.Concat(
                 CreateAddedBmsonChartProjections(addedCharts)));
         BuildAndPersistInlineChartInfoForInstalledCharts(
             "install_package_estimated_inline",
             estimatedInstallInlineTargets);
-        return estimatedInstallMaintenanceTargets.Count;
     }
 
     void IPendingEstimatedInstallHost.ShowEstimatedCleanupOnlyCompletedWarning(int cleanupOnlySucceeded)

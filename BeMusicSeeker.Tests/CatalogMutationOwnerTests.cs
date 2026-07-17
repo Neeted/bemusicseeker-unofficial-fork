@@ -510,6 +510,43 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(bms.hash, ownedCollectionOwner.Collection.CreateDuplicateChartRowSnapshot().Rows.Single().LookupHash);
     }
 
+    [TestMethod]
+    public void MaintenanceWriteRequest_SnapshotsPersistenceInputs()
+    {
+        TestableBmsFile song = CreateBms("snapshot.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        song.SetMaintenanceInfo(new BMSFileMaintenanceInfo(song)
+        {
+            encoding = "shift_jis",
+            is_encoding_fixed = true
+        }, suppressPropertyChanged: true, MaintenanceInfoOrigin.DbHydrated);
+        var bmson = CreateBmson("snapshot.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        bmson.MaintenanceInfo = new BMSFileMaintenanceInfo
+        {
+            path = bmson.path,
+            hash = bmson.md5,
+            encoding = "utf-8"
+        };
+
+        CatalogMaintenanceWriteRequest request = new(
+            [song.TryGetMaintenanceInfoWithoutCreating()],
+            [song],
+            [bmson],
+            [" C:\\Library\\stale.maintenance ", "c:\\library\\STALE.MAINTENANCE"]);
+
+        song.path = "C:\\Library\\changed.bms";
+        song.SetTitle("changed");
+        bmson.title = "changed";
+
+        Assert.AreEqual(1, request.MaintenanceInfos.Count);
+        Assert.AreEqual("C:\\Library\\snapshot.bms", request.MaintenanceInfos[0].path);
+        Assert.AreEqual(1, request.Songs.Count);
+        Assert.AreEqual("C:\\Library\\snapshot.bms", request.Songs[0].path);
+        Assert.AreEqual(1, request.BmsonSongs.Count);
+        Assert.AreEqual("snapshot.bmson", request.BmsonSongs[0].title);
+        Assert.AreEqual(1, request.StaleMaintenancePaths.Count);
+        Assert.AreEqual("C:\\Library\\stale.maintenance", request.StaleMaintenancePaths[0]);
+    }
+
     private static TestableBmsFile CreateBms(string fileName, string hash)
     {
         var file = new TestableBmsFile

@@ -155,12 +155,12 @@ public partial class BMSLibrary : ILibraryMergeDirectoryHost
         return CreateOwnedStorageTargetsForSubtreeDirectoryUnsafe(directoryPath);
     }
 
-    void ILibraryMergeDirectoryHost.SetMergeFolderMaintenanceInfo(IEnumerable<ChartFile> charts)
+    void ILibraryMergeDirectoryHost.ApplyMergeFolderMaintenance(IEnumerable<ChartFile> charts)
     {
         // Merge finalizes BMSFiles/BmsonSongs after maintenance. Building the full warning index here
         // would immediately be invalidated by that final library replacement, so defer it to the next view
         // that actually needs the resource-health projection.
-        setMaintenanceInfo(
+        ApplyCatalogMaintenance(
             charts,
             forceUpdate: true,
             resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates,

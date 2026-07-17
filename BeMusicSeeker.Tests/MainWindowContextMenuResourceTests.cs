@@ -3924,7 +3924,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(libraryCode.Contains("ResolveAddedBmsonSongsFromInstalledPackages"));
         Assert.IsFalse(libraryCode.Contains("CreateAddedBmsonChartProjectionsFromInstalledPackages"));
         string estimatedInstallCoordinator = ExtractMethodBody(libraryCode, "internal static void InstallPendingPackagesToEstimatedDestinations");
-        string estimatedInstallMaintenanceBridge = ExtractMethodBody(libraryCode, "int IPendingEstimatedInstallHost.ApplyEstimatedInstallMaintenanceAndInlineChartInfo");
+        string estimatedInstallMaintenanceBridge = ExtractMethodBody(libraryCode, "int IPendingEstimatedInstallHost.ApplyEstimatedInstallMaintenance");
         Assert.IsFalse(estimatedInstallCoordinator.Contains("foreach (LR2SongDBExtended.bmson_song song in BmsonSongs"));
         StringAssert.Contains(estimatedInstallCoordinator, "batchApplyContext.AddedCharts");
         StringAssert.Contains(libraryCode, "CreateAddedBmsonChartProjections(addedCharts)");
@@ -3934,7 +3934,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(estimatedBatchApplyMethod, "host.LogReverseLookupMutationAndQueueWarmupIfNeeded(\"install_package\", reverseLookupMutation);");
         StringAssert.Contains(libraryCode, "resource_health_index_delta reason=");
         StringAssert.Contains(libraryCode, "if (estimatedInstallMaintenanceTargets.Count > 0)");
-        StringAssert.Contains(libraryCode, "setMaintenanceInfo(");
+        StringAssert.Contains(libraryCode, "ApplyCatalogMaintenance(");
         StringAssert.Contains(libraryCode, "estimatedInstallMaintenanceTargets,");
         StringAssert.Contains(libraryCode, "resourceHealthMutationReason: \"install_package_estimated\"");
         StringAssert.Contains(resourceHealthCode, "internal ResourceHealthIndexSnapshot ApplyDelta(");
@@ -3952,13 +3952,13 @@ public sealed class MainWindowContextMenuResourceTests
         string root = FindRepositoryRoot();
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string mergeMethod = ExtractMethodBody(libraryCode, "internal static void MergeChartDirectory(");
-        string mergeMaintenanceHostMethod = ExtractMethodBody(libraryCode, "void ILibraryMergeDirectoryHost.SetMergeFolderMaintenanceInfo");
+        string mergeMaintenanceHostMethod = ExtractMethodBody(libraryCode, "void ILibraryMergeDirectoryHost.ApplyMergeFolderMaintenance");
         string duplicateSearchMethod = ExtractMethodBody(libraryCode, "public void SearchDuplicateChartGroups()");
 
         StringAssert.Contains(libraryCode, "DeferOnUpdates");
         StringAssert.Contains(libraryCode, "ResourceHealthIndexUpdateMode.DeltaOnUpdates");
-        StringAssert.Contains(libraryCode, "resourceHealthMutationReason = string.IsNullOrWhiteSpace(resourceHealthMutationReason)");
-        StringAssert.Contains(libraryCode, "? \"setMaintenanceInfo\"");
+        StringAssert.Contains(libraryCode, "resourceHealthMutationReason = receipt.Reason;");
+        StringAssert.Contains(libraryCode, "Reason = reason ?? \"maintenance\"");
         StringAssert.Contains(libraryCode, "BuildOwnedChartCollectionMaintenanceMutationResult(");
         StringAssert.Contains(libraryCode, "DispatchOwnedChartCollectionMutation(mutationResult, resourceHealthMutationReason)");
         StringAssert.Contains(mergeMethod, "ChartStorageTargetSet movedTargets = ChartStorageTargetSet.FromCharts");
