@@ -46,7 +46,21 @@ public partial class BMSLibrary : IPackageInstallHost
         IPrimaryHashLookup hashSnapshot,
         ISet<string> excludedComponentPaths)
     {
-        return MoveChartPackageFiles(package, destinationDirectory, true, deleteAllContents, hashSnapshot, excludedComponentPaths);
+        return packageInstallService.MovePackageFiles(
+            package,
+            destinationDirectory,
+            CurrentOptionsSnapshot,
+            CreateChartFolderPathFromCharts,
+            GetDisplayedExceptionMessage,
+            fileMutationService,
+            scopedOperationDialogService,
+            targetOnlyFileMutationOptions,
+            recursiveDirectoryTreeFileMutationOptions,
+            LogInstallPerformance,
+            true,
+            deleteAllContents,
+            hashSnapshot,
+            excludedComponentPaths);
     }
 
     void IPackageInstallHost.AddDeferredMaintenanceCharts(List<ChartFile> deferredMaintenanceCharts, IEnumerable<ChartFile> addedCharts)
