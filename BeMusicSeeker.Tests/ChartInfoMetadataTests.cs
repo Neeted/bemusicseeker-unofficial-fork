@@ -4539,7 +4539,13 @@ createTempDirectory);
             logInstallPerformance,
             logInstallPerformanceWarn,
             chartInfoRowsCommitted,
-            existingRowsSnapshot);
+            existingRowsSnapshot,
+            (digestEntries, chartInfoRows, parseFailureRows, parseFailureDeleteMd5s) =>
+                gateway.UpsertChartInfoBackfillChunk(
+                    digestEntries,
+                    chartInfoRows,
+                    parseFailureRows,
+                    parseFailureDeleteMd5s));
     }
 
     private static List<ChartFile> CreateChartSnapshot(

@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
@@ -545,6 +546,119 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual("snapshot.bmson", request.BmsonSongs[0].title);
         Assert.AreEqual(1, request.StaleMaintenancePaths.Count);
         Assert.AreEqual("C:\\Library\\stale.maintenance", request.StaleMaintenancePaths[0]);
+    }
+
+    [TestMethod]
+    public void ChartInfoWriteRequest_SnapshotsRowsAndDeleteKeys()
+    {
+        var chartInfo = new LR2SongDBExtended.chart_info
+        {
+            sha256 = new string('a', 64),
+            md5 = new string('b', 32),
+            charthash = new string('c', 64),
+            notes = 123,
+            parser_version = 7,
+            updated_at = DateTime.UtcNow
+        };
+        var failure = new LR2SongDBExtended.chart_info_parse_failure
+        {
+            md5 = chartInfo.md5,
+            sha256 = chartInfo.sha256,
+            path = "C:\\Library\\snapshot.bms",
+            failure_kind = "parse_failed",
+            parser_version = 7,
+            message = "original"
+        };
+        CatalogChartInfoWriteRequest request = new(
+            [new ChartDigestBackfillEntry(chartInfo.md5, chartInfo.sha256)],
+            [chartInfo],
+            [failure],
+            ["  " + chartInfo.md5, chartInfo.md5.ToUpperInvariant()]);
+
+        chartInfo.notes = 999;
+        failure.message = "changed";
+
+        Assert.AreEqual(1, request.DigestEntries.Count);
+        Assert.AreEqual(123, request.ChartInfoRows[0].notes);
+        Assert.AreEqual("original", request.ParseFailureRows[0].message);
+        Assert.AreEqual(1, request.ParseFailureDeleteMd5s.Count);
+    }
+
+    [TestMethod]
+    public void ChartInfoOwner_UpsertUsesSha256ThenDeterministicMd5Candidate()
+    {
+        var owner = new CatalogChartInfoOwner(
+            _ => { },
+            () => false,
+            (_, _) => false,
+            () => null,
+            _ => { });
+        var first = new LR2SongDBExtended.chart_info
+        {
+            sha256 = new string('b', 64),
+            md5 = new string('a', 32)
+        };
+        var second = new LR2SongDBExtended.chart_info
+        {
+            sha256 = new string('a', 64),
+            md5 = first.md5
+        };
+
+        owner.ReplaceIndex([first], hydrated: true);
+        owner.UpsertIndex([second], "test");
+
+        Assert.AreSame(second, owner.ResolveChartInfo(null, first.md5, null, null));
+        Assert.AreSame(first, owner.ResolveChartInfo(first.sha256, null, null, null));
+    }
+
+    [TestMethod]
+    public void ChartInfoOwner_QueueHydration_WhenSchedulerRejects_CompletesCurrentRequest()
+    {
+        var notifications = new System.Collections.Generic.List<string>();
+        Func<string, string, string, Func<Task>, bool> rejectScheduler = (_, _, _, _) => false;
+        var owner = new CatalogChartInfoOwner(
+            notifications.Add,
+            () => false,
+            (_, _) => false,
+            () => rejectScheduler,
+            _ => { });
+
+        owner.QueueHydration("test_scheduler_rejected", queueBackfillAfterHydration: true, () => Task.CompletedTask);
+
+        Assert.AreEqual(1, owner.ChartInfoHydrationRequestedVersion);
+        Assert.AreEqual(1, owner.ChartInfoHydrationCompletedVersion);
+        Assert.IsFalse(owner.ChartInfoHydrationRunning);
+        CollectionAssert.Contains(notifications, nameof(BMSLibrary.ChartInfoHydrationRunning));
+    }
+
+    [TestMethod]
+    public void ChartInfoOwner_ResolverSnapshot_ExcludesStaleParserRows()
+    {
+        var owner = new CatalogChartInfoOwner(
+            _ => { },
+            () => false,
+            (_, _) => false,
+            () => null,
+            _ => { });
+        string sha256 = new string('a', 64);
+        string md5 = new string('b', 32);
+        owner.ReplaceIndex(
+        [
+            new LR2SongDBExtended.chart_info
+            {
+                sha256 = sha256,
+                md5 = md5,
+                parser_version = BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1
+            }
+        ],
+        hydrated: true);
+        var row = new TestableBmsFile();
+        row.SetSha256(sha256);
+        row.SetHash(md5);
+
+        Func<BMSFile, LR2SongDBExtended.chart_info> resolver = owner.CreateLr2ResolverSnapshot();
+
+        Assert.IsNull(resolver(row));
     }
 
     private static TestableBmsFile CreateBms(string fileName, string hash)

@@ -79,6 +79,11 @@ public partial class BMSLibrary : ILr2SongDbSyncRequestHost
         return dbGateway.OpenSongDb();
     }
 
+    IDisposable ILr2SongDbSyncRequestHost.EnterLr2SongDbSyncCatalogMutationLease()
+    {
+        return catalogMutationOwner.EnterMaintenanceWriteGuard();
+    }
+
     void ILr2SongDbSyncRequestHost.PublishLr2SongDbSyncStatus(Lr2SongDbSyncStatusSnapshot status)
     {
         PublishLr2SongDbSyncStatus(status);
@@ -194,6 +199,13 @@ public partial class BMSLibrary : ILr2SongDbSyncRequestHost
     void ILr2SongDbSyncRequestHost.UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows)
     {
         UpsertChartInfoIndexRows(rows, "lr2_song_db_sync_inline_chart_info", dispatchPresentation: false);
+    }
+
+    CatalogChartInfoWriteReceipt ILr2SongDbSyncRequestHost.ApplyLr2SongDbSyncChartInfoWrite(
+        LR2SongDBExtended songDb,
+        CatalogChartInfoWriteRequest request)
+    {
+        return catalogMutationOwner.ApplyChartInfoWriteInTransaction(songDb, request);
     }
 
     bool ILr2SongDbSyncRequestHost.IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input)

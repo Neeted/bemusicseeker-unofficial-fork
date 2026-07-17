@@ -73,7 +73,8 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformance = null,
         Action<string> logInstallPerformanceWarn = null,
         Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted = null,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null)
+        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot = null,
+        Action<IReadOnlyList<ChartDigestBackfillEntry>, IReadOnlyList<LR2SongDBExtended.chart_info>, IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure>, IReadOnlyList<string>> chartInfoChunkWriter = null)
     {
         return BackfillChartInfosCore(
             dbGateway,
@@ -83,7 +84,8 @@ internal sealed class ChartInfoBuildService
             logInstallPerformance,
             logInstallPerformanceWarn,
             chartInfoRowsCommitted,
-            existingRowsSnapshot);
+            existingRowsSnapshot,
+            chartInfoChunkWriter);
     }
 
     internal InlineChartInfoBuildResult BuildInlineChartInfo(
@@ -171,7 +173,8 @@ internal sealed class ChartInfoBuildService
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
         Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted,
-        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot)
+        IReadOnlyDictionary<string, LR2SongDBExtended.chart_info> existingRowsSnapshot,
+        Action<IReadOnlyList<ChartDigestBackfillEntry>, IReadOnlyList<LR2SongDBExtended.chart_info>, IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure>, IReadOnlyList<string>> chartInfoChunkWriter)
     {
         var result = new ChartInfoBackfillResult
         {
@@ -243,7 +246,8 @@ internal sealed class ChartInfoBuildService
                 result,
                 logInstallPerformance,
                 logInstallPerformanceWarn,
-                chartInfoRowsCommitted);
+                chartInfoRowsCommitted,
+                chartInfoChunkWriter);
         });
 
         var resultCollector = Task.Run(delegate
@@ -536,11 +540,12 @@ internal sealed class ChartInfoBuildService
         ChartInfoBackfillResult result,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
-        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted)
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted,
+        Action<IReadOnlyList<ChartDigestBackfillEntry>, IReadOnlyList<LR2SongDBExtended.chart_info>, IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure>, IReadOnlyList<string>> chartInfoChunkWriter)
     {
         foreach (ChartInfoCommitChunk chunk in commitChunks)
         {
-            FlushCommitChunk(dbGateway, chunk, result, logInstallPerformance, logInstallPerformanceWarn, chartInfoRowsCommitted);
+            FlushCommitChunk(dbGateway, chunk, result, logInstallPerformance, logInstallPerformanceWarn, chartInfoRowsCommitted, chartInfoChunkWriter);
         }
     }
 
@@ -550,14 +555,23 @@ internal sealed class ChartInfoBuildService
         ChartInfoBackfillResult result,
         Action<string> logInstallPerformance,
         Action<string> logInstallPerformanceWarn,
-        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted)
+        Action<IReadOnlyList<LR2SongDBExtended.chart_info>> chartInfoRowsCommitted,
+        Action<IReadOnlyList<ChartDigestBackfillEntry>, IReadOnlyList<LR2SongDBExtended.chart_info>, IReadOnlyList<LR2SongDBExtended.chart_info_parse_failure>, IReadOnlyList<string>> chartInfoChunkWriter)
     {
         int chunkNumber = result.CommitChunks + 1;
         logInstallPerformance?.Invoke(BuildCommitStartLogMessage(chunkNumber, commitChunk));
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            dbGateway.UpsertChartInfoBackfillChunk(commitChunk.DigestEntries, commitChunk.ChartInfoRows, commitChunk.ParseFailureRows, commitChunk.ParseFailureDeleteMd5s);
+            if (chartInfoChunkWriter == null)
+            {
+                throw new InvalidOperationException("Chart-info backfill requires a catalog mutation writer.");
+            }
+            chartInfoChunkWriter(
+                commitChunk.DigestEntries,
+                commitChunk.ChartInfoRows,
+                commitChunk.ParseFailureRows,
+                commitChunk.ParseFailureDeleteMd5s);
         }
         catch (Exception ex)
         {

@@ -71,6 +71,13 @@ internal sealed class Lr2SongDbSyncRequest
 
     public Action<IReadOnlyList<LR2SongDBExtended.chart_info>> ChartInfoRowsCommitted { get; set; }
 
+    /// <summary>
+    /// Applies chart-info facts inside the synchronizer's existing song database
+    /// transaction. The composed BMS library supplies the catalog mutation owner;
+    /// direct service tests fall back to the shared transaction operation.
+    /// </summary>
+    public Func<LR2SongDBExtended, CatalogChartInfoWriteRequest, CatalogChartInfoWriteReceipt> ChartInfoChunkWriter { get; set; }
+
     public Action<int, int> ChartInfoParseFailuresCommitted { get; set; }
 
     public DateTime StartedAtUtc { get; set; } = DateTime.UtcNow;
@@ -2443,12 +2450,23 @@ internal static class Lr2SongDbSyncService
                 songStageMs = stageStopwatch.ElapsedMilliseconds;
 
                 stageStopwatch.Restart();
-                BmsLibraryDbGateway.UpsertChartInfoBackfillChunk(
-                    songDb,
-                    [],
-                    chunkChartInfoRows,
-                    chunkChartInfoParseFailures,
-                    chunkChartInfoParseFailureDeleteMd5s);
+                CatalogChartInfoWriteRequest chartInfoWriteRequest = new(
+                    chartInfoRows: chunkChartInfoRows,
+                    parseFailureRows: chunkChartInfoParseFailures,
+                    parseFailureDeleteMd5s: chunkChartInfoParseFailureDeleteMd5s);
+                CatalogChartInfoWriteReceipt chartInfoWriteReceipt = CatalogChartInfoWriteReceipt.NotApplied;
+                if (chartInfoWriteRequest.HasChanges)
+                {
+                    if (request.ChartInfoChunkWriter == null)
+                    {
+                        throw new InvalidOperationException("LR2 chart-info synchronization requires a catalog mutation writer.");
+                    }
+                    chartInfoWriteReceipt = request.ChartInfoChunkWriter(songDb, chartInfoWriteRequest);
+                }
+                if (chartInfoWriteRequest.HasChanges && !chartInfoWriteReceipt.Applied)
+                {
+                    throw new InvalidOperationException("LR2 chart-info persistence returned no receipt.");
+                }
                 stageStopwatch.Stop();
                 chartInfoStageMs = stageStopwatch.ElapsedMilliseconds;
 

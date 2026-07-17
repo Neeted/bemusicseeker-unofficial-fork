@@ -3508,8 +3508,7 @@ public sealed class OwnedChartCollectionStateTests
         string reason,
         IEnumerable<ChartFile> charts)
     {
-        var coordinator = new ChartInfoInlineBuildCoordinator(new BMSLibrary.ChartInfoInlineBuildHost(library));
-        return coordinator.BuildAndPersist(reason, charts);
+        return library.BuildAndPersistInlineChartInfoForInstalledCharts(reason, charts);
     }
 
     private static void InvokeDispatchOwnedChartDigestChanges(

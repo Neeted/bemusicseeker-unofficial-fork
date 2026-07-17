@@ -105,6 +105,125 @@ internal sealed class CatalogMutationOwner
             deletedMaintenanceCount);
     }
 
+    /// <summary>
+    /// Persists one immutable chart-info chunk in the catalog transaction boundary.
+    /// </summary>
+    internal CatalogChartInfoWriteReceipt ApplyChartInfoWrite(CatalogChartInfoWriteRequest request)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogChartInfoWriteReceipt.NotApplied;
+        }
+        if (dbGateway == null)
+        {
+            throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        }
+
+        using (maintenanceWriteGate.GetWriterGuard())
+        {
+            dbGateway.ExecuteSongDbTransaction(songDb =>
+            {
+                ApplyChartInfoWriteToTransaction(songDb, request);
+            });
+        }
+        return CreateChartInfoWriteReceipt(request);
+    }
+
+    /// <summary>
+    /// Applies chart-info facts inside an already-open song database transaction.
+    /// LR2 synchronization uses this narrow callback so song rows and chart-info
+    /// rows retain one atomic transaction without creating a second writer route.
+    /// </summary>
+    internal CatalogChartInfoWriteReceipt ApplyChartInfoWriteInTransaction(
+        LR2SongDBExtended songDb,
+        CatalogChartInfoWriteRequest request)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogChartInfoWriteReceipt.NotApplied;
+        }
+        if (songDb == null)
+        {
+            throw new ArgumentNullException(nameof(songDb));
+        }
+
+        using (maintenanceWriteGate.GetWriterGuard())
+        {
+            ApplyChartInfoWriteToTransaction(songDb, request);
+        }
+        return CreateChartInfoWriteReceipt(request);
+    }
+
+    /// <summary>
+    /// Commits package-inline storage rows and chart-info facts as one catalog command.
+    /// The caller supplies a snapshot request; no facade-owned database writer is needed.
+    /// </summary>
+    internal CatalogInlineChartInfoWriteReceipt ApplyInlineChartInfoWrite(
+        CatalogInlineChartInfoWriteRequest request)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogInlineChartInfoWriteReceipt.NotApplied;
+        }
+        if (dbGateway == null)
+        {
+            throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+        }
+
+        using (maintenanceWriteGate.GetWriterGuard())
+        {
+            dbGateway.ExecuteSongDbTransaction(songDb =>
+            {
+                if (request.BmsRows.Count > 0)
+                {
+                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                    BmsLibraryDbGateway.EnsureSongLookupIndexes(songDb);
+                    foreach (BMSFile row in request.BmsRows)
+                    {
+                        Lr2SongDbWriter.UpsertGeneratedSong(songDb, row);
+                    }
+                }
+                if (request.BmsonRows.Count > 0)
+                {
+                    BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
+                    foreach (LR2SongDBExtended.bmson_song row in request.BmsonRows)
+                    {
+                        songDb.InsertOrReplace(row, typeof(LR2SongDBExtended.bmson_song));
+                    }
+                }
+                ApplyChartInfoWriteToTransaction(songDb, request.ChartInfo);
+            });
+        }
+        return new CatalogInlineChartInfoWriteReceipt(
+            applied: true,
+            request.BmsRows.Count,
+            request.BmsonRows.Count,
+            CreateChartInfoWriteReceipt(request.ChartInfo));
+    }
+
+    private static void ApplyChartInfoWriteToTransaction(
+        LR2SongDBExtended songDb,
+        CatalogChartInfoWriteRequest request)
+    {
+        BmsLibraryDbGateway.UpsertChartInfoBackfillChunk(
+            songDb,
+            request.DigestEntries,
+            request.ChartInfoRows,
+            request.ParseFailureRows,
+            request.ParseFailureDeleteMd5s);
+    }
+
+    private static CatalogChartInfoWriteReceipt CreateChartInfoWriteReceipt(
+        CatalogChartInfoWriteRequest request)
+    {
+        return new CatalogChartInfoWriteReceipt(
+            applied: true,
+            request.DigestEntries.Count,
+            request.ChartInfoRows.Count,
+            request.ParseFailureRows.Count,
+            request.ParseFailureDeleteMd5s.Count);
+    }
+
     internal IDisposable EnterMaintenanceWriteGuard()
     {
         return maintenanceWriteGate.GetWriterGuard();

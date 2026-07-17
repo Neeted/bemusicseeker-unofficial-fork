@@ -47,6 +47,54 @@ internal sealed class CatalogOwnedCollectionOwner
         }
     }
 
+    internal void EnsureCurrent(
+        CatalogStorageRowsOwner storageRowsOwner,
+        CancellationToken cancellationToken = default)
+    {
+        if (storageRowsOwner == null)
+        {
+            throw new ArgumentNullException(nameof(storageRowsOwner));
+        }
+
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            CatalogStorageRowsSnapshot snapshot;
+            using (storageRowsOwner.WriteGate.GetReaderGuard())
+            {
+                snapshot = storageRowsOwner.CaptureSnapshot();
+                if (IsCurrent(snapshot.BmsRowsVersion, snapshot.BmsonRowsVersion))
+                {
+                    return;
+                }
+                OwnedChartCollectionState rebuiltCollection = OwnedChartCollectionState.FromStorageRows(
+                    snapshot.BmsRows,
+                    snapshot.BmsonRows,
+                    cancellationToken,
+                    out _);
+                cancellationToken.ThrowIfCancellationRequested();
+                lock (storageRowsOwner.VersionGate)
+                {
+                    StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
+                    if (currentVersions.BmsRowsVersion != snapshot.BmsRowsVersion
+                        || currentVersions.BmsonRowsVersion != snapshot.BmsonRowsVersion)
+                    {
+                        continue;
+                    }
+                    if (IsCurrent(snapshot.BmsRowsVersion, snapshot.BmsonRowsVersion))
+                    {
+                        return;
+                    }
+                    ApplyBuiltCollection(
+                        rebuiltCollection,
+                        snapshot.BmsRowsVersion,
+                        snapshot.BmsonRowsVersion);
+                    return;
+                }
+            }
+        }
+    }
+
     internal bool ApplyBuiltCollection(
         OwnedChartCollectionState rebuiltCollection,
         int rebuiltBmsRowsVersion,

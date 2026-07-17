@@ -3617,6 +3617,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -3976,6 +3977,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             RunId = "unknown-root-current-song",
             RootDirectories = [rootDirectory],
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -4012,6 +4014,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 RootDirectories = [rootDirectory],
                 ChartPaths = [chartPath],
                 SongRows = [file],
+                ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
                 StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
             });
 
@@ -4051,6 +4054,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 RootDirectories = [rootDirectory],
                 ChartPaths = [chartPath],
                 SongRows = [file],
+                ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
                 StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
             });
 
@@ -4660,6 +4664,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Signature = "transient-song-row-skip",
             RunId = "transient-song-row-skip",
             SongRows = [skippedFile, processFile],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             TransientSongRowsSkipPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
             {
                 skippedPath
@@ -4715,6 +4720,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             RootDirectories = [rootDirectory],
             ChartPaths = [chartPath],
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
@@ -4760,6 +4766,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ChartPaths = [chartPath],
             DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
@@ -4896,6 +4903,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ChartPaths = [chartPath],
             DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
@@ -4952,6 +4960,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             RootDirectories = [rootDirectory],
             ChartPaths = [firstPath, secondPath],
             SongRows = [firstFile, secondFile],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
@@ -5004,6 +5013,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             RootDirectories = [rootDirectory],
             ChartPaths = [currentPath],
             SongRows = [currentFile],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -5053,6 +5063,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             RootDirectories = [rootDirectory],
             ChartPaths = [currentPath],
             SongRows = [currentFile],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -5092,6 +5103,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             RootDirectories = [rootDirectory],
             ChartPaths = [firstPath, secondPath],
             SongRows = [firstFile, secondFile],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         }));
         Assert.AreEqual(0, songDb.Table<LR2SongDB.song>().Count());
@@ -5109,6 +5121,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             RootDirectories = [rootDirectory],
             ChartPaths = [firstPath, secondPath],
             SongRows = [firstFile, secondFile],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
@@ -5145,6 +5158,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Signature = "utf8-song",
             RunId = "utf8-song",
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -5185,6 +5199,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Signature = "chart-info-current",
             RunId = "chart-info-current",
             SongRows = [currentFile, staleFile, mismatchFile],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -5255,6 +5270,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             [
                 CreateChartInfo(snapshot.Sha256, snapshot.Md5, level: 13)
             ]),
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -5289,6 +5305,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 CreateChartInfo(new string('2', 64), snapshot.Md5, level: 22),
                 CreateChartInfo(new string('1', 64), snapshot.Md5, level: 11)
             ]),
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -5315,6 +5332,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             RunId = "chart-info-stale-resolver",
             SongRows = [file],
             ChartInfoResolver = _ => CreateChartInfo(snapshot.Sha256, snapshot.Md5, level: 99, parserVersion: BmsLibraryDbGateway.CurrentChartInfoParserVersion - 1),
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -5373,6 +5391,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ChartPaths = [chartPath],
             DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
             CancellationToken = cancellation.Token,
             ProgressReporter = progress =>
@@ -5409,6 +5428,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ChartPaths = [chartPath],
             DirectoryEntries = CreateDirectoryEntryMap(rootDirectory, songDirectory),
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 1, 0, DateTimeKind.Utc)
         });
 
@@ -5449,6 +5469,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Signature = "lr2-compatibility",
             RunId = "lr2-compatibility",
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc),
             Lr2CompatibilityFactsCommitted = infos => committedCompatibilityFacts.AddRange(infos)
         });
@@ -5488,6 +5509,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Signature = "lr2-compatibility-exact",
             RunId = "lr2-compatibility-exact",
             SongRows = [file],
+            ChartInfoChunkWriter = ApplyChartInfoWriteForDirectServiceTest,
             StartedAtUtc = new DateTime(2026, 6, 5, 0, 0, 0, DateTimeKind.Utc)
         });
 
@@ -7049,6 +7071,28 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             level = level,
             parser_version = parserVersion ?? BmsLibraryDbGateway.CurrentChartInfoParserVersion
         };
+    }
+
+    private static CatalogChartInfoWriteReceipt ApplyChartInfoWriteForDirectServiceTest(
+        LR2SongDBExtended songDb,
+        CatalogChartInfoWriteRequest request)
+    {
+        if (request == null || !request.HasChanges)
+        {
+            return CatalogChartInfoWriteReceipt.NotApplied;
+        }
+        BmsLibraryDbGateway.UpsertChartInfoBackfillChunk(
+            songDb,
+            request.DigestEntries,
+            request.ChartInfoRows,
+            request.ParseFailureRows,
+            request.ParseFailureDeleteMd5s);
+        return new CatalogChartInfoWriteReceipt(
+            applied: true,
+            request.DigestEntries.Count,
+            request.ChartInfoRows.Count,
+            request.ParseFailureRows.Count,
+            request.ParseFailureDeleteMd5s.Count);
     }
 
     private static Func<BMSFile, LR2SongDBExtended.chart_info> CreateChartInfoResolver(
