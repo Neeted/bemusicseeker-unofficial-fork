@@ -57,7 +57,7 @@ internal sealed class BmsLibraryStateApplier(
 
     public BmsLibraryStateApplyResult ApplyLibraryMutationDelta(
         LibraryMutationDelta delta,
-        IEnumerable<CatalogMutationRemovalFact> committedRemovalFacts = null,
+        IEnumerable<CatalogChartMutationFact> committedRemovalFacts = null,
         IEnumerable<CatalogRelocationPathFact> protectedPathFacts = null)
     {
         var result = new BmsLibraryStateApplyResult();
@@ -105,7 +105,7 @@ internal sealed class BmsLibraryStateApplier(
     }
 
     private void PruneInstalledPackagesForRemovedCharts(
-        IEnumerable<CatalogMutationRemovalFact> removalFacts,
+        IEnumerable<CatalogChartMutationFact> removalFacts,
         IEnumerable<CatalogRelocationPathFact> protectedPathFacts)
     {
         if (removalFacts == null)
@@ -113,71 +113,158 @@ internal sealed class BmsLibraryStateApplier(
             throw new ArgumentNullException(nameof(removalFacts));
         }
 
-        List<CatalogMutationRemovalFact> factList = [.. removalFacts.Where(fact => fact != null)];
+        List<CatalogChartMutationFact> factList = [.. removalFacts.Where(fact => fact != null)];
         if (factList.Count == 0)
         {
             return;
         }
 
-        List<BMSFile> bmsFilesToUnregister = [.. factList
-            .Select(fact => fact.BmsOwner)
-            .Where(owner => owner != null)
-            .Distinct()];
-        HashSet<string> protectedBmsPathKeys = CreateProtectedPathKeys(
+        HashSet<string> bmsOwnerIdentityKeys = CreateOwnerIdentityKeys(
+            factList,
             protectedPathFacts,
             ChartFileKind.Bms);
+        HashSet<string> protectedBmsPathKeys = CreateProtectedPathKeys(
+            protectedPathFacts,
+            factList,
+            ChartFileKind.Bms);
         List<string> bmsPathCleanupPaths = [.. factList
-            .Where(fact => fact.Mode == OwnedChartRemoveMode.PathCleanup && fact.Kind == ChartFileKind.Bms)
+            .Where(fact => fact.RemovalMode == OwnedChartRemoveMode.PathCleanup && fact.Kind == ChartFileKind.Bms)
             .Select(fact => fact.Path)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Where(path => !protectedBmsPathKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(path)))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (bmsFilesToUnregister.Count > 0 || bmsPathCleanupPaths.Count > 0)
+        if (bmsOwnerIdentityKeys.Count > 0 || bmsPathCleanupPaths.Count > 0)
         {
-            PruneInstalledPackagesForBmsFiles(bmsFilesToUnregister, bmsPathCleanupPaths);
+            PruneInstalledPackagesForBmsFiles(bmsOwnerIdentityKeys, bmsPathCleanupPaths);
         }
 
-        List<LR2SongDBExtended.bmson_song> bmsonSongsToUnregister = [.. factList
-            .Select(fact => fact.BmsonOwner)
-            .Where(owner => owner != null)
-            .Distinct()];
-        HashSet<string> protectedBmsonPathKeys = CreateProtectedPathKeys(
+        HashSet<string> bmsonOwnerIdentityKeys = CreateOwnerIdentityKeys(
+            factList,
             protectedPathFacts,
             ChartFileKind.Bmson);
+        HashSet<string> protectedBmsonPathKeys = CreateProtectedPathKeys(
+            protectedPathFacts,
+            factList,
+            ChartFileKind.Bmson);
         List<string> bmsonPathCleanupPaths = [.. factList
-            .Where(fact => fact.Mode == OwnedChartRemoveMode.PathCleanup && fact.Kind == ChartFileKind.Bmson)
+            .Where(fact => fact.RemovalMode == OwnedChartRemoveMode.PathCleanup && fact.Kind == ChartFileKind.Bmson)
             .Select(fact => fact.Path)
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Where(path => !protectedBmsonPathKeys.Contains(OwnedChartCollectionState.CreateOwnedPathKey(path)))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (bmsonSongsToUnregister.Count > 0 || bmsonPathCleanupPaths.Count > 0)
+        if (bmsonOwnerIdentityKeys.Count > 0 || bmsonPathCleanupPaths.Count > 0)
         {
-            PruneInstalledPackagesForBmsonSongs(bmsonSongsToUnregister, bmsonPathCleanupPaths);
+            PruneInstalledPackagesForBmsonSongs(bmsonOwnerIdentityKeys, bmsonPathCleanupPaths);
         }
+    }
+
+    private static HashSet<string> CreateOwnerIdentityKeys(
+        IEnumerable<CatalogChartMutationFact> removalFacts,
+        IEnumerable<CatalogRelocationPathFact> pathFacts,
+        ChartFileKind kind)
+    {
+        List<CatalogChartMutationFact> ownerFacts = [..
+            (removalFacts ?? [])
+                .Where(fact => fact?.Kind == kind
+                    && fact.RemovalMode != OwnedChartRemoveMode.PathCleanup)];
+        var identityKeys = new HashSet<string>(
+            ownerFacts
+                .Select(fact => CreateChartIdentityKey(
+                    fact.Kind,
+                    fact.Path,
+                    fact.Md5,
+                    fact.Sha256))
+                .Where(key => !string.IsNullOrWhiteSpace(key)),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (CatalogRelocationPathFact pathFact in (pathFacts ?? [])
+            .Where(fact => fact?.Kind == kind))
+        {
+            if (!ownerFacts.Any(fact => IsSameOwner(fact, pathFact)))
+            {
+                continue;
+            }
+
+            string relocatedIdentityKey = CreateChartIdentityKey(
+                pathFact.Kind,
+                pathFact.NewPath,
+                pathFact.Md5,
+                pathFact.Sha256);
+            if (!string.IsNullOrWhiteSpace(relocatedIdentityKey))
+            {
+                identityKeys.Add(relocatedIdentityKey);
+            }
+        }
+        return identityKeys;
+    }
+
+    private static string CreateChartIdentityKey(
+        ChartFileKind kind,
+        string path,
+        string md5,
+        string sha256)
+    {
+        string pathKey = OwnedChartCollectionState.CreateOwnedPathKey(path) ?? string.Empty;
+        string md5Key = md5?.Trim() ?? string.Empty;
+        string sha256Key = sha256?.Trim() ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(pathKey)
+            && string.IsNullOrWhiteSpace(md5Key)
+            && string.IsNullOrWhiteSpace(sha256Key))
+        {
+            return null;
+        }
+        return (int)kind + "|" + md5Key + "|" + sha256Key + "|" + pathKey;
+    }
+
+    private static bool IsSameOwner(
+        CatalogChartMutationFact removedFact,
+        CatalogRelocationPathFact pathFact)
+    {
+        if (removedFact?.Kind != pathFact?.Kind
+            || removedFact.RemovalMode == OwnedChartRemoveMode.PathCleanup)
+        {
+            return false;
+        }
+
+        string removedPathKey = OwnedChartCollectionState.CreateOwnedPathKey(removedFact.Path);
+        string relocationOldPathKey = OwnedChartCollectionState.CreateOwnedPathKey(pathFact.OldPath);
+        bool samePath = !string.IsNullOrWhiteSpace(removedPathKey)
+            && string.Equals(removedPathKey, relocationOldPathKey, StringComparison.OrdinalIgnoreCase);
+        bool relocationHasDigest = !string.IsNullOrWhiteSpace(pathFact.Md5)
+            || !string.IsNullOrWhiteSpace(pathFact.Sha256);
+        bool sameDigest = (!relocationHasDigest
+                || (string.IsNullOrWhiteSpace(removedFact.Md5)
+                    || string.Equals(removedFact.Md5, pathFact.Md5, StringComparison.OrdinalIgnoreCase))
+                && (string.IsNullOrWhiteSpace(removedFact.Sha256)
+                    || string.Equals(removedFact.Sha256, pathFact.Sha256, StringComparison.OrdinalIgnoreCase)));
+        return samePath && sameDigest;
     }
 
     private static HashSet<string> CreateProtectedPathKeys(
         IEnumerable<CatalogRelocationPathFact> protectedPathFacts,
+        IEnumerable<CatalogChartMutationFact> removalFacts,
         ChartFileKind kind)
     {
         return new HashSet<string>(
             (protectedPathFacts ?? [])
                 .Where(fact => fact?.Kind == kind)
+                .Where(fact => !(removalFacts ?? []).Any(removedFact => IsSameOwner(removedFact, fact)))
                 .Select(fact => OwnedChartCollectionState.CreateOwnedPathKey(fact.NewPath))
                 .Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
     }
 
-    private void PruneInstalledPackagesForBmsFiles(IEnumerable<BMSFile> bmsFiles, IEnumerable<string> pathCleanupPaths)
+    private void PruneInstalledPackagesForBmsFiles(IEnumerable<string> removedIdentityKeys, IEnumerable<string> pathCleanupPaths)
     {
-        if (bmsFiles == null && pathCleanupPaths == null)
+        if (removedIdentityKeys == null && pathCleanupPaths == null)
         {
-            throw new ArgumentNullException(nameof(bmsFiles));
+            throw new ArgumentNullException(nameof(removedIdentityKeys));
         }
 
-        List<BMSFile> removedFilesList = [.. bmsFiles.Where(file => file != null)];
+        HashSet<string> removedIdentityKeySet = new(
+            (removedIdentityKeys ?? []).Where(key => !string.IsNullOrWhiteSpace(key)),
+            StringComparer.OrdinalIgnoreCase);
         List<string> pathCleanupList = [.. (pathCleanupPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
-        if (removedFilesList.Count == 0 && pathCleanupList.Count == 0)
+        if (removedIdentityKeySet.Count == 0 && pathCleanupList.Count == 0)
         {
             return;
         }
@@ -185,14 +272,13 @@ internal sealed class BmsLibraryStateApplier(
         var pathCleanupSet = new HashSet<string>(
             pathCleanupList.Select(OwnedChartCollectionState.CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
-        var removedFileRefs = new HashSet<BMSFile>(removedFilesList);
         DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
         bool installedPackagesChanged = false;
         List<ChartPackage> emptyInstalledPackages = [];
 
         foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
         {
-            if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedFile(entry, removedFileRefs, pathCleanupSet)))
+            if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedFile(entry, removedIdentityKeySet, pathCleanupSet)))
             {
                 installedPackagesChanged = true;
                 if (installedPackage.ChartEntries.Count == 0)
@@ -217,16 +303,18 @@ internal sealed class BmsLibraryStateApplier(
         }
     }
 
-    private void PruneInstalledPackagesForBmsonSongs(IEnumerable<LR2SongDBExtended.bmson_song> bmsonSongs, IEnumerable<string> pathCleanupPaths)
+    private void PruneInstalledPackagesForBmsonSongs(IEnumerable<string> removedIdentityKeys, IEnumerable<string> pathCleanupPaths)
     {
-        if (bmsonSongs == null && pathCleanupPaths == null)
+        if (removedIdentityKeys == null && pathCleanupPaths == null)
         {
-            throw new ArgumentNullException(nameof(bmsonSongs));
+            throw new ArgumentNullException(nameof(removedIdentityKeys));
         }
 
-        List<LR2SongDBExtended.bmson_song> removedSongsList = [.. bmsonSongs.Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))];
+        HashSet<string> removedIdentityKeySet = new(
+            (removedIdentityKeys ?? []).Where(key => !string.IsNullOrWhiteSpace(key)),
+            StringComparer.OrdinalIgnoreCase);
         List<string> pathCleanupList = [.. (pathCleanupPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
-        if (removedSongsList.Count == 0 && pathCleanupList.Count == 0)
+        if (removedIdentityKeySet.Count == 0 && pathCleanupList.Count == 0)
         {
             return;
         }
@@ -234,13 +322,12 @@ internal sealed class BmsLibraryStateApplier(
         var pathCleanupSet = new HashSet<string>(
             pathCleanupList.Select(OwnedChartCollectionState.CreateOwnedPathKey).Where(path => !string.IsNullOrWhiteSpace(path)),
             StringComparer.OrdinalIgnoreCase);
-        var removedSongRefs = new HashSet<LR2SongDBExtended.bmson_song>(removedSongsList);
         DispatcherCollection<ChartPackage> installedPackages = getInstalledPackages();
         bool installedPackagesChanged = false;
         List<ChartPackage> emptyInstalledPackages = [];
         foreach (ChartPackage installedPackage in installedPackages.Where(package => package != null).ToList())
         {
-            if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedBmsonFile(entry, removedSongRefs, pathCleanupSet)))
+            if (installedPackage.RemoveChartEntries(entry => IsMatchedRemovedBmsonFile(entry, removedIdentityKeySet, pathCleanupSet)))
             {
                 installedPackagesChanged = true;
                 if (installedPackage.ChartEntries.Count == 0)
@@ -263,37 +350,47 @@ internal sealed class BmsLibraryStateApplier(
         }
     }
 
-    private static bool IsMatchedRemovedFile(PackageChartEntry entry, HashSet<BMSFile> removedFiles, HashSet<string> pathCleanupPaths)
+    private static bool IsMatchedRemovedFile(PackageChartEntry entry, HashSet<string> removedIdentityKeys, HashSet<string> pathCleanupPaths)
     {
-        if (entry?.Chart == null)
+        ChartFile chart = entry?.Chart;
+        if (chart?.Kind != ChartFileKind.Bms)
         {
             return false;
         }
 
-        BMSFile bmsFile = entry.Chart.GetBmsStorageOwner();
-        if (bmsFile != null && removedFiles.Contains(bmsFile))
+        string identityKey = CreateChartIdentityKey(
+            chart.Kind,
+            chart.Path,
+            chart.Md5,
+            chart.Sha256);
+        if (!string.IsNullOrWhiteSpace(identityKey) && removedIdentityKeys.Contains(identityKey))
         {
             return true;
         }
 
-        string pathKey = OwnedChartCollectionState.CreateOwnedPathKey(entry.Chart.Path);
+        string pathKey = OwnedChartCollectionState.CreateOwnedPathKey(chart.Path);
         return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupPaths.Contains(pathKey);
     }
 
-    private static bool IsMatchedRemovedBmsonFile(PackageChartEntry entry, HashSet<LR2SongDBExtended.bmson_song> removedSongs, HashSet<string> pathCleanupPaths)
+    private static bool IsMatchedRemovedBmsonFile(PackageChartEntry entry, HashSet<string> removedIdentityKeys, HashSet<string> pathCleanupPaths)
     {
-        if (entry?.Chart == null)
+        ChartFile chart = entry?.Chart;
+        if (chart?.Kind != ChartFileKind.Bmson)
         {
             return false;
         }
 
-        LR2SongDBExtended.bmson_song bmsonSong = entry.Chart.GetBmsonStorageOwner();
-        if (bmsonSong != null && removedSongs.Contains(bmsonSong))
+        string identityKey = CreateChartIdentityKey(
+            chart.Kind,
+            chart.Path,
+            chart.Md5,
+            chart.Sha256);
+        if (!string.IsNullOrWhiteSpace(identityKey) && removedIdentityKeys.Contains(identityKey))
         {
             return true;
         }
 
-        string pathKey = OwnedChartCollectionState.CreateOwnedPathKey(entry.Chart.Path);
+        string pathKey = OwnedChartCollectionState.CreateOwnedPathKey(chart.Path);
         return !string.IsNullOrWhiteSpace(pathKey) && pathCleanupPaths.Contains(pathKey);
     }
 }

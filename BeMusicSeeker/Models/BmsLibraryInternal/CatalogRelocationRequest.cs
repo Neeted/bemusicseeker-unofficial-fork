@@ -134,9 +134,9 @@ internal sealed class CatalogMutationReceipt
             liveApplyMs: 0,
             ownedCollectionApplied: false,
             ownedCollectionVersion: 0,
+            addedCharts: [],
             pathFacts: [],
-            removalRequests: [],
-            protectedPathFacts: []);
+            removalRequests: []);
 
     internal CatalogMutationReceipt(
         bool applied,
@@ -149,9 +149,9 @@ internal sealed class CatalogMutationReceipt
         long liveApplyMs,
         bool ownedCollectionApplied,
         int ownedCollectionVersion,
+        IEnumerable<CatalogChartMutationFact> addedCharts,
         IEnumerable<CatalogRelocationPathFact> pathFacts,
-        IEnumerable<OwnedChartRemoveRequest> removalRequests,
-        IEnumerable<CatalogRelocationPathFact> protectedPathFacts)
+        IEnumerable<OwnedChartRemoveRequest> removalRequests)
     {
         Applied = applied;
         StorageRowsVersion = storageRowsVersion;
@@ -163,9 +163,13 @@ internal sealed class CatalogMutationReceipt
         LiveApplyMs = liveApplyMs;
         OwnedCollectionApplied = ownedCollectionApplied;
         OwnedCollectionVersion = ownedCollectionVersion;
+        Kind = applied
+            ? CatalogMutationApplyKind.GenericMutation
+            : CatalogMutationApplyKind.NoOp;
+        AddedCharts = Array.AsReadOnly([.. (addedCharts ?? []).Where(fact => fact != null)]);
         PathFacts = Array.AsReadOnly([.. (pathFacts ?? []).Where(fact => fact != null)]);
-        RemovalFacts = CatalogMutationRemovalFact.Snapshot(removalRequests);
-        ProtectedPathFacts = Array.AsReadOnly([.. (protectedPathFacts ?? []).Where(fact => fact != null)]);
+        MovedCharts = PathFacts;
+        RemovedCharts = CatalogChartMutationFact.CreateRemovalFacts(removalRequests);
     }
 
     internal bool Applied { get; }
@@ -188,11 +192,16 @@ internal sealed class CatalogMutationReceipt
 
     internal int OwnedCollectionVersion { get; }
 
+    internal CatalogMutationApplyKind Kind { get; }
+
+    internal IReadOnlyList<CatalogChartMutationFact> AddedCharts { get; }
+
+    internal IReadOnlyList<CatalogChartMutationFact> RemovedCharts { get; }
+
+    internal IReadOnlyList<CatalogRelocationPathFact> MovedCharts { get; }
+
     internal IReadOnlyList<CatalogRelocationPathFact> PathFacts { get; }
 
-    internal IReadOnlyList<CatalogMutationRemovalFact> RemovalFacts { get; }
-
-    internal IReadOnlyList<CatalogRelocationPathFact> ProtectedPathFacts { get; }
 }
 
 /// <summary>
@@ -200,11 +209,18 @@ internal sealed class CatalogMutationReceipt
 /// </summary>
 internal sealed class CatalogRelocationPathFact
 {
-    internal CatalogRelocationPathFact(ChartFileKind kind, string oldPath, string newPath)
+    internal CatalogRelocationPathFact(
+        ChartFileKind kind,
+        string oldPath,
+        string newPath,
+        string md5 = null,
+        string sha256 = null)
     {
         Kind = kind;
         OldPath = oldPath;
         NewPath = newPath;
+        Md5 = md5;
+        Sha256 = sha256;
     }
 
     internal ChartFileKind Kind { get; }
@@ -212,67 +228,8 @@ internal sealed class CatalogRelocationPathFact
     internal string OldPath { get; }
 
     internal string NewPath { get; }
-}
 
-/// <summary>
-/// Immutable removal identity captured before a catalog mutation commits.
-/// The owner reference is retained for package identity matching while path and hash
-/// values are snapshots of the durable command input.
-/// </summary>
-internal sealed class CatalogMutationRemovalFact
-{
-    private CatalogMutationRemovalFact(
-        OwnedChartRemoveMode mode,
-        ChartFileKind kind,
-        BMSFile bmsOwner,
-        LR2SongDBExtended.bmson_song bmsonOwner,
-        string path,
-        string hash)
-    {
-        Mode = mode;
-        Kind = kind;
-        BmsOwner = bmsOwner;
-        BmsonOwner = bmsonOwner;
-        Path = path;
-        Hash = hash;
-    }
+    internal string Md5 { get; }
 
-    internal OwnedChartRemoveMode Mode { get; }
-
-    internal ChartFileKind Kind { get; }
-
-    internal BMSFile BmsOwner { get; }
-
-    internal LR2SongDBExtended.bmson_song BmsonOwner { get; }
-
-    internal string Path { get; }
-
-    internal string Hash { get; }
-
-    internal static IReadOnlyList<CatalogMutationRemovalFact> Snapshot(
-        IEnumerable<OwnedChartRemoveRequest> requests)
-    {
-        return Array.AsReadOnly([..
-            (requests ?? [])
-                .Select(Create)
-                .Where(fact => fact != null)]);
-    }
-
-    private static CatalogMutationRemovalFact Create(OwnedChartRemoveRequest request)
-    {
-        if (request == null)
-        {
-            return null;
-        }
-
-        BMSFile bmsOwner = request.BmsOwner;
-        LR2SongDBExtended.bmson_song bmsonOwner = request.BmsonOwner;
-        return new CatalogMutationRemovalFact(
-            request.Mode,
-            request.Kind,
-            bmsOwner,
-            bmsonOwner,
-            request.Path,
-            bmsOwner?.hash ?? bmsonOwner?.md5);
-    }
+    internal string Sha256 { get; }
 }

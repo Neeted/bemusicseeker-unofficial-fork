@@ -801,7 +801,7 @@ createTempDirectory);
                 new BmsLibraryDbGateway(songDbPath))
                 .ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
             Assert.IsTrue(receipt.Applied);
-            Assert.AreEqual(file.hash, receipt.RemovalFacts.Single(fact => fact.Kind == ChartFileKind.Bms).Hash);
+            Assert.AreEqual(file.hash, receipt.RemovedCharts.Single(fact => fact.Kind == ChartFileKind.Bms).Md5);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + file.path.Replace("'", "''") + "';"));

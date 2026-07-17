@@ -8588,9 +8588,11 @@ public partial class BMSLibrary : NotificationObject
         catalogOwnedCollectionOwner.Invalidate();
     }
 
-    private int NotifyOwnedChartCollectionChanged()
+    private int NotifyOwnedChartCollectionChanged(int committedVersion = 0)
     {
-        int version = catalogOwnedCollectionOwner.IncrementVersion();
+        int version = committedVersion > 0
+            ? committedVersion
+            : catalogOwnedCollectionOwner.IncrementVersion();
         RaisePropertyChanged(() => OwnedChartCollectionVersion);
         return version;
     }
@@ -8681,6 +8683,8 @@ public partial class BMSLibrary : NotificationObject
         public bool OwnedCollectionChanged { get; set; }
 
         public bool OwnedCollectionChangeNotified { get; set; }
+
+        public bool OwnedCollectionVersionAlreadyAdvanced { get; set; }
 
         public int OwnedCollectionVersion { get; set; }
 
@@ -10591,7 +10595,9 @@ public partial class BMSLibrary : NotificationObject
         {
             return;
         }
-        result.OwnedCollectionVersion = NotifyOwnedChartCollectionChanged();
+        result.OwnedCollectionVersion = result.OwnedCollectionVersionAlreadyAdvanced
+            ? NotifyOwnedChartCollectionChanged(result.OwnedCollectionVersion)
+            : NotifyOwnedChartCollectionChanged();
         result.OwnedCollectionChangeNotified = true;
     }
 
@@ -13641,10 +13647,11 @@ public partial class BMSLibrary : NotificationObject
                 mutationResult.StorageMutation.AddedBmsFiles,
                 mutationResult.StorageMutation.AddedBmsonSongs,
                 () => catalogMutationCommitted = true);
+            owner.ApplyCatalogMutationReceiptProjection(mutationResult, catalogReceipt);
             BmsLibraryStateApplyResult stateApplyResult = owner.stateApplier.ApplyLibraryMutationDelta(
                 delta,
-                catalogReceipt.RemovalFacts,
-                catalogReceipt.ProtectedPathFacts);
+                catalogReceipt.RemovedCharts,
+                catalogReceipt.PathFacts);
             stateApplyResult.StorageRowsVersion = catalogReceipt.StorageRowsVersion;
             if (catalogReceipt.Applied)
             {
@@ -13757,6 +13764,31 @@ public partial class BMSLibrary : NotificationObject
                 + " dispatchMs=" + timings.DispatchMs
                 + " elapsedMs=" + timings.ElapsedMs);
         }
+    }
+
+    private void ApplyCatalogMutationReceiptProjection(
+        OwnedChartCollectionMutationResult mutationResult,
+        CatalogMutationReceipt receipt)
+    {
+        if (mutationResult == null || receipt?.Applied != true)
+        {
+            return;
+        }
+
+        mutationResult.AddedCount = receipt.AddedCharts.Count;
+        mutationResult.RemovedCount = receipt.RemovedCharts.Count;
+        mutationResult.MovedCount = receipt.MovedCharts.Count;
+        bool hasCatalogFacts = receipt.AddedCharts.Count > 0
+            || receipt.RemovedCharts.Count > 0
+            || receipt.MovedCharts.Count > 0;
+        mutationResult.OwnedCollectionVersion = receipt.OwnedCollectionVersion;
+        mutationResult.OwnedCollectionVersionAlreadyAdvanced = hasCatalogFacts;
+        mutationResult.OwnedCollectionChanged |= hasCatalogFacts;
+        mutationResult.PlaylistSummaryOwnedHashInvalidated |= receipt.AddedCharts.Count > 0
+            || receipt.RemovedCharts.Count > 0;
+        mutationResult.DuplicateCacheInvalidated |= receipt.AddedCharts.Count > 0
+            || receipt.RemovedCharts.Count > 0;
+        mutationResult.WarningPresentationChanged |= mutationResult.OwnedCollectionChanged;
     }
 
     private void PublishNormalLibraryRefreshNotification(OwnedChartCollectionMutationResult result)

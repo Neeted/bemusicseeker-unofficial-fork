@@ -215,7 +215,17 @@ public sealed class CatalogMutationOwnerTests
             CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
 
             Assert.IsTrue(receipt.Applied);
+            Assert.AreEqual(CatalogMutationApplyKind.GenericMutation, receipt.Kind);
+            Assert.AreEqual(0, receipt.AddedCharts.Count);
+            CollectionAssert.AreEquivalent(
+                new[] { removedBmsPath, removedBmsonPath },
+                receipt.RemovedCharts.Select(fact => fact.Path).ToArray());
+            Assert.AreEqual(1, receipt.MovedCharts.Count);
+            Assert.AreEqual(movedOldPath, receipt.MovedCharts[0].OldPath);
+            Assert.AreEqual(movedNewPath, receipt.MovedCharts[0].NewPath);
+            Assert.AreEqual(movedBms.hash, receipt.MovedCharts[0].Md5);
             Assert.IsTrue(receipt.OwnedCollectionApplied);
+            Assert.AreEqual(ownedCollectionOwner.CollectionVersion, receipt.OwnedCollectionVersion);
             Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
             Assert.AreEqual(initialRows.BmsonRowsVersion + 1, receipt.StorageRowsVersion.BmsonRowsVersion);
             Assert.AreEqual(movedNewPath, movedBms.path);
@@ -484,8 +494,8 @@ public sealed class CatalogMutationOwnerTests
             CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
 
             Assert.IsTrue(receipt.Applied);
-            Assert.AreEqual(1, receipt.ProtectedPathFacts.Count);
-            Assert.AreEqual(newPath, receipt.ProtectedPathFacts.Single().NewPath);
+            Assert.AreEqual(1, receipt.PathFacts.Count);
+            Assert.AreEqual(newPath, receipt.PathFacts.Single().NewPath);
             Assert.AreEqual(newPath, movedBms.path);
             Assert.AreSame(movedBms, storageRowsOwner.BmsRows.Single());
             Assert.AreEqual(newPath, ownedCollectionOwner.Collection.CreatePathSnapshot().Single());

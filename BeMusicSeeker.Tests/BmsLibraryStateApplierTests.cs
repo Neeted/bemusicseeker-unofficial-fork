@@ -1086,6 +1086,106 @@ public sealed class BmsLibraryStateApplierTests
         });
     }
 
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_MoveAndRemoveSameOwnerPrunesRelocatedBmsAndBmsonPackages()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_StateApplierMoveRemove_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRootPath);
+            string oldBmsPath = Path.Combine(tempRootPath, "old.bms");
+            string newBmsPath = Path.Combine(tempRootPath, "new.bms");
+            string oldBmsonPath = Path.Combine(tempRootPath, "old.bmson");
+            string newBmsonPath = Path.Combine(tempRootPath, "new.bmson");
+            try
+            {
+                File.WriteAllText(oldBmsPath, "#PLAYER 1");
+                File.WriteAllText(newBmsPath, "#PLAYER 1");
+                File.WriteAllText(oldBmsonPath, "{}");
+                File.WriteAllText(newBmsonPath, "{}");
+                var bmsFile = new TestableBmsFile { path = oldBmsPath };
+                bmsFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                var bmsonSong = new LR2SongDBExtended.bmson_song
+                {
+                    path = oldBmsonPath,
+                    folder = tempRootPath,
+                    md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+                    sha256 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                };
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.CreateTable<LR2SongDB.song>();
+                    songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                    songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                    songDb.InsertOrReplace(bmsFile, typeof(LR2SongDB.song));
+                    songDb.InsertOrReplace(bmsonSong, typeof(LR2SongDBExtended.bmson_song));
+                }
+
+                ChartPackage bmsPackage = ChartPackageTestExtensions.CreatePackage(bmsFile);
+                ChartPackage bmsonPackage = ChartPackage.FromChartEntries(
+                [
+                    PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(bmsonSong))
+                ]);
+                DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+                DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([bmsPackage, bmsonPackage]);
+                var callbacks = new TrackingCallbacks();
+                BmsLibraryStateApplier applier = CreateStateApplier(
+                    songDbPath,
+                    callbacks,
+                    () => pendingPackages,
+                    packages => pendingPackages = packages,
+                    () => installedPackages,
+                    packages => installedPackages = packages);
+
+                var delta = new LibraryMutationDelta();
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsFile(bmsFile),
+                    OldPath = oldBmsPath,
+                    NewPath = newBmsPath
+                });
+                delta.ChartPathChanges.Add(new LibraryChartPathChange
+                {
+                    Chart = ChartFileProjection.FromBmsonSong(bmsonSong),
+                    OldPath = oldBmsonPath,
+                    NewPath = newBmsonPath
+                });
+                delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsFile));
+                delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(bmsonSong));
+
+                var catalogOwner = new CatalogMutationOwner(
+                    new CatalogStorageRowsOwner(),
+                    new CatalogOwnedCollectionOwner(),
+                    new BmsLibraryDbGateway(songDbPath));
+                CatalogMutationReceipt receipt = catalogOwner.ApplyCatalogMutation(
+                    delta,
+                    delta.ChartRemoveRequests);
+
+                Assert.IsTrue(receipt.Applied);
+                Assert.AreEqual(2, receipt.RemovedCharts.Count);
+                Assert.AreEqual(2, receipt.MovedCharts.Count);
+                Assert.AreEqual(
+                    bmsonSong.sha256,
+                    receipt.RemovedCharts.Single(fact => fact.Kind == ChartFileKind.Bmson).Sha256);
+
+                applier.ApplyLibraryMutationDelta(
+                    delta,
+                    receipt.RemovedCharts,
+                    receipt.PathFacts);
+
+                Assert.AreEqual(0, installedPackages.Count);
+                Assert.AreEqual(2, callbacks.InstalledPackagesChangedCount);
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
     private static BmsLibraryStateApplier CreateStateApplier(
         string songDbPath,
         TrackingCallbacks callbacks,
@@ -1150,7 +1250,7 @@ public sealed class BmsLibraryStateApplierTests
     {
         applier.ApplyLibraryMutationDelta(
             delta,
-            CatalogMutationRemovalFact.Snapshot(delta?.ChartRemoveRequests),
+            CatalogChartMutationFact.CreateRemovalFacts(delta?.ChartRemoveRequests),
             protectedPathFacts ?? []);
     }
 
