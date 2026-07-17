@@ -52,7 +52,7 @@ public partial class BMSLibrary : IPendingZeroNoteRenameHost
 
     void IPendingZeroNoteRenameHost.RemovePendingChartsFromPendingPackagesAndInstallRows(IEnumerable<string> chartPaths)
     {
-        RemovePendingChartsFromPendingPackagesAndInstallRows(chartPaths);
+        libraryFileOperationOwner.RemovePendingChartsFromPendingPackagesAndInstallRows(chartPaths);
     }
 
     void IPendingZeroNoteRenameHost.LogInfo(string info)

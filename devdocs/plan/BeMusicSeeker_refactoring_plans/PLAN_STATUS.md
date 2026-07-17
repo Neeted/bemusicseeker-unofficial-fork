@@ -19,7 +19,7 @@
 
 active outcome base commit: `37925d8b`
 active execution package: `LIB-02 Package, install-destination and file-operation ownership`
-sequence cursor: `LIB-02-C3 Chart removal and installation-repair owner`
+sequence cursor: `LIB-02-C4 merge orchestration and atomic catalog transition`
 
 目的:
 

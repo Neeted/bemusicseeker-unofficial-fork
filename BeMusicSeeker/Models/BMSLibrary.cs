@@ -12697,7 +12697,7 @@ public partial class BMSLibrary : NotificationObject
 
     internal void FixInstallationDirectoryCharts(IEnumerable<ChartFile> charts, IEnumerable<string> approvedDuplicateRemovalChartPaths = null)
     {
-        LibraryFixInstallationCoordinator.FixInstallationDirectoryCharts(this, charts, approvedDuplicateRemovalChartPaths);
+        libraryFileOperationOwner.FixInstallationDirectoryCharts(charts, approvedDuplicateRemovalChartPaths);
     }
 
     /// <summary>
@@ -12909,8 +12909,7 @@ public partial class BMSLibrary : NotificationObject
 
     internal void RemoveLibraryCharts(IEnumerable<LibraryChartRef> charts, bool sendToRecycleBin = true, IEnumerable<string> approvedWholeFolderDeletePaths = null)
     {
-        LibraryChartRemovalCoordinator.RemoveLibraryCharts(
-            this,
+        libraryFileOperationOwner.RemoveLibraryCharts(
             charts,
             sendToRecycleBin,
             approvedWholeFolderDeletePaths);
@@ -12918,53 +12917,10 @@ public partial class BMSLibrary : NotificationObject
 
     internal void RemovePendingCharts(IEnumerable<ChartFile> charts, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
     {
-        if (charts == null)
-        {
-            throw new ArgumentNullException("charts");
-        }
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockPendingInstallCharts.GetWriterGuard())
-            {
-                using (rwlockSongDBInstall.GetWriterGuard())
-                {
-                    PendingFileDeletionResult result = packageInstallService.DeletePendingCharts(
-                        charts,
-                        ChartPackagesPending,
-                        sendToRecycleBin,
-                        deleteContainingPackageFoldersWhenNoBms,
-                        fileMutationService,
-                        targetOnlyFileMutationOptions,
-                        recursiveDirectoryTreeFileMutationOptions);
-                    foreach (PendingFileDeletionFailure failure in result.Failures)
-                    {
-                        if (failure?.Exception == null)
-                        {
-                            continue;
-                        }
-                        if (failure.IsDirectory)
-                        {
-                            ShowOperationDialog(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        }
-                        else
-                        {
-                            ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-                        }
-                    }
-                    RemovePendingChartsFromPendingPackagesAndInstallRows(result.ChartPathsToRemove);
-                }
-            }
-        }
-    }
-
-    private void RemovePendingChartsFromPendingPackagesAndInstallRows(IEnumerable<string> chartPaths)
-    {
-        List<string> paths = [.. (chartPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (paths.Count == 0)
-        {
-            return;
-        }
-        packageLifecycleOwner.ApplyPendingPackageMutationDelta(BuildPendingPackageMutationDelta(chartPathsToRemove: paths));
+        libraryFileOperationOwner.RemovePendingCharts(
+            charts,
+            sendToRecycleBin,
+            deleteContainingPackageFoldersWhenNoBms);
     }
 
     internal void ApplyLibraryMutationDelta(LibraryMutationDelta delta)

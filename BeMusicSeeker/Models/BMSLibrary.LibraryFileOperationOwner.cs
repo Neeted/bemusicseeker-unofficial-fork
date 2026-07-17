@@ -92,6 +92,16 @@ public partial class BMSLibrary
             }
         }
 
+        private void RunWithLibraryChartRemovalWriteLocks(Action action)
+        {
+            using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
+            using (owner.rwlockPendingInstallCharts.GetWriterGuard())
+            using (owner.rwlockBMSFiles.GetWriterGuard())
+            {
+                action();
+            }
+        }
+
         internal List<LibraryChartRef> CreateNonNullChartRefList(IEnumerable<LibraryChartRef> charts)
         {
             return [.. (charts ?? []).Where(chart => chart != null)];
@@ -131,6 +141,76 @@ public partial class BMSLibrary
                 owner.ChartPackagesInstalled,
                 unregister,
                 notifyStorageRowPathChanges);
+        }
+
+        private LibraryRemovalResult DeleteLibraryCharts(
+            IEnumerable<LibraryChartRef> charts,
+            bool sendToRecycleBin,
+            Func<string, bool> confirmDeleteWholeFolder)
+        {
+            return owner.libraryFileOperationsService.DeleteLibraryCharts(
+                charts,
+                owner.CreateOwnedCanonicalChartLookupUnsafe(),
+                owner.installDestinationStateOwner.CreateOverlaySnapshot(out _),
+                owner.ChartPackagesPending,
+                owner.directoryResourceLookupCache,
+                sendToRecycleBin,
+                confirmDeleteWholeFolder,
+                owner.fileMutationService,
+                BMSLibrary.targetOnlyFileMutationOptions,
+                BMSLibrary.recursiveDirectoryTreeFileMutationOptions);
+        }
+
+        private void RemoveLibraryChartsCore(
+            IEnumerable<LibraryChartRef> charts,
+            bool sendToRecycleBin,
+            IEnumerable<string> approvedWholeFolderDeletePaths)
+        {
+            HashSet<string> approvedWholeFolderDeletes = approvedWholeFolderDeletePaths == null
+                ? null
+                : new HashSet<string>(approvedWholeFolderDeletePaths.Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+            LibraryRemovalResult result = DeleteLibraryCharts(
+                charts,
+                sendToRecycleBin,
+                folderPath => approvedWholeFolderDeletes != null
+                    ? approvedWholeFolderDeletes.Contains(folderPath)
+                    : ConfirmDeleteWholeFolder(folderPath));
+            BMSLibrary.LogInstallPerformance("delete_library_result input=" + result.InputChartCount
+                + " canonical=" + result.CanonicalChartCount
+                + " unresolved=" + result.UnresolvedChartCount
+                + " pathOnly=" + result.PathOnlyInputCount
+                + " removed=" + result.RemovedCharts.Count
+                + " failures=" + result.Failures.Count
+                + " folderDeletes=" + result.FolderDeleteCount
+                + " fileDeletes=" + result.FileDeleteCount);
+            owner.LogReverseLookupMutationAndQueueWarmupIfNeeded("delete_library", result.ResourceIndexMutation);
+            owner.ApplyLibraryMutationDelta(result.MutationDelta);
+            foreach (LibraryDeleteFailure failure in result.Failures)
+            {
+                ShowDeleteFailure(failure);
+            }
+        }
+
+        private bool ConfirmDeleteWholeFolder(string folderPath)
+        {
+            return owner.ShowOperationDialog(
+                string.Format(Resources.Confirm_DeleteFolderWithNoBms, folderPath),
+                Resources.MessageBoxTitle_Confirm,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes) == MessageBoxResult.Yes;
+        }
+
+        private void ShowDeleteFailure(LibraryDeleteFailure failure)
+        {
+            if (failure.IsDirectory)
+            {
+                owner.ShowOperationDialog(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, BMSLibrary.GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            }
+            else
+            {
+                owner.ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, BMSLibrary.GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+            }
         }
 
         internal void ApplyLibraryMutationDelta(LibraryMutationDelta delta)
@@ -337,9 +417,141 @@ public partial class BMSLibrary
                 (file, requestedPath) => owner.ProcessInvalidExtensionRename(file, requestedPath, removeFromLibraryOnSuccess: false));
         }
 
+        internal void RemoveLibraryCharts(
+            IEnumerable<LibraryChartRef> charts,
+            bool sendToRecycleBin,
+            IEnumerable<string> approvedWholeFolderDeletePaths)
+        {
+            if (TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.RemoveLibraryCharts)))
+            {
+                return;
+            }
+            RunWithLibraryChartRemovalWriteLocks(
+                () => RemoveLibraryChartsCore(charts, sendToRecycleBin, approvedWholeFolderDeletePaths));
+        }
+
+        internal void RemovePendingCharts(
+            IEnumerable<ChartFile> charts,
+            bool sendToRecycleBin,
+            bool deleteContainingPackageFoldersWhenNoBms)
+        {
+            if (charts == null)
+            {
+                throw new ArgumentNullException(nameof(charts));
+            }
+            using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
+            using (owner.rwlockPendingInstallCharts.GetWriterGuard())
+            using (owner.rwlockSongDBInstall.GetWriterGuard())
+            {
+                PendingFileDeletionResult result = owner.packageInstallService.DeletePendingCharts(
+                    charts,
+                    owner.ChartPackagesPending,
+                    sendToRecycleBin,
+                    deleteContainingPackageFoldersWhenNoBms,
+                    owner.fileMutationService,
+                    BMSLibrary.targetOnlyFileMutationOptions,
+                    BMSLibrary.recursiveDirectoryTreeFileMutationOptions);
+                foreach (PendingFileDeletionFailure failure in result.Failures)
+                {
+                    if (failure?.Exception == null)
+                    {
+                        continue;
+                    }
+                    if (failure.IsDirectory)
+                    {
+                        owner.ShowOperationDialog(string.Format(Resources.Error_FolderOrTrashDeleteFailed, failure.Path, BMSLibrary.GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                    }
+                    else
+                    {
+                        owner.ShowOperationDialog(string.Format(Resources.Error_BmsFileDeleteFailed, failure.Path, BMSLibrary.GetDisplayedExceptionMessage(failure.Exception)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
+                    }
+                }
+                RemovePendingChartsFromPendingPackagesAndInstallRows(result.ChartPathsToRemove);
+            }
+        }
+
+        internal void FixInstallationDirectoryCharts(
+            IEnumerable<ChartFile> charts,
+            IEnumerable<string> approvedDuplicateRemovalChartPaths)
+        {
+            if (charts == null)
+            {
+                throw new ArgumentNullException(nameof(charts));
+            }
+            if (TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.FixInstallationDirectoryCharts)))
+            {
+                return;
+            }
+
+            HashSet<string> approvedDuplicateRemovalPaths = approvedDuplicateRemovalChartPaths == null
+                ? null
+                : new HashSet<string>(approvedDuplicateRemovalChartPaths.Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
+
+            using (owner.rwlockBMSFilesInitializedAll.GetReaderGuard())
+            using (owner.rwlockPendingInstallCharts.GetWriterGuard())
+            using (owner.rwlockBMSFiles.GetWriterGuard())
+            {
+                List<ChartFile> chartList = [.. charts.Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
+                IPrimaryHashLookup existingHashes = owner.CreateInstalledChartKeySnapshotExcludingChartsUnsafe(chartList);
+                LibraryFixInstallationResult result = owner.libraryFileOperationsService.FixInstallationDirectory(
+                    chartList,
+                    (package, destinationDirectory) => MoveChartPackageFiles(package, destinationDirectory, existingHashes),
+                    chart => approvedDuplicateRemovalPaths != null
+                        ? !string.IsNullOrWhiteSpace(chart?.Path) && approvedDuplicateRemovalPaths.Contains(chart.Path)
+                        : ConfirmDuplicateReinstallSkipped(chart));
+                owner.ApplyLibraryMutationDelta(result.MutationDelta);
+                if (result.ChartsToRemove.Count > 0)
+                {
+                    RemoveLibraryChartsCore(result.ChartsToRemove, sendToRecycleBin: true, approvedWholeFolderDeletePaths: []);
+                }
+                List<ChartFile> maintenanceTargets = NormalizeResourceMaintenanceTargetCharts(result.MaintenanceCharts);
+                if (maintenanceTargets.Count > 0)
+                {
+                    owner.ApplyCatalogMaintenance(
+                        maintenanceTargets,
+                        forceUpdate: true,
+                        resourceHealthMutationReason: "fix_installation_directory");
+                }
+            }
+        }
+
+        private bool MoveChartPackageFiles(
+            ChartPackage package,
+            string destinationDirectory,
+            IPrimaryHashLookup existingHashes)
+        {
+            return owner.MoveChartPackageFiles(
+                package,
+                destinationDirectory,
+                showMessageBoxOnInstallFail: true,
+                deleteAllContents: false,
+                existingHashes: existingHashes);
+        }
+
+        private bool ConfirmDuplicateReinstallSkipped(ChartFile chart)
+        {
+            return owner.ShowOperationDialog(
+                string.Format(Resources.Confirm_DuplicateReinstallSkipped, chart.Path, string.Join(Environment.NewLine, owner.GetDuplicateInstallRepairPaths(chart))),
+                Resources.MessageBoxTitle_Confirm,
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.Yes) == MessageBoxResult.Yes;
+        }
+
+        private List<ChartFile> NormalizeResourceMaintenanceTargetCharts(IEnumerable<ChartFile> charts)
+        {
+            return BMSLibrary.NormalizeResourceMaintenanceTargetCharts(charts);
+        }
+
         internal void RemovePendingChartsFromPendingPackagesAndInstallRows(IEnumerable<string> chartPaths)
         {
-            owner.RemovePendingChartsFromPendingPackagesAndInstallRows(chartPaths);
+            List<string> paths = [.. (chartPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase)];
+            if (paths.Count == 0)
+            {
+                return;
+            }
+            owner.packageLifecycleOwner.ApplyPendingPackageMutationDelta(
+                owner.BuildPendingPackageMutationDelta(chartPathsToRemove: paths));
         }
 
         internal void ShowNormalRenameFailure(LibraryDeleteFailure failure, string newExt)
