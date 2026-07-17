@@ -4,33 +4,10 @@ using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal interface IInvalidExtensionRenameHost
-{
-    bool TryBlockLr2SongDbSyncMutation(string operation);
-
-    void RunWithNormalInvalidExtensionRenameWriteLocks(Action action);
-
-    void RunWithPendingInvalidExtensionRenameWriteLocks(Action action);
-
-    LibraryMutationDelta RenameLibraryFileExtensions(IEnumerable<ChartFile> targetCharts, string newExt, bool unregister);
-
-    PendingExtensionRenameResult RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt);
-
-    void ApplyLibraryMutationDelta(LibraryMutationDelta delta);
-
-    void RemovePendingChartsFromPendingPackagesAndInstallRows(IEnumerable<string> chartPaths);
-
-    void ShowNormalRenameFailure(LibraryDeleteFailure failure, string newExt);
-
-    void ShowPendingRenameFailure(PendingExtensionRenameFailure failure);
-
-    void LogInfo(string info);
-}
-
 internal static class InvalidExtensionRenameCoordinator
 {
     internal static void RenameBMSFilesExtensions(
-        IInvalidExtensionRenameHost host,
+        BMSLibrary.LibraryFileOperationOwner host,
         IEnumerable<ChartFile> charts,
         string newExt,
         bool? unregister)
@@ -56,7 +33,7 @@ internal static class InvalidExtensionRenameCoordinator
     }
 
     internal static void RenamePendingBmsFormatChartFileExtensions(
-        IInvalidExtensionRenameHost host,
+        BMSLibrary.LibraryFileOperationOwner host,
         IEnumerable<ChartFile> charts,
         string newExt)
     {

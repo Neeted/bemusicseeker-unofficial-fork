@@ -6,51 +6,10 @@ using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
-internal interface ILibraryFolderMoveHost
-{
-    bool TryBlockLr2SongDbSyncMutation(string operation);
-
-    bool IsLibraryRootFolder(string folderPath);
-
-    string NormalizeAutoRenameFolderName(string folderName);
-
-    bool DirectoryExists(string folderPath);
-
-    bool EntryExists(string path);
-
-    void RunWithFolderMoveWriteLocks(Action action);
-
-    List<LibraryChartRef> CreateNonNullChartRefList(IEnumerable<LibraryChartRef> charts);
-
-    List<FolderAutoRenamePlan> BuildRootFolderMovePlans(List<LibraryChartRef> charts, string dstDir);
-
-    DirectoryResourceLookupCache.ReverseLookupMutationResult MoveFolderAndUpdateReferences(string srcDir, string dstDir);
-
-    LibraryMutationDelta BuildFolderMoveDelta(string srcDir, string dstDir, bool unregister, bool notifyStorageRowPathChanges);
-
-    void ApplyLibraryMutationDelta(LibraryMutationDelta delta);
-
-    void InvalidateDuplicateChartGroupsCache();
-
-    void LogReverseLookupMutationAndQueueWarmupIfNeeded(string reason, DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult);
-
-    void ShowCannotRenameRootFolder(string srcDir);
-
-    void ShowRenameFolderNotExists(string srcDir);
-
-    void ShowMoveDestinationAlreadyExists(string srcDir, string dstDir);
-
-    void ShowMoveDestinationRootNotFound(string dstDir);
-
-    void ShowDriveRootCannotChangeRoot();
-
-    void ShowFolderMoveFailed(string srcDir, string dstDir, Exception exception);
-}
-
 internal static class LibraryFolderMoveCoordinator
 {
     internal static void RenameChartFolder(
-        ILibraryFolderMoveHost host,
+        BMSLibrary.LibraryFileOperationOwner host,
         string srcDir,
         string newName,
         bool? unregister,
@@ -100,7 +59,7 @@ internal static class LibraryFolderMoveCoordinator
     }
 
     internal static void MoveLibraryChartFolder(
-        ILibraryFolderMoveHost host,
+        BMSLibrary.LibraryFileOperationOwner host,
         string srcDir,
         string dstDir,
         bool? unregister,
@@ -123,7 +82,7 @@ internal static class LibraryFolderMoveCoordinator
     }
 
     internal static void MoveLibraryRootFolder(
-        ILibraryFolderMoveHost host,
+        BMSLibrary.LibraryFileOperationOwner host,
         IEnumerable<LibraryChartRef> charts,
         string dstDir,
         bool? unregister)
@@ -173,7 +132,7 @@ internal static class LibraryFolderMoveCoordinator
             .Any(f => !string.IsNullOrWhiteSpace(f) && Path.GetPathRoot(f).Equals(f, StringComparison.OrdinalIgnoreCase));
     }
 
-    private static bool TryMoveLibraryChartFolder(ILibraryFolderMoveHost host, string srcDir, string dstDir)
+    private static bool TryMoveLibraryChartFolder(BMSLibrary.LibraryFileOperationOwner host, string srcDir, string dstDir)
     {
         if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
         {

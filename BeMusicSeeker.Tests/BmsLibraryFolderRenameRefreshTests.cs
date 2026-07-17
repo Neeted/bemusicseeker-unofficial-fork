@@ -1839,7 +1839,7 @@ public sealed class BmsLibraryFolderRenameRefreshTests
 
     private static bool InvokeApplyAutoRenamePlans(BMSLibrary library, IEnumerable<FolderAutoRenamePlan> plans)
     {
-        var coordinator = new AutoRenameBatchCoordinator(new BMSLibrary.AutoRenameBatchHost(library));
+        var coordinator = new AutoRenameBatchCoordinator(new BMSLibrary.LibraryFileOperationOwner(library));
         return coordinator.Apply(plans);
     }
 

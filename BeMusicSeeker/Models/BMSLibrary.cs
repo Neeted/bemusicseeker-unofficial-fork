@@ -2567,6 +2567,8 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryLibraryFileOperationsService libraryFileOperationsService = new();
 
+    private readonly LibraryFileOperationOwner libraryFileOperationOwner;
+
     private readonly BmsLibraryIrService irService = new();
 
     private readonly BmsLibraryInitializationService initializationService = new();
@@ -2775,6 +2777,7 @@ public partial class BMSLibrary : NotificationObject
         this.fileMutationService = fileMutationService ?? new ResilientFileMutationService();
         this.dialogService = dialogService ?? new BmsLibraryDialogService();
         scopedOperationDialogService = new ScopedOperationDialogService(this);
+        libraryFileOperationOwner = new(this);
         dbGateway = new BmsLibraryDbGateway(lr2SongDBPath, lr2ScoreDBPath);
         catalogChartInfoOwner = new(
             RaisePropertyChanged,
@@ -12716,25 +12719,15 @@ public partial class BMSLibrary : NotificationObject
             : (total, processed, currentPath) => deferredProgressReports.Add(Tuple.Create(total, processed, currentPath));
         try
         {
-            using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+            libraryFileOperationOwner.RunWithFolderMoveWriteLocks(() =>
             {
-                using (rwlockPendingInstallCharts.GetWriterGuard())
-                {
-                    using (rwlockBMSFiles.GetWriterGuard())
-                    {
-                        List<ChartFile> selectedCharts = [.. chartFiles.Where(chart => chart != null)];
-                        List<string> rootFolders = getBMSDirectories();
-                        List<FolderAutoRenamePlan> plans = libraryFileOperationsService.BuildAutoRenamePlans(
-                            selectedCharts,
-                            rootFolders,
-                            renameRootFolder,
-                            CreateDirectLibraryChartSnapshotsInFolders,
-                            CreateChartFolderPathFromCharts,
-                            NormalizeAutoRenameFolderName);
-                        ApplyAutoRenamePlans(plans, deferredProgressReporter);
-                    }
-                }
-            }
+                List<ChartFile> selectedCharts = [.. chartFiles.Where(chart => chart != null)];
+                List<FolderAutoRenamePlan> plans = libraryFileOperationOwner.BuildAutoRenamePlans(
+                    selectedCharts,
+                    getBMSDirectories(),
+                    renameRootFolder);
+                libraryFileOperationOwner.ApplyAutoRenamePlans(plans, deferredProgressReporter);
+            });
         }
         finally
         {
@@ -12744,13 +12737,10 @@ public partial class BMSLibrary : NotificationObject
 
     internal bool HasAutoRenameAllChartFolderTargets(string parentDir = null)
     {
-        using (rwlockBMSFilesInitializedMin.GetReaderGuard())
-        {
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                return HasActionableAutoRenamePlan(CreateAutoRenameAllChartFolderPlansUnsafe(parentDir));
-            }
-        }
+        bool hasTargets = false;
+        libraryFileOperationOwner.RunWithFolderMoveReadLocks(
+            () => hasTargets = HasActionableAutoRenamePlan(CreateAutoRenameAllChartFolderPlansUnsafe(parentDir)));
+        return hasTargets;
     }
 
     internal bool AutoRenameAllChartFolders(string parentDir = null, Action<int, int, string> progressReporter = null)
@@ -12765,21 +12755,16 @@ public partial class BMSLibrary : NotificationObject
             : (total, processed, currentPath) => deferredProgressReports.Add(Tuple.Create(total, processed, currentPath));
         try
         {
-            using (rwlockBMSFilesInitializedMin.GetReaderGuard())
+            bool applied = false;
+            libraryFileOperationOwner.RunWithFolderMoveWriteLocks(() =>
             {
-                using (rwlockPendingInstallCharts.GetWriterGuard())
+                List<FolderAutoRenamePlan> plans = CreateAutoRenameAllChartFolderPlansUnsafe(parentDir);
+                if (HasActionableAutoRenamePlan(plans))
                 {
-                    using (rwlockBMSFiles.GetWriterGuard())
-                    {
-                        List<FolderAutoRenamePlan> plans = CreateAutoRenameAllChartFolderPlansUnsafe(parentDir);
-                        if (!HasActionableAutoRenamePlan(plans))
-                        {
-                            return false;
-                        }
-                        return ApplyAutoRenamePlans(plans, deferredProgressReporter);
-                    }
+                    applied = libraryFileOperationOwner.ApplyAutoRenamePlans(plans, deferredProgressReporter);
                 }
-            }
+            });
+            return applied;
         }
         finally
         {
@@ -12789,107 +12774,13 @@ public partial class BMSLibrary : NotificationObject
 
     private List<FolderAutoRenamePlan> CreateAutoRenameAllChartFolderPlansUnsafe(string parentDir)
     {
-        List<string> sourceFolders = CreateOwnedRealPathChartDirectoriesUnsafe(parentDir);
-        if (sourceFolders.Count == 0)
-        {
-            return [];
-        }
-        List<string> rootFolders = getBMSDirectories();
-        return libraryFileOperationsService.BuildAutoRenamePlansForSourceFolders(
-            sourceFolders,
-            rootFolders,
-            renameRootFolder: false,
-            CreateDirectLibraryChartSnapshotsInFolders,
-            CreateChartFolderPathFromCharts,
-            NormalizeAutoRenameFolderName);
+        return libraryFileOperationOwner.BuildAutoRenamePlansForSourceFolders(parentDir);
     }
 
     private static bool HasActionableAutoRenamePlan(IEnumerable<FolderAutoRenamePlan> plans)
     {
         return (plans ?? []).Any(plan => !string.IsNullOrWhiteSpace(plan?.SourceDirectory)
             && !string.IsNullOrWhiteSpace(plan.DestinationDirectory));
-    }
-
-    private bool ApplyAutoRenamePlans(IEnumerable<FolderAutoRenamePlan> plans, Action<int, int, string> progressReporter = null)
-    {
-        var coordinator = new AutoRenameBatchCoordinator(new AutoRenameBatchHost(this));
-        return coordinator.Apply(plans, progressReporter);
-    }
-
-    internal sealed class AutoRenameBatchHost(BMSLibrary owner) : IAutoRenameBatchHost
-    {
-        public void LogInstallPerformance(string message)
-        {
-            BMSLibrary.LogInstallPerformance(message);
-        }
-
-        public void ShowDriveRootBmsSkipped()
-        {
-            owner.ShowOperationDialog(Resources.Warn_DriveRootBmsSkipped, Resources.MessageBoxTitle_Confirm, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-        }
-
-        public void ShowRenameFailed(FolderAutoRenamePlan plan)
-        {
-            owner.ShowOperationDialog(string.Format(Resources.Error_RenameFailed, plan.SourceDirectory, plan.FailureException.Message), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-        }
-
-        public void ShowRenameFolderNotExists(string sourceDirectory)
-        {
-            owner.ShowOperationDialog(string.Format(Resources.Warn_RenameFolderNotExists, sourceDirectory), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-        }
-
-        public string NormalizeAutoRenameFolderName(string folderName)
-        {
-            return owner.NormalizeAutoRenameFolderName(folderName);
-        }
-
-        public bool DirectoryExists(string directoryPath)
-        {
-            return LongPathFileSystem.DirectoryExists(directoryPath);
-        }
-
-        public InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlayChartRefSnapshot()
-        {
-            return owner.installDestinationStateOwner.CreateOverlaySnapshot(out _);
-        }
-
-        public LibraryMutationDelta BuildFolderMoveDelta(
-            string sourceDirectory,
-            string destinationDirectory,
-            InstallDestinationOverlayChartRefSnapshot installDestinationOverlayCharts)
-        {
-            return owner.libraryFileOperationsService.BuildFolderMoveDelta(
-                sourceDirectory,
-                destinationDirectory,
-                owner.CreateOwnedRealPathChartRefsUnsafe(sourceDirectory),
-                installDestinationOverlayCharts,
-                owner.ChartPackagesPending,
-                owner.ChartPackagesInstalled,
-                unregister: false,
-                notifyStorageRowPathChanges: false);
-        }
-
-        public bool TryMoveLibraryChartFolderFileOnly(string sourceDirectory, string destinationDirectory)
-        {
-            return owner.TryMoveLibraryChartFolderFileOnly(sourceDirectory, destinationDirectory);
-        }
-
-        public MovedFolderReferenceUpdateResult UpdateMovedFolderReferences(List<LibraryFolderPathChange> movedFolders)
-        {
-            return owner.libraryFileOperationsService.UpdateMovedFolderReferences(movedFolders, owner.directoryResourceLookupCache);
-        }
-
-        public void LogReverseLookupMutationAndQueueWarmupIfNeeded(
-            string reason,
-            DirectoryResourceLookupCache.ReverseLookupMutationResult mutationResult)
-        {
-            owner.LogReverseLookupMutationAndQueueWarmupIfNeeded(reason, mutationResult);
-        }
-
-        public void ApplyLibraryMutationDeltaWithPerformanceContext(LibraryMutationDelta delta, string reason)
-        {
-            owner.ApplyLibraryMutationDeltaWithPerformanceContext(delta, reason);
-        }
     }
 
     private static void FlushAutoRenameProgressReports(Action<int, int, string> progressReporter, IEnumerable<Tuple<int, int, string>> reports)
@@ -12944,35 +12835,12 @@ public partial class BMSLibrary : NotificationObject
     /// </summary>
     public void RenameChartFolder(string srcDir, string newName, bool? unregister = false, bool renameRootFolder = false)
     {
-        LibraryFolderMoveCoordinator.RenameChartFolder(this, srcDir, newName, unregister, renameRootFolder);
+        LibraryFolderMoveCoordinator.RenameChartFolder(libraryFileOperationOwner, srcDir, newName, unregister, renameRootFolder);
     }
 
     internal void MoveLibraryRootFolder(IEnumerable<LibraryChartRef> charts, string dstDir, bool? unregister = false)
     {
-        LibraryFolderMoveCoordinator.MoveLibraryRootFolder(this, charts, dstDir, unregister);
-    }
-
-    private bool TryMoveLibraryChartFolderFileOnly(string srcDir, string dstDir)
-    {
-        if (srcDir.Equals(dstDir, StringComparison.OrdinalIgnoreCase))
-        {
-            return false;
-        }
-        if (LongPathFileSystem.EntryExists(dstDir))
-        {
-            ShowOperationDialog(string.Format(Resources.Warn_MoveDestAlreadyExists, srcDir, dstDir), Resources.MessageBoxTitle_Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            return false;
-        }
-        try
-        {
-            libraryFileOperationsService.MoveFolder(srcDir, dstDir, fileMutationService, recursiveDirectoryTreeFileMutationOptions);
-            return true;
-        }
-        catch (Exception moveException)
-        {
-            ShowOperationDialog(string.Format(Resources.Error_FolderMoveFailed, srcDir, dstDir, GetDisplayedExceptionMessage(moveException)), Resources.MessageBoxTitle_Error, MessageBoxButton.OK, MessageBoxImage.Hand, MessageBoxResult.OK);
-            return false;
-        }
+        LibraryFolderMoveCoordinator.MoveLibraryRootFolder(libraryFileOperationOwner, charts, dstDir, unregister);
     }
 
     /// <summary>
@@ -13009,7 +12877,7 @@ public partial class BMSLibrary : NotificationObject
     internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt, bool? unregister = false)
     {
         InvalidExtensionRenameCoordinator.RenameBMSFilesExtensions(
-            this,
+            libraryFileOperationOwner,
             charts,
             newExt,
             unregister);
@@ -13018,7 +12886,7 @@ public partial class BMSLibrary : NotificationObject
     internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt)
     {
         InvalidExtensionRenameCoordinator.RenamePendingBmsFormatChartFileExtensions(
-            this,
+            libraryFileOperationOwner,
             charts,
             newExt);
     }
