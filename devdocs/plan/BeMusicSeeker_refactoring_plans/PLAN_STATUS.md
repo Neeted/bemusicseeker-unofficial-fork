@@ -2,7 +2,7 @@
 
 [リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md) / [Codex 共通実行ルール](./00_Codex共通実行ルール.md)
 
-最終更新日: 2026-07-17
+最終更新日: 2026-07-18
 
 ## Baseline
 
@@ -15,7 +15,11 @@
 
 ### `LIB-02 Package, install-destination and file-operation ownership`
 
-状態: ready
+状態: in progress
+
+active outcome base commit: `37925d8b`
+active execution package: `LIB-02 Package, install-destination and file-operation ownership`
+sequence cursor: `LIB-02-B Package aggregate, install-table and estimation lifecycle ownership`
 
 目的:
 
@@ -51,7 +55,7 @@ Non-goals:
 | UI-04 Play history ownership | completed |
 | LIB-01 Scan pipeline core ownership | completed |
 | LIB-03 Catalog storage, mutation, maintenance and resource-health ownership | completed |
-| LIB-02 Package, install-destination and file-operation ownership | ready |
+| LIB-02 Package, install-destination and file-operation ownership | in progress |
 | LIB-04 LR2 synchronization ownership | not started |
 | LIB-05 Playlist-reference ownership | not started |
 | LIB-06 Library facade and scan integration closure | not started |

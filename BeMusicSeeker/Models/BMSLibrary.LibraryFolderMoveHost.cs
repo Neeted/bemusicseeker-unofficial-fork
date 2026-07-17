@@ -79,7 +79,7 @@ public partial class BMSLibrary : ILibraryFolderMoveHost
             srcDir,
             dstDir,
             CreateOwnedRealPathChartRefsUnsafe(srcDir),
-            CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
+            installDestinationStateOwner.CreateOverlaySnapshot(out _),
             ChartPackagesPending,
             ChartPackagesInstalled,
             unregister,

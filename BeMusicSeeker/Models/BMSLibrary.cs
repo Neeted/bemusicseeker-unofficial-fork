@@ -892,12 +892,6 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly NormalLibraryRefreshPublisher normalLibraryRefreshPublisher = new();
 
-    private readonly object installDestinationRuntimeStatesLock = new();
-
-    private readonly Dictionary<string, InstallDestinationRuntimeStateEntry> installDestinationRuntimeStatesByKey = new(StringComparer.OrdinalIgnoreCase);
-
-    private InstallDestinationOverlayChartRefSnapshot installDestinationOverlayChartRefSnapshot;
-
     private readonly ResourceHealthIndexOwner resourceHealthOwner;
 
     private List<DuplicateGroup> _DuplicateChartGroups;
@@ -1226,7 +1220,7 @@ public partial class BMSLibrary : NotificationObject
             resourceHealthOwner.Invalidate(bmsRowsChanged && bmsonRowsChanged
                 ? "catalog_storage_rows_changed"
                 : (bmsRowsChanged ? "bmsfiles_changed" : "bmsons_changed"));
-            PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+            installDestinationStateOwner.PruneToCurrentOwnedCharts();
         }
 
         if (notifyBmsRows && bmsRowsChanged)
@@ -2643,6 +2637,8 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly LibraryFileScanPipelineOwner libraryFileScanPipelineOwner;
 
+    private readonly InstallDestinationStateOwner installDestinationStateOwner;
+
     private ChartInfoBuildService chartInfoBuildService => catalogChartInfoOwner.BuildService;
 
     private readonly IBmsLibraryIrClient irClient = new BmsLibraryIrClient();
@@ -2869,6 +2865,7 @@ public partial class BMSLibrary : NotificationObject
             maintenanceService,
             LogInstallPerformance,
             GetCurrentResourceHealthIndexVersion);
+        installDestinationStateOwner = new(CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe);
         catalogMaintenanceOwner = new(
             initializationService,
             maintenanceService,
@@ -4292,11 +4289,6 @@ public partial class BMSLibrary : NotificationObject
             owner.ApplyFileScanStorageMutation(fileCheckResult, reason);
         }
 
-        public List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
-        {
-            return owner.CreateCurrentInstallDestinationCleanupCharts();
-        }
-
         public BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => owner.CurrentOptionsSnapshot;
 
         public List<string> CreateLr2SongDbSyncBuiltinFolderSourceDirectories(BmsLibraryOptionsSnapshot options)
@@ -4848,7 +4840,8 @@ public partial class BMSLibrary : NotificationObject
             var stopwatchSongTblFileCheck = Stopwatch.StartNew();
             libraryFileScanPipelineOwner.ApplyActiveFileScan(
                 fileScanGeneration,
-                trackLibraryFileCheckProgress);
+                trackLibraryFileCheckProgress,
+                installDestinationStateOwner.CreateCleanupSnapshot());
             stopwatchSongTblFileCheck.Stop();
             songTblFileCheckMs = stopwatchSongTblFileCheck.ElapsedMilliseconds;
         }
@@ -4946,7 +4939,8 @@ public partial class BMSLibrary : NotificationObject
                 libraryFileScanPipelineOwner.StartActiveNormalFolderMtimeSnapshot(fileScanGeneration);
                 SongTableFileCheckResult result = libraryFileScanPipelineOwner.ApplyActiveFileScan(
                     fileScanGeneration,
-                    trackLibraryFileCheckProgress: true);
+                    trackLibraryFileCheckProgress: true,
+                    installDestinationCleanupSnapshot: installDestinationStateOwner.CreateCleanupSnapshot());
                 stopwatch.Stop();
                 LogInstallPerformance("library_file_diff_reload done added=" + result.BmsAddedTargetCount
                     + " deleted=" + result.BmsDeletedTargetCount
@@ -8733,19 +8727,6 @@ public partial class BMSLibrary : NotificationObject
             || InstalledLookupMutation?.HasChanges == true;
     }
 
-    private sealed class InstallDestinationRuntimeStateMutation
-    {
-        public List<LibraryChartPathChange> PathChanges { get; } = [];
-
-        public List<ChartFile> AppliedCharts { get; } = [];
-
-        public bool PruneToCurrentOwnedCharts { get; set; }
-
-        public bool HasStateChanges => PathChanges.Count > 0 || AppliedCharts.Count > 0;
-
-        public bool HasChanges => HasStateChanges || PruneToCurrentOwnedCharts;
-    }
-
     private sealed class OwnedChartCollectionStorageMutation
     {
         public List<BMSFile> AddedBmsFiles { get; } = [];
@@ -9226,7 +9207,7 @@ public partial class BMSLibrary : NotificationObject
     /// <returns>The overlaid owned chart snapshot.</returns>
     internal List<ChartFile> CreateOwnedChartInfoFullBackfillTargetSnapshotWithInstallDestinationOverlayForDiagnostics()
     {
-        return OverlayInstallDestinationRuntimeStates(CreateOwnedChartInfoFullBackfillTargetSnapshot());
+        return installDestinationStateOwner.OverlayRuntimeStates(CreateOwnedChartInfoFullBackfillTargetSnapshot());
     }
 
     private ILibraryChartCanonicalLookup CreateOwnedCanonicalChartLookupUnsafe()
@@ -9298,14 +9279,8 @@ public partial class BMSLibrary : NotificationObject
     internal OwnedAdjacentIndexWarmupResult WarmInstallDestinationOverlaySnapshot(string reason)
     {
         var stopwatch = Stopwatch.StartNew();
-        string status;
-        InstallDestinationOverlayChartRefSnapshot snapshot;
-        lock (installDestinationRuntimeStatesLock)
-        {
-            status = installDestinationOverlayChartRefSnapshot == null ? "built" : "cached";
-            snapshot = installDestinationOverlayChartRefSnapshot ??= InstallDestinationOverlayChartRefSnapshot
-                .FromCharts(CreateCurrentInstallDestinationCleanupChartsUnsafe());
-        }
+        InstallDestinationOverlayChartRefSnapshot snapshot = installDestinationStateOwner.CreateOverlaySnapshot(out bool wasCached);
+        string status = wasCached ? "cached" : "built";
         stopwatch.Stop();
         var result = new OwnedAdjacentIndexWarmupResult
         {
@@ -9780,7 +9755,7 @@ public partial class BMSLibrary : NotificationObject
         if (mutationResult.InstallDestinationRuntimeStateMutation.HasChanges
             || mutationResult.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
         {
-            PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+            installDestinationStateOwner.PruneToCurrentOwnedCharts();
         }
         InvalidateOwnedChartCollection();
         ClearNormalLibraryRefreshNotification(mutationResult);
@@ -9877,7 +9852,7 @@ public partial class BMSLibrary : NotificationObject
         if (mutationResult?.InstallDestinationRuntimeStateMutation.HasChanges == true
             || mutationResult?.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts == true)
         {
-            PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+            installDestinationStateOwner.PruneToCurrentOwnedCharts();
         }
         if (mutationResult?.OwnedCollectionChanged == true)
         {
@@ -10045,7 +10020,7 @@ public partial class BMSLibrary : NotificationObject
         result.StorageMutation.PathChanges.AddRange(storageMutation.PathChanges);
         result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts = storageMutation.RemovedCount > 0;
         result.InstallDestinationRuntimeStateMutation.PathChanges.AddRange(storageMutation.PathChanges);
-        result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(CreateInstallDestinationChangedChartSnapshots(delta, storageMutation.PathChanges));
+        result.InstallDestinationRuntimeStateMutation.AppliedCharts.AddRange(installDestinationStateOwner.CreateChangedChartSnapshots(delta, storageMutation.PathChanges));
         ConfigureResourceHealthMutationForStorageMutation(
             result,
             storageMutation,
@@ -10344,13 +10319,13 @@ public partial class BMSLibrary : NotificationObject
         if (result.InstallDestinationRuntimeStateMutation.HasStateChanges)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            UpdateInstallDestinationRuntimeStates(result.InstallDestinationRuntimeStateMutation);
+            installDestinationStateOwner.Apply(result.InstallDestinationRuntimeStateMutation);
             installDestinationMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.InstallDestinationRuntimeStateMutation.PruneToCurrentOwnedCharts)
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+            installDestinationStateOwner.PruneToCurrentOwnedCharts();
             installDestinationMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.DigestChangedCount > 0)
@@ -10849,363 +10824,6 @@ public partial class BMSLibrary : NotificationObject
             }
             stopwatch.Stop();
             LogInstallPerformance("installed_primary_hash_lookup update mode=incremental reason=" + reason + " removed=" + mutation.Removed.Count + " moved=" + mutation.Moved.Count + " added=" + mutation.Added.Count + " elapsedMs=" + stopwatch.ElapsedMilliseconds + " primaryHashes=" + installedPrimaryHashLookup.DistinctPrimaryHashCount);
-        }
-    }
-
-    private List<ChartFile> OverlayInstallDestinationRuntimeStates(IEnumerable<ChartFile> charts)
-    {
-        return [.. (charts ?? []).Select(OverlayInstallDestinationRuntimeState).Where(chart => chart != null)];
-    }
-
-    private List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
-    {
-        lock (installDestinationRuntimeStatesLock)
-        {
-            return CreateCurrentInstallDestinationCleanupChartsUnsafe();
-        }
-    }
-
-    private List<ChartFile> CreateCurrentInstallDestinationCleanupChartsUnsafe()
-    {
-        return [.. installDestinationRuntimeStatesByKey.Values
-            .Distinct()
-            .Select(entry => entry.CreateChartSnapshot())
-            .Where(chart => chart != null && !string.IsNullOrWhiteSpace(chart.InstallDestination))];
-    }
-
-    private ChartFile OverlayInstallDestinationRuntimeState(ChartFile chart)
-    {
-        lock (installDestinationRuntimeStatesLock)
-        {
-            foreach (InstallDestinationRuntimeStateKey key in EnumerateChartRuntimeStateLookupKeys(chart))
-            {
-                if (installDestinationRuntimeStatesByKey.TryGetValue(key.Key, out InstallDestinationRuntimeStateEntry entry)
-                    && entry.CanApplyTo(chart, key.RequireOwnerMatch))
-                {
-                    return ChartFileProjection.WithTransientState(chart, entry.State, includeWarningSnapshot: false);
-                }
-            }
-        }
-        return chart;
-    }
-
-    private void UpdateInstallDestinationRuntimeStates(InstallDestinationRuntimeStateMutation mutation)
-    {
-        if (mutation == null || !mutation.HasStateChanges)
-        {
-            return;
-        }
-        lock (installDestinationRuntimeStatesLock)
-        {
-            foreach (LibraryChartPathChange pathChange in mutation.PathChanges)
-            {
-                MoveInstallDestinationRuntimeState(pathChange);
-            }
-
-            foreach (ChartFile chart in mutation.AppliedCharts)
-            {
-                ChartFileTransientState state = ChartFileTransientState.FromInstallDestinationState(
-                    chart,
-                    includeWarningSnapshot: true,
-                    forceInstallDestinationProjection: true,
-                    forceWarningProjection: true);
-                foreach (string key in EnumerateInstallDestinationRuntimeStateKeys(chart))
-                {
-                    if (state.HasState)
-                    {
-                        installDestinationRuntimeStatesByKey[key] = InstallDestinationRuntimeStateEntry.FromChart(chart, state);
-                    }
-                    else
-                    {
-                        installDestinationRuntimeStatesByKey.Remove(key);
-                    }
-                }
-            }
-            InvalidateInstallDestinationOverlayChartRefSnapshotUnsafe();
-        }
-    }
-
-    private static IEnumerable<string> EnumerateInstallDestinationRuntimeStateKeys(ChartFile chart)
-    {
-        var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (InstallDestinationRuntimeStateKey key in EnumerateChartRuntimeStateLookupKeys(chart))
-        {
-            if (seenKeys.Add(key.Key))
-            {
-                yield return key.Key;
-            }
-        }
-
-        BMSFile bmsOwner = chart?.GetBmsStorageOwner();
-        if (bmsOwner != null)
-        {
-            foreach (InstallDestinationRuntimeStateKey ownerKey in EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner)))
-            {
-                if (seenKeys.Add(ownerKey.Key))
-                {
-                    yield return ownerKey.Key;
-                }
-            }
-            yield break;
-        }
-
-        LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
-        if (bmsonOwner != null)
-        {
-            foreach (InstallDestinationRuntimeStateKey ownerKey in EnumerateChartRuntimeStateLookupKeys(ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonOwner)))
-            {
-                if (seenKeys.Add(ownerKey.Key))
-                {
-                    yield return ownerKey.Key;
-                }
-            }
-        }
-    }
-
-    private static IEnumerable<InstallDestinationRuntimeStateKey> EnumerateChartRuntimeStateLookupKeys(ChartFile chart)
-    {
-        string primaryKey = ChartFileRuntimeStateKey.Create(chart);
-        if (!string.IsNullOrWhiteSpace(primaryKey))
-        {
-            yield return new InstallDestinationRuntimeStateKey(primaryKey, requireOwnerMatch: false);
-        }
-
-        // Maintenance can recalculate a BMS hash after a runtime state is published.
-        // Keep an owner-guarded path key so the overlay survives that owner refresh
-        // without leaking to a different chart later installed at the same path.
-        string pathKey = ChartFileRuntimeStateKey.CreatePathKey(chart);
-        if (!string.IsNullOrWhiteSpace(pathKey) && !string.Equals(pathKey, primaryKey, StringComparison.OrdinalIgnoreCase))
-        {
-            yield return new InstallDestinationRuntimeStateKey(pathKey, requireOwnerMatch: true);
-        }
-    }
-
-    private readonly struct InstallDestinationRuntimeStateKey
-    {
-        internal InstallDestinationRuntimeStateKey(string key, bool requireOwnerMatch)
-        {
-            Key = key;
-            RequireOwnerMatch = requireOwnerMatch;
-        }
-
-        internal string Key { get; }
-
-        internal bool RequireOwnerMatch { get; }
-    }
-
-    private sealed class InstallDestinationRuntimeStateEntry
-    {
-        private readonly BMSFile bmsOwner;
-        private readonly LR2SongDBExtended.bmson_song bmsonOwner;
-
-        private InstallDestinationRuntimeStateEntry(
-            ChartFileTransientState state,
-            BMSFile bmsOwner,
-            LR2SongDBExtended.bmson_song bmsonOwner)
-        {
-            State = state ?? ChartFileTransientState.Empty;
-            this.bmsOwner = bmsOwner;
-            this.bmsonOwner = bmsonOwner;
-        }
-
-        internal ChartFileTransientState State { get; }
-
-        internal static InstallDestinationRuntimeStateEntry FromChart(ChartFile chart, ChartFileTransientState state)
-        {
-            return new InstallDestinationRuntimeStateEntry(
-                state,
-                chart?.GetBmsStorageOwner(),
-                chart?.GetBmsonStorageOwner());
-        }
-
-        internal bool CanApplyTo(ChartFile chart, bool requireOwnerMatch)
-        {
-            return CanApplyTo(chart?.GetBmsStorageOwner(), chart?.GetBmsonStorageOwner(), requireOwnerMatch);
-        }
-
-        internal bool CanApplyTo(
-            BMSFile currentBmsOwner,
-            LR2SongDBExtended.bmson_song currentBmsonOwner,
-            bool requireOwnerMatch)
-        {
-            if (State?.HasState != true)
-            {
-                return false;
-            }
-            if (!requireOwnerMatch)
-            {
-                return true;
-            }
-
-            if (bmsOwner != null || currentBmsOwner != null)
-            {
-                return ReferenceEquals(bmsOwner, currentBmsOwner);
-            }
-
-            return (bmsonOwner != null || currentBmsonOwner != null)
-                && ReferenceEquals(bmsonOwner, currentBmsonOwner);
-        }
-
-        internal ChartFile CreateChartSnapshot()
-        {
-            if (State?.HasInstallDestinationState != true)
-            {
-                return null;
-            }
-
-            ChartFile source = bmsOwner != null
-                ? ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner)
-                : bmsonOwner != null
-                    ? ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonOwner)
-                    : null;
-            return ChartFileProjection.WithTransientState(source, State, includeWarningSnapshot: false);
-        }
-    }
-
-    private List<ChartFile> CreateInstallDestinationChangedChartSnapshots(
-        LibraryMutationDelta delta,
-        IReadOnlyCollection<LibraryChartPathChange> pathChanges)
-    {
-        var chartsByKey = new Dictionary<string, ChartFile>(StringComparer.OrdinalIgnoreCase);
-        foreach (ChartFile chart in delta?.CreateAppliedInstallDestinationChartSnapshots() ?? [])
-        {
-            AddInstallDestinationChangedChart(chartsByKey, chart);
-        }
-
-        foreach (ChartFile chart in CreateMovedInstallDestinationRuntimeStateSnapshots(pathChanges))
-        {
-            AddInstallDestinationChangedChart(chartsByKey, chart);
-        }
-
-        return [.. chartsByKey.Values];
-    }
-
-    private IEnumerable<ChartFile> CreateMovedInstallDestinationRuntimeStateSnapshots(IEnumerable<LibraryChartPathChange> pathChanges)
-    {
-        if (pathChanges == null)
-        {
-            yield break;
-        }
-
-        foreach (LibraryChartPathChange pathChange in pathChanges)
-        {
-            ChartFile movedChart = CreateMovedInstallDestinationRuntimeStateSnapshot(pathChange);
-            if (movedChart != null)
-            {
-                yield return movedChart;
-            }
-        }
-    }
-
-    private ChartFile CreateMovedInstallDestinationRuntimeStateSnapshot(LibraryChartPathChange pathChange)
-    {
-        if (pathChange?.Chart == null || string.IsNullOrWhiteSpace(pathChange.NewPath))
-        {
-            return null;
-        }
-
-        string oldPath = string.IsNullOrWhiteSpace(pathChange.OldPath)
-            ? pathChange.Chart.Path
-            : pathChange.OldPath;
-        ChartFile oldChart = ChartFileProjection.WithPath(pathChange.Chart, oldPath);
-        List<InstallDestinationRuntimeStateKey> oldKeys = [.. EnumerateChartRuntimeStateLookupKeys(oldChart)];
-        if (oldKeys.Count == 0)
-        {
-            return null;
-        }
-
-        InstallDestinationRuntimeStateEntry entry;
-        lock (installDestinationRuntimeStatesLock)
-        {
-            entry = oldKeys
-                .Select(key => installDestinationRuntimeStatesByKey.TryGetValue(key.Key, out InstallDestinationRuntimeStateEntry value) && value.CanApplyTo(oldChart, key.RequireOwnerMatch) ? value : null)
-                .FirstOrDefault(value => value?.State?.HasState == true);
-        }
-        return entry?.State?.HasState == true
-            ? ChartFileProjection.WithTransientState(ChartFileProjection.WithPath(pathChange.Chart, pathChange.NewPath), entry.State, includeWarningSnapshot: false)
-            : null;
-    }
-
-    private static void AddInstallDestinationChangedChart(Dictionary<string, ChartFile> chartsByKey, ChartFile chart)
-    {
-        string key = ChartFileRuntimeStateKey.Create(chart);
-        if (!string.IsNullOrWhiteSpace(key))
-        {
-            chartsByKey[key] = chart;
-        }
-    }
-
-    private void MoveInstallDestinationRuntimeState(LibraryChartPathChange pathChange)
-    {
-        if (pathChange?.Chart == null || string.IsNullOrWhiteSpace(pathChange.NewPath))
-        {
-            return;
-        }
-
-        string oldPath = string.IsNullOrWhiteSpace(pathChange.OldPath)
-            ? pathChange.Chart.Path
-            : pathChange.OldPath;
-        ChartFile oldChart = ChartFileProjection.WithPath(pathChange.Chart, oldPath);
-        ChartFile newChart = ChartFileProjection.WithPath(pathChange.Chart, pathChange.NewPath);
-        List<InstallDestinationRuntimeStateKey> oldKeys = [.. EnumerateChartRuntimeStateLookupKeys(oldChart)];
-        List<InstallDestinationRuntimeStateKey> newKeys = [.. EnumerateChartRuntimeStateLookupKeys(newChart)];
-        InstallDestinationRuntimeStateEntry entry = oldKeys
-            .Select(key => installDestinationRuntimeStatesByKey.TryGetValue(key.Key, out InstallDestinationRuntimeStateEntry value) && value.CanApplyTo(oldChart, key.RequireOwnerMatch) ? value : null)
-            .FirstOrDefault(value => value?.State?.HasState == true);
-        if (entry?.State?.HasState != true)
-        {
-            return;
-        }
-
-        InstallDestinationRuntimeStateEntry movedEntry = InstallDestinationRuntimeStateEntry.FromChart(newChart, entry.State);
-        foreach (InstallDestinationRuntimeStateKey newKey in newKeys)
-        {
-            installDestinationRuntimeStatesByKey[newKey.Key] = movedEntry;
-        }
-        foreach (InstallDestinationRuntimeStateKey oldKey in oldKeys)
-        {
-            if (!newKeys.Any(key => string.Equals(key.Key, oldKey.Key, StringComparison.OrdinalIgnoreCase)))
-            {
-                installDestinationRuntimeStatesByKey.Remove(oldKey.Key);
-            }
-        }
-    }
-
-    private void InvalidateInstallDestinationOverlayChartRefSnapshotUnsafe()
-    {
-        installDestinationOverlayChartRefSnapshot = null;
-    }
-
-    private void PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts()
-    {
-        lock (installDestinationRuntimeStatesLock)
-        {
-            // Startup assigns the full owned chart set before any runtime install
-            // destination overlay exists. Avoid building 210k+ ChartFile projection
-            // keys for that empty-cache case.
-            if (installDestinationRuntimeStatesByKey.Count == 0)
-            {
-                return;
-            }
-        }
-
-        HashSet<string> currentKeys = CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe();
-
-        lock (installDestinationRuntimeStatesLock)
-        {
-            bool removedAny = false;
-            foreach (string key in installDestinationRuntimeStatesByKey.Keys.ToList())
-            {
-                if (!currentKeys.Contains(key))
-                {
-                    installDestinationRuntimeStatesByKey.Remove(key);
-                    removedAny = true;
-                }
-            }
-            if (removedAny)
-            {
-                InvalidateInstallDestinationOverlayChartRefSnapshotUnsafe();
-            }
         }
     }
 
@@ -13328,7 +12946,7 @@ public partial class BMSLibrary : NotificationObject
 
         public InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlayChartRefSnapshot()
         {
-            return owner.CreateInstallDestinationOverlayChartRefSnapshotUnsafe();
+            return owner.installDestinationStateOwner.CreateOverlaySnapshot(out _);
         }
 
         public LibraryMutationDelta BuildFolderMoveDelta(
@@ -13453,22 +13071,13 @@ public partial class BMSLibrary : NotificationObject
         }
     }
 
-    private InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlayChartRefSnapshotUnsafe()
-    {
-        lock (installDestinationRuntimeStatesLock)
-        {
-            return installDestinationOverlayChartRefSnapshot ??= InstallDestinationOverlayChartRefSnapshot
-                .FromCharts(CreateCurrentInstallDestinationCleanupChartsUnsafe());
-        }
-    }
-
     /// <summary>
     /// Creates a read-only install-destination overlay chart reference snapshot for diagnostics and tests.
     /// </summary>
     /// <returns>The install-destination overlay chart reference snapshot.</returns>
     internal InstallDestinationOverlayChartRefSnapshot CreateInstallDestinationOverlayChartRefSnapshotForDiagnostics()
     {
-        return CreateInstallDestinationOverlayChartRefSnapshotUnsafe();
+        return installDestinationStateOwner.CreateOverlaySnapshot(out _);
     }
 
     private RenameInvalidExtensionOutcome ProcessInvalidExtensionRename(BMSFile sourceFile, string requestedPath, bool removeFromLibraryOnSuccess)
@@ -13744,7 +13353,7 @@ public partial class BMSLibrary : NotificationObject
             }
             if (mutationResult?.InstallDestinationRuntimeStateMutation.HasChanges == true)
             {
-                PruneInstallDestinationRuntimeStatesToCurrentOwnedCharts();
+                installDestinationStateOwner.PruneToCurrentOwnedCharts();
             }
             InvalidateOwnedChartCollection();
             if (mutationResult != null)

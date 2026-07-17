@@ -56,8 +56,6 @@ internal interface ILibraryFileScanPipelineHost
     /// <param name="reason">The file-scan operation reason used for dispatch diagnostics.</param>
     void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason);
 
-    List<ChartFile> CreateCurrentInstallDestinationCleanupCharts();
-
     bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options);
 
     void CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(

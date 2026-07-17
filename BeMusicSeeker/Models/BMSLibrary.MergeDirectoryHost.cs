@@ -45,7 +45,7 @@ public partial class BMSLibrary : ILibraryMergeDirectoryHost
 
     InstallDestinationOverlayChartRefSnapshot ILibraryMergeDirectoryHost.CreateInstallDestinationOverlayChartRefSnapshot()
     {
-        return CreateInstallDestinationOverlayChartRefSnapshotUnsafe();
+        return installDestinationStateOwner.CreateOverlaySnapshot(out _);
     }
 
     LibraryMergeResult ILibraryMergeDirectoryHost.PrepareMergeDirectory(

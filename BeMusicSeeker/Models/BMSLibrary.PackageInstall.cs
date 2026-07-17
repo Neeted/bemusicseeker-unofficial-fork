@@ -1037,7 +1037,7 @@ public partial class BMSLibrary
         {
             return null;
         }
-        List<ChartFile> destinationCharts = OverlayInstallDestinationRuntimeStates(CreateOwnedChartFilesForExactPathsUnsafe(
+        List<ChartFile> destinationCharts = installDestinationStateOwner.OverlayRuntimeStates(CreateOwnedChartFilesForExactPathsUnsafe(
             destinationPaths,
             includeWarningSnapshot: false,
             includeResourceReferences: false));

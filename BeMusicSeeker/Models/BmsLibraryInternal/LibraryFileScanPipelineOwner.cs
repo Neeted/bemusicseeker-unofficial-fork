@@ -170,8 +170,13 @@ internal sealed class LibraryFileScanPipelineOwner
 
     internal SongTableFileCheckResult ApplyActiveFileScan(
         long generation,
-        bool trackLibraryFileCheckProgress)
+        bool trackLibraryFileCheckProgress,
+        InstallDestinationCleanupSnapshot installDestinationCleanupSnapshot)
     {
+        if (installDestinationCleanupSnapshot == null)
+        {
+            throw new ArgumentNullException(nameof(installDestinationCleanupSnapshot));
+        }
         ActiveFileScan scan = GetActiveFileScan(generation);
         lock (fileScanGate)
         {
@@ -195,7 +200,8 @@ internal sealed class LibraryFileScanPipelineOwner
                 chartScanPrefetchInfo,
                 scan.NormalFolderMtimeSnapshotTask,
                 trackLibraryFileCheckProgress,
-                scan.Reason);
+                scan.Reason,
+                installDestinationCleanupSnapshot);
             CompleteFileScan(scan);
             return result;
         }
@@ -399,8 +405,13 @@ internal sealed class LibraryFileScanPipelineOwner
         ChartScanPrefetchInfo chartScanPrefetchInfo,
         Task<Lr2NormalFolderMtimeSnapshot> normalFolderMtimeSnapshotTask,
         bool trackLibraryFileCheckProgress,
-        string reason)
+        string reason,
+        InstallDestinationCleanupSnapshot installDestinationCleanupSnapshot)
     {
+        if (installDestinationCleanupSnapshot == null)
+        {
+            throw new ArgumentNullException(nameof(installDestinationCleanupSnapshot));
+        }
         host.ThrowIfLr2SongDbSyncMutationBlocked("ApplyLibraryFileScanDiff");
         var emptyResult = new SongTableFileCheckResult();
         if (bmsDirectories == null || bmsDirectories.Count == 0)
@@ -495,7 +506,7 @@ internal sealed class LibraryFileScanPipelineOwner
         }
 
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
-        List<ChartFile> currentInstallDestinationCharts = host.CreateCurrentInstallDestinationCleanupCharts();
+        IReadOnlyList<ChartFile> currentInstallDestinationCharts = installDestinationCleanupSnapshot.Charts;
         Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = lr2Host.CreateLr2SongDbSyncAppManagedOutputScope();
         Task<Lr2FolderFileDiffPreparationResult> lr2FolderFileDiffPreparationTask = null;
         bool protectExistingBmsRowsFromLr2SongDbSyncMigration = host.ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(options);
@@ -705,15 +716,16 @@ internal sealed class LibraryFileScanPipelineOwner
         bool IsCurrentChartOwner(ChartFile chart)
         {
             BMSFile bmsOwner = chart?.GetBmsStorageOwner();
-            if (bmsOwner != null)
+            if (chart?.Kind == ChartFileKind.Bms)
             {
-                return nextFileOwners.Contains(bmsOwner)
+                return (bmsOwner != null && nextFileOwners.Contains(bmsOwner))
                     || (!string.IsNullOrWhiteSpace(chart.Path) && nextFilePaths.Contains(chart.Path));
             }
 
             LR2SongDBExtended.bmson_song bmsonOwner = chart?.GetBmsonStorageOwner();
-            return (bmsonOwner != null && nextBmsonOwners.Contains(bmsonOwner))
-                || (!string.IsNullOrWhiteSpace(chart?.Path) && nextBmsonPaths.Contains(chart.Path));
+            return chart?.Kind == ChartFileKind.Bmson
+                && ((bmsonOwner != null && nextBmsonOwners.Contains(bmsonOwner))
+                    || (!string.IsNullOrWhiteSpace(chart?.Path) && nextBmsonPaths.Contains(chart.Path)));
         }
     }
 

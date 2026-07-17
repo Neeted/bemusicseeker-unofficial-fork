@@ -25,14 +25,16 @@ public sealed class LibraryFileScanPipelineOwnerTests
             null!,
             null!,
             trackLibraryFileCheckProgress: true,
-            reason: "test_first");
+            reason: "test_first",
+            installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
         SongTableFileCheckResult second = owner.ApplyFileScanDiff(
             new BmsLibraryOptionsSnapshot(),
             null!,
             null!,
             null!,
             trackLibraryFileCheckProgress: true,
-            reason: "test_second");
+            reason: "test_second",
+            installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
 
         Assert.IsNotNull(first);
         Assert.IsNotNull(second);
@@ -66,7 +68,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
             prefetch,
             null!,
             trackLibraryFileCheckProgress: true,
-            reason: "test_incomplete");
+            reason: "test_incomplete",
+            installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
 
         Assert.IsNotNull(result);
         Assert.AreEqual(1, host.IncompleteWarningCount);
@@ -82,7 +85,10 @@ public sealed class LibraryFileScanPipelineOwnerTests
         var owner = CreateOwner(host);
         long generation = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_request");
 
-        SongTableFileCheckResult result = owner.ApplyActiveFileScan(generation, trackLibraryFileCheckProgress: true);
+        SongTableFileCheckResult result = owner.ApplyActiveFileScan(
+            generation,
+            trackLibraryFileCheckProgress: true,
+            installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
 
         Assert.IsNotNull(result);
         Assert.AreEqual(1, host.EnumerationCompletedCount);
@@ -102,7 +108,10 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.ThrowsException<InvalidOperationException>(
             () => owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_overlap"));
 
-        SongTableFileCheckResult result = owner.ApplyActiveFileScan(firstGeneration, trackLibraryFileCheckProgress: true);
+        SongTableFileCheckResult result = owner.ApplyActiveFileScan(
+            firstGeneration,
+            trackLibraryFileCheckProgress: true,
+            installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
         Assert.IsNotNull(result);
         long secondGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_second");
         Assert.IsTrue(secondGeneration > firstGeneration);
@@ -120,11 +129,17 @@ public sealed class LibraryFileScanPipelineOwnerTests
         long nextGeneration = owner.BeginFileScanRequest(new BmsLibraryOptionsSnapshot(), [], "test_after_abort");
 
         Assert.ThrowsException<InvalidOperationException>(
-            () => owner.ApplyActiveFileScan(abortedGeneration, trackLibraryFileCheckProgress: true));
+            () => owner.ApplyActiveFileScan(
+                abortedGeneration,
+                trackLibraryFileCheckProgress: true,
+                installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty));
         Assert.AreEqual(0, host.EnumerationCompletedCount);
         Assert.AreEqual(0, host.DiffCompletedCount);
 
-        SongTableFileCheckResult result = owner.ApplyActiveFileScan(nextGeneration, trackLibraryFileCheckProgress: true);
+        SongTableFileCheckResult result = owner.ApplyActiveFileScan(
+            nextGeneration,
+            trackLibraryFileCheckProgress: true,
+            installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
         Assert.IsNotNull(result);
         Assert.AreEqual(1, host.EnumerationCompletedCount);
         Assert.AreEqual(1, host.DiffCompletedCount);
@@ -183,6 +198,123 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.IsTrue(change.ClearInstallDestinationState);
         Assert.IsTrue(result.MutationDelta.InvalidateInstalledDirectoryIndex);
         Assert.IsTrue(result.MutationDelta.ClearDuplicatedCache);
+    }
+
+    [TestMethod]
+    public void InstallDestinationCleanupSnapshot_DetachesChartProjectionFromMutableSource()
+    {
+        var bmsFile = new BMSFile
+        {
+            path = "C:\\Library\\chart.bms"
+        };
+        ChartFile chart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false),
+            "C:\\Install\\chart",
+            string.Empty,
+            string.Empty,
+            []);
+
+        InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
+        bmsFile.path = "C:\\Library\\renamed.bms";
+
+        ChartFile capturedChart = snapshot.Charts.Single();
+        Assert.AreEqual("C:\\Library\\chart.bms", capturedChart.Path);
+        Assert.IsNull(capturedChart.GetBmsStorageOwner());
+        Assert.AreEqual("C:\\Install\\chart", capturedChart.InstallDestination);
+    }
+
+    [TestMethod]
+    public void ApplyCatalogProjection_ClearsStaleInstallDestinationFromDetachedBmsSnapshot()
+    {
+        var keepFile = new BMSFile { path = "C:\\Library\\chart.bms" };
+        var host = new RecordingLibraryFileScanPipelineHost
+        {
+            BmsFiles = [keepFile]
+        };
+        var owner = CreateOwner(host);
+        var result = new SongTableFileCheckResult
+        {
+            NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
+        };
+        ChartFile chart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(keepFile, includeWarningSnapshot: false),
+            "C:\\Install\\stale",
+            string.Empty,
+            string.Empty,
+            []);
+        InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
+
+        owner.ApplyCatalogProjection(result, snapshot.Charts);
+
+        LibraryInstallDestinationChange change = result.MutationDelta.UpdatedInstallDestinations.Single();
+        Assert.AreEqual("C:\\Library\\chart.bms", change.Chart.Path);
+        Assert.IsNull(change.NewInstallDestination);
+        Assert.IsTrue(change.ClearInstallDestinationState);
+    }
+
+    [TestMethod]
+    public void ApplyCatalogProjection_ClearsStaleInstallDestinationFromDetachedBmsonSnapshot()
+    {
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = "C:\\Library\\chart.bmson",
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        };
+        var host = new RecordingLibraryFileScanPipelineHost
+        {
+            BmsonSongs = [bmsonSong]
+        };
+        var owner = CreateOwner(host);
+        var result = new SongTableFileCheckResult
+        {
+            NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
+        };
+        ChartFile chart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsonSong(bmsonSong, includeWarningSnapshot: false),
+            "C:\\Install\\stale",
+            string.Empty,
+            string.Empty,
+            []);
+        InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
+
+        owner.ApplyCatalogProjection(result, snapshot.Charts);
+
+        LibraryInstallDestinationChange change = result.MutationDelta.UpdatedInstallDestinations.Single();
+        Assert.AreEqual("C:\\Library\\chart.bmson", change.Chart.Path);
+        Assert.IsNull(change.NewInstallDestination);
+        Assert.IsTrue(change.ClearInstallDestinationState);
+    }
+
+    [TestMethod]
+    public void ApplyCatalogProjection_DetachedBmsSnapshotDoesNotMatchSamePathBmsonOwner()
+    {
+        string sharedPath = "C:\\Library\\same-path.chart";
+        var bmsonSong = new LR2SongDBExtended.bmson_song
+        {
+            path = sharedPath,
+            md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+        };
+        var host = new RecordingLibraryFileScanPipelineHost
+        {
+            BmsonSongs = [bmsonSong]
+        };
+        var owner = CreateOwner(host);
+        var result = new SongTableFileCheckResult
+        {
+            NextDirectoryResourceLookupCache = new DirectoryResourceLookupCache()
+        };
+        var bmsFile = new BMSFile { path = sharedPath };
+        ChartFile bmsChart = ChartFileProjection.WithPackageState(
+            ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false),
+            "C:\\Install\\stale",
+            string.Empty,
+            string.Empty,
+            []);
+        InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([bmsChart]);
+
+        owner.ApplyCatalogProjection(result, snapshot.Charts);
+
+        Assert.AreEqual(0, result.MutationDelta.UpdatedInstallDestinations.Count);
     }
 
     private static LibraryFileScanPipelineOwner CreateOwner(ILibraryFileScanPipelineHost host)
@@ -287,11 +419,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
         {
-        }
-
-        public List<ChartFile> CreateCurrentInstallDestinationCleanupCharts()
-        {
-            return [];
         }
 
         public BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => new();

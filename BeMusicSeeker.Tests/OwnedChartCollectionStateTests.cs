@@ -3447,10 +3447,7 @@ public sealed class OwnedChartCollectionStateTests
 
     private static int GetInstallDestinationRuntimeStateCount(BMSLibrary library)
     {
-        FieldInfo fieldInfo = typeof(BMSLibrary).GetField("installDestinationRuntimeStatesByKey", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        var states = (System.Collections.ICollection)fieldInfo.GetValue(library);
-        return states.Count;
+        return library.CreateInstallDestinationOverlayChartRefSnapshotForDiagnostics().ChartCount;
     }
 
     private static bool IsInstalledChartLookupIndexInitialized(BMSLibrary library)

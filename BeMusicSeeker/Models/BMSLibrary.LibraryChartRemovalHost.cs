@@ -35,7 +35,7 @@ public partial class BMSLibrary : ILibraryChartRemovalHost
         return libraryFileOperationsService.DeleteLibraryCharts(
             charts,
             CreateOwnedCanonicalChartLookupUnsafe(),
-            CreateInstallDestinationOverlayChartRefSnapshotUnsafe(),
+            installDestinationStateOwner.CreateOverlaySnapshot(out _),
             ChartPackagesPending,
             directoryResourceLookupCache,
             sendToRecycleBin,
