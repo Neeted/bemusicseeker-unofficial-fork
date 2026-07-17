@@ -1313,6 +1313,11 @@ internal sealed class OwnedChartCollectionState
         var resolvedCharts = new HashSet<ChartFile>();
         foreach (OwnedChartRemoveRequest request in removeRequests ?? [])
         {
+            if (request?.Mode == OwnedChartRemoveMode.PathCleanup)
+            {
+                resolvedRequests.Add(request);
+                continue;
+            }
             if (!TryResolveRemoveRequest(request, out ChartFile currentChart) || !resolvedCharts.Add(currentChart))
             {
                 continue;

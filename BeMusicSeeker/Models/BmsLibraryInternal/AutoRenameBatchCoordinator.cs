@@ -263,6 +263,8 @@ internal sealed class AutoRenameBatchCoordinator
             return;
         }
         target.ChartRemoveRequests.AddRange(source.ChartRemoveRequests);
+        target.AddedBmsFiles.AddRange(source.AddedBmsFiles);
+        target.AddedBmsonSongs.AddRange(source.AddedBmsonSongs);
         target.ChartPathChanges.AddRange(source.ChartPathChanges);
         target.FolderPathChanges.AddRange(source.FolderPathChanges);
         target.UpdatedInstallDestinations.AddRange(source.UpdatedInstallDestinations);

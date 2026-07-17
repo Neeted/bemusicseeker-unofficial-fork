@@ -3949,9 +3949,11 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
-        string mergeMethod = ExtractMethodBody(libraryCode, "internal static void MergeChartDirectory(");
-        string mergeMaintenanceHostMethod = ExtractMethodBody(libraryCode, "void ILibraryMergeDirectoryHost.ApplyMergeFolderMaintenance");
-        string duplicateSearchMethod = ExtractMethodBody(libraryCode, "public void SearchDuplicateChartGroups()");
+        string mergeOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "Models", "BMSLibrary.LibraryFileOperationOwner.Merge.cs");
+        string mergeMethod = mergeOwnerCode;
+        string mergeMaintenanceHostMethod = mergeOwnerCode;
+        string duplicateSearchMethod = libraryCode;
 
         StringAssert.Contains(libraryCode, "DeferOnUpdates");
         StringAssert.Contains(libraryCode, "ResourceHealthIndexUpdateMode.DeltaOnUpdates");
@@ -3960,10 +3962,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "BuildOwnedChartCollectionMaintenanceMutationResult(");
         StringAssert.Contains(libraryCode, "DispatchOwnedChartCollectionMutation(mutationResult, resourceHealthMutationReason)");
         StringAssert.Contains(mergeMethod, "ChartStorageTargetSet movedTargets = ChartStorageTargetSet.FromCharts");
-        StringAssert.Contains(mergeMethod, "ChartStorageTargetSet maintenanceTargets = ChartStorageTargetSet.FromCharts");
-        StringAssert.Contains(mergeMethod, "destinationMaintenanceTargets.Charts.Concat(movedTargets.Charts)");
-        StringAssert.Contains(mergeMethod, "maintenanceTargets.Charts");
-        StringAssert.Contains(mergeMethod, "host.ApplyInstalledChartStorageTargets(movedTargets)");
+        StringAssert.Contains(mergeMethod, "ApplyMergeFolderMaintenance(destinationMaintenanceTargets.Charts)");
+        StringAssert.Contains(mergeMethod, "owner.ApplyLibraryMutationDeltaWithPerformanceContext");
         Assert.IsFalse(mergeMethod.Contains("NormalizeResourceMaintenanceTargetCharts(maintenanceTargets"));
         Assert.IsFalse(mergeMethod.Contains("ChartStorageTargetSet.FromRows(movedBmsFiles, movedBmsonSongs)"));
         StringAssert.Contains(mergeMaintenanceHostMethod, "resourceHealthIndexUpdateMode: ResourceHealthIndexUpdateMode.DeferOnUpdates");

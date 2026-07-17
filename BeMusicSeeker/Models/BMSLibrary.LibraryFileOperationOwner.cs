@@ -17,7 +17,7 @@ public partial class BMSLibrary
     /// filesystem mutation succeeds; this object only composes those owners with
     /// the facade's UI and cache residuals.
     /// </summary>
-    internal sealed class LibraryFileOperationOwner
+    internal sealed partial class LibraryFileOperationOwner
     {
         private readonly BMSLibrary owner;
 

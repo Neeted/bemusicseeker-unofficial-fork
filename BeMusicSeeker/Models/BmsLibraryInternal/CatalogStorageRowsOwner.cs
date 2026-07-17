@@ -146,8 +146,12 @@ internal sealed class CatalogStorageRowsOwner
         bool bmsRowsRelocated,
         bool bmsonRowsRelocated,
         CatalogStorageRowsRemovalRequest removalRequest,
-        IEnumerable<CatalogRelocationPathFact> protectedPathFacts)
+        IEnumerable<CatalogRelocationPathFact> protectedPathFacts,
+        IEnumerable<BMSFile> addedBmsFiles = null,
+        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs = null)
     {
+        List<BMSFile> addedBmsRows = [.. (addedBmsFiles ?? []).Where(file => file != null)];
+        List<LR2SongDBExtended.bmson_song> addedBmsonRows = [.. (addedBmsonSongs ?? []).Where(song => song != null)];
         using (writeGate.GetWriterGuard())
         {
             lock (versionGate)
@@ -190,11 +194,35 @@ internal sealed class CatalogStorageRowsOwner
                             removedBmsonRows,
                             bmsonPathCleanupKeys))];
                 }
-                if (bmsRowsRelocated || bmsRowsRemoved)
+
+                if (addedBmsRows.Count > 0)
+                {
+                    var addedBmsPathSet = new HashSet<string>(
+                        addedBmsRows
+                            .Select(file => CreateOwnedPathKey(file.path))
+                            .Where(path => !string.IsNullOrWhiteSpace(path)),
+                        StringComparer.OrdinalIgnoreCase);
+                    bmsRows = [.. (bmsRows ?? [])
+                        .Where(file => file != null && !addedBmsPathSet.Contains(CreateOwnedPathKey(file.path))),
+                        .. addedBmsRows];
+                }
+                if (addedBmsonRows.Count > 0)
+                {
+                    var nextBmsonByPath = (bmsonRows ?? [])
+                        .Where(song => song != null && !string.IsNullOrWhiteSpace(song.path))
+                        .GroupBy(song => CreateOwnedPathKey(song.path), StringComparer.OrdinalIgnoreCase)
+                        .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+                    foreach (LR2SongDBExtended.bmson_song addedBmsonSong in addedBmsonRows)
+                    {
+                        nextBmsonByPath[CreateOwnedPathKey(addedBmsonSong.path)] = addedBmsonSong;
+                    }
+                    bmsonRows = [.. nextBmsonByPath.Values.OrderBy(song => song.path, StringComparer.OrdinalIgnoreCase)];
+                }
+                if (bmsRowsRelocated || bmsRowsRemoved || addedBmsRows.Count > 0)
                 {
                     IncrementBmsRowsVersion();
                 }
-                if (bmsonRowsRelocated || bmsonRowsRemoved)
+                if (bmsonRowsRelocated || bmsonRowsRemoved || addedBmsonRows.Count > 0)
                 {
                     IncrementBmsonRowsVersion();
                 }

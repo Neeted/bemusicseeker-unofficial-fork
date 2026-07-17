@@ -589,8 +589,12 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
     /// </summary>
     internal CatalogRelocationDbReceipt ReplaceAndRemoveLibraryMutationRows(
         CatalogRelocationRequest relocationRequest,
-        CatalogStorageRowsRemovalRequest removalRequest)
+        CatalogStorageRowsRemovalRequest removalRequest,
+        IEnumerable<BMSFile> addedBmsFiles = null,
+        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs = null)
     {
+        List<BMSFile> addedBmsRows = [.. (addedBmsFiles ?? []).Where(file => file != null)];
+        List<LR2SongDBExtended.bmson_song> addedBmsonRows = [.. (addedBmsonSongs ?? []).Where(song => song != null)];
         List<CatalogFolderPathReplacement> folderRows = [.. (relocationRequest?.FolderPathChanges ?? [])
             .Where(change => !string.IsNullOrWhiteSpace(change?.OldFolderPath)
                 && !string.IsNullOrWhiteSpace(change.NewFolderPath))
@@ -614,12 +618,16 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         bool hasBmsonRemoval = removalRequest != null
             && (removalRequest.RemovedBmsonRows.Count > 0
                 || removalRequest.BmsonPathCleanupKeys.Count > 0);
+        bool hasBmsUpsert = addedBmsRows.Count > 0;
+        bool hasBmsonUpsert = addedBmsonRows.Count > 0;
         var result = new CatalogRelocationDbReceipt();
         if (folderRows.Count == 0
             && bmsRows.Count == 0
             && bmsonRows.Count == 0
             && !hasBmsRemoval
-            && !hasBmsonRemoval)
+            && !hasBmsonRemoval
+            && !hasBmsUpsert
+            && !hasBmsonUpsert)
         {
             return result;
         }
@@ -634,9 +642,13 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         ExecuteSongDbTransaction(songDb =>
         {
             EnsureBmsonSchema(songDb);
-            if (hasBmsRemoval || hasBmsonRemoval)
+            if (hasBmsRemoval || hasBmsonRemoval || hasBmsUpsert || hasBmsonUpsert)
             {
                 EnsureMaintenanceSchema(songDb);
+            }
+            if (hasBmsUpsert)
+            {
+                EnsureSongLookupIndexes(songDb);
             }
 
             Stopwatch stopwatch = Stopwatch.StartNew();
@@ -669,6 +681,18 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
                 bmsonRows);
             stopwatch.Stop();
             result.BmsonRemovalDbMs = stopwatch.ElapsedMilliseconds;
+
+            if (hasBmsUpsert)
+            {
+                Lr2SongDbWriter.UpsertGeneratedSongs(songDb, addedBmsRows);
+            }
+            if (hasBmsonUpsert)
+            {
+                foreach (LR2SongDBExtended.bmson_song song in addedBmsonRows)
+                {
+                    songDb.InsertOrReplace(song, typeof(LR2SongDBExtended.bmson_song));
+                }
+            }
         });
         return result;
     }

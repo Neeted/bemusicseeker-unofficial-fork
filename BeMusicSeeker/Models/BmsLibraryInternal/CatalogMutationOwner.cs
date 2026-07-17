@@ -328,7 +328,10 @@ internal sealed class CatalogMutationOwner
         {
             relocationRequest = CreateRelocationRequest(delta);
             removalRequest = CreateStorageRowsRemovalRequest(removeRequests);
-            if (!relocationRequest.HasChanges && !removalRequest.HasChanges)
+            if (!relocationRequest.HasChanges
+                && !removalRequest.HasChanges
+                && addedBmsRows.Count == 0
+                && addedBmsonRows.Count == 0)
             {
                 return CatalogMutationReceipt.NotApplied;
             }
@@ -342,7 +345,9 @@ internal sealed class CatalogMutationOwner
             {
                 dbResult = dbGateway.ReplaceAndRemoveLibraryMutationRows(
                     relocationRequest,
-                    removalRequest);
+                    removalRequest,
+                    addedBmsRows,
+                    addedBmsonRows);
             }
             catch (Exception ex)
             {
@@ -364,7 +369,9 @@ internal sealed class CatalogMutationOwner
                 relocationRequest.BmsPathReplacements.Count > 0,
                 relocationRequest.BmsonPathReplacements.Count > 0,
                 removalRequest,
-                protectedPathFacts);
+                protectedPathFacts,
+                addedBmsRows,
+                addedBmsonRows);
             IReadOnlyList<CatalogChartMutationFact> addedChartFacts = CatalogChartMutationFact.CreateFacts(
                 ChartFileProjection.FromStorageRows(
                     addedBmsRows,

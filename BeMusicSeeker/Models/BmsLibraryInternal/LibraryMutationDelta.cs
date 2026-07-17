@@ -9,6 +9,10 @@ internal sealed class LibraryMutationDelta
 {
     internal List<OwnedChartRemoveRequest> ChartRemoveRequests { get; } = [];
 
+    internal List<BMSFile> AddedBmsFiles { get; } = [];
+
+    internal List<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; } = [];
+
     public List<LibraryChartPathChange> ChartPathChanges { get; } = [];
 
     public List<LibraryFolderPathChange> FolderPathChanges { get; } = [];
@@ -47,6 +51,8 @@ internal sealed class LibraryMutationDelta
     public void Clear()
     {
         ChartRemoveRequests.Clear();
+        AddedBmsFiles.Clear();
+        AddedBmsonSongs.Clear();
         ChartPathChanges.Clear();
         FolderPathChanges.Clear();
         UpdatedInstallDestinations.Clear();

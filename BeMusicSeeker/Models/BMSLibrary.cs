@@ -9947,6 +9947,7 @@ public partial class BMSLibrary : NotificationObject
 
         mutation.RemoveRequests.AddRange(delta.ChartRemoveRequests.Where(request => request != null));
         ResolveCurrentOwnedRemoveRequests(mutation.RemoveRequests);
+        mutation.AddAddedTargets(ChartStorageTargetSet.FromRows(delta.AddedBmsFiles, delta.AddedBmsonSongs));
         mutation.PathChanges.AddRange(delta.ChartPathChanges.Where(change => change?.Chart != null));
         return mutation;
     }
@@ -12651,7 +12652,7 @@ public partial class BMSLibrary : NotificationObject
 
     internal void MergeChartDirectory(string src, string dst, long operationId)
     {
-        LibraryMergeDirectoryCoordinator.MergeChartDirectory(this, src, dst, operationId);
+        libraryFileOperationOwner.MergeChartDirectory(src, dst, operationId);
     }
 
     private IEnumerable<string> GetDuplicateInstallRepairPaths(ChartFile chart)
@@ -12966,7 +12967,9 @@ public partial class BMSLibrary : NotificationObject
                     Stopwatch stateApplyStopwatch = collectPerformanceLog ? Stopwatch.StartNew() : null;
                     catalogMutationExpected = delta?.FolderPathChanges?.Count > 0
                         || delta?.ChartPathChanges?.Count > 0
-                        || mutationResult?.StorageMutation?.RemoveRequests?.Count > 0;
+                        || mutationResult?.StorageMutation?.RemoveRequests?.Count > 0
+                        || mutationResult?.StorageMutation?.AddedBmsFiles?.Count > 0
+                        || mutationResult?.StorageMutation?.AddedBmsonSongs?.Count > 0;
                     catalogReceipt = catalogMutationOwner.ApplyCatalogMutation(
                         delta,
                         mutationResult.StorageMutation.RemoveRequests,
