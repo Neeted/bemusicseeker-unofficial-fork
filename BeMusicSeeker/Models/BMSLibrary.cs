@@ -680,16 +680,6 @@ public partial class BMSLibrary : NotificationObject
 
     private object lockStorageRowsVersion => catalogStorageRowsOwner.VersionGate;
 
-    private int deferredInstallableMaintenanceRequestedVersion;
-
-    private bool deferredInstallableMaintenanceRunning;
-
-    private int deferredInstallableMaintenanceLastCompletedVersion;
-
-    private long deferredInstallableMaintenanceCriticalElapsedMs;
-
-    private readonly object lockDeferredInstallableMaintenance = new();
-
     private const long Lr2SongDbSyncCompletedStatusImplicitChartInfoParseTimeoutMs = 60000L;
 
     private object lockChartInfoBackfill => catalogChartInfoOwner.BackfillGate;
@@ -1688,18 +1678,7 @@ public partial class BMSLibrary : NotificationObject
     /// </summary>
     public bool InstallableMaintenanceDeferredRunning
     {
-        get
-        {
-            return deferredInstallableMaintenanceRunning;
-        }
-        private set
-        {
-            if (deferredInstallableMaintenanceRunning != value)
-            {
-                deferredInstallableMaintenanceRunning = value;
-                RaisePropertyChanged(() => InstallableMaintenanceDeferredRunning);
-            }
-        }
+        get => packageLifecycleOwner?.IsInstallableMaintenanceRunning == true;
     }
 
     /// <summary>
@@ -1707,18 +1686,7 @@ public partial class BMSLibrary : NotificationObject
     /// </summary>
     public int InstallableMaintenanceDeferredRequestedVersion
     {
-        get
-        {
-            return deferredInstallableMaintenanceRequestedVersion;
-        }
-        private set
-        {
-            if (deferredInstallableMaintenanceRequestedVersion != value)
-            {
-                deferredInstallableMaintenanceRequestedVersion = value;
-                RaisePropertyChanged(() => InstallableMaintenanceDeferredRequestedVersion);
-            }
-        }
+        get => packageLifecycleOwner?.InstallableMaintenanceRequestedVersion ?? 0;
     }
 
     /// <summary>
@@ -1726,18 +1694,7 @@ public partial class BMSLibrary : NotificationObject
     /// </summary>
     public int InstallableMaintenanceDeferredCompletedVersion
     {
-        get
-        {
-            return deferredInstallableMaintenanceLastCompletedVersion;
-        }
-        private set
-        {
-            if (deferredInstallableMaintenanceLastCompletedVersion != value)
-            {
-                deferredInstallableMaintenanceLastCompletedVersion = value;
-                RaisePropertyChanged(() => InstallableMaintenanceDeferredCompletedVersion);
-            }
-        }
+        get => packageLifecycleOwner?.InstallableMaintenanceCompletedVersion ?? 0;
     }
 
     public bool MaintenanceHydrationRunning
@@ -7642,7 +7599,7 @@ public partial class BMSLibrary : NotificationObject
 
     private void QueueDeferredInstallableMaintenance(string reason, long criticalElapsedMs, string dependency = null)
     {
-        InstallableMaintenanceDeferredCoordinator.Queue(this, reason, criticalElapsedMs, dependency);
+        QueueInstallableMaintenanceWorker(reason, criticalElapsedMs, dependency);
     }
 
     private int CountInstallableMaintenanceSnapshotTargets()

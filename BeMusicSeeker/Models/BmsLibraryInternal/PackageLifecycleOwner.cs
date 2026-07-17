@@ -17,6 +17,8 @@ internal sealed partial class PackageLifecycleOwner
 {
     private readonly object queueStatusLock = new();
 
+    private readonly object installableMaintenanceLock = new();
+
     private readonly object estimationProgressLock = new();
 
     private readonly SemaphoreSlim estimationExecutionGate = new(1, 1);
@@ -46,6 +48,14 @@ internal sealed partial class PackageLifecycleOwner
     private int installEstimationProgressVersion;
 
     private long latestPendingEstimateQueueStatusSequence;
+
+    private int installableMaintenanceRequestedVersion;
+
+    private int installableMaintenanceCompletedVersion;
+
+    private bool installableMaintenanceRunning;
+
+    private long installableMaintenanceCriticalElapsedMs;
 
     internal PackageLifecycleOwner(
         BmsLibraryDbGateway dbGateway,
@@ -89,6 +99,70 @@ internal sealed partial class PackageLifecycleOwner
     internal int InstallEstimationProgressVersion => installEstimationProgressVersion;
 
     internal bool IsPendingEstimateQueueIdle => pendingEstimateQueueProcessor.IsIdle;
+
+    internal bool IsInstallableMaintenanceRunning => installableMaintenanceRunning;
+
+    internal int InstallableMaintenanceRequestedVersion => installableMaintenanceRequestedVersion;
+
+    internal int InstallableMaintenanceCompletedVersion => installableMaintenanceCompletedVersion;
+
+    internal (int Version, bool ShouldStartWorker) QueueInstallableMaintenanceRequest(long criticalElapsedMs)
+    {
+        lock (installableMaintenanceLock)
+        {
+            installableMaintenanceRequestedVersion++;
+            bool shouldStartWorker = !installableMaintenanceRunning;
+            installableMaintenanceCriticalElapsedMs = criticalElapsedMs;
+            raisePropertyChanged("InstallableMaintenanceDeferredRequestedVersion");
+            if (shouldStartWorker)
+            {
+                SetInstallableMaintenanceRunning(true);
+            }
+            return (installableMaintenanceRequestedVersion, shouldStartWorker);
+        }
+    }
+
+    internal (int Version, long CriticalElapsedMs) GetInstallableMaintenanceRequest()
+    {
+        lock (installableMaintenanceLock)
+        {
+            return (installableMaintenanceRequestedVersion, installableMaintenanceCriticalElapsedMs);
+        }
+    }
+
+    internal int CompleteInstallableMaintenanceForShutdown()
+    {
+        lock (installableMaintenanceLock)
+        {
+            int requestVersion = installableMaintenanceRequestedVersion;
+            SetInstallableMaintenanceRunning(false);
+            SetInstallableMaintenanceCompletedVersion(requestVersion);
+            return requestVersion;
+        }
+    }
+
+    internal void MarkInstallableMaintenanceSkipped(int requestVersion)
+    {
+        lock (installableMaintenanceLock)
+        {
+            SetInstallableMaintenanceCompletedVersion(requestVersion);
+            SetInstallableMaintenanceRunning(false);
+        }
+    }
+
+    internal bool CompleteInstallableMaintenanceRequest(int requestVersion)
+    {
+        lock (installableMaintenanceLock)
+        {
+            SetInstallableMaintenanceCompletedVersion(requestVersion);
+            if (requestVersion == installableMaintenanceRequestedVersion)
+            {
+                SetInstallableMaintenanceRunning(false);
+                return true;
+            }
+        }
+        return false;
+    }
 
     internal void ApplyPendingPackageMutationDelta(PendingPackageMutationDelta delta)
     {
@@ -365,5 +439,25 @@ internal sealed partial class PackageLifecycleOwner
             installEstimationProgressVersion++;
             raisePropertyChanged("InstallEstimationProgressVersion");
         }
+    }
+
+    private void SetInstallableMaintenanceRunning(bool value)
+    {
+        if (installableMaintenanceRunning == value)
+        {
+            return;
+        }
+        installableMaintenanceRunning = value;
+        raisePropertyChanged("InstallableMaintenanceDeferredRunning");
+    }
+
+    private void SetInstallableMaintenanceCompletedVersion(int value)
+    {
+        if (installableMaintenanceCompletedVersion == value)
+        {
+            return;
+        }
+        installableMaintenanceCompletedVersion = value;
+        raisePropertyChanged("InstallableMaintenanceDeferredCompletedVersion");
     }
 }

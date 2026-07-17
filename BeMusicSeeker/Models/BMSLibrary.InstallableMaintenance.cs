@@ -1,88 +1,49 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading.Tasks;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
+using Ribbit.Util;
 
-namespace BeMusicSeeker.Models.BmsLibraryInternal;
+namespace BeMusicSeeker.Models;
 
-internal interface IInstallableMaintenanceDeferredHost
+public partial class BMSLibrary
 {
-    bool IsShutdownRequested { get; }
-
-    Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; }
-
-    bool TrySkipForShutdown(string operation, string reason);
-
-    InstallableMaintenanceQueueState QueueInstallableMaintenanceRequest(long criticalElapsedMs);
-
-    int CompleteInstallableMaintenanceForShutdown();
-
-    InstallableMaintenanceRequestState GetInstallableMaintenanceRequest();
-
-    void MarkInstallableMaintenanceSkipped(int requestVersion);
-
-    bool CompleteInstallableMaintenanceRequest(int requestVersion);
-
-    int CountInstallableMaintenanceSnapshotTargets();
-
-    InstallableMaintenanceSnapshot CreateInstallableMaintenanceSnapshot();
-
-    int SetModeAndCommitToDb(InstallableMaintenanceSnapshot snapshot);
-
-    MaintenanceWorkflowResult ApplyInstallableMaintenance();
-
-    void ResetInstallableMaintenanceWriteLockFlags();
-
-    void ReleaseInstallableMaintenanceSnapshot(InstallableMaintenanceSnapshot snapshot);
-
-    string GetDisplayedExceptionMessage(Exception ex);
-
-    void LogInstallPerformance(string message);
-
-    void LogStartupMemoryCheckpoint(string scope, string phase);
-}
-
-internal sealed class InstallableMaintenanceQueueState
-{
-    public int Version { get; set; }
-
-    public bool ShouldStartWorker { get; set; }
-}
-
-internal sealed class InstallableMaintenanceRequestState
-{
-    public int Version { get; set; }
-
-    public long CriticalElapsedMs { get; set; }
-}
-
-internal sealed class InstallableMaintenanceSnapshot
-{
-    public InstallableMaintenanceSnapshot(List<BMSFile> files, int snapshotCount)
+    private sealed class InstallableMaintenanceRequestState
     {
-        Files = files;
-        SnapshotCount = snapshotCount;
+        internal int Version { get; init; }
+
+        internal long CriticalElapsedMs { get; init; }
     }
 
-    public List<BMSFile> Files { get; }
-
-    public int SnapshotCount { get; }
-}
-
-internal static class InstallableMaintenanceDeferredCoordinator
-{
-    internal static void Queue(IInstallableMaintenanceDeferredHost host, string reason, long criticalElapsedMs, string dependency)
+    private sealed class InstallableMaintenanceSnapshot
     {
-        if (host.TrySkipForShutdown("installable_maintenance", reason))
+        internal InstallableMaintenanceSnapshot(List<BMSFile> files, int snapshotCount)
+        {
+            Files = files;
+            SnapshotCount = snapshotCount;
+        }
+
+        internal List<BMSFile> Files { get; }
+
+        internal int SnapshotCount { get; }
+    }
+
+    private void QueueInstallableMaintenanceWorker(string reason, long criticalElapsedMs, string dependency)
+    {
+        if (TrySkipForShutdown("installable_maintenance", reason))
         {
             return;
         }
-        InstallableMaintenanceQueueState queueState = host.QueueInstallableMaintenanceRequest(criticalElapsedMs);
-        int queueSnapshotCount = host.CountInstallableMaintenanceSnapshotTargets();
-        host.LogInstallPerformance("installable_maintenance_deferred queue reason=" + (reason ?? "unknown")
+
+        (int Version, bool ShouldStartWorker) queueState = packageLifecycleOwner.QueueInstallableMaintenanceRequest(criticalElapsedMs);
+
+        LogInstallPerformance("installable_maintenance_deferred queue reason=" + (reason ?? "unknown")
             + " version=" + queueState.Version
-            + " snapshotCount=" + queueSnapshotCount
+            + " snapshotCount=" + CountInstallableMaintenanceSnapshotTargets()
             + " criticalMs=" + criticalElapsedMs);
         if (!queueState.ShouldStartWorker)
         {
@@ -91,43 +52,64 @@ internal static class InstallableMaintenanceDeferredCoordinator
 
         Task work()
         {
-            ProcessRequests(host);
+            ProcessInstallableMaintenanceRequests();
             return Task.CompletedTask;
         }
-        if (host.StartupBackgroundTaskScheduler != null)
+        if (StartupBackgroundTaskScheduler != null)
         {
-            if (host.StartupBackgroundTaskScheduler("installable_maintenance", reason ?? "queue", dependency, work))
+            if (StartupBackgroundTaskScheduler("installable_maintenance", reason ?? "queue", dependency, work))
             {
                 return;
             }
-            CompleteForShutdown(host, "startup_scheduler_rejected");
+            CompleteInstallableMaintenanceForShutdown("startup_scheduler_rejected");
             return;
         }
-        if (host.IsShutdownRequested)
+        if (IsShutdownRequested)
         {
-            CompleteForShutdown(host, "shutdown_requested");
+            CompleteInstallableMaintenanceForShutdown("shutdown_requested");
             return;
         }
-        Task.Run(() => ProcessRequests(host)).Logging("ProcessDeferredInstallableMaintenance");
+        Task.Run(() => ProcessInstallableMaintenanceRequests()).Logging("ProcessDeferredInstallableMaintenance");
     }
 
-    private static void CompleteForShutdown(IInstallableMaintenanceDeferredHost host, string shutdownReason)
+    private void CompleteInstallableMaintenanceForShutdown(string shutdownReason)
     {
-        int requestVersion = host.CompleteInstallableMaintenanceForShutdown();
-        host.LogInstallPerformance("installable_maintenance_deferred skipped version=" + requestVersion + " reason=" + (shutdownReason ?? "shutdown_requested"));
+        int requestVersion = packageLifecycleOwner.CompleteInstallableMaintenanceForShutdown();
+        LogInstallPerformance("installable_maintenance_deferred skipped version=" + requestVersion + " reason=" + (shutdownReason ?? "shutdown_requested"));
     }
 
-    private static void ProcessRequests(IInstallableMaintenanceDeferredHost host)
+    private InstallableMaintenanceRequestState GetInstallableMaintenanceRequest()
+    {
+        (int Version, long CriticalElapsedMs) request = packageLifecycleOwner.GetInstallableMaintenanceRequest();
+        return new InstallableMaintenanceRequestState
+        {
+            Version = request.Version,
+            CriticalElapsedMs = request.CriticalElapsedMs
+        };
+    }
+
+    private void MarkInstallableMaintenanceSkipped(int requestVersion)
+    {
+        packageLifecycleOwner.MarkInstallableMaintenanceSkipped(requestVersion);
+    }
+
+    private bool CompleteInstallableMaintenanceRequest(int requestVersion)
+    {
+        return packageLifecycleOwner.CompleteInstallableMaintenanceRequest(requestVersion);
+    }
+
+    private void ProcessInstallableMaintenanceRequests()
     {
         while (true)
         {
-            InstallableMaintenanceRequestState request = host.GetInstallableMaintenanceRequest();
-            if (host.IsShutdownRequested)
+            InstallableMaintenanceRequestState request = GetInstallableMaintenanceRequest();
+            if (IsShutdownRequested)
             {
-                host.MarkInstallableMaintenanceSkipped(request.Version);
-                host.LogInstallPerformance("installable_maintenance_deferred skipped version=" + request.Version + " reason=shutdown_requested");
+                MarkInstallableMaintenanceSkipped(request.Version);
+                LogInstallPerformance("installable_maintenance_deferred skipped version=" + request.Version + " reason=shutdown_requested");
                 return;
             }
+
             var stopwatch = Stopwatch.StartNew();
             long setModeMs = 0L;
             long setHealthMs = 0L;
@@ -138,66 +120,63 @@ internal static class InstallableMaintenanceDeferredCoordinator
             InstallableMaintenanceSnapshot snapshot = null;
             try
             {
-                snapshot = host.CreateInstallableMaintenanceSnapshot();
+                snapshot = CreateInstallableMaintenanceSnapshot();
                 snapshotCount = snapshot.SnapshotCount;
-                host.LogInstallPerformance("installable_maintenance_deferred run version=" + request.Version
+                LogInstallPerformance("installable_maintenance_deferred run version=" + request.Version
                     + " snapshotCount=" + snapshotCount
                     + " criticalMs=" + request.CriticalElapsedMs);
                 var stopwatchSetMode = Stopwatch.StartNew();
-                setModeTargetCount = host.SetModeAndCommitToDb(snapshot);
+                setModeTargetCount = setModeAndCommitToDB(snapshot.Files);
                 stopwatchSetMode.Stop();
                 setModeMs = stopwatchSetMode.ElapsedMilliseconds;
 
                 var stopwatchSetHealth = Stopwatch.StartNew();
-                maintenanceResult = host.ApplyInstallableMaintenance() ?? new MaintenanceWorkflowResult();
+                maintenanceResult = ApplyInstallableCatalogMaintenance("installable_maintenance_deferred") ?? new MaintenanceWorkflowResult();
                 stopwatchSetHealth.Stop();
                 setHealthMs = stopwatchSetHealth.ElapsedMilliseconds;
-                host.ResetInstallableMaintenanceWriteLockFlags();
+                ResetInstallableMaintenanceWriteLockFlags();
 
                 stopwatch.Stop();
-                LogCompleted(
-                    host,
-                    request,
-                    maintenanceResult,
-                    snapshotCount,
-                    setModeTargetCount,
-                    setModeMs,
-                    setHealthMs,
-                    setZeroNoteMs,
-                    stopwatch.ElapsedMilliseconds);
-                host.LogInstallPerformance("init_library_installable critical_ms=" + request.CriticalElapsedMs + " deferred_ms=" + stopwatch.ElapsedMilliseconds);
+                LogCompletedInstallableMaintenance(request, maintenanceResult, snapshotCount, setModeTargetCount, setModeMs, setHealthMs, setZeroNoteMs, stopwatch.ElapsedMilliseconds);
+                LogInstallPerformance("init_library_installable critical_ms=" + request.CriticalElapsedMs + " deferred_ms=" + stopwatch.ElapsedMilliseconds);
             }
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                LogFailed(
-                    host,
-                    request,
-                    maintenanceResult,
-                    snapshotCount,
-                    setModeTargetCount,
-                    setModeMs,
-                    setHealthMs,
-                    setZeroNoteMs,
-                    stopwatch.ElapsedMilliseconds,
-                    ex);
+                LogFailedInstallableMaintenance(request, maintenanceResult, snapshotCount, setModeTargetCount, setModeMs, setHealthMs, setZeroNoteMs, stopwatch.ElapsedMilliseconds, ex);
             }
             finally
             {
-                host.ResetInstallableMaintenanceWriteLockFlags();
-                host.ReleaseInstallableMaintenanceSnapshot(snapshot);
-                host.LogStartupMemoryCheckpoint("installable_maintenance_deferred", "after_release");
+                ResetInstallableMaintenanceWriteLockFlags();
+                snapshot?.Files?.Clear();
+                LogStartupMemoryCheckpoint("installable_maintenance_deferred", "after_release");
             }
 
-            if (host.CompleteInstallableMaintenanceRequest(request.Version))
+            if (CompleteInstallableMaintenanceRequest(request.Version))
             {
                 return;
             }
         }
     }
 
-    private static void LogCompleted(
-        IInstallableMaintenanceDeferredHost host,
+    private InstallableMaintenanceSnapshot CreateInstallableMaintenanceSnapshot()
+    {
+        using (rwlockBMSFiles.GetReaderGuard())
+        {
+            List<BMSFile> filesSnapshot = [.. (BMSFiles ?? []).Where(file => file != null)];
+            int snapshotCount = CreateOwnedChartStorageOwnerViewUnsafe().Count;
+            return new InstallableMaintenanceSnapshot(filesSnapshot, snapshotCount);
+        }
+    }
+
+    private void ResetInstallableMaintenanceWriteLockFlags()
+    {
+        IsWriteLockHeldInitializdBMSFilesHealthStatus = false;
+        IsWriteLockHeldInitializeBMSFilesEncodingInfo = false;
+        IsWriteLockHeldInitializeBMSFilesZeroNote = false;
+    }
+
+    private void LogCompletedInstallableMaintenance(
         InstallableMaintenanceRequestState request,
         MaintenanceWorkflowResult maintenanceResult,
         int snapshotCount,
@@ -207,7 +186,7 @@ internal static class InstallableMaintenanceDeferredCoordinator
         long setZeroNoteMs,
         long elapsedMs)
     {
-        host.LogInstallPerformance("installable_maintenance_deferred done version=" + request.Version
+        LogInstallPerformance("installable_maintenance_deferred done version=" + request.Version
             + " criticalMs=" + request.CriticalElapsedMs
             + " snapshotCount=" + snapshotCount
             + " setModeTargets=" + setModeTargetCount
@@ -247,8 +226,7 @@ internal static class InstallableMaintenanceDeferredCoordinator
             + " deferred_ms=" + elapsedMs);
     }
 
-    private static void LogFailed(
-        IInstallableMaintenanceDeferredHost host,
+    private void LogFailedInstallableMaintenance(
         InstallableMaintenanceRequestState request,
         MaintenanceWorkflowResult maintenanceResult,
         int snapshotCount,
@@ -257,9 +235,9 @@ internal static class InstallableMaintenanceDeferredCoordinator
         long setHealthMs,
         long setZeroNoteMs,
         long elapsedMs,
-        Exception ex)
+        Exception exception)
     {
-        host.LogInstallPerformance("installable_maintenance_deferred failed version=" + request.Version
+        LogInstallPerformance("installable_maintenance_deferred failed version=" + request.Version
             + " criticalMs=" + request.CriticalElapsedMs
             + " snapshotCount=" + snapshotCount
             + " setModeTargets=" + setModeTargetCount
@@ -293,6 +271,6 @@ internal static class InstallableMaintenanceDeferredCoordinator
             + " set_health_ms=" + setHealthMs
             + " set_zero_note_ms=" + setZeroNoteMs
             + " deferred_ms=" + elapsedMs
-            + " message=" + host.GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+            + " message=" + GetDisplayedExceptionMessage(exception).Replace(Environment.NewLine, " | "));
     }
 }
