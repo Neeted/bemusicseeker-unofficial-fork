@@ -43,7 +43,7 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
         try
         {
             Stopwatch resourceHealthBeginStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-            IResourceHealthInputMutationScope resourceHealthMutation = host.BeginResourceHealthInputMutation();
+            ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = host.BeginResourceHealthInputMutation();
             timings.ResourceHealthBeginMs = StopPerformanceStepStopwatch(resourceHealthBeginStopwatch);
             try
             {

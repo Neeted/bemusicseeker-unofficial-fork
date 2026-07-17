@@ -14,7 +14,7 @@ internal static class ResourceHealthIndexMutationPlanner
         int? deltaTargetResourceHealthInputVersion = null)
     {
         var mutation = new ResourceHealthIndexMutation();
-        List<ChartFile> maintenanceTargetCharts = maintenanceTargets.Charts;
+        IReadOnlyList<ChartFile> maintenanceTargetCharts = maintenanceTargets.Charts;
         bool forceResourceHealthDelta = resourceHealthIndexUpdateMode == ResourceHealthIndexUpdateMode.DeltaOnUpdates && resourceHealthIndexCurrent;
         bool shouldUpdateIndex = workflowHasUpdates || !resourceHealthIndexCurrent || forceResourceHealthDelta;
         if (!shouldUpdateIndex)

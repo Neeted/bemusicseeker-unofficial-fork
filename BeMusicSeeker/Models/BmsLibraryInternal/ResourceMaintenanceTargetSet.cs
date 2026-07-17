@@ -1,19 +1,21 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal readonly struct ResourceMaintenanceTargetSet
 {
-    private readonly List<ChartFile> charts;
+    private readonly IReadOnlyList<ChartFile> charts;
 
     private ResourceMaintenanceTargetSet(
-        List<ChartFile> charts,
+        IEnumerable<ChartFile> charts,
         bool isFullOwned,
         StorageRowsVersionSnapshot? storageRowsVersion,
         int? ownedCollectionVersion,
         int? resourceHealthInputVersion)
     {
-        this.charts = charts ?? [];
+        this.charts = Array.AsReadOnly([.. (charts ?? []).Where(chart => chart != null)]);
         IsSpecified = true;
         IsFullOwned = isFullOwned;
         StorageRowsVersion = storageRowsVersion;
@@ -21,7 +23,7 @@ internal readonly struct ResourceMaintenanceTargetSet
         ResourceHealthInputVersion = resourceHealthInputVersion;
     }
 
-    internal List<ChartFile> Charts => charts ?? [];
+    internal IReadOnlyList<ChartFile> Charts => charts ?? [];
 
     internal bool IsSpecified { get; }
 
@@ -40,13 +42,13 @@ internal readonly struct ResourceMaintenanceTargetSet
         && OwnedCollectionVersion.HasValue
         && ResourceHealthInputVersion.HasValue;
 
-    internal static ResourceMaintenanceTargetSet ForSubset(List<ChartFile> charts)
+    internal static ResourceMaintenanceTargetSet ForSubset(IEnumerable<ChartFile> charts)
     {
         return new ResourceMaintenanceTargetSet(charts, false, null, null, null);
     }
 
     internal static ResourceMaintenanceTargetSet ForFullOwned(
-        List<ChartFile> charts,
+        IEnumerable<ChartFile> charts,
         StorageRowsVersionSnapshot storageRowsVersion,
         int ownedCollectionVersion,
         int resourceHealthInputVersion)
@@ -59,7 +61,7 @@ internal readonly struct ResourceMaintenanceTargetSet
             resourceHealthInputVersion);
     }
 
-    internal ResourceMaintenanceTargetSet WithCharts(List<ChartFile> charts)
+    internal ResourceMaintenanceTargetSet WithCharts(IEnumerable<ChartFile> charts)
     {
         return IsSpecified
             ? new ResourceMaintenanceTargetSet(

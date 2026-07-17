@@ -1073,6 +1073,7 @@ public partial class BMSLibrary
         PendingEstimatedInstallCoordinator.InstallPendingPackagesToEstimatedDestinations(
             packageInstallService,
             this,
+            resourceHealthOwner,
             packages);
     }
 

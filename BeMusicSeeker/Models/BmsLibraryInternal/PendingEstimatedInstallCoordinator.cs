@@ -43,9 +43,7 @@ internal interface IPendingEstimatedInstallHost
 
     void DeleteInstallRows(IEnumerable<string> paths);
 
-    bool IsResourceHealthIndexCurrent();
-
-    void ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context, bool suppressResourceHealthInvalidation);
+    void ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context);
 
     PendingEstimatedInstallCollectionApplyResult ApplyPendingPackageRemovals(IReadOnlyCollection<ChartPackage> packagesToRemove);
 
@@ -97,11 +95,16 @@ internal static class PendingEstimatedInstallCoordinator
     internal static void InstallPendingPackagesToEstimatedDestinations(
         BmsLibraryPackageInstallService packageInstallService,
         IPendingEstimatedInstallHost host,
+        ResourceHealthIndexOwner resourceHealthOwner,
         IEnumerable<ChartPackage> packages)
     {
         if (packages == null)
         {
             throw new ArgumentNullException(nameof(packages));
+        }
+        if (resourceHealthOwner == null)
+        {
+            throw new ArgumentNullException(nameof(resourceHealthOwner));
         }
         if (host.TryBlockLr2SongDbSyncMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
         {
@@ -146,9 +149,12 @@ internal static class PendingEstimatedInstallCoordinator
                 host.LogInstallPerformance);
             host.DeleteInstallRows(batchResult.InstallRowsToDelete);
 
-            bool canUseResourceHealthIndexDelta = host.IsResourceHealthIndexCurrent();
             var libraryStateApplyStopwatch = Stopwatch.StartNew();
-            host.ApplyEstimatedInstallBatchLibraryState(batchApplyContext, canUseResourceHealthIndexDelta);
+            bool canUseResourceHealthIndexDelta = resourceHealthOwner.IsCurrent();
+            using (canUseResourceHealthIndexDelta ? resourceHealthOwner.SuppressInvalidation() : null)
+            {
+                host.ApplyEstimatedInstallBatchLibraryState(batchApplyContext);
+            }
             libraryStateApplyStopwatch.Stop();
 
             var pendingApplyStopwatch = Stopwatch.StartNew();

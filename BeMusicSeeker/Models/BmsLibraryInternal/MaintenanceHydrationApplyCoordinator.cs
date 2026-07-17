@@ -7,9 +7,14 @@ internal sealed class MaintenanceHydrationApplyCoordinator
 {
     private readonly IMaintenanceHydrationApplyHost host;
 
-    internal MaintenanceHydrationApplyCoordinator(IMaintenanceHydrationApplyHost host)
+    private readonly ResourceHealthIndexOwner resourceHealthOwner;
+
+    internal MaintenanceHydrationApplyCoordinator(
+        IMaintenanceHydrationApplyHost host,
+        ResourceHealthIndexOwner resourceHealthOwner)
     {
         this.host = host ?? throw new ArgumentNullException(nameof(host));
+        this.resourceHealthOwner = resourceHealthOwner ?? throw new ArgumentNullException(nameof(resourceHealthOwner));
     }
 
     internal void Apply(MaintenanceTableHydrationResult result)
@@ -25,7 +30,7 @@ internal sealed class MaintenanceHydrationApplyCoordinator
         {
             OwnedChartStorageOwnerView ownerView = host.CreateOwnedChartStorageOwnerView();
             var attachStopwatch = Stopwatch.StartNew();
-            using (host.BeginResourceHealthInputMutation())
+            using (resourceHealthOwner.BeginInputMutation())
             {
                 MaintenanceHydrationOwnerAttachService.AttachMaintenanceSnapshots(ownerView, result);
             }
@@ -44,7 +49,7 @@ internal sealed class MaintenanceHydrationApplyCoordinator
                 }
                 catch
                 {
-                    host.ForceInvalidateResourceHealthIndex("maintenance_hydration_cleanup_failed");
+                    resourceHealthOwner.ForceInvalidate("maintenance_hydration_cleanup_failed");
                     throw;
                 }
             }

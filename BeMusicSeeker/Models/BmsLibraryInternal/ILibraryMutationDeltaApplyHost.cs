@@ -17,7 +17,7 @@ internal interface ILibraryMutationDeltaApplyHost
     /// Begins the resource-health input mutation window for the library delta.
     /// </summary>
     /// <returns>The active resource-health input mutation scope.</returns>
-    IResourceHealthInputMutationScope BeginResourceHealthInputMutation();
+    ResourceHealthIndexOwner.ResourceHealthInputMutation BeginResourceHealthInputMutation();
 
     /// <summary>
     /// Builds and stores the owned-chart collection mutation for the current library delta.

@@ -101,17 +101,9 @@ public partial class BMSLibrary : IPendingEstimatedInstallHost
         dbGateway.DeleteInstallRows(paths);
     }
 
-    bool IPendingEstimatedInstallHost.IsResourceHealthIndexCurrent()
+    void IPendingEstimatedInstallHost.ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context)
     {
-        return IsResourceHealthIndexCurrent();
-    }
-
-    void IPendingEstimatedInstallHost.ApplyEstimatedInstallBatchLibraryState(EstimatedInstallBatchApplyContext context, bool suppressResourceHealthInvalidation)
-    {
-        using (suppressResourceHealthInvalidation ? SuppressResourceHealthIndexInvalidation() : null)
-        {
-            ApplyEstimatedInstallBatchLibraryState(context);
-        }
+        ApplyEstimatedInstallBatchLibraryState(context);
     }
 
     PendingEstimatedInstallCollectionApplyResult IPendingEstimatedInstallHost.ApplyPendingPackageRemovals(IReadOnlyCollection<ChartPackage> packagesToRemove)

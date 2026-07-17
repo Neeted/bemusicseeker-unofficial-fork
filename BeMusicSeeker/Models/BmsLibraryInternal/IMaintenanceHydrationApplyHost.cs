@@ -9,13 +9,9 @@ internal interface IMaintenanceHydrationApplyHost
 
     OwnedChartStorageOwnerView CreateOwnedChartStorageOwnerView();
 
-    IDisposable BeginResourceHealthInputMutation();
-
     ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason);
 
     int DeleteStaleMaintenanceRows(IEnumerable<string> staleMaintenancePaths);
-
-    void ForceInvalidateResourceHealthIndex(string reason);
 
     void DispatchMaintenanceHydrationResult(
         MaintenanceTableHydrationResult result,

@@ -383,7 +383,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
         }
 
-        public IResourceHealthInputMutationScope BeginResourceHealthInputMutation() => null!;
+        public ResourceHealthIndexOwner.ResourceHealthInputMutation BeginResourceHealthInputMutation() => null!;
 
         public void BuildMutationResult(LibraryMutationDelta delta, int baseInputVersion, bool baseIndexCurrent)
         {

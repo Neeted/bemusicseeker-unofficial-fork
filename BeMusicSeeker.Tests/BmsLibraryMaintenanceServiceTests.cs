@@ -835,7 +835,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
         {
-            var service = new BmsLibraryMaintenanceService();
             TestableBmsFile active = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             active.path = @"C:\Library\active.bms";
             active.SetMaintenanceInfo(new BMSFileMaintenanceInfo(active)
@@ -845,17 +844,17 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 wav_files_existing = 1
             }, suppressPropertyChanged: true);
             ChartFile activeChart = ChartFileProjection.FromBmsFile(active);
-            ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build([activeChart], service, version: 7);
             var library = new BMSLibrary(songDbPath)
             {
-                BMSFiles = [],
+                BMSFiles = [active],
                 BmsonSongs = []
             };
-            SetCurrentResourceHealthIndexSnapshot(library, snapshot);
+            EnsureCurrentResourceHealthIndex(library);
 
             List<ChartFile> result = library.GetChartsNeedResourceFix(null);
 
-            CollectionAssert.AreEqual(new[] { activeChart }, result.ToArray());
+            Assert.AreEqual(1, result.Count);
+            Assert.AreEqual(activeChart.Path, result[0].Path);
         });
     }
 
@@ -920,18 +919,17 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 wav_files_existing = 0
             }, suppressPropertyChanged: true);
             ChartFile targetChart = ChartFileProjection.FromBmsFile(target, includeWarningSnapshot: false);
-            ResourceHealthIndexSnapshot currentSnapshot = ResourceHealthIndexSnapshot.Build([targetChart], new BmsLibraryMaintenanceService(), version: 3);
             var library = new BMSLibrary(songDbPath);
             SetStorageRows(library, [target, unrelated], []);
-            SetCurrentResourceHealthIndexSnapshot(library, currentSnapshot);
+            EnsureCurrentResourceHealthIndex(library);
 
             MaintenanceWorkflowResult result = library.RescanResourceHealthCharts([targetChart]);
             ResourceHealthIndexSnapshot updatedSnapshot = library.TryGetCurrentResourceHealthIndexSnapshotForView();
 
             Assert.IsTrue(result.HasUpdates);
-            Assert.AreEqual(1, updatedSnapshot.TargetCount);
+            Assert.AreEqual(2, updatedSnapshot.TargetCount);
             Assert.IsFalse(updatedSnapshot.GetProjection(targetChart).HasIssues);
-            Assert.AreEqual(0, updatedSnapshot.ActiveTargets.Count);
+            Assert.AreEqual(1, updatedSnapshot.ActiveTargets.Count);
         });
     }
 
@@ -953,7 +951,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile targetChart = ChartFileProjection.FromBmsFile(target, includeWarningSnapshot: false);
             var library = new BMSLibrary(songDbPath);
             SetStorageRows(library, [target, unrelated], []);
-            SetCurrentResourceHealthIndexSnapshot(library, ResourceHealthIndexSnapshot.Empty);
             library.BMSFiles = new List<BMSFile> { target, unrelated };
 
             List<ChartFile> result = library.GetChartsNeedResourceFix([targetChart], forceUpdate: true);
@@ -1005,36 +1002,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
     }
 
     [TestMethod]
-    public void ResourceHealthFullRebuildHost_StaleFullTargetSuppressesPublish()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-            file.path = Path.Combine(Path.GetDirectoryName(songDbPath), "stale-target.bms");
-            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
-            var library = new BMSLibrary(songDbPath);
-            var host = new BMSLibrary.ResourceHealthIndexFullRebuildHost(library);
-            host.PublishSnapshot(ResourceHealthIndexSnapshot.Empty);
-            var coordinator = new ResourceHealthIndexFullRebuildCoordinator(host);
-            ResourceMaintenanceTargetSet staleTargetSet = CreateResourceMaintenanceTargetSet(
-                [chart],
-                isFullOwned: true,
-                bmsRowsVersion: -1,
-                bmsonRowsVersion: -1,
-                ownedCollectionVersion: -1,
-                resourceHealthInputVersion: -1);
-
-            ResourceHealthIndexFullRebuildResult result = coordinator.Rebuild("maintenance_hydration", staleTargetSet);
-
-            ResourceHealthIndexSnapshot currentResourceHealth = library.TryGetCurrentResourceHealthIndexSnapshotForView();
-            Assert.IsTrue(result.StaleFullOwnedTarget);
-            Assert.AreEqual(0, result.Snapshot.TargetCount);
-            Assert.AreEqual(0, currentResourceHealth.TargetCount);
-        });
-    }
-
-    [TestMethod]
     public void SetChartResourceWarningsIgnored_PublishesWarningRefreshThroughOwnedDispatcher()
     {
         TestResourceInitializer.EnsureJapaneseResources();
@@ -1050,10 +1017,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 is_files_warning_ignored = false
             }, suppressPropertyChanged: true);
             ChartFile chart = ChartFileProjection.FromBmsFile(file);
-            ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build([chart], new BmsLibraryMaintenanceService(), version: 3);
             var library = new BMSLibrary(songDbPath);
             SetStorageRows(library, [file], []);
-            SetCurrentResourceHealthIndexSnapshot(library, snapshot);
+            EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int refreshNotificationChanged = 0;
             library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
@@ -1104,7 +1070,6 @@ public sealed class BmsLibraryMaintenanceServiceTests
             ChartFile targetChart = ChartFileProjection.FromBmsFile(target);
             var library = new BMSLibrary(songDbPath);
             SetStorageRows(library, [target, unrelated], []);
-            SetCurrentResourceHealthIndexSnapshot(library, ResourceHealthIndexSnapshot.Empty);
             library.BMSFiles = new List<BMSFile> { target, unrelated };
 
             library.SetChartResourceWarningsIgnored([targetChart], unset: false);
@@ -1131,10 +1096,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
                 is_files_warning_ignored = false
             }, suppressPropertyChanged: true);
             ChartFile chart = ChartFileProjection.FromBmsFile(file);
-            ResourceHealthIndexSnapshot snapshot = ResourceHealthIndexSnapshot.Build([chart], new BmsLibraryMaintenanceService(), version: 3);
             var library = new BMSLibrary(songDbPath);
             SetStorageRows(library, [file], []);
-            SetCurrentResourceHealthIndexSnapshot(library, snapshot);
+            EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
 
             library.SetChartResourceWarningsIgnored([chart], unset: false);
@@ -2903,10 +2867,9 @@ public sealed class BmsLibraryMaintenanceServiceTests
         methodInfo.Invoke(library, [digestChanges, reason, true]);
     }
 
-    private static void SetCurrentResourceHealthIndexSnapshot(BMSLibrary library, ResourceHealthIndexSnapshot snapshot)
+    private static void EnsureCurrentResourceHealthIndex(BMSLibrary library)
     {
-        var host = new BMSLibrary.ResourceHealthIndexFullRebuildHost(library);
-        host.PublishSnapshot(snapshot);
+        _ = library.GetResourceHealthIndexSnapshotForView("test_resource_health");
     }
 
     private static ResourceHealthIndexMutation BuildMaintenanceResourceHealthMutation(

@@ -14,7 +14,7 @@ public sealed class MaintenanceHydrationApplyCoordinatorTests
     public void Apply_NullResultDoesNotTouchHost()
     {
         var host = new CapturingHost();
-        var coordinator = new MaintenanceHydrationApplyCoordinator(host);
+        var coordinator = new MaintenanceHydrationApplyCoordinator(host, CreateResourceHealthOwner());
 
         coordinator.Apply(null);
 
@@ -55,7 +55,7 @@ public sealed class MaintenanceHydrationApplyCoordinatorTests
             path = @"C:\Library\stale.bms",
             hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         };
-        var coordinator = new MaintenanceHydrationApplyCoordinator(host);
+        var coordinator = new MaintenanceHydrationApplyCoordinator(host, CreateResourceHealthOwner());
 
         coordinator.Apply(result);
 
@@ -64,8 +64,6 @@ public sealed class MaintenanceHydrationApplyCoordinatorTests
             {
                 "enter_storage_lock",
                 "create_owner_view",
-                "begin_resource_health_input_mutation",
-                "dispose_resource_health_input_mutation",
                 "create_full_owned_target_set:maintenance_hydration",
                 "delete_stale_rows:C:\\Library\\stale.bms",
                 "dispose_storage_lock",
@@ -107,11 +105,12 @@ public sealed class MaintenanceHydrationApplyCoordinatorTests
             path = @"C:\Library\stale.bms",
             hash = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
         };
-        var coordinator = new MaintenanceHydrationApplyCoordinator(host);
+        ResourceHealthIndexOwner resourceHealthOwner = CreateResourceHealthOwner();
+        var coordinator = new MaintenanceHydrationApplyCoordinator(host, resourceHealthOwner);
 
         Assert.ThrowsException<InvalidOperationException>(() => coordinator.Apply(result));
 
-        CollectionAssert.Contains(host.Events, "force_invalidate:maintenance_hydration_cleanup_failed");
+        Assert.IsFalse(resourceHealthOwner.IsCurrent());
         Assert.IsFalse(result.ViewRefreshQueued);
         Assert.IsNull(host.DispatchedResult);
     }
@@ -122,6 +121,18 @@ public sealed class MaintenanceHydrationApplyCoordinatorTests
         file.path = path;
         file.SetHash(hash);
         return file;
+    }
+
+    private static ResourceHealthIndexOwner CreateResourceHealthOwner()
+    {
+        var version = new ResourceHealthIndexCurrentVersion(
+            new StorageRowsVersionSnapshot(1, 1),
+            ownedCollectionVersion: 1,
+            inputVersion: 0);
+        return new ResourceHealthIndexOwner(
+            new BmsLibraryMaintenanceService(),
+            _ => { },
+            () => version);
     }
 
     private sealed class CapturingHost : IMaintenanceHydrationApplyHost
@@ -156,12 +167,6 @@ public sealed class MaintenanceHydrationApplyCoordinatorTests
             return OwnerView;
         }
 
-        public IDisposable BeginResourceHealthInputMutation()
-        {
-            Events.Add("begin_resource_health_input_mutation");
-            return new CallbackDisposable(() => Events.Add("dispose_resource_health_input_mutation"));
-        }
-
         public ResourceMaintenanceTargetSet CreateFullOwnedResourceMaintenanceTargetSet(string reason)
         {
             Events.Add("create_full_owned_target_set:" + reason);
@@ -176,11 +181,6 @@ public sealed class MaintenanceHydrationApplyCoordinatorTests
                 throw DeleteStaleMaintenanceRowsException;
             }
             return DeletedStaleMaintenanceRows;
-        }
-
-        public void ForceInvalidateResourceHealthIndex(string reason)
-        {
-            Events.Add("force_invalidate:" + reason);
         }
 
         public void DispatchMaintenanceHydrationResult(

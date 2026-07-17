@@ -3906,7 +3906,9 @@ public sealed class MainWindowContextMenuResourceTests
         string installEstimationDoc = File.ReadAllText(Path.Combine(root, "devdocs", "spec", "install-estimation-current-logic.md"));
 
         StringAssert.Contains(libraryCode, "internal sealed class EstimatedInstallBatchApplyContext");
-        StringAssert.Contains(libraryCode, "host.ApplyEstimatedInstallBatchLibraryState(batchApplyContext, canUseResourceHealthIndexDelta)");
+        StringAssert.Contains(libraryCode, "bool canUseResourceHealthIndexDelta = resourceHealthOwner.IsCurrent();");
+        StringAssert.Contains(libraryCode, "using (canUseResourceHealthIndexDelta ? resourceHealthOwner.SuppressInvalidation() : null)");
+        StringAssert.Contains(libraryCode, "host.ApplyEstimatedInstallBatchLibraryState(batchApplyContext)");
         StringAssert.Contains(libraryCode, "ApplyEstimatedInstallBatchLibraryState(context)");
         string batchContext = ExtractBetween(libraryCode, "internal sealed class EstimatedInstallBatchApplyContext", "internal sealed class PendingEstimatedInstallCollectionApplyResult");
         StringAssert.Contains(batchContext, "public List<ChartFile> AddedCharts { get; } = [];");
@@ -3992,109 +3994,6 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(folderMergeMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox");
         StringAssert.Contains(hashCleanupMethod, "Settings.Default.ShowDuplicateFileCheckConfirmMsg && UiDialogRoute.ShowMessageBox");
-    }
-
-    [TestMethod]
-    public void ResourceHealthForceFilter_ReusesFullOwnedMaintenanceTargets()
-    {
-        string root = FindRepositoryRoot();
-        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
-        string method = ExtractMethodBody(libraryCode, "internal List<ChartFile> GetChartsNeedResourceFix");
-        string setOwnedMethod = ExtractMethodBody(libraryCode, "private MaintenanceWorkflowResult setOwnedMaintenanceInfo");
-        string buildMutationMethod = ExtractMethodBody(libraryCode, "internal static ResourceHealthIndexMutation BuildMaintenanceMutation");
-        string dispatchMethod = ExtractMethodBody(libraryCode, "private void DispatchOwnedChartCollectionMutation");
-        string alignMethod = ExtractMethodBody(libraryCode, "private static void AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification");
-
-        StringAssert.Contains(method, "CreateFullOwnedResourceMaintenanceTargetSet(");
-        StringAssert.Contains(method, "\"force_resource_health_filter\"");
-        StringAssert.Contains(method, "ResourceMaintenanceTargetSet targetSet = useOwnedSnapshot");
-        StringAssert.Contains(method, "List<ChartFile> targets = targetSet.Charts");
-        StringAssert.Contains(setOwnedMethod, "ResourceMaintenanceTargetSet maintenanceTargets = CreateFullOwnedResourceMaintenanceTargetSet(reason)");
-        Assert.IsFalse(libraryCode.Contains("targets = null;"));
-        StringAssert.Contains(method, "setMaintenanceInfoCoreLocked(");
-        StringAssert.Contains(method, "targetSet,");
-        StringAssert.Contains(method, "currentMaintenanceTargetCharts: out targets");
-        Assert.IsFalse(method.Contains("RescanResourceHealthCharts(targets);"));
-
-        string coreMethod = ExtractMethodBody(libraryCode, "private MaintenanceWorkflowResult setMaintenanceInfoCoreLocked");
-        StringAssert.Contains(libraryCode, "RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners");
-        StringAssert.Contains(libraryCode, "ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(MaintenanceWorkflowResult workflowResult)");
-        StringAssert.Contains(coreMethod, "if (ShouldRefreshResourceMaintenanceTargetsFromCurrentStorageOwners(workflowResult))");
-        StringAssert.Contains(coreMethod, "maintenanceTargetCharts = RefreshResourceMaintenanceTargetChartsFromCurrentStorageOwners(maintenanceTargetCharts);");
-        StringAssert.Contains(coreMethod, "maintenanceTargets = maintenanceTargets.WithCharts(maintenanceTargetCharts);");
-        StringAssert.Contains(buildMutationMethod, "List<ChartFile> maintenanceTargetCharts = maintenanceTargets.Charts");
-        StringAssert.Contains(buildMutationMethod, "maintenanceTargets.HasFullOwnedVersion");
-        StringAssert.Contains(buildMutationMethod, "mutation.FullOwnedTargetSet = maintenanceTargets;");
-        StringAssert.Contains(dispatchMethod, "PublishOwnedCollectionChangeNotification(result);");
-        StringAssert.Contains(dispatchMethod, "AlignResourceHealthFullOwnedTargetVersionAfterOwnedCollectionNotification(result);");
-        StringAssert.Contains(alignMethod, "mutation.FullOwnedTargetSet = mutation.FullOwnedTargetSet.WithOwnedCollectionVersion(result.OwnedCollectionVersion);");
-    }
-
-    [TestMethod]
-    public void MaintenanceHydrationUsesOwnedStorageOwnerView()
-    {
-        string root = FindRepositoryRoot();
-        string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
-        string applyCoordinatorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "MaintenanceHydrationApplyCoordinator.cs"));
-        string applyMethod = ExtractMethodBody(libraryCode, "private void ApplyMaintenanceHydrationResult");
-        string applyCoordinatorMethod = ExtractMethodBody(applyCoordinatorCode, "internal void Apply");
-        string attachMethod = ExtractMethodBody(libraryCode, "internal static void AttachMaintenanceSnapshots");
-        string staleMethod = ExtractMethodBody(libraryCode, "internal static void CaptureOwnerPathAndStaleMaintenancePaths");
-        string countMethod = ExtractMethodBody(libraryCode, "private int CountInstallableMaintenanceSnapshotTargets");
-        string snapshotMethod = ExtractMethodBody(libraryCode, "private InstallableMaintenanceSnapshot CreateInstallableMaintenanceSnapshot");
-
-        StringAssert.Contains(applyMethod, "new MaintenanceHydrationApplyCoordinator(new MaintenanceHydrationApplyHost(this))");
-        StringAssert.Contains(applyMethod, "coordinator.Apply(result)");
-        StringAssert.Contains(libraryCode, "private sealed class MaintenanceHydrationApplyHost(BMSLibrary owner) : IMaintenanceHydrationApplyHost");
-        StringAssert.Contains(libraryCode, "return owner.CreateOwnedChartStorageOwnerViewUnsafe()");
-        StringAssert.Contains(libraryCode, "return owner.BeginResourceHealthInputMutation()");
-        StringAssert.Contains(libraryCode, "return owner.CreateFullOwnedResourceMaintenanceTargetSet(reason)");
-        StringAssert.Contains(libraryCode, "return owner.dbGateway.DeleteMaintenanceRows(staleMaintenancePaths)");
-        StringAssert.Contains(libraryCode, "owner.DispatchMaintenanceHydrationResult(result, resourceHealthTargets)");
-        StringAssert.Contains(applyCoordinatorMethod, "OwnedChartStorageOwnerView ownerView = host.CreateOwnedChartStorageOwnerView()");
-        StringAssert.Contains(applyCoordinatorMethod, "using (host.BeginResourceHealthInputMutation())");
-        StringAssert.Contains(applyCoordinatorMethod, "MaintenanceHydrationOwnerAttachService.AttachMaintenanceSnapshots(ownerView, result)");
-        StringAssert.Contains(applyCoordinatorMethod, "MaintenanceHydrationOwnerAttachService.CaptureOwnerPathAndStaleMaintenancePaths(ownerView, result)");
-        StringAssert.Contains(attachMethod, "foreach (BMSFile item in ownerView.BmsFiles)");
-        StringAssert.Contains(attachMethod, "foreach (LR2SongDBExtended.bmson_song item in ownerView.BmsonSongs)");
-        StringAssert.Contains(staleMethod, "ownerView.ContainsOwnerPath(maintenancePath)");
-        StringAssert.Contains(applyCoordinatorMethod, "ResourceMaintenanceTargetSet resourceHealthTargets = default;");
-        StringAssert.Contains(applyCoordinatorMethod, "resourceHealthTargets = host.CreateFullOwnedResourceMaintenanceTargetSet");
-        StringAssert.Contains(applyCoordinatorMethod, "result.CleanupDeletedCount = host.DeleteStaleMaintenanceRows(result.StaleMaintenancePaths)");
-        StringAssert.Contains(applyCoordinatorMethod, "host.ForceInvalidateResourceHealthIndex(\"maintenance_hydration_cleanup_failed\")");
-        StringAssert.Contains(applyCoordinatorMethod, "result.ViewRefreshQueued = true;");
-        StringAssert.Contains(applyCoordinatorMethod, "host.DispatchMaintenanceHydrationResult(result, resourceHealthTargets)");
-        string dispatchHydrationMethod = ExtractMethodBody(libraryCode, "private void DispatchMaintenanceHydrationResult");
-        string dispatchHostMethod = ExtractMethodBody(libraryCode, "private long DispatchMaintenanceHydration");
-        StringAssert.Contains(dispatchHydrationMethod, "new MaintenanceHydrationDispatchCoordinator(new MaintenanceHydrationDispatchHost(this))");
-        StringAssert.Contains(dispatchHydrationMethod, "coordinator.Dispatch(hydrationResult, fullOwnedTargets)");
-        StringAssert.Contains(libraryCode, "private sealed class MaintenanceHydrationDispatchHost(BMSLibrary owner) : IMaintenanceHydrationDispatchHost");
-        StringAssert.Contains(libraryCode, "return owner.DispatchMaintenanceHydration(plan);");
-        StringAssert.Contains(dispatchHostMethod, "CreateMaintenanceHydrationMutationResult(plan)");
-        StringAssert.Contains(dispatchHostMethod, "DispatchOwnedChartCollectionMutation(mutationResult, \"maintenance_hydration\")");
-        StringAssert.Contains(dispatchHostMethod, "return mutationResult.ResourceHealthDispatchResult?.IndexMs ?? 0L");
-        Assert.IsFalse(applyMethod.Contains("resourceHealthTargetOwnedCollectionVersion"));
-        Assert.IsFalse(applyMethod.Contains("resourceHealthTargetInputVersion"));
-        Assert.IsFalse(applyMethod.Contains("RebuildResourceHealthIndexSnapshotLocked(\"maintenance_hydration\")"));
-        string createHydrationMutationMethod = ExtractMethodBody(libraryCode, "private static OwnedChartCollectionMutationResult CreateMaintenanceHydrationMutationResult");
-        string hydrationPlanMethod = ExtractMethodBody(libraryCode, "internal static MaintenanceHydrationDispatchPlan BuildMaintenanceHydrationDispatchPlan");
-        string hydrationMutationMethod = ExtractMethodBody(libraryCode, "internal static ResourceHealthIndexMutation BuildMaintenanceHydrationFullRebuildMutation");
-        Assert.IsFalse(libraryCode.Contains("BuildMaintenanceHydrationMutationResult"));
-        StringAssert.Contains(createHydrationMutationMethod, "throw new ArgumentNullException(nameof(plan))");
-        StringAssert.Contains(createHydrationMutationMethod, "new OwnedChartCollectionMutationResult(plan.ResourceHealthMutation)");
-        StringAssert.Contains(createHydrationMutationMethod, "WarningPresentationChanged = plan.WarningPresentationChanged");
-        StringAssert.Contains(createHydrationMutationMethod, "MaintenancePresentationChanged = plan.MaintenancePresentationChanged");
-        StringAssert.Contains(hydrationPlanMethod, "warningPresentationChanged: true");
-        StringAssert.Contains(hydrationPlanMethod, "maintenancePresentationChanged: true");
-        StringAssert.Contains(hydrationMutationMethod, "RebuildFull = true");
-        StringAssert.Contains(hydrationMutationMethod, "FullOwnedTargetSet = fullOwnedTargets");
-        StringAssert.Contains(libraryCode, "resource_health_index_full_target_stale");
-        Assert.IsFalse(applyMethod.Contains("foreach (BMSFile item in BMSFiles"));
-        Assert.IsFalse(applyMethod.Contains("foreach (LR2SongDBExtended.bmson_song item in BmsonSongs"));
-        StringAssert.Contains(countMethod, "(BMSFiles?.Count ?? 0) + (BmsonSongs?.Count ?? 0)");
-        Assert.IsFalse(countMethod.Contains("CreateOwnedChartStorageOwnerViewUnsafe().Count"));
-        StringAssert.Contains(snapshotMethod, "snapshotCount = CreateOwnedChartStorageOwnerViewUnsafe().Count");
-        Assert.IsFalse(snapshotMethod.Contains("bmsonSnapshotCount"));
     }
 
     [TestMethod]
