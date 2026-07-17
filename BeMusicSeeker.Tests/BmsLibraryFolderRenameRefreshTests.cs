@@ -799,6 +799,64 @@ public sealed class BmsLibraryFolderRenameRefreshTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_DurableCatalogFailureLeavesConsumerStateUnchanged()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogFailure_" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tempRootPath);
+            string chartPath = Path.Combine(tempRootPath, "chart.bms");
+            try
+            {
+                var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+                var file = new TestableBmsFile
+                {
+                    path = chartPath
+                };
+                file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+                SetLibraryFilesWithoutNotification(library, [file]);
+                using (var songDb = new LR2SongDBExtended(songDbPath))
+                {
+                    songDb.InsertOrReplace(file.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                    string escapedPath = chartPath.Replace("'", "''");
+                    songDb.Execute(
+                        "CREATE TRIGGER fail_library_delta_remove BEFORE DELETE ON song WHEN OLD.path = '"
+                        + escapedPath
+                        + "' BEGIN SELECT RAISE(ABORT, 'forced library mutation failure'); END;");
+                }
+
+                int notificationVersion = library.NormalLibraryRefreshNotificationVersion;
+                int ownedCollectionVersion = library.OwnedChartCollectionVersion;
+                ResourceHealthIndexSnapshot resourceHealthSnapshot = library.GetResourceHealthIndexSnapshotForView("failure_baseline");
+                var delta = new LibraryMutationDelta();
+                delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+
+                Assert.ThrowsException<SQLite.SQLiteException>(() => InvokeApplyLibraryMutationDelta(library, delta));
+
+                Assert.AreEqual(notificationVersion, library.NormalLibraryRefreshNotificationVersion);
+                Assert.AreEqual(ownedCollectionVersion, library.OwnedChartCollectionVersion);
+                ResourceHealthIndexSnapshot resourceHealthAfterFailure = library.TryGetCurrentResourceHealthIndexSnapshotForView();
+                Assert.AreSame(resourceHealthSnapshot, resourceHealthAfterFailure);
+                Assert.AreEqual(resourceHealthSnapshot.Version, resourceHealthAfterFailure.Version);
+                Assert.AreEqual(resourceHealthSnapshot.TargetCount, resourceHealthAfterFailure.TargetCount);
+                Assert.AreEqual(resourceHealthSnapshot.NeedFixCount, resourceHealthAfterFailure.NeedFixCount);
+                Assert.AreEqual(1, library.BMSFiles.Count);
+                Assert.AreSame(file, library.BMSFiles.Single());
+                using var verifySongDb = new LR2SongDBExtended(songDbPath);
+                Assert.IsTrue(verifySongDb.Table<BMSFile>().Any(row => row.path == chartPath));
+            }
+            finally
+            {
+                if (Directory.Exists(tempRootPath))
+                {
+                    Directory.Delete(tempRootPath, recursive: true);
+                }
+            }
+        });
+    }
+
+    [TestMethod]
     public void NormalLibraryRefreshNotifications_ExternalReplacementPublishesResetBarrier()
     {
         TestResourceInitializer.EnsureJapaneseResources();

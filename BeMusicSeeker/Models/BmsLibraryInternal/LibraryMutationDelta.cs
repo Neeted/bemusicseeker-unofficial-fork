@@ -102,6 +102,10 @@ internal sealed class BmsLibraryStateApplyResult
 
     public long BmsonPathDbMs { get; set; }
 
+    public long BmsRemovalDbMs { get; set; }
+
+    public long BmsonRemovalDbMs { get; set; }
+
     public long PackageApplyMs { get; set; }
 }
 

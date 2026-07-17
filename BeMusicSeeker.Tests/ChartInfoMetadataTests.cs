@@ -759,7 +759,7 @@ createTempDirectory);
     }
 
     [TestMethod]
-    public void DeleteSongsAndMaintenance_LeavesChartInfoRows()
+    public void ApplyCatalogMutation_LeavesChartInfoRows()
     {
         WithTemporarySongDb(delegate (string tempRootPath, string songDbPath)
         {
@@ -786,7 +786,22 @@ createTempDirectory);
                 }, typeof(LR2SongDBExtended.chart_digest_map));
             }
 
-            new BmsLibraryDbGateway(songDbPath).DeleteSongsAndMaintenance([file]);
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([file], []);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([file], []),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+            CatalogMutationReceipt receipt = new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(songDbPath))
+                .ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+            Assert.IsTrue(receipt.Applied);
+            Assert.AreEqual(file.hash, receipt.RemovalFacts.Single(fact => fact.Kind == ChartFileKind.Bms).Hash);
 
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0L, verify.ExecuteScalar<long>("SELECT COUNT(1) FROM song WHERE path = '" + file.path.Replace("'", "''") + "';"));

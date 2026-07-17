@@ -395,15 +395,14 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public IDisposable SuppressResourceHealthIndexInvalidationIfNeeded() => null!;
 
-        public StorageRowsVersionSnapshot ApplyCatalogStorageRowsRemoval() => default;
-
         public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta) => null!;
 
-        public void ApplyCatalogOwnedCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
+        public void CompleteResourceHealthMutation(int targetInputVersion)
         {
         }
 
-        public void CompleteResourceHealthMutation(int targetInputVersion)
+        public void RebaseResourceHealthAfterFailure(
+            ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation)
         {
         }
 

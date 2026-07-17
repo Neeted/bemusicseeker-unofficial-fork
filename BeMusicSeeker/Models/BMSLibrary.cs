@@ -2902,8 +2902,7 @@ public partial class BMSLibrary : NotificationObject
             pendingPackages => ChartPackagesPending = pendingPackages,
             () => ChartPackagesInstalled,
             installedPackages => ChartPackagesInstalled = installedPackages,
-            () => RaisePropertyChanged(() => ChartPackagesInstalled),
-            MarkLr2SongDbSyncIncompleteAfterStateApplierSongDbWriteFailure);
+            () => RaisePropertyChanged(() => ChartPackagesInstalled));
         pendingInstallEstimateQueueProcessor = new PendingInstallEstimateQueueProcessor(ProcessPendingInstallEstimateBatch, UpdatePendingEstimateQueueStatus, HandlePendingEstimateBatchException);
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
         using (LR2SongDBExtended lR2SongDBExtended = dbGateway.OpenSongDb())
@@ -13595,7 +13594,9 @@ public partial class BMSLibrary : NotificationObject
     {
         private OwnedChartCollectionMutationResult mutationResult;
 
-        private StorageRowsVersionSnapshot storageRowsVersion;
+        private bool catalogMutationExpected;
+
+        private bool catalogMutationCommitted;
 
         public void ThrowIfLr2SongDbSyncMutationBlocked(string operationName)
         {
@@ -13609,6 +13610,8 @@ public partial class BMSLibrary : NotificationObject
 
         public void BuildMutationResult(LibraryMutationDelta delta, int baseInputVersion, bool baseIndexCurrent)
         {
+            catalogMutationExpected = false;
+            catalogMutationCommitted = false;
             mutationResult = owner.BuildOwnedChartCollectionMutationResult(
                 delta,
                 baseInputVersion,
@@ -13627,48 +13630,32 @@ public partial class BMSLibrary : NotificationObject
                 : null;
         }
 
-        public StorageRowsVersionSnapshot ApplyCatalogStorageRowsRemoval()
-        {
-            CatalogStorageRowsRemovalRequest request = owner.catalogMutationOwner.CreateStorageRowsRemovalRequest(
-                mutationResult.StorageMutation.RemoveRequests);
-            CatalogStorageRowsRemovalReceipt receipt = owner.catalogMutationOwner.ApplyStorageRowsRemoval(request);
-            storageRowsVersion = receipt.StorageRowsVersion;
-            return receipt.StorageRowsVersion;
-        }
-
         public BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta)
         {
-            CatalogRelocationReceipt relocationReceipt = owner.catalogMutationOwner.ApplyRelocation(delta);
-            BmsLibraryStateApplyResult stateApplyResult = owner.stateApplier.ApplyLibraryMutationDelta(
+            catalogMutationExpected = delta?.FolderPathChanges?.Count > 0
+                || delta?.ChartPathChanges?.Count > 0
+                || mutationResult?.StorageMutation?.RemoveRequests?.Count > 0;
+            CatalogMutationReceipt catalogReceipt = owner.catalogMutationOwner.ApplyCatalogMutation(
                 delta,
-                mutationResult.StorageMutation.RemoveRequests);
-            StorageRowsVersionSnapshot currentStorageRowsVersion = relocationReceipt.Applied
-                ? relocationReceipt.StorageRowsVersion
-                : owner.catalogStorageRowsOwner.CaptureVersionSnapshot();
-            stateApplyResult.StorageRowsVersion = new StorageRowsVersionSnapshot(
-                storageRowsVersion.PreviousBmsRowsVersion,
-                storageRowsVersion.PreviousBmsonRowsVersion,
-                currentStorageRowsVersion.BmsRowsVersion,
-                currentStorageRowsVersion.BmsonRowsVersion);
-            if (relocationReceipt.Applied)
-            {
-                stateApplyResult.FolderDbMs = relocationReceipt.FolderDbMs;
-                stateApplyResult.PathMemoryApplyMs = relocationReceipt.LiveApplyMs;
-                stateApplyResult.BmsPathDbMs = relocationReceipt.BmsPathDbMs;
-                stateApplyResult.BmsonPathDbMs = relocationReceipt.BmsonPathDbMs;
-            }
-            return stateApplyResult;
-        }
-
-        public void ApplyCatalogOwnedCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion)
-        {
-            CatalogOwnedCollectionMutationRequest request = owner.catalogMutationOwner.CreateOwnedCollectionMutationRequest(
                 mutationResult.StorageMutation.RemoveRequests,
-                mutationResult.StorageMutation.PathChanges,
                 mutationResult.StorageMutation.AddedBmsFiles,
                 mutationResult.StorageMutation.AddedBmsonSongs,
-                storageRowsVersion);
-            owner.catalogMutationOwner.ApplyOwnedCollectionMutation(request);
+                () => catalogMutationCommitted = true);
+            BmsLibraryStateApplyResult stateApplyResult = owner.stateApplier.ApplyLibraryMutationDelta(
+                delta,
+                catalogReceipt.RemovalFacts,
+                catalogReceipt.ProtectedPathFacts);
+            stateApplyResult.StorageRowsVersion = catalogReceipt.StorageRowsVersion;
+            if (catalogReceipt.Applied)
+            {
+                stateApplyResult.FolderDbMs = catalogReceipt.FolderDbMs;
+                stateApplyResult.PathMemoryApplyMs = catalogReceipt.LiveApplyMs;
+                stateApplyResult.BmsPathDbMs = catalogReceipt.BmsPathDbMs;
+                stateApplyResult.BmsonPathDbMs = catalogReceipt.BmsonPathDbMs;
+                stateApplyResult.BmsRemovalDbMs = catalogReceipt.BmsRemovalDbMs;
+                stateApplyResult.BmsonRemovalDbMs = catalogReceipt.BmsonRemovalDbMs;
+            }
+            return stateApplyResult;
         }
 
         public void CompleteResourceHealthMutation(int targetInputVersion)
@@ -13677,6 +13664,17 @@ public partial class BMSLibrary : NotificationObject
             if (mutationResult.ResourceHealthMutation.DeltaTargetResourceHealthInputVersion.Value < 0)
             {
                 mutationResult.ResourceHealthMutation.Invalidate = true;
+            }
+        }
+
+        public void RebaseResourceHealthAfterFailure(
+            ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation)
+        {
+            if (catalogMutationExpected && !catalogMutationCommitted)
+            {
+                owner.resourceHealthOwner.RebaseAfterInputMutation(
+                    resourceHealthMutation,
+                    owner.GetCurrentResourceHealthIndexVersion());
             }
         }
 
@@ -13711,7 +13709,8 @@ public partial class BMSLibrary : NotificationObject
             {
                 owner.InvalidatePlaylistLibraryResolveIndexSnapshot();
             }
-            if (mutationResult?.ResourceHealthMutation.HasChanges == true)
+            if (mutationResult?.ResourceHealthMutation.HasChanges == true
+                && !(catalogMutationExpected && !catalogMutationCommitted))
             {
                 owner.resourceHealthOwner.ForceInvalidate("library_delta_failed");
             }
@@ -13745,14 +13744,14 @@ public partial class BMSLibrary : NotificationObject
                 + " resourceHealthBeginMs=" + timings.ResourceHealthBeginMs
                 + " buildMutationMs=" + timings.BuildMutationMs
                 + " publishNotificationMs=" + timings.PublishNotificationMs
-                + " unregisterStorageRowsMs=" + timings.UnregisterStorageRowsMs
-                + " stateApplyMs=" + timings.StateApplyMs
+                 + " stateApplyMs=" + timings.StateApplyMs
                 + " stateFolderDbMs=" + timings.StateFolderDbMs
                 + " statePathMemoryApplyMs=" + timings.StatePathMemoryApplyMs
-                + " stateBmsPathDbMs=" + timings.StateBmsPathDbMs
-                + " stateBmsonPathDbMs=" + timings.StateBmsonPathDbMs
-                + " statePackageApplyMs=" + timings.StatePackageApplyMs
-                + " ownedCollectionApplyMs=" + timings.OwnedCollectionApplyMs
+                 + " stateBmsPathDbMs=" + timings.StateBmsPathDbMs
+                 + " stateBmsonPathDbMs=" + timings.StateBmsonPathDbMs
+                 + " stateBmsRemovalDbMs=" + timings.StateBmsRemovalDbMs
+                 + " stateBmsonRemovalDbMs=" + timings.StateBmsonRemovalDbMs
+                 + " statePackageApplyMs=" + timings.StatePackageApplyMs
                 + " resourceHealthDisposeMs=" + timings.ResourceHealthDisposeMs
                 + " lr2NormalFolderSyncMs=" + timings.Lr2NormalFolderSyncMs
                 + " dispatchMs=" + timings.DispatchMs

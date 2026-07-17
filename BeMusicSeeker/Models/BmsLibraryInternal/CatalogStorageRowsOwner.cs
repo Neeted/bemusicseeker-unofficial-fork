@@ -137,11 +137,16 @@ internal sealed class CatalogStorageRowsOwner
         }
     }
 
-    internal StorageRowsVersionSnapshot RemoveRows(
-        ISet<BMSFile> removedBmsRows,
-        ISet<string> bmsPathCleanupKeys,
-        ISet<LR2SongDBExtended.bmson_song> removedBmsonRows,
-        ISet<string> bmsonPathCleanupKeys)
+    /// <summary>
+    /// Applies one catalog command's relocation and removal effects to the live storage rows.
+    /// Each storage kind advances its version at most once for the command, even when a
+    /// relocation and removal are combined.
+    /// </summary>
+    internal StorageRowsVersionSnapshot ApplyCatalogMutation(
+        bool bmsRowsRelocated,
+        bool bmsonRowsRelocated,
+        CatalogStorageRowsRemovalRequest removalRequest,
+        IEnumerable<CatalogRelocationPathFact> protectedPathFacts)
     {
         using (writeGate.GetWriterGuard())
         {
@@ -149,16 +154,48 @@ internal sealed class CatalogStorageRowsOwner
             {
                 int previousBmsRowsVersion = bmsRowsVersion;
                 int previousBmsonRowsVersion = bmsonRowsVersion;
-                if (removedBmsRows?.Count > 0 || bmsPathCleanupKeys?.Count > 0)
+                var removedBmsRows = new HashSet<BMSFile>(
+                    removalRequest?.RemovedBmsRows ?? []);
+                var bmsPathCleanupKeys = new HashSet<string>(
+                    removalRequest?.BmsPathCleanupKeys ?? [],
+                    StringComparer.OrdinalIgnoreCase);
+                bmsPathCleanupKeys.ExceptWith(CreateProtectedPathKeys(
+                    protectedPathFacts,
+                    ChartFileKind.Bms));
+                var removedBmsonRows = new HashSet<LR2SongDBExtended.bmson_song>(
+                    removalRequest?.RemovedBmsonRows ?? []);
+                var bmsonPathCleanupKeys = new HashSet<string>(
+                    removalRequest?.BmsonPathCleanupKeys ?? [],
+                    StringComparer.OrdinalIgnoreCase);
+                bmsonPathCleanupKeys.ExceptWith(CreateProtectedPathKeys(
+                    protectedPathFacts,
+                    ChartFileKind.Bmson));
+                bool bmsRowsRemoved = removalRequest != null
+                    && (removedBmsRows.Count > 0 || bmsPathCleanupKeys.Count > 0);
+                bool bmsonRowsRemoved = removalRequest != null
+                    && (removedBmsonRows.Count > 0 || bmsonPathCleanupKeys.Count > 0);
+                if (bmsRowsRemoved)
                 {
                     bmsRows = [.. (bmsRows ?? [])
-                        .Where(file => !IsMatchedBmsRow(file, removedBmsRows, bmsPathCleanupKeys))];
-                    IncrementBmsRowsVersion();
+                        .Where(file => !IsMatchedBmsRow(
+                            file,
+                            removedBmsRows,
+                            bmsPathCleanupKeys))];
                 }
-                if (removedBmsonRows?.Count > 0 || bmsonPathCleanupKeys?.Count > 0)
+                if (bmsonRowsRemoved)
                 {
                     bmsonRows = [.. (bmsonRows ?? [])
-                        .Where(song => !IsMatchedBmsonRow(song, removedBmsonRows, bmsonPathCleanupKeys))];
+                        .Where(song => !IsMatchedBmsonRow(
+                            song,
+                            removedBmsonRows,
+                            bmsonPathCleanupKeys))];
+                }
+                if (bmsRowsRelocated || bmsRowsRemoved)
+                {
+                    IncrementBmsRowsVersion();
+                }
+                if (bmsonRowsRelocated || bmsonRowsRemoved)
+                {
                     IncrementBmsonRowsVersion();
                 }
                 return new StorageRowsVersionSnapshot(
@@ -170,31 +207,16 @@ internal sealed class CatalogStorageRowsOwner
         }
     }
 
-    internal StorageRowsVersionSnapshot ApplyRelocationVersion(
-        bool bmsRowsChanged,
-        bool bmsonRowsChanged)
+    private static HashSet<string> CreateProtectedPathKeys(
+        IEnumerable<CatalogRelocationPathFact> protectedPathFacts,
+        ChartFileKind kind)
     {
-        using (writeGate.GetWriterGuard())
-        {
-            lock (versionGate)
-            {
-                int previousBmsRowsVersion = bmsRowsVersion;
-                int previousBmsonRowsVersion = bmsonRowsVersion;
-                if (bmsRowsChanged)
-                {
-                    IncrementBmsRowsVersion();
-                }
-                if (bmsonRowsChanged)
-                {
-                    IncrementBmsonRowsVersion();
-                }
-                return new StorageRowsVersionSnapshot(
-                    previousBmsRowsVersion,
-                    previousBmsonRowsVersion,
-                    bmsRowsVersion,
-                    bmsonRowsVersion);
-            }
-        }
+        return new HashSet<string>(
+            (protectedPathFacts ?? [])
+                .Where(fact => fact?.Kind == kind)
+                .Select(fact => CreateOwnedPathKey(fact.NewPath))
+                .Where(path => !string.IsNullOrWhiteSpace(path)),
+            StringComparer.OrdinalIgnoreCase);
     }
 
     internal StorageRowsVersionSnapshot CaptureVersionSnapshot()

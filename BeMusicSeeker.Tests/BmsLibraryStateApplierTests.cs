@@ -170,10 +170,10 @@ public sealed class BmsLibraryStateApplierTests
                     NewPath = newDirectoryPath
                 });
 
-                CatalogRelocationReceipt relocationReceipt = ApplyCatalogRelocation(songDbPath, delta, callbacks);
+                CatalogMutationReceipt relocationReceipt = ApplyCatalogRelocation(songDbPath, delta, callbacks);
                 Assert.IsTrue(relocationReceipt.Applied);
                 Assert.AreEqual(2, relocationReceipt.PathFacts.Count);
-                applier.ApplyLibraryMutationDelta(delta);
+                ApplyCommittedMutation(applier, delta);
 
                 Assert.AreEqual(newChartPath, movedFile.path);
                 Assert.AreEqual(1, movedFile.txt);
@@ -325,7 +325,7 @@ public sealed class BmsLibraryStateApplierTests
                     NewPath = newBmsonPath
                 });
 
-                CatalogRelocationReceipt result = ApplyCatalogRelocation(songDbPath, delta, callbacks);
+                CatalogMutationReceipt result = ApplyCatalogRelocation(songDbPath, delta, callbacks);
 
                 Assert.IsTrue(result.BmsPathDbMs >= 0);
                 Assert.IsTrue(result.BmsonPathDbMs >= 0);
@@ -653,7 +653,7 @@ public sealed class BmsLibraryStateApplierTests
                 ClearInstallDestinationState = true
             });
 
-            applier.ApplyLibraryMutationDelta(delta);
+            ApplyCommittedMutation(applier, delta);
 
             Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile appliedChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
@@ -697,7 +697,7 @@ public sealed class BmsLibraryStateApplierTests
                 ClearInstallDestinationState = false
             });
 
-            applier.ApplyLibraryMutationDelta(delta);
+            ApplyCommittedMutation(applier, delta);
 
             Assert.IsTrue(file.Warnings.ToStructuredList().Any(warning => warning.Category == ChartWarningCategory.InstallEstimation));
             ChartFile appliedChart = delta.CreateAppliedInstallDestinationChartSnapshots().Single();
@@ -735,7 +735,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UnregisterDeletesBmsSongsAndPrunesInstalledPackagesWithoutStorageCollectionWriteback()
+    public void ApplyLibraryMutationDelta_UnregisterPrunesInstalledPackagesWithoutStorageCollectionWriteback()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -772,23 +772,19 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]));
+            ApplyCommittedMutation(
+                applier,
+                CreateUnregisterDelta([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]));
 
             Assert.AreEqual(2, libraryFiles.Count);
             Assert.AreEqual(1, installedPackages.Count);
             Assert.AreSame(keptPackage, installedPackages.Single());
             Assert.AreEqual(1, callbacks.InstalledPackagesChangedCount);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDB.song>();
-            verifySongDb.CreateTable<LR2SongDBExtended.maintenance>();
-            Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(file => file.path == removedFile.path));
-            Assert.IsTrue(verifySongDb.Table<BMSFile>().Any(file => file.path == keptFile.path));
-            Assert.IsFalse(verifySongDb.Table<BMSFileMaintenanceInfo>().Any(info => info.path == removedFile.path));
         });
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_PathCleanupRemovesBmsLibraryRowsByPath()
+    public void ApplyLibraryMutationDelta_PathCleanupPrunesInstalledPackagesByPath()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -823,15 +819,59 @@ public sealed class BmsLibraryStateApplierTests
 
             var delta = new LibraryMutationDelta();
             delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, canonicalFile.path));
-            applier.ApplyLibraryMutationDelta(delta);
+            ApplyCommittedMutation(applier, delta);
 
             Assert.AreEqual(2, libraryFiles.Count);
             Assert.AreEqual(0, installedPackages.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDB.song>();
-            verifySongDb.CreateTable<LR2SongDBExtended.maintenance>();
-            Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(file => file.path == canonicalFile.path));
-            Assert.IsFalse(verifySongDb.Table<BMSFileMaintenanceInfo>().Any(info => info.path == canonicalFile.path));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyLibraryMutationDelta_PathCleanupDoesNotPruneRelocatedDestination()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var relocatedFile = new TestableBmsFile
+            {
+                path = "C:\\Library\\new.bms"
+            };
+            relocatedFile.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            var relocatedPackage = ChartPackageTestExtensions.CreatePackage([relocatedFile]);
+            relocatedPackage.path = "C:\\Installed\\RelocatedPkg";
+            relocatedPackage.delete_parent = false;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(relocatedFile, typeof(LR2SongDB.song));
+            }
+
+            DispatcherCollection<ChartPackage> pendingPackages = CreatePackageCollection([]);
+            DispatcherCollection<ChartPackage> installedPackages = CreatePackageCollection([relocatedPackage]);
+            var callbacks = new TrackingCallbacks();
+            BmsLibraryStateApplier applier = CreateStateApplier(
+                songDbPath,
+                callbacks,
+                () => pendingPackages,
+                packages => pendingPackages = packages,
+                () => installedPackages,
+                packages => installedPackages = packages);
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(
+                ChartFileKind.Bms,
+                relocatedFile.path));
+
+            ApplyCommittedMutation(
+                applier,
+                delta,
+                [new CatalogRelocationPathFact(
+                    ChartFileKind.Bms,
+                    "C:\\Library\\old.bms",
+                    relocatedFile.path)]);
+
+            Assert.AreEqual(1, installedPackages.Count);
+            Assert.AreSame(relocatedPackage, installedPackages.Single());
+            Assert.AreEqual(0, callbacks.InstalledPackagesChangedCount);
         });
     }
 
@@ -866,7 +906,9 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]));
+            ApplyCommittedMutation(
+                applier,
+                CreateUnregisterDelta([ChartFileProjection.FromBmsStorageOwnerIdentity(removedFile)]));
 
             Assert.AreEqual(1, libraryFiles.Count);
             Assert.AreEqual(1, installedPackages.Count);
@@ -878,7 +920,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UnregisterDeletesBmsonRowsWithoutStorageCollectionWriteback()
+    public void ApplyLibraryMutationDelta_UnregisterLeavesBmsonStorageToCatalogOwner()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -906,13 +948,11 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
+            ApplyCommittedMutation(
+                applier,
+                CreateUnregisterDelta([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
 
             Assert.AreEqual(2, bmsonSongs.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
-            Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(song => song.path == removedSong.path));
-            Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(song => song.path == keptSong.path));
         });
     }
 
@@ -953,7 +993,9 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
+            ApplyCommittedMutation(
+                applier,
+                CreateUnregisterDelta([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
 
             Assert.AreEqual(2, bmsonSongs.Count);
             Assert.AreEqual(1, installedPackages.Count);
@@ -998,7 +1040,9 @@ public sealed class BmsLibraryStateApplierTests
             var callbacks = new TrackingCallbacks();
             BmsLibraryStateApplier applier = CreateStateApplier(songDbPath, callbacks, () => pendingPackages, packages => pendingPackages = packages, () => installedPackages, packages => installedPackages = packages);
 
-            applier.ApplyLibraryMutationDelta(CreateUnregisterDelta([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
+            ApplyCommittedMutation(
+                applier,
+                CreateUnregisterDelta([ChartFileProjection.FromBmsonStorageOwnerIdentity(removedSong)]));
 
             Assert.AreEqual(2, bmsonSongs.Count);
             Assert.AreEqual(1, installedPackages.Count);
@@ -1012,7 +1056,7 @@ public sealed class BmsLibraryStateApplierTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_UnregisterDeletesBmsonRows()
+    public void ApplyLibraryMutationDelta_UnregisterDoesNotWriteBmsonRows()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -1036,12 +1080,9 @@ public sealed class BmsLibraryStateApplierTests
             var delta = new LibraryMutationDelta();
             delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedSong));
 
-            applier.ApplyLibraryMutationDelta(delta);
+            ApplyCommittedMutation(applier, delta);
 
             Assert.AreEqual(1, bmsonSongs.Count);
-            using var verifySongDb = new LR2SongDBExtended(songDbPath);
-            verifySongDb.CreateTable<LR2SongDBExtended.bmson_song>();
-            Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(song => song.path == removedSong.path));
         });
     }
 
@@ -1067,16 +1108,10 @@ public sealed class BmsLibraryStateApplierTests
                 callbacks.InstalledPackagesSetCount++;
                 setInstalledPackages(packages);
             },
-            () => callbacks.InstalledPackagesChangedCount++,
-            delegate (string stage, Exception ex)
-            {
-                callbacks.SongDbWriteFailureCount++;
-                callbacks.LastSongDbWriteFailureStage = stage;
-                callbacks.LastSongDbWriteFailure = ex;
-            });
+            () => callbacks.InstalledPackagesChangedCount++);
     }
 
-    private static CatalogRelocationReceipt ApplyCatalogRelocation(
+    private static CatalogMutationReceipt ApplyCatalogRelocation(
         string songDbPath,
         LibraryMutationDelta delta,
         TrackingCallbacks callbacks)
@@ -1091,7 +1126,7 @@ public sealed class BmsLibraryStateApplierTests
                 callbacks.LastSongDbWriteFailureStage = stage;
                 callbacks.LastSongDbWriteFailure = ex;
             });
-        return owner.ApplyRelocation(delta);
+        return owner.ApplyCatalogMutation(delta, []);
     }
 
     private static DispatcherCollection<ChartPackage> CreatePackageCollection(IEnumerable<ChartPackage> packages)
@@ -1106,6 +1141,17 @@ public sealed class BmsLibraryStateApplierTests
             .Select(OwnedChartRemoveRequest.FromOwnerReferenceChart)
             .Where(request => request != null));
         return delta;
+    }
+
+    private static void ApplyCommittedMutation(
+        BmsLibraryStateApplier applier,
+        LibraryMutationDelta delta,
+        IEnumerable<CatalogRelocationPathFact> protectedPathFacts = null!)
+    {
+        applier.ApplyLibraryMutationDelta(
+            delta,
+            CatalogMutationRemovalFact.Snapshot(delta?.ChartRemoveRequests),
+            protectedPathFacts ?? []);
     }
 
     private static void WithTemporarySongDb(Action<string> testAction)

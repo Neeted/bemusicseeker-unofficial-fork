@@ -28,7 +28,8 @@ internal interface ILibraryMutationDeltaApplyHost
     void BuildMutationResult(LibraryMutationDelta delta, int baseInputVersion, bool baseIndexCurrent);
 
     /// <summary>
-    /// Publishes the owned collection change notification required before storage state is mutated.
+    /// Publishes the owned collection change notification after the catalog command and
+    /// package residual have been applied successfully.
     /// </summary>
     void PublishOwnedCollectionChangeNotification();
 
@@ -39,12 +40,6 @@ internal interface ILibraryMutationDeltaApplyHost
     IDisposable SuppressResourceHealthIndexInvalidationIfNeeded();
 
     /// <summary>
-    /// Applies catalog storage-row removal for the current mutation result.
-    /// </summary>
-    /// <returns>The storage-row version snapshot after removal processing.</returns>
-    StorageRowsVersionSnapshot ApplyCatalogStorageRowsRemoval();
-
-    /// <summary>
     /// Applies the library delta to the broader BMSLibrary state.
     /// </summary>
     /// <param name="delta">The library mutation delta being applied.</param>
@@ -52,16 +47,17 @@ internal interface ILibraryMutationDeltaApplyHost
     BmsLibraryStateApplyResult ApplyLibraryMutationDeltaToState(LibraryMutationDelta delta);
 
     /// <summary>
-    /// Applies the current owned-chart collection mutation after storage rows and state have been updated.
-    /// </summary>
-    /// <param name="storageRowsVersion">The storage-row version snapshot returned by unregister processing.</param>
-    void ApplyCatalogOwnedCollectionMutation(StorageRowsVersionSnapshot storageRowsVersion);
-
-    /// <summary>
     /// Completes resource-health mutation metadata after the input mutation scope is disposed.
     /// </summary>
     /// <param name="targetInputVersion">The target input version observed after the mutation window.</param>
     void CompleteResourceHealthMutation(int targetInputVersion);
+
+    /// <summary>
+    /// Re-bases a still-current resource-health snapshot after an input window that
+    /// failed before the durable catalog command committed.
+    /// </summary>
+    /// <param name="resourceHealthMutation">The disposed input mutation scope, or <see langword="null"/>.</param>
+    void RebaseResourceHealthAfterFailure(ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation);
 
     /// <summary>
     /// Synchronizes LR2 normal folder output for the current owned mutation.

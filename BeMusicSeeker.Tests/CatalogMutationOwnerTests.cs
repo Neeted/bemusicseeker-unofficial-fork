@@ -118,7 +118,7 @@ public sealed class CatalogMutationOwnerTests
                 NewPath = newBmsonPath
             });
 
-            CatalogRelocationReceipt receipt = owner.ApplyRelocation(delta);
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, []);
 
             Assert.IsTrue(receipt.Applied);
             Assert.AreEqual(2, receipt.PathFacts.Count);
@@ -135,6 +135,416 @@ public sealed class CatalogMutationOwnerTests
             Assert.IsTrue(verifySongDb.Table<BMSFile>().Any(row => row.path == newBmsPath));
             Assert.IsTrue(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(row => row.path == newBmsonPath));
             Assert.IsTrue(verifySongDb.Table<LR2SongDB.folder>().Any(row => row.path == newDirectoryPath + Path.DirectorySeparatorChar));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyCatalogMutation_CombinesRelocationRemovalAndOwnedProjectionAfterOneCommit()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogMutation_" + Guid.NewGuid().ToString("N"));
+        string oldDirectoryPath = Path.Combine(tempRootPath, "Old");
+        string newDirectoryPath = Path.Combine(tempRootPath, "New");
+        Directory.CreateDirectory(oldDirectoryPath);
+        Directory.CreateDirectory(newDirectoryPath);
+        string movedOldPath = Path.Combine(oldDirectoryPath, "moved.bms");
+        string movedNewPath = Path.Combine(newDirectoryPath, "moved.bms");
+        string removedBmsPath = Path.Combine(oldDirectoryPath, "removed.bms");
+        string removedBmsonPath = Path.Combine(oldDirectoryPath, "removed.bmson");
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllText(movedNewPath, "#PLAYER 1");
+        File.WriteAllText(removedBmsPath, "#PLAYER 1");
+        File.WriteAllText(removedBmsonPath, "{}");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            var movedBms = CreateBms(Path.GetFileName(movedOldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            movedBms.path = movedOldPath;
+            var removedBms = CreateBms(Path.GetFileName(removedBmsPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            removedBms.path = removedBmsPath;
+            var removedBmson = CreateBmson(Path.GetFileName(removedBmsonPath), "cccccccccccccccccccccccccccccccc");
+            removedBmson.path = removedBmsonPath;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.CreateTable<LR2SongDBExtended.bmson_song>();
+                songDb.InsertOrReplace(movedBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(removedBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(new BMSFileMaintenanceInfo { path = removedBmsPath }, typeof(LR2SongDBExtended.maintenance));
+                songDb.InsertOrReplace(removedBmson, typeof(LR2SongDBExtended.bmson_song));
+                BmsLibraryDbGateway.EnsureAppOwnedSchema(songDb);
+                songDb.InsertOrReplace(
+                    new LR2SongDBExtended.chart_digest_map
+                    {
+                        md5 = removedBms.hash,
+                        sha256 = "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+                    },
+                    typeof(LR2SongDBExtended.chart_digest_map));
+            }
+
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
+                [movedBms, removedBms],
+                [removedBmson]);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([movedBms, removedBms], [removedBmson]),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var owner = new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(songDbPath));
+            var delta = new LibraryMutationDelta();
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
+                OldPath = movedOldPath,
+                NewPath = movedNewPath
+            });
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBmson));
+
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+
+            Assert.IsTrue(receipt.Applied);
+            Assert.IsTrue(receipt.OwnedCollectionApplied);
+            Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
+            Assert.AreEqual(initialRows.BmsonRowsVersion + 1, receipt.StorageRowsVersion.BmsonRowsVersion);
+            Assert.AreEqual(movedNewPath, movedBms.path);
+            Assert.AreEqual(1, storageRowsOwner.BmsRows.Count);
+            Assert.AreSame(movedBms, storageRowsOwner.BmsRows.Single());
+            Assert.AreEqual(0, storageRowsOwner.BmsonRows.Count);
+            Assert.AreEqual(1, ownedCollectionOwner.Collection.CreateSnapshot().Count);
+            CollectionAssert.Contains(ownedCollectionOwner.Collection.CreatePathSnapshot(), movedNewPath);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.IsTrue(verifySongDb.Table<BMSFile>().Any(row => row.path == movedNewPath));
+            Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(row => row.path == removedBmsPath));
+            Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.bmson_song>().Any(row => row.path == removedBmsonPath));
+            Assert.IsFalse(verifySongDb.Table<BMSFileMaintenanceInfo>().Any(row => row.path == removedBmsPath));
+            Assert.IsFalse(verifySongDb.Table<LR2SongDBExtended.chart_digest_map>().Any(row => row.md5 == removedBms.hash));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyCatalogMutation_WhenRemovalFailsRollsBackRelocationAndLiveVersions()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogMutationRollback_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string oldPath = Path.Combine(tempRootPath, "moved.bms");
+        string newPath = Path.Combine(tempRootPath, "moved-new.bms");
+        string removedPath = Path.Combine(tempRootPath, "removed.bms");
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllText(newPath, "#PLAYER 1");
+        File.WriteAllText(removedPath, "#PLAYER 1");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            var movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            movedBms.path = oldPath;
+            var removedBms = CreateBms(Path.GetFileName(removedPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            removedBms.path = removedPath;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(movedBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(removedBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                string escapedRemovedPath = removedPath.Replace("'", "''");
+                songDb.Execute("CREATE TRIGGER fail_catalog_remove BEFORE DELETE ON song WHEN OLD.path = '" + escapedRemovedPath + "' BEGIN SELECT RAISE(ABORT, 'forced removal failure'); END;");
+            }
+
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([movedBms, removedBms], []);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([movedBms, removedBms], []),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var owner = new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(songDbPath));
+            var delta = new LibraryMutationDelta();
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
+                OldPath = oldPath,
+                NewPath = newPath
+            });
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
+
+            Assert.ThrowsException<SQLite.SQLiteException>(() => owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests));
+
+            Assert.AreEqual(oldPath, movedBms.path);
+            Assert.AreEqual(initialRows.BmsRowsVersion, storageRowsOwner.BmsRowsVersion);
+            Assert.AreEqual(2, storageRowsOwner.BmsRows.Count);
+            Assert.AreEqual(2, ownedCollectionOwner.Collection.CreateSnapshot().Count);
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.IsTrue(verifySongDb.Table<BMSFile>().Any(row => row.path == oldPath));
+            Assert.IsTrue(verifySongDb.Table<BMSFile>().Any(row => row.path == removedPath));
+            Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(row => row.path == newPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyCatalogMutation_SamePathDifferentOwnersKeepsRelocatedOwnerRow()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogMutationSamePath_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string removedPath = Path.Combine(tempRootPath, "existing.bms");
+        string movedOldPath = Path.Combine(tempRootPath, "moved-old.bms");
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllText(removedPath, "#PLAYER 1");
+        File.WriteAllText(movedOldPath, "#PLAYER 1");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            var removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            removedBms.path = removedPath;
+            var movedBms = CreateBms(Path.GetFileName(movedOldPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            movedBms.path = movedOldPath;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(removedBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(movedBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(
+                    new BMSFileMaintenanceInfo
+                    {
+                        path = removedPath,
+                        hash = removedBms.hash
+                    },
+                    typeof(LR2SongDBExtended.maintenance));
+            }
+
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([removedBms, movedBms], []);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([removedBms, movedBms], []),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var owner = new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(songDbPath));
+            var delta = new LibraryMutationDelta();
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
+                OldPath = movedOldPath,
+                NewPath = removedPath
+            });
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
+
+            owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+
+            Assert.AreEqual(removedPath, movedBms.path);
+            Assert.AreEqual(1, storageRowsOwner.BmsRows.Count);
+            Assert.AreSame(movedBms, storageRowsOwner.BmsRows.Single());
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            BMSFile persisted = verifySongDb.Table<BMSFile>().Single(row => row.path == removedPath);
+            Assert.AreEqual(movedBms.hash, persisted.hash);
+            Assert.IsFalse(verifySongDb.Table<BMSFileMaintenanceInfo>().Any(row => row.path == removedPath));
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyCatalogMutation_CaseVariantPathCollisionRemovesOldExactRow()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogMutationCaseCollision_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string removedPath = Path.Combine(tempRootPath, "existing.bms");
+        string movedOldPath = Path.Combine(tempRootPath, "moved-old.bms");
+        string movedNewPath = Path.Combine(tempRootPath, "EXISTING.bms");
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllText(removedPath, "#PLAYER 1");
+        File.WriteAllText(movedOldPath, "#PLAYER 1");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            var removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            removedBms.path = removedPath;
+            var movedBms = CreateBms(Path.GetFileName(movedOldPath), "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+            movedBms.path = movedOldPath;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(removedBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+                songDb.InsertOrReplace(movedBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+            }
+
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([removedBms, movedBms], []);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([removedBms, movedBms], []),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var owner = new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(songDbPath));
+            var delta = new LibraryMutationDelta();
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
+                OldPath = movedOldPath,
+                NewPath = movedNewPath
+            });
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
+
+            owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.IsFalse(verifySongDb.Table<BMSFile>().Any(row => row.path == removedPath));
+            Assert.AreEqual(movedBms.hash, verifySongDb.Table<BMSFile>().Single(row => row.path == movedNewPath).hash);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyCatalogMutation_PathCleanupDoesNotRemoveRelocatedDestination()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogMutationProtectedDestination_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string oldPath = Path.Combine(tempRootPath, "old.bms");
+        string newPath = Path.Combine(tempRootPath, "new.bms");
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllText(newPath, "#PLAYER 1");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            var movedBms = CreateBms(Path.GetFileName(oldPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            movedBms.path = oldPath;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(movedBms.CreateSongRowPersistenceCopy(), typeof(LR2SongDB.song));
+            }
+
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([movedBms], []);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([movedBms], []),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var owner = new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(songDbPath));
+            var delta = new LibraryMutationDelta();
+            delta.ChartPathChanges.Add(new LibraryChartPathChange
+            {
+                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
+                OldPath = oldPath,
+                NewPath = newPath
+            });
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, newPath));
+
+            CatalogMutationReceipt receipt = owner.ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+
+            Assert.IsTrue(receipt.Applied);
+            Assert.AreEqual(1, receipt.ProtectedPathFacts.Count);
+            Assert.AreEqual(newPath, receipt.ProtectedPathFacts.Single().NewPath);
+            Assert.AreEqual(newPath, movedBms.path);
+            Assert.AreSame(movedBms, storageRowsOwner.BmsRows.Single());
+            Assert.AreEqual(newPath, ownedCollectionOwner.Collection.CreatePathSnapshot().Single());
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(1, verifySongDb.Table<BMSFile>().Count());
+            Assert.AreEqual(newPath, verifySongDb.Table<BMSFile>().Single().path);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public void ApplyCatalogMutation_RemovalDeletesMaintenanceWhenSongRowIsMissing()
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_CatalogMutationMaintenanceDrift_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string removedPath = Path.Combine(tempRootPath, "missing-song.bms");
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            var removedBms = CreateBms(Path.GetFileName(removedPath), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+            removedBms.path = removedPath;
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+                songDb.InsertOrReplace(
+                    new BMSFileMaintenanceInfo
+                    {
+                        path = removedPath,
+                        hash = removedBms.hash
+                    },
+                    typeof(LR2SongDBExtended.maintenance));
+            }
+
+            var storageRowsOwner = new CatalogStorageRowsOwner();
+            CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([removedBms], []);
+            var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+            Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
+                OwnedChartCollectionState.FromStorageRows([removedBms], []),
+                initialRows.BmsRowsVersion,
+                initialRows.BmsonRowsVersion));
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedBms));
+
+            new CatalogMutationOwner(
+                storageRowsOwner,
+                ownedCollectionOwner,
+                new BmsLibraryDbGateway(songDbPath))
+                .ApplyCatalogMutation(delta, delta.ChartRemoveRequests);
+
+            using var verifySongDb = new LR2SongDBExtended(songDbPath);
+            Assert.IsFalse(verifySongDb.Table<BMSFileMaintenanceInfo>().Any(row => row.path == removedPath));
         }
         finally
         {
@@ -281,198 +691,6 @@ public sealed class CatalogMutationOwnerTests
         Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
         Assert.AreSame(newBms, storageRowsOwner.BmsRows.Single());
         Assert.AreSame(oldBmson, storageRowsOwner.BmsonRows.Single());
-    }
-
-    [TestMethod]
-    public void ApplyStorageRowsRemoval_RemovesOwnerAndPathRowsWithPerKindVersions()
-    {
-        var removedBms = CreateBms("removed.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var keptBms = CreateBms("kept.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var removedBmson = CreateBmson("removed.bmson", "cccccccccccccccccccccccccccccccc");
-        var keptBmson = CreateBmson("kept.bmson", "dddddddddddddddddddddddddddddddd");
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
-            [removedBms, keptBms],
-            [removedBmson, keptBmson]);
-        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
-            OwnedChartCollectionState.FromStorageRows([removedBms, keptBms], [removedBmson, keptBmson]),
-            initialRows.BmsRowsVersion,
-            initialRows.BmsonRowsVersion));
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
-
-        CatalogStorageRowsRemovalRequest request = owner.CreateStorageRowsRemovalRequest(
-        [
-            OwnedChartRemoveRequest.FromOwnerReference(removedBms),
-            OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bmson, removedBmson.path)
-        ]);
-        CatalogStorageRowsRemovalReceipt receipt = owner.ApplyStorageRowsRemoval(request);
-
-        Assert.IsTrue(receipt.Applied);
-        Assert.AreEqual(CatalogMutationApplyKind.StorageRowsRemoval, receipt.Kind);
-        Assert.IsTrue(receipt.BmsRowsChanged);
-        Assert.IsTrue(receipt.BmsonRowsChanged);
-        Assert.IsTrue(ownedCollectionOwner.IsInitialized);
-        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
-        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
-        Assert.AreEqual(initialRows.BmsRowsVersion + 1, receipt.StorageRowsVersion.BmsRowsVersion);
-        Assert.AreEqual(initialRows.BmsonRowsVersion + 1, receipt.StorageRowsVersion.BmsonRowsVersion);
-        Assert.AreSame(keptBms, storageRowsOwner.BmsRows.Single());
-        Assert.AreSame(keptBmson, storageRowsOwner.BmsonRows.Single());
-    }
-
-    [TestMethod]
-    public void ApplyStorageRowsRemoval_EmptyRequestIsNoOp()
-    {
-        var bms = CreateBms("kept.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var bmson = CreateBmson("kept.bmson", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], [bmson]);
-        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
-            OwnedChartCollectionState.FromStorageRows([bms], [bmson]),
-            initialRows.BmsRowsVersion,
-            initialRows.BmsonRowsVersion));
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
-
-        CatalogStorageRowsRemovalReceipt receipt = owner.ApplyStorageRowsRemoval(
-            owner.CreateStorageRowsRemovalRequest([]));
-
-        Assert.IsFalse(receipt.Applied);
-        Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
-        Assert.IsFalse(receipt.BmsRowsChanged);
-        Assert.IsFalse(receipt.BmsonRowsChanged);
-        Assert.IsTrue(ownedCollectionOwner.IsInitialized);
-        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.BmsRowsVersion);
-        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
-        Assert.AreSame(bms, storageRowsOwner.BmsRows.Single());
-        Assert.AreSame(bmson, storageRowsOwner.BmsonRows.Single());
-    }
-
-    [TestMethod]
-    public void ApplyOwnedCollectionMutation_EmitsReceiptAndAppliesRemovePathAndAddFacts()
-    {
-        string oldPath = Path.Combine("C:\\Library", "old", "moved.bms");
-        string newPath = Path.Combine("C:\\Library", "new", "moved.bms");
-        var movedBms = CreateBms("moved.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        movedBms.path = oldPath;
-        var removedBms = CreateBms("removed.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var keptBmson = CreateBmson("kept.bmson", "cccccccccccccccccccccccccccccccc");
-        var addedBms = CreateBms("added.bms", "dddddddddddddddddddddddddddddddd");
-        var addedBmson = CreateBmson("added.bmson", "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
-            [movedBms, removedBms],
-            [keptBmson]);
-        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
-            OwnedChartCollectionState.FromStorageRows([movedBms, removedBms], [keptBmson]),
-            initialRows.BmsRowsVersion,
-            initialRows.BmsonRowsVersion));
-        int expectedCollectionVersion = ownedCollectionOwner.IncrementVersion();
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
-
-        movedBms.path = newPath;
-        CatalogOwnedCollectionMutationRequest request = owner.CreateOwnedCollectionMutationRequest(
-            [OwnedChartRemoveRequest.FromOwnerReference(removedBms)],
-            [new LibraryChartPathChange
-            {
-                Chart = ChartFileProjection.FromBmsStorageOwnerIdentity(movedBms),
-                OldPath = oldPath,
-                NewPath = newPath
-            }],
-            [addedBms],
-            [addedBmson],
-            new StorageRowsVersionSnapshot(
-                initialRows.BmsRowsVersion,
-                initialRows.BmsonRowsVersion,
-                initialRows.BmsRowsVersion + 1,
-                initialRows.BmsonRowsVersion + 1));
-        CatalogStorageRowsSnapshot appliedRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
-            [movedBms, addedBms],
-            [keptBmson, addedBmson]);
-        CatalogOwnedCollectionMutationReceipt receipt = owner.ApplyOwnedCollectionMutation(request);
-
-        Assert.IsTrue(receipt.Applied);
-        Assert.AreEqual(CatalogMutationApplyKind.OwnedCollectionMutation, receipt.Kind);
-        Assert.IsTrue(receipt.OwnedCollectionApplied);
-        Assert.AreEqual(expectedCollectionVersion, receipt.OwnedCollectionVersion);
-        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
-        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
-        Assert.AreEqual(appliedRows.BmsRowsVersion, receipt.StorageRowsVersion.BmsRowsVersion);
-        Assert.AreEqual(appliedRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
-        Assert.IsTrue(ownedCollectionOwner.IsCurrent(
-            receipt.StorageRowsVersion.BmsRowsVersion,
-            receipt.StorageRowsVersion.BmsonRowsVersion));
-        OwnedChartStorageOwnerView view = ownedCollectionOwner.Collection.CreateStorageOwnerView();
-        Assert.IsFalse(view.ContainsOwnerPath(removedBms.path));
-        Assert.IsTrue(view.ContainsOwnerPath(newPath));
-        Assert.IsTrue(view.ContainsOwnerPath(addedBms.path));
-        Assert.IsTrue(view.ContainsOwnerPath(addedBmson.path));
-    }
-
-    [TestMethod]
-    public void ApplyOwnedCollectionMutation_StaleRequestResetsCollectionWithoutThrowing()
-    {
-        var bms = CreateBms("current.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var addedBms = CreateBms("added.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
-        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
-            OwnedChartCollectionState.FromStorageRows([bms], []),
-            initialRows.BmsRowsVersion,
-            initialRows.BmsonRowsVersion));
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
-
-        CatalogOwnedCollectionMutationReceipt receipt = owner.ApplyOwnedCollectionMutation(
-            owner.CreateOwnedCollectionMutationRequest(
-                [],
-                [],
-                [addedBms],
-                [],
-                new StorageRowsVersionSnapshot(
-                    initialRows.BmsRowsVersion + 1,
-                    initialRows.BmsonRowsVersion,
-                    initialRows.BmsRowsVersion + 2,
-                    initialRows.BmsonRowsVersion + 1)));
-
-        Assert.IsFalse(receipt.Applied);
-        Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
-        Assert.IsFalse(receipt.OwnedCollectionApplied);
-        Assert.IsFalse(ownedCollectionOwner.IsInitialized);
-        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.PreviousBmsRowsVersion);
-        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.PreviousBmsonRowsVersion);
-        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.BmsRowsVersion);
-    }
-
-    [TestMethod]
-    public void ApplyOwnedCollectionMutation_EmptyRequestIsNoOp()
-    {
-        var bms = CreateBms("current.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        CatalogStorageRowsSnapshot initialRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([bms], []);
-        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
-        Assert.IsTrue(ownedCollectionOwner.ApplyBuiltCollection(
-            OwnedChartCollectionState.FromStorageRows([bms], []),
-            initialRows.BmsRowsVersion,
-            initialRows.BmsonRowsVersion));
-        var owner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner);
-
-        CatalogOwnedCollectionMutationReceipt receipt = owner.ApplyOwnedCollectionMutation(
-            owner.CreateOwnedCollectionMutationRequest(
-                [],
-                [],
-                [],
-                [],
-                new StorageRowsVersionSnapshot(initialRows.BmsRowsVersion, initialRows.BmsonRowsVersion)));
-
-        Assert.IsFalse(receipt.Applied);
-        Assert.AreEqual(CatalogMutationApplyKind.NoOp, receipt.Kind);
-        Assert.IsFalse(receipt.OwnedCollectionApplied);
-        Assert.IsTrue(ownedCollectionOwner.IsInitialized);
-        Assert.AreEqual(initialRows.BmsRowsVersion, receipt.StorageRowsVersion.BmsRowsVersion);
-        Assert.AreEqual(initialRows.BmsonRowsVersion, receipt.StorageRowsVersion.BmsonRowsVersion);
     }
 
     [TestMethod]

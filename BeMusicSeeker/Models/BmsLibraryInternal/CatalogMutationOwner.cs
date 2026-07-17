@@ -304,51 +304,130 @@ internal sealed class CatalogMutationOwner
     }
 
     /// <summary>
-    /// Prepares, commits, and applies one catalog relocation corridor under the canonical guards.
-    /// Consumer projections are composed after this method returns.
+    /// Applies one generic catalog mutation command. Relocation and removal rows share
+    /// one durable transaction, then the live catalog and owned collection are updated
+    /// under the canonical storage-to-maintenance guards.
     /// </summary>
-    internal CatalogRelocationReceipt ApplyRelocation(LibraryMutationDelta delta)
+    internal CatalogMutationReceipt ApplyCatalogMutation(
+        LibraryMutationDelta delta,
+        IEnumerable<OwnedChartRemoveRequest> removeRequests,
+        IEnumerable<BMSFile> addedBmsFiles = null,
+        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs = null,
+        Action onDurableCommit = null)
     {
         if (delta == null)
         {
-            return CatalogRelocationReceipt.NotApplied;
+            return CatalogMutationReceipt.NotApplied;
         }
-        if (dbGateway == null)
-        {
-            throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
-        }
-
+        CatalogRelocationRequest relocationRequest;
+        CatalogStorageRowsRemovalRequest removalRequest;
         using (storageRowsOwner.WriteGate.GetWriterGuard())
         using (maintenanceWriteGate.GetWriterGuard())
         {
-            return ApplyRelocationUnderGuards(CreateRelocationRequest(delta));
+            relocationRequest = CreateRelocationRequest(delta);
+            removalRequest = CreateStorageRowsRemovalRequest(removeRequests);
+            if (!relocationRequest.HasChanges && !removalRequest.HasChanges)
+            {
+                return CatalogMutationReceipt.NotApplied;
+            }
+            if (dbGateway == null)
+            {
+                throw new InvalidOperationException("Catalog mutation owner is not configured with a song database.");
+            }
+
+            CatalogRelocationDbReceipt dbResult;
+            try
+            {
+                dbResult = dbGateway.ReplaceAndRemoveLibraryMutationRows(
+                    relocationRequest,
+                    removalRequest);
+            }
+            catch (Exception ex)
+            {
+                notifyLr2SongDbWriteFailure?.Invoke(
+                    relocationRequest.HasChanges
+                        ? "lr2_song_db_library_mutation_path_replace_failed"
+                        : "lr2_song_db_library_mutation_removal_failed",
+                    ex);
+                throw;
+            }
+
+            onDurableCommit?.Invoke();
+
+            IReadOnlyList<CatalogRelocationPathFact> protectedPathFacts = CreateProtectedPathFacts(
+                relocationRequest,
+                removalRequest);
+            long liveApplyMs = ApplyRelocationLive(relocationRequest);
+            StorageRowsVersionSnapshot storageRowsVersion = storageRowsOwner.ApplyCatalogMutation(
+                relocationRequest.BmsPathReplacements.Count > 0,
+                relocationRequest.BmsonPathReplacements.Count > 0,
+                removalRequest,
+                protectedPathFacts);
+            bool ownedCollectionApplied = ownedCollectionOwner.ApplyMutation(
+                removalRequest?.RemoveRequests,
+                delta.ChartPathChanges,
+                [.. (addedBmsFiles ?? [])],
+                [.. (addedBmsonSongs ?? [])],
+                storageRowsVersion);
+            return new CatalogMutationReceipt(
+                applied: true,
+                storageRowsVersion,
+                dbResult.FolderDbMs,
+                dbResult.BmsPathDbMs,
+                dbResult.BmsonPathDbMs,
+                dbResult.BmsRemovalDbMs,
+                dbResult.BmsonRemovalDbMs,
+                liveApplyMs,
+                 ownedCollectionApplied,
+                 ownedCollectionOwner.CollectionVersion,
+                 [
+                    .. relocationRequest.BmsPathReplacements.Select(replacement => new CatalogRelocationPathFact(
+                        ChartFileKind.Bms,
+                        replacement.OldPath,
+                        replacement.Song.path)),
+                    .. relocationRequest.BmsonPathReplacements.Select(replacement => new CatalogRelocationPathFact(
+                        ChartFileKind.Bmson,
+                         replacement.OldPath,
+                         replacement.Song.path))
+                 ],
+                 removalRequest?.RemoveRequests,
+                 protectedPathFacts);
         }
     }
 
-    private CatalogRelocationReceipt ApplyRelocationUnderGuards(CatalogRelocationRequest request)
+    private static IReadOnlyList<CatalogRelocationPathFact> CreateProtectedPathFacts(
+        CatalogRelocationRequest relocationRequest,
+        CatalogStorageRowsRemovalRequest removalRequest)
+    {
+        var removedBmsOwners = new HashSet<BMSFile>(removalRequest?.RemovedBmsRows ?? []);
+        var removedBmsonOwners = new HashSet<LR2SongDBExtended.bmson_song>(
+            removalRequest?.RemovedBmsonRows ?? []);
+        return [
+            .. (relocationRequest?.BmsPathReplacements ?? [])
+                .Where(replacement => replacement?.Song != null
+                    && !removedBmsOwners.Contains(replacement.LiveOwner))
+                .Select(replacement => new CatalogRelocationPathFact(
+                    ChartFileKind.Bms,
+                    replacement.OldPath,
+                    replacement.Song.path)),
+            .. (relocationRequest?.BmsonPathReplacements ?? [])
+                .Where(replacement => replacement?.Song != null
+                    && !removedBmsonOwners.Contains(replacement.LiveOwner))
+                .Select(replacement => new CatalogRelocationPathFact(
+                    ChartFileKind.Bmson,
+                    replacement.OldPath,
+                    replacement.Song.path))
+        ];
+    }
+
+    private static long ApplyRelocationLive(CatalogRelocationRequest request)
     {
         if (request == null || !request.HasChanges)
         {
-            return CatalogRelocationReceipt.NotApplied;
+            return 0;
         }
 
-        CatalogRelocationDbReceipt dbResult;
-        try
-        {
-            dbResult = dbGateway.ReplaceLibraryMutationRows(
-                request.FolderPathChanges,
-                request.BmsPathReplacements,
-                request.BmsonPathReplacements);
-        }
-        catch (Exception ex)
-        {
-            notifyLr2SongDbWriteFailure?.Invoke(
-                "lr2_song_db_library_mutation_path_replace_failed",
-                ex);
-            throw;
-        }
-
-        Stopwatch liveApplyStopwatch = Stopwatch.StartNew();
+        Stopwatch stopwatch = Stopwatch.StartNew();
         foreach (BmsSongPathReplacement replacement in request.BmsPathReplacements)
         {
             ApplyBmsFilePathInMemory(replacement);
@@ -357,28 +436,8 @@ internal sealed class CatalogMutationOwner
         {
             ApplyBmsonSongPathInMemory(replacement);
         }
-        liveApplyStopwatch.Stop();
-        StorageRowsVersionSnapshot storageRowsVersion = storageRowsOwner.ApplyRelocationVersion(
-            request.BmsPathReplacements.Count > 0,
-            request.BmsonPathReplacements.Count > 0);
-
-        return new CatalogRelocationReceipt(
-            applied: true,
-            storageRowsVersion,
-            dbResult.FolderDbMs,
-            dbResult.BmsPathDbMs,
-            dbResult.BmsonPathDbMs,
-            liveApplyStopwatch.ElapsedMilliseconds,
-            [
-                .. request.BmsPathReplacements.Select(replacement => new CatalogRelocationPathFact(
-                    ChartFileKind.Bms,
-                    replacement.OldPath,
-                    replacement.Song.path)),
-                .. request.BmsonPathReplacements.Select(replacement => new CatalogRelocationPathFact(
-                    ChartFileKind.Bmson,
-                    replacement.OldPath,
-                    replacement.Song.path))
-            ]);
+        stopwatch.Stop();
+        return stopwatch.ElapsedMilliseconds;
     }
 
     private static BmsSongPathReplacement CreateBmsSongPathReplacement(
@@ -589,86 +648,6 @@ internal sealed class CatalogMutationOwner
         return new CatalogStorageRowsRemovalRequest(removeRequests);
     }
 
-    internal CatalogStorageRowsRemovalReceipt ApplyStorageRowsRemoval(
-        CatalogStorageRowsRemovalRequest request)
-    {
-        if (request == null)
-        {
-            return CatalogStorageRowsRemovalReceipt.NotApplied;
-        }
-
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
-        {
-            StorageRowsVersionSnapshot previousVersions = storageRowsOwner.CaptureVersionSnapshot();
-            if (!request.HasChanges)
-            {
-                return new CatalogStorageRowsRemovalReceipt(
-                    applied: false,
-                    bmsRowsChanged: false,
-                    bmsonRowsChanged: false,
-                    previousVersions);
-            }
-
-            StorageRowsVersionSnapshot storageRowsVersion = storageRowsOwner.RemoveRows(
-                new HashSet<BMSFile>(request.RemovedBmsRows),
-                new HashSet<string>(request.BmsPathCleanupKeys, StringComparer.OrdinalIgnoreCase),
-                new HashSet<LR2SongDBExtended.bmson_song>(request.RemovedBmsonRows),
-                new HashSet<string>(request.BmsonPathCleanupKeys, StringComparer.OrdinalIgnoreCase));
-            return new CatalogStorageRowsRemovalReceipt(
-                applied: true,
-                storageRowsVersion.BmsRowsVersion != previousVersions.BmsRowsVersion,
-                storageRowsVersion.BmsonRowsVersion != previousVersions.BmsonRowsVersion,
-                storageRowsVersion);
-        }
-    }
-
-    internal CatalogOwnedCollectionMutationRequest CreateOwnedCollectionMutationRequest(
-        IEnumerable<OwnedChartRemoveRequest> removeRequests,
-        IEnumerable<LibraryChartPathChange> pathChanges,
-        IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs,
-        StorageRowsVersionSnapshot storageRowsVersion)
-    {
-        return new CatalogOwnedCollectionMutationRequest(
-            removeRequests,
-            pathChanges,
-            addedBmsFiles,
-            addedBmsonSongs,
-            storageRowsVersion);
-    }
-
-    internal CatalogOwnedCollectionMutationReceipt ApplyOwnedCollectionMutation(
-        CatalogOwnedCollectionMutationRequest request)
-    {
-        if (request == null)
-        {
-            return CatalogOwnedCollectionMutationReceipt.NotApplied;
-        }
-
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
-        {
-            bool ownerApplied = ownedCollectionOwner.ApplyMutation(
-                request.RemoveRequests,
-                request.PathChanges,
-                request.AddedBmsFiles,
-                request.AddedBmsonSongs,
-                request.StorageRowsVersion);
-            StorageRowsVersionSnapshot currentStorageRowsVersion = storageRowsOwner.CaptureVersionSnapshot();
-            bool applied = request.HasChanges && ownerApplied;
-            return new CatalogOwnedCollectionMutationReceipt(
-                applied,
-                ownedCollectionApplied: applied,
-                ownedCollectionVersion: ownedCollectionOwner.CollectionVersion,
-                applied
-                    ? new StorageRowsVersionSnapshot(
-                        request.StorageRowsVersion.PreviousBmsRowsVersion,
-                        request.StorageRowsVersion.PreviousBmsonRowsVersion,
-                        currentStorageRowsVersion.BmsRowsVersion,
-                        currentStorageRowsVersion.BmsonRowsVersion)
-                    : currentStorageRowsVersion);
-        }
-    }
-
     internal CatalogFileScanStorageReplacementRequest CreateFileScanStorageReplacementRequest(
         bool hasDbDiff,
         IEnumerable<BMSFile> nextBmsRows,
@@ -842,8 +821,6 @@ internal enum CatalogMutationApplyKind
 {
     NoOp,
     StorageRowsReplacement,
-    StorageRowsRemoval,
-    OwnedCollectionMutation,
     FileScanStorageReplacement,
     InstalledTargetUpsert,
     DigestMutation
@@ -857,6 +834,7 @@ internal sealed class CatalogStorageRowsRemovalRequest
     internal CatalogStorageRowsRemovalRequest(IEnumerable<OwnedChartRemoveRequest> removeRequests)
     {
         List<OwnedChartRemoveRequest> requests = [.. (removeRequests ?? []).Where(request => request != null)];
+        RemoveRequests = Snapshot(requests);
         RemovedBmsRows = Snapshot(requests
             .Select(request => request.BmsOwner)
             .Where(file => file != null)
@@ -868,6 +846,8 @@ internal sealed class CatalogStorageRowsRemovalRequest
             .Distinct());
         BmsonPathCleanupKeys = CreatePathCleanupKeys(requests, ChartFileKind.Bmson);
     }
+
+    internal IReadOnlyList<OwnedChartRemoveRequest> RemoveRequests { get; }
 
     internal IReadOnlyList<BMSFile> RemovedBmsRows { get; }
 
@@ -897,122 +877,6 @@ internal sealed class CatalogStorageRowsRemovalRequest
     {
         return Array.AsReadOnly([.. values ?? []]);
     }
-}
-
-/// <summary>
-/// Canonical facts emitted after catalog storage-row removal.
-/// </summary>
-internal sealed class CatalogStorageRowsRemovalReceipt
-{
-    internal static CatalogStorageRowsRemovalReceipt NotApplied { get; } =
-        new(
-            applied: false,
-            bmsRowsChanged: false,
-            bmsonRowsChanged: false,
-            new StorageRowsVersionSnapshot(0, 0));
-
-    internal CatalogStorageRowsRemovalReceipt(
-        bool applied,
-        bool bmsRowsChanged,
-        bool bmsonRowsChanged,
-        StorageRowsVersionSnapshot storageRowsVersion)
-    {
-        Applied = applied;
-        Kind = applied
-            ? CatalogMutationApplyKind.StorageRowsRemoval
-            : CatalogMutationApplyKind.NoOp;
-        BmsRowsChanged = bmsRowsChanged;
-        BmsonRowsChanged = bmsonRowsChanged;
-        StorageRowsVersion = storageRowsVersion;
-    }
-
-    internal bool Applied { get; }
-
-    internal CatalogMutationApplyKind Kind { get; }
-
-    internal bool BmsRowsChanged { get; }
-
-    internal bool BmsonRowsChanged { get; }
-
-    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
-}
-
-/// <summary>
-/// Immutable input snapshot for an owned collection mutation after catalog storage rows are applied.
-/// </summary>
-internal sealed class CatalogOwnedCollectionMutationRequest
-{
-    internal CatalogOwnedCollectionMutationRequest(
-        IEnumerable<OwnedChartRemoveRequest> removeRequests,
-        IEnumerable<LibraryChartPathChange> pathChanges,
-        IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs,
-        StorageRowsVersionSnapshot storageRowsVersion)
-    {
-        RemoveRequests = Snapshot(removeRequests);
-        PathChanges = Snapshot(pathChanges);
-        AddedBmsFiles = Snapshot(addedBmsFiles);
-        AddedBmsonSongs = Snapshot(addedBmsonSongs);
-        StorageRowsVersion = storageRowsVersion;
-    }
-
-    internal IReadOnlyList<OwnedChartRemoveRequest> RemoveRequests { get; }
-
-    internal IReadOnlyList<LibraryChartPathChange> PathChanges { get; }
-
-    internal IReadOnlyList<BMSFile> AddedBmsFiles { get; }
-
-    internal IReadOnlyList<LR2SongDBExtended.bmson_song> AddedBmsonSongs { get; }
-
-    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
-
-    internal bool HasChanges => RemoveRequests.Count > 0
-        || PathChanges.Count > 0
-        || AddedBmsFiles.Count > 0
-        || AddedBmsonSongs.Count > 0;
-
-    private static IReadOnlyList<T> Snapshot<T>(IEnumerable<T> values)
-    {
-        return Array.AsReadOnly([.. values ?? []]);
-    }
-}
-
-/// <summary>
-/// Canonical facts emitted after applying an owned collection mutation.
-/// </summary>
-internal sealed class CatalogOwnedCollectionMutationReceipt
-{
-    internal static CatalogOwnedCollectionMutationReceipt NotApplied { get; } =
-        new(
-            applied: false,
-            ownedCollectionApplied: false,
-            ownedCollectionVersion: 0,
-            new StorageRowsVersionSnapshot(0, 0));
-
-    internal CatalogOwnedCollectionMutationReceipt(
-        bool applied,
-        bool ownedCollectionApplied,
-        int ownedCollectionVersion,
-        StorageRowsVersionSnapshot storageRowsVersion)
-    {
-        Applied = applied;
-        Kind = applied
-            ? CatalogMutationApplyKind.OwnedCollectionMutation
-            : CatalogMutationApplyKind.NoOp;
-        OwnedCollectionApplied = ownedCollectionApplied;
-        OwnedCollectionVersion = ownedCollectionVersion;
-        StorageRowsVersion = storageRowsVersion;
-    }
-
-    internal bool Applied { get; }
-
-    internal CatalogMutationApplyKind Kind { get; }
-
-    internal bool OwnedCollectionApplied { get; }
-
-    internal int OwnedCollectionVersion { get; }
-
-    internal StorageRowsVersionSnapshot StorageRowsVersion { get; }
 }
 
 /// <summary>

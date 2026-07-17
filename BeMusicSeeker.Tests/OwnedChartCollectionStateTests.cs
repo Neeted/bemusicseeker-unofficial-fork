@@ -2062,7 +2062,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ApplyLibraryMutationDelta_FallbackInvalidatesParentFolderAndDuplicateCacheOnFailure()
+    public void ApplyLibraryMutationDelta_FallbackPreservesResourceHealthAndInvalidatesCachesOnFailure()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -2121,7 +2121,7 @@ public sealed class OwnedChartCollectionStateTests
                 Assert.AreEqual(baselineParentFolderVersion + 1, library.BMSParentFolderListCacheVersion);
                 Assert.AreEqual(1, parentFolderVersionChanged);
                 Assert.IsNull(library.DuplicateChartGroups);
-                Assert.AreEqual(0, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
+                Assert.AreEqual(1, library.TryGetCurrentResourceHealthIndexSnapshotForView().TargetCount);
             }
             finally
             {

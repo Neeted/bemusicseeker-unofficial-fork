@@ -40,10 +40,11 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
         bool collectPerformanceLog = !string.IsNullOrWhiteSpace(performanceLogContext);
         Stopwatch totalStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
         var timings = new LibraryMutationDeltaApplyTimings();
+        ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = null;
         try
         {
             Stopwatch resourceHealthBeginStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-            ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = host.BeginResourceHealthInputMutation();
+            resourceHealthMutation = host.BeginResourceHealthInputMutation();
             timings.ResourceHealthBeginMs = StopPerformanceStepStopwatch(resourceHealthBeginStopwatch);
             try
             {
@@ -56,10 +57,6 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
 
                 using (host.SuppressResourceHealthIndexInvalidationIfNeeded())
                 {
-                    Stopwatch unregisterStorageRowsStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    StorageRowsVersionSnapshot storageRowsVersion = host.ApplyCatalogStorageRowsRemoval();
-                    timings.UnregisterStorageRowsMs = StopPerformanceStepStopwatch(unregisterStorageRowsStopwatch);
-
                     Stopwatch stateApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                     BmsLibraryStateApplyResult stateApplyResult = host.ApplyLibraryMutationDeltaToState(delta);
                     timings.StateApplyMs = StopPerformanceStepStopwatch(stateApplyStopwatch);
@@ -67,12 +64,9 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
                     timings.StatePathMemoryApplyMs = stateApplyResult?.PathMemoryApplyMs ?? 0;
                     timings.StateBmsPathDbMs = stateApplyResult?.BmsPathDbMs ?? 0;
                     timings.StateBmsonPathDbMs = stateApplyResult?.BmsonPathDbMs ?? 0;
+                    timings.StateBmsRemovalDbMs = stateApplyResult?.BmsRemovalDbMs ?? 0;
+                    timings.StateBmsonRemovalDbMs = stateApplyResult?.BmsonRemovalDbMs ?? 0;
                     timings.StatePackageApplyMs = stateApplyResult?.PackageApplyMs ?? 0;
-
-                    Stopwatch ownedCollectionApplyStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-                    host.ApplyCatalogOwnedCollectionMutation(
-                        stateApplyResult?.StorageRowsVersion ?? storageRowsVersion);
-                    timings.OwnedCollectionApplyMs = StopPerformanceStepStopwatch(ownedCollectionApplyStopwatch);
                 }
                 Stopwatch publishNotificationStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
                 host.PublishOwnedCollectionChangeNotification();
@@ -88,19 +82,20 @@ internal sealed class LibraryMutationDeltaApplyCoordinator
             Stopwatch lr2NormalFolderSyncStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
             host.SyncLr2NormalFoldersForOwnedMutation(performanceLogContext ?? defaultReason);
             timings.Lr2NormalFolderSyncMs = StopPerformanceStepStopwatch(lr2NormalFolderSyncStopwatch);
+            Stopwatch dispatchStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
+            host.DispatchOwnedChartCollectionMutation(defaultReason);
+            timings.DispatchMs = StopPerformanceStepStopwatch(dispatchStopwatch);
+            if (collectPerformanceLog)
+            {
+                timings.ElapsedMs = StopPerformanceStepStopwatch(totalStopwatch);
+                host.LogLibraryMutationDeltaPerformance(delta, performanceLogContext, timings);
+            }
         }
         catch
         {
+            host.RebaseResourceHealthAfterFailure(resourceHealthMutation);
             host.ApplyFailureFallback();
             throw;
-        }
-        Stopwatch dispatchStopwatch = StartPerformanceStepStopwatch(collectPerformanceLog);
-        host.DispatchOwnedChartCollectionMutation(defaultReason);
-        timings.DispatchMs = StopPerformanceStepStopwatch(dispatchStopwatch);
-        if (collectPerformanceLog)
-        {
-            timings.ElapsedMs = StopPerformanceStepStopwatch(totalStopwatch);
-            host.LogLibraryMutationDeltaPerformance(delta, performanceLogContext, timings);
         }
     }
 

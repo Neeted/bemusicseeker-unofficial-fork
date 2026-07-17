@@ -101,36 +101,71 @@ internal sealed class BmsonSongPathReplacement
 }
 
 /// <summary>
-/// Immutable facts emitted after a catalog relocation has committed and been applied live.
+/// Timing facts returned by the durable catalog relocation transaction.
 /// </summary>
-internal sealed class CatalogRelocationReceipt
+internal sealed class CatalogRelocationDbReceipt
 {
-    internal static CatalogRelocationReceipt NotApplied { get; } =
+    internal long FolderDbMs { get; set; }
+
+    internal long BmsPathDbMs { get; set; }
+
+    internal long BmsonPathDbMs { get; set; }
+
+    internal long BmsRemovalDbMs { get; set; }
+
+    internal long BmsonRemovalDbMs { get; set; }
+}
+
+/// <summary>
+/// Immutable facts emitted after one catalog relocation/removal command commits and
+/// updates the live catalog owners.
+/// </summary>
+internal sealed class CatalogMutationReceipt
+{
+    internal static CatalogMutationReceipt NotApplied { get; } =
         new(
             applied: false,
             new StorageRowsVersionSnapshot(0, 0),
             folderDbMs: 0,
             bmsPathDbMs: 0,
             bmsonPathDbMs: 0,
+            bmsRemovalDbMs: 0,
+            bmsonRemovalDbMs: 0,
             liveApplyMs: 0,
-            pathFacts: []);
+            ownedCollectionApplied: false,
+            ownedCollectionVersion: 0,
+            pathFacts: [],
+            removalRequests: [],
+            protectedPathFacts: []);
 
-    internal CatalogRelocationReceipt(
+    internal CatalogMutationReceipt(
         bool applied,
         StorageRowsVersionSnapshot storageRowsVersion,
         long folderDbMs,
         long bmsPathDbMs,
         long bmsonPathDbMs,
+        long bmsRemovalDbMs,
+        long bmsonRemovalDbMs,
         long liveApplyMs,
-        IEnumerable<CatalogRelocationPathFact> pathFacts)
+        bool ownedCollectionApplied,
+        int ownedCollectionVersion,
+        IEnumerable<CatalogRelocationPathFact> pathFacts,
+        IEnumerable<OwnedChartRemoveRequest> removalRequests,
+        IEnumerable<CatalogRelocationPathFact> protectedPathFacts)
     {
         Applied = applied;
         StorageRowsVersion = storageRowsVersion;
         FolderDbMs = folderDbMs;
         BmsPathDbMs = bmsPathDbMs;
         BmsonPathDbMs = bmsonPathDbMs;
+        BmsRemovalDbMs = bmsRemovalDbMs;
+        BmsonRemovalDbMs = bmsonRemovalDbMs;
         LiveApplyMs = liveApplyMs;
+        OwnedCollectionApplied = ownedCollectionApplied;
+        OwnedCollectionVersion = ownedCollectionVersion;
         PathFacts = Array.AsReadOnly([.. (pathFacts ?? []).Where(fact => fact != null)]);
+        RemovalFacts = CatalogMutationRemovalFact.Snapshot(removalRequests);
+        ProtectedPathFacts = Array.AsReadOnly([.. (protectedPathFacts ?? []).Where(fact => fact != null)]);
     }
 
     internal bool Applied { get; }
@@ -143,21 +178,21 @@ internal sealed class CatalogRelocationReceipt
 
     internal long BmsonPathDbMs { get; }
 
+    internal long BmsRemovalDbMs { get; }
+
+    internal long BmsonRemovalDbMs { get; }
+
     internal long LiveApplyMs { get; }
 
+    internal bool OwnedCollectionApplied { get; }
+
+    internal int OwnedCollectionVersion { get; }
+
     internal IReadOnlyList<CatalogRelocationPathFact> PathFacts { get; }
-}
 
-/// <summary>
-/// Timing facts returned by the durable catalog relocation transaction.
-/// </summary>
-internal sealed class CatalogRelocationDbReceipt
-{
-    internal long FolderDbMs { get; set; }
+    internal IReadOnlyList<CatalogMutationRemovalFact> RemovalFacts { get; }
 
-    internal long BmsPathDbMs { get; set; }
-
-    internal long BmsonPathDbMs { get; set; }
+    internal IReadOnlyList<CatalogRelocationPathFact> ProtectedPathFacts { get; }
 }
 
 /// <summary>
@@ -177,4 +212,67 @@ internal sealed class CatalogRelocationPathFact
     internal string OldPath { get; }
 
     internal string NewPath { get; }
+}
+
+/// <summary>
+/// Immutable removal identity captured before a catalog mutation commits.
+/// The owner reference is retained for package identity matching while path and hash
+/// values are snapshots of the durable command input.
+/// </summary>
+internal sealed class CatalogMutationRemovalFact
+{
+    private CatalogMutationRemovalFact(
+        OwnedChartRemoveMode mode,
+        ChartFileKind kind,
+        BMSFile bmsOwner,
+        LR2SongDBExtended.bmson_song bmsonOwner,
+        string path,
+        string hash)
+    {
+        Mode = mode;
+        Kind = kind;
+        BmsOwner = bmsOwner;
+        BmsonOwner = bmsonOwner;
+        Path = path;
+        Hash = hash;
+    }
+
+    internal OwnedChartRemoveMode Mode { get; }
+
+    internal ChartFileKind Kind { get; }
+
+    internal BMSFile BmsOwner { get; }
+
+    internal LR2SongDBExtended.bmson_song BmsonOwner { get; }
+
+    internal string Path { get; }
+
+    internal string Hash { get; }
+
+    internal static IReadOnlyList<CatalogMutationRemovalFact> Snapshot(
+        IEnumerable<OwnedChartRemoveRequest> requests)
+    {
+        return Array.AsReadOnly([..
+            (requests ?? [])
+                .Select(Create)
+                .Where(fact => fact != null)]);
+    }
+
+    private static CatalogMutationRemovalFact Create(OwnedChartRemoveRequest request)
+    {
+        if (request == null)
+        {
+            return null;
+        }
+
+        BMSFile bmsOwner = request.BmsOwner;
+        LR2SongDBExtended.bmson_song bmsonOwner = request.BmsonOwner;
+        return new CatalogMutationRemovalFact(
+            request.Mode,
+            request.Kind,
+            bmsOwner,
+            bmsonOwner,
+            request.Path,
+            bmsOwner?.hash ?? bmsonOwner?.md5);
+    }
 }
