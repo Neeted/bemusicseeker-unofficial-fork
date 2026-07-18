@@ -15,15 +15,27 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 /// </summary>
 internal sealed class Lr2FolderFileDiffOwner
 {
-    private readonly ILibraryFileScanPipelineHost host;
+    private readonly Action<string> logInstallPerformance;
+
+    private readonly Action<string> logInstallPerformanceWarn;
+
+    private readonly Func<Exception, string> getDisplayedExceptionMessage;
+
+    private readonly Action<string> logEverythingScan;
 
     private readonly BMSLibrary.Lr2SynchronizationOwner lr2Synchronization;
 
     internal Lr2FolderFileDiffOwner(
-        ILibraryFileScanPipelineHost host,
+        Action<string> logInstallPerformance,
+        Action<string> logInstallPerformanceWarn,
+        Func<Exception, string> getDisplayedExceptionMessage,
+        Action<string> logEverythingScan,
         BMSLibrary.Lr2SynchronizationOwner lr2Synchronization)
     {
-        this.host = host ?? throw new ArgumentNullException(nameof(host));
+        this.logInstallPerformance = logInstallPerformance ?? throw new ArgumentNullException(nameof(logInstallPerformance));
+        this.logInstallPerformanceWarn = logInstallPerformanceWarn ?? throw new ArgumentNullException(nameof(logInstallPerformanceWarn));
+        this.getDisplayedExceptionMessage = getDisplayedExceptionMessage ?? throw new ArgumentNullException(nameof(getDisplayedExceptionMessage));
+        this.logEverythingScan = logEverythingScan ?? throw new ArgumentNullException(nameof(logEverythingScan));
         this.lr2Synchronization = lr2Synchronization ?? throw new ArgumentNullException(nameof(lr2Synchronization));
     }
 
@@ -66,7 +78,7 @@ internal sealed class Lr2FolderFileDiffOwner
         stopwatchSurfaceApply.Stop();
         long surfaceApplyMs = stopwatchSurfaceApply.ElapsedMilliseconds;
         bool allowPrune = ShouldPruneLr2FolderFileRowsDuringFileDiff(reason);
-        host.LogInstallPerformance("lr2folder_file_diff_prepare"
+        logInstallPerformance("lr2folder_file_diff_prepare"
             + " reason=" + (reason ?? "unknown")
             + " rootsMs=" + preparation.RootsMs
             + " builtinSourceMs=" + preparation.BuiltinSourceMs
@@ -77,7 +89,7 @@ internal sealed class Lr2FolderFileDiffOwner
             + " textMetadataMs=" + preparation.TextMetadataMs
             + " surfaceApplyMs=" + surfaceApplyMs
             + " totalMs=" + (preparation.TotalElapsedMs + surfaceApplyMs));
-        host.LogInstallPerformance("lr2folder_file_diff_filter"
+        logInstallPerformance("lr2folder_file_diff_filter"
             + " reason=" + (reason ?? "unknown")
             + " candidates=" + scanCandidateCount
             + " externalCandidates=" + preparation.Request.Lr2FolderFilePaths.Count
@@ -114,7 +126,7 @@ internal sealed class Lr2FolderFileDiffOwner
         {
             Lr2FolderFileDiffPreparationResult result = preparationTask.GetAwaiter().GetResult();
             stopwatchWait.Stop();
-            host.LogInstallPerformance("lr2folder_file_diff_prepare_wait"
+            logInstallPerformance("lr2folder_file_diff_prepare_wait"
                 + " reason=" + (reason ?? "unknown")
                 + " status=completed"
                 + " waitMs=" + stopwatchWait.ElapsedMilliseconds
@@ -124,10 +136,10 @@ internal sealed class Lr2FolderFileDiffOwner
         catch (Exception ex)
         {
             stopwatchWait.Stop();
-            host.LogInstallPerformanceWarn("lr2folder_file_diff_prepare_wait failed"
+            logInstallPerformanceWarn("lr2folder_file_diff_prepare_wait failed"
                 + " reason=" + (reason ?? "unknown")
                 + " waitMs=" + stopwatchWait.ElapsedMilliseconds
-                + " message=" + host.GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+                + " message=" + getDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
             return Prepare(options, rootDirectories, fileCheckResult, reason);
         }
     }
@@ -177,7 +189,7 @@ internal sealed class Lr2FolderFileDiffOwner
                     fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
                     currentSettings.LR2RootPath,
                     lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
-                    host.LogEverythingScan,
+                    logEverythingScan,
                     appManagedOutputScope.Directories);
             }
             else
@@ -281,7 +293,7 @@ internal sealed class Lr2FolderFileDiffOwner
         long targetMs = RestartElapsed(stopwatchStage);
         if (parentDirectoryTargets.Count == 0)
         {
-            host.LogInstallPerformance("lr2folder_parent_directory_surface targets=0 targetMs=" + targetMs + " totalMs=" + stopwatch.ElapsedMilliseconds);
+            logInstallPerformance("lr2folder_parent_directory_surface targets=0 targetMs=" + targetMs + " totalMs=" + stopwatch.ElapsedMilliseconds);
             return;
         }
 
@@ -294,7 +306,7 @@ internal sealed class Lr2FolderFileDiffOwner
             request.DirectoryEntries,
             parentDirectoryEntries);
         long overlayMs = RestartElapsed(stopwatchStage);
-        host.LogInstallPerformance("lr2folder_parent_directory_surface"
+        logInstallPerformance("lr2folder_parent_directory_surface"
             + " targets=" + parentDirectoryTargets.Count
             + " entries=" + (parentDirectoryEntries?.Count ?? 0)
             + " targetMs=" + targetMs

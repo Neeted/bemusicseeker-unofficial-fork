@@ -4015,7 +4015,6 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(libraryCode, "catalogMutationOwner.ApplyFileScanStorageReplacement(");
         StringAssert.Contains(libraryCode, "catalogMutationOwner.ApplyInstalledTargetUpsert(");
         StringAssert.Contains(mutationOwnerCode, "CreateInstalledTargetUpsertRequestUnsafe(");
-        StringAssert.Contains(pipelineOwnerCode, "host.ApplyFileScanStorageMutation(fileCheckResult, reason)");
         Assert.IsFalse(libraryCode.Contains("LibraryFileScanStorageMutationHost"));
         Assert.IsFalse(libraryCode.Contains("InstalledChartStorageTargetsApplyHost"));
         Assert.IsFalse(libraryCode.Contains("ApplyInstalledChartStorageRowsUnsafe"));

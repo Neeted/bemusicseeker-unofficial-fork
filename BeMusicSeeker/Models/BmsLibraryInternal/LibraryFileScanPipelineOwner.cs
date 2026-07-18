@@ -39,7 +39,43 @@ internal sealed class LibraryFileScanPipelineOwner
         internal bool Applying { get; set; }
     }
 
-    private readonly ILibraryFileScanPipelineHost host;
+    private readonly BmsLibraryDbGateway dbGateway;
+
+    private readonly Func<IReadOnlyList<BMSFile>> bmsFilesProvider;
+
+    private readonly Func<IReadOnlyList<LR2SongDBExtended.bmson_song>> bmsonSongsProvider;
+
+    private readonly IBmsLibraryDialogService dialogService;
+
+    private readonly Func<bool> everythingScanLoggingEnabled;
+
+    private readonly Action<BMSLibrary.LibraryInitializationProgressStage, string, int, int, string, bool> reportLibraryInitializationProgress;
+
+    private readonly Action completeLibraryFileEnumerationProgress;
+
+    private readonly Action completeLibraryFileDiffProgress;
+
+    private readonly Action<string> logInstallPerformance;
+
+    private readonly Action<string> logInstallPerformanceWarn;
+
+    private readonly Action<string> logEverythingScan;
+
+    private readonly Action<string, string> logStartupMemoryCheckpoint;
+
+    private readonly Func<Exception, string> getDisplayedExceptionMessage;
+
+    private readonly Action<string> queueEverythingFallbackWarning;
+
+    private readonly Action<string> queueFileScanSkippedIncompleteWarning;
+
+    private readonly Action<string> queueEmptyScanWithExistingDbWarning;
+
+    private readonly Action<SongTableFileCheckResult, string> applyFileScanStorageMutation;
+
+    private readonly Action<IEnumerable<LR2SongDBExtended.chart_info>, string, bool> upsertChartInfoIndexRows;
+
+    private readonly Action<string> dispatchWarningPresentationChanged;
 
     private readonly BMSLibrary.Lr2SynchronizationOwner lr2Synchronization;
 
@@ -58,15 +94,56 @@ internal sealed class LibraryFileScanPipelineOwner
     private long fileScanGeneration;
 
     internal LibraryFileScanPipelineOwner(
-        ILibraryFileScanPipelineHost host,
+        BmsLibraryDbGateway dbGateway,
+        Func<IReadOnlyList<BMSFile>> bmsFilesProvider,
+        Func<IReadOnlyList<LR2SongDBExtended.bmson_song>> bmsonSongsProvider,
+        IBmsLibraryDialogService dialogService,
+        Func<bool> everythingScanLoggingEnabled,
+        Action<BMSLibrary.LibraryInitializationProgressStage, string, int, int, string, bool> reportLibraryInitializationProgress,
+        Action completeLibraryFileEnumerationProgress,
+        Action completeLibraryFileDiffProgress,
+        Action<string> logInstallPerformance,
+        Action<string> logInstallPerformanceWarn,
+        Action<string> logEverythingScan,
+        Action<string, string> logStartupMemoryCheckpoint,
+        Func<Exception, string> getDisplayedExceptionMessage,
+        Action<string> queueEverythingFallbackWarning,
+        Action<string> queueFileScanSkippedIncompleteWarning,
+        Action<string> queueEmptyScanWithExistingDbWarning,
+        Action<SongTableFileCheckResult, string> applyFileScanStorageMutation,
+        Action<IEnumerable<LR2SongDBExtended.chart_info>, string, bool> upsertChartInfoIndexRows,
+        Action<string> dispatchWarningPresentationChanged,
         BMSLibrary.Lr2SynchronizationOwner lr2Synchronization,
         BmsLibraryInitializationService initializationService,
         Action<LibraryMutationDelta> applyLibraryMutationDelta,
         FileScanParseCommitOwner fileScanParseCommitOwner = null)
     {
-        this.host = host ?? throw new ArgumentNullException(nameof(host));
+        this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
+        this.bmsFilesProvider = bmsFilesProvider ?? throw new ArgumentNullException(nameof(bmsFilesProvider));
+        this.bmsonSongsProvider = bmsonSongsProvider ?? throw new ArgumentNullException(nameof(bmsonSongsProvider));
+        this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
+        this.everythingScanLoggingEnabled = everythingScanLoggingEnabled ?? throw new ArgumentNullException(nameof(everythingScanLoggingEnabled));
+        this.reportLibraryInitializationProgress = reportLibraryInitializationProgress ?? throw new ArgumentNullException(nameof(reportLibraryInitializationProgress));
+        this.completeLibraryFileEnumerationProgress = completeLibraryFileEnumerationProgress ?? throw new ArgumentNullException(nameof(completeLibraryFileEnumerationProgress));
+        this.completeLibraryFileDiffProgress = completeLibraryFileDiffProgress ?? throw new ArgumentNullException(nameof(completeLibraryFileDiffProgress));
+        this.logInstallPerformance = logInstallPerformance ?? throw new ArgumentNullException(nameof(logInstallPerformance));
+        this.logInstallPerformanceWarn = logInstallPerformanceWarn ?? throw new ArgumentNullException(nameof(logInstallPerformanceWarn));
+        this.logEverythingScan = logEverythingScan ?? throw new ArgumentNullException(nameof(logEverythingScan));
+        this.logStartupMemoryCheckpoint = logStartupMemoryCheckpoint ?? throw new ArgumentNullException(nameof(logStartupMemoryCheckpoint));
+        this.getDisplayedExceptionMessage = getDisplayedExceptionMessage ?? throw new ArgumentNullException(nameof(getDisplayedExceptionMessage));
+        this.queueEverythingFallbackWarning = queueEverythingFallbackWarning ?? throw new ArgumentNullException(nameof(queueEverythingFallbackWarning));
+        this.queueFileScanSkippedIncompleteWarning = queueFileScanSkippedIncompleteWarning ?? throw new ArgumentNullException(nameof(queueFileScanSkippedIncompleteWarning));
+        this.queueEmptyScanWithExistingDbWarning = queueEmptyScanWithExistingDbWarning ?? throw new ArgumentNullException(nameof(queueEmptyScanWithExistingDbWarning));
+        this.applyFileScanStorageMutation = applyFileScanStorageMutation ?? throw new ArgumentNullException(nameof(applyFileScanStorageMutation));
+        this.upsertChartInfoIndexRows = upsertChartInfoIndexRows ?? throw new ArgumentNullException(nameof(upsertChartInfoIndexRows));
+        this.dispatchWarningPresentationChanged = dispatchWarningPresentationChanged ?? throw new ArgumentNullException(nameof(dispatchWarningPresentationChanged));
         this.lr2Synchronization = lr2Synchronization ?? throw new ArgumentNullException(nameof(lr2Synchronization));
-        lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(this.host, lr2Synchronization);
+        lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(
+            logInstallPerformance,
+            logInstallPerformanceWarn,
+            getDisplayedExceptionMessage,
+            logEverythingScan,
+            lr2Synchronization);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.fileScanParseCommitOwner = fileScanParseCommitOwner ?? this.initializationService.ParseCommitOwner;
         this.applyLibraryMutationDelta = applyLibraryMutationDelta ?? throw new ArgumentNullException(nameof(applyLibraryMutationDelta));
@@ -155,14 +232,14 @@ internal sealed class LibraryFileScanPipelineOwner
 
             scan.NormalFolderMtimeSnapshotTask = Task.Run(() =>
                 initializationService.LoadNormalFolderMtimeSnapshot(
-                    host.DbGateway,
+                    dbGateway,
                     scan.Options,
                     scan.RootDirectories,
                     message =>
                     {
                         if (IsActiveGeneration(scan.Generation))
                         {
-                            host.LogInstallPerformance(message);
+                            logInstallPerformance(message);
                         }
                     })).Logging("Lr2NormalFolderMtimeSnapshotPrefetch");
         }
@@ -281,7 +358,7 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             if (activeFileScan?.Generation == generation)
             {
-                host.QueueEverythingFallbackWarning(reason);
+                queueEverythingFallbackWarning(reason);
             }
         }
     }
@@ -299,7 +376,7 @@ internal sealed class LibraryFileScanPipelineOwner
         }
         catch (Exception ex)
         {
-            host.LogEverythingScan("chart_scan_prefetch failed message=" + ex.Message);
+            logEverythingScan("chart_scan_prefetch failed message=" + ex.Message);
             return null;
         }
     }
@@ -316,7 +393,7 @@ internal sealed class LibraryFileScanPipelineOwner
             includeDirectorySurface,
             reportScanner,
             () => true,
-            reason => host.QueueEverythingFallbackWarning(reason));
+            reason => queueEverythingFallbackWarning(reason));
     }
 
     private ChartScanExecutionResult ExecuteChartScanWithManagedFallback(
@@ -340,7 +417,7 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             if (isActive())
             {
-                host.LogEverythingScan(message);
+                logEverythingScan(message);
             }
         }
 
@@ -353,7 +430,7 @@ internal sealed class LibraryFileScanPipelineOwner
         ChartScanExecutionResult scanResult = scanner.Scan(
             bmsDirectories,
             ChartDirectoryScanBuilder.ChartExtensions,
-            host.EverythingScanLoggingEnabled,
+            everythingScanLoggingEnabled(),
             includeTextSurface,
             includeDirectorySurface);
         if (IsAuthoritativeChartScan(scanResult))
@@ -374,7 +451,7 @@ internal sealed class LibraryFileScanPipelineOwner
         ChartScanExecutionResult fallbackResult = new FastDirectoryFileScanner().Scan(
             bmsDirectories,
             ChartDirectoryScanBuilder.ChartExtensions,
-            host.EverythingScanLoggingEnabled,
+            everythingScanLoggingEnabled(),
             includeTextSurface,
             includeDirectorySurface);
         if (!IsAuthoritativeChartScan(fallbackResult))
@@ -418,14 +495,14 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             if (trackLibraryFileCheckProgress)
             {
-                host.CompleteLibraryFileEnumerationProgress();
-                host.CompleteLibraryFileDiffProgress();
+                completeLibraryFileEnumerationProgress();
+                completeLibraryFileDiffProgress();
             }
-            host.LogInstallPerformance("song_tbl_file_check skipped reason=no_bms_directories operation=" + (reason ?? string.Empty));
+            logInstallPerformance("song_tbl_file_check skipped reason=no_bms_directories operation=" + (reason ?? string.Empty));
             return emptyResult;
         }
 
-        host.LogStartupMemoryCheckpoint("file_diff", "before");
+        logStartupMemoryCheckpoint("file_diff", "before");
         bool fileEnumerationCompleted = false;
         void completeFileEnumerationOnce()
         {
@@ -436,7 +513,7 @@ internal sealed class LibraryFileScanPipelineOwner
             fileEnumerationCompleted = true;
             if (trackLibraryFileCheckProgress)
             {
-                host.CompleteLibraryFileEnumerationProgress();
+                completeLibraryFileEnumerationProgress();
             }
         }
         ChartScanPrefetchInfo resolvedChartScanPrefetchInfo = chartScanPrefetchInfo;
@@ -451,10 +528,13 @@ internal sealed class LibraryFileScanPipelineOwner
                 {
                     if (trackLibraryFileCheckProgress)
                     {
-                        host.ReportLibraryInitializationProgress(
+                        reportLibraryInitializationProgress(
                             BMSLibrary.LibraryInitializationProgressStage.FileEnumeration,
                             scannerLabel,
-                            force: true);
+                            0,
+                            0,
+                            null,
+                            true);
                     }
                 });
             stopwatchResolveScan.Stop();
@@ -467,12 +547,12 @@ internal sealed class LibraryFileScanPipelineOwner
         if (!IsAuthoritativeChartScan(resolvedChartScanPrefetchInfo?.ScanResult))
         {
             string failureReason = GetChartScanFailureReason(resolvedChartScanPrefetchInfo?.ScanResult);
-            host.LogEverythingScan("song_tbl_file_check skipped reason=incomplete_file_scan operation=" + (reason ?? string.Empty) + " detail=" + failureReason);
-            host.QueueFileScanSkippedIncompleteWarning(failureReason);
+            logEverythingScan("song_tbl_file_check skipped reason=incomplete_file_scan operation=" + (reason ?? string.Empty) + " detail=" + failureReason);
+            queueFileScanSkippedIncompleteWarning(failureReason);
             completeFileEnumerationOnce();
             if (trackLibraryFileCheckProgress)
             {
-                host.CompleteLibraryFileDiffProgress();
+                completeLibraryFileDiffProgress();
             }
             return emptyResult;
         }
@@ -488,7 +568,7 @@ internal sealed class LibraryFileScanPipelineOwner
             {
                 Lr2NormalFolderMtimeSnapshot snapshot = normalFolderMtimeSnapshotTask.GetAwaiter().GetResult();
                 stopwatchSnapshotWait.Stop();
-                host.LogInstallPerformance("lr2_normal_folder_mtime_snapshot_prefetch_wait"
+                logInstallPerformance("lr2_normal_folder_mtime_snapshot_prefetch_wait"
                     + " status=completed"
                     + " waitMs=" + stopwatchSnapshotWait.ElapsedMilliseconds
                     + " rows=" + (snapshot?.ExistingRowCount ?? 0)
@@ -498,9 +578,9 @@ internal sealed class LibraryFileScanPipelineOwner
             catch (Exception ex)
             {
                 stopwatchSnapshotWait.Stop();
-                host.LogInstallPerformanceWarn("lr2_normal_folder_mtime_snapshot_prefetch failed"
+                logInstallPerformanceWarn("lr2_normal_folder_mtime_snapshot_prefetch failed"
                     + " waitMs=" + stopwatchSnapshotWait.ElapsedMilliseconds
-                    + " message=" + host.GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+                    + " message=" + getDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
                 return null;
             }
         }
@@ -524,38 +604,39 @@ internal sealed class LibraryFileScanPipelineOwner
         }
 
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
-            host.DbGateway,
+            dbGateway,
             options,
-            host.BmsFiles,
+            bmsFilesProvider(),
             resolvedChartScanPrefetchInfo.ScanResult,
             resolvedChartScanPrefetchInfo.ElapsedMs,
             null,
-            host.DialogService,
-            host.LogInstallPerformance,
-            host.LogEverythingScan,
-            host.BmsonSongs,
+            dialogService,
+            logInstallPerformance,
+            logEverythingScan,
+            bmsonSongsProvider(),
             null,
             completeFileEnumerationOnce,
             () =>
             {
                 if (trackLibraryFileCheckProgress)
                 {
-                    host.ReportLibraryInitializationProgress(BMSLibrary.LibraryInitializationProgressStage.FileDiff, force: true);
+                    reportLibraryInitializationProgress(BMSLibrary.LibraryInitializationProgressStage.FileDiff, null, 0, 0, null, true);
                 }
             },
             (total, processed, path) =>
             {
                 if (trackLibraryFileCheckProgress)
                 {
-                    host.ReportLibraryInitializationProgress(
+                    reportLibraryInitializationProgress(
                         BMSLibrary.LibraryInitializationProgressStage.FileDiff,
-                        totalCount: total,
-                        processedCount: processed,
-                        currentPath: path,
-                        force: processed >= total);
+                        null,
+                        total,
+                        processed,
+                        path,
+                        processed >= total);
                 }
             },
-            host.LogInstallPerformanceWarn,
+            logInstallPerformanceWarn,
             rows =>
             {
                 if (rows == null || rows.Count == 0)
@@ -581,23 +662,23 @@ internal sealed class LibraryFileScanPipelineOwner
             string skipReason = string.IsNullOrWhiteSpace(fileCheckResult.EmptyScanWithExistingDbSkipReason)
                 ? "empty_scan_with_existing_db"
                 : fileCheckResult.EmptyScanWithExistingDbSkipReason;
-            host.LogEverythingScan("song_tbl_file_check skipped reason=empty_scan_with_existing_db operation=" + (reason ?? string.Empty) + " detail=" + skipReason);
-            host.QueueEmptyScanWithExistingDbWarning(skipReason);
+            logEverythingScan("song_tbl_file_check skipped reason=empty_scan_with_existing_db operation=" + (reason ?? string.Empty) + " detail=" + skipReason);
+            queueEmptyScanWithExistingDbWarning(skipReason);
             completeFileEnumerationOnce();
             if (trackLibraryFileCheckProgress)
             {
-                host.CompleteLibraryFileDiffProgress();
+                completeLibraryFileDiffProgress();
             }
             return fileCheckResult;
         }
         LogFileScanFailures(fileCheckResult, reason);
         lr2FolderFileDiffOwner.Apply(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
-        host.ApplyFileScanStorageMutation(fileCheckResult, reason);
+        applyFileScanStorageMutation(fileCheckResult, reason);
         lr2Synchronization.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
         {
-            host.UpsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline");
+            upsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline", true);
             committedInlineChartInfoRows.Clear();
         }
         if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0
@@ -605,7 +686,7 @@ internal sealed class LibraryFileScanPipelineOwner
             || fileCheckResult.InlineChartInfoFailurePersistedCount > 0
             || fileCheckResult.InlineChartInfoFailureClearedCount > 0)
         {
-            host.DispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
+            dispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
         }
         applyLibraryMutationDelta(fileCheckResult.MutationDelta);
         lr2Synchronization.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
@@ -613,11 +694,11 @@ internal sealed class LibraryFileScanPipelineOwner
         lr2Synchronization.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
         if (trackLibraryFileCheckProgress)
         {
-            host.CompleteLibraryFileDiffProgress();
+            completeLibraryFileDiffProgress();
         }
         fileCheckResult.ReleasePostApplyTransientBuffers();
-        host.LogStartupMemoryCheckpoint("file_diff", "after_release");
-        host.LogInstallPerformance("library_file_scan_pipeline completed operation=" + (reason ?? string.Empty));
+        logStartupMemoryCheckpoint("file_diff", "after_release");
+        logInstallPerformance("library_file_scan_pipeline completed operation=" + (reason ?? string.Empty));
         return fileCheckResult;
     }
 
@@ -627,8 +708,8 @@ internal sealed class LibraryFileScanPipelineOwner
     {
         ApplyCatalogProjection(
             fileCheckResult,
-            host.BmsFiles,
-            host.BmsonSongs,
+            bmsFilesProvider(),
+            bmsonSongsProvider(),
             currentInstallDestinationCharts);
     }
 
@@ -777,7 +858,7 @@ internal sealed class LibraryFileScanPipelineOwner
             return;
         }
 
-        host.LogInstallPerformanceWarn("song_tbl_file_check_failures reason=" + (reason ?? string.Empty) + " count=" + result.FileScanFailures.Count);
+        logInstallPerformanceWarn("song_tbl_file_check_failures reason=" + (reason ?? string.Empty) + " count=" + result.FileScanFailures.Count);
         foreach (ChartFileScanFailure failure in result.FileScanFailures)
         {
             if (failure == null)
@@ -785,7 +866,7 @@ internal sealed class LibraryFileScanPipelineOwner
                 continue;
             }
 
-            host.LogInstallPerformanceWarn(
+            logInstallPerformanceWarn(
                 "song_tbl_file_check_file_failed kind=" + failure.ChartKind
                 + " stage=" + failure.Stage
                 + " exception=" + failure.ExceptionType

@@ -15,7 +15,13 @@
 
 ### `LIB-06 Library facade and scan integration closure`
 
-状態: ready
+状態: in progress
+
+active outcome base commit: 2a75ca5c21ca8885a0b9228756f7a115625f9203
+
+active execution package: LIB-06 Library facade and scan integration closure
+
+sequence cursor: LIB-06-U1 Scan pipeline direct composition and scan-host retirement
 
 目的:
 
@@ -54,7 +60,7 @@ Non-goals:
 | LIB-02 Package, install-destination and file-operation ownership | completed |
 | LIB-04 LR2 synchronization ownership | completed |
 | LIB-05 Playlist-reference ownership | completed |
-| LIB-06 Library facade and scan integration closure | ready |
+| LIB-06 Library facade and scan integration closure | in progress |
 | PL-01 Playlist persistence and reload ownership | not started |
 | PL-02 Playlist external-sync and output ownership | not started |
 | UI-05 Shell closure | not started |

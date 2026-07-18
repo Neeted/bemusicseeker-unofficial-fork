@@ -2559,7 +2559,6 @@ public partial class BMSLibrary : NotificationObject
             TrySkipForShutdown,
             () => StartupBackgroundTaskScheduler,
             LogInstallPerformance);
-        var libraryFileScanHost = new LibraryFileScanPipelineHost(this);
         catalogMutationOwner = new(
             catalogStorageRowsOwner,
             catalogOwnedCollectionOwner,
@@ -2602,7 +2601,25 @@ public partial class BMSLibrary : NotificationObject
             lr2SynchronizationOwner.PublishCatalogWriteFailureFact,
             NotifyMaintenanceHydrationStateChanged);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
-            libraryFileScanHost,
+            dbGateway,
+            () => BMSFiles,
+            () => BmsonSongs,
+            this.dialogService,
+            () => everythingScanLoggingEnabled,
+            ReportLibraryInitializationProgress,
+            CompleteLibraryFileEnumerationProgress,
+            CompleteLibraryFileDiffProgress,
+            LogInstallPerformance,
+            LogInstallPerformanceWarn,
+            LogEverythingScan,
+            LogStartupMemoryCheckpoint,
+            GetDisplayedExceptionMessage,
+            reason => { QueueEverythingFallbackWarning(reason); },
+            reason => { QueueFileScanSkippedIncompleteWarning(reason); },
+            reason => { QueueEmptyScanWithExistingDbWarning(reason); },
+            ApplyFileScanStorageMutation,
+            (rows, reason, dispatchPresentation) => { UpsertChartInfoIndexRows(rows, reason, dispatchPresentation); },
+            DispatchWarningPresentationChanged,
             Lr2Synchronization,
             initializationService,
             ApplyLibraryMutationDelta,
@@ -3881,99 +3898,6 @@ public partial class BMSLibrary : NotificationObject
     private void CompleteLibraryFileDiffProgress()
     {
         LibraryFileDiffCompletedVersion++;
-    }
-
-    internal sealed class LibraryFileScanPipelineHost(BMSLibrary owner) : ILibraryFileScanPipelineHost
-    {
-        public BmsLibraryDbGateway DbGateway => owner.dbGateway;
-
-        public IReadOnlyList<BMSFile> BmsFiles => owner.BMSFiles;
-
-        public IReadOnlyList<LR2SongDBExtended.bmson_song> BmsonSongs => owner.BmsonSongs;
-
-        public IBmsLibraryDialogService DialogService => owner.dialogService;
-
-        public bool EverythingScanLoggingEnabled => everythingScanLoggingEnabled;
-
-        public void ReportLibraryInitializationProgress(
-            LibraryInitializationProgressStage stage,
-            string scannerLabel = null,
-            int totalCount = 0,
-            int processedCount = 0,
-            string currentPath = null,
-            bool force = false)
-        {
-            owner.ReportLibraryInitializationProgress(stage, scannerLabel, totalCount, processedCount, currentPath, force);
-        }
-
-        public void CompleteLibraryFileEnumerationProgress()
-        {
-            owner.CompleteLibraryFileEnumerationProgress();
-        }
-
-        public void CompleteLibraryFileDiffProgress()
-        {
-            owner.CompleteLibraryFileDiffProgress();
-        }
-
-        public void LogInstallPerformance(string message)
-        {
-            BMSLibrary.LogInstallPerformance(message);
-        }
-
-        public void LogInstallPerformanceWarn(string message)
-        {
-            BMSLibrary.LogInstallPerformanceWarn(message);
-        }
-
-        public void LogEverythingScan(string message)
-        {
-            BMSLibrary.LogEverythingScan(message);
-        }
-
-        public void LogStartupMemoryCheckpoint(string phase, string point)
-        {
-            BMSLibrary.LogStartupMemoryCheckpoint(phase, point);
-        }
-
-        public string GetDisplayedExceptionMessage(Exception exception)
-        {
-            return BMSLibrary.GetDisplayedExceptionMessage(exception);
-        }
-
-        public void QueueEverythingFallbackWarning(string fallbackReason)
-        {
-            owner.QueueEverythingFallbackWarning(fallbackReason);
-        }
-
-        public void QueueFileScanSkippedIncompleteWarning(string failureReason)
-        {
-            owner.QueueFileScanSkippedIncompleteWarning(failureReason);
-        }
-
-        public void QueueEmptyScanWithExistingDbWarning(string failureReason)
-        {
-            owner.QueueEmptyScanWithExistingDbWarning(failureReason);
-        }
-
-        public void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
-        {
-            owner.ApplyFileScanStorageMutation(fileCheckResult, reason);
-        }
-
-        public void UpsertChartInfoIndexRows(
-            IEnumerable<LR2SongDBExtended.chart_info> rows,
-            string reason,
-            bool dispatchPresentation = true)
-        {
-            owner.UpsertChartInfoIndexRows(rows, reason, dispatchPresentation);
-        }
-
-        public void DispatchWarningPresentationChanged(string reason)
-        {
-            owner.DispatchWarningPresentationChanged(reason);
-        }
-
     }
 
     internal static bool ShouldIncludeLr2TextSurface(BmsLibraryOptionsSnapshot options)
