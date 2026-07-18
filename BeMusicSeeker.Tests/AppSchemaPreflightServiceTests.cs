@@ -57,7 +57,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.EnsureBmsonSchema();
             gateway.RepairAppOwnedSchema();
@@ -84,7 +84,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             new BmsLibraryDbGateway(tempDbPath).EnsureBmsonSchema();
 
             var service = new AppSchemaPreflightService();
@@ -129,7 +129,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
 
             gateway.EnsureAppOwnedSchema();
@@ -158,7 +158,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.EnsureAppOwnedSchema();
             using (var db = new LR2SongDBExtended(tempDbPath))
@@ -185,7 +185,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.EnsureBmsonSchema();
 
@@ -216,7 +216,7 @@ public sealed class AppSchemaPreflightServiceTests
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Test\r\n");
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.CreateTable<LR2SongDB.song>();
@@ -244,7 +244,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.EnsureBmsonSchema();
             gateway.RepairAppOwnedSchema();
@@ -277,7 +277,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.Execute("CREATE TABLE chart_digest_map (md5 TEXT PRIMARY KEY, broken TEXT NULL);");
@@ -328,7 +328,7 @@ public sealed class AppSchemaPreflightServiceTests
         {
             string chartPath = Path.Combine(Path.GetDirectoryName(tempDbPath), "chart.bms");
             File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE Test\r\n");
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
             {
                 db.CreateTable<LR2SongDB.song>();
@@ -364,7 +364,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.RepairAppOwnedSchema();
             using (var db = new LR2SongDBExtended(tempDbPath))
@@ -401,7 +401,7 @@ public sealed class AppSchemaPreflightServiceTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var gateway = new BmsLibraryDbGateway(tempDbPath);
             gateway.EnsureBmsonSchema();
             using (var db = new LR2SongDBExtended(tempDbPath))

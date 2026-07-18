@@ -47,7 +47,7 @@ public sealed class ApplicationCompositionTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
@@ -512,7 +512,7 @@ public sealed class ApplicationCompositionTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
             var playlist = new BMSPlaylist(songDbPath)
@@ -618,7 +618,7 @@ public sealed class ApplicationCompositionTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var first = new BMSTable { playlist_id = 1, name = "First", symbol = "F", bmt_sort = 1 };
             var second = new BMSTable { playlist_id = 2, name = "Second", symbol = "S", bmt_sort = 2 };
             var third = new BMSTable { playlist_id = 3, name = "Third", symbol = "T", bmt_sort = 3 };
@@ -785,7 +785,7 @@ public sealed class ApplicationCompositionTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var first = new BMSTable { playlist_id = 11, name = "First", is_bmt_output = null };
             var second = new BMSTable { playlist_id = 12, name = "Second", is_bmt_output = false };
             var third = new BMSTable { playlist_id = 13, name = "Third", is_bmt_output = true };

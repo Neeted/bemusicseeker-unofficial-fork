@@ -736,7 +736,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             BMSTable first = new() { name = "first" };
             BMSTable second = new() { name = "second" };
             BMSPlaylist playlist = new(songDbPath)
@@ -955,7 +955,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             BMSPlaylist playlist = new(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
@@ -1041,7 +1041,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             BMSPlaylist playlist = new(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
@@ -2358,7 +2358,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
@@ -2418,7 +2418,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
@@ -2478,7 +2478,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
@@ -2550,7 +2550,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
@@ -2606,7 +2606,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(
@@ -2690,7 +2690,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath)
             {
                 BMSTables = new Livet.DispatcherCollection<BMSTable>(

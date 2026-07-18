@@ -39,7 +39,7 @@ public sealed class LR2SongDBExtendedUninstallTests
             songDb.CreateTable<LR2SongDB.folder>();
             songDb.CreateTable<LR2SongDBExtended.install>();
             songDb.CreateTable<LR2SongDBExtended.maintenance>();
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
             BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
             songDb.CreateTable<LR2SongDBExtended.ir_score>();

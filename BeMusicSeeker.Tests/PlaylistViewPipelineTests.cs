@@ -2624,7 +2624,7 @@ public sealed class PlaylistViewPipelineTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            BMSPlaylist.EnsureSchema(songDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var table = new BMSTable
             {
                 playlist_id = 9101,

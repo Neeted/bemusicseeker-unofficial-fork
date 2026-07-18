@@ -55,13 +55,13 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
         string method = ExtractMethodBody(source, "internal void CommitBMSTablesWithEntriesToDB");
         int tableLockIndex = method.IndexOf("writerGuards.Add(table.ReaderWriterLock.GetWriterGuard())", StringComparison.Ordinal);
-        int databaseOpenIndex = method.IndexOf("new LR2SongDBExtended(lr2SongDBPath)", StringComparison.Ordinal);
+        int repositoryWriteIndex = method.IndexOf("playlistPersistenceRepository.ReplaceTablesWithEntries(tableList", StringComparison.Ordinal);
 
         Assert.IsTrue(tableLockIndex >= 0, "Batch entry commit must acquire table writer locks explicitly.");
-        Assert.IsTrue(databaseOpenIndex >= 0, "Batch entry commit must open the playlist database explicitly.");
+        Assert.IsTrue(repositoryWriteIndex >= 0, "Batch entry commit must delegate the durable write to the playlist persistence repository.");
         Assert.IsTrue(
-            tableLockIndex < databaseOpenIndex,
-            "Batch entry commit must keep the existing lock order: table writer lock before playlist DB transaction.");
+            tableLockIndex < repositoryWriteIndex,
+            "Batch entry commit must keep the existing lock order: table writer lock before playlist repository transaction.");
         StringAssert.Contains(method, ".OrderBy(table => table.playlist_id ?? int.MaxValue)");
     }
 

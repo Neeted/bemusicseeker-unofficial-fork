@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -57,7 +58,7 @@ public sealed class PlaylistSchemaMigrationTests
                 db.Execute("CREATE UNIQUE INDEX playlist_entry_idx_uniq ON playlist_entry(md5, playlist_id, folder, lr2_bmsid, title, is_removed);");
             }
 
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
 
             using var verify = new LR2SongDBExtended(tempDbPath);
             string tableSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist_entry';");
@@ -84,7 +85,7 @@ public sealed class PlaylistSchemaMigrationTests
                 db.DropTable<LR2SongDBExtended.playlist_course>();
             }
 
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
 
             using var verify = new LR2SongDBExtended(tempDbPath);
             string playlistSql = verify.ExecuteScalar<string>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'playlist';");
@@ -140,7 +141,7 @@ public sealed class PlaylistSchemaMigrationTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var playlist = new BMSPlaylist(tempDbPath);
             using (var db = new LR2SongDBExtended(tempDbPath))
             {

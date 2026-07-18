@@ -440,74 +440,6 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         return [.. songDb.Table<ChartPackage>()];
     }
 
-    public PlaylistEntriesHydrationLoadResult LoadStartupPlaylistEntries()
-    {
-        var result = new PlaylistEntriesHydrationLoadResult();
-        using LR2SongDBExtended songDb = OpenSongDbReadOnly();
-        result.ReadOnly = songDb.IsReadOnlyConnection;
-        result.DbLockWaitMs = songDb.ProcessLockWaitMs;
-        string tableName = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetTableName();
-        string playlistIdColumn = SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.playlist_id);
-        string sql =
-            "SELECT "
-            + string.Join(", ",
-            [
-                playlistIdColumn,
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.md5),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.sha256),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.level),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.title),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.artist),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.folder),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.lr2_bmsid),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.url),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.url_diff),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.name_diff),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.org_md5),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.adddate),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.comment),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.memo),
-                SQLiteTable<LR2SongDBExtended.playlist_entry>.GetColumnName(entry => entry.is_removed)
-            ])
-            + " FROM " + tableName
-            + " WHERE " + playlistIdColumn + " IS NOT NULL;";
-        var stopwatch = Stopwatch.StartNew();
-        var command = (LR2SongDBExtended.SQLiteCommandExtended)songDb.CreateCommand(sql);
-        command.ForEachRawValueAsString(delegate (string[] values)
-        {
-            if (values == null || values.Length < 16 || !TryParseNullableInt(values[0], out int playlistId))
-            {
-                return;
-            }
-            result.Entries.Add(BMSTableEntry.CreateHydratedPlaylistEntry(
-                playlistId,
-                values[1],
-                values[2],
-                ParseNullableDouble(values[3]),
-                values[4],
-                values[5],
-                values[6],
-                values[7],
-                values[8],
-                values[9],
-                values[10],
-                values[11],
-                ParseNullableDateTime(values[12]),
-                values[13],
-                values[14],
-                ParseBoolean(values[15])));
-        });
-        stopwatch.Stop();
-        result.DbReadMs = stopwatch.ElapsedMilliseconds;
-        result.MaterializeMs = stopwatch.ElapsedMilliseconds;
-        return result;
-    }
-
-    private static bool TryParseNullableInt(string value, out int result)
-    {
-        return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out result);
-    }
-
     private static int? ParseNullableInt(string value)
     {
         return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out int result)
@@ -2235,7 +2167,7 @@ internal sealed class BmsLibraryDbGateway(string songDbPath, string scoreDbPath 
         {
             throw new ArgumentNullException(nameof(songDb));
         }
-        BMSPlaylist.EnsureSchema(songDb);
+        PlaylistPersistenceRepository.EnsureSchema(songDb);
         EnsureBmsonSchema(songDb);
         EnsureMaintenanceSchema(songDb);
         EnsureChartInfoSchema(songDb);

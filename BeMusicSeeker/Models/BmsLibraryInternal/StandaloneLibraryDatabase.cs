@@ -19,7 +19,7 @@ internal static class StandaloneLibraryDatabase
 
         using var songDb = new LR2SongDBExtended(songDbPath);
         EnsureLibrarySchema(songDb);
-        BMSPlaylist.EnsureSchema(songDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
         BmsLibraryDbGateway.EnsureBmsonSchema(songDb);
         BmsLibraryDbGateway.EnsureChartInfoSchema(songDb);
         bool hasLibraryCharts =

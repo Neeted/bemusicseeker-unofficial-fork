@@ -15,7 +15,11 @@
 
 ### `PL-01 Playlist persistence and reload ownership`
 
-状態: ready
+状態: in progress
+
+active outcome base commit: `eef386ce`
+active execution package: `PL-01 Playlist persistence and reload ownership`
+sequence cursor: `PL01-U2 Canonical playlist aggregate persistence and entry-edit workflow`
 
 目的:
 
@@ -50,7 +54,7 @@ Non-goals:
 | LIB-04 LR2 synchronization ownership | completed |
 | LIB-05 Playlist-reference ownership | completed |
 | LIB-06 Library facade and scan integration closure | completed |
-| PL-01 Playlist persistence and reload ownership | ready |
+| PL-01 Playlist persistence and reload ownership | in progress |
 | PL-02 Playlist external-sync and output ownership | not started |
 | UI-05 Shell closure | not started |
 | MIG-01 Platform boundary closure | not started |

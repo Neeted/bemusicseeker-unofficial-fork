@@ -1409,7 +1409,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(portablePathCode, "DataDirectoryPath => Path.Combine(AppBaseDirectory, \"data\")");
         StringAssert.Contains(portablePathCode, "StandaloneSongDbPath => Path.Combine(DataDirectoryPath, \"song.db\")");
         StringAssert.Contains(standaloneDbCode, "FileMode.OpenOrCreate");
-        StringAssert.Contains(standaloneDbCode, "BMSPlaylist.EnsureSchema(songDbPath)");
+        StringAssert.Contains(standaloneDbCode, "PlaylistPersistenceRepository.EnsureSchema(songDbPath)");
         StringAssert.Contains(viewModelCode, "StandaloneLibraryDatabase.EnsurePortableSongDb()");
         StringAssert.Contains(viewModelCode, "applicationComposition.CreateBmsPlaylist(");
         StringAssert.Contains(compositionCode, "libraryProfile.SongDbPath");

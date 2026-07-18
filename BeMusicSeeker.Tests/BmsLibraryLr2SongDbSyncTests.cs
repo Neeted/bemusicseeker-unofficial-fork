@@ -1595,7 +1595,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             Settings.Default.OperationModeLR2DB = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string tableDirectory = Path.Combine(rootDirectory, "ExternalTable");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
@@ -1695,7 +1695,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             Settings.Default.OperationModeLR2DB = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string externalDirectory = Path.Combine(rootDirectory, "ExternalTable");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
@@ -1773,7 +1773,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             Settings.Default.OperationModeLR2DB = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
             string oldManagedDirectory = Path.Combine(outputBase, "OldManagedTable");
@@ -2894,7 +2894,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             Settings.Default.OperationModeLR2DB = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
             string outputDirectory = Path.Combine(outputBase, "ManagedTable");
@@ -3072,7 +3072,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             Settings.Default.OperationModeLR2DB = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
             string managedDirectory = Path.Combine(outputBase, "ManagedTable");
@@ -3142,7 +3142,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string outputBase = Path.Combine(scope.DirectoryPath, "Output");
             Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
             using (var setup = new LR2SongDBExtended(scope.SongDbPath))
@@ -3239,7 +3239,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             Settings.Default.OperationModeLR2DB = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string bmsRoot = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(bmsRoot, "#BeMusicSeeker");
             Settings.Default.LR2CustomFolderOutputBaseDir = outputBase;
@@ -3401,7 +3401,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
             string outputDirectory = Path.Combine(outputBase, "ManagedTable");
@@ -3470,7 +3470,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Settings.Default.OperationModeLR2DB = true;
             Settings.Default.EnableDownloadLr2IrScoreAndDetectUnsent = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
             string outputBase = Path.Combine(rootDirectory, "#BeMusicSeekerOutput");
             string outputDirectory = Path.Combine(outputBase, "ManagedTable");
@@ -6315,7 +6315,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         {
             Settings.Default.OperationModeLR2DB = true;
             ResetLr2FolderDiscoverySettings();
-            BMSPlaylist.EnsureSchema(scope.SongDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(scope.SongDbPath);
             string additionalBase = Path.Combine(scope.DirectoryPath, "Additional");
             string managedDirectory = Path.Combine(additionalBase, "ManagedTable");
             string unmanagedSiblingDirectory = Path.Combine(additionalBase, "ExternalTable");

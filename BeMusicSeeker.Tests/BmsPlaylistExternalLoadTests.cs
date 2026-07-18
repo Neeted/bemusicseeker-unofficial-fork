@@ -6,6 +6,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Livet;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -570,7 +571,7 @@ public sealed class BmsPlaylistExternalLoadTests
         using (var _ = new LR2SongDBExtended(tempSongDbPath))
         {
         }
-        BMSPlaylist.EnsureSchema(tempSongDbPath);
+        PlaylistPersistenceRepository.EnsureSchema(tempSongDbPath);
         return tempSongDbPath;
     }
 }

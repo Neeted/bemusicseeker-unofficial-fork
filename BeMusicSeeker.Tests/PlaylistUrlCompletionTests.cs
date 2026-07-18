@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
@@ -408,7 +409,7 @@ public sealed class PlaylistUrlCompletionTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4001, "LocalTable");
             var oldLastUpdate = DateTime.Now.AddDays(1);
@@ -445,7 +446,7 @@ public sealed class PlaylistUrlCompletionTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4002, "ExternalTable");
             table.Page_url = new Uri("https://example.com/page.html");
@@ -481,7 +482,7 @@ public sealed class PlaylistUrlCompletionTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4003, "ShaTable");
             InsertPlaylistHeader(tempDbPath, table);
@@ -512,7 +513,7 @@ public sealed class PlaylistUrlCompletionTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4005, "ShaToBothTable");
             InsertPlaylistHeader(tempDbPath, table);
@@ -585,7 +586,7 @@ public sealed class PlaylistUrlCompletionTests
         string tempDbPath = CreateEmptySongDbPath();
         try
         {
-            BMSPlaylist.EnsureSchema(tempDbPath);
+            PlaylistPersistenceRepository.EnsureSchema(tempDbPath);
             var playlist = new BMSPlaylist(tempDbPath);
             BMSTable table = CreateTable(4004, "BmsonTable");
             InsertPlaylistHeader(tempDbPath, table);
