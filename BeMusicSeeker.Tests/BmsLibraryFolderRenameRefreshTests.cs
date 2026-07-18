@@ -1785,6 +1785,33 @@ public sealed class BmsLibraryFolderRenameRefreshTests
         });
     }
 
+    [TestMethod]
+    public void RemoveReferenceBMSTables_AllowsUnloadedTables()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath, null, null, new TestFileMutationService(), new RecordingDialogService());
+            var file = new TestableBmsFile
+            {
+                path = @"C:\Library\chart.bms"
+            };
+            string md5 = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+            file.SetHash(md5);
+            SetLibraryFilesWithoutNotification(library, [file]);
+            BMSTable table = CreateTable("Reference", "R", md5);
+
+            library.AddReferenceBMSTables(table);
+            ChartFile chart = ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false);
+            Assert.AreEqual("R", library.GetPlaylistReferenceDisplay(chart).Symbols);
+
+            table.MarkEntriesNotLoaded();
+            library.RemoveReferenceBMSTables([table]);
+
+            Assert.AreEqual(string.Empty, library.GetPlaylistReferenceDisplay(chart).Symbols);
+        });
+    }
+
     private static bool WaitUntilTrue(Func<bool> predicate, int timeoutMs = 2000)
     {
         return SpinWait.SpinUntil(predicate, timeoutMs);

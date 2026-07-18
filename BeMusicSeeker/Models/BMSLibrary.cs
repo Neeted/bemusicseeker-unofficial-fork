@@ -2333,9 +2333,7 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly BmsLibraryParentFolderCacheService parentFolderCacheService = new();
 
-    private readonly BmsLibraryPlaylistReferenceService playlistReferenceService = new(playlistReferenceApplyChunkSize);
-
-    private readonly PlaylistReferenceManager playlistReferenceManager = new();
+    private readonly BmsLibraryPlaylistReferenceOwner playlistReferenceOwner;
 
     private readonly BmsLibraryPackageInstallService packageInstallService = new();
 
@@ -2545,6 +2543,7 @@ public partial class BMSLibrary : NotificationObject
             throw new ArgumentException(string.Format(Resources.Error_LR2ScoreDBNotFound, _lr2ScoreDB), "_lr2ScoreDB");
         }
         lr2SynchronizationOwner = new(this);
+        playlistReferenceOwner = new(playlistReferenceApplyChunkSize);
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
         this.startupRequiredFileScanReason = startupRequiredFileScanReason;
@@ -10404,32 +10403,64 @@ public partial class BMSLibrary : NotificationObject
 
     internal PlaylistReferenceDisplay GetPlaylistReferenceDisplay(string md5, string sha256)
     {
-        return playlistReferenceManager.Find(md5, sha256);
+        return playlistReferenceOwner.Find(md5, sha256);
     }
 
     internal PlaylistReferenceDisplay GetPlaylistReferenceDisplay(ChartFile chart)
     {
-        return playlistReferenceManager.Find(chart);
+        return playlistReferenceOwner.Find(chart);
     }
 
     internal PlaylistReferenceDisplay GetPlaylistReferenceDisplay(LibraryChartRef chart)
     {
-        return playlistReferenceManager.Find(chart);
+        return playlistReferenceOwner.Find(chart);
     }
 
     public void AddReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
     {
-        PlaylistReferenceApplyCoordinator.AddReferenceBMSTables(playlistReferenceService, this, table, entries);
+        PlaylistReferenceTableSnapshot tableSnapshot = SnapshotPlaylistReferenceTable(table, entries);
+        PlaylistReferenceLookupKeys lookupKeys = playlistReferenceOwner.BuildReferenceLookupKeys(tableSnapshot);
+        playlistReferenceOwner.AddReferenceBMSTable(
+            tableSnapshot,
+            lookupKeys,
+            SnapshotLibraryChartRefsForPlaylistReferenceApply(lookupKeys),
+            SnapshotPendingChartEntriesForPlaylistReferenceApply(lookupKeys),
+            LogInstallPerformance);
     }
 
     public void AddReferenceBMSTables(IEnumerable<BMSTable> tables)
     {
-        PlaylistReferenceApplyCoordinator.AddReferenceBMSTables(playlistReferenceService, this, tables);
+        List<PlaylistReferenceTableSnapshot> tableSnapshots = SnapshotPlaylistReferenceTables(tables);
+        if (tableSnapshots.Count == 0)
+        {
+            return;
+        }
+        PlaylistReferenceLookupKeys lookupKeys = playlistReferenceOwner.BuildReferenceLookupKeys(tableSnapshots);
+        playlistReferenceOwner.AddReferenceBMSTables(
+            tableSnapshots,
+            lookupKeys,
+            SnapshotLibraryChartRefsForPlaylistReferenceApply(lookupKeys),
+            SnapshotPendingChartEntriesForPlaylistReferenceApply(lookupKeys),
+            LogInstallPerformance);
     }
 
     public void AddReferenceBMSTablesIncremental(IEnumerable<BMSTable> tables)
     {
-        PlaylistReferenceApplyCoordinator.AddReferenceBMSTablesIncremental(playlistReferenceService, this, tables);
+        List<PlaylistReferenceTableSnapshot> tableSnapshots = SnapshotPlaylistReferenceTables(tables)
+            .GroupBy(snapshot => snapshot.Table)
+            .Select(group => group.First())
+            .ToList();
+        if (tableSnapshots.Count == 0)
+        {
+            return;
+        }
+        PlaylistReferenceLookupKeys lookupKeys = playlistReferenceOwner.BuildReferenceLookupKeys(tableSnapshots);
+        playlistReferenceOwner.AddReferenceBMSTablesIncremental(
+            tableSnapshots,
+            lookupKeys,
+            SnapshotLibraryChartRefsForPlaylistReferenceApply(lookupKeys),
+            SnapshotPendingChartEntriesForPlaylistReferenceApply(lookupKeys),
+            LogInstallPerformance);
     }
 
     /// <summary>
@@ -10439,27 +10470,50 @@ public partial class BMSLibrary : NotificationObject
     /// <param name="packages">Packages containing newly installed chart entries.</param>
     public void AddReferenceBMSTablesToPackageCharts(IEnumerable<BMSTable> tables, IEnumerable<ChartPackage> packages)
     {
-        PlaylistReferenceApplyCoordinator.AddReferenceBMSTablesToPackageCharts(playlistReferenceService, this, tables, packages);
+        List<PlaylistReferenceTableSnapshot> tableSnapshots = SnapshotPlaylistReferenceTables(tables);
+        List<ChartPackage> packageList = [.. (packages ?? []).Where(package => package != null)];
+        if (tableSnapshots.Count == 0 || packageList.Count == 0)
+        {
+            return;
+        }
+        PlaylistReferenceLookupKeys lookupKeys = playlistReferenceOwner.BuildReferenceLookupKeys(tableSnapshots);
+        playlistReferenceOwner.AddReferenceBMSTablesToPackageCharts(
+            tableSnapshots,
+            lookupKeys,
+            SnapshotPackageChartEntriesForPlaylistReferenceApply(packageList, lookupKeys),
+            packageList.Count,
+            LogInstallPerformance);
     }
 
     internal void ReplaceReferenceBMSTable(BMSTable oldTable, BMSTable newTable, IEnumerable<BMSTableEntry> oldEntries = null, IEnumerable<BMSTableEntry> newEntries = null)
     {
-        PlaylistReferenceApplyCoordinator.ReplaceReferenceBMSTable(this, oldTable, newTable, oldEntries, newEntries);
+        PlaylistReferenceTableSnapshot oldTableSnapshot = SnapshotPlaylistReferenceTable(oldTable, oldEntries);
+        PlaylistReferenceTableSnapshot newTableSnapshot = SnapshotPlaylistReferenceTable(newTable, newEntries);
+        BmsLibraryPlaylistReferenceOwner.BuildPlaylistReferenceHashSets(oldTableSnapshot?.Entries, out HashSet<string> oldMd5Hashes, out HashSet<string> oldSha256Hashes);
+        BmsLibraryPlaylistReferenceOwner.BuildPlaylistReferenceHashSets(newTableSnapshot?.Entries, out HashSet<string> newMd5Hashes, out HashSet<string> newSha256Hashes);
+        playlistReferenceOwner.ReplaceReferenceBMSTable(
+            oldTableSnapshot,
+            newTableSnapshot,
+            SnapshotLibraryChartRefsForPlaylistReferenceApply(
+                CreateCombinedPlaylistReferenceHashSet(oldMd5Hashes, newMd5Hashes),
+                CreateCombinedPlaylistReferenceHashSet(oldSha256Hashes, newSha256Hashes)),
+            SnapshotPendingChartEntriesForPlaylistReferenceApply(),
+            LogInstallPerformance);
     }
 
     internal void AddReferenceBMSTablesToCharts(BMSTable table, IEnumerable<ChartFile> charts)
     {
-        PlaylistReferenceApplyCoordinator.AddReferenceBMSTablesToCharts(this, table, charts);
+        playlistReferenceOwner.AddReferenceBMSTablesToCharts(SnapshotPlaylistReferenceTable(table));
     }
 
     internal void RefreshReferenceDisplayForTable(BMSTable table)
     {
-        PlaylistReferenceApplyCoordinator.RefreshReferenceDisplayForTable(this, table);
+        playlistReferenceOwner.RefreshReferenceDisplayForTable(SnapshotPlaylistReferenceTable(table));
     }
 
     internal void SynchronizeReferenceBMSTables(IEnumerable<BMSTable> tables)
     {
-        PlaylistReferenceApplyCoordinator.SynchronizeReferenceBMSTables(this, tables);
+        playlistReferenceOwner.SynchronizeReferenceBMSTables(SnapshotPlaylistReferenceTables(tables));
     }
 
     /// <summary>
@@ -10467,12 +10521,14 @@ public partial class BMSLibrary : NotificationObject
     /// </summary>
     public void RemoveReferenceBMSTables(BMSTable table, IEnumerable<BMSTableEntry> entries = null)
     {
-        PlaylistReferenceApplyCoordinator.RemoveReferenceBMSTables(this, table, entries);
+        playlistReferenceOwner.RemoveReferenceBMSTables(
+            SnapshotPlaylistReferenceTable(table),
+            entries == null);
     }
 
     public void RemoveReferenceBMSTables(IEnumerable<BMSTable> tables)
     {
-        PlaylistReferenceApplyCoordinator.RemoveReferenceBMSTables(this, tables);
+        playlistReferenceOwner.RemoveReferenceBMSTables(SnapshotPlaylistReferenceTables(tables, requireLoaded: false));
     }
 
     internal List<string> GetPlaylistOrgMd5sForChart(ChartFile chart)
@@ -10979,6 +11035,12 @@ public partial class BMSLibrary : NotificationObject
                         mutationResult.StorageMutation.AddedBmsonSongs,
                         () => catalogMutationCommitted = true);
                     ApplyCatalogMutationReceiptProjection(mutationResult, catalogReceipt);
+                    PlaylistReferenceCatalogApplyResult playlistReferenceApplyResult = playlistReferenceOwner.ApplyCatalogMutationReceipt(
+                        catalogReceipt,
+                        SnapshotLibraryChartRefsForPlaylistReferenceApply(
+                            catalogReceipt?.AddedCharts));
+                    timings.PlaylistReferenceAffectedCharts = playlistReferenceApplyResult.AffectedChartCount;
+                    timings.PlaylistReferenceMatchedCharts = playlistReferenceApplyResult.MatchedChartCount;
                     timings.StateApplyMs = StopPerformanceStepStopwatch(stateApplyStopwatch);
                     if (catalogReceipt?.Applied == true)
                     {
@@ -11045,6 +11107,8 @@ public partial class BMSLibrary : NotificationObject
                     + " stateBmsRemovalDbMs=" + timings.StateBmsRemovalDbMs
                     + " stateBmsonRemovalDbMs=" + timings.StateBmsonRemovalDbMs
                     + " statePackageApplyMs=" + timings.StatePackageApplyMs
+                    + " playlistReferenceAffectedCharts=" + timings.PlaylistReferenceAffectedCharts
+                    + " playlistReferenceMatchedCharts=" + timings.PlaylistReferenceMatchedCharts
                     + " resourceHealthDisposeMs=" + timings.ResourceHealthDisposeMs
                     + " lr2NormalFolderSyncMs=" + timings.Lr2NormalFolderSyncMs
                     + " dispatchMs=" + timings.DispatchMs

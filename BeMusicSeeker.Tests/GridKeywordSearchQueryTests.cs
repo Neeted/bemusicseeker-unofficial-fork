@@ -89,7 +89,7 @@ public sealed class GridKeywordSearchQueryTests
             entries = [CreateBmsonPlaylistEntry(song.sha256)]
         };
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
-        index.ReplaceTable(table, table.entries);
+        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
         LibraryChartRow row = LibraryChartRow.FromBmsonSong(song);
         row.SetPlaylistReferenceDisplayProvider(row => index.Find(row.hash, row.sha256));
 
@@ -743,7 +743,7 @@ public sealed class GridKeywordSearchQueryTests
         foreach (BMSTable table in tables ?? [])
         {
             table.entries = [new BMSTableEntry(file)];
-            index.ReplaceTable(table, table.entries);
+            index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
         }
         return index;
     }
@@ -756,7 +756,8 @@ public sealed class GridKeywordSearchQueryTests
         PlayHistoryProjectionIndex projectionIndex = PlayHistoryProjectionIndex.Create(
             resolveIndex,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [file.hash] = file.sha256 },
-            (md5, sha256) => new PlaylistReferenceDisplay([table]),
+            (md5, sha256) => new PlaylistReferenceDisplay(
+                [new PlaylistReferenceTableDisplaySnapshot(table.symbol, table.name)]),
             (sha256, md5) => null);
         PlayHistoryProjectionResult projected = PlayHistoryRow.ProjectLr2Rows(
             new Lr2PlayHistoryReadResult(

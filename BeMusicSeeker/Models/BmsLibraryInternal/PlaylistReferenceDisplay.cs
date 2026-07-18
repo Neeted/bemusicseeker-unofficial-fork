@@ -8,15 +8,13 @@ internal sealed class PlaylistReferenceDisplay
 {
     internal static readonly PlaylistReferenceDisplay Empty = new([]);
 
-    internal PlaylistReferenceDisplay(IReadOnlyList<BMSTable> tables)
+    internal PlaylistReferenceDisplay(IReadOnlyList<PlaylistReferenceTableDisplaySnapshot> snapshots)
     {
-        Tables = tables ?? [];
-        Symbols = string.Join(" ", Tables.Select(table => table?.symbol));
-        string names = string.Join(Environment.NewLine, Tables.Select(table => table?.name));
+        IReadOnlyList<PlaylistReferenceTableDisplaySnapshot> sourceSnapshots = snapshots ?? [];
+        Symbols = string.Join(" ", sourceSnapshots.Where(snapshot => snapshot != null).Select(snapshot => snapshot.Symbol));
+        string names = string.Join(Environment.NewLine, sourceSnapshots.Where(snapshot => snapshot != null).Select(snapshot => snapshot.Name));
         Names = string.IsNullOrWhiteSpace(names) ? string.Empty : names;
     }
-
-    internal IReadOnlyList<BMSTable> Tables { get; }
 
     internal string Symbols { get; }
 

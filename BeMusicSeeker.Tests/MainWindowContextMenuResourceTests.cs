@@ -2642,16 +2642,21 @@ public sealed class MainWindowContextMenuResourceTests
             libraryCode,
             "internal void AddReferenceBMSTablesToCharts",
             "internal void RefreshReferenceDisplayForTable");
-        string addReferenceChartsCoordinator = ExtractMethodBody(
-            libraryCode,
-            "internal static void AddReferenceBMSTablesToCharts(IPlaylistReferenceApplyHost host, BMSTable table, IEnumerable<ChartFile> charts)");
+        string referenceOwnerCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "Models",
+            "BmsLibraryInternal",
+            "BmsLibraryPlaylistReferenceOwner.cs");
 
         StringAssert.Contains(addChartRows, "List<ChartFile> resolvedCharts");
         StringAssert.Contains(addChartRows, "library.AddReferenceBMSTablesToCharts(table, resolvedCharts)");
         Assert.IsTrue(addChartRows.IndexOf("library.AddReferenceBMSTablesToCharts(table, resolvedCharts)", StringComparison.Ordinal) < addChartRows.IndexOf("PublishEntriesChanged(table)", StringComparison.Ordinal));
         Assert.IsFalse(addChartRows.Contains("resolvedBmsFiles"));
-        StringAssert.Contains(addReferenceCharts, "PlaylistReferenceApplyCoordinator.AddReferenceBMSTablesToCharts(this, table, charts)");
-        StringAssert.Contains(addReferenceChartsCoordinator, "host.ReplacePlaylistReferenceIndexTable(table)");
+        StringAssert.Contains(addReferenceCharts, "playlistReferenceOwner.AddReferenceBMSTablesToCharts(SnapshotPlaylistReferenceTable(table))");
+        StringAssert.Contains(referenceOwnerCode, "internal void AddReferenceBMSTablesToCharts(PlaylistReferenceTableSnapshot tableSnapshot)");
+        StringAssert.Contains(referenceOwnerCode, "ReplaceTable(tableSnapshot)");
+        Assert.IsFalse(libraryCode.Contains("IPlaylistReferenceApplyHost"));
+        Assert.IsFalse(libraryCode.Contains("PlaylistReferenceApplyCoordinator"));
         Assert.IsFalse(addReferenceCharts.Contains("AddReferenceBMSTableToCharts(table, charts)"));
         Assert.IsFalse(addReferenceCharts.Contains("IEnumerable<BMSFile>"));
     }

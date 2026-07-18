@@ -10,59 +10,19 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
 {
     private readonly int playlistReferenceApplyChunkSize = playlistReferenceApplyChunkSize;
 
-    public PlaylistReferenceMaps BuildReferenceMaps(BMSTable table, IEnumerable<BMSTableEntry> entries)
-    {
-        var md5Dictionary = new Dictionary<string, HashSet<BMSTable>>(StringComparer.OrdinalIgnoreCase);
-        var sha256Dictionary = new Dictionary<string, HashSet<BMSTable>>(StringComparer.OrdinalIgnoreCase);
-        AddEntriesToReferenceMaps(md5Dictionary, sha256Dictionary, table, entries);
-        return new PlaylistReferenceMaps
-        {
-            Md5ToTablesMap = md5Dictionary.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToArray(), StringComparer.OrdinalIgnoreCase),
-            Sha256ToTablesMap = sha256Dictionary.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToArray(), StringComparer.OrdinalIgnoreCase)
-        };
-    }
-
-    public PlaylistReferenceMaps BuildReferenceMaps(IEnumerable<BMSTable> tables)
-    {
-        var md5Dictionary = new Dictionary<string, HashSet<BMSTable>>(StringComparer.OrdinalIgnoreCase);
-        var sha256Dictionary = new Dictionary<string, HashSet<BMSTable>>(StringComparer.OrdinalIgnoreCase);
-        foreach (BMSTable table in tables ?? [])
-        {
-            if (table == null)
-            {
-                continue;
-            }
-            List<BMSTableEntry> entries = null;
-            using (table.ReaderWriterLock.GetReaderGuard())
-            {
-                if (!table.ArePlaylistEntriesLoaded)
-                {
-                    throw new InvalidOperationException("Playlist entries are not loaded. table=" + (table.name ?? string.Empty));
-                }
-                entries = [.. table.entries];
-            }
-            AddEntriesToReferenceMaps(md5Dictionary, sha256Dictionary, table, entries);
-        }
-        return new PlaylistReferenceMaps
-        {
-            Md5ToTablesMap = md5Dictionary.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToArray(), StringComparer.OrdinalIgnoreCase),
-            Sha256ToTablesMap = sha256Dictionary.ToDictionary(kvp => kvp.Key, kvp => kvp.Value.ToArray(), StringComparer.OrdinalIgnoreCase)
-        };
-    }
-
-    public int ApplyReferenceMap(IEnumerable<LibraryChartRef> charts, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats)
+    public int ApplyReferenceMap(IEnumerable<PlaylistReferenceChartSnapshot> charts, PlaylistReferenceLookupKeys lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats applyStats)
     {
         matchedCharts = 0;
         applyStats = default;
-        if (charts == null || referenceMaps == null || ((referenceMaps.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps.Sha256ToTablesMap?.Count ?? 0) == 0))
+        if (charts == null || lookupKeys == null || !lookupKeys.HasAny)
         {
             return 0;
         }
         int processed = 0;
         var chunkStopwatch = Stopwatch.StartNew();
-        foreach (LibraryChartRef chart in charts)
+        foreach (PlaylistReferenceChartSnapshot chart in charts)
         {
-            if (TryGetReferenceTables(chart, referenceMaps))
+            if (HasReference(chart, lookupKeys))
             {
                 matchedCharts++;
             }
@@ -92,103 +52,18 @@ internal sealed class BmsLibraryPlaylistReferenceService(int playlistReferenceAp
         return matchedCharts;
     }
 
-    public int ApplyReferenceMap(IEnumerable<PackageChartEntry> entries, PlaylistReferenceMaps referenceMaps, out int matchedCharts, out PlaylistReferenceApplyStats applyStats)
+    private static bool HasReference(PlaylistReferenceChartSnapshot chart, PlaylistReferenceLookupKeys lookupKeys)
     {
-        matchedCharts = 0;
-        applyStats = default;
-        if (entries == null || referenceMaps == null || ((referenceMaps.Md5ToTablesMap?.Count ?? 0) == 0 && (referenceMaps.Sha256ToTablesMap?.Count ?? 0) == 0))
-        {
-            return 0;
-        }
-
-        int processed = 0;
-        var chunkStopwatch = Stopwatch.StartNew();
-        foreach (PackageChartEntry entry in entries)
-        {
-            if (TryGetReferenceTables(entry?.Chart, referenceMaps))
-            {
-                matchedCharts++;
-            }
-            processed++;
-            if (processed % playlistReferenceApplyChunkSize == 0)
-            {
-                chunkStopwatch.Stop();
-                applyStats.Chunks++;
-                if (chunkStopwatch.ElapsedMilliseconds > applyStats.MaxChunkMs)
-                {
-                    applyStats.MaxChunkMs = chunkStopwatch.ElapsedMilliseconds;
-                }
-                Thread.Sleep(0);
-                applyStats.YieldCount++;
-                chunkStopwatch.Restart();
-            }
-        }
-        chunkStopwatch.Stop();
-        if (processed % playlistReferenceApplyChunkSize != 0 || processed == 0)
-        {
-            applyStats.Chunks++;
-            if (chunkStopwatch.ElapsedMilliseconds > applyStats.MaxChunkMs)
-            {
-                applyStats.MaxChunkMs = chunkStopwatch.ElapsedMilliseconds;
-            }
-        }
-        return matchedCharts;
-    }
-
-    private static void AddEntriesToReferenceMaps(Dictionary<string, HashSet<BMSTable>> md5Dictionary, Dictionary<string, HashSet<BMSTable>> sha256Dictionary, BMSTable table, IEnumerable<BMSTableEntry> entries)
-    {
-        if (table == null || entries == null)
-        {
-            return;
-        }
-        foreach (BMSTableEntry entry in entries)
-        {
-            PlaylistEntryLookupKey lookupKey = PlaylistEntryLookupKey.FromEntry(entry);
-            if (!lookupKey.HasValue)
-            {
-                continue;
-            }
-            Dictionary<string, HashSet<BMSTable>> target = lookupKey.Kind == PlaylistEntryLookupKeyKind.Md5
-                ? md5Dictionary
-                : sha256Dictionary;
-            if (!target.TryGetValue(lookupKey.Hash, out HashSet<BMSTable> value))
-            {
-                value = [];
-                target[lookupKey.Hash] = value;
-            }
-            value.Add(table);
-        }
-    }
-
-    private static bool TryGetReferenceTables(ChartFile chart, PlaylistReferenceMaps referenceMaps)
-    {
-        if (chart == null || referenceMaps == null)
+        if (chart == null || lookupKeys == null)
         {
             return false;
         }
 
-        BMSTable[] tables = null;
-        bool matched = !string.IsNullOrWhiteSpace(chart.Md5) && referenceMaps.Md5ToTablesMap != null && referenceMaps.Md5ToTablesMap.TryGetValue(chart.Md5, out tables);
-        if (!matched && !string.IsNullOrWhiteSpace(chart.Sha256) && referenceMaps.Sha256ToTablesMap != null)
+        bool matched = lookupKeys.ContainsMd5(chart.Md5);
+        if (!matched)
         {
-            matched = referenceMaps.Sha256ToTablesMap.TryGetValue(chart.Sha256, out tables);
+            matched = lookupKeys.ContainsSha256(chart.Sha256);
         }
-        return matched && tables != null;
-    }
-
-    private static bool TryGetReferenceTables(LibraryChartRef chart, PlaylistReferenceMaps referenceMaps)
-    {
-        if (chart == null || referenceMaps == null)
-        {
-            return false;
-        }
-
-        BMSTable[] tables = null;
-        bool matched = !string.IsNullOrWhiteSpace(chart.Md5) && referenceMaps.Md5ToTablesMap != null && referenceMaps.Md5ToTablesMap.TryGetValue(chart.Md5, out tables);
-        if (!matched && !string.IsNullOrWhiteSpace(chart.Sha256) && referenceMaps.Sha256ToTablesMap != null)
-        {
-            matched = referenceMaps.Sha256ToTablesMap.TryGetValue(chart.Sha256, out tables);
-        }
-        return matched && tables != null;
+        return matched;
     }
 }

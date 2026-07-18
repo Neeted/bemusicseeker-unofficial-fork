@@ -2681,7 +2681,8 @@ public sealed class PlayHistoryReadModelTests
         return PlayHistoryProjectionIndex.Create(
             resolveIndex,
             new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [HashA] = ShaA },
-            (md5, sha256) => new PlaylistReferenceDisplay([table]),
+            (md5, sha256) => new PlaylistReferenceDisplay(
+                [new PlaylistReferenceTableDisplaySnapshot(table.symbol, table.name)]),
             (sha256, md5) => null);
     }
 

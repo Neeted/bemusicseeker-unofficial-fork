@@ -38,6 +38,12 @@ internal sealed class LibraryMutationDeltaApplyTimings
     /// <summary>Gets or sets the elapsed milliseconds spent applying package state.</summary>
     internal long StatePackageApplyMs { get; set; }
 
+    /// <summary>Gets or sets the number of catalog charts evaluated by playlist-reference apply.</summary>
+    internal int PlaylistReferenceAffectedCharts { get; set; }
+
+    /// <summary>Gets or sets the number of catalog charts matched by playlist-reference apply.</summary>
+    internal int PlaylistReferenceMatchedCharts { get; set; }
+
     /// <summary>Gets or sets the elapsed milliseconds for disposing the resource-health mutation window.</summary>
     internal long ResourceHealthDisposeMs { get; set; }
 

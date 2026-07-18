@@ -3004,7 +3004,7 @@ public sealed class ChartListVirtualViewTests
             name = "Reference Table",
             entries = [new BMSTableEntry(file)]
         };
-        playlistReferenceIndex.ReplaceTable(referenceTable, referenceTable.entries);
+        playlistReferenceIndex.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(referenceTable, referenceTable.symbol, referenceTable.name, referenceTable.entries));
 
         Assert.AreEqual("New", sourceRows[0].Title);
         Assert.AreEqual("Artist", sourceRows[0].Artist);
@@ -3036,7 +3036,7 @@ public sealed class ChartListVirtualViewTests
             ]
         };
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
-        index.ReplaceTable(table, table.entries);
+        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
         List<ChartListSourceRow> sourceRows = BuildOwnerBackedSourceRows(
             null,
             [bmson],
@@ -3082,7 +3082,7 @@ public sealed class ChartListVirtualViewTests
             entries = [new BMSTableEntry(file)]
         };
         PlaylistReferenceIndex playlistReferenceIndex = PlaylistReferenceIndex.Empty;
-        playlistReferenceIndex.ReplaceTable(bmsTable, bmsTable.entries);
+        playlistReferenceIndex.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(bmsTable, bmsTable.symbol, bmsTable.name, bmsTable.entries));
         ChartFileTransientState ResolveTransientState(ChartFile chart, bool includeWarningSnapshot)
         {
             return ReferenceEquals(chart?.GetBmsStorageOwner(), file)

@@ -13,7 +13,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class BmsLibraryPlaylistReferenceServiceTests
 {
     [TestMethod]
-    public void BuildReferenceMaps_AndApplyReferenceMap_MatchesSongAndPendingFiles()
+    public void BuildReferenceLookupKeys_AndApplyReferenceMap_MatchesSongAndPendingFiles()
     {
         var service = new BmsLibraryPlaylistReferenceService(2);
         BMSTable table = CreateTable(
@@ -26,11 +26,11 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
             CreateFile("cccccccccccccccccccccccccccccccc")
         ];
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int appliedCharts = service.ApplyReferenceMap(ToChartRefs(files), maps, out int matchedFiles, out PlaylistReferenceApplyStats stats);
+        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
+        int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots(files), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats stats);
 
-        Assert.AreEqual(2, maps.Md5ToTablesMap.Count);
-        Assert.AreEqual(0, maps.Sha256ToTablesMap.Count);
+        Assert.AreEqual(2, lookupKeys.Md5Hashes.Count);
+        Assert.AreEqual(0, lookupKeys.Sha256Hashes.Count);
         Assert.AreEqual(2, matchedFiles);
         Assert.AreEqual(2, appliedCharts);
         Assert.AreEqual(2, stats.Chunks);
@@ -43,11 +43,11 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         BMSTable table = CreateTable(CreateEntry(null, new string('a', 64)));
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('a', 64));
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int appliedCharts = service.ApplyReferenceMap(ToChartRefs([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
+        int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots([file]), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
 
-        Assert.AreEqual(0, maps.Md5ToTablesMap.Count);
-        Assert.AreEqual(1, maps.Sha256ToTablesMap.Count);
+        Assert.AreEqual(0, lookupKeys.Md5Hashes.Count);
+        Assert.AreEqual(1, lookupKeys.Sha256Hashes.Count);
         Assert.AreEqual(1, matchedFiles);
         Assert.AreEqual(1, appliedCharts);
     }
@@ -60,11 +60,11 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         BMSTable table = CreateTable(CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", sha256));
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", sha256);
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int appliedCharts = service.ApplyReferenceMap(ToChartRefs([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
+        int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots([file]), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
 
-        Assert.AreEqual(1, maps.Md5ToTablesMap.Count);
-        Assert.AreEqual(0, maps.Sha256ToTablesMap.Count);
+        Assert.AreEqual(1, lookupKeys.Md5Hashes.Count);
+        Assert.AreEqual(0, lookupKeys.Sha256Hashes.Count);
         Assert.AreEqual(0, matchedFiles);
         Assert.AreEqual(0, appliedCharts);
     }
@@ -79,8 +79,8 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         shaTable.name = "SHA";
         TestableBmsFile file = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", new string('b', 64));
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps([md5Table, shaTable]);
-        int appliedCharts = service.ApplyReferenceMap(ToChartRefs([file]), maps, out int matchedFiles, out PlaylistReferenceApplyStats _);
+        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys([md5Table, shaTable]);
+        int appliedCharts = service.ApplyReferenceMap(ToChartSnapshots([file]), lookupKeys, out int matchedFiles, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedFiles);
         Assert.AreEqual(1, appliedCharts);
@@ -99,8 +99,8 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
             sha256 = new string('a', 64)
         });
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int appliedCharts = service.ApplyReferenceMap([chart], maps, out int matchedCharts, out PlaylistReferenceApplyStats stats);
+        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
+        int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromLibraryChartRef(chart)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats stats);
 
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(1, appliedCharts);
@@ -121,8 +121,8 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
             sha256 = new string('a', 64)
         }));
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int appliedCharts = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats stats);
+        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
+        int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromPackageChartEntry(entry)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats stats);
 
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(1, appliedCharts);
@@ -139,8 +139,8 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         TestableBmsFile file = CreateFile(md5);
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsFile(file));
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int appliedCharts = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);
+        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
+        int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromPackageChartEntry(entry)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(1, appliedCharts);
@@ -160,8 +160,8 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         };
         PackageChartEntry entry = PackageChartEntry.FromChart(ChartFileProjection.FromBmsonSong(song));
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        int appliedCharts = service.ApplyReferenceMap([entry], maps, out int matchedCharts, out PlaylistReferenceApplyStats _);
+        PlaylistReferenceLookupKeys lookupKeys = BuildReferenceLookupKeys(table);
+        int appliedCharts = service.ApplyReferenceMap([PlaylistReferenceChartSnapshot.FromPackageChartEntry(entry)], lookupKeys, out int matchedCharts, out PlaylistReferenceApplyStats _);
 
         Assert.AreEqual(1, matchedCharts);
         Assert.AreEqual(1, appliedCharts);
@@ -176,8 +176,8 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         table.symbol = "BMSN";
         table.name = "Bmson Table";
 
-        PlaylistReferenceMaps maps = service.BuildReferenceMaps(table, table.entries);
-        var index = PlaylistReferenceIndex.FromReferenceMaps(maps);
+        var index = PlaylistReferenceIndex.FromSnapshots(
+            [new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
         PlaylistReferenceDisplay display = index.Find(null, new string('c', 64));
 
         Assert.AreEqual("BMSN", display.Symbols);
@@ -193,7 +193,8 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         BMSTable table = CreateTable(CreateEntry(md5, sha256));
         table.symbol = "ID";
         table.name = "Identity";
-        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromReferenceMaps(service.BuildReferenceMaps(table, table.entries));
+        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromSnapshots(
+            [new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
         ChartFile chart = ChartFileProjection.FromBmsonSong(new LR2SongDBExtended.bmson_song
         {
             path = @"C:\Library\chart.bmson",
@@ -215,7 +216,7 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         table.symbol = "OLD";
         table.name = "Old Table";
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
-        index.ReplaceTable(table, table.entries);
+        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
 
         Assert.AreEqual("OLD", index.Find(null, new string('d', 64)).Symbols);
 
@@ -225,14 +226,79 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         ];
         table.symbol = "NEW";
         table.name = "New Table";
-        index.ReplaceTable(table, table.entries);
+        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
 
         Assert.AreEqual(string.Empty, index.Find(null, new string('d', 64)).Symbols);
         Assert.AreEqual("NEW", index.Find(null, new string('e', 64)).Symbols);
     }
 
     [TestMethod]
-    public void PlaylistReferenceIndex_FromTablesDeduplicatesDuplicateEntriesForSameTable()
+    public void PlaylistReferenceOwner_AppliesCatalogReceiptToChartSnapshot()
+    {
+        string md5 = "11111111111111111111111111111111";
+        BMSTable table = CreateTable(CreateEntry(md5));
+        var owner = new BmsLibraryPlaylistReferenceOwner(2);
+        var tableSnapshot = new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries);
+        owner.AddReferenceBMSTable(
+            tableSnapshot,
+            owner.BuildReferenceLookupKeys(tableSnapshot),
+            [],
+            [],
+            null);
+
+        var receipt = new CatalogMutationReceipt(
+            applied: true,
+            new StorageRowsVersionSnapshot(0, 0),
+            folderDbMs: 0,
+            bmsPathDbMs: 0,
+            bmsonPathDbMs: 0,
+            bmsRemovalDbMs: 0,
+            bmsonRemovalDbMs: 0,
+            liveApplyMs: 0,
+            ownedCollectionApplied: true,
+            ownedCollectionVersion: 17,
+            addedCharts:
+            [
+                new CatalogChartMutationFact(
+                    ChartFileKind.Bms,
+                    @"C:\\Library\\chart.bms",
+                    md5,
+                    null)
+            ],
+            pathFacts: [],
+            removalRequests: []);
+
+        PlaylistReferenceCatalogApplyResult result = owner.ApplyCatalogMutationReceipt(
+            receipt,
+            [new PlaylistReferenceChartSnapshot(md5, null)]);
+
+        Assert.AreEqual(17, result.CatalogVersion);
+        Assert.AreEqual(1, result.AffectedChartCount);
+        Assert.AreEqual(1, result.MatchedChartCount);
+    }
+
+    [TestMethod]
+    public void PlaylistReferenceOwner_ReplaceReferenceBMSTablePublishesNewSnapshot()
+    {
+        string oldMd5 = "22222222222222222222222222222222";
+        string newMd5 = "33333333333333333333333333333333";
+        BMSTable oldTable = CreateTable(CreateEntry(oldMd5));
+        BMSTable newTable = CreateTable(CreateEntry(newMd5));
+        oldTable.symbol = "OLD";
+        newTable.symbol = "NEW";
+        var owner = new BmsLibraryPlaylistReferenceOwner(2);
+        var oldSnapshot = new PlaylistReferenceTableSnapshot(oldTable, oldTable.symbol, oldTable.name, oldTable.entries);
+        var newSnapshot = new PlaylistReferenceTableSnapshot(newTable, newTable.symbol, newTable.name, newTable.entries);
+
+        owner.AddReferenceBMSTable(oldSnapshot, owner.BuildReferenceLookupKeys(oldSnapshot), [], [], null);
+        owner.ReplaceReferenceBMSTable(oldSnapshot, newSnapshot, [], [], null);
+
+        Assert.AreEqual(string.Empty, owner.Find(oldMd5, null).Symbols);
+        Assert.AreEqual("NEW", owner.Find(newMd5, null).Symbols);
+    }
+
+    [TestMethod]
+    public void PlaylistReferenceIndex_FromSnapshotsDeduplicatesDuplicateEntriesForSameTable()
     {
         string md5 = "ffffffffffffffffffffffffffffffff";
         BMSTable table = CreateTable(
@@ -241,12 +307,12 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         table.symbol = "DUP";
         table.name = "Duplicate";
 
-        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromTables([table]);
+        PlaylistReferenceIndex index = PlaylistReferenceIndex.FromSnapshots(
+            [new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)]);
         PlaylistReferenceDisplay display = index.Find(md5, null);
 
         Assert.AreEqual("DUP", display.Symbols);
         Assert.AreEqual("Duplicate", display.Names);
-        Assert.AreEqual(1, display.Tables.Count);
     }
 
     [TestMethod]
@@ -309,6 +375,19 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         return table;
     }
 
+    private static PlaylistReferenceLookupKeys BuildReferenceLookupKeys(BMSTable table)
+    {
+        return new BmsLibraryPlaylistReferenceOwner(2).BuildReferenceLookupKeys(
+            new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
+    }
+
+    private static PlaylistReferenceLookupKeys BuildReferenceLookupKeys(IEnumerable<BMSTable> tables)
+    {
+        return new BmsLibraryPlaylistReferenceOwner(2).BuildReferenceLookupKeys(
+            (tables ?? []).Where(table => table != null)
+                .Select(table => new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries)));
+    }
+
     private static TestablePlaylistEntry CreateEntry(string? md5, string? sha256 = null)
     {
         var entry = new TestablePlaylistEntry();
@@ -352,9 +431,11 @@ public sealed class BmsLibraryPlaylistReferenceServiceTests
         return file;
     }
 
-    private static List<LibraryChartRef> ToChartRefs(IEnumerable<BMSFile> files)
+    private static List<PlaylistReferenceChartSnapshot> ToChartSnapshots(IEnumerable<BMSFile> files)
     {
-        return [.. files.Select(LibraryChartRef.FromBmsFile).Where(chart => chart != null)];
+        return [.. files.Select(LibraryChartRef.FromBmsFile)
+            .Select(PlaylistReferenceChartSnapshot.FromLibraryChartRef)
+            .Where(chart => chart != null)];
     }
 
     private sealed class TestablePlaylistEntry : BMSTableEntry

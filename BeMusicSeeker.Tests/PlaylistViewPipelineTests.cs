@@ -1622,7 +1622,7 @@ public sealed class PlaylistViewPipelineTests
             entries = [entry]
         };
         PlaylistReferenceIndex index = PlaylistReferenceIndex.Empty;
-        index.ReplaceTable(table, table.entries);
+        index.ReplaceSnapshotTable(new PlaylistReferenceTableSnapshot(table, table.symbol, table.name, table.entries));
 
         var sourceRow = new PlaylistDetailSourceRow(
             entry,
