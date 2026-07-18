@@ -1560,9 +1560,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             ResetLr2FolderDiscoverySettings();
             var library = new BMSLibrary(scope.SongDbPath);
 
-            Assert.IsTrue(InvokeTryBeginLr2SongDbSyncRequest(library, out int firstVersion));
+            library.StartupBackgroundTaskScheduler = (_, _, _, _) => true;
+            library.QueueLr2SongDbSync("test_request_version", force: true);
+            int firstVersion = library.Lr2SongDbSyncRequestedVersion;
             Assert.AreEqual(1, firstVersion);
-            Assert.IsFalse(InvokeTryBeginLr2SongDbSyncRequest(library, out int secondVersion));
+            library.QueueLr2SongDbSync("test_request_version_duplicate", force: true);
+            int secondVersion = library.Lr2SongDbSyncRequestedVersion;
             Assert.AreEqual(firstVersion, secondVersion);
             Assert.AreEqual(1, library.Lr2SongDbSyncRequestedVersion);
             Assert.IsTrue(library.Lr2SongDbSyncRunning);
@@ -1896,15 +1899,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     File.WriteAllText(lr2FolderPath, "#TITLE Prepared Folder", Encoding.GetEncoding("shift_jis"));
                     return CreatePreparedLr2FolderSurface(outputBase, lr2FolderPath);
                 }));
-            int appliedScanSurfaceGeneration = GetPrivateIntField(
-                library,
-                "lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration");
             object input = InvokeCreateLr2SongDbSyncInput(library);
+            int appliedScanSurfaceGeneration = GetInputInt(input, "ScanSurfaceGeneration");
             Assert.IsTrue(appliedScanSurfaceGeneration > 0);
-            Assert.AreEqual(appliedScanSurfaceGeneration, GetInputInt(input, "ScanSurfaceGeneration"));
-            Assert.AreEqual(
-                0,
-                GetPrivateIntField(library, "lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration"));
             CollectionAssert.Contains(GetInputStringList(input, "FolderInfoFilePaths").ToList(), folderInfoPath);
             CollectionAssert.Contains(GetInputStringList(input, "TextFileDirectories").ToList(), rootDirectory);
             CollectionAssert.Contains(GetInputStringList(input, "Lr2FolderDiscoveryDirectories").ToList(), outputBase);
@@ -2082,10 +2079,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     return CreatePreparedLr2FolderSurface(outputBase, lr2FolderPath);
                 }));
             Assert.IsTrue(InvokeHasLr2SongDbSyncPreparedDataSurface(library));
-            Assert.AreEqual(
-                0,
-                GetPrivateIntField(library, "lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration"));
-
             object input = InvokeCreateLr2SongDbSyncInput(library);
 
             Assert.AreEqual(0, GetInputInt(input, "ScanSurfaceGeneration"));
@@ -2524,10 +2517,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     File.WriteAllText(newLr2FolderPath, "#TITLE New Prepared Folder", Encoding.GetEncoding("shift_jis"));
                     return CreatePreparedLr2FolderSurface(newOutputBase, newLr2FolderPath);
                 }));
-            Assert.AreEqual(
-                0,
-                GetPrivateIntField(library, "lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration"));
-
             object input = InvokeCreateLr2SongDbSyncInput(library);
             List<string> lr2FolderFilePaths = GetInputStringList(input, "Lr2FolderFilePaths").ToList();
 
@@ -6739,18 +6728,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     private static void InvokeBeginLr2SongDbSyncRequest(BMSLibrary library)
     {
-        bool started = InvokeTryBeginLr2SongDbSyncRequest(library, out _);
-        Assert.IsTrue(started);
-    }
-
-    private static bool InvokeTryBeginLr2SongDbSyncRequest(BMSLibrary library, out int requestVersion)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("TryBeginLr2SongDbSyncRequest", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        object[] arguments = [0];
-        bool started = (bool)methodInfo.Invoke(library, arguments);
-        requestVersion = (int)arguments[0];
-        return started;
+        library.StartupBackgroundTaskScheduler = (_, _, _, _) => true;
+        library.QueueLr2SongDbSync("test_request_version", force: true);
+        Assert.IsTrue(library.Lr2SongDbSyncRunning);
     }
 
     private static object InvokeCreateLr2SongDbSyncInput(BMSLibrary library)
@@ -6829,13 +6809,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         PropertyInfo propertyInfo = input.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
         Assert.IsNotNull(propertyInfo);
         return (int)propertyInfo.GetValue(input);
-    }
-
-    private static int GetPrivateIntField(object target, string fieldName)
-    {
-        FieldInfo fieldInfo = target.GetType().GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(fieldInfo);
-        return (int)fieldInfo.GetValue(target);
     }
 
     private static void InvokeCaptureLr2SongDbSyncScanSurface(

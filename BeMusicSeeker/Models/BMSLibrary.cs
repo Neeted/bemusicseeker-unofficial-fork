@@ -780,39 +780,47 @@ public partial class BMSLibrary : NotificationObject
         set => catalogChartInfoOwner.ChartInfoBackfillHydrationBypassUntilVersion = value;
     }
 
-    private readonly object lockLr2SongDbSync = new();
+    private readonly Lr2SynchronizationOwner lr2SynchronizationOwner;
 
-    private int lr2SongDbSyncRequestedVersion;
+    private object lockLr2SongDbSyncScanSurface => lr2SynchronizationOwner.ScanSurfaceGate;
 
-    private int lr2SongDbSyncCompletedVersion;
-
-    private int lr2SongDbSyncFailedVersion;
-
-    private readonly object lockLr2SongDbSyncStatus = new();
-
-    private Lr2SongDbSyncStatusSnapshot lr2SongDbSyncStatus = new()
+    private Lr2SongDbSyncScanSurfaceSnapshot lr2SongDbSyncScanSurfaceSnapshot
     {
-        Status = Lr2SongDbSyncStatusKind.NotNeeded
-    };
+        get => lr2SynchronizationOwner.ScanSurfaceSnapshot;
+        set => lr2SynchronizationOwner.ScanSurfaceSnapshot = value;
+    }
 
-    private readonly object lockLr2SongDbSyncScanSurface = new();
+    private CustomFolderOutputPhysicalSurface appManagedCustomFolderOutputPhysicalSurface
+    {
+        get => lr2SynchronizationOwner.AppManagedCustomFolderOutputPhysicalSurface;
+        set => lr2SynchronizationOwner.AppManagedCustomFolderOutputPhysicalSurface = value;
+    }
 
-    private Lr2SongDbSyncScanSurfaceSnapshot lr2SongDbSyncScanSurfaceSnapshot;
+    private int lr2SongDbSyncScanSurfaceGeneration
+    {
+        get => lr2SynchronizationOwner.ScanSurfaceGeneration;
+        set => lr2SynchronizationOwner.ScanSurfaceGeneration = value;
+    }
 
-    private CustomFolderOutputPhysicalSurface appManagedCustomFolderOutputPhysicalSurface = new(
-        new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
-        discoveryComplete: false);
+    private object lockLr2SongDbSyncFileDiffFreshness => lr2SynchronizationOwner.FileDiffFreshnessGate;
 
-    private int lr2SongDbSyncScanSurfaceGeneration;
+    private Lr2SongDbSyncFileDiffFreshnessSnapshot lr2SongDbSyncFileDiffFreshnessSnapshot
+    {
+        get => lr2SynchronizationOwner.FileDiffFreshnessSnapshot;
+        set => lr2SynchronizationOwner.FileDiffFreshnessSnapshot = value;
+    }
 
-    private readonly object lockLr2SongDbSyncFileDiffFreshness = new();
+    private Lr2SongDbSyncPreparedDataSurface lr2SongDbSyncPreparedDataSurface
+    {
+        get => lr2SynchronizationOwner.PreparedDataSurface;
+        set => lr2SynchronizationOwner.PreparedDataSurface = value;
+    }
 
-    private Lr2SongDbSyncFileDiffFreshnessSnapshot lr2SongDbSyncFileDiffFreshnessSnapshot;
-
-    private Lr2SongDbSyncPreparedDataSurface lr2SongDbSyncPreparedDataSurface =
-        Lr2SongDbSyncPreparedDataSurface.Empty;
-
-    private int lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration;
+    private int lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration
+    {
+        get => lr2SynchronizationOwner.PreparedDataSurfaceAppliedScanGeneration;
+        set => lr2SynchronizationOwner.PreparedDataSurfaceAppliedScanGeneration = value;
+    }
 
     private int chartInfoHydrationRequestedVersion
     {
@@ -984,33 +992,71 @@ public partial class BMSLibrary : NotificationObject
         set => catalogChartInfoOwner.CompletedLr2SongDbSyncTrustSnapshot = value;
     }
 
-    private bool _Lr2SongDbSyncRunning;
+    private bool _Lr2SongDbSyncRunning
+    {
+        get => lr2SynchronizationOwner.ObservableRunning;
+        set => lr2SynchronizationOwner.ObservableRunning = value;
+    }
 
-    private bool lr2SongDbSyncPrepareInProgress;
+    private int _Lr2SongDbSyncRequestedVersion
+    {
+        get => lr2SynchronizationOwner.ObservableRequestedVersion;
+        set => lr2SynchronizationOwner.ObservableRequestedVersion = value;
+    }
 
-    private int lr2SongDbSyncMutationInProgress;
+    private int _Lr2SongDbSyncCompletedVersion
+    {
+        get => lr2SynchronizationOwner.ObservableCompletedVersion;
+        set => lr2SynchronizationOwner.ObservableCompletedVersion = value;
+    }
 
-    private CancellationTokenSource lr2SongDbSyncCancellation;
+    private int _Lr2SongDbSyncFailedVersion
+    {
+        get => lr2SynchronizationOwner.ObservableFailedVersion;
+        set => lr2SynchronizationOwner.ObservableFailedVersion = value;
+    }
 
-    private int _Lr2SongDbSyncRequestedVersion;
+    private int _Lr2SongDbSyncTotalCount
+    {
+        get => lr2SynchronizationOwner.ObservableTotalCount;
+        set => lr2SynchronizationOwner.ObservableTotalCount = value;
+    }
 
-    private int _Lr2SongDbSyncCompletedVersion;
+    private int _Lr2SongDbSyncProcessedCount
+    {
+        get => lr2SynchronizationOwner.ObservableProcessedCount;
+        set => lr2SynchronizationOwner.ObservableProcessedCount = value;
+    }
 
-    private int _Lr2SongDbSyncFailedVersion;
+    private string _Lr2SongDbSyncStage
+    {
+        get => lr2SynchronizationOwner.ObservableStage;
+        set => lr2SynchronizationOwner.ObservableStage = value;
+    }
 
-    private int _Lr2SongDbSyncTotalCount;
+    private int _Lr2SongDbSyncStageProcessedCount
+    {
+        get => lr2SynchronizationOwner.ObservableStageProcessedCount;
+        set => lr2SynchronizationOwner.ObservableStageProcessedCount = value;
+    }
 
-    private int _Lr2SongDbSyncProcessedCount;
+    private int _Lr2SongDbSyncStageTotalCount
+    {
+        get => lr2SynchronizationOwner.ObservableStageTotalCount;
+        set => lr2SynchronizationOwner.ObservableStageTotalCount = value;
+    }
 
-    private string _Lr2SongDbSyncStage = string.Empty;
+    private string _Lr2SongDbSyncFailureMessage
+    {
+        get => lr2SynchronizationOwner.ObservableFailureMessage;
+        set => lr2SynchronizationOwner.ObservableFailureMessage = value;
+    }
 
-    private int _Lr2SongDbSyncStageProcessedCount;
-
-    private int _Lr2SongDbSyncStageTotalCount;
-
-    private string _Lr2SongDbSyncFailureMessage = string.Empty;
-
-    private int _Lr2SongDbSyncStatusVersion;
+    private int _Lr2SongDbSyncStatusVersion
+    {
+        get => lr2SynchronizationOwner.ObservableStatusVersion;
+        set => lr2SynchronizationOwner.ObservableStatusVersion = value;
+    }
 
     private bool _ChartInfoHydrationRunning
     {
@@ -2126,13 +2172,7 @@ public partial class BMSLibrary : NotificationObject
 
     internal Lr2SongDbSyncStatusSnapshot GetLr2SongDbSyncStatusSnapshot()
     {
-        lock (lockLr2SongDbSyncStatus)
-        {
-            return lr2SongDbSyncStatus?.Clone() ?? new Lr2SongDbSyncStatusSnapshot
-            {
-                Status = Lr2SongDbSyncStatusKind.NotNeeded
-            };
-        }
+        return lr2SynchronizationOwner.GetStatusSnapshot();
     }
 
     public LibraryInitializationProgressStage LibraryInitializationProgress
@@ -2727,6 +2767,7 @@ public partial class BMSLibrary : NotificationObject
         {
             throw new ArgumentException(string.Format(Resources.Error_LR2ScoreDBNotFound, _lr2ScoreDB), "_lr2ScoreDB");
         }
+        lr2SynchronizationOwner = new(this);
         lr2SongDBPath = _lr2SongDB;
         lr2ScoreDBPath = _lr2ScoreDB;
         this.startupRequiredFileScanReason = startupRequiredFileScanReason;
@@ -5753,21 +5794,6 @@ public partial class BMSLibrary : NotificationObject
         }
     }
 
-    private void ClearLr2SongDbSyncPreparedDataSurface(string reason)
-    {
-        bool hadSurface;
-        lock (lockLr2SongDbSyncScanSurface)
-        {
-            hadSurface = lr2SongDbSyncPreparedDataSurface?.HasPreparedDataSurface == true;
-            lr2SongDbSyncPreparedDataSurface = Lr2SongDbSyncPreparedDataSurface.Empty;
-            lr2SongDbSyncPreparedDataSurfaceAppliedScanGeneration = 0;
-        }
-        if (hadSurface)
-        {
-            LogInstallPerformance("lr2_song_db_sync_prepared_surface cleared reason=" + (reason ?? "unknown"));
-        }
-    }
-
     private Lr2SongDbSyncPreparedDataSurface TakeLr2SongDbSyncPreparedDataSurface(
         out int appliedScanSurfaceGeneration)
     {
@@ -5876,34 +5902,22 @@ public partial class BMSLibrary : NotificationObject
         Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData = null,
         bool allowIncompleteToQueue = true)
     {
-        return Lr2SongDbSyncRequestCoordinator.Queue(this, reason, force, prepareGeneratedData, allowIncompleteToQueue);
+        return Lr2SongDbSyncRequestCoordinator.Queue(lr2SynchronizationOwner, reason, force, prepareGeneratedData, allowIncompleteToQueue);
     }
 
     internal bool TryRunLr2SongDbSyncDataPreparation(string reason, Func<Lr2SongDbSyncPreparedDataSurface> prepareGeneratedData)
     {
-        return Lr2SongDbSyncRequestCoordinator.TryRunDataPreparation(this, reason, prepareGeneratedData);
+        return Lr2SongDbSyncRequestCoordinator.TryRunDataPreparation(lr2SynchronizationOwner, reason, prepareGeneratedData);
     }
 
     internal Lr2StartupScanBlockerCleanupResult CleanupLr2SongDbSyncStartupScanBlockerFolderRows(string reason)
     {
-        return Lr2SongDbSyncRequestCoordinator.CleanupStartupScanBlockerFolderRows(this, reason);
+        return Lr2SongDbSyncRequestCoordinator.CleanupStartupScanBlockerFolderRows(lr2SynchronizationOwner, reason);
     }
 
     internal void PublishLr2SongDbSyncExternalStageProgress(string stage, int processedCount, int totalCount, string detail = null)
     {
-        Lr2SongDbSyncRequestCoordinator.PublishExternalStageProgress(this, stage, processedCount, totalCount, detail);
-    }
-
-    private void PublishLr2SongDbSyncStatus(Lr2SongDbSyncStatusSnapshot status)
-    {
-        lock (lockLr2SongDbSyncStatus)
-        {
-            lr2SongDbSyncStatus = status?.Clone() ?? new Lr2SongDbSyncStatusSnapshot
-            {
-                Status = Lr2SongDbSyncStatusKind.NotNeeded
-            };
-        }
-        Lr2SongDbSyncStatusVersion++;
+        Lr2SongDbSyncRequestCoordinator.PublishExternalStageProgress(lr2SynchronizationOwner, stage, processedCount, totalCount, detail);
     }
 
     private static Lr2SongDbSyncStatusSnapshot CreateRuntimeLr2SongDbSyncStatus(
@@ -5931,66 +5945,9 @@ public partial class BMSLibrary : NotificationObject
         };
     }
 
-    private bool TryBeginLr2SongDbSyncRequest(out int requestVersion)
-    {
-        lock (lockLr2SongDbSync)
-        {
-            if (_Lr2SongDbSyncRunning || lr2SongDbSyncMutationInProgress > 0)
-            {
-                requestVersion = _Lr2SongDbSyncRequestedVersion;
-                return false;
-            }
-            lr2SongDbSyncRequestedVersion++;
-            requestVersion = lr2SongDbSyncRequestedVersion;
-
-            lr2SongDbSyncCancellation?.Dispose();
-            lr2SongDbSyncCancellation = new CancellationTokenSource();
-            Lr2SongDbSyncRequestedVersion = requestVersion;
-            Lr2SongDbSyncTotalCount = 0;
-            Lr2SongDbSyncProcessedCount = 0;
-            Lr2SongDbSyncStage = "queued";
-            Lr2SongDbSyncStageProcessedCount = 0;
-            Lr2SongDbSyncStageTotalCount = 0;
-            Lr2SongDbSyncFailureMessage = string.Empty;
-            Lr2SongDbSyncRunning = true;
-            return true;
-        }
-    }
-
-    private void ClearLr2SongDbSyncPrepareReservation()
-    {
-        lock (lockLr2SongDbSync)
-        {
-            lr2SongDbSyncPrepareInProgress = false;
-        }
-    }
-
-    private void UpdateLr2SongDbSyncProgress(Lr2SongDbSyncProgress progress)
-    {
-        if (progress == null)
-        {
-            return;
-        }
-
-        Lr2SongDbSyncTotalCount = Math.Max(0, progress.TotalCount);
-        Lr2SongDbSyncProcessedCount = Math.Max(0, progress.ProcessedCursor);
-        Lr2SongDbSyncStage = progress.Stage ?? string.Empty;
-        Lr2SongDbSyncStageProcessedCount = Math.Max(0, progress.StageProcessedCount);
-        Lr2SongDbSyncStageTotalCount = Math.Max(0, progress.StageTotalCount);
-        PublishLr2SongDbSyncStatus(CreateRuntimeLr2SongDbSyncStatus(
-            Lr2SongDbSyncStatusKind.Running,
-            GetLr2SongDbSyncStatusSnapshot().Signature,
-            Lr2SongDbSyncStage,
-            Lr2SongDbSyncProcessedCount,
-            Lr2SongDbSyncTotalCount,
-            lastError: null,
-            Lr2SongDbSyncStageProcessedCount,
-            Lr2SongDbSyncStageTotalCount));
-    }
-
     private void PublishLr2SongDbSyncPreflightStage(string stage, string reason, string runId)
     {
-        UpdateLr2SongDbSyncProgress(new Lr2SongDbSyncProgress
+        lr2SynchronizationOwner.UpdateProgress(new Lr2SongDbSyncProgress
         {
             Stage = stage ?? string.Empty,
             ProcessedCursor = 0,
@@ -6013,155 +5970,24 @@ public partial class BMSLibrary : NotificationObject
             + " elapsedMs=" + elapsedMs);
     }
 
-    private void CompleteLr2SongDbSyncRequest(int requestVersion, string stage)
-    {
-        lock (lockLr2SongDbSync)
-        {
-            lr2SongDbSyncCompletedVersion = Math.Max(lr2SongDbSyncCompletedVersion, requestVersion);
-        }
-
-        Lr2SongDbSyncCompletedVersion = lr2SongDbSyncCompletedVersion;
-        Lr2SongDbSyncStage = stage ?? string.Empty;
-        Lr2SongDbSyncStageProcessedCount = Lr2SongDbSyncStageTotalCount > 0
-            ? Lr2SongDbSyncStageTotalCount
-            : Lr2SongDbSyncProcessedCount;
-        Lr2SongDbSyncStageTotalCount = Lr2SongDbSyncStageTotalCount > 0
-            ? Lr2SongDbSyncStageTotalCount
-            : Lr2SongDbSyncTotalCount;
-        Lr2SongDbSyncRunning = false;
-        DisposeLr2SongDbSyncCancellation();
-        PublishLr2SongDbSyncStatus(CreateRuntimeLr2SongDbSyncStatus(
-            Lr2SongDbSyncStatusKind.Completed,
-            GetLr2SongDbSyncStatusSnapshot().Signature,
-            Lr2SongDbSyncStage,
-            Lr2SongDbSyncProcessedCount,
-            Lr2SongDbSyncTotalCount,
-            lastError: null,
-            Lr2SongDbSyncStageProcessedCount,
-            Lr2SongDbSyncStageTotalCount));
-    }
-
-    private void FailLr2SongDbSyncRequest(int requestVersion, Lr2SongDbSyncStatusKind status, string stage, string message)
-    {
-        lock (lockLr2SongDbSync)
-        {
-            lr2SongDbSyncFailedVersion = Math.Max(lr2SongDbSyncFailedVersion, requestVersion);
-        }
-
-        Lr2SongDbSyncFailedVersion = lr2SongDbSyncFailedVersion;
-        Lr2SongDbSyncFailureMessage = message ?? string.Empty;
-        Lr2SongDbSyncStage = stage ?? string.Empty;
-        Lr2SongDbSyncRunning = false;
-        DisposeLr2SongDbSyncCancellation();
-        PublishLr2SongDbSyncStatus(CreateRuntimeLr2SongDbSyncStatus(
-            status,
-            GetLr2SongDbSyncStatusSnapshot().Signature,
-            Lr2SongDbSyncStage,
-            Lr2SongDbSyncProcessedCount,
-            Lr2SongDbSyncTotalCount,
-            Lr2SongDbSyncFailureMessage,
-            Lr2SongDbSyncStageProcessedCount,
-            Lr2SongDbSyncStageTotalCount));
-    }
-
     internal bool CancelLr2SongDbSync(string reason)
     {
-        lock (lockLr2SongDbSync)
-        {
-            if (!_Lr2SongDbSyncRunning || lr2SongDbSyncCancellation == null)
-            {
-                return false;
-            }
-            LogInstallPerformance("lr2_song_db_sync cancel_requested"
-                + " reason=" + (reason ?? "unknown")
-                + " stage=" + (Lr2SongDbSyncStage ?? string.Empty)
-                + " processed=" + Lr2SongDbSyncProcessedCount
-                + " total=" + Lr2SongDbSyncTotalCount);
-            lr2SongDbSyncCancellation.Cancel();
-            return true;
-        }
-    }
-
-    private void DisposeLr2SongDbSyncCancellation()
-    {
-        lock (lockLr2SongDbSync)
-        {
-            lr2SongDbSyncCancellation?.Dispose();
-            lr2SongDbSyncCancellation = null;
-        }
+        return lr2SynchronizationOwner.Cancel(reason);
     }
 
     private bool IsLr2SongDbSyncMutationBlocked()
     {
-        return Lr2SongDbSyncRunning;
+        return lr2SynchronizationOwner.Running;
     }
 
     private bool TryBlockLr2SongDbSyncMutation(string operation, bool showMessage = true)
     {
-        if (!IsLr2SongDbSyncMutationBlocked())
-        {
-            return false;
-        }
-        LogInstallPerformance("lr2_song_db_sync_mutation_blocked operation=" + (operation ?? "(unknown)")
-            + " stage=" + (Lr2SongDbSyncStage ?? string.Empty)
-            + " processed=" + Lr2SongDbSyncProcessedCount
-            + " total=" + Lr2SongDbSyncTotalCount);
-        if (showMessage)
-        {
-            ShowOperationDialog(
-                Resources.Warn_Lr2SongDbSyncRunning,
-                Resources.MessageBoxTitle_Warning,
-                MessageBoxButton.OK,
-                MessageBoxImage.Exclamation,
-                MessageBoxResult.OK);
-        }
-        return true;
+        return lr2SynchronizationOwner.TryBlockMutation(operation, showMessage);
     }
 
     private IDisposable TryBeginLr2SongDbSyncBlockedMutation(string operation, bool showMessage = true)
     {
-        lock (lockLr2SongDbSync)
-        {
-            if (!_Lr2SongDbSyncRunning && !lr2SongDbSyncPrepareInProgress)
-            {
-                lr2SongDbSyncMutationInProgress++;
-                return new Lr2SongDbSyncBlockedMutationScope(this);
-            }
-            LogInstallPerformance("lr2_song_db_sync_mutation_blocked operation=" + (operation ?? "(unknown)")
-                + " stage=" + (Lr2SongDbSyncStage ?? string.Empty)
-                + " processed=" + Lr2SongDbSyncProcessedCount
-                + " total=" + Lr2SongDbSyncTotalCount
-                + " preparing=" + lr2SongDbSyncPrepareInProgress.ToString().ToLowerInvariant());
-        }
-        if (showMessage)
-        {
-            ShowOperationDialog(
-                Resources.Warn_Lr2SongDbSyncRunning,
-                Resources.MessageBoxTitle_Warning,
-                MessageBoxButton.OK,
-                MessageBoxImage.Exclamation,
-                MessageBoxResult.OK);
-        }
-        return null;
-    }
-
-    private void EndLr2SongDbSyncBlockedMutation()
-    {
-        lock (lockLr2SongDbSync)
-        {
-            lr2SongDbSyncMutationInProgress = Math.Max(0, lr2SongDbSyncMutationInProgress - 1);
-        }
-    }
-
-    private sealed class Lr2SongDbSyncBlockedMutationScope(BMSLibrary owner) : IDisposable
-    {
-        private BMSLibrary owner = owner;
-
-        public void Dispose()
-        {
-            BMSLibrary currentOwner = Interlocked.Exchange(ref owner, null);
-            currentOwner?.EndLr2SongDbSyncBlockedMutation();
-        }
+        return lr2SynchronizationOwner.TryBeginMutation(operation, showMessage);
     }
 
     private void ThrowIfLr2SongDbSyncMutationBlocked(string operation)
@@ -6179,7 +6005,7 @@ public partial class BMSLibrary : NotificationObject
 
     private void RunLr2SongDbSync(string reason, string signature, int requestVersion)
     {
-        Lr2SongDbSyncRequestCoordinator.Run(this, reason, signature, requestVersion);
+        Lr2SongDbSyncRequestCoordinator.Run(lr2SynchronizationOwner, reason, signature, requestVersion);
     }
 
     private void MarkLr2SongDbSyncPreflightCancelled(string signature, string runId, string stage)
@@ -7131,7 +6957,7 @@ public partial class BMSLibrary : NotificationObject
                 stage: stage,
                 detail: detail,
                 nowUtc: DateTime.UtcNow);
-            PublishLr2SongDbSyncStatus(status);
+            lr2SynchronizationOwner.PublishStatus(status);
         }
         catch (Exception ex)
         {

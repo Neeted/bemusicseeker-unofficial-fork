@@ -15,7 +15,11 @@
 
 ### `LIB-04 LR2 synchronization ownership`
 
-状態: ready
+状態: in progress
+
+active outcome base commit: `e3b743d6892734ec06701b9a0cb4bc70c654f174`
+active execution package: `LIB-04 LR2 synchronization ownership`
+sequence cursor: `LIB-04-U1b scan-surface / trust / LR2-folder synchronization and residual callback retirement`
 
 目的:
 
@@ -52,7 +56,7 @@ Non-goals:
 | LIB-01 Scan pipeline core ownership | completed |
 | LIB-03 Catalog storage, mutation, maintenance and resource-health ownership | completed |
 | LIB-02 Package, install-destination and file-operation ownership | completed |
-| LIB-04 LR2 synchronization ownership | ready |
+| LIB-04 LR2 synchronization ownership | in progress |
 | LIB-05 Playlist-reference ownership | not started |
 | LIB-06 Library facade and scan integration closure | not started |
 | PL-01 Playlist persistence and reload ownership | not started |
