@@ -120,6 +120,8 @@ public partial class BMSLibrary
             InstallableMaintenanceSnapshot snapshot = null;
             try
             {
+                using IDisposable mutationScope = lr2SynchronizationOwner.BeginMutationWhenAvailable(
+                    "installable_maintenance_deferred");
                 snapshot = CreateInstallableMaintenanceSnapshot();
                 snapshotCount = snapshot.SnapshotCount;
                 LogInstallPerformance("installable_maintenance_deferred run version=" + request.Version

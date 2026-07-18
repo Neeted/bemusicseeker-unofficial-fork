@@ -7251,7 +7251,16 @@ public partial class MainWindowViewModel : ViewModel
 
     private void ForceResourceHealthCheckCharts(IEnumerable<ChartFile> charts)
     {
-        files.RescanResourceHealthCharts(charts);
+        MaintenanceWorkflowResult result = files.RescanResourceHealthCharts(charts);
+        if (result?.Canceled == true)
+        {
+            ShowUiMessage(
+                BeMusicSeeker.Properties.Resources.Warn_Lr2SongDbSyncRunning,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxImage.Exclamation,
+                "Resource health rescan blocked notification");
+            return;
+        }
         RefreshResourceHealthViewsAfterMaintenanceChanged();
     }
 
@@ -8796,8 +8805,8 @@ public partial class MainWindowViewModel : ViewModel
                     Lr2SongDbSyncPreparedDataSurface builtinSurface =
                         files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;
                     return Lr2SongDbSyncPreparedDataSurface.Merge(playlistSurface, builtinSurface);
-                });
-            files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false);
+                },
+                () => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false));
         }).Logging("SyncLr2SongDbSyncFolderDataAfterSettingsChange");
     }
 

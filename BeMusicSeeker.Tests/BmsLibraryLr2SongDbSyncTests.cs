@@ -259,6 +259,97 @@ public sealed class BmsLibraryLr2SongDbSyncTests
     }
 
     [TestMethod]
+    public void ApplyLibraryMutationDelta_DoesNotSyncNormalFolderRowsWhenCatalogWriteFails()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            string chartPath = Path.Combine(rootDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE Remove\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.CreateTable<LR2SongDB.song>();
+                setup.InsertOrReplace(file, typeof(LR2SongDB.song));
+                string escapedPath = chartPath.Replace("'", "''");
+                setup.Execute(
+                    "CREATE TRIGGER fail_catalog_remove BEFORE DELETE ON song WHEN OLD.path = '"
+                    + escapedPath
+                    + "' BEGIN SELECT RAISE(ABORT, 'forced catalog mutation failure'); END;");
+            }
+
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            var delta = new LibraryMutationDelta();
+            delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(file));
+
+            Assert.ThrowsException<SQLite.SQLiteException>(() => InvokeApplyLibraryMutationDelta(library, delta));
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
+            Assert.IsNotNull(verify.Find<LR2SongDB.song>(chartPath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void ApplyInstalledChartStorageTargets_RollsBackNormalFolderBatchAndKeepsCatalogCommit()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            string songDirectory = Path.Combine(rootDirectory, "Pack", "Song");
+            Directory.CreateDirectory(songDirectory);
+            string chartPath = Path.Combine(songDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE Added\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.CreateTable<LR2SongDB.song>();
+                setup.Execute(
+                    "CREATE TRIGGER fail_lr2_folder_insert BEFORE INSERT ON folder WHEN NEW.path LIKE '%Pack%' "
+                    + "BEGIN SELECT RAISE(ABORT, 'forced normal-folder failure'); END;");
+            }
+
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+
+            InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([file], []));
+
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.IsNotNull(verify.Find<LR2SongDB.song>(chartPath));
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
+            LR2SongDBExtended.lr2_song_db_sync_status status =
+                verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.IsNotNull(status);
+            Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete.ToString(), status.status);
+            Assert.AreEqual("lr2_normal_folder_mutation_sync_failed", status.stage);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
     public void ApplyLibraryMutationDelta_MovesNormalFolderRowsForMovedBmsWhenLr2SongDbSyncEnabled()
     {
         using TestDatabaseScope scope = TestDatabaseScope.Create();
@@ -713,6 +804,101 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     new Lr2FolderFileDbSyncRequest()));
 
             Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.Message);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void Lr2MutationSequence_BlocksCatalogAndPlaylistWritersUntilReleased()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string rootDirectory = Path.Combine(scope.DirectoryPath, "BMS");
+            Directory.CreateDirectory(rootDirectory);
+            string chartPath = Path.Combine(rootDirectory, "chart.bms");
+            File.WriteAllText(chartPath, "#TITLE Sequence\r\n#00111:01\r\n", Encoding.ASCII);
+            BMSFile file = CreateSyncTestFile(chartPath, ChartFileContentReader.ReadSnapshot(chartPath));
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+            }
+
+            var library = new BMSLibrary(scope.SongDbPath)
+            {
+                SearchTargets = [rootDirectory],
+                BMSFiles = []
+            };
+            BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
+            IDisposable sequence = owner.EnterLr2MutationSequence();
+            using var catalogReady = new ManualResetEventSlim(false);
+            using var playlistReady = new ManualResetEventSlim(false);
+            using var catalogCallStarted = new ManualResetEventSlim(false);
+            using var playlistCallStarted = new ManualResetEventSlim(false);
+            using var start = new ManualResetEventSlim(false);
+            Task catalogWriter = null!;
+            Task playlistWriter = null!;
+            try
+            {
+                catalogWriter = Task.Factory.StartNew(
+                    () =>
+                    {
+                        catalogReady.Set();
+                        start.Wait();
+                        catalogCallStarted.Set();
+                        InvokeApplyInstalledChartStorageTargets(
+                            library,
+                            ChartStorageTargetSet.FromRows([file], []));
+                    },
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+                playlistWriter = Task.Factory.StartNew(
+                    () =>
+                    {
+                        playlistReady.Set();
+                        start.Wait();
+                        playlistCallStarted.Set();
+                        library.Lr2PlaylistFolderSynchronization.SyncPlaylistLr2FolderFileRows(
+                            "playlist_lr2folder_sync",
+                            new Lr2FolderFileDbSyncRequest
+                            {
+                                ScopeDirectories = [rootDirectory],
+                                DirectoryRowScopeDirectories = [rootDirectory],
+                                DirectoryRowGenerationScopeDirectories = [rootDirectory],
+                                DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(DateTime.UtcNow),
+                                GeneratedAtUtc = DateTime.UtcNow,
+                                AllowPrune = true
+                            });
+                    },
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default);
+
+                Assert.IsTrue(catalogReady.Wait(TimeSpan.FromSeconds(5)));
+                Assert.IsTrue(playlistReady.Wait(TimeSpan.FromSeconds(5)));
+                start.Set();
+                Assert.IsTrue(catalogCallStarted.Wait(TimeSpan.FromSeconds(5)));
+                Assert.IsTrue(playlistCallStarted.Wait(TimeSpan.FromSeconds(5)));
+                Assert.IsFalse(Task.WhenAny(catalogWriter, playlistWriter).Wait(TimeSpan.FromSeconds(1)));
+            }
+            finally
+            {
+                sequence.Dispose();
+                start.Set();
+                if (catalogWriter != null && playlistWriter != null)
+                {
+                    Assert.IsTrue(Task.WhenAll(catalogWriter, playlistWriter).Wait(TimeSpan.FromSeconds(30)));
+                }
+            }
+
+            Assert.IsFalse(catalogWriter.IsFaulted, catalogWriter.Exception?.ToString());
+            Assert.IsFalse(playlistWriter.IsFaulted, playlistWriter.Exception?.ToString());
         }
         finally
         {

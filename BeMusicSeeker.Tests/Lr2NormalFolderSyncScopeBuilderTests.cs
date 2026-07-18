@@ -13,23 +13,22 @@ namespace BeMusicSeeker.Tests;
 public sealed class Lr2NormalFolderSyncScopeBuilderTests
 {
     [TestMethod]
-    public void CreateForStorageMutation_AddOnly_DoesNotQueryCurrentLookup()
+    public void CreateForCatalogMutation_AddOnly_UsesReceiptFacts()
     {
         string root = Path.Combine("C:\\BMS");
         var added = new TestableBmsFile
         {
             path = Path.Combine(root, "Package", "chart.bms")
         };
-        var throwingLookup = new Lr2NormalFolderCurrentBmsLookup(
-            _ => throw new InvalidOperationException("Add-only mutation should not query current BMS directories."),
-            _ => throw new InvalidOperationException("Add-only mutation should not enumerate current BMS paths."));
-
-        Lr2NormalFolderSyncScope scope = Lr2NormalFolderSyncScopeBuilder.CreateForStorageMutation(
+        var receipt = new Lr2NormalFolderCatalogMutationReceipt(
+            ownedCollectionVersion: 3,
+            addedBmsChartPaths: [added.path],
+            removedBmsChartPaths: [],
+            pathChanges: [],
+            currentBmsChartPaths: null);
+        Lr2NormalFolderSyncScope scope = Lr2NormalFolderSyncScopeBuilder.CreateForCatalogMutation(
             [root],
-            [added],
-            [],
-            [],
-            throwingLookup);
+            receipt);
 
         CollectionAssert.AreEqual(new[] { added.path }, scope.ChartPaths.ToList());
         Assert.AreEqual(0, scope.PruneScopeDirectories.Count);
@@ -37,61 +36,68 @@ public sealed class Lr2NormalFolderSyncScopeBuilderTests
     }
 
     [TestMethod]
-    public void CreateForStorageMutation_RemoveUsesCurrentLookupForPrunedDirectory()
+    public void CreateForCatalogMutation_RemoveUsesCurrentSnapshotForPrunedDirectory()
     {
         string root = Path.Combine("C:\\BMS");
         string removedDirectory = Path.Combine(root, "Package", "Remove");
         string removedPath = Path.Combine(removedDirectory, "chart.bms");
         string siblingPath = Path.Combine(root, "Package", "Keep", "chart.bms");
-        var enumeratedDirectories = new List<string>();
-        var lookup = new Lr2NormalFolderCurrentBmsLookup(
-            directory => ContainsPathUnderDirectory(siblingPath, directory),
-            directory =>
-            {
-                enumeratedDirectories.Add(directory);
-                return ContainsPathUnderDirectory(siblingPath, directory)
-                    ? [siblingPath]
-                    : [];
-            });
-
-        Lr2NormalFolderSyncScope scope = Lr2NormalFolderSyncScopeBuilder.CreateForStorageMutation(
+        var receipt = new Lr2NormalFolderCatalogMutationReceipt(
+            ownedCollectionVersion: 4,
+            addedBmsChartPaths: [],
+            removedBmsChartPaths: [removedPath],
+            pathChanges: [],
+            currentBmsChartPaths: [siblingPath]);
+        Lr2NormalFolderSyncScope scope = Lr2NormalFolderSyncScopeBuilder.CreateForCatalogMutation(
             [root],
-            [],
-            [],
-            [OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, removedPath)],
-            lookup);
+            receipt);
 
         Assert.AreEqual(0, scope.ChartPaths.Count);
         CollectionAssert.AreEqual(new[] { removedDirectory }, scope.PruneScopeDirectories.ToList());
         CollectionAssert.AreEqual(new[] { removedDirectory }, scope.PruneExactDirectories.ToList());
-        CollectionAssert.AreEqual(new[] { removedDirectory }, enumeratedDirectories);
     }
 
     [TestMethod]
-    public void CreateForStorageMutation_RootLevelRemovalDoesNotPruneWholeRoot()
+    public void CreateForCatalogMutation_RootLevelRemovalDoesNotPruneWholeRoot()
     {
         string root = Path.Combine("C:\\BMS");
         string removedPath = Path.Combine(root, "chart.bms");
 
-        Lr2NormalFolderSyncScope scope = Lr2NormalFolderSyncScopeBuilder.CreateForStorageMutation(
+        var receipt = new Lr2NormalFolderCatalogMutationReceipt(
+            ownedCollectionVersion: 5,
+            addedBmsChartPaths: [],
+            removedBmsChartPaths: [removedPath],
+            pathChanges: [],
+            currentBmsChartPaths: []);
+        Lr2NormalFolderSyncScope scope = Lr2NormalFolderSyncScopeBuilder.CreateForCatalogMutation(
             [root],
-            [],
-            [],
-            [OwnedChartRemoveRequest.FromPathCleanup(ChartFileKind.Bms, removedPath)],
-            Lr2NormalFolderCurrentBmsLookup.Empty);
+            receipt);
 
         Assert.AreEqual(0, scope.ChartPaths.Count);
         Assert.AreEqual(0, scope.PruneScopeDirectories.Count);
         CollectionAssert.AreEqual(new[] { root }, scope.PruneExactDirectories.ToList());
     }
 
-    private static bool ContainsPathUnderDirectory(string chartPath, string directoryPath)
+    [TestMethod]
+    public void CatalogMutationReceipt_CopiesCurrentBmsChartPaths()
     {
-        string chartDirectory = Lr2FolderPath.NormalizeDirectoryPath(Path.GetDirectoryName(chartPath));
-        string directory = Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
-        return !string.IsNullOrWhiteSpace(chartDirectory)
-            && !string.IsNullOrWhiteSpace(directory)
-            && Lr2FolderPath.IsSameOrDescendant(chartDirectory, directory);
+        string root = Path.Combine("C:\\BMS");
+        string currentPath = Path.Combine(root, "Package", "Keep", "chart.bms");
+        string laterPath = Path.Combine(root, "Package", "Later", "chart.bms");
+        var sourcePaths = new List<string> { currentPath };
+        var receipt = new Lr2NormalFolderCatalogMutationReceipt(
+            ownedCollectionVersion: 6,
+            addedBmsChartPaths: [],
+            removedBmsChartPaths: [],
+            pathChanges: [],
+            currentBmsChartPaths: sourcePaths);
+
+        sourcePaths.Add(laterPath);
+
+        Lr2NormalFolderCurrentBmsLookup lookup = receipt.CreateCurrentBmsLookup();
+        Assert.IsTrue(lookup.HasBmsChartUnderDirectory(Path.GetDirectoryName(currentPath)));
+        Assert.IsFalse(lookup.HasBmsChartUnderDirectory(Path.GetDirectoryName(laterPath)));
+        Assert.AreEqual(6, receipt.OwnedCollectionVersion);
     }
 
     private sealed class TestableBmsFile : BMSFile

@@ -60,6 +60,18 @@ internal sealed class LibraryChartRefIndexSnapshot : ILibraryChartCanonicalLooku
     /// </summary>
     internal int DirectDirectoryCount => directRefsByDirectory.Count;
 
+    internal IReadOnlyList<string> GetCurrentBmsChartPaths()
+    {
+        return Array.AsReadOnly(refsByPath.Values
+            .SelectMany(refs => refs ?? [])
+            .Where(chart => chart != null && IsBmsChartRef(chart) && HasCurrentPath(chart))
+            .Select(chart => chart.Path)
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToArray());
+    }
+
     /// <summary>
     /// subtree count を持つ real path directory bucket 数を返します。
     /// </summary>

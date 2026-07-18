@@ -99,7 +99,8 @@ internal static class Lr2NormalFolderDbSyncService
 {
     internal static Lr2NormalFolderDbSyncResult Sync(
         LR2SongDBExtended songDb,
-        Lr2NormalFolderDbSyncRequest request)
+        Lr2NormalFolderDbSyncRequest request,
+        bool commitTransaction = true)
     {
         if (songDb == null)
         {
@@ -161,7 +162,10 @@ internal static class Lr2NormalFolderDbSyncService
             plan = new Lr2FolderGenerationSyncPlan(plan.UpsertRows, []);
         }
         long planMs = RestartElapsed(stepStopwatch);
-        Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ApplySyncPlan(songDb, plan);
+        Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ApplySyncPlan(
+            songDb,
+            plan,
+            commitTransaction);
         long writeMs = RestartElapsed(stepStopwatch);
 
         stopwatch.Stop();

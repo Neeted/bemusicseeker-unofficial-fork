@@ -29,6 +29,55 @@ internal sealed class Lr2NormalFolderCurrentBmsLookup(
 {
     internal static Lr2NormalFolderCurrentBmsLookup Empty { get; } = new(_ => false, _ => []);
 
+    internal static Lr2NormalFolderCurrentBmsLookup CreateFromChartPaths(IEnumerable<string> chartPaths)
+    {
+        var mutableIndex = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (string chartPath in chartPaths ?? [])
+        {
+            string currentDirectory = Lr2FolderPath.NormalizeDirectoryPath(
+                Lr2FolderPath.SafeGetDirectoryName(chartPath));
+            while (!string.IsNullOrWhiteSpace(currentDirectory))
+            {
+                if (!mutableIndex.TryGetValue(currentDirectory, out List<string> indexedPaths))
+                {
+                    indexedPaths = [];
+                    mutableIndex.Add(currentDirectory, indexedPaths);
+                }
+                indexedPaths.Add(chartPath);
+
+                string parentDirectory = Lr2FolderPath.SafeGetParentNormalizedDirectory(currentDirectory);
+                if (string.IsNullOrWhiteSpace(parentDirectory)
+                    || string.Equals(parentDirectory, currentDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+                currentDirectory = parentDirectory;
+            }
+        }
+
+        var index = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (KeyValuePair<string, List<string>> entry in mutableIndex)
+        {
+            index[entry.Key] = Array.AsReadOnly(entry.Value.ToArray());
+        }
+
+        return new Lr2NormalFolderCurrentBmsLookup(
+            directoryPath =>
+            {
+                string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
+                return !string.IsNullOrWhiteSpace(normalizedDirectory)
+                    && index.ContainsKey(normalizedDirectory);
+            },
+            directoryPath =>
+            {
+                string normalizedDirectory = Lr2FolderPath.NormalizeDirectoryPath(directoryPath);
+                return !string.IsNullOrWhiteSpace(normalizedDirectory)
+                    && index.TryGetValue(normalizedDirectory, out IReadOnlyList<string> paths)
+                    ? paths
+                    : [];
+            });
+    }
+
     internal bool HasBmsChartUnderDirectory(string directoryPath)
     {
         return !string.IsNullOrWhiteSpace(directoryPath)
@@ -82,15 +131,12 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         return CreateResult(chartPaths, directoryPaths, pruneScopeDirectories, pruneExactDirectories);
     }
 
-    internal static Lr2NormalFolderSyncScope CreateForStorageMutation(
+    internal static Lr2NormalFolderSyncScope CreateForCatalogMutation(
         IEnumerable<string> rootDirectories,
-        IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<LibraryChartPathChange> pathChanges,
-        IEnumerable<OwnedChartRemoveRequest> removeRequests,
-        Lr2NormalFolderCurrentBmsLookup currentBmsLookup)
+        Lr2NormalFolderCatalogMutationReceipt receipt)
     {
         List<string> roots = NormalizeRoots(rootDirectories);
-        if (roots.Count == 0)
+        if (roots.Count == 0 || receipt?.HasBmsMutation != true)
         {
             return Lr2NormalFolderSyncScope.Empty;
         }
@@ -99,42 +145,36 @@ internal static class Lr2NormalFolderSyncScopeBuilder
         var directoryPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneScopeDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var pruneExactDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        currentBmsLookup ??= Lr2NormalFolderCurrentBmsLookup.Empty;
-        List<LibraryChartPathChange> pathChangeList = [.. pathChanges ?? []];
-        List<OwnedChartRemoveRequest> removeRequestList = [.. removeRequests ?? []];
-        foreach (BMSFile file in addedBmsFiles ?? [])
+        Lr2NormalFolderCurrentBmsLookup currentBmsLookup = receipt.CreateCurrentBmsLookup();
+
+        foreach (string addedChartPath in receipt.AddedBmsChartPaths ?? [])
         {
-            AddIfUnderAnyRoot(chartPaths, file?.path, roots);
+            AddIfUnderAnyRoot(chartPaths, addedChartPath, roots);
         }
 
-        foreach (LibraryChartPathChange pathChange in pathChangeList)
+        foreach (Lr2NormalFolderPathChange pathChange in receipt.PathChanges ?? [])
         {
-            if (pathChange?.GetBmsStorageOwner() == null)
-            {
-                continue;
-            }
-
             AddIfUnderAnyRoot(chartPaths, pathChange.NewPath, roots);
             AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, pathChange.OldPath, roots);
             AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, pathChange.NewPath, roots);
-            AddEmptyAncestorExactScopesIfUnderAnyRoot(pruneExactDirectories, pathChange.OldPath, roots, currentBmsLookup);
+            AddEmptyAncestorExactScopesIfUnderAnyRoot(
+                pruneExactDirectories,
+                pathChange.OldPath,
+                roots,
+                currentBmsLookup);
         }
 
-        foreach (OwnedChartRemoveRequest removeRequest in removeRequestList)
+        foreach (string removedChartPath in receipt.RemovedBmsChartPaths ?? [])
         {
-            if (removeRequest?.Kind != ChartFileKind.Bms)
-            {
-                continue;
-            }
-
-            AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, removeRequest.Path, roots);
-            AddEmptyAncestorExactScopesIfUnderAnyRoot(pruneExactDirectories, removeRequest.Path, roots, currentBmsLookup);
+            AddChartDirectoryScopeIfUnderAnyRoot(pruneScopeDirectories, removedChartPath, roots);
+            AddEmptyAncestorExactScopesIfUnderAnyRoot(
+                pruneExactDirectories,
+                removedChartPath,
+                roots,
+                currentBmsLookup);
         }
 
-        AddCurrentPathsUnderPruneScopes(
-            chartPaths,
-            currentBmsLookup,
-            pruneScopeDirectories);
+        AddCurrentPathsUnderPruneScopes(chartPaths, currentBmsLookup, pruneScopeDirectories);
         return CreateResult(chartPaths, directoryPaths, pruneScopeDirectories, pruneExactDirectories);
     }
 

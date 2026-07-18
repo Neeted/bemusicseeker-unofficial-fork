@@ -56,6 +56,14 @@ public partial class BMSLibrary
 
         internal void RunWithFolderMoveWriteLocks(Action action)
         {
+            using IDisposable mutationSequence = owner.lr2SynchronizationOwner.EnterLr2MutationSequence();
+            using IDisposable mutationReservation = owner.TryBeginLr2SongDbSyncBlockedMutation(
+                "library_folder_move",
+                showMessage: true);
+            if (mutationReservation == null)
+            {
+                return;
+            }
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             using (owner.rwlockPendingInstallCharts.GetWriterGuard())
             using (owner.rwlockBMSFiles.GetWriterGuard())
@@ -75,6 +83,14 @@ public partial class BMSLibrary
 
         internal void RunWithNormalInvalidExtensionRenameWriteLocks(Action action)
         {
+            using IDisposable mutationSequence = owner.lr2SynchronizationOwner.EnterLr2MutationSequence();
+            using IDisposable mutationReservation = owner.TryBeginLr2SongDbSyncBlockedMutation(
+                "library_invalid_extension_rename",
+                showMessage: true);
+            if (mutationReservation == null)
+            {
+                return;
+            }
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             using (owner.rwlockBMSFiles.GetWriterGuard())
             {
@@ -94,6 +110,14 @@ public partial class BMSLibrary
 
         private void RunWithLibraryChartRemovalWriteLocks(Action action)
         {
+            using IDisposable mutationSequence = owner.lr2SynchronizationOwner.EnterLr2MutationSequence();
+            using IDisposable mutationReservation = owner.TryBeginLr2SongDbSyncBlockedMutation(
+                "library_chart_removal",
+                showMessage: true);
+            if (mutationReservation == null)
+            {
+                return;
+            }
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             using (owner.rwlockPendingInstallCharts.GetWriterGuard())
             using (owner.rwlockBMSFiles.GetWriterGuard())
@@ -487,6 +511,14 @@ public partial class BMSLibrary
                 ? null
                 : new HashSet<string>(approvedDuplicateRemovalChartPaths.Where(path => !string.IsNullOrWhiteSpace(path)), StringComparer.OrdinalIgnoreCase);
 
+            using IDisposable mutationSequence = owner.lr2SynchronizationOwner.EnterLr2MutationSequence();
+            using IDisposable mutationReservation = owner.TryBeginLr2SongDbSyncBlockedMutation(
+                nameof(BMSLibrary.FixInstallationDirectoryCharts),
+                showMessage: true);
+            if (mutationReservation == null)
+            {
+                return;
+            }
             using (owner.rwlockBMSFilesInitializedAll.GetReaderGuard())
             using (owner.rwlockPendingInstallCharts.GetWriterGuard())
             using (owner.rwlockBMSFiles.GetWriterGuard())

@@ -45,6 +45,14 @@ public partial class BMSLibrary
         {
             return registeredPackages;
         }
+        using IDisposable mutationSequence = lr2SynchronizationOwner.EnterLr2MutationSequence();
+        using IDisposable lr2SongDbSyncMutation = TryBeginLr2SongDbSyncBlockedMutation(
+            nameof(InstallChartPackagesAuto),
+            showMessage: true);
+        if (lr2SongDbSyncMutation == null)
+        {
+            return registeredPackages;
+        }
         List<string> expandedInstallPaths = packageInstallService.ExpandInstallSources(
             installPaths,
             fileMutationService,
@@ -58,12 +66,6 @@ public partial class BMSLibrary
         if (token.IsCancellationRequested)
         {
             CleanupManagedInstallSources(expandedInstallPaths, "auto_install_canceled_after_expand");
-            return registeredPackages;
-        }
-        using IDisposable lr2SongDbSyncMutation = TryBeginLr2SongDbSyncBlockedMutation(nameof(InstallChartPackagesAuto));
-        if (lr2SongDbSyncMutation == null)
-        {
-            CleanupManagedInstallSources(expandedInstallPaths, "auto_install_blocked_after_expand");
             return registeredPackages;
         }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
@@ -1094,6 +1096,14 @@ public partial class BMSLibrary
             return;
         }
 
+        using IDisposable mutationSequence = lr2SynchronizationOwner.EnterLr2MutationSequence();
+        using IDisposable mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
+            nameof(ForceInstallPendingPackages),
+            showMessage: false);
+        if (mutationReservation == null)
+        {
+            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+        }
         using (rwlockBMSFilesInitializedAll.GetReaderGuard())
         using (rwlockPendingInstallCharts.GetWriterGuard())
         using (rwlockBMSFiles.GetWriterGuard())
@@ -1268,6 +1278,18 @@ public partial class BMSLibrary
     /// </summary>
     public void InstallPendingPackagesToEstimatedDestinations(IEnumerable<ChartPackage> packages)
     {
+        if (TryBlockLr2SongDbSyncMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
+        {
+            return;
+        }
+        using IDisposable mutationSequence = lr2SynchronizationOwner.EnterLr2MutationSequence();
+        using IDisposable mutationReservation = TryBeginLr2SongDbSyncBlockedMutation(
+            nameof(InstallPendingPackagesToEstimatedDestinations),
+            showMessage: false);
+        if (mutationReservation == null)
+        {
+            throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+        }
         PendingEstimatedInstallCoordinator.InstallPendingPackagesToEstimatedDestinations(
             packageInstallService,
             this,

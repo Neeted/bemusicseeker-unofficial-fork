@@ -310,6 +310,14 @@ public partial class BMSLibrary
         private void RunWithMergeDirectoryWriteLocks(long operationId, Action action)
         {
             Stopwatch initializedLockWaitStopwatch = Stopwatch.StartNew();
+            using IDisposable mutationSequence = owner.lr2SynchronizationOwner.EnterLr2MutationSequence();
+            using IDisposable mutationReservation = owner.TryBeginLr2SongDbSyncBlockedMutation(
+                "duplicate_merge_catalog_transition",
+                showMessage: true);
+            if (mutationReservation == null)
+            {
+                return;
+            }
             using (owner.rwlockBMSFilesInitializedMin.GetReaderGuard())
             {
                 BMSLibrary.LogInstallPerformance("duplicate_merge_model initialized_lock_acquired op=" + operationId + " waitMs=" + initializedLockWaitStopwatch.ElapsedMilliseconds);

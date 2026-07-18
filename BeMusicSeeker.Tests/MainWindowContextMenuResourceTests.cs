@@ -1998,7 +1998,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2SongDbSync(");
         StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;");
         StringAssert.Contains(viewModelCode, "Lr2SongDbSyncPreparedDataSurface.Merge(playlistSurface, builtinSurface);");
-        StringAssert.Contains(viewModelCode, "files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false);");
+        StringAssert.Contains(viewModelCode, "() => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false)");
         StringAssert.Contains(viewModelCode, "public async Task RequestLr2SongDbSyncAsync(string reason, bool force)");
         StringAssert.Contains(viewModelCode, "files?.QueueLr2SongDbSync(");
         StringAssert.Contains(viewModelCode, "() => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)");
@@ -2025,7 +2025,7 @@ public sealed class MainWindowContextMenuResourceTests
             "Manual LR2 generated-data sync must batch app-managed custom folder projection instead of running per-table physical reoutput and DB sync.");
         Assert.IsTrue(
             viewModelCode.IndexOf("() => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)", StringComparison.Ordinal)
-            < viewModelCode.IndexOf("files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false);", StringComparison.Ordinal),
+            < viewModelCode.IndexOf("() => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false)", StringComparison.Ordinal),
             "LR2 generated-data preparation must stay behind the LR2 preparation/queue gate instead of running as an unguarded pre-step.");
         Assert.IsFalse(
             manualResyncClickHandler.IndexOf("settingDialogRootGrid.IsEnabled = false;", StringComparison.Ordinal) >= 0,
