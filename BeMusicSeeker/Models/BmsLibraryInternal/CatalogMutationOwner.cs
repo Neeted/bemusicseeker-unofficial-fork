@@ -718,6 +718,71 @@ internal sealed class CatalogMutationOwner
         IEnumerable<BMSFile> addedBmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs)
     {
+        using (storageRowsOwner.WriteGate.GetReaderGuard())
+        {
+            return CreateFileScanStorageReplacementRequestUnsafe(
+                hasDbDiff,
+                nextBmsRows,
+                nextBmsonRows,
+                deletedBmsPaths,
+                deletedBmsonPaths,
+                addedBmsFiles,
+                addedBmsonSongs);
+        }
+    }
+
+    internal CatalogFileScanStorageReplacementReceipt ApplyFileScanStorageReplacement(
+        CatalogFileScanStorageReplacementRequest request)
+    {
+        if (request == null)
+        {
+            return CatalogFileScanStorageReplacementReceipt.NotApplied;
+        }
+
+        using (storageRowsOwner.WriteGate.GetWriterGuard())
+        {
+            CatalogStorageRowsSnapshot currentRows = storageRowsOwner.CaptureSnapshot();
+            if (currentRows.BmsRowsVersion != request.PreviousBmsRowsVersion
+                || currentRows.BmsonRowsVersion != request.PreviousBmsonRowsVersion)
+            {
+                throw new InvalidOperationException(
+                    "The catalog storage rows changed while a file-scan replacement was being prepared.");
+            }
+
+            CatalogStorageRowsSnapshot storageRows = request.HasDbDiff
+                ? storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
+                    [.. request.NextBmsRows],
+                    [.. request.NextBmsonRows])
+                : request.CurrentRows;
+            CatalogOwnedCollectionReplacementResult ownedReplacement = request.HasDbDiff
+                ? ownedCollectionOwner.ReplaceForFileScan(storageRows)
+                : CatalogOwnedCollectionReplacementResult.NotApplied;
+            StorageRowsVersionSnapshot versions = new(
+                request.PreviousBmsRowsVersion,
+                request.PreviousBmsonRowsVersion,
+                storageRows.BmsRowsVersion,
+                storageRows.BmsonRowsVersion);
+            return new CatalogFileScanStorageReplacementReceipt(
+                applied: request.HasDbDiff,
+                ownedCollectionApplied: ownedReplacement.Applied,
+                versions,
+                ownedCollectionOwner.CollectionVersion,
+                ownedReplacement.FilterSummary,
+                request.AddedCharts,
+                request.RemovedCharts,
+                movedCharts: []);
+        }
+    }
+
+    private CatalogFileScanStorageReplacementRequest CreateFileScanStorageReplacementRequestUnsafe(
+        bool hasDbDiff,
+        IEnumerable<BMSFile> nextBmsRows,
+        IEnumerable<LR2SongDBExtended.bmson_song> nextBmsonRows,
+        IEnumerable<string> deletedBmsPaths,
+        IEnumerable<string> deletedBmsonPaths,
+        IEnumerable<BMSFile> addedBmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs)
+    {
         CatalogStorageRowsSnapshot currentRows = storageRowsOwner.CaptureSnapshot();
         bool removedPayloadAvailable = ownedCollectionOwner.TryCreateFileScanRemovedStorageOwnerIdentityCharts(
             [.. deletedBmsPaths ?? []],
@@ -740,40 +805,6 @@ internal sealed class CatalogMutationOwner
             removedPayloadAvailable,
             removedCharts,
             currentRows);
-    }
-
-    internal CatalogFileScanStorageReplacementReceipt ApplyFileScanStorageReplacement(
-        CatalogFileScanStorageReplacementRequest request,
-        Action<CatalogStorageRowsSnapshot> applyStorageProjection = null)
-    {
-        if (request == null)
-        {
-            return CatalogFileScanStorageReplacementReceipt.NotApplied;
-        }
-
-        CatalogStorageRowsSnapshot storageRows = request.HasDbDiff
-            ? storageRowsOwner.ReplaceRowsAndCaptureSnapshot(
-                [.. request.NextBmsRows],
-                [.. request.NextBmsonRows])
-            : request.CurrentRows;
-        applyStorageProjection?.Invoke(storageRows);
-        CatalogOwnedCollectionReplacementResult ownedReplacement = request.HasDbDiff
-            ? ownedCollectionOwner.ReplaceForFileScan(storageRows)
-            : CatalogOwnedCollectionReplacementResult.NotApplied;
-        StorageRowsVersionSnapshot versions = new(
-            request.PreviousBmsRowsVersion,
-            request.PreviousBmsonRowsVersion,
-            storageRows.BmsRowsVersion,
-            storageRows.BmsonRowsVersion);
-        return new CatalogFileScanStorageReplacementReceipt(
-            applied: request.HasDbDiff,
-            ownedCollectionApplied: ownedReplacement.Applied,
-            versions,
-            ownedCollectionOwner.CollectionVersion,
-            ownedReplacement.FilterSummary,
-            request.AddedCharts,
-            request.RemovedCharts,
-            movedCharts: []);
     }
 
     internal CatalogInstalledTargetUpsertRequest CreateInstalledTargetUpsertRequest(

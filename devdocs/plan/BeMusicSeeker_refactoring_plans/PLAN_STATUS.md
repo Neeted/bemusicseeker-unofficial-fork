@@ -21,7 +21,7 @@ active outcome base commit: 2a75ca5c21ca8885a0b9228756f7a115625f9203
 
 active execution package: LIB-06 Library facade and scan integration closure
 
-sequence cursor: LIB-06-U1 Scan pipeline direct composition and scan-host retirement
+sequence cursor: LIB-06-U2 Scan terminal catalog-replacement receipt composition
 
 目的:
 

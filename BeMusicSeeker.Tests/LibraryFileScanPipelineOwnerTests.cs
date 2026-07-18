@@ -314,6 +314,28 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.AreEqual(0, result.MutationDelta.UpdatedInstallDestinations.Count);
     }
 
+    [TestMethod]
+    public void ApplyCatalogStorageReplacement_UsesCatalogOwnerAndPublishesReceipt()
+    {
+        var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
+        var owner = CreateOwner(callbacks);
+        var keptFile = new BMSFile { path = "keep.bms" };
+        var addedFile = new BMSFile { path = "added.bms" };
+        callbacks.BmsFiles = [keptFile];
+        var result = new SongTableFileCheckResult
+        {
+            HasDbDiff = true
+        };
+        result.NextFiles.AddRange([keptFile, addedFile]);
+        result.AddedFiles.Add(addedFile);
+
+        owner.ApplyCatalogStorageReplacement(result, "test_storage_replacement");
+
+        Assert.IsNotNull(callbacks.LastCatalogReplacement);
+        Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
+        Assert.AreEqual(2, callbacks.CatalogStorageRowsOwner.CaptureSnapshot().BmsRows.Count);
+    }
+
     private static LibraryFileScanPipelineOwner CreateOwner(RecordingLibraryFileScanPipelineCallbacks callbacks)
     {
         string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
@@ -323,8 +345,36 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
         }
         var library = new BMSLibrary(songDbPath);
+        var dbGateway = new BmsLibraryDbGateway(songDbPath);
+        var storageRowsOwner = new CatalogStorageRowsOwner();
+        var ownedCollectionOwner = new CatalogOwnedCollectionOwner();
+        ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
+        callbacks.CatalogStorageRowsOwner = storageRowsOwner;
+        callbacks.CatalogOwnedCollectionOwner = ownedCollectionOwner;
+        var catalogMutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, dbGateway);
+        var catalogChartInfoOwner = new CatalogChartInfoOwner(
+            _ => { },
+            () => false,
+            (_, _) => false,
+            null,
+            _ => { });
+        catalogChartInfoOwner.ConfigureWorkflow(
+            dbGateway,
+            catalogMutationOwner,
+            storageRowsOwner,
+            ownedCollectionOwner,
+            () => new BmsLibraryOptionsSnapshot(),
+            _ => { },
+            _ => { });
+        var resourceHealthOwner = new ResourceHealthIndexOwner(
+            new BmsLibraryMaintenanceService(),
+            _ => { },
+            () => new ResourceHealthIndexCurrentVersion(
+                new StorageRowsVersionSnapshot(0, 0),
+                0,
+                0));
         return new LibraryFileScanPipelineOwner(
-            new BmsLibraryDbGateway(songDbPath),
+            dbGateway,
             () => callbacks.BmsFiles,
             () => callbacks.BmsonSongs,
             new BmsLibraryDialogService(),
@@ -340,10 +390,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
             callbacks.QueueEverythingFallbackWarning,
             callbacks.QueueFileScanSkippedIncompleteWarning,
             callbacks.QueueEmptyScanWithExistingDbWarning,
-            callbacks.ApplyFileScanStorageMutation,
-            callbacks.UpsertChartInfoIndexRows,
             callbacks.DispatchWarningPresentationChanged,
             library.Lr2Synchronization,
+            catalogMutationOwner,
+            catalogChartInfoOwner,
+            resourceHealthOwner,
+            callbacks.PublishCatalogReplacement,
+            callbacks.PublishCatalogReplacementFailure,
             new BmsLibraryInitializationService(),
             _ => { });
     }
@@ -365,6 +418,14 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public List<string> PerformanceMessages { get; } = [];
 
         public List<string> EverythingMessages { get; } = [];
+
+        public CatalogStorageRowsOwner CatalogStorageRowsOwner { get; set; } = null!;
+
+        public CatalogOwnedCollectionOwner CatalogOwnedCollectionOwner { get; set; } = null!;
+
+        public FileScanCatalogReplacementEvent LastCatalogReplacement { get; private set; } = null!;
+
+        public FileScanCatalogReplacementFailureEvent LastCatalogReplacementFailure { get; private set; } = null!;
 
         public void ReportLibraryInitializationProgress(
             BMSLibrary.LibraryInitializationProgressStage stage,
@@ -423,15 +484,14 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
         }
 
-        public void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason)
+        public void PublishCatalogReplacement(FileScanCatalogReplacementEvent replacementEvent)
         {
+            LastCatalogReplacement = replacementEvent;
         }
 
-        public void UpsertChartInfoIndexRows(
-            IEnumerable<LR2SongDBExtended.chart_info> rows,
-            string reason,
-            bool dispatchPresentation = true)
+        public void PublishCatalogReplacementFailure(FileScanCatalogReplacementFailureEvent failureEvent)
         {
+            LastCatalogReplacementFailure = failureEvent;
         }
 
         public void DispatchWarningPresentationChanged(string reason)

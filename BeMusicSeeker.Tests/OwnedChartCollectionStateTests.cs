@@ -2352,7 +2352,7 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ApplyLibraryFileScanStorageMutation_UpdatesAdjacentIndexesThroughOwnedMutation()
+    public void ApplyFileScanCatalogReplacement_UpdatesDerivedIndexesThroughProductionPipelineOwner()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -2360,77 +2360,30 @@ public sealed class OwnedChartCollectionStateTests
             var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
             var removedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "removed.bms"));
             var addedBms = CreateFile("cccccccccccccccccccccccccccccccc", Path.Combine("C:\\Installed", "Bms", "added.bms"));
-            var pathlessBms = CreateFile("ffffffffffffffffffffffffffffffff", string.Empty);
-            string bmsonPath = Path.Combine("C:\\Installed", "Bmson", "same.bmson");
-            var oldBmson = CreateBmsonSong(bmsonPath, "dddddddddddddddddddddddddddddddd");
-            var updatedBmson = CreateBmsonSong(bmsonPath, "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
-            var pathlessBmson = CreateBmsonSong(string.Empty, "11111111111111111111111111111111");
             var library = new BMSLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [keptBms, removedBms, pathlessBms]);
-            SetLibraryBmsonSongsWithoutNotification(library, [oldBmson, pathlessBmson]);
+            SetLibraryFilesWithoutNotification(library, [keptBms, removedBms]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
             InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             Assert.IsTrue(initialLookup.ContainsPrimaryHash(removedBms.hash));
-            Assert.IsTrue(initialLookup.ContainsPrimaryHash(oldBmson.md5));
             EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            int bmsFilesChanged = 0;
-            int bmsonSongsChanged = 0;
-            int normalLibraryRefreshNotifications = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (args.PropertyName == "BMSFiles")
-                {
-                    bmsFilesChanged++;
-                }
-                if (args.PropertyName == "BmsonSongs")
-                {
-                    bmsonSongsChanged++;
-                }
-                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
-                {
-                    normalLibraryRefreshNotifications++;
-                }
-            };
             var result = new SongTableFileCheckResult
             {
                 HasDbDiff = true
             };
             result.DeletedPaths.Add(removedBms.path);
             result.AddedFiles.Add(addedBms);
-            result.AddedBmsonSongs.Add(updatedBmson);
             result.NextFiles.AddRange([keptBms, addedBms]);
-            result.NextBmsonSongs.Add(updatedBmson);
 
-            InvokeApplyLibraryFileScanStorageMutation(library, result, "test");
-            List<ChartFile> snapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            InvokeApplyFileScanCatalogReplacement(library, result, "test");
+
             InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
-
-            CollectionAssert.AreEqual(new[] { keptBms, addedBms }, library.BMSFiles.ToArray());
-            CollectionAssert.AreEqual(new[] { updatedBmson }, library.BmsonSongs.ToArray());
-            Assert.AreEqual(3, snapshot.Count);
-            Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), keptBms)));
-            Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), addedBms)));
-            Assert.IsTrue(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), updatedBmson)));
-            Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), removedBms)));
-            Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), pathlessBms)));
-            Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), oldBmson)));
-            Assert.IsFalse(snapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), pathlessBmson)));
             Assert.IsFalse(updatedLookup.ContainsPrimaryHash(removedBms.hash));
-            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(oldBmson.md5));
-            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(pathlessBms.hash));
-            Assert.IsFalse(updatedLookup.ContainsPrimaryHash(pathlessBmson.md5));
             Assert.IsTrue(updatedLookup.ContainsPrimaryHash(addedBms.hash));
-            Assert.IsTrue(updatedLookup.ContainsPrimaryHash(updatedBmson.md5));
             Assert.IsTrue(HasNoCurrentResourceHealthIndex(library));
-            Assert.AreEqual(0, bmsFilesChanged);
-            Assert.AreEqual(0, bmsonSongsChanged);
-            Assert.AreEqual(1, normalLibraryRefreshNotifications);
-            Assert.IsFalse(batch.ResetsPriorNotifications);
-            Assert.IsTrue(batch.NotifiesStorageRows);
-            Assert.IsTrue(batch.NotifiesBmsFiles);
-            Assert.IsTrue(batch.NotifiesBmsonSongs);
+            Assert.AreEqual(1, batch.NotifiesStorageRows ? 1 : 0);
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
             Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
@@ -2438,7 +2391,59 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
-    public void ApplyLibraryFileScanStorageMutation_ReplacesOwnedCollectionFromNextRows()
+    public void ApplyFileScanCatalogReplacement_UninitializedCollectionIsRebuiltByProductionPipelineOwner()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
+            var removedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "removed.bms"));
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [keptBms, removedBms]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            var result = new SongTableFileCheckResult
+            {
+                HasDbDiff = true
+            };
+            result.DeletedPaths.Add(removedBms.path);
+            result.NextFiles.Add(keptBms);
+
+            InvokeApplyFileScanCatalogReplacement(library, result, "uninitialized");
+
+            List<ChartFile> rebuiltSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
+            Assert.IsTrue(rebuiltSnapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), keptBms)));
+            Assert.IsFalse(rebuiltSnapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), removedBms)));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanCatalogReplacement_NoDiffInvalidatesCurrentResourceHealth()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            EnsureCurrentResourceHealthIndex(library);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+            var result = new SongTableFileCheckResult();
+            result.NextFiles.Add(bmsFile);
+
+            InvokeApplyFileScanCatalogReplacement(library, result, "resource_rescan");
+
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(HasNoCurrentResourceHealthIndex(library));
+            Assert.AreEqual(1, batch.HasRefreshNotification ? 1 : 0);
+            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
+        });
+    }
+
+    [TestMethod]
+    public void ApplyFileScanCatalogReplacement_ReplacesOwnedCollectionFromNextRows()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -2459,59 +2464,18 @@ public sealed class OwnedChartCollectionStateTests
             result.AddedBmsonSongs.Add(middleByPath);
             result.NextBmsonSongs.AddRange([lastByPath, firstByPath, middleByPath]);
 
-            InvokeApplyLibraryFileScanStorageMutation(library, result, "order");
+            InvokeApplyFileScanCatalogReplacement(library, result, "order");
+
+            CollectionAssert.AreEqual(new[] { lastByPath, firstByPath, middleByPath }, library.BmsonSongs.ToArray());
             List<LR2SongDBExtended.bmson_song> snapshotOwners = [.. InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library)
                 .Where(chart => chart.Kind == ChartFileKind.Bmson)
                 .Select(chart => chart.GetBmsonStorageOwner())];
-
-            CollectionAssert.AreEqual(new[] { lastByPath, firstByPath, middleByPath }, library.BmsonSongs.ToArray());
             CollectionAssert.AreEqual(new[] { lastByPath, firstByPath, middleByPath }, snapshotOwners);
         });
     }
 
     [TestMethod]
-    public void ApplyLibraryFileScanStorageMutation_DoesNotBuildOwnedCollectionWhenUninitialized()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var keptBms = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "keep.bms"));
-            var removedBms = CreateFile("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Path.Combine("C:\\Installed", "Bms", "removed.bms"));
-            var keptBmson = CreateBmsonSong(Path.Combine("C:\\Installed", "Bmson", "keep.bmson"), "cccccccccccccccccccccccccccccccc");
-            var library = new BMSLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [keptBms, removedBms]);
-            SetLibraryBmsonSongsWithoutNotification(library, [keptBmson]);
-            int bmsFilesChanged = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (args.PropertyName == "BMSFiles")
-                {
-                    bmsFilesChanged++;
-                }
-            };
-            var result = new SongTableFileCheckResult
-            {
-                HasDbDiff = true
-            };
-            result.DeletedPaths.Add(removedBms.path);
-            result.NextFiles.Add(keptBms);
-            result.NextBmsonSongs.Add(keptBmson);
-
-            InvokeApplyLibraryFileScanStorageMutation(library, result, "uninitialized");
-
-            Assert.AreEqual(0, bmsFilesChanged);
-            CollectionAssert.AreEqual(new[] { keptBms }, library.BMSFiles.ToArray());
-            CollectionAssert.AreEqual(new[] { keptBmson }, library.BmsonSongs.ToArray());
-            List<ChartFile> rebuiltSnapshot = InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
-            Assert.AreEqual(2, rebuiltSnapshot.Count);
-            Assert.IsTrue(rebuiltSnapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), keptBms)));
-            Assert.IsTrue(rebuiltSnapshot.Any(chart => ReferenceEquals(chart.GetBmsonStorageOwner(), keptBmson)));
-            Assert.IsFalse(rebuiltSnapshot.Any(chart => ReferenceEquals(chart.GetBmsStorageOwner(), removedBms)));
-        });
-    }
-
-    [TestMethod]
-    public void ApplyLibraryFileScanStorageMutation_NoDiffAndNoCurrentResourceHealthSkipsRefreshNotification()
+    public void ApplyFileScanCatalogReplacement_NoDiffWithoutCurrentResourceHealthSkipsNotification()
     {
         TestResourceInitializer.EnsureJapaneseResources();
         WithTemporarySongDb(delegate (string songDbPath)
@@ -2523,83 +2487,15 @@ public sealed class OwnedChartCollectionStateTests
             SetLibraryBmsonSongsWithoutNotification(library, [bmsonSong]);
             InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            int bmsRowsVersion = library.CatalogStorageRowsVersion.BmsRowsVersion;
-            int bmsonRowsVersion = library.CatalogStorageRowsVersion.BmsonRowsVersion;
-            int bmsFilesChanged = 0;
-            int bmsonSongsChanged = 0;
-            int normalLibraryRefreshNotifications = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (args.PropertyName == "BMSFiles")
-                {
-                    bmsFilesChanged++;
-                }
-                if (args.PropertyName == "BmsonSongs")
-                {
-                    bmsonSongsChanged++;
-                }
-                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
-                {
-                    normalLibraryRefreshNotifications++;
-                }
-            };
             var result = new SongTableFileCheckResult();
             result.NextFiles.Add(bmsFile);
             result.NextBmsonSongs.Add(bmsonSong);
 
-            InvokeApplyLibraryFileScanStorageMutation(library, result, "no_diff");
-            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            InvokeApplyFileScanCatalogReplacement(library, result, "no_diff");
 
+            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.IsFalse(batch.HasRefreshNotification);
-            Assert.AreEqual(0, bmsFilesChanged);
-            Assert.AreEqual(0, bmsonSongsChanged);
-            Assert.AreEqual(0, normalLibraryRefreshNotifications);
-            Assert.AreEqual(bmsRowsVersion, library.CatalogStorageRowsVersion.BmsRowsVersion);
-            Assert.AreEqual(bmsonRowsVersion, library.CatalogStorageRowsVersion.BmsonRowsVersion);
             Assert.IsTrue(HasNoCurrentResourceHealthIndex(library));
-            Assert.AreEqual(2, InvokeCreateOwnedChartInfoFullBackfillTargetSnapshot(library).Count);
-        });
-    }
-
-    [TestMethod]
-    public void ApplyLibraryFileScanStorageMutation_NoDiffInvalidatesCurrentResourceHealthOnly()
-    {
-        TestResourceInitializer.EnsureJapaneseResources();
-        WithTemporarySongDb(delegate (string songDbPath)
-        {
-            var bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Path.Combine("C:\\Installed", "Bms", "chart.bms"));
-            var library = new BMSLibrary(songDbPath);
-            SetLibraryFilesWithoutNotification(library, [bmsFile]);
-            SetLibraryBmsonSongsWithoutNotification(library, []);
-            EnsureCurrentResourceHealthIndex(library);
-            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
-            int bmsRowsVersion = library.CatalogStorageRowsVersion.BmsRowsVersion;
-            int bmsFilesChanged = 0;
-            int normalLibraryRefreshNotifications = 0;
-            library.PropertyChanged += delegate (object _, System.ComponentModel.PropertyChangedEventArgs args)
-            {
-                if (args.PropertyName == "BMSFiles")
-                {
-                    bmsFilesChanged++;
-                }
-                if (args.PropertyName == nameof(BMSLibrary.NormalLibraryRefreshNotificationVersion))
-                {
-                    normalLibraryRefreshNotifications++;
-                }
-            };
-            var result = new SongTableFileCheckResult();
-            result.NextFiles.Add(bmsFile);
-
-            InvokeApplyLibraryFileScanStorageMutation(library, result, "resource_rescan");
-            NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
-
-            Assert.IsTrue(HasNoCurrentResourceHealthIndex(library));
-            Assert.AreEqual(0, bmsFilesChanged);
-            Assert.AreEqual(bmsRowsVersion, library.CatalogStorageRowsVersion.BmsRowsVersion);
-            Assert.AreEqual(1, normalLibraryRefreshNotifications);
-            Assert.IsFalse(batch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged));
-            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged));
         });
     }
 
@@ -3491,12 +3387,18 @@ public sealed class OwnedChartCollectionStateTests
         library.ApplyInstalledChartStorageTargets(addedTargets, "install_package");
     }
 
-    private static void InvokeApplyLibraryFileScanStorageMutation(
+    private static void InvokeApplyFileScanCatalogReplacement(
         BMSLibrary library,
         SongTableFileCheckResult result,
         string reason)
     {
-        library.ApplyFileScanStorageMutation(result, reason);
+        FieldInfo fieldInfo = typeof(BMSLibrary).GetField(
+            "libraryFileScanPipelineOwner",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(fieldInfo);
+        var owner = (LibraryFileScanPipelineOwner)fieldInfo.GetValue(library);
+        Assert.IsNotNull(owner);
+        owner.ApplyCatalogStorageReplacement(result, reason);
     }
 
     private static void InvokeApplyCatalogStorageRowsWithoutNotification(

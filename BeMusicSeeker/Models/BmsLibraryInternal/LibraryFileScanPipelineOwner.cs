@@ -71,13 +71,19 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly Action<string> queueEmptyScanWithExistingDbWarning;
 
-    private readonly Action<SongTableFileCheckResult, string> applyFileScanStorageMutation;
-
-    private readonly Action<IEnumerable<LR2SongDBExtended.chart_info>, string, bool> upsertChartInfoIndexRows;
-
     private readonly Action<string> dispatchWarningPresentationChanged;
 
     private readonly BMSLibrary.Lr2SynchronizationOwner lr2Synchronization;
+
+    private readonly CatalogMutationOwner catalogMutationOwner;
+
+    private readonly CatalogChartInfoOwner catalogChartInfoOwner;
+
+    private readonly ResourceHealthIndexOwner resourceHealthOwner;
+
+    private readonly Action<FileScanCatalogReplacementEvent> publishCatalogReplacement;
+
+    private readonly Action<FileScanCatalogReplacementFailureEvent> publishCatalogReplacementFailure;
 
     private readonly Lr2FolderFileDiffOwner lr2FolderFileDiffOwner;
 
@@ -110,10 +116,13 @@ internal sealed class LibraryFileScanPipelineOwner
         Action<string> queueEverythingFallbackWarning,
         Action<string> queueFileScanSkippedIncompleteWarning,
         Action<string> queueEmptyScanWithExistingDbWarning,
-        Action<SongTableFileCheckResult, string> applyFileScanStorageMutation,
-        Action<IEnumerable<LR2SongDBExtended.chart_info>, string, bool> upsertChartInfoIndexRows,
         Action<string> dispatchWarningPresentationChanged,
         BMSLibrary.Lr2SynchronizationOwner lr2Synchronization,
+        CatalogMutationOwner catalogMutationOwner,
+        CatalogChartInfoOwner catalogChartInfoOwner,
+        ResourceHealthIndexOwner resourceHealthOwner,
+        Action<FileScanCatalogReplacementEvent> publishCatalogReplacement,
+        Action<FileScanCatalogReplacementFailureEvent> publishCatalogReplacementFailure,
         BmsLibraryInitializationService initializationService,
         Action<LibraryMutationDelta> applyLibraryMutationDelta,
         FileScanParseCommitOwner fileScanParseCommitOwner = null)
@@ -134,10 +143,13 @@ internal sealed class LibraryFileScanPipelineOwner
         this.queueEverythingFallbackWarning = queueEverythingFallbackWarning ?? throw new ArgumentNullException(nameof(queueEverythingFallbackWarning));
         this.queueFileScanSkippedIncompleteWarning = queueFileScanSkippedIncompleteWarning ?? throw new ArgumentNullException(nameof(queueFileScanSkippedIncompleteWarning));
         this.queueEmptyScanWithExistingDbWarning = queueEmptyScanWithExistingDbWarning ?? throw new ArgumentNullException(nameof(queueEmptyScanWithExistingDbWarning));
-        this.applyFileScanStorageMutation = applyFileScanStorageMutation ?? throw new ArgumentNullException(nameof(applyFileScanStorageMutation));
-        this.upsertChartInfoIndexRows = upsertChartInfoIndexRows ?? throw new ArgumentNullException(nameof(upsertChartInfoIndexRows));
         this.dispatchWarningPresentationChanged = dispatchWarningPresentationChanged ?? throw new ArgumentNullException(nameof(dispatchWarningPresentationChanged));
         this.lr2Synchronization = lr2Synchronization ?? throw new ArgumentNullException(nameof(lr2Synchronization));
+        this.catalogMutationOwner = catalogMutationOwner ?? throw new ArgumentNullException(nameof(catalogMutationOwner));
+        this.catalogChartInfoOwner = catalogChartInfoOwner ?? throw new ArgumentNullException(nameof(catalogChartInfoOwner));
+        this.resourceHealthOwner = resourceHealthOwner ?? throw new ArgumentNullException(nameof(resourceHealthOwner));
+        this.publishCatalogReplacement = publishCatalogReplacement ?? throw new ArgumentNullException(nameof(publishCatalogReplacement));
+        this.publishCatalogReplacementFailure = publishCatalogReplacementFailure ?? throw new ArgumentNullException(nameof(publishCatalogReplacementFailure));
         lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(
             logInstallPerformance,
             logInstallPerformanceWarn,
@@ -674,11 +686,11 @@ internal sealed class LibraryFileScanPipelineOwner
         LogFileScanFailures(fileCheckResult, reason);
         lr2FolderFileDiffOwner.Apply(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
-        applyFileScanStorageMutation(fileCheckResult, reason);
+        ApplyCatalogStorageReplacement(fileCheckResult, reason);
         lr2Synchronization.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
         {
-            upsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline", true);
+            catalogChartInfoOwner.UpsertIndex(committedInlineChartInfoRows, "file_diff_inline", true);
             committedInlineChartInfoRows.Clear();
         }
         if (fileCheckResult.InlineChartInfoParseFailureRows.Count > 0
@@ -700,6 +712,42 @@ internal sealed class LibraryFileScanPipelineOwner
         logStartupMemoryCheckpoint("file_diff", "after_release");
         logInstallPerformance("library_file_scan_pipeline completed operation=" + (reason ?? string.Empty));
         return fileCheckResult;
+    }
+
+    internal void ApplyCatalogStorageReplacement(SongTableFileCheckResult fileCheckResult, string reason)
+    {
+        using IDisposable mutationSequence = lr2Synchronization.EnterLr2MutationSequence();
+        CatalogFileScanStorageReplacementRequest request = catalogMutationOwner.CreateFileScanStorageReplacementRequest(
+            fileCheckResult.HasDbDiff,
+            fileCheckResult.NextFiles,
+            fileCheckResult.NextBmsonSongs,
+            fileCheckResult.DeletedPaths,
+            fileCheckResult.DeletedBmsonPaths,
+            fileCheckResult.AddedFiles,
+            fileCheckResult.AddedBmsonSongs);
+        FileScanCatalogReplacementEvent replacementEvent = null;
+        using (ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = resourceHealthOwner.BeginInputMutation())
+        {
+            try
+            {
+                CatalogFileScanStorageReplacementReceipt receipt = catalogMutationOwner.ApplyFileScanStorageReplacement(request);
+                replacementEvent = new FileScanCatalogReplacementEvent(
+                    request,
+                    receipt,
+                    fileCheckResult.NextResourceIndex,
+                    resourceHealthMutation.BaseIndexCurrent,
+                    reason);
+            }
+            catch
+            {
+                publishCatalogReplacementFailure(new FileScanCatalogReplacementFailureEvent(
+                    request,
+                    resourceHealthMutation.BaseIndexCurrent,
+                    reason));
+                throw;
+            }
+        }
+        publishCatalogReplacement(replacementEvent);
     }
 
     internal void ApplyCatalogProjection(
