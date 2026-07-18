@@ -21,7 +21,7 @@ public partial class BMSLibrary
     /// Owns the LR2 synchronization request lifecycle and its cross-route state.
     /// The facade exposes only the application-facing observable projection.
     /// </summary>
-    internal sealed class Lr2SynchronizationOwner : ILr2SongDbSyncRequestHost, ILr2SynchronizationScanPort, ILr2ChartInfoTrustPort, ILr2PlaylistFolderSynchronizationPort
+    internal sealed class Lr2SynchronizationOwner : ILr2SynchronizationScanPort, ILr2ChartInfoTrustPort, ILr2PlaylistFolderSynchronizationPort
     {
         private readonly BMSLibrary library;
 
@@ -106,7 +106,7 @@ public partial class BMSLibrary
 
         internal int ObservableStatusVersion { get; set; }
 
-        BmsLibraryOptionsSnapshot ILr2SongDbSyncRequestHost.CurrentOptionsSnapshot =>
+        internal BmsLibraryOptionsSnapshot CurrentOptionsSnapshot =>
             library.CurrentOptionsSnapshot;
 
         BmsLibraryOptionsSnapshot ILr2SynchronizationScanPort.CurrentOptionsSnapshot =>
@@ -1255,12 +1255,12 @@ public partial class BMSLibrary
                 + " bmsonRowsVersion=" + snapshot.BmsonRowsVersion);
         }
 
-        bool ILr2SongDbSyncRequestHost.IsShutdownRequested => library.IsShutdownRequested;
+        internal bool IsShutdownRequested => library.IsShutdownRequested;
 
-        Func<string, string, string, Func<Task>, bool> ILr2SongDbSyncRequestHost.StartupBackgroundTaskScheduler =>
+        internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler =>
             library.StartupBackgroundTaskScheduler;
 
-        int ILr2SongDbSyncRequestHost.GetLr2SongDbSyncMutationInProgress()
+        internal int GetLr2SongDbSyncMutationInProgress()
         {
             lock (RequestGate)
             {
@@ -1268,7 +1268,7 @@ public partial class BMSLibrary
             }
         }
 
-        Lr2SongDbSyncRuntimeSnapshot ILr2SongDbSyncRequestHost.GetLr2SongDbSyncRuntimeSnapshot()
+        internal Lr2SongDbSyncRuntimeSnapshot GetLr2SongDbSyncRuntimeSnapshot()
         {
             lock (RequestGate)
             {
@@ -1276,7 +1276,7 @@ public partial class BMSLibrary
             }
         }
 
-        bool ILr2SongDbSyncRequestHost.TryReserveLr2SongDbSyncPreparation(
+        internal bool TryReserveLr2SongDbSyncPreparation(
             bool requiresPreparation,
             out Lr2SongDbSyncRuntimeSnapshot blockingSnapshot)
         {
@@ -1297,41 +1297,36 @@ public partial class BMSLibrary
             }
         }
 
-        IDisposable ILr2SongDbSyncRequestHost.EnterLr2SongDbSyncPreparationMutationScope() =>
+        internal IDisposable EnterLr2SongDbSyncPreparationMutationScope() =>
             EnterPreparationMutationScope();
 
-        Lr2SongDbSyncStatusSnapshot ILr2SongDbSyncRequestHost.GetLr2SongDbSyncStatusSnapshot()
+        internal Lr2SongDbSyncStatusSnapshot GetLr2SongDbSyncStatusSnapshot()
         {
             return GetStatusSnapshot();
         }
 
-        LR2SongDBExtended ILr2SongDbSyncRequestHost.OpenSongDb() => library.dbGateway.OpenSongDb();
+        internal LR2SongDBExtended OpenSongDb() => library.dbGateway.OpenSongDb();
 
-        IDisposable ILr2SongDbSyncRequestHost.EnterLr2SongDbSyncCatalogMutationLease() =>
+        internal IDisposable EnterLr2SongDbSyncCatalogMutationLease() =>
             library.catalogMutationOwner.EnterMaintenanceWriteGuard();
 
-        void ILr2SongDbSyncRequestHost.PublishLr2SongDbSyncStatus(Lr2SongDbSyncStatusSnapshot status)
+        internal void PublishLr2SongDbSyncStatus(Lr2SongDbSyncStatusSnapshot status)
         {
             PublishStatus(status);
         }
 
-        bool ILr2SongDbSyncRequestHost.TrySkipForShutdown(string operation, string reason) =>
+        internal bool TrySkipForShutdown(string operation, string reason) =>
             library.TrySkipForShutdown(operation, reason);
 
-        void ILr2SongDbSyncRequestHost.ClearLr2SongDbSyncPreparedDataSurface(string reason) =>
+        internal void ClearLr2SongDbSyncPreparedDataSurface(string reason) =>
             ClearPreparedDataSurface(reason);
 
-        void ILr2SongDbSyncRequestHost.ApplyLr2SongDbSyncPreparedDataSurface(
-            string reason,
-            Lr2SongDbSyncPreparedDataSurface preparedSurface) =>
-            ApplyLr2SongDbSyncPreparedDataSurface(reason, preparedSurface);
-
-        void ILr2SongDbSyncRequestHost.ClearLr2SongDbSyncPrepareReservation()
+        internal void ClearLr2SongDbSyncPrepareReservation()
         {
             ClearPreparation();
         }
 
-        bool ILr2SongDbSyncRequestHost.TryBeginLr2SongDbSyncRequest(out int requestVersion)
+        internal bool TryBeginLr2SongDbSyncRequest(out int requestVersion)
         {
             lock (RequestGate)
             {
@@ -1357,12 +1352,12 @@ public partial class BMSLibrary
             }
         }
 
-        void ILr2SongDbSyncRequestHost.CompleteLr2SongDbSyncRequest(int requestVersion, string stage)
+        internal void CompleteLr2SongDbSyncRequest(int requestVersion, string stage)
         {
             CompleteRequest(requestVersion, stage);
         }
 
-        void ILr2SongDbSyncRequestHost.FailLr2SongDbSyncRequest(
+        internal void FailLr2SongDbSyncRequest(
             int requestVersion,
             Lr2SongDbSyncStatusKind status,
             string stage,
@@ -1371,10 +1366,10 @@ public partial class BMSLibrary
             FailRequest(requestVersion, status, stage, message);
         }
 
-        void ILr2SongDbSyncRequestHost.RunLr2SongDbSync(string reason, string signature, int requestVersion) =>
+        internal void RunLr2SongDbSync(string reason, string signature, int requestVersion) =>
             Lr2SongDbSyncRequestCoordinator.Run(this, reason, signature, requestVersion);
 
-        CancellationToken ILr2SongDbSyncRequestHost.GetLr2SongDbSyncCancellationToken()
+        internal CancellationToken GetLr2SongDbSyncCancellationToken()
         {
             lock (RequestGate)
             {
@@ -1382,13 +1377,13 @@ public partial class BMSLibrary
             }
         }
 
-        Lr2SongDbSyncInput ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncInput() =>
+        internal Lr2SongDbSyncInput CreateLr2SongDbSyncInput() =>
             library.CreateLr2SongDbSyncInput();
 
-        TimeSpan ILr2SongDbSyncRequestHost.CurrentChartInfoParseTimeout =>
+        internal TimeSpan CurrentChartInfoParseTimeout =>
             library.chartInfoBuildService.CurrentParseTimeout;
 
-        void ILr2SongDbSyncRequestHost.ReportStartupBackgroundTask(
+        internal void ReportStartupBackgroundTask(
             string name,
             string status,
             long elapsedMs,
@@ -1396,39 +1391,36 @@ public partial class BMSLibrary
             string detail) =>
             library.ReportStartupBackgroundTask(name, status, elapsedMs, failed, detail);
 
-        void ILr2SongDbSyncRequestHost.PublishLr2SongDbSyncPreflightStage(string stage, string reason, string runId) =>
+        internal void PublishLr2SongDbSyncPreflightStage(string stage, string reason, string runId) =>
             library.PublishLr2SongDbSyncPreflightStage(stage, reason, runId);
 
-        void ILr2SongDbSyncRequestHost.LogLr2SongDbSyncPreflightStageDone(string stage, string reason, string runId, long elapsedMs) =>
+        internal void LogLr2SongDbSyncPreflightStageDone(string stage, string reason, string runId, long elapsedMs) =>
             library.LogLr2SongDbSyncPreflightStageDone(stage, reason, runId, elapsedMs);
 
-        void ILr2SongDbSyncRequestHost.EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) =>
+        internal void EnsureLr2SongDbSyncChartInfoIndexHydrated(string reason) =>
             library.EnsureLr2SongDbSyncChartInfoIndexHydrated(reason);
 
-        Dictionary<string, BMSFile> ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncCompatibilityProjectionIndex() =>
+        internal Dictionary<string, BMSFile> CreateLr2SongDbSyncCompatibilityProjectionIndex() =>
             library.CreateLr2SongDbSyncCompatibilityProjectionIndex();
 
-        Func<BMSFile, LR2SongDBExtended.chart_info> ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
+        internal Func<BMSFile, LR2SongDBExtended.chart_info> CreateLr2SongDbSyncChartInfoResolverSnapshot() =>
             library.CreateLr2SongDbSyncChartInfoResolverSnapshot();
 
-        HashSet<string> ILr2SongDbSyncRequestHost.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason) =>
+        internal HashSet<string> CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(string reason) =>
             library.CreateLr2SongDbSyncCurrentChartInfoParseFailureMd5Snapshot(reason);
 
-        void ILr2SongDbSyncRequestHost.UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows) =>
+        internal void UpsertLr2SongDbSyncChartInfoIndexRows(IReadOnlyList<LR2SongDBExtended.chart_info> rows) =>
             library.UpsertChartInfoIndexRows(rows, "lr2_song_db_sync_inline_chart_info", dispatchPresentation: false);
 
-        CatalogChartInfoWriteReceipt ILr2SongDbSyncRequestHost.ApplyLr2SongDbSyncChartInfoWrite(
+        internal CatalogChartInfoWriteReceipt ApplyLr2SongDbSyncChartInfoWrite(
             LR2SongDBExtended songDb,
             CatalogChartInfoWriteRequest request) =>
             library.catalogMutationOwner.ApplyChartInfoWriteInTransaction(songDb, request);
 
-        bool ILr2SongDbSyncRequestHost.IsLr2SongDbSyncInputCurrent(Lr2SongDbSyncInput input) =>
-            IsLr2SongDbSyncInputCurrent(input);
-
-        void ILr2SongDbSyncRequestHost.UpdateLr2SongDbSyncProgress(Lr2SongDbSyncProgress progress) =>
+        internal void UpdateLr2SongDbSyncProgress(Lr2SongDbSyncProgress progress) =>
             UpdateProgress(progress);
 
-        int ILr2SongDbSyncRequestHost.ApplyLr2SongDbSyncCompatibilityProjection(
+        internal int ApplyLr2SongDbSyncCompatibilityProjection(
             IReadOnlyList<BMSFileMaintenanceInfo> maintenanceInfos,
             string reason,
             IReadOnlyDictionary<string, BMSFile> bmsByPath,
@@ -1441,25 +1433,10 @@ public partial class BMSLibrary
                 logSummary,
                 dispatchPresentation);
 
-        ISet<string> ILr2SongDbSyncRequestHost.GetLr2SongDbSyncTransientSongRowsSkipPaths(
-            Lr2SongDbSyncInput input,
-            string reason) =>
-            GetLr2SongDbSyncTransientSongRowsSkipPaths(input, reason);
-
-        Lr2SongDbSyncSongRowsSkipVerificationResult ILr2SongDbSyncRequestHost.VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(
-            LR2SongDBExtended songDb,
-            IReadOnlyList<BMSFile> songRows,
-            Lr2SongDbSyncInput input,
-            string reason) =>
-            VerifyLr2SongDbSyncSongRowsFreshFromFileDiff(songDb, songRows, input, reason);
-
-        void ILr2SongDbSyncRequestHost.DispatchWarningPresentationChanged(string reason) =>
+        internal void DispatchWarningPresentationChanged(string reason) =>
             library.DispatchWarningPresentationChanged(reason);
 
-        void ILr2SongDbSyncRequestHost.MarkLr2SongDbSyncPreflightCancelled(string signature, string runId, string stage) =>
-            MarkLr2SongDbSyncPreflightCancelled(signature, runId, stage);
-
-        void ILr2SongDbSyncRequestHost.MarkLr2SongDbSyncFailedStatus(string signature, string runId, Exception ex)
+        internal void MarkLr2SongDbSyncFailedStatus(string signature, string runId, Exception ex)
         {
             using LR2SongDBExtended songDb = library.dbGateway.OpenSongDb();
             Lr2SongDbSyncStatusService.MarkFailed(
@@ -1473,8 +1450,8 @@ public partial class BMSLibrary
                 nowUtc: DateTime.UtcNow);
         }
 
-        void ILr2SongDbSyncRequestHost.LogInstallPerformance(string message) =>
-            LogInstallPerformance(message);
+        internal void LogInstallPerformance(string message) =>
+            BMSLibrary.LogInstallPerformance(message);
 
         internal void MarkLr2SongDbSyncPreflightCancelled(
             string signature,
@@ -2092,7 +2069,7 @@ public partial class BMSLibrary
         }
 
         internal bool TryBeginRequest(out int requestVersion) =>
-            ((ILr2SongDbSyncRequestHost)this).TryBeginLr2SongDbSyncRequest(out requestVersion);
+            TryBeginLr2SongDbSyncRequest(out requestVersion);
 
         internal void CompleteRequest(int requestVersion, string stage)
         {
