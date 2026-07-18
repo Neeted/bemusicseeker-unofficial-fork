@@ -601,6 +601,7 @@ public sealed class BmsLibraryInitializationServiceTests
             }
 
             int executeScanCount = 0;
+            int catalogProjectionAppliedCount = 0;
             List<ChartFile> cleanupCharts = [ChartFileProjection.WithPackageState(
                 ChartFileProjection.FromBmsFile(keepFile, includeWarningSnapshot: false),
                 staleDirectoryPath,
@@ -635,7 +636,8 @@ public sealed class BmsLibraryInitializationServiceTests
                     Interlocked.Increment(ref executeScanCount);
                     return null;
                 },
-                null);
+                null,
+                catalogProjectionApplied: _ => catalogProjectionAppliedCount++);
             ProjectCatalogState(result, [keepFile, deletedFile], [], cleanupCharts);
 
             Assert.AreEqual(0, executeScanCount);
@@ -649,6 +651,7 @@ public sealed class BmsLibraryInitializationServiceTests
             Assert.AreEqual(12L, result.ManagedDecodeMs);
             Assert.AreEqual(7L, result.ManagedMaterializeMs);
             Assert.AreEqual(4096UL, result.BridgeRawBufferBytes);
+            Assert.AreEqual(1, catalogProjectionAppliedCount);
             LibraryInstallDestinationChange installDestinationChange = result.MutationDelta.UpdatedInstallDestinations.Single();
             Assert.AreSame(keepFile, installDestinationChange.Chart.GetBmsStorageOwner());
             Assert.IsNull(installDestinationChange.NewInstallDestination);

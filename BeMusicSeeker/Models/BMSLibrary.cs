@@ -2624,8 +2624,7 @@ public partial class BMSLibrary : NotificationObject
             ApplyFileScanCatalogReplacement,
             HandleFileScanCatalogReplacementFailure,
             ApplyFileScanCatalogResidual,
-            initializationService,
-            initializationService.ParseCommitOwner);
+            initializationService);
         packageLifecycleOwner = new PackageLifecycleOwner(
             dbGateway,
             ProcessPendingInstallEstimateBatch,

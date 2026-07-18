@@ -21,7 +21,7 @@ active outcome base commit: 2a75ca5c21ca8885a0b9228756f7a115625f9203
 
 active execution package: LIB-06 Library facade and scan integration closure
 
-sequence cursor: LIB-06-U5 Scan parse/commit direct composition and test-seam retirement
+sequence cursor: LIB-06-U6 Scan snapshot lease enforcement and fallback-seam retirement
 
 目的:
 

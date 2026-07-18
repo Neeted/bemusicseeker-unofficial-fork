@@ -89,8 +89,6 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly BmsLibraryInitializationService initializationService;
 
-    private readonly FileScanParseCommitOwner fileScanParseCommitOwner;
-
     private readonly object fileScanGate = new();
 
     private ActiveFileScan activeFileScan;
@@ -121,8 +119,7 @@ internal sealed class LibraryFileScanPipelineOwner
         Action<FileScanCatalogReplacementEvent> publishCatalogReplacement,
         Action<FileScanCatalogReplacementFailureEvent> publishCatalogReplacementFailure,
         Action<FileScanCatalogResidualEvent> publishCatalogResidual,
-        BmsLibraryInitializationService initializationService,
-        FileScanParseCommitOwner fileScanParseCommitOwner = null)
+        BmsLibraryInitializationService initializationService)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         this.catalogStorageRowsOwner = catalogStorageRowsOwner ?? throw new ArgumentNullException(nameof(catalogStorageRowsOwner));
@@ -154,7 +151,6 @@ internal sealed class LibraryFileScanPipelineOwner
             logEverythingScan,
             lr2Synchronization);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
-        this.fileScanParseCommitOwner = fileScanParseCommitOwner ?? this.initializationService.ParseCommitOwner;
     }
 
     internal long BeginFileScanRequest(
@@ -664,7 +660,6 @@ internal sealed class LibraryFileScanPipelineOwner
             lr2FolderExcludedDirectories: initialAppManagedOutputScope.IsComplete
                 ? initialAppManagedOutputScope.Directories
                 : [],
-            fileScanParseCommitOwner: fileScanParseCommitOwner,
             catalogProjectionApplied: projectionResult => ApplyCatalogProjection(
                 projectionResult,
                 currentInstallDestinationCharts,

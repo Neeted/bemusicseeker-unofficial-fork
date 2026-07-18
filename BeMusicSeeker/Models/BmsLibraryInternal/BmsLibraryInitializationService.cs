@@ -67,8 +67,6 @@ internal sealed class BmsLibraryInitializationService
             fileDiffCommitChunkSizeOverride);
     }
 
-    internal FileScanParseCommitOwner ParseCommitOwner => fileScanParseCommitOwner;
-
     public SongTableLoadResult LoadSongTable(
         BmsLibraryDbGateway dbGateway,
         BmsLibraryOptionsSnapshot options,
@@ -481,8 +479,7 @@ internal sealed class BmsLibraryInitializationService
         Action<SongTableFileCheckResult> lr2ScanSurfacePrepared = null,
         bool protectExistingBmsRowsFromLr2SongDbSyncMigration = false,
         IEnumerable<string> lr2FolderExcludedDirectories = null,
-        Action<SongTableFileCheckResult> catalogProjectionApplied = null,
-        FileScanParseCommitOwner fileScanParseCommitOwner = null)
+        Action<SongTableFileCheckResult> catalogProjectionApplied = null)
     {
         var result = new SongTableFileCheckResult();
         var stopwatchScan = Stopwatch.StartNew();
@@ -613,7 +610,7 @@ internal sealed class BmsLibraryInitializationService
         }
         result.DirectoryCount = result.NextDirectoryResourceLookupCache?.Count ?? 0;
 
-        (fileScanParseCommitOwner ?? this.fileScanParseCommitOwner).ApplyFileDiff(
+        fileScanParseCommitOwner.ApplyFileDiff(
             dbGateway,
             options,
             currentFiles,
