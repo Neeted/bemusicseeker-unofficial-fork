@@ -21,7 +21,7 @@ active outcome base commit: 2a75ca5c21ca8885a0b9228756f7a115625f9203
 
 active execution package: LIB-06 Library facade and scan integration closure
 
-sequence cursor: LIB-06-U7 Scan residual install-destination owner reattachment and facade lookup retirement
+sequence cursor: LIB-06-U8 Scan inline chart-info warning event ownership and callback-port retirement
 
 目的:
 

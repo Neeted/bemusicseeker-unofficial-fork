@@ -12,16 +12,30 @@ internal sealed class InstallDestinationStateOwner
 {
     private readonly object gate = new();
 
+    private readonly CatalogStorageRowsOwner storageRowsOwner;
+
     private readonly Dictionary<string, InstallDestinationRuntimeStateEntry> runtimeStatesByKey = new(StringComparer.OrdinalIgnoreCase);
 
     private readonly Func<HashSet<string>> currentOwnedRuntimeStateKeySnapshotProvider;
 
     private InstallDestinationOverlayChartRefSnapshot overlaySnapshot;
 
-    internal InstallDestinationStateOwner(Func<HashSet<string>> currentOwnedRuntimeStateKeySnapshotProvider)
+    internal InstallDestinationStateOwner(
+        CatalogStorageRowsOwner storageRowsOwner,
+        Func<HashSet<string>> currentOwnedRuntimeStateKeySnapshotProvider)
     {
+        this.storageRowsOwner = storageRowsOwner ?? throw new ArgumentNullException(nameof(storageRowsOwner));
         this.currentOwnedRuntimeStateKeySnapshotProvider = currentOwnedRuntimeStateKeySnapshotProvider
             ?? throw new ArgumentNullException(nameof(currentOwnedRuntimeStateKeySnapshotProvider));
+    }
+
+    internal IReadOnlyList<ChartFile> ReattachFileScanResidualInstallDestinationCharts(
+        IEnumerable<ChartFile> charts)
+    {
+        CatalogStorageRowsSnapshot storageRowsSnapshot = storageRowsOwner.CaptureSnapshot();
+        return [.. (charts ?? [])
+            .Select(chart => ReattachFileScanResidualInstallDestinationChart(chart, storageRowsSnapshot))
+            .Where(chart => chart != null)];
     }
 
     internal List<ChartFile> OverlayRuntimeStates(IEnumerable<ChartFile> charts)
@@ -136,6 +150,84 @@ internal sealed class InstallDestinationStateOwner
         }
 
         return [.. chartsByKey.Values];
+    }
+
+    private static ChartFile ReattachFileScanResidualInstallDestinationChart(
+        ChartFile chart,
+        CatalogStorageRowsSnapshot storageRowsSnapshot)
+    {
+        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
+        {
+            return null;
+        }
+
+        if (chart.Kind == ChartFileKind.Bms)
+        {
+            BMSFile bmsOwner = FindCurrentBmsOwner(chart, storageRowsSnapshot.BmsRows);
+            return bmsOwner == null
+                ? null
+                : CreatePackageStateChart(
+                    chart,
+                    ChartFileProjection.FromBmsFile(
+                        bmsOwner,
+                        includeWarningSnapshot: false,
+                        includeResourceReferences: false));
+        }
+
+        LR2SongDBExtended.bmson_song bmsonOwner = FindCurrentBmsonOwner(chart, storageRowsSnapshot.BmsonRows);
+        return bmsonOwner == null
+            ? null
+            : CreatePackageStateChart(
+                chart,
+                ChartFileProjection.FromBmsonSong(
+                    bmsonOwner,
+                    includeWarningSnapshot: false,
+                    includeResourceReferences: false));
+    }
+
+    private static BMSFile FindCurrentBmsOwner(
+        ChartFile chart,
+        IEnumerable<BMSFile> rows)
+    {
+        List<BMSFile> candidates = [.. (rows ?? [])
+            .Where(file => file != null && AreResidualPathsEqual(file.path, chart.Path))];
+        return candidates.FirstOrDefault(file =>
+                !string.IsNullOrWhiteSpace(file.hash)
+                && !string.IsNullOrWhiteSpace(chart.Md5)
+                && string.Equals(file.hash, chart.Md5, StringComparison.OrdinalIgnoreCase))
+            ?? (candidates.Count == 1 ? candidates[0] : null);
+    }
+
+    private static LR2SongDBExtended.bmson_song FindCurrentBmsonOwner(
+        ChartFile chart,
+        IEnumerable<LR2SongDBExtended.bmson_song> rows)
+    {
+        List<LR2SongDBExtended.bmson_song> candidates = [.. (rows ?? [])
+            .Where(song => song != null && AreResidualPathsEqual(song.path, chart.Path))];
+        return candidates.FirstOrDefault(song =>
+                !string.IsNullOrWhiteSpace(song.md5)
+                && !string.IsNullOrWhiteSpace(chart.Md5)
+                && string.Equals(song.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
+            ?? (candidates.Count == 1 ? candidates[0] : null);
+    }
+
+    private static bool AreResidualPathsEqual(string left, string right)
+    {
+        return string.Equals(
+            OwnedChartCollectionState.CreateOwnedPathKey(left),
+            OwnedChartCollectionState.CreateOwnedPathKey(right),
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static ChartFile CreatePackageStateChart(ChartFile source, ChartFile ownerProjection)
+    {
+        return ChartFileProjection.WithPackageState(
+            ownerProjection,
+            source.InstallDestination,
+            source.InstallDestinationTitle,
+            source.InstallDestinationArtist,
+            source.InstallDestinationSuggestions,
+            source.Warnings);
     }
 
     private List<ChartFile> CreateCurrentCleanupChartsUnsafe()

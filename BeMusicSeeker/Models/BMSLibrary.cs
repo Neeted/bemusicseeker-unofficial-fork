@@ -2578,7 +2578,7 @@ public partial class BMSLibrary : NotificationObject
             maintenanceService,
             LogInstallPerformance,
             GetCurrentResourceHealthIndexVersion);
-        installDestinationStateOwner = new(CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe);
+        installDestinationStateOwner = new(catalogStorageRowsOwner, CreateOwnedInstallDestinationRuntimeStateKeySnapshotUnsafe);
         catalogMaintenanceOwner = new(
             initializationService,
             maintenanceService,
@@ -7481,7 +7481,8 @@ public partial class BMSLibrary : NotificationObject
         }
 
         IReadOnlyList<ChartFile> installDestinationChangedCharts =
-            ResolveFileScanResidualInstallDestinationCharts(residualEvent.InstallDestinationChangedCharts);
+            installDestinationStateOwner.ReattachFileScanResidualInstallDestinationCharts(
+                residualEvent.InstallDestinationChangedCharts);
         var mutationResult = new OwnedChartCollectionMutationResult
         {
             InstallDestinationChangedCount = installDestinationChangedCharts.Count,
@@ -7526,94 +7527,6 @@ public partial class BMSLibrary : NotificationObject
             ClearNormalLibraryRefreshNotification(mutationResult);
             throw;
         }
-    }
-
-    private IReadOnlyList<ChartFile> ResolveFileScanResidualInstallDestinationCharts(
-        IEnumerable<ChartFile> charts)
-    {
-        return [.. (charts ?? [])
-            .Select(ResolveFileScanResidualInstallDestinationChart)
-            .Where(chart => chart != null)];
-    }
-
-    private ChartFile ResolveFileScanResidualInstallDestinationChart(ChartFile chart)
-    {
-        if (chart == null || string.IsNullOrWhiteSpace(chart.Path))
-        {
-            return chart;
-        }
-
-        if (chart.Kind == ChartFileKind.Bms)
-        {
-            BMSFile bmsOwner = FindCurrentBmsOwnerForFileScanResidual(chart);
-            if (bmsOwner == null)
-            {
-                return chart;
-            }
-            return ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsFile(
-                    bmsOwner,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false),
-                chart.InstallDestination,
-                chart.InstallDestinationTitle,
-                chart.InstallDestinationArtist,
-                chart.InstallDestinationSuggestions,
-                chart.Warnings);
-        }
-
-        if (chart.Kind == ChartFileKind.Bmson)
-        {
-            LR2SongDBExtended.bmson_song bmsonOwner = FindCurrentBmsonOwnerForFileScanResidual(chart);
-            if (bmsonOwner == null)
-            {
-                return chart;
-            }
-            return ChartFileProjection.WithPackageState(
-                ChartFileProjection.FromBmsonSong(
-                    bmsonOwner,
-                    includeWarningSnapshot: false,
-                    includeResourceReferences: false),
-                chart.InstallDestination,
-                chart.InstallDestinationTitle,
-                chart.InstallDestinationArtist,
-                chart.InstallDestinationSuggestions,
-                chart.Warnings);
-        }
-
-        return chart;
-    }
-
-    private BMSFile FindCurrentBmsOwnerForFileScanResidual(ChartFile chart)
-    {
-        List<BMSFile> candidates = [.. BMSFiles.Where(file => file != null
-            && AreFileScanResidualPathsEqual(file.path, chart.Path))];
-        return candidates.FirstOrDefault(file =>
-                !string.IsNullOrWhiteSpace(file.hash)
-                && !string.IsNullOrWhiteSpace(chart.Md5)
-                && string.Equals(file.hash, chart.Md5, StringComparison.OrdinalIgnoreCase))
-            ?? (candidates.Count == 1 ? candidates[0] : null);
-    }
-
-    private LR2SongDBExtended.bmson_song FindCurrentBmsonOwnerForFileScanResidual(ChartFile chart)
-    {
-        List<LR2SongDBExtended.bmson_song> candidates = [.. BmsonSongs.Where(song => song != null
-            && AreFileScanResidualPathsEqual(song.path, chart.Path))];
-        return candidates.FirstOrDefault(song =>
-                !string.IsNullOrWhiteSpace(song.md5)
-                && !string.IsNullOrWhiteSpace(chart.Md5)
-                && string.Equals(song.md5, chart.Md5, StringComparison.OrdinalIgnoreCase))
-            ?? (candidates.Count == 1 ? candidates[0] : null);
-    }
-
-    private static bool AreFileScanResidualPathsEqual(string left, string right)
-    {
-        return !string.IsNullOrWhiteSpace(left)
-            && !string.IsNullOrWhiteSpace(right)
-            && string.Equals(
-                SafeFullPathOrOriginal(left),
-                SafeFullPathOrOriginal(right),
-                StringComparison.OrdinalIgnoreCase);
     }
 
     private void LogOwnedChartCollectionSkippedRows(string reason, OwnedChartStorageRowFilterSummary filterSummary)
