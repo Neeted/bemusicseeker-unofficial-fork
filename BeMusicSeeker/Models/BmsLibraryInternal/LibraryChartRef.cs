@@ -159,11 +159,14 @@ internal sealed class LibraryChartRef
                 bmsonSong,
                 preserveOwnerSnapshot ? chart : null);
         }
-        return FromPath(
+        return new LibraryChartRef(
             chart.Kind == ChartFileKind.Bmson ? LibraryChartKind.Bmson : LibraryChartKind.Bms,
             path,
             chart.Md5,
-            chart.Sha256);
+            chart.Sha256,
+            null,
+            null,
+            preserveOwnerSnapshot ? chart : null);
     }
 
     internal static LibraryChartRef FromPath(LibraryChartKind kind, string path, string md5, string sha256)

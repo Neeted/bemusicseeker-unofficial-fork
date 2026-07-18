@@ -198,6 +198,85 @@ public sealed class LibraryFileScanPipelineOwnerTests
     }
 
     [TestMethod]
+    public void FileScanCatalogResidualEvent_CapturesImmutableInstallDestinationFacts()
+    {
+        var bmsFile = new BMSFile
+        {
+            path = "C:\\Library\\chart.bms"
+        };
+        var delta = new LibraryMutationDelta
+        {
+            InvalidateInstalledDirectoryIndex = true,
+            ClearDuplicatedCache = true
+        };
+        delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+        {
+            NewInstallDestination = "C:\\Install\\chart",
+            Chart = ChartFileProjection.WithPackageState(
+                ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false),
+                "C:\\Install\\chart",
+                string.Empty,
+                string.Empty,
+                [])
+        });
+
+        FileScanCatalogResidualEvent residual = FileScanCatalogResidualEvent.Create(delta, "residual_test");
+        bmsFile.path = "C:\\Library\\renamed.bms";
+
+        Assert.AreEqual("residual_test", residual.Reason);
+        Assert.IsTrue(residual.InvalidateInstalledDirectoryIndex);
+        Assert.IsTrue(residual.ClearDuplicatedCache);
+        Assert.AreEqual("C:\\Library\\chart.bms", residual.InstallDestinationChangedCharts.Single().Path);
+        Assert.AreEqual("C:\\Install\\chart", residual.InstallDestinationChangedCharts.Single().InstallDestination);
+        Assert.IsNull(residual.InstallDestinationChangedCharts.Single().GetBmsStorageOwner());
+    }
+
+    [TestMethod]
+    public void FileScanCatalogResidualEvent_RejectsUnsupportedGenericMutation()
+    {
+        var delta = new LibraryMutationDelta();
+        delta.ChartPathChanges.Add(new LibraryChartPathChange
+        {
+            OldPath = "C:\\Library\\old.bms",
+            NewPath = "C:\\Library\\new.bms"
+        });
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => FileScanCatalogResidualEvent.Create(delta, "residual_test"));
+    }
+
+    [TestMethod]
+    public void FileScanCatalogResidualEvent_RejectsPackageEntryMutation()
+    {
+        var delta = new LibraryMutationDelta();
+        delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+        {
+            Entry = new PackageChartEntry(
+                ChartFileProjection.FromIdentitySnapshot(
+                    ChartFileKind.Bms,
+                    "C:\\Library\\chart.bms",
+                    string.Empty,
+                    string.Empty)),
+            NewInstallDestination = "C:\\Install\\chart"
+        });
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => FileScanCatalogResidualEvent.Create(delta, "residual_test"));
+    }
+
+    [TestMethod]
+    public void FileScanCatalogResidualEvent_RejectsUnsupportedParentInvalidation()
+    {
+        var delta = new LibraryMutationDelta
+        {
+            InvalidateParentFolderCache = true
+        };
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => FileScanCatalogResidualEvent.Create(delta, "residual_test"));
+    }
+
+    [TestMethod]
     public void InstallDestinationCleanupSnapshot_DetachesChartProjectionFromMutableSource()
     {
         var bmsFile = new BMSFile
@@ -397,8 +476,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
             resourceHealthOwner,
             callbacks.PublishCatalogReplacement,
             callbacks.PublishCatalogReplacementFailure,
-            new BmsLibraryInitializationService(),
-            _ => { });
+            callbacks.PublishCatalogResidual,
+            new BmsLibraryInitializationService());
     }
 
     private sealed class RecordingLibraryFileScanPipelineCallbacks
@@ -426,6 +505,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public FileScanCatalogReplacementEvent LastCatalogReplacement { get; private set; } = null!;
 
         public FileScanCatalogReplacementFailureEvent LastCatalogReplacementFailure { get; private set; } = null!;
+
+        public FileScanCatalogResidualEvent LastCatalogResidual { get; private set; } = null!;
 
         public void ReportLibraryInitializationProgress(
             BMSLibrary.LibraryInitializationProgressStage stage,
@@ -492,6 +573,11 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public void PublishCatalogReplacementFailure(FileScanCatalogReplacementFailureEvent failureEvent)
         {
             LastCatalogReplacementFailure = failureEvent;
+        }
+
+        public void PublishCatalogResidual(FileScanCatalogResidualEvent residualEvent)
+        {
+            LastCatalogResidual = residualEvent;
         }
 
         public void DispatchWarningPresentationChanged(string reason)

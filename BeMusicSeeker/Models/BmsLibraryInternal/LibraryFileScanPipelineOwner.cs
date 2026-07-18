@@ -85,13 +85,13 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly Action<FileScanCatalogReplacementFailureEvent> publishCatalogReplacementFailure;
 
+    private readonly Action<FileScanCatalogResidualEvent> publishCatalogResidual;
+
     private readonly Lr2FolderFileDiffOwner lr2FolderFileDiffOwner;
 
     private readonly BmsLibraryInitializationService initializationService;
 
     private readonly FileScanParseCommitOwner fileScanParseCommitOwner;
-
-    private readonly Action<LibraryMutationDelta> applyLibraryMutationDelta;
 
     private readonly object fileScanGate = new();
 
@@ -123,8 +123,8 @@ internal sealed class LibraryFileScanPipelineOwner
         ResourceHealthIndexOwner resourceHealthOwner,
         Action<FileScanCatalogReplacementEvent> publishCatalogReplacement,
         Action<FileScanCatalogReplacementFailureEvent> publishCatalogReplacementFailure,
+        Action<FileScanCatalogResidualEvent> publishCatalogResidual,
         BmsLibraryInitializationService initializationService,
-        Action<LibraryMutationDelta> applyLibraryMutationDelta,
         FileScanParseCommitOwner fileScanParseCommitOwner = null)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
@@ -150,6 +150,7 @@ internal sealed class LibraryFileScanPipelineOwner
         this.resourceHealthOwner = resourceHealthOwner ?? throw new ArgumentNullException(nameof(resourceHealthOwner));
         this.publishCatalogReplacement = publishCatalogReplacement ?? throw new ArgumentNullException(nameof(publishCatalogReplacement));
         this.publishCatalogReplacementFailure = publishCatalogReplacementFailure ?? throw new ArgumentNullException(nameof(publishCatalogReplacementFailure));
+        this.publishCatalogResidual = publishCatalogResidual ?? throw new ArgumentNullException(nameof(publishCatalogResidual));
         lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(
             logInstallPerformance,
             logInstallPerformanceWarn,
@@ -158,7 +159,6 @@ internal sealed class LibraryFileScanPipelineOwner
             lr2Synchronization);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.fileScanParseCommitOwner = fileScanParseCommitOwner ?? this.initializationService.ParseCommitOwner;
-        this.applyLibraryMutationDelta = applyLibraryMutationDelta ?? throw new ArgumentNullException(nameof(applyLibraryMutationDelta));
     }
 
     internal long BeginFileScanRequest(
@@ -700,7 +700,7 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             dispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
         }
-        applyLibraryMutationDelta(fileCheckResult.MutationDelta);
+        publishCatalogResidual(FileScanCatalogResidualEvent.Create(fileCheckResult.MutationDelta, reason));
         lr2Synchronization.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
         lr2Synchronization.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
         lr2Synchronization.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);

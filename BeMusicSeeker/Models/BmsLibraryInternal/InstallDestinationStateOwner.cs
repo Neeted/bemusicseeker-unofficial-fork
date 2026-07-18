@@ -325,14 +325,18 @@ internal sealed class InstallDestinationStateOwner
         private readonly BMSFile bmsOwner;
         private readonly LR2SongDBExtended.bmson_song bmsonOwner;
 
+        private readonly ChartFile chartSnapshot;
+
         private InstallDestinationRuntimeStateEntry(
             ChartFileTransientState state,
             BMSFile bmsOwner,
-            LR2SongDBExtended.bmson_song bmsonOwner)
+            LR2SongDBExtended.bmson_song bmsonOwner,
+            ChartFile chartSnapshot)
         {
             State = state ?? ChartFileTransientState.Empty;
             this.bmsOwner = bmsOwner;
             this.bmsonOwner = bmsonOwner;
+            this.chartSnapshot = chartSnapshot;
         }
 
         internal ChartFileTransientState State { get; }
@@ -342,7 +346,8 @@ internal sealed class InstallDestinationStateOwner
             return new InstallDestinationRuntimeStateEntry(
                 state,
                 chart?.GetBmsStorageOwner(),
-                chart?.GetBmsonStorageOwner());
+                chart?.GetBmsonStorageOwner(),
+                ChartFileProjection.ToImmutableSnapshot(chart));
         }
 
         internal bool CanApplyTo(ChartFile chart, bool requireOwnerMatch)
@@ -369,6 +374,16 @@ internal sealed class InstallDestinationStateOwner
                 return ReferenceEquals(bmsOwner, currentBmsOwner);
             }
 
+            // Scan residual events carry immutable snapshots only. The facade
+            // reattaches the current storage owner before applying them when a
+            // row is available; an ownerless snapshot must never satisfy the
+            // guarded path fallback because that would leak state to another
+            // chart later installed at the same path.
+            if (bmsonOwner == null && currentBmsonOwner == null)
+            {
+                return false;
+            }
+
             return (bmsonOwner != null || currentBmsonOwner != null)
                 && ReferenceEquals(bmsonOwner, currentBmsonOwner);
         }
@@ -384,7 +399,11 @@ internal sealed class InstallDestinationStateOwner
                 ? ChartFileProjection.FromBmsStorageOwnerIdentity(bmsOwner)
                 : bmsonOwner != null
                     ? ChartFileProjection.FromBmsonStorageOwnerIdentity(bmsonOwner)
-                    : null;
+                    : chartSnapshot;
+            if (source == null)
+            {
+                return null;
+            }
             return ChartFileProjection.WithTransientState(source, State, includeWarningSnapshot: false);
         }
     }

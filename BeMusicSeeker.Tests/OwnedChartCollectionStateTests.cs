@@ -2950,6 +2950,50 @@ public sealed class OwnedChartCollectionStateTests
     }
 
     [TestMethod]
+    public void ApplyFileScanCatalogResidual_UpdatesInstallDestinationProjectionWithoutGenericMutation()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath), "Installed", "scan-residual.bms");
+            Directory.CreateDirectory(Path.GetDirectoryName(chartPath));
+            File.WriteAllText(chartPath, "#PLAYER 1");
+            BMSFile bmsFile = CreateFile("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", chartPath);
+            var library = new BMSLibrary(songDbPath);
+            SetLibraryFilesWithoutNotification(library, [bmsFile]);
+            SetLibraryBmsonSongsWithoutNotification(library, []);
+            int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
+
+            var delta = new LibraryMutationDelta
+            {
+                InvalidateInstalledDirectoryIndex = true,
+                ClearDuplicatedCache = true
+            };
+            delta.UpdatedInstallDestinations.Add(new LibraryInstallDestinationChange
+            {
+                Chart = ChartFileProjection.FromBmsFile(
+                    bmsFile,
+                    includeWarningSnapshot: false,
+                    includeResourceReferences: false),
+                NewInstallDestination = Path.Combine(Path.GetDirectoryName(chartPath), "Overlay")
+            });
+
+            library.ApplyFileScanCatalogResidual(
+                FileScanCatalogResidualEvent.Create(delta, "residual_test"));
+
+            InstallDestinationOverlayChartRefSnapshot overlay =
+                InvokeCreateInstallDestinationOverlayChartRefSnapshot(library);
+            Assert.AreEqual(1, overlay.ChartCount);
+            NormalLibraryRefreshNotificationBatch batch =
+                library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
+            Assert.IsTrue(batch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged));
+            Assert.IsFalse(batch.NotifiesStorageRows);
+            Assert.IsFalse(batch.NotifiesBmsFiles);
+            Assert.IsFalse(batch.NotifiesBmsonSongs);
+        });
+    }
+
+    [TestMethod]
     public void NormalLibraryRefreshNotificationBatch_DoesNotHideOverlayRefreshInSameStorageRowNotification()
     {
         TestResourceInitializer.EnsureJapaneseResources();
