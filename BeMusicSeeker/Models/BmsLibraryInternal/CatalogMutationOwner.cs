@@ -716,19 +716,11 @@ internal sealed class CatalogMutationOwner
         IEnumerable<string> deletedBmsPaths,
         IEnumerable<string> deletedBmsonPaths,
         IEnumerable<BMSFile> addedBmsFiles,
-        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs,
-        CatalogStorageRowsSnapshot expectedCurrentRows = null)
+        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs)
     {
         using (storageRowsOwner.WriteGate.GetReaderGuard())
         {
             CatalogStorageRowsSnapshot currentRows = storageRowsOwner.CaptureSnapshot();
-            if (expectedCurrentRows != null
-                && (currentRows.BmsRowsVersion != expectedCurrentRows.BmsRowsVersion
-                    || currentRows.BmsonRowsVersion != expectedCurrentRows.BmsonRowsVersion))
-            {
-                throw new InvalidOperationException(
-                    "The catalog storage rows changed while a file-scan projection was being prepared.");
-            }
             return CreateFileScanStorageReplacementRequestUnsafe(
                 hasDbDiff,
                 nextBmsRows,
@@ -792,9 +784,8 @@ internal sealed class CatalogMutationOwner
         IEnumerable<string> deletedBmsonPaths,
         IEnumerable<BMSFile> addedBmsFiles,
         IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs,
-        CatalogStorageRowsSnapshot currentRows = null)
+        CatalogStorageRowsSnapshot currentRows)
     {
-        currentRows ??= storageRowsOwner.CaptureSnapshot();
         bool removedPayloadAvailable = ownedCollectionOwner.TryCreateFileScanRemovedStorageOwnerIdentityCharts(
             [.. deletedBmsPaths ?? []],
             [.. deletedBmsonPaths ?? []],

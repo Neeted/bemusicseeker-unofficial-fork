@@ -3442,7 +3442,13 @@ public sealed class OwnedChartCollectionStateTests
         Assert.IsNotNull(fieldInfo);
         var owner = (LibraryFileScanPipelineOwner)fieldInfo.GetValue(library);
         Assert.IsNotNull(owner);
-        owner.ApplyCatalogStorageReplacement(result, reason);
+        FieldInfo storageRowsFieldInfo = typeof(BMSLibrary).GetField(
+            "catalogStorageRowsOwner",
+            BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.IsNotNull(storageRowsFieldInfo);
+        var storageRowsOwner = (CatalogStorageRowsOwner)storageRowsFieldInfo.GetValue(library);
+        Assert.IsNotNull(storageRowsOwner);
+        owner.ApplyCatalogStorageReplacement(result, reason, storageRowsOwner.CaptureSnapshot());
     }
 
     private static void InvokeApplyCatalogStorageRowsWithoutNotification(

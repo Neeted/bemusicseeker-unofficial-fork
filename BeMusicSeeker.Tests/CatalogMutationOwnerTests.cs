@@ -609,28 +609,6 @@ public sealed class CatalogMutationOwnerTests
     }
 
     [TestMethod]
-    public void CreateFileScanStorageReplacementRequest_RejectsChangedExpectedRows()
-    {
-        var currentBms = CreateBms("current.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-        var replacementBms = CreateBms("replacement.bms", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
-        var storageRowsOwner = new CatalogStorageRowsOwner();
-        CatalogStorageRowsSnapshot expectedRows = storageRowsOwner.ReplaceRowsAndCaptureSnapshot([currentBms], []);
-        var owner = new CatalogMutationOwner(storageRowsOwner, new CatalogOwnedCollectionOwner());
-
-        storageRowsOwner.ReplaceBmsRows([replacementBms]);
-
-        Assert.ThrowsException<InvalidOperationException>(() => owner.CreateFileScanStorageReplacementRequest(
-            hasDbDiff: true,
-            nextBmsRows: [replacementBms],
-            nextBmsonRows: [],
-            deletedBmsPaths: [currentBms.path],
-            deletedBmsonPaths: [],
-            addedBmsFiles: [replacementBms],
-            addedBmsonSongs: [],
-            expectedCurrentRows: expectedRows));
-    }
-
-    [TestMethod]
     public void Apply_WithoutDbDiffDoesNotChangeRowsOrEmitMutationFacts()
     {
         var bms = CreateBms("current.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");

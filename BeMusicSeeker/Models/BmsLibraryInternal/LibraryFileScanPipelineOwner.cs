@@ -712,8 +712,12 @@ internal sealed class LibraryFileScanPipelineOwner
     internal void ApplyCatalogStorageReplacement(
         SongTableFileCheckResult fileCheckResult,
         string reason,
-        CatalogStorageRowsSnapshot expectedCurrentRows = null)
+        CatalogStorageRowsSnapshot storageRowsSnapshot)
     {
+        if (storageRowsSnapshot == null)
+        {
+            throw new ArgumentNullException(nameof(storageRowsSnapshot));
+        }
         using IDisposable mutationSequence = lr2Synchronization.EnterLr2MutationSequence();
         CatalogFileScanStorageReplacementRequest request = null;
         FileScanCatalogReplacementEvent replacementEvent = null;
@@ -729,9 +733,8 @@ internal sealed class LibraryFileScanPipelineOwner
                     fileCheckResult.DeletedBmsonPaths,
                     fileCheckResult.AddedFiles,
                     fileCheckResult.AddedBmsonSongs);
-                if (expectedCurrentRows != null
-                    && (request.PreviousBmsRowsVersion != expectedCurrentRows.BmsRowsVersion
-                        || request.PreviousBmsonRowsVersion != expectedCurrentRows.BmsonRowsVersion))
+                if (request.PreviousBmsRowsVersion != storageRowsSnapshot.BmsRowsVersion
+                    || request.PreviousBmsonRowsVersion != storageRowsSnapshot.BmsonRowsVersion)
                 {
                     throw new InvalidOperationException(
                         "The catalog storage rows changed while a file-scan projection was being prepared.");
@@ -762,9 +765,12 @@ internal sealed class LibraryFileScanPipelineOwner
     internal void ApplyCatalogProjection(
         SongTableFileCheckResult fileCheckResult,
         IEnumerable<ChartFile> currentInstallDestinationCharts,
-        CatalogStorageRowsSnapshot storageRowsSnapshot = null)
+        CatalogStorageRowsSnapshot storageRowsSnapshot)
     {
-        storageRowsSnapshot ??= catalogStorageRowsOwner.CaptureSnapshot();
+        if (storageRowsSnapshot == null)
+        {
+            throw new ArgumentNullException(nameof(storageRowsSnapshot));
+        }
         ApplyCatalogProjection(
             fileCheckResult,
             storageRowsSnapshot.BmsRows,

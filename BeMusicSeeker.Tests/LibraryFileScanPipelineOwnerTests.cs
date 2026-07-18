@@ -159,8 +159,10 @@ public sealed class LibraryFileScanPipelineOwnerTests
         };
         result.DeletedPaths.Add(replacedFile.path);
         result.AddedFiles.Add(replacementFile);
+        CatalogStorageRowsSnapshot capturedRows = callbacks.CatalogStorageRowsOwner.CaptureSnapshot();
+        callbacks.CatalogStorageRowsOwner.ReplaceBmsRows([new BMSFile { path = "live-replacement.bms" }]);
 
-        owner.ApplyCatalogProjection(result, []);
+        owner.ApplyCatalogProjection(result, [], capturedRows);
 
         Assert.AreEqual(2, result.NextFiles.Count);
         Assert.AreSame(keepFile, result.NextFiles[0]);
@@ -216,7 +218,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             string.Empty,
             []);
 
-        owner.ApplyCatalogProjection(result, [chart]);
+        owner.ApplyCatalogProjection(result, [chart], callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
         LibraryInstallDestinationChange change = result.MutationDelta.UpdatedInstallDestinations.Single();
         Assert.AreSame(chart, change.Chart);
@@ -349,7 +351,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             []);
         InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
 
-        owner.ApplyCatalogProjection(result, snapshot.Charts);
+        owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
         LibraryInstallDestinationChange change = result.MutationDelta.UpdatedInstallDestinations.Single();
         Assert.AreEqual("C:\\Library\\chart.bms", change.Chart.Path);
@@ -382,7 +384,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             []);
         InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([chart]);
 
-        owner.ApplyCatalogProjection(result, snapshot.Charts);
+        owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
         LibraryInstallDestinationChange change = result.MutationDelta.UpdatedInstallDestinations.Single();
         Assert.AreEqual("C:\\Library\\chart.bmson", change.Chart.Path);
@@ -417,7 +419,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             []);
         InstallDestinationCleanupSnapshot snapshot = InstallDestinationCleanupSnapshot.FromCharts([bmsChart]);
 
-        owner.ApplyCatalogProjection(result, snapshot.Charts);
+        owner.ApplyCatalogProjection(result, snapshot.Charts, callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
         Assert.AreEqual(0, result.MutationDelta.UpdatedInstallDestinations.Count);
     }
@@ -439,7 +441,10 @@ public sealed class LibraryFileScanPipelineOwnerTests
         result.NextFiles.AddRange([keptFile, addedFile]);
         result.AddedFiles.Add(addedFile);
 
-        owner.ApplyCatalogStorageReplacement(result, "test_storage_replacement");
+        owner.ApplyCatalogStorageReplacement(
+            result,
+            "test_storage_replacement",
+            callbacks.CatalogStorageRowsOwner.CaptureSnapshot());
 
         Assert.IsNotNull(callbacks.LastCatalogReplacement);
         Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
@@ -469,6 +474,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             () => owner.ApplyCatalogStorageReplacement(result, "test_storage_conflict", expectedRows));
 
         Assert.IsNotNull(callbacks.LastCatalogReplacementFailure);
+        Assert.IsNull(callbacks.LastCatalogReplacement);
         Assert.AreEqual(
             callbacks.CatalogStorageRowsOwner.CaptureSnapshot().BmsRowsVersion,
             callbacks.LastCatalogReplacementFailure.Request.PreviousBmsRowsVersion);
