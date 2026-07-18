@@ -6830,7 +6830,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         string reason)
     {
         var host = new BMSLibrary.LibraryFileScanPipelineHost(library);
-        var owner = new Lr2FolderFileDiffOwner(host, host);
+        var owner = new Lr2FolderFileDiffOwner(host, library.Lr2Synchronization);
         owner.Apply(options, rootDirectories, result, reason);
     }
 

@@ -41,7 +41,7 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly ILibraryFileScanPipelineHost host;
 
-    private readonly ILibraryFileScanLr2FolderHost lr2Host;
+    private readonly ILr2SynchronizationScanPort lr2Synchronization;
 
     private readonly Lr2FolderFileDiffOwner lr2FolderFileDiffOwner;
 
@@ -59,14 +59,14 @@ internal sealed class LibraryFileScanPipelineOwner
 
     internal LibraryFileScanPipelineOwner(
         ILibraryFileScanPipelineHost host,
-        ILibraryFileScanLr2FolderHost lr2Host,
+        ILr2SynchronizationScanPort lr2Synchronization,
         BmsLibraryInitializationService initializationService,
         Action<LibraryMutationDelta> applyLibraryMutationDelta,
         FileScanParseCommitOwner fileScanParseCommitOwner = null)
     {
         this.host = host ?? throw new ArgumentNullException(nameof(host));
-        this.lr2Host = lr2Host ?? throw new ArgumentNullException(nameof(lr2Host));
-        lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(this.host, lr2Host);
+        this.lr2Synchronization = lr2Synchronization ?? throw new ArgumentNullException(nameof(lr2Synchronization));
+        lr2FolderFileDiffOwner = new Lr2FolderFileDiffOwner(this.host, lr2Synchronization);
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
         this.fileScanParseCommitOwner = fileScanParseCommitOwner ?? this.initializationService.ParseCommitOwner;
         this.applyLibraryMutationDelta = applyLibraryMutationDelta ?? throw new ArgumentNullException(nameof(applyLibraryMutationDelta));
@@ -412,7 +412,7 @@ internal sealed class LibraryFileScanPipelineOwner
         {
             throw new ArgumentNullException(nameof(installDestinationCleanupSnapshot));
         }
-        host.ThrowIfLr2SongDbSyncMutationBlocked("ApplyLibraryFileScanDiff");
+        lr2Synchronization.ThrowIfLr2SongDbSyncMutationBlocked("ApplyLibraryFileScanDiff");
         var emptyResult = new SongTableFileCheckResult();
         if (bmsDirectories == null || bmsDirectories.Count == 0)
         {
@@ -507,9 +507,9 @@ internal sealed class LibraryFileScanPipelineOwner
 
         List<LR2SongDBExtended.chart_info> committedInlineChartInfoRows = [];
         IReadOnlyList<ChartFile> currentInstallDestinationCharts = installDestinationCleanupSnapshot.Charts;
-        Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = lr2Host.CreateLr2SongDbSyncAppManagedOutputScope();
+        Lr2SongDbSyncAppManagedOutputScope initialAppManagedOutputScope = lr2Synchronization.CreateLr2SongDbSyncAppManagedOutputScope();
         Task<Lr2FolderFileDiffPreparationResult> lr2FolderFileDiffPreparationTask = null;
-        bool protectExistingBmsRowsFromLr2SongDbSyncMigration = host.ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(options);
+        bool protectExistingBmsRowsFromLr2SongDbSyncMigration = lr2Synchronization.ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(options);
         void StartLr2FolderFileDiffPreparation(SongTableFileCheckResult partialResult)
         {
             if (lr2FolderFileDiffPreparationTask != null
@@ -566,7 +566,7 @@ internal sealed class LibraryFileScanPipelineOwner
             },
             bmsDirectories,
             bmsDirectories,
-            lr2Host.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
+            lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
             null,
             resolveNormalFolderMtimeSnapshot,
             StartLr2FolderFileDiffPreparation,
@@ -594,7 +594,7 @@ internal sealed class LibraryFileScanPipelineOwner
         lr2FolderFileDiffOwner.Apply(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
         host.ApplyFileScanStorageMutation(fileCheckResult, reason);
-        host.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
+        lr2Synchronization.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
         {
             host.UpsertChartInfoIndexRows(committedInlineChartInfoRows, "file_diff_inline");
@@ -608,9 +608,9 @@ internal sealed class LibraryFileScanPipelineOwner
             host.DispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
         }
         applyLibraryMutationDelta(fileCheckResult.MutationDelta);
-        host.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
-        host.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
-        host.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
+        lr2Synchronization.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);
+        lr2Synchronization.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
+        lr2Synchronization.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, fileCheckResult);
         if (trackLibraryFileCheckProgress)
         {
             host.CompleteLibraryFileDiffProgress();

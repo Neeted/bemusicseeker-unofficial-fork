@@ -17,14 +17,14 @@ internal sealed class Lr2FolderFileDiffOwner
 {
     private readonly ILibraryFileScanPipelineHost host;
 
-    private readonly ILibraryFileScanLr2FolderHost lr2Host;
+    private readonly ILr2SynchronizationScanPort lr2Synchronization;
 
     internal Lr2FolderFileDiffOwner(
         ILibraryFileScanPipelineHost host,
-        ILibraryFileScanLr2FolderHost lr2Host)
+        ILr2SynchronizationScanPort lr2Synchronization)
     {
         this.host = host ?? throw new ArgumentNullException(nameof(host));
-        this.lr2Host = lr2Host ?? throw new ArgumentNullException(nameof(lr2Host));
+        this.lr2Synchronization = lr2Synchronization ?? throw new ArgumentNullException(nameof(lr2Synchronization));
     }
 
     internal bool CanPrepare(
@@ -86,7 +86,7 @@ internal sealed class Lr2FolderFileDiffOwner
             + " appManagedExactFiles=" + preparation.AppManagedOutputFilePaths.Count
             + " appManagedPruneExcludedPaths=" + preparation.AppManagedPruneExcludedPaths.Count
             + " allowPruneRequested=" + allowPrune.ToString().ToLowerInvariant());
-        lr2Host.SyncLr2FolderFileRows(
+        lr2Synchronization.SyncLr2FolderFileRows(
             options,
             preparation.Request,
             reason,
@@ -143,7 +143,7 @@ internal sealed class Lr2FolderFileDiffOwner
             return null;
         }
 
-        BmsLibraryOptionsSnapshot currentSettings = lr2Host.CurrentOptionsSnapshot;
+        BmsLibraryOptionsSnapshot currentSettings = lr2Synchronization.CurrentOptionsSnapshot;
         var stopwatchPrepare = Stopwatch.StartNew();
         var stopwatchStage = Stopwatch.StartNew();
         List<string> roots = [.. (rootDirectories ?? [])
@@ -152,9 +152,9 @@ internal sealed class Lr2FolderFileDiffOwner
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
         long rootsMs = RestartElapsed(stopwatchStage);
-        List<string> builtinSourceDirectories = lr2Host.CreateLr2SongDbSyncBuiltinFolderSourceDirectories(currentSettings);
+        List<string> builtinSourceDirectories = lr2Synchronization.CreateLr2SongDbSyncBuiltinFolderSourceDirectories(currentSettings);
         long builtinSourceMs = RestartElapsed(stopwatchStage);
-        Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = lr2Host.CreateLr2SongDbSyncAppManagedOutputScope();
+        Lr2SongDbSyncAppManagedOutputScope appManagedOutputScope = lr2Synchronization.CreateLr2SongDbSyncAppManagedOutputScope();
         long appManagedScopeMs = RestartElapsed(stopwatchStage);
         Lr2FolderFileCandidateSnapshot fileDiffCandidates;
         int appManagedCandidateCount;
@@ -176,7 +176,7 @@ internal sealed class Lr2FolderFileDiffOwner
                 fileDiffCandidates = Lr2FolderFileDiscoveryService.CreateFileCandidates(
                     fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
                     currentSettings.LR2RootPath,
-                    lr2Host.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
+                    lr2Synchronization.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime.UtcNow),
                     host.LogEverythingScan,
                     appManagedOutputScope.Directories);
             }
@@ -212,7 +212,7 @@ internal sealed class Lr2FolderFileDiffOwner
         {
             RootDirectories = roots,
             Lr2FolderDiscoveryDirectories = fileCheckResult.Lr2ScanLr2FolderDiscoveryDirectories,
-            Lr2FolderPruneDirectories = lr2Host.CreateLr2SongDbSyncLr2FolderPruneDirectories(
+            Lr2FolderPruneDirectories = lr2Synchronization.CreateLr2SongDbSyncLr2FolderPruneDirectories(
                 roots,
                 builtinSourceDirectories,
                 options: currentSettings),

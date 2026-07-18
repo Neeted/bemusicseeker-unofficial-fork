@@ -19,8 +19,6 @@ internal interface ILibraryFileScanPipelineHost
 
     bool EverythingScanLoggingEnabled { get; }
 
-    void ThrowIfLr2SongDbSyncMutationBlocked(string operation);
-
     void ReportLibraryInitializationProgress(
         BMSLibrary.LibraryInitializationProgressStage stage,
         string scannerLabel = null,
@@ -56,13 +54,6 @@ internal interface ILibraryFileScanPipelineHost
     /// <param name="reason">The file-scan operation reason used for dispatch diagnostics.</param>
     void ApplyFileScanStorageMutation(SongTableFileCheckResult fileCheckResult, string reason);
 
-    bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options);
-
-    void CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
-        BmsLibraryOptionsSnapshot options,
-        SongTableFileCheckResult fileCheckResult,
-        string reason);
-
     void UpsertChartInfoIndexRows(
         IEnumerable<LR2SongDBExtended.chart_info> rows,
         string reason,
@@ -70,17 +61,4 @@ internal interface ILibraryFileScanPipelineHost
 
     void DispatchWarningPresentationChanged(string reason);
 
-    void CaptureLr2SongDbSyncScanSurface(
-        BmsLibraryOptionsSnapshot options,
-        IEnumerable<string> rootDirectories,
-        SongTableFileCheckResult fileCheckResult);
-
-    void CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(
-        BmsLibraryOptionsSnapshot options,
-        SongTableFileCheckResult fileCheckResult,
-        string reason);
-
-    void MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(
-        BmsLibraryOptionsSnapshot options,
-        SongTableFileCheckResult result);
 }

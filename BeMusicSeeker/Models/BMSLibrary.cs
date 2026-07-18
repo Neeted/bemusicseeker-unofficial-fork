@@ -782,6 +782,8 @@ public partial class BMSLibrary : NotificationObject
 
     private readonly Lr2SynchronizationOwner lr2SynchronizationOwner;
 
+    internal ILr2SynchronizationScanPort Lr2Synchronization => lr2SynchronizationOwner;
+
     private object lockLr2SongDbSyncScanSurface => lr2SynchronizationOwner.ScanSurfaceGate;
 
     private Lr2SongDbSyncScanSurfaceSnapshot lr2SongDbSyncScanSurfaceSnapshot
@@ -2826,7 +2828,7 @@ public partial class BMSLibrary : NotificationObject
             NotifyMaintenanceHydrationStateChanged);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             libraryFileScanHost,
-            libraryFileScanHost,
+            Lr2Synchronization,
             initializationService,
             ApplyLibraryMutationDelta,
             initializationService.ParseCommitOwner);
@@ -4106,7 +4108,7 @@ public partial class BMSLibrary : NotificationObject
         LibraryFileDiffCompletedVersion++;
     }
 
-    internal sealed class LibraryFileScanPipelineHost(BMSLibrary owner) : ILibraryFileScanPipelineHost, ILibraryFileScanLr2FolderHost
+    internal sealed class LibraryFileScanPipelineHost(BMSLibrary owner) : ILibraryFileScanPipelineHost
     {
         public BmsLibraryDbGateway DbGateway => owner.dbGateway;
 
@@ -4117,11 +4119,6 @@ public partial class BMSLibrary : NotificationObject
         public IBmsLibraryDialogService DialogService => owner.dialogService;
 
         public bool EverythingScanLoggingEnabled => everythingScanLoggingEnabled;
-
-        public void ThrowIfLr2SongDbSyncMutationBlocked(string operation)
-        {
-            owner.ThrowIfLr2SongDbSyncMutationBlocked(operation);
-        }
 
         public void ReportLibraryInitializationProgress(
             LibraryInitializationProgressStage stage,
@@ -4189,72 +4186,6 @@ public partial class BMSLibrary : NotificationObject
             owner.ApplyFileScanStorageMutation(fileCheckResult, reason);
         }
 
-        public BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => owner.CurrentOptionsSnapshot;
-
-        public List<string> CreateLr2SongDbSyncBuiltinFolderSourceDirectories(BmsLibraryOptionsSnapshot options)
-        {
-            return owner.CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
-        }
-
-        public List<string> CreateLr2SongDbSyncLr2FolderPruneDirectories(
-            IEnumerable<string> rootDirectories,
-            IEnumerable<string> builtinSourceDirectories,
-            BmsLibraryOptionsSnapshot options)
-        {
-            return owner.CreateLr2SongDbSyncLr2FolderPruneDirectories(
-                rootDirectories,
-                builtinSourceDirectories,
-                options: options);
-        }
-
-        public Lr2FolderFileDbSyncResult SyncLr2FolderFileRows(
-            BmsLibraryOptionsSnapshot options,
-            Lr2SongDbSyncRequest request,
-            string reason,
-            string logName,
-            bool allowPrune = true,
-            IReadOnlyCollection<string> pruneExcludedDirectories = null,
-            IReadOnlyCollection<string> pruneExcludedPaths = null,
-            bool scopeReadLr2FolderRowsOnly = false,
-            bool updateParentDirectoryRowsForPreservedItems = true)
-        {
-            return owner.SyncLr2FolderFileRows(
-                options,
-                request,
-                reason,
-                logName,
-                allowPrune,
-                pruneExcludedDirectories,
-                pruneExcludedPaths,
-                scopeReadLr2FolderRowsOnly,
-                updateParentDirectoryRowsForPreservedItems);
-        }
-
-        public Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope()
-        {
-            return owner.CreateLr2SongDbSyncAppManagedOutputScope();
-        }
-
-        public Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
-        {
-            return owner.CreateCurrentLr2BuiltinCustomFolderSettings(nowUtc);
-        }
-
-        public bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options)
-        {
-            return owner.ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(options);
-        }
-
-        public void CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
-            BmsLibraryOptionsSnapshot options,
-            SongTableFileCheckResult fileCheckResult,
-            string reason)
-        {
-            owner.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
-        }
-
-
-
         public void UpsertChartInfoIndexRows(
             IEnumerable<LR2SongDBExtended.chart_info> rows,
             string reason,
@@ -4268,28 +4199,6 @@ public partial class BMSLibrary : NotificationObject
             owner.DispatchWarningPresentationChanged(reason);
         }
 
-        public void CaptureLr2SongDbSyncScanSurface(
-            BmsLibraryOptionsSnapshot options,
-            IEnumerable<string> rootDirectories,
-            SongTableFileCheckResult fileCheckResult)
-        {
-            owner.CaptureLr2SongDbSyncScanSurface(options, rootDirectories, fileCheckResult);
-        }
-
-        public void CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(
-            BmsLibraryOptionsSnapshot options,
-            SongTableFileCheckResult fileCheckResult,
-            string reason)
-        {
-            owner.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
-        }
-
-        public void MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(
-            BmsLibraryOptionsSnapshot options,
-            SongTableFileCheckResult result)
-        {
-            owner.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, result);
-        }
     }
 
     internal static bool ShouldIncludeLr2TextSurface(BmsLibraryOptionsSnapshot options)

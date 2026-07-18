@@ -5,10 +5,12 @@ using BeMusicSeeker.Models.LR2;
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 /// <summary>
-/// Bridges the LR2 folder-file diff owner to the application-owned database and settings operations.
+/// Supplies the LR2 synchronization owner operations required by the file-scan route.
 /// </summary>
-internal interface ILibraryFileScanLr2FolderHost
+internal interface ILr2SynchronizationScanPort
 {
+    void ThrowIfLr2SongDbSyncMutationBlocked(string operation);
+
     BmsLibraryOptionsSnapshot CurrentOptionsSnapshot { get; }
 
     Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope();
@@ -32,4 +34,25 @@ internal interface ILibraryFileScanLr2FolderHost
         IReadOnlyCollection<string> pruneExcludedPaths = null,
         bool scopeReadLr2FolderRowsOnly = false,
         bool updateParentDirectoryRowsForPreservedItems = true);
+
+    bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options);
+
+    void CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
+        BmsLibraryOptionsSnapshot options,
+        SongTableFileCheckResult fileCheckResult,
+        string reason);
+
+    void CaptureLr2SongDbSyncScanSurface(
+        BmsLibraryOptionsSnapshot options,
+        IEnumerable<string> rootDirectories,
+        SongTableFileCheckResult fileCheckResult);
+
+    void CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(
+        BmsLibraryOptionsSnapshot options,
+        SongTableFileCheckResult fileCheckResult,
+        string reason);
+
+    void MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(
+        BmsLibraryOptionsSnapshot options,
+        SongTableFileCheckResult result);
 }

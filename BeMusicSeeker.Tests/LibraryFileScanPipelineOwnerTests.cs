@@ -321,12 +321,12 @@ public sealed class LibraryFileScanPipelineOwnerTests
     {
         return new LibraryFileScanPipelineOwner(
             host,
-            (ILibraryFileScanLr2FolderHost)host,
+            (ILr2SynchronizationScanPort)host,
             new BmsLibraryInitializationService(),
             _ => { });
     }
 
-    private sealed class RecordingLibraryFileScanPipelineHost : ILibraryFileScanPipelineHost, ILibraryFileScanLr2FolderHost
+    private sealed class RecordingLibraryFileScanPipelineHost : ILibraryFileScanPipelineHost, ILr2SynchronizationScanPort
     {
         public BmsLibraryDbGateway DbGateway => null!;
 

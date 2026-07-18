@@ -16,7 +16,7 @@ public partial class BMSLibrary
     /// Owns the LR2 synchronization request lifecycle and its cross-route state.
     /// The facade exposes only the application-facing observable projection.
     /// </summary>
-    internal sealed class Lr2SynchronizationOwner : ILr2SongDbSyncRequestHost
+    internal sealed class Lr2SynchronizationOwner : ILr2SongDbSyncRequestHost, ILr2SynchronizationScanPort
     {
         private readonly BMSLibrary library;
 
@@ -91,6 +91,74 @@ public partial class BMSLibrary
 
         BmsLibraryOptionsSnapshot ILr2SongDbSyncRequestHost.CurrentOptionsSnapshot =>
             library.CurrentOptionsSnapshot;
+
+        BmsLibraryOptionsSnapshot ILr2SynchronizationScanPort.CurrentOptionsSnapshot =>
+            library.CurrentOptionsSnapshot;
+
+        void ILr2SynchronizationScanPort.ThrowIfLr2SongDbSyncMutationBlocked(string operation) =>
+            library.ThrowIfLr2SongDbSyncMutationBlocked(operation);
+
+        Lr2SongDbSyncAppManagedOutputScope ILr2SynchronizationScanPort.CreateLr2SongDbSyncAppManagedOutputScope() =>
+            library.CreateLr2SongDbSyncAppManagedOutputScope();
+
+        Lr2BuiltinCustomFolderSettings ILr2SynchronizationScanPort.CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc) =>
+            library.CreateCurrentLr2BuiltinCustomFolderSettings(nowUtc);
+
+        List<string> ILr2SynchronizationScanPort.CreateLr2SongDbSyncBuiltinFolderSourceDirectories(BmsLibraryOptionsSnapshot options) =>
+            library.CreateLr2SongDbSyncBuiltinFolderSourceDirectories(options);
+
+        List<string> ILr2SynchronizationScanPort.CreateLr2SongDbSyncLr2FolderPruneDirectories(
+            IEnumerable<string> rootDirectories,
+            IEnumerable<string> builtinSourceDirectories,
+            BmsLibraryOptionsSnapshot options) =>
+            library.CreateLr2SongDbSyncLr2FolderPruneDirectories(rootDirectories, builtinSourceDirectories, options: options);
+
+        Lr2FolderFileDbSyncResult ILr2SynchronizationScanPort.SyncLr2FolderFileRows(
+            BmsLibraryOptionsSnapshot options,
+            Lr2SongDbSyncRequest request,
+            string reason,
+            string logName,
+            bool allowPrune,
+            IReadOnlyCollection<string> pruneExcludedDirectories,
+            IReadOnlyCollection<string> pruneExcludedPaths,
+            bool scopeReadLr2FolderRowsOnly,
+            bool updateParentDirectoryRowsForPreservedItems) =>
+            library.SyncLr2FolderFileRows(
+                options,
+                request,
+                reason,
+                logName,
+                allowPrune,
+                pruneExcludedDirectories,
+                pruneExcludedPaths,
+                scopeReadLr2FolderRowsOnly,
+                updateParentDirectoryRowsForPreservedItems);
+
+        bool ILr2SynchronizationScanPort.ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options) =>
+            library.ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(options);
+
+        void ILr2SynchronizationScanPort.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
+            BmsLibraryOptionsSnapshot options,
+            SongTableFileCheckResult fileCheckResult,
+            string reason) =>
+            library.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
+
+        void ILr2SynchronizationScanPort.CaptureLr2SongDbSyncScanSurface(
+            BmsLibraryOptionsSnapshot options,
+            IEnumerable<string> rootDirectories,
+            SongTableFileCheckResult fileCheckResult) =>
+            library.CaptureLr2SongDbSyncScanSurface(options, rootDirectories, fileCheckResult);
+
+        void ILr2SynchronizationScanPort.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(
+            BmsLibraryOptionsSnapshot options,
+            SongTableFileCheckResult fileCheckResult,
+            string reason) =>
+            library.CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(options, fileCheckResult, reason);
+
+        void ILr2SynchronizationScanPort.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(
+            BmsLibraryOptionsSnapshot options,
+            SongTableFileCheckResult result) =>
+            library.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, result);
 
         bool ILr2SongDbSyncRequestHost.IsShutdownRequested => library.IsShutdownRequested;
 
