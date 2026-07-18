@@ -257,11 +257,16 @@ internal sealed class CatalogStorageRowsOwner
 
     internal CatalogStorageRowsSnapshot CaptureSnapshot()
     {
+        using IDisposable readGuard = writeGate.IsWriteLockHeld
+            || writeGate.IsReadLockHeld
+            || writeGate.IsUpgradeableReadLockHeld
+            ? null
+            : writeGate.GetReaderGuard();
         lock (versionGate)
         {
             return new CatalogStorageRowsSnapshot(
-                bmsRows,
-                bmsonRows,
+                [.. bmsRows ?? []],
+                [.. bmsonRows ?? []],
                 bmsRowsVersion,
                 bmsonRowsVersion);
         }

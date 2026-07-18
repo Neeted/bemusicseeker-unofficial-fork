@@ -168,6 +168,35 @@ public sealed class LibraryFileScanPipelineOwnerTests
     }
 
     [TestMethod]
+    public void CatalogStorageRowsSnapshot_CapturesBothKindsAndRemainsStableAcrossReplacement()
+    {
+        var firstBms = new BMSFile { path = "first.bms" };
+        var secondBms = new BMSFile { path = "second.bms" };
+        var firstBmson = new LR2SongDBExtended.bmson_song { path = "first.bmson" };
+        var secondBmson = new LR2SongDBExtended.bmson_song { path = "second.bmson" };
+        var replacementBms = new BMSFile { path = "replacement.bms" };
+        var replacementBmson = new LR2SongDBExtended.bmson_song { path = "replacement.bmson" };
+        var owner = new CatalogStorageRowsOwner();
+
+        CatalogStorageRowsSnapshot captured = owner.ReplaceRowsAndCaptureSnapshot(
+            [firstBms, secondBms],
+            [firstBmson, secondBmson]);
+        owner.ReplaceBmsRows([replacementBms]);
+        owner.ReplaceBmsonRows([replacementBmson]);
+
+        Assert.AreEqual(1, captured.BmsRowsVersion);
+        Assert.AreEqual(1, captured.BmsonRowsVersion);
+        CollectionAssert.AreEqual(new[] { firstBms, secondBms }, captured.BmsRows.ToArray());
+        CollectionAssert.AreEqual(new[] { firstBmson, secondBmson }, captured.BmsonRows.ToArray());
+
+        CatalogStorageRowsSnapshot current = owner.CaptureSnapshot();
+        Assert.AreEqual(2, current.BmsRowsVersion);
+        Assert.AreEqual(2, current.BmsonRowsVersion);
+        CollectionAssert.AreEqual(new[] { replacementBms }, current.BmsRows.ToArray());
+        CollectionAssert.AreEqual(new[] { replacementBmson }, current.BmsonRows.ToArray());
+    }
+
+    [TestMethod]
     public void ApplyCatalogProjection_ClearsStaleInstallDestinationForCurrentOwner()
     {
         var keepFile = new BMSFile { path = "keep.bms" };
@@ -396,11 +425,13 @@ public sealed class LibraryFileScanPipelineOwnerTests
     [TestMethod]
     public void ApplyCatalogStorageReplacement_UsesCatalogOwnerAndPublishesReceipt()
     {
-        var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
-        var owner = CreateOwner(callbacks);
         var keptFile = new BMSFile { path = "keep.bms" };
         var addedFile = new BMSFile { path = "added.bms" };
-        callbacks.BmsFiles = [keptFile];
+        var callbacks = new RecordingLibraryFileScanPipelineCallbacks
+        {
+            BmsFiles = [keptFile]
+        };
+        var owner = CreateOwner(callbacks);
         var result = new SongTableFileCheckResult
         {
             HasDbDiff = true
@@ -413,6 +444,34 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.IsNotNull(callbacks.LastCatalogReplacement);
         Assert.IsTrue(callbacks.LastCatalogReplacement.Receipt.Applied);
         Assert.AreEqual(2, callbacks.CatalogStorageRowsOwner.CaptureSnapshot().BmsRows.Count);
+    }
+
+    [TestMethod]
+    public void ApplyCatalogStorageReplacement_WhenExpectedRowsChangedPublishesFailure()
+    {
+        var currentFile = new BMSFile { path = "current.bms" };
+        var replacementFile = new BMSFile { path = "replacement.bms" };
+        var callbacks = new RecordingLibraryFileScanPipelineCallbacks
+        {
+            BmsFiles = [currentFile]
+        };
+        var owner = CreateOwner(callbacks);
+        CatalogStorageRowsSnapshot expectedRows = callbacks.CatalogStorageRowsOwner.CaptureSnapshot();
+        callbacks.CatalogStorageRowsOwner.ReplaceBmsRows([replacementFile]);
+        var result = new SongTableFileCheckResult
+        {
+            HasDbDiff = true
+        };
+        result.NextFiles.Add(replacementFile);
+        result.AddedFiles.Add(replacementFile);
+
+        Assert.ThrowsException<InvalidOperationException>(
+            () => owner.ApplyCatalogStorageReplacement(result, "test_storage_conflict", expectedRows));
+
+        Assert.IsNotNull(callbacks.LastCatalogReplacementFailure);
+        Assert.AreEqual(
+            callbacks.CatalogStorageRowsOwner.CaptureSnapshot().BmsRowsVersion,
+            callbacks.LastCatalogReplacementFailure.Request.PreviousBmsRowsVersion);
     }
 
     private static LibraryFileScanPipelineOwner CreateOwner(RecordingLibraryFileScanPipelineCallbacks callbacks)
@@ -430,6 +489,8 @@ public sealed class LibraryFileScanPipelineOwnerTests
         ownedCollectionOwner.EnsureCurrent(storageRowsOwner);
         callbacks.CatalogStorageRowsOwner = storageRowsOwner;
         callbacks.CatalogOwnedCollectionOwner = ownedCollectionOwner;
+        storageRowsOwner.ReplaceBmsRows([.. callbacks.BmsFiles]);
+        storageRowsOwner.ReplaceBmsonRows([.. callbacks.BmsonSongs]);
         var catalogMutationOwner = new CatalogMutationOwner(storageRowsOwner, ownedCollectionOwner, dbGateway);
         var catalogChartInfoOwner = new CatalogChartInfoOwner(
             _ => { },
@@ -454,8 +515,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
                 0));
         return new LibraryFileScanPipelineOwner(
             dbGateway,
-            () => callbacks.BmsFiles,
-            () => callbacks.BmsonSongs,
+            storageRowsOwner,
             new BmsLibraryDialogService(),
             () => false,
             callbacks.ReportLibraryInitializationProgress,

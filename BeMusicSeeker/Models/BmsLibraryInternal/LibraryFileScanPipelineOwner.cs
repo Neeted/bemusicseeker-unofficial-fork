@@ -41,9 +41,7 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly BmsLibraryDbGateway dbGateway;
 
-    private readonly Func<IReadOnlyList<BMSFile>> bmsFilesProvider;
-
-    private readonly Func<IReadOnlyList<LR2SongDBExtended.bmson_song>> bmsonSongsProvider;
+    private readonly CatalogStorageRowsOwner catalogStorageRowsOwner;
 
     private readonly IBmsLibraryDialogService dialogService;
 
@@ -101,8 +99,7 @@ internal sealed class LibraryFileScanPipelineOwner
 
     internal LibraryFileScanPipelineOwner(
         BmsLibraryDbGateway dbGateway,
-        Func<IReadOnlyList<BMSFile>> bmsFilesProvider,
-        Func<IReadOnlyList<LR2SongDBExtended.bmson_song>> bmsonSongsProvider,
+        CatalogStorageRowsOwner catalogStorageRowsOwner,
         IBmsLibraryDialogService dialogService,
         Func<bool> everythingScanLoggingEnabled,
         Action<BMSLibrary.LibraryInitializationProgressStage, string, int, int, string, bool> reportLibraryInitializationProgress,
@@ -128,8 +125,7 @@ internal sealed class LibraryFileScanPipelineOwner
         FileScanParseCommitOwner fileScanParseCommitOwner = null)
     {
         this.dbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
-        this.bmsFilesProvider = bmsFilesProvider ?? throw new ArgumentNullException(nameof(bmsFilesProvider));
-        this.bmsonSongsProvider = bmsonSongsProvider ?? throw new ArgumentNullException(nameof(bmsonSongsProvider));
+        this.catalogStorageRowsOwner = catalogStorageRowsOwner ?? throw new ArgumentNullException(nameof(catalogStorageRowsOwner));
         this.dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
         this.everythingScanLoggingEnabled = everythingScanLoggingEnabled ?? throw new ArgumentNullException(nameof(everythingScanLoggingEnabled));
         this.reportLibraryInitializationProgress = reportLibraryInitializationProgress ?? throw new ArgumentNullException(nameof(reportLibraryInitializationProgress));
@@ -615,17 +611,18 @@ internal sealed class LibraryFileScanPipelineOwner
                 .Logging("Lr2FolderFileDiffPrepare");
         }
 
+        CatalogStorageRowsSnapshot storageRowsSnapshot = catalogStorageRowsOwner.CaptureSnapshot();
         SongTableFileCheckResult fileCheckResult = initializationService.ApplyFileScanDiff(
             dbGateway,
             options,
-            bmsFilesProvider(),
+            storageRowsSnapshot.BmsRows,
             resolvedChartScanPrefetchInfo.ScanResult,
             resolvedChartScanPrefetchInfo.ElapsedMs,
             null,
             dialogService,
             logInstallPerformance,
             logEverythingScan,
-            bmsonSongsProvider(),
+            storageRowsSnapshot.BmsonRows,
             null,
             completeFileEnumerationOnce,
             () =>
@@ -668,7 +665,10 @@ internal sealed class LibraryFileScanPipelineOwner
                 ? initialAppManagedOutputScope.Directories
                 : [],
             fileScanParseCommitOwner: fileScanParseCommitOwner,
-            catalogProjectionApplied: projectionResult => ApplyCatalogProjection(projectionResult, currentInstallDestinationCharts));
+            catalogProjectionApplied: projectionResult => ApplyCatalogProjection(
+                projectionResult,
+                currentInstallDestinationCharts,
+                storageRowsSnapshot));
         if (fileCheckResult.EmptyScanWithExistingDbSkipped)
         {
             string skipReason = string.IsNullOrWhiteSpace(fileCheckResult.EmptyScanWithExistingDbSkipReason)
@@ -686,7 +686,7 @@ internal sealed class LibraryFileScanPipelineOwner
         LogFileScanFailures(fileCheckResult, reason);
         lr2FolderFileDiffOwner.Apply(options, bmsDirectories, fileCheckResult, reason, lr2FolderFileDiffPreparationTask);
         completeFileEnumerationOnce();
-        ApplyCatalogStorageReplacement(fileCheckResult, reason);
+        ApplyCatalogStorageReplacement(fileCheckResult, reason, storageRowsSnapshot);
         lr2Synchronization.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, fileCheckResult, reason);
         if (committedInlineChartInfoRows.Count > 0)
         {
@@ -714,22 +714,33 @@ internal sealed class LibraryFileScanPipelineOwner
         return fileCheckResult;
     }
 
-    internal void ApplyCatalogStorageReplacement(SongTableFileCheckResult fileCheckResult, string reason)
+    internal void ApplyCatalogStorageReplacement(
+        SongTableFileCheckResult fileCheckResult,
+        string reason,
+        CatalogStorageRowsSnapshot expectedCurrentRows = null)
     {
         using IDisposable mutationSequence = lr2Synchronization.EnterLr2MutationSequence();
-        CatalogFileScanStorageReplacementRequest request = catalogMutationOwner.CreateFileScanStorageReplacementRequest(
-            fileCheckResult.HasDbDiff,
-            fileCheckResult.NextFiles,
-            fileCheckResult.NextBmsonSongs,
-            fileCheckResult.DeletedPaths,
-            fileCheckResult.DeletedBmsonPaths,
-            fileCheckResult.AddedFiles,
-            fileCheckResult.AddedBmsonSongs);
+        CatalogFileScanStorageReplacementRequest request = null;
         FileScanCatalogReplacementEvent replacementEvent = null;
         using (ResourceHealthIndexOwner.ResourceHealthInputMutation resourceHealthMutation = resourceHealthOwner.BeginInputMutation())
         {
             try
             {
+                request = catalogMutationOwner.CreateFileScanStorageReplacementRequest(
+                    fileCheckResult.HasDbDiff,
+                    fileCheckResult.NextFiles,
+                    fileCheckResult.NextBmsonSongs,
+                    fileCheckResult.DeletedPaths,
+                    fileCheckResult.DeletedBmsonPaths,
+                    fileCheckResult.AddedFiles,
+                    fileCheckResult.AddedBmsonSongs);
+                if (expectedCurrentRows != null
+                    && (request.PreviousBmsRowsVersion != expectedCurrentRows.BmsRowsVersion
+                        || request.PreviousBmsonRowsVersion != expectedCurrentRows.BmsonRowsVersion))
+                {
+                    throw new InvalidOperationException(
+                        "The catalog storage rows changed while a file-scan projection was being prepared.");
+                }
                 CatalogFileScanStorageReplacementReceipt receipt = catalogMutationOwner.ApplyFileScanStorageReplacement(request);
                 replacementEvent = new FileScanCatalogReplacementEvent(
                     request,
@@ -740,10 +751,13 @@ internal sealed class LibraryFileScanPipelineOwner
             }
             catch
             {
-                publishCatalogReplacementFailure(new FileScanCatalogReplacementFailureEvent(
-                    request,
-                    resourceHealthMutation.BaseIndexCurrent,
-                    reason));
+                if (request != null)
+                {
+                    publishCatalogReplacementFailure(new FileScanCatalogReplacementFailureEvent(
+                        request,
+                        resourceHealthMutation.BaseIndexCurrent,
+                        reason));
+                }
                 throw;
             }
         }
@@ -752,12 +766,14 @@ internal sealed class LibraryFileScanPipelineOwner
 
     internal void ApplyCatalogProjection(
         SongTableFileCheckResult fileCheckResult,
-        IEnumerable<ChartFile> currentInstallDestinationCharts)
+        IEnumerable<ChartFile> currentInstallDestinationCharts,
+        CatalogStorageRowsSnapshot storageRowsSnapshot = null)
     {
+        storageRowsSnapshot ??= catalogStorageRowsOwner.CaptureSnapshot();
         ApplyCatalogProjection(
             fileCheckResult,
-            bmsFilesProvider(),
-            bmsonSongsProvider(),
+            storageRowsSnapshot.BmsRows,
+            storageRowsSnapshot.BmsonRows,
             currentInstallDestinationCharts);
     }
 

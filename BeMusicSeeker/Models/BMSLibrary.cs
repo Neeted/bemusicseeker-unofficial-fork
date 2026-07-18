@@ -2602,8 +2602,7 @@ public partial class BMSLibrary : NotificationObject
             NotifyMaintenanceHydrationStateChanged);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             dbGateway,
-            () => BMSFiles,
-            () => BmsonSongs,
+            catalogStorageRowsOwner,
             this.dialogService,
             () => everythingScanLoggingEnabled,
             ReportLibraryInitializationProgress,
@@ -7821,14 +7820,11 @@ public partial class BMSLibrary : NotificationObject
         out int bmsRowsVersion,
         out int bmsonRowsVersion)
     {
-        lock (lockStorageRowsVersion)
-        {
-            CatalogStorageRowsSnapshot snapshot = catalogStorageRowsOwner.CaptureSnapshot();
-            bmsFiles = [.. snapshot.BmsRows];
-            bmsonSongs = [.. snapshot.BmsonRows];
-            bmsRowsVersion = snapshot.BmsRowsVersion;
-            bmsonRowsVersion = snapshot.BmsonRowsVersion;
-        }
+        CatalogStorageRowsSnapshot snapshot = catalogStorageRowsOwner.CaptureSnapshot();
+        bmsFiles = [.. snapshot.BmsRows];
+        bmsonSongs = [.. snapshot.BmsonRows];
+        bmsRowsVersion = snapshot.BmsRowsVersion;
+        bmsonRowsVersion = snapshot.BmsonRowsVersion;
     }
 
     private StorageRowsVersionSnapshot CaptureStorageRowsVersionUnsafe()
