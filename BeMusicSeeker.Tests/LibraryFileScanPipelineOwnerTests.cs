@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
@@ -40,8 +41,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.IsNotNull(second);
         Assert.AreEqual(2, host.EnumerationCompletedCount);
         Assert.AreEqual(2, host.DiffCompletedCount);
-        Assert.AreEqual(2, host.MutationBlockedChecks);
-        Assert.AreEqual("ApplyLibraryFileScanDiff", host.LastMutationBlockedOperation);
         Assert.AreEqual(2, host.PerformanceMessages.Count);
         StringAssert.Contains(host.PerformanceMessages[0], "reason=no_bms_directories");
         StringAssert.Contains(host.PerformanceMessages[1], "reason=no_bms_directories");
@@ -93,8 +92,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         Assert.IsNotNull(result);
         Assert.AreEqual(1, host.EnumerationCompletedCount);
         Assert.AreEqual(1, host.DiffCompletedCount);
-        Assert.AreEqual(1, host.MutationBlockedChecks);
-        Assert.AreEqual("ApplyLibraryFileScanDiff", host.LastMutationBlockedOperation);
         StringAssert.Contains(host.PerformanceMessages[0], "reason=no_bms_directories");
     }
 
@@ -319,14 +316,21 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
     private static LibraryFileScanPipelineOwner CreateOwner(ILibraryFileScanPipelineHost host)
     {
+        string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directoryPath);
+        string songDbPath = Path.Combine(directoryPath, "song.db");
+        using (new LR2SongDBExtended(songDbPath))
+        {
+        }
+        var library = new BMSLibrary(songDbPath);
         return new LibraryFileScanPipelineOwner(
             host,
-            (ILr2SynchronizationScanPort)host,
+            library.Lr2Synchronization,
             new BmsLibraryInitializationService(),
             _ => { });
     }
 
-    private sealed class RecordingLibraryFileScanPipelineHost : ILibraryFileScanPipelineHost, ILr2SynchronizationScanPort
+    private sealed class RecordingLibraryFileScanPipelineHost : ILibraryFileScanPipelineHost
     {
         public BmsLibraryDbGateway DbGateway => null!;
 
@@ -342,10 +346,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
 
         public int DiffCompletedCount { get; private set; }
 
-        public int MutationBlockedChecks { get; private set; }
-
-        public string LastMutationBlockedOperation { get; private set; } = string.Empty;
-
         public int IncompleteWarningCount { get; private set; }
 
         public string LastIncompleteWarningReason { get; private set; } = string.Empty;
@@ -353,12 +353,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public List<string> PerformanceMessages { get; } = [];
 
         public List<string> EverythingMessages { get; } = [];
-
-        public void ThrowIfLr2SongDbSyncMutationBlocked(string operation)
-        {
-            MutationBlockedChecks++;
-            LastMutationBlockedOperation = operation;
-        }
 
         public void ReportLibraryInitializationProgress(
             BMSLibrary.LibraryInitializationProgressStage stage,
@@ -421,62 +415,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         {
         }
 
-        public BmsLibraryOptionsSnapshot CurrentOptionsSnapshot => new();
-
-        public List<string> CreateLr2SongDbSyncBuiltinFolderSourceDirectories(BmsLibraryOptionsSnapshot options)
-        {
-            return [];
-        }
-
-        public List<string> CreateLr2SongDbSyncLr2FolderPruneDirectories(
-            IEnumerable<string> rootDirectories,
-            IEnumerable<string> builtinSourceDirectories,
-            BmsLibraryOptionsSnapshot options)
-        {
-            return [];
-        }
-
-        public Lr2FolderFileDbSyncResult SyncLr2FolderFileRows(
-            BmsLibraryOptionsSnapshot options,
-            Lr2SongDbSyncRequest request,
-            string reason,
-            string logName,
-            bool allowPrune = true,
-            IReadOnlyCollection<string> pruneExcludedDirectories = null!,
-            IReadOnlyCollection<string> pruneExcludedPaths = null!,
-            bool scopeReadLr2FolderRowsOnly = false,
-            bool updateParentDirectoryRowsForPreservedItems = true)
-        {
-            return null!;
-        }
-
-        public Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope()
-        {
-            return new Lr2SongDbSyncAppManagedOutputScope([], [], [], isComplete: false);
-        }
-
-        public CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
-        {
-            return CustomFolderOutputPhysicalSurface.Empty;
-        }
-
-        public Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
-        {
-            return new Lr2BuiltinCustomFolderSettings(0, 0, false);
-        }
-
-        public bool ShouldProtectExistingBmsRowsFromLr2SongDbSyncMigration(BmsLibraryOptionsSnapshot options)
-        {
-            return false;
-        }
-
-        public void CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(
-            BmsLibraryOptionsSnapshot options,
-            SongTableFileCheckResult fileCheckResult,
-            string reason)
-        {
-        }
-
         public void UpsertChartInfoIndexRows(
             IEnumerable<LR2SongDBExtended.chart_info> rows,
             string reason,
@@ -485,26 +423,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
         }
 
         public void DispatchWarningPresentationChanged(string reason)
-        {
-        }
-
-        public void CaptureLr2SongDbSyncScanSurface(
-            BmsLibraryOptionsSnapshot options,
-            IEnumerable<string> rootDirectories,
-            SongTableFileCheckResult fileCheckResult)
-        {
-        }
-
-        public void CaptureLr2SongDbSyncFileDiffFreshnessSnapshot(
-            BmsLibraryOptionsSnapshot options,
-            SongTableFileCheckResult fileCheckResult,
-            string reason)
-        {
-        }
-
-        public void MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(
-            BmsLibraryOptionsSnapshot options,
-            SongTableFileCheckResult result)
         {
         }
 

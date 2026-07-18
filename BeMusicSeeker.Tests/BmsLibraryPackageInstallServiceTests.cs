@@ -188,6 +188,26 @@ public sealed class BmsLibraryPackageInstallServiceTests
     }
 
     [TestMethod]
+    public void InstallPendingPackagesToEstimatedDestinations_NullStillThrowsWhenLr2SyncIsRunning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath, string tempRootPath)
+        {
+            var library = new BMSLibrary(songDbPath);
+            library.Lr2Synchronization.Running = true;
+            try
+            {
+                Assert.ThrowsException<ArgumentNullException>(
+                    () => library.InstallPendingPackagesToEstimatedDestinations(null));
+            }
+            finally
+            {
+                library.Lr2Synchronization.Running = false;
+            }
+        });
+    }
+
+    [TestMethod]
     public void BuildComponentMovePlan_SkipsExcludedPaths()
     {
         TestResourceInitializer.EnsureJapaneseResources();

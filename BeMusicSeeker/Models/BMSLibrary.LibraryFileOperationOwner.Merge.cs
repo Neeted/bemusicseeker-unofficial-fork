@@ -26,7 +26,7 @@ public partial class BMSLibrary
             {
                 throw new ArgumentNullException(nameof(destinationDirectory));
             }
-            if (TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.MergeChartDirectory)))
+            if (owner.TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.MergeChartDirectory)))
             {
                 return;
             }

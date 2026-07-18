@@ -8803,7 +8803,7 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     Lr2SongDbSyncPreparedDataSurface playlistSurface = ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason);
                     Lr2SongDbSyncPreparedDataSurface builtinSurface =
-                        files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;
+                        files?.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;
                     return Lr2SongDbSyncPreparedDataSurface.Merge(playlistSurface, builtinSurface);
                 },
                 () => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false));
@@ -8819,7 +8819,7 @@ public partial class MainWindowViewModel : ViewModel
 
         Task.Run(delegate
         {
-            files?.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange(reason);
+            files?.Lr2Synchronization.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange(reason);
         }).Logging("SyncExternalLr2FolderRowsAfterCustomFolderOutputBaseSettingsChange");
     }
 

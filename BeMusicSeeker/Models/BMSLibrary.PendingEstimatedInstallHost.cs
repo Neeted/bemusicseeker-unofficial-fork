@@ -27,11 +27,6 @@ public partial class BMSLibrary : IPendingEstimatedInstallHost
         }
     }
 
-    bool IPendingEstimatedInstallHost.TryBlockLr2SongDbSyncMutation(string operation)
-    {
-        return TryBlockLr2SongDbSyncMutation(operation);
-    }
-
     IDisposable IPendingEstimatedInstallHost.AcquireBmsFilesInitializedAllReaderGuard()
     {
         return rwlockBMSFilesInitializedAll.GetReaderGuard();

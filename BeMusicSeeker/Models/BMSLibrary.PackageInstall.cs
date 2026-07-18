@@ -1278,6 +1278,10 @@ public partial class BMSLibrary
     /// </summary>
     public void InstallPendingPackagesToEstimatedDestinations(IEnumerable<ChartPackage> packages)
     {
+        if (packages == null)
+        {
+            throw new ArgumentNullException(nameof(packages));
+        }
         if (TryBlockLr2SongDbSyncMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
         {
             return;

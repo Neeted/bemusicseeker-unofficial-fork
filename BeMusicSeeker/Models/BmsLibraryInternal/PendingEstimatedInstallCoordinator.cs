@@ -8,8 +8,6 @@ namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
 internal interface IPendingEstimatedInstallHost
 {
-    bool TryBlockLr2SongDbSyncMutation(string operation);
-
     IDisposable AcquireBmsFilesInitializedAllReaderGuard();
 
     IDisposable AcquirePendingInstallChartsWriterGuard();
@@ -111,11 +109,6 @@ internal static class PendingEstimatedInstallCoordinator
         {
             throw new ArgumentNullException(nameof(resourceHealthOwner));
         }
-        if (host.TryBlockLr2SongDbSyncMutation(nameof(InstallPendingPackagesToEstimatedDestinations)))
-        {
-            return;
-        }
-
         BmsLibraryOptionsSnapshot options = host.CurrentOptionsSnapshot;
         var totalStopwatch = Stopwatch.StartNew();
         using (host.AcquireBmsFilesInitializedAllReaderGuard())

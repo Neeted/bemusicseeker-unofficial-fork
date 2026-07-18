@@ -25,6 +25,17 @@ internal static class Lr2SongDbSyncInputSurfaceHelper
             .Distinct(StringComparer.OrdinalIgnoreCase)];
     }
 
+    internal static IReadOnlyList<string> CreateLr2TextMetadataSourceDirectoriesOutsideRoots(
+        IEnumerable<string> sourceDirectories,
+        IEnumerable<string> coveredRoots)
+    {
+        List<string> roots = [.. NormalizeLr2DirectoryMetadataTargets(coveredRoots)];
+        return [.. NormalizeLr2DirectoryMetadataTargets(sourceDirectories)
+            .Where(source => !roots.Any(root => Lr2FolderPath.IsSameOrDescendant(source, root)
+                || Lr2FolderPath.IsSameOrDescendant(root, source)))
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
+    }
+
     internal static IReadOnlyCollection<string> MergeLr2DirectoryMetadataTargets(params IEnumerable<string>[] targetSets)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

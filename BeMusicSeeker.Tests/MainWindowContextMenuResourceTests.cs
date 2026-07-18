@@ -1996,7 +1996,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "SyncLr2SongDbSyncFolderDataAfterSettingsChange(\"SettingDialog.SaveSettings\")");
         StringAssert.Contains(viewModelCode, "private Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)");
         StringAssert.Contains(viewModelCode, "tables?.ReOutputAllCustomFoldersForLr2SongDbSync(");
-        StringAssert.Contains(viewModelCode, "files?.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;");
+        StringAssert.Contains(viewModelCode, "files?.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;");
         StringAssert.Contains(viewModelCode, "Lr2SongDbSyncPreparedDataSurface.Merge(playlistSurface, builtinSurface);");
         StringAssert.Contains(viewModelCode, "() => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false)");
         StringAssert.Contains(viewModelCode, "public async Task RequestLr2SongDbSyncAsync(string reason, bool force)");

@@ -13,10 +13,6 @@ internal static class InvalidExtensionRenameCoordinator
         bool? unregister)
     {
         List<ChartFile> targetCharts = [.. (charts ?? []).Where(chart => chart?.GetBmsStorageOwner() != null)];
-        if (host.TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.RenameBMSFilesExtensions)))
-        {
-            return;
-        }
         host.RunWithNormalInvalidExtensionRenameWriteLocks(() =>
         {
             LibraryMutationDelta delta = host.RenameLibraryFileExtensions(

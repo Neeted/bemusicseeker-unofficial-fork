@@ -17,11 +17,11 @@ internal sealed class Lr2FolderFileDiffOwner
 {
     private readonly ILibraryFileScanPipelineHost host;
 
-    private readonly ILr2SynchronizationScanPort lr2Synchronization;
+    private readonly BMSLibrary.Lr2SynchronizationOwner lr2Synchronization;
 
     internal Lr2FolderFileDiffOwner(
         ILibraryFileScanPipelineHost host,
-        ILr2SynchronizationScanPort lr2Synchronization)
+        BMSLibrary.Lr2SynchronizationOwner lr2Synchronization)
     {
         this.host = host ?? throw new ArgumentNullException(nameof(host));
         this.lr2Synchronization = lr2Synchronization ?? throw new ArgumentNullException(nameof(lr2Synchronization));
@@ -301,17 +301,6 @@ internal sealed class Lr2FolderFileDiffOwner
             + " entryMs=" + entryMs
             + " overlayMs=" + overlayMs
             + " totalMs=" + stopwatch.ElapsedMilliseconds);
-    }
-
-    private static IReadOnlyList<string> CreateLr2TextMetadataSourceDirectoriesOutsideRoots(
-        IEnumerable<string> sourceDirectories,
-        IEnumerable<string> coveredRoots)
-    {
-        List<string> roots = [.. NormalizeLr2DirectoryMetadataTargets(coveredRoots)];
-        return [.. NormalizeLr2DirectoryMetadataTargets(sourceDirectories)
-            .Where(source => !roots.Any(root => Lr2FolderPath.IsSameOrDescendant(source, root)
-                || Lr2FolderPath.IsSameOrDescendant(root, source)))
-            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)];
     }
 
     private static Lr2TextMetadataCandidateSnapshot CreateLr2PreparedTextMetadataCandidates(

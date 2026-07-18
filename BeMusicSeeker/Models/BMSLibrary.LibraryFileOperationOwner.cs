@@ -29,11 +29,6 @@ public partial class BMSLibrary
             autoRenameBatchCoordinator = new(this);
         }
 
-        internal bool TryBlockLr2SongDbSyncMutation(string operation)
-        {
-            return owner.TryBlockLr2SongDbSyncMutation(operation);
-        }
-
         internal bool IsLibraryRootFolder(string folderPath)
         {
             return owner.getBMSDirectories().Contains(folderPath, StringComparer.OrdinalIgnoreCase);
@@ -446,7 +441,7 @@ public partial class BMSLibrary
             bool sendToRecycleBin,
             IEnumerable<string> approvedWholeFolderDeletePaths)
         {
-            if (TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.RemoveLibraryCharts)))
+            if (owner.TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.RemoveLibraryCharts)))
             {
                 return;
             }
@@ -502,7 +497,7 @@ public partial class BMSLibrary
             {
                 throw new ArgumentNullException(nameof(charts));
             }
-            if (TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.FixInstallationDirectoryCharts)))
+            if (owner.TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.FixInstallationDirectoryCharts)))
             {
                 return;
             }

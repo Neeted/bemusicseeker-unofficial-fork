@@ -1340,7 +1340,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             }
             var library = new BMSLibrary(scope.SongDbPath);
 
-            library.SyncLr2BuiltinCustomFolderRows("test_builtin_scope");
+            library.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows("test_builtin_scope");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.IsNotNull(verify.Table<LR2SongDB.folder>().ToList().SingleOrDefault(row => row.path == appManagedLr2FolderPath));
@@ -1369,7 +1369,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             LR2Config config = CreateLr2Config(lr2Root, customFolderMask: 0x1, titleFlashHours: 24, Path.Combine(scope.DirectoryPath, "BMS"));
             var library = new BMSLibrary(scope.SongDbPath, () => config);
 
-            Lr2SongDbSyncPreparedDataSurface surface = library.SyncLr2BuiltinCustomFolderRows("test_builtin_folderinfo");
+            Lr2SongDbSyncPreparedDataSurface surface = library.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows("test_builtin_folderinfo");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDB.folder category = verify.Table<LR2SongDB.folder>().ToList().Single(folder => folder.path == @"LR2files\CustomFolder\RANDOM\");
@@ -2032,7 +2032,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             }
             var library = new BMSLibrary(scope.SongDbPath);
 
-            library.SyncLr2BuiltinCustomFolderRows("test_builtin_missing_source");
+            library.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows("test_builtin_missing_source");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.IsNull(verify.Table<LR2SongDB.folder>().ToList().SingleOrDefault(row => row.path == staleBuiltinPath));
@@ -2735,12 +2735,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         string rootDirectory = Path.Combine(parentDirectory, "BMS");
         string childDirectory = Path.Combine(rootDirectory, "Nested");
         string outsideDirectory = Path.Combine(scope.DirectoryPath, "LR2files", "CustomFolder");
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2TextMetadataSourceDirectoriesOutsideRoots", BindingFlags.Static | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-
-        var result = ((IEnumerable<string>)methodInfo.Invoke(
-            null,
-            new object[] { new[] { parentDirectory, rootDirectory, childDirectory, outsideDirectory }, new[] { rootDirectory } })).ToList();
+        IReadOnlyList<string> result = Lr2SongDbSyncInputSurfaceHelper.CreateLr2TextMetadataSourceDirectoriesOutsideRoots(
+            new[] { parentDirectory, rootDirectory, childDirectory, outsideDirectory },
+            new[] { rootDirectory });
 
         CollectionAssert.AreEqual(
             new[] { Lr2FolderPath.NormalizeDirectoryPath(outsideDirectory) },
@@ -6350,7 +6347,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 BMSFiles = []
             };
 
-            library.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange("test_additional_output_base_external_sync");
+            library.Lr2Synchronization.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange("test_additional_output_base_external_sync");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             List<LR2SongDB.folder> rows = verify.Table<LR2SongDB.folder>().ToList();
@@ -6406,7 +6403,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 BMSFiles = []
             };
 
-            library.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange("test_removed_additional_output_base_preserve");
+            library.Lr2Synchronization.SyncExternalLr2FolderRowsForCustomFolderOutputBaseChange("test_removed_additional_output_base_preserve");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             Assert.AreEqual(1, verify.Table<LR2SongDB.folder>().Count(row => row.path == oldExternalPath));
@@ -7228,9 +7225,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     private static object InvokeCreateLr2SongDbSyncInput(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2SongDbSyncInput", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return methodInfo.Invoke(library, []);
+        return library.Lr2Synchronization.CreateLr2SongDbSyncInput();
     }
 
     private static object InvokeCreateLr2SongDbSyncAppManagedOutputScope(BMSLibrary library)

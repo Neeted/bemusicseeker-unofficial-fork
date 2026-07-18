@@ -41,7 +41,7 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly ILibraryFileScanPipelineHost host;
 
-    private readonly ILr2SynchronizationScanPort lr2Synchronization;
+    private readonly BMSLibrary.Lr2SynchronizationOwner lr2Synchronization;
 
     private readonly Lr2FolderFileDiffOwner lr2FolderFileDiffOwner;
 
@@ -59,7 +59,7 @@ internal sealed class LibraryFileScanPipelineOwner
 
     internal LibraryFileScanPipelineOwner(
         ILibraryFileScanPipelineHost host,
-        ILr2SynchronizationScanPort lr2Synchronization,
+        BMSLibrary.Lr2SynchronizationOwner lr2Synchronization,
         BmsLibraryInitializationService initializationService,
         Action<LibraryMutationDelta> applyLibraryMutationDelta,
         FileScanParseCommitOwner fileScanParseCommitOwner = null)

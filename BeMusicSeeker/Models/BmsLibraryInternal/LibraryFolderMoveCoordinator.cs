@@ -23,10 +23,6 @@ internal static class LibraryFolderMoveCoordinator
         {
             throw new ArgumentNullException(nameof(newName));
         }
-        if (host.TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.RenameChartFolder)))
-        {
-            return;
-        }
         if (!renameRootFolder && host.IsLibraryRootFolder(srcDir))
         {
             host.ShowCannotRenameRootFolder(srcDir);
@@ -94,10 +90,6 @@ internal static class LibraryFolderMoveCoordinator
         if (dstDir == null)
         {
             throw new ArgumentNullException(nameof(dstDir));
-        }
-        if (host.TryBlockLr2SongDbSyncMutation(nameof(BMSLibrary.MoveLibraryRootFolder)))
-        {
-            return;
         }
         host.RunWithFolderMoveWriteLocks(() =>
         {
