@@ -293,7 +293,7 @@ public partial class BMSLibrary
 
     private List<ChartPackage> installChartPackages(IEnumerable<ChartPackage> chartPackagesInstall, string installationDirectory = null, List<ChartFile> deferredMaintenanceCharts = null, List<ChartPackage> deferredInstalledPackages = null, Dictionary<ChartPackage, HashSet<string>> excludedComponentPathsByPackage = null, IPrimaryHashLookup existingHashes = null, bool skipInstalledPackageWhenNoBms = false, bool deleteSourceContentsAfterSuccessfulInstall = false, EstimatedInstallBatchApplyContext estimatedInstallBatchApplyContext = null)
     {
-        ThrowIfLr2SongDbSyncMutationBlocked("installChartPackages");
+        lr2SynchronizationOwner.ThrowIfLr2SongDbSyncMutationBlocked("installChartPackages");
         List<ChartPackage> installPackageList = [.. (chartPackagesInstall ?? []).Where(package => package != null)];
         List<ChartFile> addedChartsForChartInfo = [];
 

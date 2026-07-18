@@ -5655,9 +5655,9 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace.RefreshPlaylistTreeTables(tables);
             PlaylistWorkspace.SetDetailDataSource(
                 applicationComposition.CreatePlaylistDetailDataSource(files, tables, MainChartList));
-            tables.Lr2FolderSyncMutationGuard = operation => files.ThrowIfLr2SongDbSyncMutationBlockedForPlaylist(operation);
-            tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
-            tables.CustomFolderOutputPhysicalSurfaceProvider = () => files.GetCurrentAppManagedCustomFolderOutputPhysicalSurface();
+            tables.Lr2FolderSyncMutationGuard = operation => files.Lr2Synchronization.ThrowIfLr2SongDbSyncMutationBlocked(operation);
+            tables.Lr2FolderSyncFailureReporter = (operation, ex) => files.Lr2Synchronization.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, operation);
+            tables.CustomFolderOutputPhysicalSurfaceProvider = () => files.Lr2Synchronization.GetCurrentAppManagedCustomFolderOutputPhysicalSurface();
             files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
             files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
             tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;

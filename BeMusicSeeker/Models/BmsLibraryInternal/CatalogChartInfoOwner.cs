@@ -84,7 +84,7 @@ internal sealed class CatalogChartInfoOwner
 
     private ChartInfoHydrationAllCurrentSnapshot hydrationAllCurrentSnapshot;
 
-    private ChartInfoCompletedLr2SongDbSyncTrustSnapshot completedLr2SongDbSyncTrustSnapshot;
+    private ILr2ChartInfoTrustPort lr2ChartInfoTrustPort;
 
     private bool chartInfoHydrationRunningValue;
 
@@ -151,7 +151,8 @@ internal sealed class CatalogChartInfoOwner
         Func<BmsLibraryOptionsSnapshot> optionsSnapshotProvider,
         Action<string> logWarning,
         Action<CatalogChartInfoOwnerEvent> workflowEvent,
-        Func<IDisposable> beginDigestMutationWindow = null)
+        Func<IDisposable> beginDigestMutationWindow = null,
+        ILr2ChartInfoTrustPort lr2ChartInfoTrustPort = null)
     {
         workflowDbGateway = dbGateway ?? throw new ArgumentNullException(nameof(dbGateway));
         workflowMutationOwner = mutationOwner ?? throw new ArgumentNullException(nameof(mutationOwner));
@@ -161,6 +162,7 @@ internal sealed class CatalogChartInfoOwner
         workflowLogWarning = logWarning;
         this.workflowEvent = workflowEvent;
         workflowBeginDigestMutationWindow = beginDigestMutationWindow ?? (() => EmptyDisposable.Instance);
+        this.lr2ChartInfoTrustPort = lr2ChartInfoTrustPort;
     }
 
     internal object BackfillGate => backfillGate;
@@ -243,12 +245,6 @@ internal sealed class CatalogChartInfoOwner
     {
         get { lock (hydrationGate) return hydrationAllCurrentSnapshot; }
         set { lock (hydrationGate) hydrationAllCurrentSnapshot = value; }
-    }
-
-    internal ChartInfoCompletedLr2SongDbSyncTrustSnapshot CompletedLr2SongDbSyncTrustSnapshot
-    {
-        get { lock (hydrationGate) return completedLr2SongDbSyncTrustSnapshot; }
-        set { lock (hydrationGate) completedLr2SongDbSyncTrustSnapshot = value; }
     }
 
     internal bool ChartInfoHydrationRunning
@@ -1054,7 +1050,7 @@ internal sealed class CatalogChartInfoOwner
     {
         result = null;
         var stopwatch = Stopwatch.StartNew();
-        ChartInfoCompletedLr2SongDbSyncTrustSnapshot trustSnapshot = GetCurrentCompletedLr2TrustSnapshot();
+        ChartInfoCompletedLr2SongDbSyncTrustSnapshot trustSnapshot = lr2ChartInfoTrustPort?.GetCurrent();
         if (trustSnapshot == null)
         {
             stopwatch.Stop();
@@ -1143,71 +1139,6 @@ internal sealed class CatalogChartInfoOwner
             + " status=" + status.Status
             + " elapsedMs=" + result.TotalMs);
         return true;
-    }
-
-    internal void CaptureCompletedLr2TrustFromFileDiff(
-        ChartInfoLr2TrustInput trustInput,
-        string reason)
-    {
-        if (trustInput?.CanTrust != true)
-        {
-            ClearCompletedLr2Trust("file_diff_changed_" + (reason ?? "unknown"));
-            return;
-        }
-        ChartInfoOwnerVersionSnapshot version = CaptureOwnerVersionSnapshot();
-        var trustSnapshot = new ChartInfoCompletedLr2SongDbSyncTrustSnapshot
-        {
-            OwnedCollectionVersion = version.OwnedCollectionVersion,
-            BmsRowsVersion = version.BmsRowsVersion,
-            BmsonRowsVersion = version.BmsonRowsVersion,
-            BmsOwnerCount = version.BmsOwnerCount,
-            BmsonOwnerCount = version.BmsonOwnerCount,
-            Reason = reason ?? "unknown"
-        };
-        lock (hydrationGate)
-        {
-            completedLr2SongDbSyncTrustSnapshot = trustSnapshot;
-        }
-        LogPerformance?.Invoke("chart_info_song_db_sync_trust captured"
-            + " reason=" + (reason ?? "unknown")
-            + " ownerCount=" + trustSnapshot.OwnerCount
-            + " bmsOwners=" + trustSnapshot.BmsOwnerCount
-            + " bmsonOwners=" + trustSnapshot.BmsonOwnerCount
-            + " ownedCollectionVersion=" + trustSnapshot.OwnedCollectionVersion
-            + " bmsRowsVersion=" + trustSnapshot.BmsRowsVersion
-            + " bmsonRowsVersion=" + trustSnapshot.BmsonRowsVersion);
-    }
-
-    private ChartInfoCompletedLr2SongDbSyncTrustSnapshot GetCurrentCompletedLr2TrustSnapshot()
-    {
-        ChartInfoCompletedLr2SongDbSyncTrustSnapshot snapshot;
-        lock (hydrationGate)
-        {
-            snapshot = completedLr2SongDbSyncTrustSnapshot;
-        }
-        ChartInfoOwnerVersionSnapshot currentVersion = CaptureOwnerVersionSnapshot();
-        if (snapshot == null || !snapshot.IsCurrent(currentVersion))
-        {
-            return null;
-        }
-        return snapshot;
-    }
-
-    internal void ClearCompletedLr2Trust(string reason)
-    {
-        bool cleared = false;
-        lock (hydrationGate)
-        {
-            if (completedLr2SongDbSyncTrustSnapshot != null)
-            {
-                completedLr2SongDbSyncTrustSnapshot = null;
-                cleared = true;
-            }
-        }
-        if (cleared)
-        {
-            LogPerformance?.Invoke("chart_info_song_db_sync_trust cleared reason=" + (reason ?? "unknown"));
-        }
     }
 
     internal void ClearHydrationAllCurrentSnapshot(string reason)
@@ -1379,7 +1310,7 @@ internal sealed class CatalogChartInfoOwner
             catch (Exception ex)
             {
                 stopwatch.Stop();
-                ClearCompletedLr2Trust("lazy_display_index_load_failed");
+                lr2ChartInfoTrustPort?.Clear("lazy_display_index_load_failed");
                 ClearHydrationAllCurrentSnapshot("lazy_display_index_load_failed");
                 workflowLogWarning?.Invoke("chart_info_lazy_display_index_load failed reason=" + (reason ?? "unknown")
                     + " elapsedMs=" + stopwatch.ElapsedMilliseconds

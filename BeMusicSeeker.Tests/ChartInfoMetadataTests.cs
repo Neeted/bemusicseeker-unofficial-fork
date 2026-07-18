@@ -4498,9 +4498,7 @@ createTempDirectory);
         SongTableFileCheckResult result,
         string reason)
     {
-        MethodInfo method = typeof(BMSLibrary).GetMethod("CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(method, "CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff method was not found.");
-        method.Invoke(library, [options, result, reason]);
+        library.Lr2Synchronization.CaptureChartInfoCompletedLr2SongDbSyncTrustFromFileDiff(options, result, reason);
     }
 
     private static bool WaitForChartInfoHydration(BMSLibrary library)

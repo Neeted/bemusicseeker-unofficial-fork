@@ -6742,23 +6742,22 @@ public sealed class BmsLibraryLr2SongDbSyncTests
 
     private static object InvokeCreateLr2SongDbSyncAppManagedOutputScope(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CreateLr2SongDbSyncAppManagedOutputScope", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return methodInfo.Invoke(library, []);
+        return library.Lr2Synchronization.CreateLr2SongDbSyncAppManagedOutputScope();
     }
 
     private static bool InvokeIsLr2SongDbSyncInputCurrent(BMSLibrary library, object input)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("IsLr2SongDbSyncInputCurrent", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (bool)methodInfo.Invoke(library, [input]);
+        return GetLr2SynchronizationOwner(library).IsLr2SongDbSyncInputCurrent((Lr2SongDbSyncInput)input);
     }
 
     private static bool InvokeHasLr2SongDbSyncPreparedDataSurface(BMSLibrary library)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("HasLr2SongDbSyncPreparedDataSurface", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        return (bool)methodInfo.Invoke(library, []);
+        return GetLr2SynchronizationOwner(library).HasLr2SongDbSyncPreparedDataSurface();
+    }
+
+    private static BMSLibrary.Lr2SynchronizationOwner GetLr2SynchronizationOwner(BMSLibrary library)
+    {
+        return (BMSLibrary.Lr2SynchronizationOwner)library.Lr2Synchronization;
     }
 
     private static Lr2SongDbSyncPreparedDataSurface CreatePreparedLr2FolderSurface(
@@ -6817,9 +6816,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         IEnumerable<string> rootDirectories,
         SongTableFileCheckResult result)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("CaptureLr2SongDbSyncScanSurface", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [options, rootDirectories, result]);
+        library.Lr2Synchronization.CaptureLr2SongDbSyncScanSurface(options, rootDirectories, result);
     }
 
     private static void InvokeApplyLr2FolderFileDiffSync(
@@ -6846,9 +6843,7 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         BmsLibraryOptionsSnapshot options,
         SongTableFileCheckResult result)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [options, result]);
+        library.Lr2Synchronization.MarkLr2SongDbSyncIncompleteAfterFileDiffNormalFolderSyncFailure(options, result);
     }
 
     private static void InvokeMarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure(
@@ -6858,9 +6853,11 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         string detail,
         string logReason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [options, stage, detail, logReason]);
+        GetLr2SynchronizationOwner(library).MarkLr2SongDbSyncIncompleteAfterNormalFolderSyncFailure(
+            options,
+            stage,
+            detail,
+            logReason);
     }
 
     private static void InvokeMarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
@@ -6870,9 +6867,11 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         string detail,
         string logReason)
     {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [options, stage, detail, logReason]);
+        GetLr2SynchronizationOwner(library).MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
+            options,
+            stage,
+            detail,
+            logReason);
     }
 
     private static void InvokeMarkLr2SongDbSyncIncompleteAfterFileDiffSongDbWriteFailure(

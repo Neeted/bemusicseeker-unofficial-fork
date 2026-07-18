@@ -455,6 +455,17 @@ public sealed class LibraryFileScanPipelineOwnerTests
             return new Lr2SongDbSyncAppManagedOutputScope([], [], [], isComplete: false);
         }
 
+        public CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
+        {
+            return CustomFolderOutputPhysicalSurface.Empty;
+        }
+
+        public void MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(
+            Exception exception,
+            string reason)
+        {
+        }
+
         public Lr2BuiltinCustomFolderSettings CreateCurrentLr2BuiltinCustomFolderSettings(DateTime nowUtc)
         {
             return new Lr2BuiltinCustomFolderSettings(0, 0, false);
