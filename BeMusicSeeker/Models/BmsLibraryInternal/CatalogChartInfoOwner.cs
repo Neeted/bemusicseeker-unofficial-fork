@@ -1232,6 +1232,11 @@ internal sealed class CatalogChartInfoOwner
         workflowEvent?.Invoke(ownerEvent);
     }
 
+    internal void PublishWarningPresentationChanged(string reason)
+    {
+        PublishWorkflowEvent(CatalogChartInfoOwnerEvent.Warning(reason));
+    }
+
     internal LR2SongDBExtended.chart_info ResolveChartInfo(
         string sha256,
         string md5,

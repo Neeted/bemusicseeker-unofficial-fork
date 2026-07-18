@@ -2616,7 +2616,6 @@ public partial class BMSLibrary : NotificationObject
             reason => { QueueEverythingFallbackWarning(reason); },
             reason => { QueueFileScanSkippedIncompleteWarning(reason); },
             reason => { QueueEmptyScanWithExistingDbWarning(reason); },
-            DispatchWarningPresentationChanged,
             Lr2Synchronization,
             catalogMutationOwner,
             catalogChartInfoOwner,

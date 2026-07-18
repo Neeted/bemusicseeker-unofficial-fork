@@ -15,6 +15,71 @@ namespace BeMusicSeeker.Tests;
 public sealed class LibraryFileScanPipelineOwnerTests
 {
     [TestMethod]
+    public void CatalogChartInfoOwner_PublishWarningPresentationChangedPublishesWarningEvent()
+    {
+        var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
+        CreateOwner(callbacks);
+
+        callbacks.CatalogChartInfoOwner.PublishWarningPresentationChanged("test_warning");
+
+        CatalogChartInfoOwnerEvent ownerEvent = callbacks.CatalogChartInfoEvents.Single();
+        Assert.AreEqual(CatalogChartInfoOwnerEventKind.WarningPresentationChanged, ownerEvent.Kind);
+        Assert.AreEqual("test_warning", ownerEvent.Reason);
+    }
+
+    [TestMethod]
+    public void ApplyFileScanDiff_InlineChartInfoFailurePublishesOwnerWarningBeforeResidual()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string directoryPath = Path.Combine(Path.GetTempPath(), nameof(LibraryFileScanPipelineOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directoryPath);
+        try
+        {
+            string bmsPath = Path.Combine(directoryPath, "bad.bms");
+            File.WriteAllText(bmsPath, "#PLAYER 1\r\n#TITLE Bad\r\n#00111:01\r\n");
+            var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
+            var owner = CreateOwner(callbacks);
+
+            SongTableFileCheckResult result = owner.ApplyFileScanDiff(
+                new BmsLibraryOptionsSnapshot(),
+                [directoryPath],
+                new ChartScanPrefetchInfo
+                {
+                    ScanResult = new ChartScanExecutionResult
+                    {
+                        Success = true,
+                        Result = new ChartScanResult
+                        {
+                            ChartFilePaths = new HashSet<string>([bmsPath], StringComparer.Ordinal),
+                            ChartDirectories = new HashSet<string>([directoryPath], StringComparer.OrdinalIgnoreCase)
+                        }
+                    }
+                },
+                null!,
+                trackLibraryFileCheckProgress: true,
+                reason: "test_inline_chart_info_failure",
+                installDestinationCleanupSnapshot: InstallDestinationCleanupSnapshot.Empty);
+
+            Assert.AreEqual(1, result.InlineChartInfoParseFailedCount, "parse_failed");
+            Assert.AreEqual(1, result.InlineChartInfoFailurePersistedCount, "failure_persisted");
+            CollectionAssert.AreEqual(
+                new[] { "WarningPresentationChanged", "Residual" },
+                callbacks.EventOrder.ToArray());
+            CatalogChartInfoOwnerEvent warning = callbacks.CatalogChartInfoEvents.Single();
+            Assert.AreEqual(CatalogChartInfoOwnerEventKind.WarningPresentationChanged, warning.Kind);
+            Assert.AreEqual("file_diff_inline_chart_info_parse_failure", warning.Reason);
+            Assert.IsNotNull(callbacks.LastCatalogResidual);
+        }
+        finally
+        {
+            if (Directory.Exists(directoryPath))
+            {
+                Directory.Delete(directoryPath, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ApplyFileScanDiff_EmptyDirectoryRequestCompletesProgressForRepeatedRequests()
     {
         var callbacks = new RecordingLibraryFileScanPipelineCallbacks();
@@ -504,6 +569,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
             (_, _) => false,
             null,
             _ => { });
+        callbacks.CatalogChartInfoOwner = catalogChartInfoOwner;
         catalogChartInfoOwner.ConfigureWorkflow(
             dbGateway,
             catalogMutationOwner,
@@ -511,7 +577,11 @@ public sealed class LibraryFileScanPipelineOwnerTests
             ownedCollectionOwner,
             () => new BmsLibraryOptionsSnapshot(),
             _ => { },
-            _ => { });
+            ownerEvent =>
+            {
+                callbacks.CatalogChartInfoEvents.Add(ownerEvent);
+                callbacks.EventOrder.Add(ownerEvent.Kind.ToString());
+            });
         var resourceHealthOwner = new ResourceHealthIndexOwner(
             new BmsLibraryMaintenanceService(),
             _ => { },
@@ -535,7 +605,6 @@ public sealed class LibraryFileScanPipelineOwnerTests
             callbacks.QueueEverythingFallbackWarning,
             callbacks.QueueFileScanSkippedIncompleteWarning,
             callbacks.QueueEmptyScanWithExistingDbWarning,
-            callbacks.DispatchWarningPresentationChanged,
             library.Lr2Synchronization,
             catalogMutationOwner,
             catalogChartInfoOwner,
@@ -567,6 +636,12 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public CatalogStorageRowsOwner CatalogStorageRowsOwner { get; set; } = null!;
 
         public CatalogOwnedCollectionOwner CatalogOwnedCollectionOwner { get; set; } = null!;
+
+        public CatalogChartInfoOwner CatalogChartInfoOwner { get; set; } = null!;
+
+        public List<CatalogChartInfoOwnerEvent> CatalogChartInfoEvents { get; } = [];
+
+        public List<string> EventOrder { get; } = [];
 
         public FileScanCatalogReplacementEvent LastCatalogReplacement { get; private set; } = null!;
 
@@ -644,10 +719,7 @@ public sealed class LibraryFileScanPipelineOwnerTests
         public void PublishCatalogResidual(FileScanCatalogResidualEvent residualEvent)
         {
             LastCatalogResidual = residualEvent;
-        }
-
-        public void DispatchWarningPresentationChanged(string reason)
-        {
+            EventOrder.Add("Residual");
         }
 
     }

@@ -69,8 +69,6 @@ internal sealed class LibraryFileScanPipelineOwner
 
     private readonly Action<string> queueEmptyScanWithExistingDbWarning;
 
-    private readonly Action<string> dispatchWarningPresentationChanged;
-
     private readonly BMSLibrary.Lr2SynchronizationOwner lr2Synchronization;
 
     private readonly CatalogMutationOwner catalogMutationOwner;
@@ -111,7 +109,6 @@ internal sealed class LibraryFileScanPipelineOwner
         Action<string> queueEverythingFallbackWarning,
         Action<string> queueFileScanSkippedIncompleteWarning,
         Action<string> queueEmptyScanWithExistingDbWarning,
-        Action<string> dispatchWarningPresentationChanged,
         BMSLibrary.Lr2SynchronizationOwner lr2Synchronization,
         CatalogMutationOwner catalogMutationOwner,
         CatalogChartInfoOwner catalogChartInfoOwner,
@@ -136,7 +133,6 @@ internal sealed class LibraryFileScanPipelineOwner
         this.queueEverythingFallbackWarning = queueEverythingFallbackWarning ?? throw new ArgumentNullException(nameof(queueEverythingFallbackWarning));
         this.queueFileScanSkippedIncompleteWarning = queueFileScanSkippedIncompleteWarning ?? throw new ArgumentNullException(nameof(queueFileScanSkippedIncompleteWarning));
         this.queueEmptyScanWithExistingDbWarning = queueEmptyScanWithExistingDbWarning ?? throw new ArgumentNullException(nameof(queueEmptyScanWithExistingDbWarning));
-        this.dispatchWarningPresentationChanged = dispatchWarningPresentationChanged ?? throw new ArgumentNullException(nameof(dispatchWarningPresentationChanged));
         this.lr2Synchronization = lr2Synchronization ?? throw new ArgumentNullException(nameof(lr2Synchronization));
         this.catalogMutationOwner = catalogMutationOwner ?? throw new ArgumentNullException(nameof(catalogMutationOwner));
         this.catalogChartInfoOwner = catalogChartInfoOwner ?? throw new ArgumentNullException(nameof(catalogChartInfoOwner));
@@ -693,7 +689,7 @@ internal sealed class LibraryFileScanPipelineOwner
             || fileCheckResult.InlineChartInfoFailurePersistedCount > 0
             || fileCheckResult.InlineChartInfoFailureClearedCount > 0)
         {
-            dispatchWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
+            catalogChartInfoOwner.PublishWarningPresentationChanged("file_diff_inline_chart_info_parse_failure");
         }
         publishCatalogResidual(FileScanCatalogResidualEvent.Create(fileCheckResult.MutationDelta, reason));
         lr2Synchronization.CaptureLr2SongDbSyncScanSurface(options, bmsDirectories, fileCheckResult);

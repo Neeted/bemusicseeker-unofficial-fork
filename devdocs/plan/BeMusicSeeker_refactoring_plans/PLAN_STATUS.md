@@ -13,38 +13,27 @@
 
 ## Active outcome
 
-### `LIB-06 Library facade and scan integration closure`
+### `PL-01 Playlist persistence and reload ownership`
 
-状態: in progress
-
-active outcome base commit: 2a75ca5c21ca8885a0b9228756f7a115625f9203
-
-active execution package: LIB-06 Library facade and scan integration closure
-
-sequence cursor: LIB-06-U8 Scan inline chart-info warning event ownership and callback-port retirement
+状態: ready
 
 目的:
 
-成立済みの catalog、package、LR2、playlist-reference owner を application-facing facade / aggregate entry へ直接 compose し、残る scan composition、nested host / factory、facade forwarding、test-only production seam を削除して Library Gate を閉じる。
+playlist の DB transaction、hydration、diff、reload decision、catalog-change による playlist aggregate / summary invalidation を repository / workflow owner へ移し、application-facing facade から persistence lifecycle を分離する。
 
 Acceptance criteria:
 
-- established owner の command / query / event を production composition から直接接続し、facade に workflow private state、state mirror、broad callback host を残さない。
-- residual scan progress / dialog / diagnostics / DB gateway port、storage / mutation factory、nested host / forwarding、test-only production seam を用途別の narrow boundary へ整理し、同じ vertical unit で旧 route を削除する。
-- scan / catalog / package / LR2 / playlist-reference の既存 owner boundary、ordering、failure、cancellation、notification、UI observable behavior を behavior test で維持する。
-- DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約を維持する。
-- outcome-wide Full verification、変更範囲に対応する Library composition / scan の UI smoke check、重大な指摘なしの outcome review を完了する。
+- playlist persistence の durable transaction、hydration、diff、reload decision、aggregate / summary invalidation の state と behavior が新 owner に集約され、production route がその owner を直接使う。
+- `BMSPlaylist` と application-facing facade から persistence writer、hydration queue、reload decision、summary cache の private forwarding / callback host を削除する。
+- `LIB-03` の versioned owned-hash snapshot / catalog mutation receipt を immutable input として受け、DB schema / data、failure、cancellation、notification、UI observable behavior を維持する。
+- repository / workflow owner の behavior test、outcome-wide Full verification、必要な UI smoke、重大指摘なしの outcome review を完了する。
 
 Non-goals:
 
-- catalog storage / mutation / maintenance / resource-health ownership（LIB-03）。
-- package / install-destination、installable maintenance、generic file operation（LIB-02）。
-- LR2 request / run / status、trust / freshness、normal-folder sync（LIB-04）。
-- playlist-reference index / apply ownership（LIB-05）。
-- playlist persistence / external-sync / output、shell closure（PL-01、PL-02、UI-05）。
+- playlist external sync、custom-folder / BMT / recommended-table output（PL-02）。
+- shell の残存 root pass-through / code-behind workflow（UI-05）。
 - feature 内に残る `Settings.Default` の除去（各 feature outcome と `MIG-01`）。
 - `.NET 10` TFM 変更、NuGet の一括更新、native dependency の置換。
-- public modifier の変更だけを理由にした completed outcome の再開、または過去の repository-internal call shape の復元。
 
 ## Outcome states
 
@@ -60,8 +49,8 @@ Non-goals:
 | LIB-02 Package, install-destination and file-operation ownership | completed |
 | LIB-04 LR2 synchronization ownership | completed |
 | LIB-05 Playlist-reference ownership | completed |
-| LIB-06 Library facade and scan integration closure | in progress |
-| PL-01 Playlist persistence and reload ownership | not started |
+| LIB-06 Library facade and scan integration closure | completed |
+| PL-01 Playlist persistence and reload ownership | ready |
 | PL-02 Playlist external-sync and output ownership | not started |
 | UI-05 Shell closure | not started |
 | MIG-01 Platform boundary closure | not started |
@@ -78,15 +67,15 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Gate area | State | Current evidence |
 |---|---|---|
 | UI ownership | not met | UI-01 の main table / regular owner、UI-02 の playback owner、UI-03 の playlist workspace owner、UI-04 の play-history owner は completed。設定画面と残る code-behind workflow は UI-05 の対象。settings の composition / adapter 境界は APP-01 で扱う |
-| Library ownership | not met | scan core、catalog rows / digest / owned collection、resource-health、catalog-owned maintenance / maintenance-table hydration、chart-info hydration / backfill、generic mutation の relocation / removal protocol、canonical receipt、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner は completed。残る facade bridge の削除は LIB-06 の対象 |
+| Library ownership | not met | scan core、catalog rows / digest / owned collection、resource-health、catalog-owned maintenance / maintenance-table hydration、chart-info hydration / backfill、generic mutation の relocation / removal protocol、canonical receipt、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner、LIB-06 facade / scan integration closure は completed。playlist persistence / shell closure は PL-01、PL-02、UI-05 の対象 |
 | Playlist ownership | not met | persistence / sync / output が同居する。playlist-reference lifecycle は LR2 から分離して LIB-05 で completed |
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
-| Migration readiness | not met | resource-health / maintenance / chart-info owner と generic mutation の prepare / durable commit / live apply / immutable receipt publish protocol、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner は成立済み。残る facade / playlist / shell consumer owner の課題は LIB-06、PL-01、PL-02、UI-05 で扱う |
-| Quality | in progress | UI-04、LIB-01、LIB-03、LIB-02、LIB-04、LIB-05 の outcome-wide Full verification / review と変更範囲の exact process-path startup / normal-shutdown smoke は完了。残る outcomes と Gate evidence は未完了 |
+| Migration readiness | not met | resource-health / maintenance / chart-info owner と generic mutation の prepare / durable commit / live apply / immutable receipt publish protocol、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner、LIB-06 facade / scan integration closure は成立済み。残る playlist / shell consumer owner の課題は PL-01、PL-02、UI-05 で扱う |
+| Quality | in progress | LIB-06 の outcome-wide Full verification、static review、変更範囲の x64 Release process-path startup / normal-shutdown smoke は完了。既知の無関係な既存テスト失敗と、残る outcomes / Gate evidence は未完了 |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 
 ## Active outcome blockers
 
-なし。LIB-06 の facade / scan integration 残課題は、次の implementation unit で扱う。具体的な `EXTERNAL_BLOCKER` 以外はユーザー確認待ちにしない。
+なし。PL-01 の persistence / reload ownership を次の implementation unit で扱う。具体的な `EXTERNAL_BLOCKER` 以外はユーザー確認待ちにしない。
