@@ -20,7 +20,7 @@ public partial class BMSLibrary
     /// Owns the LR2 synchronization request lifecycle and its cross-route state.
     /// The facade exposes only the application-facing observable projection.
     /// </summary>
-    internal sealed class Lr2SynchronizationOwner : ILr2SongDbSyncRequestHost, ILr2SynchronizationScanPort, ILr2ChartInfoTrustPort
+    internal sealed class Lr2SynchronizationOwner : ILr2SongDbSyncRequestHost, ILr2SynchronizationScanPort, ILr2ChartInfoTrustPort, ILr2PlaylistFolderSynchronizationPort
     {
         private readonly BMSLibrary library;
 
@@ -50,6 +50,10 @@ public partial class BMSLibrary
         internal bool Running { get; set; }
 
         internal bool PreparationInProgress { get; set; }
+
+        private object preparationMutationReservationToken;
+
+        private readonly AsyncLocal<object> preparationMutationScopeToken = new();
 
         internal int MutationInProgress { get; set; }
 
@@ -106,8 +110,13 @@ public partial class BMSLibrary
         void ILr2SynchronizationScanPort.ThrowIfLr2SongDbSyncMutationBlocked(string operation) =>
             ThrowIfLr2SongDbSyncMutationBlocked(operation);
 
-        void ILr2SynchronizationScanPort.MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(Exception exception, string reason) =>
-            MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(exception, reason);
+        CustomFolderOutputPhysicalSurface ILr2PlaylistFolderSynchronizationPort.GetCurrentAppManagedCustomFolderOutputPhysicalSurface() =>
+            GetCurrentAppManagedCustomFolderOutputPhysicalSurface();
+
+        Lr2FolderFileDbSyncResult ILr2PlaylistFolderSynchronizationPort.SyncPlaylistLr2FolderFileRows(
+            string operation,
+            Lr2FolderFileDbSyncRequest request) =>
+            SyncPlaylistLr2FolderFileRows(operation, request);
 
         Lr2SongDbSyncAppManagedOutputScope ILr2SynchronizationScanPort.CreateLr2SongDbSyncAppManagedOutputScope() =>
             CreateLr2SongDbSyncAppManagedOutputScope();
@@ -310,12 +319,30 @@ public partial class BMSLibrary
                         AllowPrune = effectiveAllowPrune,
                         ScopeReadLr2FolderRowsOnly = scopeReadLr2FolderRowsOnly,
                         UpdateParentDirectoryRowsForPreservedItems = updateParentDirectoryRowsForPreservedItems
-                    });
+                    },
+                    commitTransaction: false);
                     songDb.Commit();
                 }
                 catch
                 {
-                    songDb.RollbackTo(savepoint);
+                    try
+                    {
+                        songDb.RollbackTo(savepoint);
+                    }
+                    catch (Exception rollbackException)
+                    {
+                        try
+                        {
+                            BMSLibrary.LogInstallPerformanceWarn(
+                                logName + " rollback_failed"
+                                + " exception=" + rollbackException.GetType().Name
+                                + " message=" + BMSLibrary.GetDisplayedExceptionMessage(rollbackException).Replace(Environment.NewLine, " | "));
+                        }
+                        catch
+                        {
+                            // Rollback diagnostics must never replace the original LR2 folder exception.
+                        }
+                    }
                     throw;
                 }
 
@@ -454,14 +481,31 @@ public partial class BMSLibrary
             Exception exception,
             string reason)
         {
-            string displayedMessage = BMSLibrary.GetDisplayedExceptionMessage(exception)
-                .Replace(Environment.NewLine, " | ");
-            MarkLr2SongDbSyncIncomplete(
-                library.CurrentOptionsSnapshot,
-                runId: "playlist_lr2folder_sync",
-                stage: "lr2_playlist_lr2folder_sync_failed",
-                detail: "lr2_playlist_lr2folder_sync_failed: " + displayedMessage,
-                logReason: string.IsNullOrWhiteSpace(reason) ? "playlist_lr2folder_sync" : reason);
+            try
+            {
+                string displayedMessage = BMSLibrary.GetDisplayedExceptionMessage(exception)
+                    .Replace(Environment.NewLine, " | ");
+                MarkLr2SongDbSyncIncomplete(
+                    library.CurrentOptionsSnapshot,
+                    runId: "playlist_lr2folder_sync",
+                    stage: "lr2_playlist_lr2folder_sync_failed",
+                    detail: "lr2_playlist_lr2folder_sync_failed: " + displayedMessage,
+                    logReason: string.IsNullOrWhiteSpace(reason) ? "playlist_lr2folder_sync" : reason);
+            }
+            catch (Exception publishException)
+            {
+                try
+                {
+                    BMSLibrary.LogInstallPerformanceWarn(
+                        "lr2_playlist_lr2folder_sync_failure_publish_failed"
+                        + " exception=" + publishException.GetType().Name
+                        + " message=" + BMSLibrary.GetDisplayedExceptionMessage(publishException).Replace(Environment.NewLine, " | "));
+                }
+                catch
+                {
+                    // Failure publication must never replace the original playlist exception.
+                }
+            }
         }
 
         internal void MarkLr2SongDbSyncIncomplete(
@@ -497,6 +541,116 @@ public partial class BMSLibrary
                     + " reason=" + (logReason ?? "unknown")
                     + " exception=" + ex.GetType().Name
                     + " message=" + BMSLibrary.GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+            }
+        }
+
+        internal void PublishCatalogWriteFailureFact(CatalogWriteFailureFact failureFact)
+        {
+            if (failureFact == null)
+            {
+                return;
+            }
+
+            try
+            {
+                MarkLr2SongDbSyncIncomplete(
+                    library.CurrentOptionsSnapshot,
+                    failureFact.RunId,
+                    failureFact.Stage,
+                    failureFact.Detail,
+                    failureFact.LogReason);
+            }
+            catch (Exception publishException)
+            {
+                try
+                {
+                    BMSLibrary.LogInstallPerformanceWarn(
+                        "lr2_catalog_write_failure_fact_publish_failed"
+                        + " reason=" + (failureFact.LogReason ?? "unknown")
+                        + " exception=" + publishException.GetType().Name
+                        + " message=" + BMSLibrary.GetDisplayedExceptionMessage(publishException).Replace(Environment.NewLine, " | "));
+                }
+                catch
+                {
+                    // Failure publication must never replace the original catalog exception.
+                }
+            }
+        }
+
+        internal Lr2FolderFileDbSyncResult SyncPlaylistLr2FolderFileRows(
+            string operation,
+            Lr2FolderFileDbSyncRequest request)
+        {
+            if (request == null)
+            {
+                return null;
+            }
+
+            string resolvedOperation = string.IsNullOrWhiteSpace(operation)
+                ? "playlist_lr2folder_sync"
+                : operation;
+            using IDisposable mutationReservation = TryBeginMutation(
+                resolvedOperation,
+                showMessage: false);
+            if (mutationReservation == null)
+            {
+                throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+            }
+
+            try
+            {
+                using (library.catalogMutationOwner.EnterMaintenanceWriteGuard())
+                using (LR2SongDBExtended songDb = library.dbGateway.OpenSongDb())
+                {
+                    string savepoint = songDb.SaveTransactionPoint();
+                    try
+                    {
+                        Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(
+                            songDb,
+                            request,
+                            commitTransaction: false);
+                        songDb.Commit();
+                        return result;
+                    }
+                    catch
+                    {
+                        try
+                        {
+                            songDb.RollbackTo(savepoint);
+                        }
+                        catch (Exception rollbackException)
+                        {
+                            try
+                            {
+                                BMSLibrary.LogInstallPerformanceWarn(
+                                    resolvedOperation + " rollback_failed"
+                                    + " exception=" + rollbackException.GetType().Name
+                                    + " message=" + BMSLibrary.GetDisplayedExceptionMessage(rollbackException).Replace(Environment.NewLine, " | "));
+                            }
+                            catch
+                            {
+                                // Rollback diagnostics must never replace the original playlist exception.
+                            }
+                        }
+                        throw;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(ex, resolvedOperation);
+                try
+                {
+                    BMSLibrary.LogInstallPerformanceWarn(
+                        resolvedOperation + " failed"
+                        + " exception=" + ex.GetType().Name
+                        + " message=" + BMSLibrary.GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | "));
+                }
+                catch
+                {
+                    // Failure diagnostics must never replace the original playlist exception.
+                }
+                throw;
             }
         }
 
@@ -882,11 +1036,15 @@ public partial class BMSLibrary
                 if (requiresPreparation)
                 {
                     PreparationInProgress = true;
+                    preparationMutationReservationToken = new object();
                 }
                 blockingSnapshot = CreateRuntimeSnapshotUnsafe();
                 return true;
             }
         }
+
+        IDisposable ILr2SongDbSyncRequestHost.EnterLr2SongDbSyncPreparationMutationScope() =>
+            EnterPreparationMutationScope();
 
         Lr2SongDbSyncStatusSnapshot ILr2SongDbSyncRequestHost.GetLr2SongDbSyncStatusSnapshot()
         {
@@ -1216,6 +1374,7 @@ public partial class BMSLibrary
             lock (RequestGate)
             {
                 PreparationInProgress = false;
+                preparationMutationReservationToken = null;
             }
         }
 
@@ -1797,7 +1956,10 @@ public partial class BMSLibrary
             int total;
             lock (RequestGate)
             {
-                blocked = Running;
+                bool preparationScopeOwned = PreparationInProgress
+                    && preparationMutationReservationToken != null
+                    && ReferenceEquals(preparationMutationScopeToken.Value, preparationMutationReservationToken);
+                blocked = Running || (PreparationInProgress && !preparationScopeOwned);
                 stage = ObservableStage ?? string.Empty;
                 processed = ObservableProcessedCount;
                 total = ObservableTotalCount;
@@ -1822,7 +1984,9 @@ public partial class BMSLibrary
             return true;
         }
 
-        internal IDisposable TryBeginMutation(string operation, bool showMessage = true)
+        internal IDisposable TryBeginMutation(
+            string operation,
+            bool showMessage = true)
         {
             string stage;
             int processed;
@@ -1830,7 +1994,10 @@ public partial class BMSLibrary
             bool preparing;
             lock (RequestGate)
             {
-                if (!Running && !PreparationInProgress)
+                bool preparationScopeOwned = PreparationInProgress
+                    && preparationMutationReservationToken != null
+                    && ReferenceEquals(preparationMutationScopeToken.Value, preparationMutationReservationToken);
+                if (!Running && (!PreparationInProgress || preparationScopeOwned))
                 {
                     MutationInProgress++;
                     return new MutationScope(this);
@@ -1857,6 +2024,31 @@ public partial class BMSLibrary
             return null;
         }
 
+        private IDisposable EnterPreparationMutationScope()
+        {
+            object reservationToken;
+            lock (RequestGate)
+            {
+                if (!PreparationInProgress || preparationMutationReservationToken == null)
+                {
+                    throw new InvalidOperationException("LR2 preparation mutation scope is not reserved.");
+                }
+                reservationToken = preparationMutationReservationToken;
+            }
+
+            object previousToken = preparationMutationScopeToken.Value;
+            preparationMutationScopeToken.Value = reservationToken;
+            return new PreparationMutationScope(this, reservationToken, previousToken);
+        }
+
+        private void ExitPreparationMutationScope(object reservationToken, object previousToken)
+        {
+            if (ReferenceEquals(preparationMutationScopeToken.Value, reservationToken))
+            {
+                preparationMutationScopeToken.Value = previousToken;
+            }
+        }
+
         internal void ThrowIfLr2SongDbSyncMutationBlocked(string operation)
         {
             if (TryBlockMutation(operation, showMessage: false))
@@ -1881,6 +2073,20 @@ public partial class BMSLibrary
             {
                 Lr2SynchronizationOwner current = Interlocked.Exchange(ref owner, null);
                 current?.EndMutation();
+            }
+        }
+
+        private sealed class PreparationMutationScope(
+            Lr2SynchronizationOwner owner,
+            object reservationToken,
+            object previousToken) : IDisposable
+        {
+            private Lr2SynchronizationOwner owner = owner;
+
+            public void Dispose()
+            {
+                Lr2SynchronizationOwner current = Interlocked.Exchange(ref owner, null);
+                current?.ExitPreparationMutationScope(reservationToken, previousToken);
             }
         }
 

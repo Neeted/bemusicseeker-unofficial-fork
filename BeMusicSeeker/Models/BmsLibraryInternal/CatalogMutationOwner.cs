@@ -21,7 +21,7 @@ internal sealed class CatalogMutationOwner
 
     private readonly BmsLibraryDbGateway dbGateway;
 
-    private readonly Action<string, Exception> notifyLr2SongDbWriteFailure;
+    private readonly Action<CatalogWriteFailureFact> publishCatalogWriteFailureFact;
 
     private readonly ReaderWriterLockSlimWrapper maintenanceWriteGate = new();
 
@@ -44,12 +44,12 @@ internal sealed class CatalogMutationOwner
         CatalogStorageRowsOwner storageRowsOwner,
         CatalogOwnedCollectionOwner ownedCollectionOwner,
         BmsLibraryDbGateway dbGateway,
-        Action<string, Exception> notifyLr2SongDbWriteFailure)
+        Action<CatalogWriteFailureFact> publishCatalogWriteFailureFact)
     {
         this.storageRowsOwner = storageRowsOwner ?? throw new ArgumentNullException(nameof(storageRowsOwner));
         this.ownedCollectionOwner = ownedCollectionOwner ?? throw new ArgumentNullException(nameof(ownedCollectionOwner));
         this.dbGateway = dbGateway;
-        this.notifyLr2SongDbWriteFailure = notifyLr2SongDbWriteFailure;
+        this.publishCatalogWriteFailureFact = publishCatalogWriteFailureFact;
     }
 
     /// <summary>
@@ -315,6 +315,32 @@ internal sealed class CatalogMutationOwner
         IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs = null,
         Action onDurableCommit = null)
     {
+        CatalogWriteFailureFact failureFact = null;
+        try
+        {
+            return ApplyCatalogMutationUnderGuards(
+                delta,
+                removeRequests,
+                addedBmsFiles,
+                addedBmsonSongs,
+                onDurableCommit,
+                fact => failureFact = fact);
+        }
+        catch
+        {
+            PublishCatalogWriteFailureFactBestEffort(failureFact);
+            throw;
+        }
+    }
+
+    private CatalogMutationReceipt ApplyCatalogMutationUnderGuards(
+        LibraryMutationDelta delta,
+        IEnumerable<OwnedChartRemoveRequest> removeRequests,
+        IEnumerable<BMSFile> addedBmsFiles,
+        IEnumerable<LR2SongDBExtended.bmson_song> addedBmsonSongs,
+        Action onDurableCommit,
+        Action<CatalogWriteFailureFact> captureFailureFact)
+    {
         if (delta == null)
         {
             return CatalogMutationReceipt.NotApplied;
@@ -351,11 +377,15 @@ internal sealed class CatalogMutationOwner
             }
             catch (Exception ex)
             {
-                notifyLr2SongDbWriteFailure?.Invoke(
-                    relocationRequest.HasChanges
+                captureFailureFact?.Invoke(new CatalogWriteFailureFact(
+                    runId: "song_db_write",
+                    stage: relocationRequest.HasChanges
                         ? "lr2_song_db_library_mutation_path_replace_failed"
                         : "lr2_song_db_library_mutation_removal_failed",
-                    ex);
+                    logReason: relocationRequest.HasChanges
+                        ? "lr2_song_db_library_mutation_path_replace_failed"
+                        : "lr2_song_db_library_mutation_removal_failed",
+                    ex));
                 throw;
             }
 
@@ -761,12 +791,22 @@ internal sealed class CatalogMutationOwner
         IEnumerable<LR2SongDBExtended.bmson_song> bmsonRows,
         Action onValidationPassed = null)
     {
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
-        using (maintenanceWriteGate.GetWriterGuard())
+        CatalogWriteFailureFact failureFact = null;
+        try
         {
-            return ApplyInstalledTargetUpsertUnsafe(
-                CreateInstalledTargetUpsertRequestUnsafe(bmsRows, bmsonRows),
-                onValidationPassed);
+            using (storageRowsOwner.WriteGate.GetWriterGuard())
+            using (maintenanceWriteGate.GetWriterGuard())
+            {
+                return ApplyInstalledTargetUpsertUnsafe(
+                    CreateInstalledTargetUpsertRequestUnsafe(bmsRows, bmsonRows),
+                    onValidationPassed,
+                    fact => failureFact = fact);
+            }
+        }
+        catch
+        {
+            PublishCatalogWriteFailureFactBestEffort(failureFact);
+            throw;
         }
     }
 
@@ -779,10 +819,46 @@ internal sealed class CatalogMutationOwner
             return CatalogInstalledTargetUpsertReceipt.NotApplied;
         }
 
-        using (storageRowsOwner.WriteGate.GetWriterGuard())
-        using (maintenanceWriteGate.GetWriterGuard())
+        CatalogWriteFailureFact failureFact = null;
+        try
         {
-            return ApplyInstalledTargetUpsertUnsafe(request, onValidationPassed);
+            using (storageRowsOwner.WriteGate.GetWriterGuard())
+            using (maintenanceWriteGate.GetWriterGuard())
+            {
+                return ApplyInstalledTargetUpsertUnsafe(request, onValidationPassed, fact => failureFact = fact);
+            }
+        }
+        catch
+        {
+            PublishCatalogWriteFailureFactBestEffort(failureFact);
+            throw;
+        }
+    }
+
+    private void PublishCatalogWriteFailureFactBestEffort(CatalogWriteFailureFact failureFact)
+    {
+        if (failureFact == null || publishCatalogWriteFailureFact == null)
+        {
+            return;
+        }
+
+        try
+        {
+            publishCatalogWriteFailureFact(failureFact);
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                Debug.WriteLine(
+                    "catalog_write_failure_fact_publish_failed"
+                    + " exception=" + exception.GetType().Name
+                    + " message=" + exception.Message);
+            }
+            catch
+            {
+                // Failure publication must never replace the original catalog exception.
+            }
         }
     }
 
@@ -800,7 +876,8 @@ internal sealed class CatalogMutationOwner
 
     private CatalogInstalledTargetUpsertReceipt ApplyInstalledTargetUpsertUnsafe(
         CatalogInstalledTargetUpsertRequest request,
-        Action onValidationPassed = null)
+        Action onValidationPassed = null,
+        Action<CatalogWriteFailureFact> captureFailureFact = null)
     {
         StorageRowsVersionSnapshot currentVersions = storageRowsOwner.CaptureVersionSnapshot();
         if (currentVersions.BmsRowsVersion != request.PreviousBmsRowsVersion
@@ -851,9 +928,11 @@ internal sealed class CatalogMutationOwner
         }
         catch (Exception ex)
         {
-            notifyLr2SongDbWriteFailure?.Invoke(
-                "lr2_song_db_install_target_upsert_failed",
-                ex);
+            captureFailureFact?.Invoke(new CatalogWriteFailureFact(
+                runId: "song_db_write",
+                stage: "lr2_song_db_install_target_upsert_failed",
+                logReason: "lr2_song_db_install_target_upsert_failed",
+                ex));
             throw;
         }
 

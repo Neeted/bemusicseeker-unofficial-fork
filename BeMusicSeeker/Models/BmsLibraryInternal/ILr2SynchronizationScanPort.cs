@@ -11,8 +11,6 @@ internal interface ILr2SynchronizationScanPort
 {
     void ThrowIfLr2SongDbSyncMutationBlocked(string operation);
 
-    void MarkLr2SongDbSyncIncompleteAfterPlaylistLr2FolderSyncFailure(Exception exception, string reason);
-
     BmsLibraryOptionsSnapshot CurrentOptionsSnapshot { get; }
 
     Lr2SongDbSyncAppManagedOutputScope CreateLr2SongDbSyncAppManagedOutputScope();

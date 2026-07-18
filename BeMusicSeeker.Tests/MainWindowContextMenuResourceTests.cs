@@ -1667,7 +1667,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
         StringAssert.Contains(initialize, "PlaylistWorkspace.LoadExternalTableCollection(startupSettings.TableListURL);");
         Assert.IsFalse(initialize.Contains("BMSPlaylist.GetBMSTableInfo(startupSettings.TableListURL)"));
-        StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver());");
+        StringAssert.Contains(initialize, "() => files.CreateBeatorajaBmtSongHashResolver(),");
+        StringAssert.Contains(initialize, "files.Lr2PlaylistFolderSynchronization);");
         StringAssert.Contains(compositionCode, "playlistUrlCompletionOptionsProvider,");
         StringAssert.Contains(compositionCode, "beatorajaBmtOptionsProvider,");
         StringAssert.Contains(compositionCode, "customFolderOutputSettingsProvider);");

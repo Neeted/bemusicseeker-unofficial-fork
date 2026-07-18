@@ -673,10 +673,12 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                     nowUtc: DateTime.UtcNow);
             }
 
-            InvokeMarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure(
-                library,
-                new InvalidOperationException("db locked"),
-                "manual_rescan_all_owned");
+            GetLr2SynchronizationOwner(library).PublishCatalogWriteFailureFact(
+                new CatalogWriteFailureFact(
+                    "song_db_write",
+                    "lr2_song_db_maintenance_write_failed",
+                    "manual_rescan_all_owned",
+                    new InvalidOperationException("db locked")));
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
             LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
@@ -687,6 +689,311 @@ public sealed class BmsLibraryLr2SongDbSyncTests
             Lr2SongDbSyncStatusSnapshot snapshot = library.GetLr2SongDbSyncStatusSnapshot();
             Assert.AreEqual(Lr2SongDbSyncStatusKind.Incomplete, snapshot.Status);
             Assert.AreEqual("lr2_song_db_maintenance_write_failed", snapshot.Stage);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistLr2FolderSynchronization_BlocksWhileLr2SongDbSyncIsRunning()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            var library = new BMSLibrary(scope.SongDbPath);
+            InvokeBeginLr2SongDbSyncRequest(library);
+
+            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+                () => library.Lr2PlaylistFolderSynchronization.SyncPlaylistLr2FolderFileRows(
+                    "playlist_lr2folder_sync",
+                    new Lr2FolderFileDbSyncRequest()));
+
+            Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.Message);
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistLr2FolderSynchronization_CommitsFolderRowsThroughOwner()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string outputDirectory = Path.Combine(scope.DirectoryPath, "Output");
+            Directory.CreateDirectory(outputDirectory);
+            string filePath = Path.Combine(outputDirectory, "0000.lr2folder");
+            DateTime timestamp = new(2026, 7, 18, 4, 5, 6, DateTimeKind.Utc);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+            }
+            var library = new BMSLibrary(scope.SongDbPath);
+
+            Lr2FolderFileDbSyncResult result = library.Lr2PlaylistFolderSynchronization.SyncPlaylistLr2FolderFileRows(
+                "playlist_lr2folder_sync",
+                new Lr2FolderFileDbSyncRequest
+                {
+                    Items =
+                    [
+                        new Lr2FolderFileSyncItem
+                        {
+                            FilePath = filePath,
+                            LastWriteTimeUtc = timestamp,
+                            Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Owner sync"])
+                        }
+                    ],
+                    ScopeDirectories = [outputDirectory],
+                    DirectoryRowScopeDirectories = [outputDirectory],
+                    DirectoryRowGenerationScopeDirectories = [outputDirectory],
+                    DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(timestamp),
+                    GeneratedAtUtc = timestamp,
+                    AllowPrune = true
+                });
+
+            Assert.IsTrue(result.HasChanges);
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.IsNotNull(verify.Find<LR2SongDB.folder>(filePath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistLr2FolderSynchronization_BlocksWhilePreparationIsInProgress()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string outputDirectory = Path.Combine(scope.DirectoryPath, "Output");
+            Directory.CreateDirectory(outputDirectory);
+            string filePath = Path.Combine(outputDirectory, "0000.lr2folder");
+            DateTime timestamp = new(2026, 7, 18, 4, 5, 6, DateTimeKind.Utc);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+            }
+            var library = new BMSLibrary(scope.SongDbPath);
+            BMSLibrary.Lr2SynchronizationOwner owner = GetLr2SynchronizationOwner(library);
+            owner.PreparationInProgress = true;
+
+            try
+            {
+                Assert.IsTrue(owner.TryBlockMutation("test_preparation_mutation", showMessage: false));
+                InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+                    () => library.Lr2PlaylistFolderSynchronization.SyncPlaylistLr2FolderFileRows(
+                        "playlist_lr2folder_sync",
+                        new Lr2FolderFileDbSyncRequest
+                        {
+                            Items =
+                            [
+                                new Lr2FolderFileSyncItem
+                                {
+                                    FilePath = filePath,
+                                    LastWriteTimeUtc = timestamp,
+                                    Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Preparation owner"])
+                                }
+                            ],
+                            ScopeDirectories = [outputDirectory],
+                            DirectoryRowScopeDirectories = [outputDirectory],
+                            DirectoryRowGenerationScopeDirectories = [outputDirectory],
+                            DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(timestamp),
+                            GeneratedAtUtc = timestamp,
+                            AllowPrune = true
+                        }));
+
+                Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.Message);
+            }
+            finally
+            {
+                owner.PreparationInProgress = false;
+            }
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistLr2FolderSynchronization_AllowsThePreparationOwnedReservation()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string outputDirectory = Path.Combine(scope.DirectoryPath, "Output");
+            Directory.CreateDirectory(outputDirectory);
+            string filePath = Path.Combine(outputDirectory, "0000.lr2folder");
+            DateTime timestamp = new(2026, 7, 18, 4, 5, 6, DateTimeKind.Utc);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+            }
+            var library = new BMSLibrary(scope.SongDbPath);
+            Lr2FolderFileDbSyncResult synchronizedResult = null!;
+
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
+                "test_preparation_owned_playlist",
+                () =>
+                {
+                    synchronizedResult = library.Lr2PlaylistFolderSynchronization.SyncPlaylistLr2FolderFileRows(
+                        "playlist_lr2folder_sync",
+                        new Lr2FolderFileDbSyncRequest
+                        {
+                            Items =
+                            [
+                                new Lr2FolderFileSyncItem
+                                {
+                                    FilePath = filePath,
+                                    LastWriteTimeUtc = timestamp,
+                                    Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Preparation owner"])
+                                }
+                            ],
+                            ScopeDirectories = [outputDirectory],
+                            DirectoryRowScopeDirectories = [outputDirectory],
+                            DirectoryRowGenerationScopeDirectories = [outputDirectory],
+                            DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(timestamp),
+                            GeneratedAtUtc = timestamp,
+                            AllowPrune = true
+                        });
+                    return Lr2SongDbSyncPreparedDataSurface.Empty;
+                }));
+
+            Assert.IsTrue(synchronizedResult?.HasChanges == true);
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.IsNotNull(verify.Find<LR2SongDB.folder>(filePath));
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistLr2FolderSynchronization_PublishesFailureStatusAndRethrowsOriginalException()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string outputDirectory = Path.Combine(scope.DirectoryPath, "Output");
+            Directory.CreateDirectory(outputDirectory);
+            string nestedDirectory = Path.Combine(outputDirectory, "Nested");
+            Directory.CreateDirectory(nestedDirectory);
+            string filePath = Path.Combine(nestedDirectory, "0000.lr2folder");
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+            }
+            var library = new BMSLibrary(scope.SongDbPath);
+            Exception originalException = new InvalidOperationException("forced playlist folder failure");
+
+            InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+                () => library.Lr2PlaylistFolderSynchronization.SyncPlaylistLr2FolderFileRows(
+                    "playlist_lr2folder_sync",
+                    new Lr2FolderFileDbSyncRequest
+                    {
+                        Items =
+                        [
+                            new Lr2FolderFileSyncItem
+                            {
+                                FilePath = filePath,
+                                LastWriteTimeUtc = DateTime.UtcNow,
+                                Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Failure"])
+                            }
+                        ],
+                        ScopeDirectories = [outputDirectory],
+                        DirectoryRowScopeDirectories = [outputDirectory],
+                        DirectoryRowGenerationScopeDirectories = [outputDirectory],
+                        DirectoryMetadataResolver = _ => throw originalException,
+                        AllowPrune = true
+                    }));
+
+            Assert.AreSame(originalException, exception);
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.IsNotNull(row);
+            Assert.AreEqual("lr2_playlist_lr2folder_sync_failed", row.stage);
+            StringAssert.Contains(row.last_error, "forced playlist folder failure");
+        }
+        finally
+        {
+            ResetTouchedSettings();
+        }
+    }
+
+    [TestMethod]
+    public void PlaylistLr2FolderSynchronization_RollsBackWriterFailureAfterPartialPlan()
+    {
+        using TestDatabaseScope scope = TestDatabaseScope.Create();
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            ResetLr2FolderDiscoverySettings();
+            string outputDirectory = Path.Combine(scope.DirectoryPath, "Output");
+            Directory.CreateDirectory(outputDirectory);
+            string firstFilePath = Path.Combine(outputDirectory, "0001.lr2folder");
+            string failingFilePath = Path.Combine(outputDirectory, "0002.lr2folder");
+            DateTime timestamp = new(2026, 7, 18, 4, 5, 6, DateTimeKind.Utc);
+            using (var setup = new LR2SongDBExtended(scope.SongDbPath))
+            {
+                setup.CreateTable<LR2SongDB.folder>();
+                setup.Execute(
+                    "CREATE TRIGGER fail_lr2_folder_insert AFTER INSERT ON folder WHEN NEW.path = '"
+                    + failingFilePath.Replace("'", "''")
+                    + "' BEGIN SELECT RAISE(ABORT, 'forced folder insert failure'); END;");
+            }
+            var library = new BMSLibrary(scope.SongDbPath);
+
+            SQLite.SQLiteException exception = Assert.ThrowsException<SQLite.SQLiteException>(
+                () => library.Lr2PlaylistFolderSynchronization.SyncPlaylistLr2FolderFileRows(
+                    "playlist_lr2folder_sync",
+                    new Lr2FolderFileDbSyncRequest
+                    {
+                        Items =
+                        [
+                            new Lr2FolderFileSyncItem
+                            {
+                                FilePath = firstFilePath,
+                                LastWriteTimeUtc = timestamp,
+                                Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE First"])
+                            },
+                            new Lr2FolderFileSyncItem
+                            {
+                                FilePath = failingFilePath,
+                                LastWriteTimeUtc = timestamp,
+                                Definition = Lr2FolderFileProjection.ParseDefinition(["#TITLE Failing"])
+                            }
+                        ],
+                        ScopeDirectories = [outputDirectory],
+                        DirectoryRowScopeDirectories = [outputDirectory],
+                        DirectoryRowGenerationScopeDirectories = [outputDirectory],
+                        DirectoryMetadataResolver = _ => new Lr2FolderDirectoryMetadata(timestamp),
+                        GeneratedAtUtc = timestamp,
+                        AllowPrune = true
+                    }));
+
+            Assert.IsFalse(string.IsNullOrWhiteSpace(exception.Message));
+            using var verify = new LR2SongDBExtended(scope.SongDbPath);
+            Assert.AreEqual(0, verify.Table<LR2SongDB.folder>().Count());
+            LR2SongDBExtended.lr2_song_db_sync_status row = verify.Find<LR2SongDBExtended.lr2_song_db_sync_status>(Lr2SongDbSyncStatusService.DefaultStatusName);
+            Assert.IsNotNull(row);
+            Assert.AreEqual("lr2_playlist_lr2folder_sync_failed", row.stage);
         }
         finally
         {
@@ -6883,16 +7190,6 @@ public sealed class BmsLibraryLr2SongDbSyncTests
         MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterFileDiffSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
         Assert.IsNotNull(methodInfo);
         methodInfo.Invoke(library, [options, exception, reason]);
-    }
-
-    private static void InvokeMarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure(
-        BMSLibrary library,
-        Exception exception,
-        string reason)
-    {
-        MethodInfo methodInfo = typeof(BMSLibrary).GetMethod("MarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure", BindingFlags.Instance | BindingFlags.NonPublic);
-        Assert.IsNotNull(methodInfo);
-        methodInfo.Invoke(library, [exception, reason]);
     }
 
     private static List<string> InvokeGetBmsDirectories(BMSLibrary library)

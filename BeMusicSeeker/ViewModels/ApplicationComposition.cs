@@ -348,7 +348,8 @@ internal sealed class ApplicationComposition
     internal BMSPlaylist CreateBmsPlaylist(
         LibraryProfile libraryProfile,
         Func<List<BMSScore>> getBMSScores,
-        Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver)
+        Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null)
     {
         if (libraryProfile == null)
         {
@@ -362,7 +363,8 @@ internal sealed class ApplicationComposition
             getBeatorajaBmtSongHashResolver,
             playlistUrlCompletionOptionsProvider,
             beatorajaBmtOptionsProvider,
-            customFolderOutputSettingsProvider);
+            customFolderOutputSettingsProvider,
+            lr2PlaylistFolderSynchronization);
     }
 
     internal static ApplicationComposition CreateDefault()

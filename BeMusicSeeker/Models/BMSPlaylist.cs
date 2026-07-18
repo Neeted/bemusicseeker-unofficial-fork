@@ -374,6 +374,8 @@ public partial class BMSPlaylist : NotificationObject
     /// </summary>
     private readonly string lr2SongDBPath;
 
+    private readonly ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization;
+
     /// <summary>
     /// 推奨表更新時に参照する LR2 Score DB のパスを保持します。
     /// </summary>
@@ -478,13 +480,7 @@ public partial class BMSPlaylist : NotificationObject
 
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
 
-    internal Func<CustomFolderOutputPhysicalSurface> CustomFolderOutputPhysicalSurfaceProvider { get; set; }
-
     internal Action<PlaylistSyncProgressSnapshot> BeatorajaBmtExportProgressReporter { get; set; }
-
-    internal Action<string> Lr2FolderSyncMutationGuard { get; set; }
-
-    internal Action<string, Exception> Lr2FolderSyncFailureReporter { get; set; }
 
     private int shutdownRequested;
 
@@ -1084,13 +1080,64 @@ public partial class BMSPlaylist : NotificationObject
 
     internal BMSPlaylist(
         string _lr2SongDB,
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
+        : this(
+            _lr2SongDB,
+            null,
+            null,
+            null,
+            null,
+            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
+            BeatorajaBmtOptionsSnapshot.CreateCurrent,
+            CustomFolderOutputSettingsSnapshot.CreateCurrent,
+            lr2PlaylistFolderSynchronization)
+    {
+    }
+
+    internal BMSPlaylist(
+        string _lr2SongDB,
+        Func<LR2Config> getLR2Config,
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
+        : this(
+            _lr2SongDB,
+            getLR2Config,
+            null,
+            null,
+            null,
+            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
+            BeatorajaBmtOptionsSnapshot.CreateCurrent,
+            CustomFolderOutputSettingsSnapshot.CreateCurrent,
+            lr2PlaylistFolderSynchronization)
+    {
+    }
+
+    internal BMSPlaylist(
+        string _lr2SongDB,
+        string _lr2ScoreDB,
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization)
+        : this(
+            _lr2SongDB,
+            null,
+            _lr2ScoreDB,
+            null,
+            null,
+            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
+            BeatorajaBmtOptionsSnapshot.CreateCurrent,
+            CustomFolderOutputSettingsSnapshot.CreateCurrent,
+            lr2PlaylistFolderSynchronization)
+    {
+    }
+
+    internal BMSPlaylist(
+        string _lr2SongDB,
         Func<LR2Config> getLR2Config,
         string _lr2ScoreDB,
         Func<List<BMSScore>> getBMSScores,
         Func<Func<BmtSongHashResolveRequest, Tuple<string, string>>> getBeatorajaBmtSongHashResolver,
         Func<PlaylistUrlCompletionOptionsSnapshot> playlistUrlCompletionOptionsProvider,
         Func<BeatorajaBmtOptionsSnapshot> beatorajaBmtOptionsProvider,
-        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider)
+        Func<CustomFolderOutputSettingsSnapshot> customFolderOutputSettingsProvider,
+        ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization = null)
     {
         if (_lr2SongDB == null)
         {
@@ -1112,6 +1159,7 @@ public partial class BMSPlaylist : NotificationObject
         this.playlistUrlCompletionOptionsProvider = playlistUrlCompletionOptionsProvider ?? PlaylistUrlCompletionOptionsSnapshot.CreateCurrent;
         this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
+        this.lr2PlaylistFolderSynchronization = lr2PlaylistFolderSynchronization;
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
         listenerForRwlockBMSTables = new PropertyChangedEventListener(rwlockBMSTables);
@@ -5013,7 +5061,7 @@ public partial class BMSPlaylist : NotificationObject
         CustomFolderOutputPhysicalSurface providedSurface = null;
         try
         {
-            providedSurface = CustomFolderOutputPhysicalSurfaceProvider?.Invoke();
+            providedSurface = lr2PlaylistFolderSynchronization?.GetCurrentAppManagedCustomFolderOutputPhysicalSurface();
         }
         catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
         {
@@ -7198,7 +7246,7 @@ public partial class BMSPlaylist : NotificationObject
         IReadOnlyCollection<string> directoryRowGenerationScopes = null,
         IReadOnlyDictionary<string, RootFileEnumerationEntry> ownedDirectoryEntries = null)
     {
-        if (string.IsNullOrWhiteSpace(outputDir) || string.IsNullOrWhiteSpace(lr2SongDBPath))
+        if (string.IsNullOrWhiteSpace(outputDir))
         {
             return;
         }
@@ -7209,11 +7257,9 @@ public partial class BMSPlaylist : NotificationObject
             directoryRowGenerationScopes,
             [outputDir],
             ownedDirectoryEntries);
-        Lr2FolderFileDbSyncResult result = null;
-        ExecuteLr2FolderSync("playlist_lr2folder_sync", delegate
-        {
-            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-            result = Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+        Lr2FolderFileDbSyncResult result = GetLr2PlaylistFolderSynchronization().SyncPlaylistLr2FolderFileRows(
+            "playlist_lr2folder_sync",
+            new Lr2FolderFileDbSyncRequest
             {
                 Items = items ?? [],
                 ScopeDirectories = [outputDir],
@@ -7222,7 +7268,6 @@ public partial class BMSPlaylist : NotificationObject
                 DirectoryMetadataResolver = directoryMetadata.Resolve,
                 AllowPrune = true
             });
-        });
         LogLr2FolderSyncResult("playlist_lr2folder_sync", result, 1, items?.Count ?? 0);
     }
 
@@ -7239,7 +7284,7 @@ public partial class BMSPlaylist : NotificationObject
         outputDirs = [.. (outputDirs ?? [])
             .Where(directory => !string.IsNullOrWhiteSpace(directory))
             .Distinct(StringComparer.OrdinalIgnoreCase)];
-        if (outputDirs.Count == 0 || string.IsNullOrWhiteSpace(lr2SongDBPath))
+        if (outputDirs.Count == 0)
         {
             return null;
         }
@@ -7259,19 +7304,17 @@ public partial class BMSPlaylist : NotificationObject
             directoryRowGenerationScopes,
             outputDirs,
             ownedDirectoryEntries);
-        Lr2FolderFileDbSyncResult result = null;
-        ExecuteLr2FolderSync("playlist_lr2folder_batch_sync", delegate
-        {
-            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-            IReadOnlyCollection<string> exactScopePaths = CreateCustomFolderExactScopePaths(items, pruneScopePaths);
-            IReadOnlyCollection<string> emptyDirectoryRowScopeDirectories = [.. (emptyOutputDirectories ?? [])
-                .Where(directory => !string.IsNullOrWhiteSpace(directory))
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-            IReadOnlyCollection<string> directoryRowScopeDirectories = [.. pruneScopeDirectories
-                .Concat(emptyDirectoryRowScopeDirectories)
-                .Where(directory => !string.IsNullOrWhiteSpace(directory))
-                .Distinct(StringComparer.OrdinalIgnoreCase)];
-            result = Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+        IReadOnlyCollection<string> exactScopePaths = CreateCustomFolderExactScopePaths(items, pruneScopePaths);
+        IReadOnlyCollection<string> emptyDirectoryRowScopeDirectories = [.. (emptyOutputDirectories ?? [])
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        IReadOnlyCollection<string> directoryRowScopeDirectories = [.. pruneScopeDirectories
+            .Concat(emptyDirectoryRowScopeDirectories)
+            .Where(directory => !string.IsNullOrWhiteSpace(directory))
+            .Distinct(StringComparer.OrdinalIgnoreCase)];
+        Lr2FolderFileDbSyncResult result = GetLr2PlaylistFolderSynchronization().SyncPlaylistLr2FolderFileRows(
+            "playlist_lr2folder_batch_sync",
+            new Lr2FolderFileDbSyncRequest
             {
                 Items = items ?? [],
                 ScopeDirectories = pruneScopeDirectories,
@@ -7282,7 +7325,6 @@ public partial class BMSPlaylist : NotificationObject
                 DirectoryMetadataResolver = directoryMetadata.Resolve,
                 AllowPrune = true
             });
-        });
         LogLr2FolderSyncResult("playlist_lr2folder_batch_sync", result, outputDirs.Count, items?.Count ?? 0);
         return result;
     }
@@ -7593,16 +7635,9 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
-        if (string.IsNullOrWhiteSpace(lr2SongDBPath))
-        {
-            return;
-        }
-
-        Lr2FolderFileDbSyncResult result = null;
-        ExecuteLr2FolderSync("playlist_lr2folder_prune", delegate
-        {
-            using var lr2Song = new LR2SongDBExtended(lr2SongDBPath);
-            result = Lr2FolderFileDbSyncService.Sync(lr2Song, new Lr2FolderFileDbSyncRequest
+        Lr2FolderFileDbSyncResult result = GetLr2PlaylistFolderSynchronization().SyncPlaylistLr2FolderFileRows(
+            "playlist_lr2folder_prune",
+            new Lr2FolderFileDbSyncRequest
             {
                 ScopePaths = filePaths,
                 DirectoryRowScopeDirectories = directoryRowScopeDirectories ?? [],
@@ -7610,7 +7645,6 @@ public partial class BMSPlaylist : NotificationObject
                 PruneExcludedPaths = pruneExcludedPaths ?? [],
                 AllowPrune = true
             });
-        });
         LogLr2FolderSyncResult("playlist_lr2folder_prune", result, directoryRowScopeDirectories?.Count ?? 0, filePaths?.Count ?? 0);
     }
 
@@ -7636,18 +7670,13 @@ public partial class BMSPlaylist : NotificationObject
             + " elapsedMs=" + result.ElapsedMs);
     }
 
-    private void ExecuteLr2FolderSync(string operation, Action action)
+    private ILr2PlaylistFolderSynchronizationPort GetLr2PlaylistFolderSynchronization()
     {
-        Lr2FolderSyncMutationGuard?.Invoke(operation);
-        try
+        if (lr2PlaylistFolderSynchronization == null)
         {
-            action?.Invoke();
+            throw new InvalidOperationException("LR2 playlist folder synchronization is not configured.");
         }
-        catch (Exception ex)
-        {
-            Lr2FolderSyncFailureReporter?.Invoke(operation, ex);
-            throw;
-        }
+        return lr2PlaylistFolderSynchronization;
     }
 
     private static void WriteAllText(string path, string text, Encoding encoding)

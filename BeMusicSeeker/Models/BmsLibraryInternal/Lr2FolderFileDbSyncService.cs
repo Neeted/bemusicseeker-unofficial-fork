@@ -109,7 +109,8 @@ internal static class Lr2FolderFileDbSyncService
 
     internal static Lr2FolderFileDbSyncResult Sync(
         LR2SongDBExtended songDb,
-        Lr2FolderFileDbSyncRequest request)
+        Lr2FolderFileDbSyncRequest request,
+        bool commitTransaction = true)
     {
         if (songDb == null)
         {
@@ -243,7 +244,8 @@ internal static class Lr2FolderFileDbSyncService
 
         Lr2FolderGenerationWriteResult writeResult = Lr2FolderDbWriter.ApplySyncPlan(
             songDb,
-            new Lr2FolderGenerationSyncPlan(upsertRows, deletePaths));
+            new Lr2FolderGenerationSyncPlan(upsertRows, deletePaths),
+            commitTransaction);
 
         stopwatch.Stop();
         return new Lr2FolderFileDbSyncResult(

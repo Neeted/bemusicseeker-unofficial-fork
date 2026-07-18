@@ -25,6 +25,8 @@ internal interface ILr2SongDbSyncRequestHost
 
     bool TryReserveLr2SongDbSyncPreparation(bool requiresPreparation, out Lr2SongDbSyncRuntimeSnapshot blockingSnapshot);
 
+    IDisposable EnterLr2SongDbSyncPreparationMutationScope();
+
     Lr2SongDbSyncStatusSnapshot GetLr2SongDbSyncStatusSnapshot();
 
     LR2SongDBExtended OpenSongDb();
@@ -204,6 +206,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
             {
                 host.LogInstallPerformance("lr2_song_db_sync prepare_start"
                     + " reason=" + (reason ?? "unknown"));
+                using IDisposable preparationMutationScope = host.EnterLr2SongDbSyncPreparationMutationScope();
                 Lr2SongDbSyncPreparedDataSurface preparedSurface = prepareGeneratedData();
                 prepareStopwatch.Stop();
                 host.LogInstallPerformance("lr2_song_db_sync prepare_done"
@@ -621,6 +624,7 @@ internal static class Lr2SongDbSyncRequestCoordinator
         try
         {
             host.LogInstallPerformance("lr2_song_db_sync_data_prepare start reason=" + (reason ?? "unknown"));
+            using IDisposable preparationMutationScope = host.EnterLr2SongDbSyncPreparationMutationScope();
             Lr2SongDbSyncPreparedDataSurface preparedSurface = prepareGeneratedData();
             host.ApplyLr2SongDbSyncPreparedDataSurface("prepare_generated_data", preparedSurface);
             host.LogInstallPerformance("lr2_song_db_sync_data_prepare done reason=" + (reason ?? "unknown"));

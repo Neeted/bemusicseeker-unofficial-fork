@@ -52,7 +52,7 @@ internal sealed class CatalogMaintenanceOwner
 
     private readonly Action<string> logPerformance;
 
-    private readonly Action<Exception, string> markMaintenanceWriteFailure;
+    private readonly Action<CatalogWriteFailureFact> publishCatalogWriteFailureFact;
 
     private readonly Action hydrationStateChanged;
 
@@ -83,7 +83,7 @@ internal sealed class CatalogMaintenanceOwner
         Func<Exception, string> displayedExceptionMessageProvider,
         Func<CatalogMaintenanceHydrationReceipt, long> publishHydration,
         Action<string> logPerformance,
-        Action<Exception, string> markMaintenanceWriteFailure,
+        Action<CatalogWriteFailureFact> publishCatalogWriteFailureFact,
         Action hydrationStateChanged)
     {
         this.initializationService = initializationService ?? throw new ArgumentNullException(nameof(initializationService));
@@ -104,7 +104,7 @@ internal sealed class CatalogMaintenanceOwner
         this.displayedExceptionMessageProvider = displayedExceptionMessageProvider ?? (ex => ex?.Message ?? string.Empty);
         this.publishHydration = publishHydration ?? throw new ArgumentNullException(nameof(publishHydration));
         this.logPerformance = logPerformance ?? throw new ArgumentNullException(nameof(logPerformance));
-        this.markMaintenanceWriteFailure = markMaintenanceWriteFailure;
+        this.publishCatalogWriteFailureFact = publishCatalogWriteFailureFact;
         this.hydrationStateChanged = hydrationStateChanged;
     }
 
@@ -177,46 +177,55 @@ internal sealed class CatalogMaintenanceOwner
         ResourceMaintenanceTargetSet currentTargetSet = targetSet;
         Action postCommitEffects = null;
         bool durableCommitBoundaryReached = false;
-        using (catalogMutationOwner.EnterMaintenanceWriteGuard())
+        CatalogWriteFailureFact failureFact = null;
+        try
         {
-            ResourceHealthIndexOwner.ResourceHealthInputMutation inputMutation = resourceHealthOwner.BeginInputMutation();
-            baseInputVersion = inputMutation.BaseInputVersion;
-            indexCurrentBeforeUpdate = inputMutation.BaseIndexCurrent;
-            try
+            using (catalogMutationOwner.EnterMaintenanceWriteGuard())
             {
-                workflowResult = maintenanceService.UpdateMaintenanceInfo(
-                    targetCharts,
-                    forceUpdate,
-                    catalogMutationOwner.ApplyMaintenanceWriteUnderGuard,
-                    dialogService,
-                    new ResourceHealthLookupContext(resourceLookupCache),
-                    logPerformance,
-                    progressReporter,
-                    cancellationToken,
-                    () => durableCommitBoundaryReached = true,
-                    effects =>
+                ResourceHealthIndexOwner.ResourceHealthInputMutation inputMutation = resourceHealthOwner.BeginInputMutation();
+                baseInputVersion = inputMutation.BaseInputVersion;
+                indexCurrentBeforeUpdate = inputMutation.BaseIndexCurrent;
+                try
+                {
+                    workflowResult = maintenanceService.UpdateMaintenanceInfo(
+                        targetCharts,
+                        forceUpdate,
+                        catalogMutationOwner.ApplyMaintenanceWriteUnderGuard,
+                        dialogService,
+                        new ResourceHealthLookupContext(resourceLookupCache),
+                        logPerformance,
+                        progressReporter,
+                        cancellationToken,
+                        () => durableCommitBoundaryReached = true,
+                        effects =>
+                        {
+                            postCommitEffects = effects;
+                        });
+                    if (workflowResult?.HasUpdates == true)
                     {
-                        postCommitEffects = effects;
-                    });
-                if (workflowResult?.HasUpdates == true)
-                {
-                    targetCharts = RefreshTargetsFromCurrentStorageOwners(targetCharts);
-                    currentTargetSet = targetSet.WithCharts(targetCharts);
+                        targetCharts = RefreshTargetsFromCurrentStorageOwners(targetCharts);
+                        currentTargetSet = targetSet.WithCharts(targetCharts);
+                    }
                 }
-            }
-            catch (Exception ex)
-            {
-                if (!durableCommitBoundaryReached)
+                catch (Exception ex)
                 {
-                    markMaintenanceWriteFailure?.Invoke(ex, mutationReason);
+                    if (!durableCommitBoundaryReached)
+                    {
+                        failureFact = CreateMaintenanceWriteFailureFact(ex, mutationReason);
+                    }
+                    throw;
                 }
-                throw;
+                finally
+                {
+                    inputMutation.Dispose();
+                }
+                targetInputVersion = inputMutation.TargetInputVersion;
             }
-            finally
-            {
-                inputMutation.Dispose();
-            }
-            targetInputVersion = inputMutation.TargetInputVersion;
+        }
+        catch
+        {
+            PublishCatalogWriteFailureFactBestEffort(failureFact);
+            throw;
         }
 
         // Publish property changes and terminal progress after the catalog write
@@ -317,48 +326,57 @@ internal sealed class CatalogMaintenanceOwner
             .Select(BMSFile.MaintenanceMutationSnapshot.Capture)
             .Where(snapshot => snapshot != null)];
         IReadOnlyList<BMSFile.MaintenanceMutationSnapshot> preparedSnapshots = [];
-        using (catalogMutationOwner.EnterMaintenanceWriteGuard())
+        CatalogWriteFailureFact failureFact = null;
+        try
         {
-            try
+            using (catalogMutationOwner.EnterMaintenanceWriteGuard())
             {
-                MaintenanceEncodingUpdateResult updateResult;
-                CatalogMaintenanceWriteRequest writeRequest;
-                using (BMSFile.SuppressPropertyChangedScope())
-                using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
+                try
                 {
-                    updateResult = maintenanceService.ApplyEncodingForCatalogOwner(fileSnapshot, encoding);
+                    MaintenanceEncodingUpdateResult updateResult;
+                    CatalogMaintenanceWriteRequest writeRequest;
+                    using (BMSFile.SuppressPropertyChangedScope())
+                    using (BMSFileMaintenanceInfo.SuppressPropertyChangedScope())
+                    {
+                        updateResult = maintenanceService.ApplyEncodingForCatalogOwner(fileSnapshot, encoding);
+                    }
+                    preparedSnapshots = [.. fileSnapshot
+                        .Select(BMSFile.MaintenanceMutationSnapshot.Capture)
+                        .Where(snapshot => snapshot != null)];
+                    writeRequest = new CatalogMaintenanceWriteRequest(
+                        updateResult.MaintenanceInfosToUpsert,
+                        updateResult.SongsToUpsert);
+                    foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
+                    {
+                        snapshot.Restore();
+                    }
+                    if (updateResult.SongsToUpsert.Count == 0 && updateResult.MaintenanceInfosToUpsert.Count == 0)
+                    {
+                        return;
+                    }
+                    CatalogMaintenanceWriteReceipt writeReceipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(writeRequest);
+                    if ((updateResult.SongsToUpsert.Count > 0 || updateResult.MaintenanceInfosToUpsert.Count > 0)
+                        && !writeReceipt.Applied)
+                    {
+                        throw new InvalidOperationException("Encoding changes were not persisted.");
+                    }
                 }
-                preparedSnapshots = [.. fileSnapshot
-                    .Select(BMSFile.MaintenanceMutationSnapshot.Capture)
-                    .Where(snapshot => snapshot != null)];
-                writeRequest = new CatalogMaintenanceWriteRequest(
-                    updateResult.MaintenanceInfosToUpsert,
-                    updateResult.SongsToUpsert);
-                foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
+                catch (Exception ex)
                 {
-                    snapshot.Restore();
-                }
-                if (updateResult.SongsToUpsert.Count == 0 && updateResult.MaintenanceInfosToUpsert.Count == 0)
-                {
-                    return;
-                }
-                CatalogMaintenanceWriteReceipt writeReceipt = catalogMutationOwner.ApplyMaintenanceWriteUnderGuard(writeRequest);
-                if ((updateResult.SongsToUpsert.Count > 0 || updateResult.MaintenanceInfosToUpsert.Count > 0)
-                    && !writeReceipt.Applied)
-                {
-                    throw new InvalidOperationException("Encoding changes were not persisted.");
+                    foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
+                    {
+                        snapshot.Restore();
+                    }
+                    resourceHealthOwner.ForceInvalidate("lr2_song_db_encoding_upsert_failed");
+                    failureFact = CreateMaintenanceWriteFailureFact(ex, "lr2_song_db_encoding_upsert_failed");
+                    throw;
                 }
             }
-            catch (Exception ex)
-            {
-                foreach (BMSFile.MaintenanceMutationSnapshot snapshot in mutationSnapshots)
-                {
-                    snapshot.Restore();
-                }
-                resourceHealthOwner.ForceInvalidate("lr2_song_db_encoding_upsert_failed");
-                markMaintenanceWriteFailure?.Invoke(ex, "lr2_song_db_encoding_upsert_failed");
-                throw;
-            }
+        }
+        catch
+        {
+            PublishCatalogWriteFailureFactBestEffort(failureFact);
+            throw;
         }
 
         // The catalog write has committed.  Do not include live-state apply or
@@ -372,6 +390,46 @@ internal sealed class CatalogMaintenanceOwner
         {
             snapshot.NotifyCommittedChanges();
         }
+    }
+
+    private void PublishCatalogWriteFailureFactBestEffort(CatalogWriteFailureFact failureFact)
+    {
+        if (failureFact == null || publishCatalogWriteFailureFact == null)
+        {
+            return;
+        }
+
+        try
+        {
+            publishCatalogWriteFailureFact(failureFact);
+        }
+        catch (Exception exception)
+        {
+            try
+            {
+                Debug.WriteLine(
+                    "catalog_write_failure_fact_publish_failed"
+                    + " exception=" + exception.GetType().Name
+                    + " message=" + exception.Message);
+            }
+            catch
+            {
+                // Failure publication must never replace the original catalog exception.
+            }
+        }
+    }
+
+    private static CatalogWriteFailureFact CreateMaintenanceWriteFailureFact(Exception exception, string reason)
+    {
+        bool encodingUpsert = string.Equals(reason, "lr2_song_db_encoding_upsert_failed", StringComparison.Ordinal);
+        string stage = encodingUpsert
+            ? "lr2_song_db_encoding_upsert_failed"
+            : "lr2_song_db_maintenance_write_failed";
+        return new CatalogWriteFailureFact(
+            runId: "song_db_write",
+            stage,
+            logReason: string.IsNullOrWhiteSpace(reason) ? "maintenance_update" : reason,
+            exception);
     }
 
     internal void QueueHydration(string reason)

@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Linq;
 using BeMusicSeeker.Models.LR2;
 
@@ -17,7 +18,8 @@ internal static class Lr2FolderDbWriter
 {
     internal static Lr2FolderGenerationWriteResult ApplySyncPlan(
         LR2SongDBExtended songDb,
-        Lr2FolderGenerationSyncPlan plan)
+        Lr2FolderGenerationSyncPlan plan,
+        bool commitTransaction = true)
     {
         if (songDb == null)
         {
@@ -40,7 +42,7 @@ internal static class Lr2FolderDbWriter
 
         int deleted = 0;
         int upserted = 0;
-        string savepoint = songDb.SaveTransactionPoint();
+        string savepoint = commitTransaction ? songDb.SaveTransactionPoint() : null;
         try
         {
             foreach (string deletePath in deletePaths)
@@ -51,12 +53,36 @@ internal static class Lr2FolderDbWriter
             {
                 upserted += songDb.InsertOrReplace(row, typeof(LR2SongDB.folder));
             }
-            songDb.Commit();
+            if (commitTransaction)
+            {
+                songDb.Commit();
+            }
             return new Lr2FolderGenerationWriteResult(upserted, deleted);
         }
         catch
         {
-            songDb.RollbackTo(savepoint);
+            if (commitTransaction)
+            {
+                try
+                {
+                    songDb.RollbackTo(savepoint);
+                }
+                catch (Exception rollbackException)
+                {
+                    try
+                    {
+                        Debug.WriteLine(
+                            "LR2 folder sync rollback failed: "
+                            + rollbackException.GetType().Name
+                            + ": "
+                            + rollbackException.Message);
+                    }
+                    catch
+                    {
+                        // Rollback diagnostics must never replace the original folder write exception.
+                    }
+                }
+            }
             throw;
         }
     }

@@ -77,19 +77,16 @@ public sealed class BmsPlaylistUpdateTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new BMSPlaylist(songDbPath);
-            bool guardInvoked = false;
-            playlist.Lr2FolderSyncMutationGuard = operation =>
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
             {
-                guardInvoked = true;
-                Assert.AreEqual("playlist_lr2folder_sync", operation);
-                throw new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning);
+                Failure = new InvalidOperationException(Resources.Warn_Lr2SongDbSyncRunning)
             };
+            var playlist = CreatePlaylist(songDbPath, synchronization);
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
                 InvokeSyncCustomFolderRows(playlist, Path.Combine(tempDirectory, "Output"), []));
 
-            Assert.IsTrue(guardInvoked);
+            CollectionAssert.AreEqual(new[] { "playlist_lr2folder_sync" }, synchronization.Operations);
             Assert.IsInstanceOfType(exception.InnerException, typeof(InvalidOperationException));
             Assert.AreEqual(Resources.Warn_Lr2SongDbSyncRunning, exception.InnerException.Message);
         }
@@ -104,7 +101,7 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public void Lr2FolderSync_ReportsFailureBeforeRethrowing()
+    public void Lr2FolderSync_RethrowsCapabilityFailure()
     {
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
@@ -114,23 +111,20 @@ public sealed class BmsPlaylistUpdateTests
             using (var _ = new LR2SongDBExtended(songDbPath))
             {
             }
-            var playlist = new BMSPlaylist(songDbPath);
+            var originalException = new InvalidOperationException("forced LR2 folder sync failure");
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
+            {
+                Failure = originalException
+            };
+            var playlist = CreatePlaylist(songDbPath, synchronization);
             File.Delete(songDbPath);
             Directory.CreateDirectory(songDbPath);
-            string reportedOperation = string.Empty;
-            Exception reportedException = new InvalidOperationException("not invoked");
-            playlist.Lr2FolderSyncFailureReporter = (operation, ex) =>
-            {
-                reportedOperation = operation;
-                reportedException = ex;
-            };
 
             TargetInvocationException exception = Assert.ThrowsException<TargetInvocationException>(() =>
                 InvokeSyncCustomFolderRows(playlist, Path.Combine(tempDirectory, "Output"), []));
 
-            Assert.AreEqual("playlist_lr2folder_sync", reportedOperation);
-            Assert.IsNotNull(reportedException);
-            Assert.AreSame(exception.InnerException, reportedException);
+            Assert.AreSame(originalException, exception.InnerException);
+            CollectionAssert.AreEqual(new[] { "playlist_lr2folder_sync" }, synchronization.Operations);
         }
         finally
         {
@@ -150,7 +144,7 @@ public sealed class BmsPlaylistUpdateTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
             };
@@ -186,7 +180,7 @@ public sealed class BmsPlaylistUpdateTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { new BMSTable() }), Dispatcher.CurrentDispatcher)
             };
@@ -230,7 +224,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
@@ -283,7 +277,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             table.playlist_id = 900001;
@@ -353,7 +347,7 @@ public sealed class BmsPlaylistUpdateTests
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Progress Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
@@ -400,7 +394,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable externalTable = await playlist.LoadExternalTableAsync(new Uri(externalHeaderPath));
             externalTable.EnableExternalSync();
             var manualTable = new BMSTable
@@ -446,7 +440,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9001;
             table.DisableExternalSync();
@@ -493,7 +487,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
             table.playlist_id = 9021;
             table.DisableExternalSync();
@@ -579,7 +573,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9011;
             table.DisableExternalSync();
@@ -727,7 +721,7 @@ public sealed class BmsPlaylistUpdateTests
                 setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table]),
@@ -805,7 +799,7 @@ public sealed class BmsPlaylistUpdateTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(
@@ -878,7 +872,7 @@ public sealed class BmsPlaylistUpdateTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([new BMSTable { name = "Initial" }]),
@@ -950,7 +944,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9031;
             playlist.BMSTables = new DispatcherCollection<BMSTable>(
@@ -1014,7 +1008,7 @@ public sealed class BmsPlaylistUpdateTests
                 setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 setup.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table]),
@@ -1046,7 +1040,7 @@ public sealed class BmsPlaylistUpdateTests
         try
         {
             string songDbPath = CreateTempSongDbPath(tempDirectory);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             var table = new BMSTable
             {
                 name = "NoUri",
@@ -1089,7 +1083,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable goodTable = await playlist.LoadExternalTableAsync(new Uri(goodHeaderPath));
             var badTable = new BMSTable
             {
@@ -1138,7 +1132,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9501;
             table.name = "Local Name";
@@ -1231,7 +1225,7 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             BMSPlaylist.EnsureSchema(songDbPath);
-            var playlist = new BMSPlaylist(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable tableA = await playlist.LoadExternalTableAsync(new Uri(headerAPath));
             BMSTable tableB = await playlist.LoadExternalTableAsync(new Uri(headerBPath));
             tableA.playlist_id = 9502;
@@ -1364,7 +1358,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 BeatorajaBmtOptionsSnapshot.CreateCurrent,
-                getOutputSettings);
+                getOutputSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
             BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9504;
             table.name = "LocalName";
@@ -1470,7 +1465,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[]
@@ -1535,7 +1530,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
                 db.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, folder) VALUES (7101, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'Song', '1');");
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -1593,7 +1588,7 @@ public sealed class BmsPlaylistUpdateTests
                     db.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
                 }
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -1654,7 +1649,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -1755,7 +1750,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOutputSettings)
+                getOutputSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -1890,7 +1886,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -1956,7 +1952,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -2044,7 +2040,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = oldOutputPath, title = "stale default", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -2140,7 +2136,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOperationSettings)
+                getOperationSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -2206,7 +2203,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder E"]
             };
-            var playlist = new BMSPlaylist(songDbPath, _lr2ScoreDB: scoreDbPath)
+            var playlist = new BMSPlaylist(songDbPath, scoreDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -2307,7 +2304,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getPlaylistSettings)
+                getPlaylistSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(tempSongDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -2441,7 +2439,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getPlaylistSettings)
+                getPlaylistSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -2552,7 +2551,7 @@ public sealed class BmsPlaylistUpdateTests
                 symbol = "CONFLICT",
                 Output_dir = "Conflict"
             };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>([table, conflictingTable]),
@@ -2768,7 +2767,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getPlaylistSettings)
+                getPlaylistSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { normalTable, additionalTable, rootTable }),
@@ -2894,7 +2894,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getPlaylistSettings)
+                getPlaylistSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -2996,7 +2997,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3071,7 +3072,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3172,7 +3173,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A", "Folder B"]
             };
-            var playlist = new BMSPlaylist(songDbPath, _lr2ScoreDB: scoreDbPath)
+            var playlist = new BMSPlaylist(songDbPath, scoreDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3236,7 +3237,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, _lr2ScoreDB: scoreDbPath)
+            var playlist = new BMSPlaylist(songDbPath, scoreDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3294,7 +3295,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, _lr2ScoreDB: scoreDbPath)
+            var playlist = new BMSPlaylist(songDbPath, scoreDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3374,7 +3375,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3437,7 +3438,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3497,7 +3498,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3559,7 +3560,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3626,7 +3627,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = stalePath, title = "stale", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3689,7 +3690,7 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3802,7 +3803,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOutputSettings)
+                getOutputSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -3872,12 +3874,11 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
-            {
-                BMSTables = new DispatcherCollection<BMSTable>(
-                    new ObservableCollection<BMSTable>(new[] { table }),
-                    Dispatcher.CurrentDispatcher)
-            };
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath);
+            var playlist = CreatePlaylist(songDbPath, synchronization, () => CreateLr2Config(lr2RootPath, bmsRoot));
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(new[] { table }),
+                Dispatcher.CurrentDispatcher);
             var progressLabels = new List<string>();
 
             playlist.ReOutputCustomFoldersAndCommitHeadersToDB(
@@ -3939,17 +3940,17 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
-            {
-                BMSTables = new DispatcherCollection<BMSTable>(
-                    new ObservableCollection<BMSTable>(new[] { table }),
-                    Dispatcher.CurrentDispatcher)
-            };
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath);
+            var playlist = CreatePlaylist(songDbPath, synchronization, () => CreateLr2Config(lr2RootPath, bmsRoot));
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(new[] { table }),
+                Dispatcher.CurrentDispatcher);
 
             playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_seed_status_noop");
+            synchronization.Operations.Clear();
             string outputDirectory = Path.Combine(outputBaseDir, "StatusNoOp");
             int physicalProviderCallCount = 0;
-            playlist.CustomFolderOutputPhysicalSurfaceProvider = () =>
+            synchronization.PhysicalSurfaceFactory = () =>
             {
                 physicalProviderCallCount++;
                 return CustomFolderOutputPhysicalSurface.FromEntries(
@@ -3957,14 +3958,11 @@ public sealed class BmsPlaylistUpdateTests
                         .Select(path => new RootFileEnumerationEntry(path, File.GetLastWriteTimeUtc(path))),
                     discoveryComplete: true);
             };
-            var operations = new List<string>();
-            playlist.Lr2FolderSyncMutationGuard = operations.Add;
-
             int repairedCount = InvokeRepairMissingCustomFolderOutputsAfterHydration(playlist, "test_status_noop");
 
             Assert.AreEqual(0, repairedCount);
             Assert.AreEqual(1, physicalProviderCallCount);
-            CollectionAssert.AreEqual(Array.Empty<string>(), operations);
+            CollectionAssert.AreEqual(Array.Empty<string>(), synchronization.Operations);
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(
                 1L,
@@ -4022,14 +4020,14 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, Path.Combine(tempDirectory, "BMS")))
-            {
-                BMSTables = new DispatcherCollection<BMSTable>(
-                    new ObservableCollection<BMSTable>(new[] { table }),
-                    Dispatcher.CurrentDispatcher)
-            };
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath);
+            var playlist = CreatePlaylist(songDbPath, synchronization, () => CreateLr2Config(lr2RootPath, Path.Combine(tempDirectory, "BMS")));
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(new[] { table }),
+                Dispatcher.CurrentDispatcher);
 
             playlist.ReOutputCustomFoldersAndCommitHeadersToDB([table], "test_seed_root_status_current");
+            synchronization.Operations.Clear();
             string outputDirectory = Path.Combine(rootOutputBaseDir, "RootStatusCurrent");
             string outputFile = Path.Combine(outputDirectory, "0001.lr2folder");
             DateTime outputFileTimestamp = File.GetLastWriteTimeUtc(outputFile);
@@ -4038,16 +4036,13 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.Execute("DELETE FROM folder WHERE path = ?;", outputDirectoryRowPath);
             }
-            var operations = new List<string>();
-            playlist.Lr2FolderSyncMutationGuard = operations.Add;
-
             int skippedCount = InvokeRepairMissingCustomFolderOutputsAfterHydration(
                 playlist,
                 "test_root_directory_row_fast_path",
                 verifyRootOutputDirectoryRows: false);
 
             Assert.AreEqual(0, skippedCount);
-            CollectionAssert.AreEqual(Array.Empty<string>(), operations);
+            CollectionAssert.AreEqual(Array.Empty<string>(), synchronization.Operations);
             using (var verifySkipped = new LR2SongDBExtended(songDbPath))
             {
                 Assert.AreEqual(0L, verifySkipped.ExecuteScalar<long>("SELECT COUNT(1) FROM folder WHERE path = ?;", outputDirectoryRowPath));
@@ -4136,6 +4131,7 @@ public sealed class BmsPlaylistUpdateTests
                 LR2CustomFolderOutputBaseDirRootType = providerRootOutputBaseDir,
                 LR2CustomFolderAdditionalOutputBaseDirs = "[]"
             };
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath);
             var playlist = new BMSPlaylist(
                 songDbPath,
                 () => config,
@@ -4143,8 +4139,9 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
-                () => new BeatorajaBmtOptionsSnapshot(),
-                () => outputSettings)
+                 () => new BeatorajaBmtOptionsSnapshot(),
+                 () => outputSettings,
+                 synchronization)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -4221,7 +4218,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -4298,7 +4295,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A", "Folder B"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -4373,7 +4370,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -4449,7 +4446,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -4569,6 +4566,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder B"]
             };
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath);
             var playlist = new BMSPlaylist(
                 songDbPath,
                 () => CreateLr2Config(lr2RootPath, bmsRoot),
@@ -4577,20 +4575,18 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getRepairSettings)
+                getRepairSettings,
+                synchronization)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { firstTable, secondTable }),
                     Dispatcher.CurrentDispatcher)
             };
-            List<string> operations = [];
-            playlist.Lr2FolderSyncMutationGuard = operations.Add;
-
             int repairedCount = InvokeRepairMissingCustomFolderOutputsAfterHydration(playlist, "test");
 
             Assert.AreEqual(2, repairedCount);
             Assert.AreEqual(1, providerCallCount);
-            CollectionAssert.AreEqual(new[] { "playlist_lr2folder_batch_sync" }, operations);
+            CollectionAssert.AreEqual(new[] { "playlist_lr2folder_batch_sync" }, synchronization.Operations);
             Assert.IsTrue(File.Exists(Path.Combine(outputBaseDir, "MissingOne", "0000.lr2folder")));
             Assert.IsTrue(File.Exists(Path.Combine(outputBaseDir, "MissingTwo", "0000.lr2folder")));
             using var verify = new LR2SongDBExtended(songDbPath);
@@ -4664,7 +4660,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -4733,7 +4729,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -4813,7 +4809,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -4896,7 +4892,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -4995,7 +4991,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOutputSettings)
+                getOutputSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -5059,7 +5056,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOutputSettings)
+                getOutputSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),
@@ -5160,7 +5158,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder A", "Folder B"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -5229,7 +5227,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Folder C"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -5330,7 +5328,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Child Folder"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { parentTable, childTable }),
@@ -5416,7 +5414,7 @@ public sealed class BmsPlaylistUpdateTests
                 ],
                 Folder_order = ["Child Folder"]
             };
-            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot))
+            var playlist = new BMSPlaylist(songDbPath, () => CreateLr2Config(lr2RootPath, bmsRoot), new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { parentTable, childTable }),
@@ -5525,7 +5523,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOutputSettings)
+                getOutputSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -5627,7 +5626,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getMigrationSettings)
+                getMigrationSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -5721,7 +5721,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.InsertOrReplace(new LR2SongDB.folder { path = oldRelativePath, title = "stale root", type = 2 }, typeof(LR2SongDB.folder));
                 db.InsertOrReplace(new LR2SongDB.folder { path = oldRelativeParentPath, title = "stale root parent", type = 1 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -5806,7 +5806,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.InsertOrReplace(new LR2SongDB.folder { path = parentOldPath, title = "stale parent", type = 2 }, typeof(LR2SongDB.folder));
                 db.InsertOrReplace(new LR2SongDB.folder { path = nestedOldPath, title = "nested stale", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { parentTable }),
@@ -5879,7 +5879,7 @@ public sealed class BmsPlaylistUpdateTests
                 entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Child Folder")],
                 Folder_order = ["Child Folder"]
             };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { parentTable, childTable }),
@@ -5989,7 +5989,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getMigrationSettings)
+                getMigrationSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -6098,7 +6099,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.InsertOrReplace(new LR2SongDB.folder { path = parentOldNestedPath, title = "nested stale parent", type = 2 }, typeof(LR2SongDB.folder));
                 db.InsertOrReplace(new LR2SongDB.folder { path = childOldPath, title = "stale child", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { parentTable, childTable }),
@@ -6183,7 +6184,7 @@ public sealed class BmsPlaylistUpdateTests
                 entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "Child Folder")],
                 Folder_order = ["Child Folder"]
             };
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { parentTable, childTable }),
@@ -6252,7 +6253,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.InsertOrReplace(new LR2SongDB.folder { path = targetPath, title = "target", type = 2 }, typeof(LR2SongDB.folder));
                 db.InsertOrReplace(new LR2SongDB.folder { path = siblingPath, title = "sibling", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -6334,7 +6335,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOperationSettings)
+                getOperationSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -6412,7 +6414,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOperationSettings)
+                getOperationSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -6540,7 +6543,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOperationSettings)
+                getOperationSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -6648,7 +6652,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOperationSettings)
+                getOperationSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -6735,7 +6740,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.InsertOrReplace(new LR2SongDB.folder { path = targetRelativeParentPath, title = "target parent", type = 1 }, typeof(LR2SongDB.folder));
                 db.InsertOrReplace(new LR2SongDB.folder { path = siblingRelativePath, title = "sibling", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -6793,7 +6798,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = siblingPath, title = "sibling", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -6852,7 +6857,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = targetPath, title = "default target", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -6936,7 +6941,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOutputSettings)
+                getOutputSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -7002,7 +7008,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = targetPath, title = "default target", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -7096,7 +7102,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getMigrationSettings)
+                getMigrationSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -7163,7 +7170,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = stalePath, title = "stale", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -7233,7 +7240,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.InsertOrReplace(new LR2SongDB.folder { path = oldPath, title = "stale", type = 2 }, typeof(LR2SongDB.folder));
                 db.InsertOrReplace(new LR2SongDB.folder { path = oldNestedPath, title = "nested stale", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -7299,7 +7306,7 @@ public sealed class BmsPlaylistUpdateTests
                 db.CreateTable<LR2SongDB.folder>();
                 db.InsertOrReplace(new LR2SongDB.folder { path = outputPath, title = "stale", type = 2 }, typeof(LR2SongDB.folder));
             }
-            var playlist = new BMSPlaylist(songDbPath)
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -7434,6 +7441,72 @@ public sealed class BmsPlaylistUpdateTests
     private static byte[] CreateUtf8BomBytes(string text)
     {
         return [.. Encoding.UTF8.GetPreamble(), .. Encoding.UTF8.GetBytes(text)];
+    }
+
+    private static BMSPlaylist CreatePlaylist(
+        string songDbPath,
+        ILr2PlaylistFolderSynchronizationPort synchronization = null!,
+        Func<LR2Config> getLr2Config = null!)
+    {
+        return new BMSPlaylist(
+            songDbPath,
+            getLr2Config,
+            null,
+            null,
+            null,
+            PlaylistUrlCompletionOptionsSnapshot.CreateCurrent,
+            BeatorajaBmtOptionsSnapshot.CreateCurrent,
+            CustomFolderOutputSettingsSnapshot.CreateCurrent,
+            synchronization ?? new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+    }
+
+    private sealed class TestLr2PlaylistFolderSynchronizationPort : ILr2PlaylistFolderSynchronizationPort
+    {
+        private readonly string songDbPath;
+
+        internal TestLr2PlaylistFolderSynchronizationPort(string songDbPath)
+        {
+            this.songDbPath = songDbPath;
+        }
+
+        internal List<string> Operations { get; } = [];
+
+        internal Func<CustomFolderOutputPhysicalSurface> PhysicalSurfaceFactory { get; set; } = null!;
+
+        internal Exception Failure { get; set; } = null!;
+
+        public CustomFolderOutputPhysicalSurface GetCurrentAppManagedCustomFolderOutputPhysicalSurface()
+        {
+            return PhysicalSurfaceFactory?.Invoke()
+                ?? new CustomFolderOutputPhysicalSurface(
+                    new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase),
+                    discoveryComplete: false);
+        }
+
+        public Lr2FolderFileDbSyncResult SyncPlaylistLr2FolderFileRows(
+            string operation,
+            Lr2FolderFileDbSyncRequest request)
+        {
+            Operations.Add(operation);
+            if (Failure != null)
+            {
+                throw Failure;
+            }
+
+            using var songDb = new LR2SongDBExtended(songDbPath);
+            string savepoint = songDb.SaveTransactionPoint();
+            try
+            {
+                Lr2FolderFileDbSyncResult result = Lr2FolderFileDbSyncService.Sync(songDb, request);
+                songDb.Commit();
+                return result;
+            }
+            catch
+            {
+                songDb.RollbackTo(savepoint);
+                throw;
+            }
+        }
     }
 
     private static string CreateTempSongDbPath(string tempDirectory)
@@ -7594,7 +7667,8 @@ public sealed class BmsPlaylistUpdateTests
                 null,
                 () => new PlaylistUrlCompletionOptionsSnapshot(),
                 () => new BeatorajaBmtOptionsSnapshot(),
-                getOutputSettings)
+                getOutputSettings,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(),

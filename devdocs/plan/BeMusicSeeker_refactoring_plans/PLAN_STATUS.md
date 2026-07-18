@@ -19,7 +19,7 @@
 
 active outcome base commit: `e3b743d6892734ec06701b9a0cb4bc70c654f174`
 active execution package: `LIB-04 LR2 synchronization ownership`
-sequence cursor: `LIB-04-U1d catalog failure facts and playlist LR2-folder durable synchronization`
+sequence cursor: `LIB-04-U1e canonical catalog-receipt normal-folder residual ownership`
 
 目的:
 

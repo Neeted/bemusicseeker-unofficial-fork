@@ -784,6 +784,8 @@ public partial class BMSLibrary : NotificationObject
 
     internal ILr2SynchronizationScanPort Lr2Synchronization => lr2SynchronizationOwner;
 
+    internal ILr2PlaylistFolderSynchronizationPort Lr2PlaylistFolderSynchronization => lr2SynchronizationOwner;
+
     private int chartInfoHydrationRequestedVersion
     {
         get => catalogChartInfoOwner.HydrationRequestedVersionState;
@@ -2555,7 +2557,7 @@ public partial class BMSLibrary : NotificationObject
             catalogStorageRowsOwner,
             catalogOwnedCollectionOwner,
             dbGateway,
-            MarkLr2SongDbSyncIncompleteAfterStateApplierSongDbWriteFailure);
+            lr2SynchronizationOwner.PublishCatalogWriteFailureFact);
         catalogChartInfoOwner.ConfigureWorkflow(
             dbGateway,
             catalogMutationOwner,
@@ -2590,7 +2592,7 @@ public partial class BMSLibrary : NotificationObject
             GetDisplayedExceptionMessage,
             PublishMaintenanceHydrationReceipt,
             LogInstallPerformance,
-            MarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure,
+            lr2SynchronizationOwner.PublishCatalogWriteFailureFact,
             NotifyMaintenanceHydrationStateChanged);
         libraryFileScanPipelineOwner = new LibraryFileScanPipelineOwner(
             libraryFileScanHost,
@@ -5667,17 +5669,6 @@ public partial class BMSLibrary : NotificationObject
             logReason: string.IsNullOrWhiteSpace(reason) ? "file_diff" : reason);
     }
 
-    private void MarkLr2SongDbSyncIncompleteAfterMaintenanceSongDbWriteFailure(Exception ex, string reason)
-    {
-        string displayedMessage = GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | ");
-        bool encodingUpsert = string.Equals(reason, "lr2_song_db_encoding_upsert_failed", StringComparison.Ordinal);
-        lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
-            CurrentOptionsSnapshot,
-            stage: encodingUpsert ? "lr2_song_db_encoding_upsert_failed" : "lr2_song_db_maintenance_write_failed",
-            detail: (encodingUpsert ? "lr2_song_db_encoding_upsert_failed: " : "lr2_song_db_maintenance_write_failed: ") + displayedMessage,
-            logReason: string.IsNullOrWhiteSpace(reason) ? "maintenance_update" : reason);
-    }
-
     private void ExecuteLr2SongDbWrite(Action writeAction, string stage, string logReason)
     {
         if (writeAction == null)
@@ -5704,22 +5695,6 @@ public partial class BMSLibrary : NotificationObject
                 + " message=" + displayedMessage);
             throw;
         }
-    }
-
-    private void MarkLr2SongDbSyncIncompleteAfterStateApplierSongDbWriteFailure(string stage, Exception ex)
-    {
-        string resolvedStage = string.IsNullOrWhiteSpace(stage) ? "lr2_song_db_library_mutation_write_failed" : stage;
-        string displayedMessage = GetDisplayedExceptionMessage(ex).Replace(Environment.NewLine, " | ");
-        lr2SynchronizationOwner.MarkLr2SongDbSyncIncompleteAfterSongDbWriteFailure(
-            CurrentOptionsSnapshot,
-            stage: resolvedStage,
-            detail: resolvedStage + ": " + displayedMessage,
-            logReason: resolvedStage);
-        LogInstallPerformanceWarn("lr2_song_db_write failed"
-            + " reason=" + resolvedStage
-            + " stage=" + resolvedStage
-            + " exception=" + (ex?.GetType().Name ?? "unknown")
-            + " message=" + displayedMessage);
     }
 
     private List<string> CreateLr2SongDbSyncLr2FolderDiscoveryDirectories(

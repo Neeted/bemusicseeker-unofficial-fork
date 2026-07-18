@@ -1338,11 +1338,11 @@ public sealed class BmsLibraryStateApplierTests
             new CatalogStorageRowsOwner(),
             new CatalogOwnedCollectionOwner(),
             new BmsLibraryDbGateway(songDbPath),
-            delegate (string stage, Exception ex)
+            delegate (CatalogWriteFailureFact fact)
             {
                 callbacks.SongDbWriteFailureCount++;
-                callbacks.LastSongDbWriteFailureStage = stage;
-                callbacks.LastSongDbWriteFailure = ex;
+                callbacks.LastSongDbWriteFailureStage = fact.Stage;
+                callbacks.LastSongDbWriteFailure = fact.Exception;
             });
         return owner.ApplyCatalogMutation(delta, []);
     }
