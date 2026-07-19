@@ -42,16 +42,57 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private bool reloadActive;
 
+    private long activeCollectionGeneration;
+
+    private bool hydrationPublishActive;
+
     internal PlaylistAggregatePersistenceOwner(PlaylistPersistenceRepository repository)
     {
         this.repository = repository ?? throw new ArgumentNullException(nameof(repository));
+    }
+
+    internal long ActiveCollectionGeneration
+    {
+        get
+        {
+            lock (synchronization)
+            {
+                return activeCollectionGeneration;
+            }
+        }
+    }
+
+    internal PlaylistEntriesHydrationOwner.PlaylistHydrationTableSnapshot GetActiveCollectionSnapshot()
+    {
+        lock (synchronization)
+        {
+            return new PlaylistEntriesHydrationOwner.PlaylistHydrationTableSnapshot(
+                activeCollectionGeneration,
+                activeTables.ToArray());
+        }
+    }
+
+    internal IDisposable TryBeginHydrationPublish(long generation)
+    {
+        lock (synchronization)
+        {
+            if (hydrationPublishActive
+                || registrationActive
+                || reloadActive
+                || activeCollectionGeneration != generation)
+            {
+                return null;
+            }
+            hydrationPublishActive = true;
+            return new HydrationPublishLease(this);
+        }
     }
 
     internal bool TryBeginRegistration()
     {
         lock (synchronization)
         {
-            if (reloadActive || registrationActive)
+            if (reloadActive || registrationActive || hydrationPublishActive)
             {
                 return false;
             }
@@ -72,7 +113,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
     {
         lock (synchronization)
         {
-            if (registrationActive || reloadActive)
+            if (registrationActive || reloadActive || hydrationPublishActive)
             {
                 return false;
             }
@@ -121,6 +162,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                     observedActiveCollectionNotifications.CollectionChanged += OnActiveCollectionChanged;
                 }
             }
+            activeCollectionGeneration++;
         }
     }
 
@@ -132,6 +174,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             {
                 MarkActiveUnsafe(table);
             }
+            activeCollectionGeneration++;
         }
     }
 
@@ -141,6 +184,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             RemoveActiveUnsafe(oldTable);
             MarkActiveUnsafe(newTable);
+            activeCollectionGeneration++;
         }
     }
 
@@ -435,6 +479,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             {
                 MarkRemovedUnsafe(table);
             }
+            activeCollectionGeneration++;
         }
     }
 
@@ -622,7 +667,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
     private void EnsureRemovalAllowedUnsafe(IEnumerable<BMSTable> tables)
     {
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
-        if (tableList.Any(table => reloadApplyReservations.Contains(table) || reloadRetiredTables.TryGetValue(table, out _)))
+        if (hydrationPublishActive
+            || tableList.Any(table => reloadApplyReservations.Contains(table) || reloadRetiredTables.TryGetValue(table, out _)))
         {
             throw new InvalidOperationException("Playlist reload is applying a newer playlist snapshot.");
         }
@@ -732,6 +778,34 @@ internal sealed class PlaylistAggregatePersistenceOwner
         removedTables.GetValue(table, _ => new object());
     }
 
+    private void EndHydrationPublish()
+    {
+        lock (synchronization)
+        {
+            hydrationPublishActive = false;
+        }
+    }
+
+    private sealed class HydrationPublishLease : IDisposable
+    {
+        private readonly PlaylistAggregatePersistenceOwner owner;
+
+        private int disposed;
+
+        internal HydrationPublishLease(PlaylistAggregatePersistenceOwner owner)
+        {
+            this.owner = owner;
+        }
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref disposed, 1) == 0)
+            {
+                owner.EndHydrationPublish();
+            }
+        }
+    }
+
     private void OnActiveCollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
     {
         lock (synchronization)
@@ -740,6 +814,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             {
                 return;
             }
+            activeCollectionGeneration++;
             if (e.Action == NotifyCollectionChangedAction.Reset)
             {
                 HashSet<BMSTable> currentSet = [.. (observedActiveCollection ?? []).Where(table => table != null)];
