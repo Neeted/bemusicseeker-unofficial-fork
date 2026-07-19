@@ -334,7 +334,7 @@
       <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" FlowDirection="RightToLeft" Margin="0,0,5,0">
         <Button Name="buttonBMSPlayerControlsRotatePanelState2" FlowDirection="LeftToRight" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="20" ToolTip="プレイヤーパネルの開閉" Content="{Binding PlayerPanelState, Mode=OneWay, Converter={StaticResource panelStateToStringConverter2}}" Click="gridBMSPlayerControlsRotatePanelStateButtonClicked2" />
         <Button Name="buttonBMSPlayerControlsRotatePanelState" FlowDirection="LeftToRight" Style="{StaticResource stylePlayerButtonSymbol}" FontSize="20" Content="{Binding PlayerPanelState, Mode=OneWay, Converter={StaticResource panelStateToStringConverter}}" ToolTip="{Binding PlayerPanelState, Mode=OneWay, Converter={StaticResource panelStateToTooltipConverter}}" Click="gridBMSPlayerControlsRotatePanelStateButtonClicked" />
-        <Button Content="gear" Style="{StaticResource stylePlayerButtonSymbol}" FlowDirection="LeftToRight" FontSize="20" ToolTip="本体設定" Click="settingsButtonClick" />
+        <Button Content="gear" Style="{StaticResource stylePlayerButtonSymbol}" FlowDirection="LeftToRight" FontSize="20" ToolTip="本体設定" Command="{Binding SettingsCommand, ElementName=playbackPanelView}" />
         <v:DropDownMenuButton Width="25" Height="25" Template="{DynamicResource templateDropmenuButtonSetting}" FontSize="17" FlowDirection="LeftToRight" Margin="0,1,0,0" BorderThickness="0" ToolTip="プレイヤー設定">
           <FrameworkElement.Style>
             <Style TargetType="{x:Type v:DropDownMenuButton}">

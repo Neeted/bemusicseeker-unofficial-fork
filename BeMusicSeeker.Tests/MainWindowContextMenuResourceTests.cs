@@ -1597,20 +1597,21 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(validationFailure.Contains("DispatcherMessageBox.Show(BeMusicSeeker.Properties.Resources.Msg_init_settings,"));
         StringAssert.Contains(validationFailure, "RaiseInitialSetupLanguageDialogRequested();");
         StringAssert.Contains(validationFailure, "ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_init_settings_check");
-        StringAssert.Contains(validationFailure, "RaiseInitializationExceptionRequested();");
+        StringAssert.Contains(validationFailure, "RaiseSettingDialogOpenRequested();");
         Assert.IsTrue(validationFailure.IndexOf("RaiseInitialSetupLanguageDialogRequested", StringComparison.Ordinal) < validationFailure.IndexOf("Msg_init_settings_check", StringComparison.Ordinal));
 
         Assert.IsFalse(mainWindow.Contains("MessageKey=\"InitialSetupLanguageDialog\""));
         StringAssert.Contains(mainWindowCode, "InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;");
-        StringAssert.Contains(mainWindowCode, "ShowInitialSetupLanguageDialogOverlay();");
+        StringAssert.Contains(mainWindowCode, "ShowOverlayDialog(initialSetupLanguageDialog);");
+        StringAssert.Contains(mainWindowCode, "viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;");
         StringAssert.Contains(mainWindow, "<v:InitialSetupLanguageDialog x:Name=\"initialSetupLanguageDialog\"");
         StringAssert.Contains(initialDialog, "ItemsSource=\"{Binding settingDialog.Languages, Mode=OneWay}\"");
         StringAssert.Contains(initialDialog, "SelectedItem=\"{Binding Path=settingDialog.Language}\"");
         StringAssert.Contains(initialDialog, "Resources.Msg_init_settings");
         StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogTitle");
         StringAssert.Contains(initialDialog, "Resources.InitialSetupLanguageDialogContinue");
-        StringAssert.Contains(initialDialogCode, "mainWindow.HideOverlayDialog(this);");
-        StringAssert.Contains(initialDialogCode, "mainWindow.ShowSettingDialogOverlay();");
+        Assert.IsFalse(initialDialogCode.Contains("MainWindow"));
+        StringAssert.Contains(initialDialog, "Command=\"{Binding settingDialog.OpenCommand}\"");
     }
 
     [TestMethod]
@@ -2780,7 +2781,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(fileInitializeBlock, "FailStartupProgressOperation(ex.Message);");
         StringAssert.Contains(fileInitializeBlock, "_semaphore.Release();");
         StringAssert.Contains(fileInitializeBlock, "SetStartupUiInteractionBlocked(false);");
-        StringAssert.Contains(fileInitializeBlock, "RaiseInitializationExceptionRequested();");
+        StringAssert.Contains(fileInitializeBlock, "RaiseSettingDialogOpenRequested();");
         Assert.IsFalse(fileInitializeBlock.Contains("throw;"));
     }
 

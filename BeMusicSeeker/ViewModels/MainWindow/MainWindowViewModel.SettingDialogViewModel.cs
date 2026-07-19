@@ -80,6 +80,8 @@ public partial class MainWindowViewModel
 
         private readonly MainWindowViewModel ownerViewModel;
 
+        private ViewModelCommand openCommand;
+
         private readonly Action reloadSettings;
 
         private readonly Action saveSettings;
@@ -87,6 +89,24 @@ public partial class MainWindowViewModel
         private readonly IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore;
 
         private readonly ISettingsEditSession settingsEditSession;
+
+        /// <summary>
+        /// Requests that the shell present the settings dialog.
+        /// </summary>
+        internal event EventHandler OpenRequested;
+
+        /// <summary>
+        /// Gets the command used by views to request the settings dialog.
+        /// </summary>
+        public ViewModelCommand OpenCommand => openCommand ??= new ViewModelCommand(RequestOpen);
+
+        /// <summary>
+        /// Publishes a settings-dialog open request to the shell.
+        /// </summary>
+        internal void RequestOpen()
+        {
+            OpenRequested?.Invoke(this, EventArgs.Empty);
+        }
 
         private Settings ApplicationSettings => settingsEditSession.Values;
 

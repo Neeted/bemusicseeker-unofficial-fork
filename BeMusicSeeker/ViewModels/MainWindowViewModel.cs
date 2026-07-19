@@ -90,8 +90,6 @@ internal sealed class ShutdownPreparationResult
 /// </summary>
 public partial class MainWindowViewModel : ViewModel
 {
-    internal event EventHandler InitializationExceptionRequested;
-
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
     internal event EventHandler InitializationSucceeded;
@@ -5130,9 +5128,16 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void RaiseInitializationExceptionRequested()
+    private void RaiseSettingDialogOpenRequested()
     {
-        RaiseUiInteractionOnUiThread(InitializationExceptionRequested, nameof(InitializationExceptionRequested));
+        if (settingDialog == null)
+        {
+            return;
+        }
+
+        RaiseUiInteractionOnUiThread(
+            (_, _) => settingDialog.RequestOpen(),
+            nameof(SettingDialogViewModel.OpenRequested));
     }
 
     private void RaiseInitialSetupLanguageDialogRequested()
@@ -5591,7 +5596,7 @@ public partial class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInitializationExceptionRequested();
+            RaiseSettingDialogOpenRequested();
             return;
         }
         if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))
@@ -5610,7 +5615,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInitializationExceptionRequested();
+            RaiseSettingDialogOpenRequested();
             return;
         }
         try
@@ -5630,7 +5635,7 @@ public partial class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text2 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInitializationExceptionRequested();
+            RaiseSettingDialogOpenRequested();
             return;
         }
         long operationToken;
@@ -5674,7 +5679,7 @@ public partial class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text3 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInitializationExceptionRequested();
+            RaiseSettingDialogOpenRequested();
             return;
         }
         LoadColumnSetting();
@@ -6065,7 +6070,7 @@ public partial class MainWindowViewModel : ViewModel
             currentClassLogger.Error(ex, text4 + " - " + Environment.NewLine + ex.ToString(), null);
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
-            RaiseInitializationExceptionRequested();
+            RaiseSettingDialogOpenRequested();
             return;
         }
         finally

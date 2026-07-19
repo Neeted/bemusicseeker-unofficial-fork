@@ -9,7 +9,7 @@
     <Border Width="520" CornerRadius="10" Background="{DynamicResource App.DialogBackgroundBrush}" BorderBrush="{DynamicResource App.DialogBorderBrush}" BorderThickness="1" Padding="14" VerticalAlignment="Center" HorizontalAlignment="Center">
       <DockPanel LastChildFill="True">
         <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-          <Button Name="buttonContinue" MinWidth="96" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.InitialSetupLanguageDialogContinue, Mode=OneWay}" Click="ContinueToSettings" />
+          <Button Name="buttonContinue" MinWidth="96" Height="24" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.InitialSetupLanguageDialogContinue, Mode=OneWay}" Command="{Binding settingDialog.OpenCommand}" />
         </StackPanel>
         <StackPanel>
           <TextBlock FontSize="15" FontWeight="SemiBold" Margin="0,0,0,10" Text="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.InitialSetupLanguageDialogTitle, Mode=OneWay}" />

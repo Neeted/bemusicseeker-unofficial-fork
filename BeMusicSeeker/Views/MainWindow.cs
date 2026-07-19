@@ -219,26 +219,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             || ReferenceEquals(dialog, loadPlaylistURIDialog);
     }
 
-    public void ShowSettingDialogOverlay()
-    {
-        ShowOverlayDialog(settingDialog);
-    }
-
-    public void ShowInitialSetupLanguageDialogOverlay()
-    {
-        ShowOverlayDialog(initialSetupLanguageDialog);
-    }
-
-    private void showSettingDialogButtonClick(object sender, RoutedEventArgs e)
-    {
-        ShowSettingDialogOverlay();
-    }
-
-    private void playbackPanelViewSettingsRequested(object sender, RoutedEventArgs e)
-    {
-        ShowSettingDialogOverlay();
-    }
-
     private void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
@@ -424,7 +404,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
-        viewModel.InitializationExceptionRequested += MainWindowViewModel_InitializationExceptionRequested;
+        viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
         viewModel.PlaylistWorkspace.PlaylistUrlSingleInstallRequested += PlaylistWorkspacePlaylistUrlSingleInstallRequested;
@@ -441,7 +421,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        subscribedViewModel.InitializationExceptionRequested -= MainWindowViewModel_InitializationExceptionRequested;
+        subscribedViewModel.settingDialog.OpenRequested -= MainWindowViewModel_SettingDialogOpenRequested;
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlSingleInstallRequested -= PlaylistWorkspacePlaylistUrlSingleInstallRequested;
@@ -453,14 +433,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel = null;
     }
 
-    private void MainWindowViewModel_InitializationExceptionRequested(object sender, EventArgs e)
+    private void MainWindowViewModel_SettingDialogOpenRequested(object sender, EventArgs e)
     {
-        ShowSettingDialogOverlay();
+        if (ReferenceEquals(activeOverlayDialog, initialSetupLanguageDialog))
+        {
+            HideOverlayDialog(initialSetupLanguageDialog);
+        }
+
+        ShowOverlayDialog(settingDialog);
     }
 
     private void MainWindowViewModel_InitialSetupLanguageDialogRequested(object sender, EventArgs e)
     {
-        ShowInitialSetupLanguageDialogOverlay();
+        ShowOverlayDialog(initialSetupLanguageDialog);
     }
 
     private void MainWindowViewModel_InitializationSucceeded(object sender, EventArgs e)

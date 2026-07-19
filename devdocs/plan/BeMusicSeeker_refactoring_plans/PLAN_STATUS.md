@@ -17,7 +17,7 @@
 
 状態: ready
 
-active outcome base commit: `6b31ea0a`
+active outcome base commit: `d538f01f`
 active execution package: `UI-05 Shell closure`
 sequence cursor: `UI05 planner required`
 
@@ -55,7 +55,7 @@ Non-goals:
 | LIB-06 Library facade and scan integration closure | completed |
 | PL-01 Playlist persistence and reload ownership | completed |
 | PL-02 Playlist external-sync and output ownership | completed |
-| UI-05 Shell closure | ready |
+| UI-05 Shell closure | in progress |
 | MIG-01 Platform boundary closure | not started |
 | GATE-01 Refactoring completion audit | not started |
 
@@ -75,7 +75,7 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
 | Migration readiness | not met | resource-health / maintenance / chart-info owner と generic mutation の prepare / durable commit / live apply / immutable receipt publish protocol、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner、LIB-06 facade / scan integration closure、PL-01 persistence / reload owner、PL-02 external-sync / output owner は成立済み。残る shell consumer owner は UI-05、platform boundary は MIG-01 で扱う |
-| Quality | in progress | PL-02 の Release build、targeted behavior verification、Full verification、対象 `bin\\x64\\Release\\net472\\BeMusicSeeker.exe` の process-path 確認を含む UI smoke、static / outcome review は完了。UI-05 以降の outcomes / Gate evidence は未完了 |
+| Quality | in progress | PL-02 の完了証跡に加え、UI-05-U1 settings-dialog open handoff の Release build、targeted behavior verification、static review を完了。UI-05 outcome-wide Full verification、残る shell units、Gate evidence は未完了 |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 

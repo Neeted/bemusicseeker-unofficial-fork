@@ -24,6 +24,7 @@ public partial class PlaybackPanelView : UserControl
     private const double ExpandedPanelHeight = 286d;
     public static readonly DependencyProperty OverlayVisibilityProperty = DependencyProperty.Register(nameof(OverlayVisibility), typeof(Visibility), typeof(PlaybackPanelView), new PropertyMetadata(Visibility.Collapsed));
     public static readonly DependencyProperty BrowserHtmlProperty = DependencyProperty.Register(nameof(BrowserHtml), typeof(string), typeof(PlaybackPanelView), new PropertyMetadata(null));
+    public static readonly DependencyProperty SettingsCommandProperty = DependencyProperty.Register(nameof(SettingsCommand), typeof(ICommand), typeof(PlaybackPanelView), new PropertyMetadata(null));
     private readonly PlaybackPreviousButtonGesture previousButtonGesture = new();
     private DispatcherTimer gridBMSPlayerControlsPreviousButtonClickTimer;
     private PlaybackPanelViewModel subscribedPlaybackPanel;
@@ -38,11 +39,11 @@ public partial class PlaybackPanelView : UserControl
         Unloaded += PlaybackPanelUnloaded;
     }
 
-    public event RoutedEventHandler SettingsRequested;
     public event RoutedEventHandler PlaybackStarting;
     public event RoutedEventHandler PlaybackStarted;
     public Visibility OverlayVisibility { get => (Visibility)GetValue(OverlayVisibilityProperty); set => SetValue(OverlayVisibilityProperty, value); }
     public string BrowserHtml { get => (string)GetValue(BrowserHtmlProperty); set => SetValue(BrowserHtmlProperty, value); }
+    public ICommand SettingsCommand { get => (ICommand)GetValue(SettingsCommandProperty); set => SetValue(SettingsCommandProperty, value); }
     public IntPtr PlayerHostHandle => _panel.Handle;
     private PlaybackPanelViewModel PlaybackPanel => DataContext as PlaybackPanelViewModel ?? throw new InvalidOperationException("Playback panel DataContext is unavailable.");
 
@@ -259,7 +260,6 @@ public partial class PlaybackPanelView : UserControl
         gridBMSPlayerControlsBanner.Background = null;
         gridBMSPlayerControlsBanner.BorderThickness = new Thickness(0);
     }
-    private void settingsButtonClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke(this, e);
     private void ShowBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Visible);
     private void CollapseBmsPlayer() => RestoreVisibilityBinding(windowsFormsHost, Visibility.Collapsed);
     private void ShowBrowser() => RestoreVisibilityBinding(webBrowser, Visibility.Visible);
