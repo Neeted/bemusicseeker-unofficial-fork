@@ -38,7 +38,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         const int ExternalPlaylistImportPostProgressStepCount = 4;
         List<ExternalPlaylistImportOutcome> outcomes = [];
         BMSPlaylist tables = GetPlaylistStore();
-        using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
+        using PlaylistOperationNotificationOwner.OperationNotificationScope notificationScope = tables.OperationNotificationOwner.BeginScope();
         BeginPlaylistSyncProgressOperation();
         try
         {
@@ -420,14 +420,14 @@ internal sealed class ExternalPlaylistImportQueueSummaryReadyEventArgs : EventAr
 internal sealed class PlaylistImportNotificationsFlushRequestedEventArgs : EventArgs
 {
     internal PlaylistImportNotificationsFlushRequestedEventArgs(
-        BMSPlaylist.OperationNotificationScope scope,
+        PlaylistOperationNotificationOwner.OperationNotificationScope scope,
         string routeName)
     {
         Scope = scope;
         RouteName = routeName;
     }
 
-    internal BMSPlaylist.OperationNotificationScope Scope { get; }
+    internal PlaylistOperationNotificationOwner.OperationNotificationScope Scope { get; }
 
     internal string RouteName { get; }
 }

@@ -2108,11 +2108,11 @@ public sealed class BmsPlaylistUpdateTests
 
             Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFolder(table));
 
-            using (BMSPlaylist.OperationNotificationScope scope = BMSPlaylist.BeginOperationNotificationScope())
+            using (PlaylistOperationNotificationOwner.OperationNotificationScope scope = playlist.OperationNotificationOwner.BeginScope())
             {
                 playlist.ReOutputCustomFolder(table);
                 Assert.AreEqual(1, scope.Notifications.Count);
-                Assert.AreEqual(BMSPlaylist.OperationNotificationSeverity.Warning, scope.Notifications[0].Severity);
+                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, scope.Notifications[0].Severity);
                 StringAssert.Contains(scope.Notifications[0].Message, table.name);
             }
         }

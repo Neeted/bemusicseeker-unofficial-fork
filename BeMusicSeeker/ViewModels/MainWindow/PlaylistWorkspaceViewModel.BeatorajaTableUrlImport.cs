@@ -144,7 +144,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         int postProgressCompletedCount = totalCount;
         var totalStopwatch = Stopwatch.StartNew();
         BMSPlaylist tables = GetPlaylistStore();
-        using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
+        using PlaylistOperationNotificationOwner.OperationNotificationScope notificationScope = tables.OperationNotificationOwner.BeginScope();
         BeginPlaylistSyncProgressOperation();
         try
         {

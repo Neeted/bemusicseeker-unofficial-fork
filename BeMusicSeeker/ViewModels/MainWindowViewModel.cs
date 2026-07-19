@@ -11422,15 +11422,17 @@ public partial class MainWindowViewModel : ViewModel
         ThrowIfUiDialogNotShown(result, routeName);
     }
 
-    private static void FlushPlaylistOperationNotifications(BMSPlaylist.OperationNotificationScope scope, string routeName)
+    private static void FlushPlaylistOperationNotifications(
+        PlaylistOperationNotificationOwner.OperationNotificationScope scope,
+        string routeName)
     {
         scope?.Flush(notification =>
         {
             MessageBoxImage icon = notification.Severity switch
             {
-                BMSPlaylist.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
-                BMSPlaylist.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
-                BMSPlaylist.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
                 _ => MessageBoxImage.None,
             };
             ShowUiMessage(notification.Message, notification.Caption, icon, routeName);
