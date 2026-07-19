@@ -10214,6 +10214,11 @@ public partial class BMSLibrary : NotificationObject
         playlistReferenceOwner.SynchronizeReferenceBMSTables(SnapshotPlaylistReferenceTables(tables));
     }
 
+    internal void SynchronizeReferenceBMSTableSnapshots(IEnumerable<PlaylistReferenceTableSnapshot> tableSnapshots)
+    {
+        playlistReferenceOwner.SynchronizeReferenceBMSTables(tableSnapshots);
+    }
+
     /// <summary>
     /// 指定されたプレイリストの参照を BMS ファイル群から削除します。
     /// </summary>

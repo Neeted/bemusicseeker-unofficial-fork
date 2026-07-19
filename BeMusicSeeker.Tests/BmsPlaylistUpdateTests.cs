@@ -1508,6 +1508,266 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void QueueDeferredPlaylistEntriesHydration_PublishesReceiptBeforeCompletionVersion()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            const int playlistId = 7051;
+            BMSTable persistedTable = new()
+            {
+                playlist_id = playlistId,
+                name = "HydrationReceipt",
+                symbol = "HR",
+                Output_dir = "HydrationReceipt"
+            };
+            BMSTableEntry persistedEntry = CreateEntry(
+                "dddddddddddddddddddddddddddddddd",
+                "Receipt folder");
+            persistedEntry.playlist_id = playlistId;
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
+                db.InsertOrReplace(persistedEntry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+
+            BMSTable table = new()
+            {
+                playlist_id = playlistId,
+                name = persistedTable.name,
+                symbol = persistedTable.symbol,
+                Output_dir = persistedTable.Output_dir
+            };
+            table.MarkEntriesNotLoaded();
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
+            Task scheduledWork = null!;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                scheduledWork = work();
+                return true;
+            };
+            PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt receipt = null!;
+            int completedVersionAtReceipt = -1;
+            playlist.PlaylistEntriesHydrationReceiptPublished += (_, eventArgs) =>
+            {
+                receipt = eventArgs.Receipt;
+                completedVersionAtReceipt = playlist.PlaylistEntriesHydrationCompletedVersion;
+            };
+
+            playlist.QueueDeferredPlaylistEntriesHydration("receipt_test");
+            Assert.IsNotNull(scheduledWork);
+            scheduledWork.GetAwaiter().GetResult();
+
+            Assert.IsNotNull(receipt);
+            Assert.AreEqual(1, receipt.RequestVersion);
+            Assert.AreEqual("receipt_test", receipt.Reason);
+            Assert.AreEqual(1, receipt.Tables.Count);
+            Assert.AreSame(table, receipt.Tables[0].Table);
+            Assert.AreEqual(1, receipt.Tables[0].Entries.Count);
+            table.entries.Clear();
+            Assert.AreEqual(1, receipt.Tables[0].Entries.Count);
+            Assert.AreEqual(0, completedVersionAtReceipt);
+            Assert.AreEqual(1, playlist.PlaylistEntriesHydrationCompletedVersion);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void QueueDeferredPlaylistEntriesHydration_ConsumerFailureFaultsWithoutRetry()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable table = new()
+            {
+                playlist_id = 7052,
+                name = "HydrationFailure",
+                symbol = "HF",
+                Output_dir = "HydrationFailure"
+            };
+            table.MarkEntriesNotLoaded();
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
+            Task scheduledWork = null!;
+            int schedulerCalls = 0;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                schedulerCalls++;
+                scheduledWork = work();
+                return true;
+            };
+            int consumerCalls = 0;
+            playlist.PlaylistEntriesHydrationReceiptPublished += (_, _) =>
+            {
+                consumerCalls++;
+                throw new InvalidOperationException("deterministic receipt consumer failure");
+            };
+
+            playlist.QueueDeferredPlaylistEntriesHydration("consumer_failure");
+
+            Assert.IsNotNull(scheduledWork);
+            Assert.ThrowsException<InvalidOperationException>(
+                () => scheduledWork.GetAwaiter().GetResult());
+            Assert.AreEqual(1, schedulerCalls);
+            Assert.AreEqual(1, consumerCalls);
+            Assert.AreEqual(1, playlist.PlaylistEntriesHydrationRequestedVersion);
+            Assert.AreEqual(0, playlist.PlaylistEntriesHydrationCompletedVersion);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void PlaylistHydrationReceipt_DoesNotCaptureUnloadedCurrentTable()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSTable table = new()
+            {
+                playlist_id = 7053,
+                name = "UnloadedReceipt",
+                symbol = "UR",
+                Output_dir = "UnloadedReceipt"
+            };
+            table.MarkEntriesNotLoaded();
+            var owner = new PlaylistEntriesHydrationOwner(
+                new PlaylistPersistenceRepository(songDbPath),
+                () => new PlaylistEntriesHydrationOwner.PlaylistHydrationTableSnapshot(1, [table]),
+                _ => new MemoryStream(),
+                () => false,
+                () => null,
+                _ => { },
+                (_, _) => { });
+            var source = new PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt(
+                generation: 1,
+                shutdownEpoch: 0,
+                requestVersion: 1,
+                reason: "unloaded_receipt",
+                tables: [],
+                continuation: null);
+
+            Assert.ThrowsException<InvalidOperationException>(
+                () => owner.CreateReceiptForCurrentTables(source, continuation: null));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void PlaylistHydrationFailure_DoesNotMergeFailedContinuationIntoIndependentRequest()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            BMSTable table = new()
+            {
+                playlist_id = 7054,
+                name = "ContinuationIsolation",
+                symbol = "CI",
+                Output_dir = "ContinuationIsolation",
+                entries = []
+            };
+            var scheduledWorks = new List<Func<Task>>();
+            var owner = new PlaylistEntriesHydrationOwner(
+                new PlaylistPersistenceRepository(songDbPath),
+                () => new PlaylistEntriesHydrationOwner.PlaylistHydrationTableSnapshot(1, [table]),
+                _ => new MemoryStream(),
+                () => false,
+                () => (_, _, _, work) =>
+                {
+                    scheduledWorks.Add(work);
+                    return true;
+                },
+                _ => { },
+                (_, _) => { });
+            int receiptCount = 0;
+            PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent secondReceiptContinuation = null!;
+            owner.HydrationReceiptPublished += (_, eventArgs) =>
+            {
+                if (Interlocked.Increment(ref receiptCount) == 1)
+                {
+                    owner.QueueDeferredPlaylistEntriesHydration(
+                        "independent",
+                        new PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent(
+                            runExternalSyncAfterHydration: false,
+                            queueBeatorajaBmtExportAfterHydration: true,
+                            runCustomFolderOutputRepairAfterHydration: false,
+                            verifyRootOutputDirectoryRows: false));
+                    throw new InvalidOperationException("deterministic composition failure");
+                }
+
+                secondReceiptContinuation = eventArgs.Receipt.Continuation;
+            };
+
+            owner.QueueDeferredPlaylistEntriesHydration(
+                "initial",
+                new PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent(
+                    runExternalSyncAfterHydration: true,
+                    queueBeatorajaBmtExportAfterHydration: false,
+                    runCustomFolderOutputRepairAfterHydration: false,
+                    verifyRootOutputDirectoryRows: false));
+
+            Assert.AreEqual(1, scheduledWorks.Count);
+            Assert.ThrowsException<InvalidOperationException>(
+                () => scheduledWorks[0]().GetAwaiter().GetResult());
+            Assert.AreEqual(2, scheduledWorks.Count);
+
+            scheduledWorks[1]().GetAwaiter().GetResult();
+
+            Assert.IsNotNull(secondReceiptContinuation);
+            Assert.IsFalse(secondReceiptContinuation.RunExternalSyncAfterHydration);
+            Assert.IsTrue(secondReceiptContinuation.QueueBeatorajaBmtExportAfterHydration);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void CommitBMSTableHeaderToDB_PersistsPlaylistNameInStandaloneMode()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;

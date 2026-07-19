@@ -132,6 +132,8 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private readonly HashSet<BMSTable> activeTables = [];
 
+    private readonly List<BMSTable> activeTableOrder = [];
+
     private readonly Dictionary<int, BMSTable> activeTablesByPlaylistId = [];
 
     private readonly HashSet<BMSTable> reloadApplyReservations = [];
@@ -199,23 +201,26 @@ internal sealed class PlaylistAggregatePersistenceOwner
         {
             return new PlaylistEntriesHydrationOwner.PlaylistHydrationTableSnapshot(
                 activeCollectionGeneration,
-                activeTables.ToArray());
+                activeTableOrder.ToArray());
         }
     }
 
     internal IDisposable TryBeginHydrationPublish(long generation)
     {
+        IDisposable collectionPublicationGuard = activeCollectionLock.GetWriterGuard();
         lock (synchronization)
         {
             if (hydrationPublishActive
                 || registrationActive
                 || reloadActive
+                || reloadApplyReservations.Count > 0
                 || activeCollectionGeneration != generation)
             {
+                collectionPublicationGuard.Dispose();
                 return null;
             }
             hydrationPublishActive = true;
-            return new HydrationPublishLease(this);
+            return new HydrationPublishLease(this, collectionPublicationGuard);
         }
     }
 
@@ -271,18 +276,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 observedActiveCollectionNotifications.CollectionChanged -= OnActiveCollectionChanged;
             }
 
-            HashSet<BMSTable> currentSet = [.. (currentTables ?? []).Where(table => table != null)];
-            foreach (BMSTable table in activeTables.ToArray())
-            {
-                if (!currentSet.Contains(table))
-                {
-                    MarkRemovedUnsafe(table);
-                }
-            }
-            foreach (BMSTable table in currentSet)
-            {
-                MarkActiveUnsafe(table);
-            }
+            SynchronizeActiveCollectionUnsafe(currentTables);
 
             if (!sameCollection)
             {
@@ -1140,21 +1134,29 @@ internal sealed class PlaylistAggregatePersistenceOwner
 
     private bool TryReserveReload(BMSTable oldTable, bool requireCurrentTarget, out bool targetWasActiveAtReservation, out bool alreadyReserved)
     {
-        lock (synchronization)
+        while (true)
         {
-            targetWasActiveAtReservation = !requireCurrentTarget || activeTables.Contains(oldTable);
-            alreadyReserved = false;
-            if (requireCurrentTarget
-                && (!targetWasActiveAtReservation || IsRetiredOrRemovedUnsafe(oldTable)))
+            lock (synchronization)
             {
-                return false;
+                if (hydrationPublishActive)
+                {
+                    Monitor.Wait(synchronization, 50);
+                    continue;
+                }
+                targetWasActiveAtReservation = !requireCurrentTarget || activeTables.Contains(oldTable);
+                alreadyReserved = false;
+                if (requireCurrentTarget
+                    && (!targetWasActiveAtReservation || IsRetiredOrRemovedUnsafe(oldTable)))
+                {
+                    return false;
+                }
+                if (!reloadApplyReservations.Add(oldTable))
+                {
+                    alreadyReserved = true;
+                    return false;
+                }
+                return true;
             }
-            if (!reloadApplyReservations.Add(oldTable))
-            {
-                alreadyReserved = true;
-                return false;
-            }
-            return true;
         }
     }
 
@@ -1193,6 +1195,10 @@ internal sealed class PlaylistAggregatePersistenceOwner
     private void EnsureWriteAllowedUnsafe(IEnumerable<BMSTable> tables, bool allowReloadReservation, bool requireCurrentTarget)
     {
         List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null)];
+        if (hydrationPublishActive)
+        {
+            throw new InvalidOperationException("Playlist hydration receipt publication is in progress.");
+        }
         if (!allowReloadReservation
             && tableList.Any(table => reloadApplyReservations.Contains(table) || IsRetiredOrRemovedUnsafe(table)))
         {
@@ -1248,6 +1254,10 @@ internal sealed class PlaylistAggregatePersistenceOwner
             return;
         }
         activeTables.Add(table);
+        if (!activeTableOrder.Contains(table))
+        {
+            activeTableOrder.Add(table);
+        }
         removedTables.Remove(table);
         reloadRetiredTables.Remove(table);
         if (table.playlist_id.HasValue)
@@ -1300,6 +1310,7 @@ internal sealed class PlaylistAggregatePersistenceOwner
             return;
         }
         activeTables.Remove(table);
+        activeTableOrder.Remove(table);
         if (table.playlist_id.HasValue
             && activeTablesByPlaylistId.TryGetValue(table.playlist_id.Value, out BMSTable activeTable)
             && ReferenceEquals(activeTable, table))
@@ -1318,30 +1329,37 @@ internal sealed class PlaylistAggregatePersistenceOwner
         removedTables.GetValue(table, _ => new object());
     }
 
-    private void EndHydrationPublish()
+    private void EndHydrationPublish(IDisposable collectionPublicationGuard)
     {
         lock (synchronization)
         {
             hydrationPublishActive = false;
+            Monitor.PulseAll(synchronization);
         }
+        collectionPublicationGuard?.Dispose();
     }
 
     private sealed class HydrationPublishLease : IDisposable
     {
         private readonly PlaylistAggregatePersistenceOwner owner;
 
+        private readonly IDisposable collectionPublicationGuard;
+
         private int disposed;
 
-        internal HydrationPublishLease(PlaylistAggregatePersistenceOwner owner)
+        internal HydrationPublishLease(
+            PlaylistAggregatePersistenceOwner owner,
+            IDisposable collectionPublicationGuard)
         {
             this.owner = owner;
+            this.collectionPublicationGuard = collectionPublicationGuard;
         }
 
         public void Dispose()
         {
             if (Interlocked.Exchange(ref disposed, 1) == 0)
             {
-                owner.EndHydrationPublish();
+                owner.EndHydrationPublish(collectionPublicationGuard);
             }
         }
     }
@@ -1355,35 +1373,29 @@ internal sealed class PlaylistAggregatePersistenceOwner
                 return;
             }
             activeCollectionGeneration++;
-            if (e.Action == NotifyCollectionChangedAction.Reset)
-            {
-                HashSet<BMSTable> currentSet = [.. (observedActiveCollection ?? []).Where(table => table != null)];
-                foreach (BMSTable table in activeTables.ToArray())
-                {
-                    if (!currentSet.Contains(table))
-                    {
-                        MarkRemovedUnsafe(table);
-                    }
-                }
-                foreach (BMSTable table in currentSet)
-                {
-                    MarkActiveUnsafe(table);
-                }
-                return;
-            }
+            SynchronizeActiveCollectionUnsafe(observedActiveCollection);
+        }
+    }
 
-            foreach (BMSTable table in e.OldItems?.OfType<BMSTable>() ?? [])
+    private void SynchronizeActiveCollectionUnsafe(IEnumerable<BMSTable> currentTables)
+    {
+        List<BMSTable> orderedTables = [.. (currentTables ?? [])
+            .Where(table => table != null)
+            .Distinct()];
+        HashSet<BMSTable> currentSet = [.. orderedTables];
+        foreach (BMSTable table in activeTables.ToArray())
+        {
+            if (!currentSet.Contains(table))
             {
-                if (!(observedActiveCollection ?? []).Contains(table))
-                {
-                    MarkRemovedUnsafe(table);
-                }
-            }
-            foreach (BMSTable table in e.NewItems?.OfType<BMSTable>() ?? [])
-            {
-                MarkActiveUnsafe(table);
+                MarkRemovedUnsafe(table);
             }
         }
+        foreach (BMSTable table in orderedTables)
+        {
+            MarkActiveUnsafe(table);
+        }
+        activeTableOrder.Clear();
+        activeTableOrder.AddRange(orderedTables);
     }
 
     private static BMSTableEntry FindCurrentPlaylistEntryForCommit(BMSTable table, BMSTableEntry source)

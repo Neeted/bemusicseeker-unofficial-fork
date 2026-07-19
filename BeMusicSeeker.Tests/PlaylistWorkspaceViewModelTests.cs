@@ -2680,6 +2680,68 @@ public sealed class PlaylistWorkspaceViewModelTests
     }
 
     [TestMethod]
+    public void PlaylistTreeHydrationReceipt_RequestsPresentationRefreshAfterSnapshotApply()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[]
+                    {
+                        new BMSTable
+                        {
+                            playlist_id = 7053,
+                            name = "ReceiptPresentation"
+                        }
+                    }),
+                    Dispatcher.CurrentDispatcher)
+            };
+            playlist.BMSTables[0].MarkEntriesNotLoaded();
+            Task scheduledWork = null!;
+            playlist.StartupBackgroundTaskScheduler = (_, _, _, work) =>
+            {
+                scheduledWork = work();
+                return true;
+            };
+            var library = new BMSLibrary(songDbPath);
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library);
+            var presentations = new List<PlaylistReferenceApplyPresentationRequestedEventArgs>();
+            workspace.PlaylistReferenceApplyPresentationRequested += (_, request) => presentations.Add(request);
+
+            workspace.RefreshPlaylistTreeTables(playlist);
+            playlist.QueueDeferredPlaylistEntriesHydration("receipt_presentation");
+
+            Assert.IsNotNull(scheduledWork);
+            scheduledWork.GetAwaiter().GetResult();
+            Assert.AreEqual(1, presentations.Count);
+            Assert.AreEqual("receipt_presentation", presentations[0].Reason);
+            Assert.AreEqual(1, presentations[0].Version);
+            Assert.AreEqual(0L, presentations[0].OperationToken);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void DiscardPlaylistReferenceApplyForShutdown_PublishesSkippedLifecycle()
     {
         string tempDirectory = Path.Combine(

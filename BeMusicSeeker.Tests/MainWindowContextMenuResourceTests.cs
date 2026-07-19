@@ -2850,7 +2850,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public async void ReloadTables()",
             "public async void ReloadScoresOnly()");
 
-        StringAssert.Contains(method, "tables.ReloadTables(updateCallbackAction, queueBeatorajaBmtExportAfterHydration: false)");
+        StringAssert.Contains(method, "tables.ReloadTables(queueBeatorajaBmtExportAfterHydration: false)");
         StringAssert.Contains(method, "PlaylistWorkspace.QueueExternalPlaylistSync(");
         Assert.IsFalse(method.Contains("files.InitializeScoresOnly"));
         Assert.IsFalse(method.Contains("QueueDeferredScoreHydration"));
@@ -2895,6 +2895,19 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();");
         StringAssert.Contains(viewModelCode, "InvokeMainChartListPresentationAction(");
         StringAssert.Contains(viewModelCode, "RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);");
+        string playlistReferencePresentationHandler = ExtractBetween(
+            viewModelCode,
+            "private void PlaylistWorkspacePlaylistReferenceApplyPresentationRequested(",
+            "public void CloseProcess()");
+        int suppressionIndex = playlistReferencePresentationHandler.IndexOf(
+            "TrySuppress(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree)",
+            StringComparison.Ordinal);
+        int startupDeferIndex = playlistReferencePresentationHandler.IndexOf(
+            "TryDeferStartupPresentationRefresh(",
+            StringComparison.Ordinal);
+        Assert.IsTrue(
+            suppressionIndex >= 0 && startupDeferIndex > suppressionIndex,
+            "Playlist reference presentation must honor ordinary UI suppression before startup deferral.");
         Assert.IsFalse(viewModelCode.Contains("public async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)"));
         Assert.IsFalse(workspaceCode.Contains("ResetBMSTableAsync("));
         Assert.IsFalse(workspaceCode.Contains("ShowPlaylistLoadFailure("));

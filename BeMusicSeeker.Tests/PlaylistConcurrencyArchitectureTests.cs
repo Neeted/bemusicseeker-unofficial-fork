@@ -115,6 +115,80 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void PlaylistHydrationOwner_PublishesReceiptInsteadOfCallbackLists()
+    {
+        string ownerSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "Models",
+            "BmsLibraryInternal",
+            "PlaylistEntriesHydrationOwner.cs"));
+        Assert.IsFalse(ownerSource.Contains("Action<PlaylistTableUpdateContext>"));
+        Assert.IsFalse(ownerSource.Contains("pendingUpdateCallbacks"));
+        Assert.IsFalse(ownerSource.Contains("pendingCompletionActions"));
+        StringAssert.Contains(ownerSource, "PlaylistEntriesHydrationReceipt");
+        StringAssert.Contains(ownerSource, "HydrationReceiptPublished");
+        StringAssert.Contains(ownerSource, "PublishHydrationReceipt(");
+        StringAssert.Contains(ownerSource, "out failedRetryRequested");
+    }
+
+    [TestMethod]
+    public void PlaylistHydrationReceipt_UsesLockedImmutableReferenceSnapshots()
+    {
+        string ownerSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "Models",
+            "BmsLibraryInternal",
+            "PlaylistEntriesHydrationOwner.cs"));
+        string workspaceSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "PlaylistWorkspaceViewModel.PlaylistStoreNotifications.cs"));
+
+        StringAssert.Contains(ownerSource, "using (table.ReaderWriterLock.GetReaderGuard())");
+        StringAssert.Contains(ownerSource, "new PlaylistReferenceTableSnapshot(");
+        StringAssert.Contains(ownerSource, "internal PlaylistReferenceTableSnapshot ReferenceSnapshot { get; }");
+        StringAssert.Contains(workspaceSource, "SynchronizeReferenceBMSTableSnapshots(");
+        Assert.IsFalse(workspaceSource.Contains("Select(fact => fact.Table)"));
+    }
+
+    [TestMethod]
+    public void PlaylistHydrationCompletion_DoesNotQueueMutableReferenceResnapshot()
+    {
+        string viewModelSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs"));
+        string hydrationCompletion = ExtractMethodBody(
+            viewModelSource,
+            "private void PlaylistWorkspacePlaylistEntriesHydrationCompleted(");
+
+        Assert.IsFalse(
+            hydrationCompletion.IndexOf("QueuePlaylistReferenceApply(", StringComparison.Ordinal) >= 0,
+            "Hydration receipt consumption must not enqueue a mutable table resnapshot route.");
+        StringAssert.Contains(hydrationCompletion, "TrackStartupProgressPlaylistReferenceRequest(");
+        StringAssert.Contains(hydrationCompletion, "TryCompleteStartupProgressPlaylistReference(");
+    }
+
+    [TestMethod]
+    public void PlaylistHydrationContinuation_PreservesCustomRepairAndSeparatesBmtFailure()
+    {
+        string playlistSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "Models",
+            "BMSPlaylist.cs"));
+        StringAssert.Contains(playlistSource, "RunCustomFolderOutputRepairAfterHydration");
+        StringAssert.Contains(playlistSource, "runCustomFolderOutputRepairAfterHydration: true");
+        StringAssert.Contains(playlistSource, "playlist_entries_hydration_custom_folder_repair_failed");
+        StringAssert.Contains(playlistSource, "playlist_entries_hydration_bmt_export_failed");
+    }
+
+    [TestMethod]
     public void PlaylistUrlCompletionSettings_UseDedicatedProviderBoundary()
     {
         string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

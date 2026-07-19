@@ -3042,6 +3042,23 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 SearchTargets = [rootDirectory],
                 BMSFiles = []
             };
+            var options = new BmsLibraryOptionsSnapshot
+            {
+                OperationModeLR2DB = true,
+            };
+            InvokeCaptureLr2SongDbSyncScanSurface(library, options, [rootDirectory], new SongTableFileCheckResult
+            {
+                Lr2ScanSurfaceAvailable = true,
+                Lr2ScanLr2FolderDiscoveryDirectories = [outputBase],
+                Lr2ScanLr2FolderFilePaths = [externalLr2FolderPath],
+                Lr2ScanLr2FolderFileEntries = new Dictionary<string, RootFileEnumerationEntry>(StringComparer.OrdinalIgnoreCase)
+                {
+                    [externalLr2FolderPath] = new RootFileEnumerationEntry(
+                        externalLr2FolderPath,
+                        File.GetLastWriteTimeUtc(externalLr2FolderPath))
+                },
+                Lr2ScanLr2FolderFileDiscoveryComplete = true
+            });
 
             Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
                 "test_prepare_keeps_external_output_base_lr2folder",
@@ -6654,6 +6671,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 return true;
             };
 
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
+                "test_lr2_builtin_course_folder_prepare_surface",
+                () => CreatePreparedLr2FolderSurface(lr2Root, lr2FolderPath)));
             library.QueueLr2SongDbSync("test_lr2_builtin_course_folder");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);
@@ -6702,6 +6722,9 @@ public sealed class BmsLibraryLr2SongDbSyncTests
                 return true;
             };
 
+            Assert.IsTrue(library.TryRunLr2SongDbSyncDataPreparation(
+                "test_lr2_builtin_newsong_folder_prepare_surface",
+                () => CreatePreparedLr2FolderSurface(lr2Root, lr2FolderPath)));
             library.QueueLr2SongDbSync("test_lr2_builtin_newsong_folder");
 
             using var verify = new LR2SongDBExtended(scope.SongDbPath);

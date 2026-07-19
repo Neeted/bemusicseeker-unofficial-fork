@@ -18,6 +18,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private long playlistTreeNotificationGeneration;
 
+    private readonly object playlistTreeStoreSyncRoot = new();
+
     private bool isPlaylistTreeExpanded = true;
 
     private readonly object playlistDetailSelectionSyncRoot = new();
@@ -82,66 +84,78 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void AttachPlaylistTreeStore(BMSPlaylist nextStore)
     {
-        if (ReferenceEquals(playlistTreeStore, nextStore))
+        lock (playlistTreeStoreSyncRoot)
         {
-            AttachObservedPlaylistTreeTables(nextStore?.BMSTables);
-            return;
-        }
+            if (ReferenceEquals(playlistTreeStore, nextStore))
+            {
+                AttachObservedPlaylistTreeTables(nextStore?.BMSTables);
+                return;
+            }
 
-        if (playlistTreeStore != null)
-        {
-            playlistTreeStore.PropertyChanged -= PlaylistTreeStorePropertyChanged;
-        }
-        if (observedPlaylistTreeTables != null)
-        {
-            observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
-        }
+            if (playlistTreeStore != null)
+            {
+                playlistTreeStore.PropertyChanged -= PlaylistTreeStorePropertyChanged;
+                playlistTreeStore.PlaylistEntriesHydrationReceiptPublished -= PlaylistTreeStoreHydrationReceiptPublished;
+            }
+            if (observedPlaylistTreeTables != null)
+            {
+                observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
+            }
 
-        playlistTreeStore = nextStore;
-        Interlocked.Increment(ref playlistTreeNotificationGeneration);
-        observedPlaylistTreeTables = null;
-        if (playlistTreeStore != null)
-        {
-            playlistTreeStore.PropertyChanged += PlaylistTreeStorePropertyChanged;
-            AttachObservedPlaylistTreeTables(playlistTreeStore.BMSTables);
+            playlistTreeStore = nextStore;
+            Interlocked.Increment(ref playlistTreeNotificationGeneration);
+            observedPlaylistTreeTables = null;
+            if (playlistTreeStore != null)
+            {
+                playlistTreeStore.PropertyChanged += PlaylistTreeStorePropertyChanged;
+                playlistTreeStore.PlaylistEntriesHydrationReceiptPublished += PlaylistTreeStoreHydrationReceiptPublished;
+                AttachObservedPlaylistTreeTables(playlistTreeStore.BMSTables);
+            }
         }
     }
 
     private void AttachObservedPlaylistTreeTables(DispatcherCollection<BMSTable> nextTables)
     {
-        if (ReferenceEquals(observedPlaylistTreeTables, nextTables))
+        lock (playlistTreeStoreSyncRoot)
         {
-            return;
-        }
-        if (observedPlaylistTreeTables != null)
-        {
-            observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
-        }
-        observedPlaylistTreeTables = nextTables;
-        Interlocked.Increment(ref playlistTreeNotificationGeneration);
-        if (observedPlaylistTreeTables != null)
-        {
-            observedPlaylistTreeTables.CollectionChanged += PlaylistTreeTablesCollectionChanged;
+            if (ReferenceEquals(observedPlaylistTreeTables, nextTables))
+            {
+                return;
+            }
+            if (observedPlaylistTreeTables != null)
+            {
+                observedPlaylistTreeTables.CollectionChanged -= PlaylistTreeTablesCollectionChanged;
+            }
+            observedPlaylistTreeTables = nextTables;
+            Interlocked.Increment(ref playlistTreeNotificationGeneration);
+            if (observedPlaylistTreeTables != null)
+            {
+                observedPlaylistTreeTables.CollectionChanged += PlaylistTreeTablesCollectionChanged;
+            }
         }
     }
 
     private void ApplyPlaylistTreeTablesSource(bool raiseWhenUnchanged = false)
     {
-        DispatcherCollection<BMSTable> nextTables = playlistTreeStore == null
-            ? emptyPlaylistTreeTables
-                ?? throw new InvalidOperationException("Playlist tree source is not configured.")
-            : playlistTreeStore.BMSTables;
-        AttachObservedPlaylistTreeTables(nextTables);
-        if (ReferenceEquals(playlistTreeTables, nextTables))
+        DispatcherCollection<BMSTable> nextTables;
+        bool changed;
+        lock (playlistTreeStoreSyncRoot)
         {
-            if (raiseWhenUnchanged)
+            nextTables = playlistTreeStore == null
+                ? emptyPlaylistTreeTables
+                    ?? throw new InvalidOperationException("Playlist tree source is not configured.")
+                : playlistTreeStore.BMSTables;
+            AttachObservedPlaylistTreeTables(nextTables);
+            changed = !ReferenceEquals(playlistTreeTables, nextTables);
+            if (changed)
             {
-                RaisePropertyChanged(nameof(PlaylistTreeTables));
+                playlistTreeTables = nextTables;
             }
-            return;
         }
-        playlistTreeTables = nextTables;
-        RaisePropertyChanged(nameof(PlaylistTreeTables));
+        if (changed || raiseWhenUnchanged)
+        {
+            RaisePropertyChanged(nameof(PlaylistTreeTables));
+        }
     }
 
     public bool IsPlaylistTreeExpanded

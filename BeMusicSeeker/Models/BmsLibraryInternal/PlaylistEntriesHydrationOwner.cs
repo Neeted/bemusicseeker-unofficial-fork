@@ -9,7 +9,6 @@ using System.Threading.Tasks;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Util.Extensions;
-using PlaylistTableUpdateContext = BeMusicSeeker.Models.BMSPlaylist.PlaylistTableUpdateContext;
 
 namespace BeMusicSeeker.Models.BmsLibraryInternal;
 
@@ -32,8 +31,6 @@ internal sealed class PlaylistEntriesHydrationOwner
 
     private readonly Func<Func<string, string, string, Func<Task>, bool>> startupSchedulerProvider;
 
-    private readonly Action<bool, IReadOnlyList<Action<PlaylistTableUpdateContext>>> updateTables;
-
     private readonly Action<string> logPerformance;
 
     private readonly Action<Exception, string> logCompletionFailure;
@@ -42,11 +39,7 @@ internal sealed class PlaylistEntriesHydrationOwner
 
     private readonly object requestLock = new();
 
-    private readonly List<Action<PlaylistTableUpdateContext>> pendingUpdateCallbacks = [];
-
-    private readonly List<Action> pendingCompletionActions = [];
-
-    private bool pendingRunExternalSync;
+    private PlaylistHydrationContinuationIntent pendingContinuation;
 
     private bool pendingRequest;
 
@@ -87,13 +80,157 @@ internal sealed class PlaylistEntriesHydrationOwner
         internal long Generation { get; }
     }
 
+    internal sealed class PlaylistHydrationContinuationIntent
+    {
+        internal PlaylistHydrationContinuationIntent(
+            bool runExternalSyncAfterHydration,
+            bool queueBeatorajaBmtExportAfterHydration,
+            bool runCustomFolderOutputRepairAfterHydration,
+            bool verifyRootOutputDirectoryRows)
+        {
+            RunExternalSyncAfterHydration = runExternalSyncAfterHydration;
+            QueueBeatorajaBmtExportAfterHydration = queueBeatorajaBmtExportAfterHydration;
+            RunCustomFolderOutputRepairAfterHydration = runCustomFolderOutputRepairAfterHydration;
+            VerifyRootOutputDirectoryRows = verifyRootOutputDirectoryRows;
+        }
+
+        internal bool RunExternalSyncAfterHydration { get; }
+
+        internal bool QueueBeatorajaBmtExportAfterHydration { get; }
+
+        internal bool RunCustomFolderOutputRepairAfterHydration { get; }
+
+        internal bool VerifyRootOutputDirectoryRows { get; }
+
+        internal PlaylistHydrationContinuationIntent WithoutExternalSync()
+        {
+            return new PlaylistHydrationContinuationIntent(
+                runExternalSyncAfterHydration: false,
+                QueueBeatorajaBmtExportAfterHydration,
+                RunCustomFolderOutputRepairAfterHydration,
+                VerifyRootOutputDirectoryRows);
+        }
+
+        internal static PlaylistHydrationContinuationIntent Merge(
+            PlaylistHydrationContinuationIntent current,
+            PlaylistHydrationContinuationIntent next)
+        {
+            if (current == null)
+            {
+                return next;
+            }
+            if (next == null)
+            {
+                return current;
+            }
+            return new PlaylistHydrationContinuationIntent(
+                current.RunExternalSyncAfterHydration || next.RunExternalSyncAfterHydration,
+                current.QueueBeatorajaBmtExportAfterHydration || next.QueueBeatorajaBmtExportAfterHydration,
+                current.RunCustomFolderOutputRepairAfterHydration || next.RunCustomFolderOutputRepairAfterHydration,
+                current.VerifyRootOutputDirectoryRows || next.VerifyRootOutputDirectoryRows);
+        }
+    }
+
+    internal sealed class PlaylistHydratedTableFact
+    {
+        internal PlaylistHydratedTableFact(BMSTable table)
+        {
+            Table = table;
+            if (table == null)
+            {
+                ReferenceSnapshot = null;
+                Entries = [];
+                return;
+            }
+            using (table.ReaderWriterLock.GetReaderGuard())
+            {
+                if (!table.ArePlaylistEntriesLoaded)
+                {
+                    ReferenceSnapshot = null;
+                    Entries = [];
+                    return;
+                }
+                PlaylistId = table.playlist_id;
+                Symbol = table.symbol;
+                Name = table.name;
+                EntriesRevision = table.PlaylistEntriesRevision;
+                ReferenceSnapshot = new PlaylistReferenceTableSnapshot(
+                    table,
+                    Symbol,
+                    Name,
+                    (table.entries ?? []).ToArray());
+            }
+            Entries = ReferenceSnapshot.Entries;
+        }
+
+        internal BMSTable Table { get; }
+
+        internal int? PlaylistId { get; }
+
+        internal string Symbol { get; }
+
+        internal string Name { get; }
+
+        internal int EntriesRevision { get; }
+
+        internal PlaylistReferenceTableSnapshot ReferenceSnapshot { get; }
+
+        internal IReadOnlyList<PlaylistReferenceEntrySnapshot> Entries { get; }
+    }
+
+    internal sealed class PlaylistEntriesHydrationReceipt
+    {
+        internal PlaylistEntriesHydrationReceipt(
+            long generation,
+            int shutdownEpoch,
+            int requestVersion,
+            string reason,
+            IReadOnlyList<PlaylistHydratedTableFact> tables,
+            PlaylistHydrationContinuationIntent continuation)
+        {
+            Generation = generation;
+            ShutdownEpoch = shutdownEpoch;
+            RequestVersion = requestVersion;
+            Reason = reason ?? string.Empty;
+            Tables = Array.AsReadOnly([.. (tables ?? []).Where(table => table != null)]);
+            Continuation = continuation;
+        }
+
+        internal long Generation { get; }
+
+        internal int ShutdownEpoch { get; }
+
+        internal int RequestVersion { get; }
+
+        internal string Reason { get; }
+
+        internal IReadOnlyList<PlaylistHydratedTableFact> Tables { get; }
+
+        internal PlaylistHydrationContinuationIntent Continuation { get; }
+    }
+
+    internal sealed class PlaylistEntriesHydrationReceiptEventArgs : EventArgs
+    {
+        internal PlaylistEntriesHydrationReceiptEventArgs(PlaylistEntriesHydrationReceipt receipt)
+        {
+            Receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
+        }
+
+        internal PlaylistEntriesHydrationReceipt Receipt { get; }
+
+        internal Exception CompositionFailure { get; set; }
+
+        internal PlaylistHydrationContinuationIntent RetryContinuation { get; set; }
+
+        internal bool RetryRequested { get; set; }
+    }
+
     internal PlaylistEntriesHydrationOwner(
         PlaylistPersistenceRepository repository,
         Func<PlaylistHydrationTableSnapshot> tablesSnapshotProvider,
         Func<long, IDisposable> hydrationPublishLeaseProvider,
         Func<bool> isShutdownRequested,
         Func<Func<string, string, string, Func<Task>, bool>> startupSchedulerProvider,
-        Action<bool, IReadOnlyList<Action<PlaylistTableUpdateContext>>> updateTables,
         Action<string> logPerformance,
         Action<Exception, string> logCompletionFailure)
     {
@@ -102,12 +239,13 @@ internal sealed class PlaylistEntriesHydrationOwner
         this.hydrationPublishLeaseProvider = hydrationPublishLeaseProvider ?? throw new ArgumentNullException(nameof(hydrationPublishLeaseProvider));
         this.isShutdownRequested = isShutdownRequested ?? throw new ArgumentNullException(nameof(isShutdownRequested));
         this.startupSchedulerProvider = startupSchedulerProvider ?? throw new ArgumentNullException(nameof(startupSchedulerProvider));
-        this.updateTables = updateTables ?? throw new ArgumentNullException(nameof(updateTables));
         this.logPerformance = logPerformance ?? throw new ArgumentNullException(nameof(logPerformance));
         this.logCompletionFailure = logCompletionFailure ?? throw new ArgumentNullException(nameof(logCompletionFailure));
     }
 
     internal event PropertyChangedEventHandler PropertyChanged;
+
+    internal event EventHandler<PlaylistEntriesHydrationReceiptEventArgs> HydrationReceiptPublished;
 
     internal bool PlaylistEntriesHydrationRunning => Volatile.Read(ref running) != 0;
 
@@ -134,9 +272,7 @@ internal sealed class PlaylistEntriesHydrationOwner
             shutdownEpoch++;
             requestedVersionAtShutdown = requestedVersion;
             pendingRequest = false;
-            pendingRunExternalSync = false;
-            pendingUpdateCallbacks.Clear();
-            pendingCompletionActions.Clear();
+            pendingContinuation = null;
             if (!workStarted)
             {
                 queued = 0;
@@ -153,9 +289,7 @@ internal sealed class PlaylistEntriesHydrationOwner
         {
             requestedVersionAtCompletion = requestedVersion;
             pendingRequest = false;
-            pendingRunExternalSync = false;
-            pendingUpdateCallbacks.Clear();
-            pendingCompletionActions.Clear();
+            pendingContinuation = null;
             queued = 0;
             workStarted = false;
         }
@@ -166,9 +300,7 @@ internal sealed class PlaylistEntriesHydrationOwner
 
     internal void QueueDeferredPlaylistEntriesHydration(
         string reason,
-        bool runExternalSyncAfterHydration = false,
-        IReadOnlyList<Action<PlaylistTableUpdateContext>> updateCallbackActions = null,
-        IReadOnlyList<Action> completionActions = null)
+        PlaylistHydrationContinuationIntent continuation = null)
     {
         if (isShutdownRequested())
         {
@@ -188,22 +320,17 @@ internal sealed class PlaylistEntriesHydrationOwner
             }
             version = Interlocked.Increment(ref requestedVersion);
             pendingRequest = true;
-            pendingRunExternalSync |= runExternalSyncAfterHydration;
-            if (updateCallbackActions != null)
-            {
-                pendingUpdateCallbacks.AddRange(updateCallbackActions.Where(action => action != null));
-            }
-            if (completionActions != null)
-            {
-                pendingCompletionActions.AddRange(completionActions.Where(action => action != null));
-            }
+            pendingContinuation = PlaylistHydrationContinuationIntent.Merge(pendingContinuation, continuation);
             shouldSchedule = queued == 0;
             queued = 1;
         }
         RaisePropertyChanged(nameof(PlaylistEntriesHydrationRequestedVersion));
         logPerformance("playlist_entries_hydration queue reason=" + requestReason
             + " version=" + version
-            + " runExternalSyncAfterHydration=" + runExternalSyncAfterHydration.ToString().ToLowerInvariant());
+            + " runExternalSyncAfterHydration="
+            + (continuation?.RunExternalSyncAfterHydration == true).ToString().ToLowerInvariant()
+            + " queueBeatorajaBmtExportAfterHydration="
+            + (continuation?.QueueBeatorajaBmtExportAfterHydration == true).ToString().ToLowerInvariant());
 
         if (!shouldSchedule)
         {
@@ -234,10 +361,14 @@ internal sealed class PlaylistEntriesHydrationOwner
         async Task Work()
         {
             bool failed = false;
+            PlaylistHydrationContinuationIntent failedContinuation = null;
+            bool failedRetryRequested = false;
+            int startedRequestVersion;
             int workShutdownEpoch;
             lock (requestLock)
             {
                 workShutdownEpoch = shutdownEpoch;
+                startedRequestVersion = requestedVersion;
                 workStarted = true;
             }
             try
@@ -275,9 +406,7 @@ internal sealed class PlaylistEntriesHydrationOwner
 
                     try
                     {
-                        bool mergedRunExternalSync;
-                        List<Action<PlaylistTableUpdateContext>> mergedUpdateCallbacks;
-                        List<Action> mergedCompletionActions;
+                        PlaylistHydrationContinuationIntent mergedContinuation;
                         int batchVersion;
                         bool shutdownAfterDrain;
                         lock (requestLock)
@@ -287,22 +416,14 @@ internal sealed class PlaylistEntriesHydrationOwner
                             if (shutdownAfterDrain)
                             {
                                 pendingRequest = false;
-                                pendingRunExternalSync = false;
-                                pendingUpdateCallbacks.Clear();
-                                pendingCompletionActions.Clear();
-                                mergedRunExternalSync = false;
-                                mergedUpdateCallbacks = [];
-                                mergedCompletionActions = [];
+                                pendingContinuation = null;
+                                mergedContinuation = null;
                             }
                             else
                             {
-                                mergedRunExternalSync = pendingRunExternalSync;
-                                mergedUpdateCallbacks = [.. pendingUpdateCallbacks];
-                                mergedCompletionActions = [.. pendingCompletionActions];
+                                mergedContinuation = pendingContinuation;
                                 pendingRequest = false;
-                                pendingRunExternalSync = false;
-                                pendingUpdateCallbacks.Clear();
-                                pendingCompletionActions.Clear();
+                                pendingContinuation = null;
                             }
                         }
                         if (shutdownAfterDrain)
@@ -316,9 +437,9 @@ internal sealed class PlaylistEntriesHydrationOwner
                             lock (requestLock)
                             {
                                 pendingRequest = true;
-                                pendingRunExternalSync |= mergedRunExternalSync;
-                                pendingUpdateCallbacks.InsertRange(0, mergedUpdateCallbacks);
-                                pendingCompletionActions.InsertRange(0, mergedCompletionActions);
+                                pendingContinuation = PlaylistHydrationContinuationIntent.Merge(
+                                    pendingContinuation,
+                                    mergedContinuation);
                             }
                             continue;
                         }
@@ -328,50 +449,95 @@ internal sealed class PlaylistEntriesHydrationOwner
                             return;
                         }
 
-                        if (mergedRunExternalSync || mergedUpdateCallbacks.Count > 0)
+                        PlaylistEntriesHydrationReceipt receipt = CreateHydrationReceipt(
+                            hydrationResult.Generation,
+                            workShutdownEpoch,
+                            batchVersion,
+                            requestReason,
+                            mergedContinuation);
+                        if (receipt == null)
                         {
-                            var stopwatchUpdateTables = Stopwatch.StartNew();
-                            updateTables(mergedRunExternalSync, mergedUpdateCallbacks);
-                            stopwatchUpdateTables.Stop();
-                            logPerformance("playlist_entries_hydration post_update_tables reason=" + requestReason
-                                + " reloadExtPlaylist=" + mergedRunExternalSync.ToString().ToLowerInvariant()
-                                + " callbackCount=" + mergedUpdateCallbacks.Count
-                                + " elapsedMs=" + stopwatchUpdateTables.ElapsedMilliseconds);
+                            lock (requestLock)
+                            {
+                                pendingRequest = true;
+                                pendingContinuation = PlaylistHydrationContinuationIntent.Merge(
+                                    pendingContinuation,
+                                    mergedContinuation);
+                            }
+                            continue;
+                        }
+                        if (mergedContinuation?.RunExternalSyncAfterHydration == true)
+                        {
+                            hydrationPublishLease.Dispose();
+                            hydrationPublishLease = null;
                         }
                         if (IsShutdownOrEpochChanged(workShutdownEpoch))
                         {
                             SetCompletedVersion(batchVersion);
                             return;
                         }
-
-                        foreach (Action completionAction in mergedCompletionActions)
+                        failedContinuation = mergedContinuation;
+                        try
+                        {
+                            PublishHydrationReceipt(
+                                receipt,
+                                out failedContinuation,
+                                out failedRetryRequested);
+                        }
+                        catch (Exception) when (failedRetryRequested)
                         {
                             if (IsShutdownOrEpochChanged(workShutdownEpoch))
                             {
-                                SetCompletedVersion(batchVersion);
+                                SetCompletedVersion(PlaylistEntriesHydrationRequestedVersion);
                                 return;
                             }
-                            try
+                            lock (requestLock)
                             {
-                                completionAction();
+                                pendingRequest = true;
+                                pendingContinuation = PlaylistHydrationContinuationIntent.Merge(
+                                    pendingContinuation,
+                                    failedContinuation);
                             }
-                            catch (Exception ex)
-                            {
-                                logCompletionFailure(ex, requestReason);
-                            }
+                            failedContinuation = null;
+                            failedRetryRequested = false;
+                            logPerformance("playlist_entries_hydration retry reason=" + requestReason);
+                            continue;
+                        }
+                        if (IsShutdownOrEpochChanged(workShutdownEpoch))
+                        {
+                            SetCompletedVersion(batchVersion);
+                            return;
                         }
                         SetCompletedVersion(batchVersion);
                         return;
                     }
                     finally
                     {
-                        hydrationPublishLease.Dispose();
+                        hydrationPublishLease?.Dispose();
                     }
                 }
             }
-            catch
+            catch (Exception ex)
             {
                 failed = true;
+                lock (requestLock)
+                {
+                    bool independentRequest = pendingRequest
+                        && requestedVersion > startedRequestVersion;
+                    if (failedRetryRequested)
+                    {
+                        pendingContinuation = PlaylistHydrationContinuationIntent.Merge(
+                            pendingContinuation,
+                            failedContinuation);
+                        pendingRequest = true;
+                    }
+                    else if (!independentRequest)
+                    {
+                        pendingRequest = false;
+                        pendingContinuation = null;
+                    }
+                }
+                logCompletionFailure(ex, requestReason);
                 throw;
             }
             finally
@@ -382,22 +548,17 @@ internal sealed class PlaylistEntriesHydrationOwner
                     if (failed)
                     {
                         failedThroughVersion = Math.Max(failedThroughVersion, requestedVersion);
-                        pendingRequest = false;
-                        pendingRunExternalSync = false;
-                        pendingUpdateCallbacks.Clear();
-                        pendingCompletionActions.Clear();
-                        queued = 0;
+                        hasPendingRequest = !isShutdownRequested()
+                            && shutdownEpoch == workShutdownEpoch
+                            && pendingRequest;
+                        queued = hasPendingRequest ? 1 : 0;
                         workStarted = false;
-                        hasPendingRequest = false;
                     }
                     else
                     {
                         hasPendingRequest = !isShutdownRequested()
                             && shutdownEpoch == workShutdownEpoch
-                            && (pendingRequest
-                                || pendingRunExternalSync
-                                || pendingUpdateCallbacks.Count > 0
-                                || pendingCompletionActions.Count > 0);
+                            && (pendingRequest || pendingContinuation != null);
                         queued = hasPendingRequest ? 1 : 0;
                         workStarted = false;
                     }
@@ -617,6 +778,37 @@ internal sealed class PlaylistEntriesHydrationOwner
         return GetTablesSnapshot().Generation == generation;
     }
 
+    internal bool IsReceiptCurrent(PlaylistEntriesHydrationReceipt receipt)
+    {
+        if (receipt == null
+            || isShutdownRequested()
+            || Volatile.Read(ref shutdownEpoch) != receipt.ShutdownEpoch
+            || !IsCurrentGeneration(receipt.Generation))
+        {
+            return false;
+        }
+        foreach (PlaylistHydratedTableFact fact in receipt.Tables)
+        {
+            BMSTable table = fact?.Table;
+            if (table == null)
+            {
+                continue;
+            }
+            using (table.ReaderWriterLock.GetReaderGuard())
+            {
+                if (!table.ArePlaylistEntriesLoaded
+                    || table.playlist_id != fact.PlaylistId
+                    || table.PlaylistEntriesRevision != fact.EntriesRevision
+                    || !string.Equals(table.symbol, fact.Symbol, StringComparison.Ordinal)
+                    || !string.Equals(table.name, fact.Name, StringComparison.Ordinal))
+                {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     private bool IsShutdownOrEpochChanged(int workShutdownEpoch)
     {
         return isShutdownRequested() || Volatile.Read(ref shutdownEpoch) != workShutdownEpoch;
@@ -647,15 +839,145 @@ internal sealed class PlaylistEntriesHydrationOwner
         }
     }
 
+    private PlaylistEntriesHydrationReceipt CreateHydrationReceipt(
+        long generation,
+        int shutdownEpoch,
+        int requestVersion,
+        string reason,
+        PlaylistHydrationContinuationIntent continuation)
+    {
+        return TryCreateStableReceipt(
+            generation,
+            shutdownEpoch,
+            requestVersion,
+            reason,
+            continuation);
+    }
+
+    internal PlaylistEntriesHydrationReceipt CreateReceiptForCurrentTables(
+        PlaylistEntriesHydrationReceipt source,
+        PlaylistHydrationContinuationIntent continuation)
+    {
+        if (source == null)
+        {
+            throw new ArgumentNullException(nameof(source));
+        }
+        return TryCreateStableReceipt(
+                requiredGeneration: null,
+                requiredShutdownEpoch: source.ShutdownEpoch,
+                requestVersion: source.RequestVersion,
+                reason: source.Reason,
+                continuation: continuation)
+            ?? throw new InvalidOperationException("Playlist hydration receipt snapshot changed while composing the consumer receipt.");
+    }
+
+    private PlaylistEntriesHydrationReceipt TryCreateStableReceipt(
+        long? requiredGeneration,
+        int? requiredShutdownEpoch,
+        int requestVersion,
+        string reason,
+        PlaylistHydrationContinuationIntent continuation)
+    {
+        for (int attempt = 0; attempt < 8; attempt++)
+        {
+            PlaylistHydrationTableSnapshot snapshot = GetTablesSnapshot();
+            if (requiredGeneration.HasValue && snapshot.Generation != requiredGeneration.Value)
+            {
+                continue;
+            }
+            if (requiredShutdownEpoch.HasValue
+                && Volatile.Read(ref shutdownEpoch) != requiredShutdownEpoch.Value)
+            {
+                continue;
+            }
+            PlaylistHydratedTableFact[] facts = snapshot.Tables
+                .Where(table => table != null)
+                .Select(table => new PlaylistHydratedTableFact(table))
+                .ToArray();
+            if (facts.Any(fact => fact.ReferenceSnapshot == null))
+            {
+                continue;
+            }
+            PlaylistHydrationTableSnapshot currentSnapshot = GetTablesSnapshot();
+            if (!AreSameTableSnapshot(snapshot, currentSnapshot)
+                || (requiredShutdownEpoch.HasValue
+                    && Volatile.Read(ref shutdownEpoch) != requiredShutdownEpoch.Value))
+            {
+                continue;
+            }
+            return new PlaylistEntriesHydrationReceipt(
+                snapshot.Generation,
+                Volatile.Read(ref shutdownEpoch),
+                requestVersion,
+                reason,
+                facts,
+                continuation);
+        }
+        return null;
+    }
+
+    private static bool AreSameTableSnapshot(
+        PlaylistHydrationTableSnapshot first,
+        PlaylistHydrationTableSnapshot second)
+    {
+        if (first == null
+            || second == null
+            || first.Generation != second.Generation
+            || first.Tables.Count != second.Tables.Count)
+        {
+            return false;
+        }
+        for (int index = 0; index < first.Tables.Count; index++)
+        {
+            if (!ReferenceEquals(first.Tables[index], second.Tables[index]))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void PublishHydrationReceipt(
+        PlaylistEntriesHydrationReceipt receipt,
+        out PlaylistHydrationContinuationIntent retryContinuation,
+        out bool retryRequested)
+    {
+        retryContinuation = receipt?.Continuation;
+        retryRequested = false;
+        if (receipt == null)
+        {
+            return;
+        }
+        PlaylistEntriesHydrationReceiptEventArgs eventArgs = new(receipt);
+        try
+        {
+            HydrationReceiptPublished?.Invoke(this, eventArgs);
+        }
+        catch (Exception ex)
+        {
+            retryContinuation = eventArgs.RetryContinuation ?? retryContinuation;
+            retryRequested = eventArgs.RetryRequested;
+            logCompletionFailure(ex, receipt.Reason);
+            throw;
+        }
+        if (eventArgs.CompositionFailure != null)
+        {
+            retryContinuation = eventArgs.RetryContinuation ?? retryContinuation;
+            retryRequested = eventArgs.RetryRequested;
+            logCompletionFailure(eventArgs.CompositionFailure, receipt.Reason);
+            throw new InvalidOperationException(
+                "Playlist hydration consumer composition failed.",
+                eventArgs.CompositionFailure);
+        }
+    }
+
     private void PublishDirectCompletionVersionIfNoPostLoadWork()
     {
         int completionVersion;
         lock (requestLock)
         {
             if (workStarted
-                || pendingRunExternalSync
-                || pendingUpdateCallbacks.Count > 0
-                || pendingCompletionActions.Count > 0)
+                || pendingContinuation != null)
             {
                 return;
             }

@@ -254,6 +254,8 @@ public partial class MainWindowViewModel : ViewModel
 
         internal int RequiredPlaylistReferenceVersion;
 
+        internal bool PlaylistReferenceFromHydrationRequested;
+
         internal int RequiredExternalSyncVersion;
 
         internal int RequiredPlaylistEntriesHydrationCompletedVersion;
@@ -5162,14 +5164,13 @@ public partial class MainWindowViewModel : ViewModel
         }
         await _semaphore.WaitAsync();
         long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ReloadTables);
-        Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction = PlaylistWorkspace.CreateReferenceReplaceUpdateCallback();
         bool scheduleDeferredExternalSync = false;
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.PlaylistTree | UiRefreshChannel.DuplicateTree);
             await Task.Run(delegate
             {
-                tables.ReloadTables(updateCallbackAction, queueBeatorajaBmtExportAfterHydration: false);
+                tables.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
             }).Logging("ReloadTables");
             scheduleDeferredExternalSync = true;
         }
@@ -5189,7 +5190,7 @@ public partial class MainWindowViewModel : ViewModel
             PlaylistWorkspace.QueueExternalPlaylistSync(
                 "ReloadTables",
                 fromReloadTables: true,
-                updateCallbackAction,
+                PlaylistWorkspace.CreateReferenceReplaceUpdateCallback(),
                 operationToken);
         }
         SkipUnrequestedStartupProgressPhases(
@@ -6028,7 +6029,10 @@ public partial class MainWindowViewModel : ViewModel
         var semaphore = new SemaphoreSlim(1, 1);
         void taskAdd1()
         {
-            tables.Initialize(reloadExtPlaylist: false, null, semaphore, queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad);
+            tables.Initialize(
+                reloadExtPlaylist: false,
+                semaphore: semaphore,
+                queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad);
         }
         void taskAdd2()
         {
@@ -6126,9 +6130,11 @@ public partial class MainWindowViewModel : ViewModel
     {
         int version = e?.Version ?? 0;
         TryCompleteStartupProgressPlaylistEntriesHydration(version);
-        PlaylistWorkspace.QueuePlaylistReferenceApply(
-            "PlaylistEntriesHydration",
-            GetActiveStartupProgressOperationToken());
+        if (ShouldCompletePlaylistReferenceFromHydration(version))
+        {
+            TrackStartupProgressPlaylistReferenceRequest("PlaylistEntriesHydration", version);
+            TryCompleteStartupProgressPlaylistReference(version);
+        }
         if (PlayHistory.SelectedDisplayTarget.UsesProjection)
         {
             playHistoryWorkflowOwner.QueueDisplayTargetRefresh(
@@ -6221,6 +6227,10 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistReferenceApplyPresentationRequestedEventArgs request)
     {
         if (request == null || !IsStartupProgressOperationTokenCurrent(request.OperationToken))
+        {
+            return;
+        }
+        if (TrySuppress(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree))
         {
             return;
         }
@@ -8449,7 +8459,24 @@ public partial class MainWindowViewModel : ViewModel
         {
             return;
         }
+        lock (startupProgressLock)
+        {
+            if (startupProgressState.IsActive)
+            {
+                startupProgressState.PlaylistReferenceFromHydrationRequested = true;
+            }
+        }
         TrackStartupProgressPlaylistEntriesHydrationDirectRequest(requestedVersion, "playlist_entries_hydration");
+    }
+
+    private bool ShouldCompletePlaylistReferenceFromHydration(int completedVersion)
+    {
+        lock (startupProgressLock)
+        {
+            return startupProgressState.IsActive
+                && startupProgressState.PlaylistReferenceFromHydrationRequested
+                && completedVersion >= startupProgressState.RequiredPlaylistEntriesHydrationCompletedVersion;
+        }
     }
 
     private void TrackStartupProgressPlaylistEntriesHydrationDirectRequest(int requestedVersion, string reason)
@@ -9920,10 +9947,10 @@ public partial class MainWindowViewModel : ViewModel
     {
         return operationKind switch
         {
-            StartupProgressOperationKind.Startup => string.Equals(reason, "Initialize", StringComparison.Ordinal) || string.Equals(reason, "DeferredExternalSync:Initialize", StringComparison.Ordinal),
-            StartupProgressOperationKind.ReloadFileDiff => string.Equals(reason, "ReloadFileDiff", StringComparison.Ordinal),
-            StartupProgressOperationKind.FullReinitialize => string.Equals(reason, "FullReinitialize", StringComparison.Ordinal),
-            StartupProgressOperationKind.ReloadTables => string.Equals(reason, "DeferredExternalSync:ReloadTables", StringComparison.Ordinal),
+            StartupProgressOperationKind.Startup => string.Equals(reason, "Initialize", StringComparison.Ordinal) || string.Equals(reason, "DeferredExternalSync:Initialize", StringComparison.Ordinal) || string.Equals(reason, "PlaylistEntriesHydration", StringComparison.Ordinal),
+            StartupProgressOperationKind.ReloadFileDiff => string.Equals(reason, "ReloadFileDiff", StringComparison.Ordinal) || string.Equals(reason, "PlaylistEntriesHydration", StringComparison.Ordinal),
+            StartupProgressOperationKind.FullReinitialize => string.Equals(reason, "FullReinitialize", StringComparison.Ordinal) || string.Equals(reason, "PlaylistEntriesHydration", StringComparison.Ordinal),
+            StartupProgressOperationKind.ReloadTables => string.Equals(reason, "DeferredExternalSync:ReloadTables", StringComparison.Ordinal) || string.Equals(reason, "PlaylistEntriesHydration", StringComparison.Ordinal),
             _ => false,
         };
     }

@@ -603,6 +603,8 @@ public partial class BMSPlaylist : NotificationObject
 
     public int PlaylistEntriesHydrationCompletedVersion => playlistEntriesHydrationOwner.PlaylistEntriesHydrationCompletedVersion;
 
+    internal event EventHandler<PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs> PlaylistEntriesHydrationReceiptPublished;
+
     /// <summary>
     /// UI に公開するプレイリスト一覧です。
     /// </summary>
@@ -988,9 +990,6 @@ public partial class BMSPlaylist : NotificationObject
             generation => playlistAggregatePersistenceOwner.TryBeginHydrationPublish(generation),
             () => IsShutdownRequested,
             () => StartupBackgroundTaskScheduler,
-            (reloadExtPlaylist, updateCallbackActions) => UpdateBMSTables(
-                reloadExtPlaylist,
-                updateCallbackActions == null ? null : [.. updateCallbackActions]),
             LogPlaylistPerformance,
             (exception, reason) => Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
                 exception,
@@ -998,6 +997,7 @@ public partial class BMSPlaylist : NotificationObject
         playlistAggregatePersistenceOwner.AttachEntriesHydrationOwner(playlistEntriesHydrationOwner);
         playlistEntriesHydrationOwner.PropertyChanged += (_, eventArgs) =>
             RaisePropertyChanged(eventArgs.PropertyName);
+        playlistEntriesHydrationOwner.HydrationReceiptPublished += PlaylistEntriesHydrationReceiptPublishedHandler;
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
         listenerForRwlockBMSTablesInitializedMin = new PropertyChangedEventListener(rwlockBMSTablesInitializeMin);
         listenerForRwlockBMSTables = new PropertyChangedEventListener(rwlockBMSTables);
@@ -1020,10 +1020,9 @@ public partial class BMSPlaylist : NotificationObject
     /// 初期化済み一覧が空でない場合は、既存一覧を土台に同期処理のみ進めます。
     /// </summary>
     /// <param name="reloadExtPlaylist">外部同期対象プレイリストを再取得するかどうか。</param>
-    /// <param name="updateCallbackAction">各プレイリスト更新後に呼ぶ追加コールバック。</param>
     /// <param name="semaphore">他初期化処理と連携するためのセマフォ。</param>
     /// <param name="queueBeatorajaBmtExportAfterHydration">playlist entries hydration 後に beatoraja `.bmt` 全体投影出力を予約するかどうか。</param>
-    public void Initialize(bool reloadExtPlaylist = true, Action<PlaylistTableUpdateContext> updateCallbackAction = null, SemaphoreSlim semaphore = null, bool queueBeatorajaBmtExportAfterHydration = true)
+    public void Initialize(bool reloadExtPlaylist = true, SemaphoreSlim semaphore = null, bool queueBeatorajaBmtExportAfterHydration = true)
     {
         var stopwatchInitialize = Stopwatch.StartNew();
         long updateTablesMs = 0L;
@@ -1065,9 +1064,10 @@ public partial class BMSPlaylist : NotificationObject
                 lr2configSyncMs = stopwatchLr2configSync.ElapsedMilliseconds;
                 QueueDeferredPlaylistEntriesHydration(
                     "Initialize",
-                    reloadExtPlaylist,
-                    updateCallbackAction == null ? null : [updateCallbackAction],
-                    CreatePlaylistHydrationCompletionActions(queueBeatorajaBmtExportAfterHydration, "Initialize", rootOutputSearchRootsChanged));
+                    runExternalSyncAfterHydration: reloadExtPlaylist,
+                    queueBeatorajaBmtExportAfterHydration: queueBeatorajaBmtExportAfterHydration,
+                    runCustomFolderOutputRepairAfterHydration: true,
+                    verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged);
             }
             stopwatchInitialize.Stop();
             LogPlaylistPerformance("playlist_init update_tables_ms=" + updateTablesMs + " lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchInitialize.ElapsedMilliseconds);
@@ -1085,7 +1085,7 @@ public partial class BMSPlaylist : NotificationObject
     /// score DB は触らず、外部同期は呼び出し側で別途 schedule します。
     /// </summary>
     /// <param name="queueBeatorajaBmtExportAfterHydration">playlist entries hydration 後に beatoraja `.bmt` 全体投影出力を予約するかどうか。</param>
-    public void ReloadTables(Action<PlaylistTableUpdateContext> updateCallbackAction = null, bool queueBeatorajaBmtExportAfterHydration = true)
+    public void ReloadTables(bool queueBeatorajaBmtExportAfterHydration = true)
     {
         var stopwatchReloadTables = Stopwatch.StartNew();
         long lr2configSyncMs = 0L;
@@ -1123,8 +1123,9 @@ public partial class BMSPlaylist : NotificationObject
                 QueueDeferredPlaylistEntriesHydration(
                     "ReloadTables",
                     runExternalSyncAfterHydration: false,
-                    updateCallbackAction == null ? null : [updateCallbackAction],
-                    CreatePlaylistHydrationCompletionActions(queueBeatorajaBmtExportAfterHydration, "ReloadTables", rootOutputSearchRootsChanged));
+                    queueBeatorajaBmtExportAfterHydration: queueBeatorajaBmtExportAfterHydration,
+                    runCustomFolderOutputRepairAfterHydration: true,
+                    verifyRootOutputDirectoryRows: rootOutputSearchRootsChanged);
             }
             stopwatchReloadTables.Stop();
             LogPlaylistPerformance("playlist_reload_tables lr2config_sync_ms=" + lr2configSyncMs + " total_ms=" + stopwatchReloadTables.ElapsedMilliseconds);
@@ -1134,29 +1135,6 @@ public partial class BMSPlaylist : NotificationObject
         {
             playlistAggregatePersistenceOwner.EndReload();
         }
-    }
-
-    private List<Action> CreateBeatorajaBmtProjectionCompletionActions(bool enabled, string reason)
-    {
-        if (!enabled)
-        {
-            return null;
-        }
-        return [() => QueueBeatorajaBmtExportAll(reason)];
-    }
-
-    private List<Action> CreatePlaylistHydrationCompletionActions(bool queueBeatorajaBmtExportAfterHydration, string reason, bool verifyRootOutputDirectoryRows)
-    {
-        List<Action> actions =
-        [
-            () => QueueCustomFolderOutputRepairAfterHydration(reason, verifyRootOutputDirectoryRows)
-        ];
-        List<Action> beatorajaBmtActions = CreateBeatorajaBmtProjectionCompletionActions(queueBeatorajaBmtExportAfterHydration, reason);
-        if (beatorajaBmtActions != null)
-        {
-            actions.AddRange(beatorajaBmtActions);
-        }
-        return actions;
     }
 
     private void QueueCustomFolderOutputRepairAfterHydration(string reason, bool verifyRootOutputDirectoryRows)
@@ -1208,6 +1186,174 @@ public partial class BMSPlaylist : NotificationObject
     private static bool IsBeatorajaBmtOutputEnabled(BeatorajaBmtOptionsSnapshot options)
     {
         return options.EnableBeatorajaBmtOutput && !string.IsNullOrWhiteSpace(GetBeatorajaBmtTablePath(options));
+    }
+
+    private void PlaylistEntriesHydrationReceiptPublishedHandler(
+        object sender,
+        PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs eventArgs)
+    {
+        PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt receipt = eventArgs?.Receipt;
+        if (receipt == null)
+        {
+            return;
+        }
+
+        PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent continuation = receipt.Continuation;
+        if (IsShutdownRequested)
+        {
+            return;
+        }
+        if (!playlistEntriesHydrationOwner.IsReceiptCurrent(receipt))
+        {
+            eventArgs.CompositionFailure = new InvalidOperationException(
+                "Playlist hydration receipt is no longer current before consumer composition.");
+            eventArgs.RetryContinuation = continuation;
+            eventArgs.RetryRequested = true;
+            return;
+        }
+        PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceipt publishedReceipt = receipt;
+        bool externalSyncLeaseRequired = continuation?.RunExternalSyncAfterHydration == true;
+        if (continuation?.RunExternalSyncAfterHydration == true)
+        {
+            bool externalSyncCompleted = false;
+            try
+            {
+                if (IsShutdownRequested)
+                {
+                    return;
+                }
+                UpdateBMSTables(reloadExtPlaylist: true);
+                externalSyncCompleted = true;
+                if (IsShutdownRequested)
+                {
+                    return;
+                }
+                publishedReceipt = playlistEntriesHydrationOwner.CreateReceiptForCurrentTables(
+                    receipt,
+                    continuation.WithoutExternalSync());
+            }
+            catch (Exception ex)
+            {
+                if (IsShutdownRequested)
+                {
+                    return;
+                }
+                eventArgs.CompositionFailure = ex;
+                eventArgs.RetryContinuation = externalSyncCompleted
+                    ? continuation.WithoutExternalSync()
+                    : continuation;
+                eventArgs.RetryRequested = externalSyncCompleted && !IsShutdownRequested;
+                NLogWrapper.FileLogger?.Warn(
+                    ex,
+                    "playlist_entries_hydration_external_sync_failed reason=" + FormatTextForLog(receipt.Reason));
+                return;
+            }
+        }
+
+        if (!playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt))
+        {
+            if (!IsShutdownRequested)
+            {
+                eventArgs.CompositionFailure = new InvalidOperationException(
+                    "Playlist hydration receipt became stale during consumer composition.");
+                eventArgs.RetryContinuation = publishedReceipt.Continuation;
+                eventArgs.RetryRequested = true;
+            }
+            return;
+        }
+
+        IDisposable receiptPublicationLease = null;
+        if (externalSyncLeaseRequired)
+        {
+            receiptPublicationLease = playlistAggregatePersistenceOwner.TryBeginHydrationPublish(
+                publishedReceipt.Generation);
+        }
+        if (externalSyncLeaseRequired
+            && receiptPublicationLease == null)
+        {
+            if (!IsShutdownRequested)
+            {
+                eventArgs.CompositionFailure = new InvalidOperationException(
+                    "Playlist hydration receipt publication could not reserve the current collection.");
+                eventArgs.RetryContinuation = publishedReceipt.Continuation;
+                eventArgs.RetryRequested = true;
+            }
+            return;
+        }
+
+        using (receiptPublicationLease)
+        {
+            if (!playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt))
+            {
+                if (!IsShutdownRequested)
+                {
+                    eventArgs.CompositionFailure = new InvalidOperationException(
+                        "Playlist hydration receipt became stale while acquiring the publication reservation.");
+                    eventArgs.RetryContinuation = publishedReceipt.Continuation;
+                    eventArgs.RetryRequested = true;
+                }
+                return;
+            }
+
+            PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent effectiveContinuation = publishedReceipt.Continuation;
+            if (effectiveContinuation?.RunCustomFolderOutputRepairAfterHydration == true)
+            {
+                try
+                {
+                    QueueCustomFolderOutputRepairAfterHydration(
+                        receipt.Reason,
+                        effectiveContinuation.VerifyRootOutputDirectoryRows);
+                }
+                catch (Exception ex)
+                {
+                    NLogWrapper.FileLogger?.Warn(
+                        ex,
+                        "playlist_entries_hydration_custom_folder_repair_failed reason=" + FormatTextForLog(receipt.Reason));
+                }
+            }
+            if (effectiveContinuation?.QueueBeatorajaBmtExportAfterHydration == true)
+            {
+                try
+                {
+                    QueueBeatorajaBmtExportAll(receipt.Reason);
+                }
+                catch (Exception ex)
+                {
+                    NLogWrapper.FileLogger?.Warn(
+                        ex,
+                        "playlist_entries_hydration_bmt_export_failed reason=" + FormatTextForLog(receipt.Reason));
+                }
+            }
+
+            if (playlistEntriesHydrationOwner.IsReceiptCurrent(publishedReceipt))
+            {
+                try
+                {
+                    PlaylistEntriesHydrationReceiptPublished?.Invoke(
+                        this,
+                        new PlaylistEntriesHydrationOwner.PlaylistEntriesHydrationReceiptEventArgs(publishedReceipt));
+                }
+                catch (Exception ex)
+                {
+                    if (IsShutdownRequested)
+                    {
+                        return;
+                    }
+                    eventArgs.CompositionFailure = ex;
+                    eventArgs.RetryContinuation = publishedReceipt.Continuation;
+                    // A presentation consumer failure is deterministic for this receipt. Let the
+                    // hydration owner fault the operation instead of retrying an unchanged consumer.
+                    eventArgs.RetryRequested = false;
+                }
+            }
+            else if (!IsShutdownRequested)
+            {
+                eventArgs.CompositionFailure = new InvalidOperationException(
+                    "Playlist hydration receipt became stale before presentation publication.");
+                eventArgs.RetryContinuation = publishedReceipt.Continuation;
+                eventArgs.RetryRequested = true;
+            }
+        }
     }
 
     private BeatorajaBmtOptionsSnapshot GetBeatorajaBmtOptions()
@@ -2192,14 +2338,24 @@ public partial class BMSPlaylist : NotificationObject
     public void QueueDeferredPlaylistEntriesHydration(
         string reason,
         bool runExternalSyncAfterHydration = false,
-        List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null,
-        List<Action> completionActions = null)
+        bool queueBeatorajaBmtExportAfterHydration = false,
+        bool runCustomFolderOutputRepairAfterHydration = false,
+        bool verifyRootOutputDirectoryRows = false)
     {
+        PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent continuation =
+            runExternalSyncAfterHydration
+                || queueBeatorajaBmtExportAfterHydration
+                || runCustomFolderOutputRepairAfterHydration
+                || verifyRootOutputDirectoryRows
+                ? new PlaylistEntriesHydrationOwner.PlaylistHydrationContinuationIntent(
+                    runExternalSyncAfterHydration,
+                    queueBeatorajaBmtExportAfterHydration,
+                    runCustomFolderOutputRepairAfterHydration,
+                    verifyRootOutputDirectoryRows)
+                : null;
         playlistEntriesHydrationOwner.QueueDeferredPlaylistEntriesHydration(
             reason,
-            runExternalSyncAfterHydration,
-            updateCallbackActions,
-            completionActions);
+            continuation);
     }
 
     internal Task EnsureAllPlaylistEntriesLoadedAsync(string reason, bool publishCompletedVersion = true)
@@ -8785,6 +8941,7 @@ public partial class BMSPlaylist : NotificationObject
         {
             return;
         }
+        using (rwlockBMSTables.GetReaderGuard())
         using (bmsTable.ReaderWriterLock.GetWriterGuard())
         {
             playlistAggregatePersistenceOwner.ReplaceHeader(bmsTable);
