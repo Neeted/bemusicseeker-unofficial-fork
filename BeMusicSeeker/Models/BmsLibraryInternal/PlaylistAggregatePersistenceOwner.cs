@@ -364,34 +364,125 @@ internal sealed class PlaylistAggregatePersistenceOwner
         return null;
     }
 
+    internal void CommitTablesWithEntries(
+        IEnumerable<BMSTable> tables,
+        Action<int, int, string> progressCallback = null,
+        bool allowReloadReservation = false,
+        bool requireCurrentTarget = true,
+        string hydrationReason = "PlaylistPersistence")
+    {
+        ExecuteTablesWithEntriesCommit(
+            tables,
+            progressCallback,
+            allowReloadReservation,
+            requireCurrentTarget,
+            hydrationReason,
+            ensureEntriesLoaded: true);
+    }
+
     internal void ReplaceTablesWithEntries(
         IEnumerable<BMSTable> tables,
         Action<int, int, string> progressCallback = null,
         bool allowReloadReservation = false,
         bool requireCurrentTarget = true)
     {
-        List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null).Distinct()];
+        ExecuteTablesWithEntriesCommit(
+            tables,
+            progressCallback,
+            allowReloadReservation,
+            requireCurrentTarget,
+            hydrationReason: null,
+            ensureEntriesLoaded: false);
+    }
+
+    private void ExecuteTablesWithEntriesCommit(
+        IEnumerable<BMSTable> tables,
+        Action<int, int, string> progressCallback,
+        bool allowReloadReservation,
+        bool requireCurrentTarget,
+        string hydrationReason,
+        bool ensureEntriesLoaded)
+    {
+        List<BMSTable> tableList = [.. (tables ?? [])
+            .Where(table => table != null)
+            .Distinct()
+            .OrderBy(table => table.playlist_id ?? int.MaxValue)
+            .ThenBy(table => table.name ?? string.Empty, StringComparer.Ordinal)
+            .ThenBy(System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode)];
         if (tableList.Count == 0)
         {
             return;
         }
-        lock (synchronization)
+
+        IDisposable collectionReadGuard = null;
+        bool hasCollectionReadLock = activeCollectionLock.IsReadLockHeld;
+        try
         {
-            EnsureWriteAllowedUnsafe(tableList, allowReloadReservation, requireCurrentTarget);
-            Dictionary<BMSTable, int?> previousPlaylistIds = CapturePlaylistIds(tableList);
-            try
+            if (requireCurrentTarget && !hasCollectionReadLock)
             {
-                repository.ReplaceTablesWithEntries(tableList, progressCallback);
+                collectionReadGuard = activeCollectionLock.GetReaderGuard();
+                hasCollectionReadLock = true;
+            }
+
+            if (ensureEntriesLoaded)
+            {
+                if (entriesHydrationOwner == null)
+                {
+                    throw new InvalidOperationException("Playlist entries hydration owner is not attached.");
+                }
                 foreach (BMSTable table in tableList)
                 {
-                    RefreshActiveIdentityUnsafe(table);
+                    entriesHydrationOwner.EnsurePlaylistEntriesLoaded(
+                        table,
+                        hydrationReason ?? "PlaylistPersistence");
                 }
             }
-            catch
+
+            List<IDisposable> writerGuards = [];
+            try
             {
-                RestorePlaylistIdsUnsafe(previousPlaylistIds);
-                throw;
+                foreach (BMSTable table in tableList)
+                {
+                    writerGuards.Add(table.ReaderWriterLock.GetWriterGuard());
+                }
+
+                lock (synchronization)
+                {
+                    EnsureWriteAllowedUnsafe(tableList, allowReloadReservation, requireCurrentTarget);
+                    PersistTablesWithEntriesUnsafe(tableList, progressCallback);
+                }
             }
+            finally
+            {
+                for (int index = writerGuards.Count - 1; index >= 0; index--)
+                {
+                    writerGuards[index]?.Dispose();
+                }
+            }
+        }
+        finally
+        {
+            collectionReadGuard?.Dispose();
+        }
+    }
+
+    private void PersistTablesWithEntriesUnsafe(
+        IReadOnlyList<BMSTable> tableList,
+        Action<int, int, string> progressCallback)
+    {
+        Dictionary<BMSTable, int?> previousPlaylistIds = CapturePlaylistIds(tableList);
+        try
+        {
+            repository.ReplaceTablesWithEntries(tableList, progressCallback);
+            foreach (BMSTable table in tableList)
+            {
+                RefreshActiveIdentityUnsafe(table);
+            }
+        }
+        catch
+        {
+            RestorePlaylistIdsUnsafe(previousPlaylistIds);
+            throw;
         }
     }
 

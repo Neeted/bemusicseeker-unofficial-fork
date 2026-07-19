@@ -1617,6 +1617,74 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void CommitBMSTableWithEntriesToDB_HydratesUnloadedEntriesBeforeCommit()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        Settings.Default.OperationModeLR2DB = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            const int playlistId = 7251;
+            BMSTable persistedTable = new()
+            {
+                playlist_id = playlistId,
+                name = "HydratedTable",
+                symbol = "HT",
+                Output_dir = "HydratedTable"
+            };
+            BMSTableEntry persistedEntry = CreateEntry(
+                "cccccccccccccccccccccccccccccccc",
+                "Hydrated folder");
+            persistedEntry.playlist_id = playlistId;
+            using (var db = new LR2SongDBExtended(songDbPath))
+            {
+                db.InsertOrReplace(persistedTable, typeof(LR2SongDBExtended.playlist));
+                db.InsertOrReplace(persistedEntry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+
+            BMSTable unloadedTable = new()
+            {
+                playlist_id = playlistId,
+                name = persistedTable.name,
+                symbol = persistedTable.symbol,
+                Output_dir = persistedTable.Output_dir
+            };
+            unloadedTable.MarkEntriesNotLoaded();
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { unloadedTable }),
+                    Dispatcher.CurrentDispatcher)
+            };
+
+            Assert.IsFalse(unloadedTable.ArePlaylistEntriesLoaded);
+            playlist.CommitBMSTableWithEntriesToDB(unloadedTable);
+
+            Assert.IsTrue(unloadedTable.ArePlaylistEntriesLoaded);
+            Assert.AreEqual(1, unloadedTable.entries.Count);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(
+                1L,
+                verify.ExecuteScalar<long>(
+                    "SELECT COUNT(1) FROM playlist_entry WHERE playlist_id = ? AND md5 = ?;",
+                    playlistId,
+                    persistedEntry.md5));
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_SyncsLr2FolderRowsFromGeneratedText()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;

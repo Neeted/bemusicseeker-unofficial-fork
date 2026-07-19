@@ -21,7 +21,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
             method.Contains("BMSTables.Add(bMSTable);"),
             "External registration must not call DispatcherCollection.Add while the registration writer lock is held.");
         Assert.IsFalse(
-            commitAndAddWriterBlock.Contains("CommitBMSTable("),
+            commitAndAddWriterBlock.Contains("CommitTablesWithEntries("),
             "External registration collection writer must not cover playlist DB persistence.");
         StringAssert.Contains(commitAndAddMethod, "playlistAggregatePersistenceOwner.TryBeginRegistration()");
     }
@@ -34,7 +34,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string writerBlock = ExtractBlockBody(method, "using (rwlockBMSTables.GetWriterGuard())");
 
         Assert.IsFalse(
-            writerBlock.Contains("CommitBMSTable("),
+            writerBlock.Contains("CommitTablesWithEntries("),
             "External registration writer lock must not cover playlist DB persistence.");
         StringAssert.Contains(method, "await CommitAndAddBMSTableAsync(bMSTable).ConfigureAwait(false)");
     }
@@ -49,12 +49,12 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string writerBlock = ExtractBlockBody(method, "using (rwlockBMSTables.GetWriterGuard())");
 
         Assert.IsFalse(
-            writerBlock.Contains("CommitBMSTable("),
+            writerBlock.Contains("CommitTablesWithEntries("),
             "Batch external registration writer lock must not cover playlist DB persistence.");
         StringAssert.Contains(method, "await CommitAndAddBMSTablesAsync(tableList).ConfigureAwait(false)");
         StringAssert.Contains(method, "ApplyCachedPlaylistUrlCompletionToTables(tableList, operationReason);");
         Assert.IsFalse(
-            commitAndAddWriterBlock.Contains("CommitBMSTable("),
+            commitAndAddWriterBlock.Contains("CommitTablesWithEntries("),
             "Batch external registration collection writer must not cover playlist DB persistence.");
         StringAssert.Contains(commitAndAddMethod, "playlistAggregatePersistenceOwner.TryBeginRegistration()");
     }
@@ -64,15 +64,20 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
         string method = ExtractMethodBody(source, "internal void CommitBMSTablesWithEntriesToDB");
-        int tableLockIndex = method.IndexOf("writerGuards.Add(table.ReaderWriterLock.GetWriterGuard())", StringComparison.Ordinal);
-        int repositoryWriteIndex = method.IndexOf("playlistAggregatePersistenceOwner.ReplaceTablesWithEntries(", StringComparison.Ordinal);
+        string ownerSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistAggregatePersistenceOwner.cs"));
+        string ownerMethod = ExtractMethodBody(ownerSource, "private void ExecuteTablesWithEntriesCommit(");
+        int sortIndex = ownerMethod.IndexOf(".OrderBy(table => table.playlist_id ?? int.MaxValue)", StringComparison.Ordinal);
+        int tableLockIndex = ownerMethod.IndexOf("writerGuards.Add(table.ReaderWriterLock.GetWriterGuard())", StringComparison.Ordinal);
+        int repositoryWriteIndex = ownerMethod.IndexOf("PersistTablesWithEntriesUnsafe(tableList, progressCallback)", StringComparison.Ordinal);
 
+        Assert.IsTrue(sortIndex >= 0, "Batch entry commit must sort table writers by stable playlist identity.");
         Assert.IsTrue(tableLockIndex >= 0, "Batch entry commit must acquire table writer locks explicitly.");
         Assert.IsTrue(repositoryWriteIndex >= 0, "Batch entry commit must delegate the durable write to the playlist aggregate persistence owner.");
         Assert.IsTrue(
-            tableLockIndex < repositoryWriteIndex,
+            sortIndex < tableLockIndex && tableLockIndex < repositoryWriteIndex,
             "Batch entry commit must keep the existing lock order: table writer lock before playlist repository transaction.");
-        StringAssert.Contains(method, ".OrderBy(table => table.playlist_id ?? int.MaxValue)");
+        StringAssert.Contains(method, "playlistAggregatePersistenceOwner.CommitTablesWithEntries(");
+        Assert.IsFalse(method.Contains("ReaderWriterLock.GetWriterGuard()"));
     }
 
     [TestMethod]
@@ -83,6 +88,30 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(source, "InvokeBMSTablesCollectionMutation");
         StringAssert.Contains(source, "InvokeBMSTablesCollectionMutationAsync");
         StringAssert.Contains(source, "GetBMSTablesDispatcher");
+    }
+
+    [TestMethod]
+    public void CustomFolderCommit_HydratesBeforeHoldingTableWriterLock()
+    {
+        string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        foreach (string methodName in new[]
+        {
+            "internal void ReOutputCustomFolderAndCommitToDB(BMSTable bmsTable)",
+            "internal void MigrateCustomFolderOutputDirectoryAndCommitToDB("
+        })
+        {
+            string method = ExtractMethodBody(source, methodName);
+            int hydrationIndex = method.IndexOf("EnsurePlaylistEntriesLoaded(", StringComparison.Ordinal);
+            int writerIndex = method.IndexOf("using (bmsTable.ReaderWriterLock.GetWriterGuard())", StringComparison.Ordinal);
+            int commitIndex = method.IndexOf("playlistAggregatePersistenceOwner.CommitTablesWithEntries(", StringComparison.Ordinal);
+
+            Assert.IsTrue(hydrationIndex >= 0, methodName + " must hydrate before the output commit.");
+            Assert.IsTrue(writerIndex >= 0, methodName + " must hold the table writer across commit/output.");
+            Assert.IsTrue(commitIndex >= 0, methodName + " must use the aggregate persistence owner.");
+            Assert.IsTrue(
+                hydrationIndex < writerIndex && writerIndex < commitIndex,
+                methodName + " must not wait for hydration while holding the table writer lock.");
+        }
     }
 
     [TestMethod]

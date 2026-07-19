@@ -7833,7 +7833,10 @@ public partial class BMSPlaylist : NotificationObject
             };
             try
             {
-                CommitBMSTable(table, requireCurrentTarget: false);
+                playlistAggregatePersistenceOwner.CommitTablesWithEntries(
+                    [table],
+                    requireCurrentTarget: false,
+                    hydrationReason: "ExternalTableRegistration");
                 durableCommitted = true;
                 bool added = InvokeBMSTablesCollectionMutation(delegate
                 {
@@ -7898,7 +7901,10 @@ public partial class BMSPlaylist : NotificationObject
                 .ToDictionary(table => table, table => table.playlist_id);
             try
             {
-                CommitBMSTable(tableList, requireCurrentTarget: false);
+                playlistAggregatePersistenceOwner.CommitTablesWithEntries(
+                    tableList,
+                    requireCurrentTarget: false,
+                    hydrationReason: "ExternalTableBatchRegistration");
                 durableCommitted = true;
                 BMSTable duplicateTable = InvokeBMSTablesCollectionMutation(delegate
                 {
@@ -8308,12 +8314,14 @@ public partial class BMSPlaylist : NotificationObject
         CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
         using (rwlockBMSTables.GetReaderGuard())
         {
-            EnsurePlaylistEntriesLoaded(bmsTable, "ReOutputCustomFolderAndCommitToDB");
-            using (bmsTable.ReaderWriterLock.GetWriterGuard())
+            if (BMSTables.Contains(bmsTable))
             {
-                if (BMSTables.Contains(bmsTable))
+                EnsurePlaylistEntriesLoaded(bmsTable, "ReOutputCustomFolderAndCommitToDB");
+                using (bmsTable.ReaderWriterLock.GetWriterGuard())
                 {
-                    CommitBMSTable(bmsTable);
+                    playlistAggregatePersistenceOwner.CommitTablesWithEntries(
+                        [bmsTable],
+                        hydrationReason: "ReOutputCustomFolderAndCommitToDB");
                     if (settings.OperationModeLR2DB)
                     {
                         reOutputCustomFolderFiles(bmsTable, settings);
@@ -8677,12 +8685,14 @@ public partial class BMSPlaylist : NotificationObject
             : [];
         using (rwlockBMSTables.GetReaderGuard())
         {
-            EnsurePlaylistEntriesLoaded(bmsTable, "MigrateCustomFolderOutputDirectoryAndCommitToDB");
-            using (bmsTable.ReaderWriterLock.GetWriterGuard())
+            if (BMSTables.Contains(bmsTable))
             {
-                if (BMSTables.Contains(bmsTable))
+                EnsurePlaylistEntriesLoaded(bmsTable, "MigrateCustomFolderOutputDirectoryAndCommitToDB");
+                using (bmsTable.ReaderWriterLock.GetWriterGuard())
                 {
-                    CommitBMSTable(bmsTable);
+                    playlistAggregatePersistenceOwner.CommitTablesWithEntries(
+                        [bmsTable],
+                        hydrationReason: "MigrateCustomFolderOutputDirectoryAndCommitToDB");
                     if (settings.OperationModeLR2DB)
                     {
                         migrateCustomFolderOutputDirectoryFiles(
@@ -8718,13 +8728,11 @@ public partial class BMSPlaylist : NotificationObject
         }
         using (rwlockBMSTables.GetReaderGuard())
         {
-            EnsurePlaylistEntriesLoaded(bmsTable, "CommitBMSTableWithEntriesToDB");
-            using (bmsTable.ReaderWriterLock.GetWriterGuard())
+            if (BMSTables.Contains(bmsTable))
             {
-                if (BMSTables.Contains(bmsTable))
-                {
-                    CommitBMSTable(bmsTable);
-                }
+                playlistAggregatePersistenceOwner.CommitTablesWithEntries(
+                    [bmsTable],
+                    hydrationReason: "CommitBMSTableWithEntriesToDB");
             }
         }
     }
@@ -8753,36 +8761,12 @@ public partial class BMSPlaylist : NotificationObject
             {
                 return;
             }
-            foreach (BMSTable table in tableList)
-            {
-                EnsurePlaylistEntriesLoaded(table, "CommitBMSTablesWithEntriesToDB");
-            }
-            tableList = [.. tableList
-                .OrderBy(table => table.playlist_id ?? int.MaxValue)
-                .ThenBy(table => table.name ?? string.Empty, StringComparer.Ordinal)
-                .ThenBy(table => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(table))];
-
-            var writerGuards = new List<IDisposable>(tableList.Count);
-            try
-            {
-                foreach (BMSTable table in tableList)
-                {
-                    writerGuards.Add(table.ReaderWriterLock.GetWriterGuard());
-                }
-
-                playlistAggregatePersistenceOwner.ReplaceTablesWithEntries(
-                    tableList,
-                    progressCallback,
-                    allowReloadReservation: false,
-                    requireCurrentTarget: true);
-            }
-            finally
-            {
-                for (int index = writerGuards.Count - 1; index >= 0; index--)
-                {
-                    writerGuards[index]?.Dispose();
-                }
-            }
+            playlistAggregatePersistenceOwner.CommitTablesWithEntries(
+                tableList,
+                progressCallback,
+                allowReloadReservation: false,
+                requireCurrentTarget: true,
+                hydrationReason: "CommitBMSTablesWithEntriesToDB");
         }
     }
 
@@ -9025,72 +9009,6 @@ public partial class BMSPlaylist : NotificationObject
             pageUri = bmsTable.Page_url ?? bmsTable.Header_url;
         }
         return await LoadExternalTableAsync(pageUri, bmsTable, cancellationToken).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// 単一プレイリストを DB へ保存します。
-    /// </summary>
-    /// <param name="bmsTable">保存対象のプレイリスト。</param>
-    private void CommitBMSTable(
-        BMSTable bmsTable,
-        bool entriesAlreadyLoaded = false,
-        bool allowReloadReservation = false,
-        bool requireCurrentTarget = true,
-        bool collectionReadLockHeld = false)
-    {
-        CommitBMSTable(
-            [bmsTable],
-            entriesAlreadyLoaded,
-            allowReloadReservation,
-            requireCurrentTarget,
-            collectionReadLockHeld);
-    }
-
-    /// <summary>
-    /// 複数プレイリストを DB へ保存し、対応するエントリも全置換します。
-    /// </summary>
-    /// <param name="bmsTables">保存対象のプレイリスト群。</param>
-    private void CommitBMSTable(
-        IEnumerable<BMSTable> bmsTables,
-        bool entriesAlreadyLoaded = false,
-        bool allowReloadReservation = false,
-        bool requireCurrentTarget = true,
-        bool collectionReadLockHeld = false)
-    {
-        IDisposable collectionReadGuard = null;
-        bool hasCollectionReadLock = collectionReadLockHeld || rwlockBMSTables.IsReadLockHeld;
-        try
-        {
-            if (collectionReadLockHeld && !rwlockBMSTables.IsReadLockHeld)
-            {
-                throw new InvalidOperationException("Collection read lock is required for guarded playlist persistence.");
-            }
-            if (requireCurrentTarget && !hasCollectionReadLock)
-            {
-                collectionReadGuard = rwlockBMSTables.GetReaderGuard();
-                hasCollectionReadLock = true;
-            }
-            List<BMSTable> tableList = bmsTables?.Where(table => table != null).ToList() ?? [];
-            if (!entriesAlreadyLoaded)
-            {
-                foreach (BMSTable table in tableList)
-                {
-                    EnsurePlaylistEntriesLoaded(table, "CommitBMSTable");
-                }
-            }
-            playlistAggregatePersistenceOwner.ReplaceTablesWithEntries(
-                tableList,
-                allowReloadReservation: allowReloadReservation,
-                requireCurrentTarget: requireCurrentTarget);
-        }
-        catch
-        {
-            throw;
-        }
-        finally
-        {
-            collectionReadGuard?.Dispose();
-        }
     }
 
     /// <summary>
