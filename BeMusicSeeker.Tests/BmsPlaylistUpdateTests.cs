@@ -2022,6 +2022,63 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public void ReOutputCustomFolder_FailureRequiresNotificationScopeOrQueuesWarning()
+    {
+        bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
+        string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            Settings.Default.OperationModeLR2DB = true;
+            Settings.Default.LR2CustomFolderOutputBaseDir = Path.Combine(tempDirectory, "CustomFolder");
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            var table = new BMSTable
+            {
+                playlist_id = 7302,
+                name = "FailureTable",
+                symbol = "FTF",
+                Output_dir = "FailureTable",
+                ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.AllFolders
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.UserFolder
+                    & ~LR2SongDBExtended.playlist.CustomFolderType.AllSongsFolder,
+                entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "Folder A")],
+                Folder_order = ["Folder A"]
+            };
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
+            {
+                Failure = new InvalidOperationException("forced custom-folder sync failure")
+            };
+            var playlist = new BMSPlaylist(songDbPath, synchronization)
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(new[] { table }),
+                    Dispatcher.CurrentDispatcher)
+            };
+
+            Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFolder(table));
+
+            using (BMSPlaylist.OperationNotificationScope scope = BMSPlaylist.BeginOperationNotificationScope())
+            {
+                playlist.ReOutputCustomFolder(table);
+                Assert.AreEqual(1, scope.Notifications.Count);
+                Assert.AreEqual(BMSPlaylist.OperationNotificationSeverity.Warning, scope.Notifications[0].Severity);
+                StringAssert.Contains(scope.Notifications[0].Message, table.name);
+            }
+        }
+        finally
+        {
+            Settings.Default.OperationModeLR2DB = previousOperationModeLr2Db;
+            Settings.Default.LR2CustomFolderOutputBaseDir = previousOutputBaseDir;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public void ReOutputCustomFolderAndCommitToDB_UsesInjectedCustomFolderOutputSettings()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;

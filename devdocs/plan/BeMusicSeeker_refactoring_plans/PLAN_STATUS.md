@@ -19,7 +19,7 @@
 
 active outcome base commit: `d9241f10`
 active execution package: `PL-02 Playlist external-sync and output ownership`
-sequence cursor: `PL02-U4 Custom-folder migration / repair / settings owner`
+sequence cursor: `PL02-U5 External HTTP sync / registration lifecycle owner`
 
 目的:
 

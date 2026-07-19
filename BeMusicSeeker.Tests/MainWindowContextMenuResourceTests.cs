@@ -1956,6 +1956,12 @@ public sealed class MainWindowContextMenuResourceTests
         string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string playlistCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string customFolderMaintenanceOwnerCode = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "Models",
+            "BmsLibraryInternal",
+            "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
         string runtimeSync = ExtractBetween(
             viewModelCode,
             "private void ApplyRuntimeSearchRootsForCurrentMode()",
@@ -2015,8 +2021,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(manualResyncClickHandler, "HideThisOverlay();");
         StringAssert.Contains(manualResyncClickHandler, "await Dispatcher.Yield(DispatcherPriority.Background);");
         StringAssert.Contains(playlistCode, "RepairMissingCustomFolderOutputsAfterHydrationCore(reason, verifyRootOutputDirectoryRows, settings)");
-        StringAssert.Contains(playlistCode, "Lr2FolderFileDbSyncResult syncResult = SyncCustomFolderRowsBatch(");
-        StringAssert.Contains(playlistCode, "materialization.DirectoryRowGenerationScopeDirectories");
+        StringAssert.Contains(customFolderMaintenanceOwnerCode, "outputOwner.MaterializeBatch(");
+        StringAssert.Contains(customFolderMaintenanceOwnerCode, "syncMaterialization(new CustomFolderBatchMaterializationRequest(materialization))");
+        StringAssert.Contains(customFolderMaintenanceOwnerCode, "DirectoryRowGenerationScopeDirectories = result?.DirectoryRowGenerationScopeDirectories ?? []");
         Assert.IsFalse(
             playlistCode.Contains("CreateCustomFolderOutputUpdateCallback"),
             "Startup playlist hydration must not run per-table custom folder output callbacks; missing .lr2folder repair must use the batch materialization path.");

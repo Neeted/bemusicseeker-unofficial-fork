@@ -257,9 +257,15 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "Models",
             "BmsLibraryInternal",
             "PlaylistCustomFolderOutputOwner.cs"));
+        string maintenanceOwnerSource = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "Models",
+            "BmsLibraryInternal",
+            "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
 
         StringAssert.Contains(playlistSource, "customFolderOutputOwner.CreateProjection");
-        StringAssert.Contains(playlistSource, "customFolderOutputOwner.MaterializeBatch");
+        StringAssert.Contains(playlistSource, "customFolderOutputMaintenanceOwner.ReOutputProjectionsAsync");
         StringAssert.Contains(playlistSource, "CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration,");
         Assert.IsFalse(playlistSource.Contains("customFolderOutputOwner,\n            ResolveCustomFolderOutputPhysicalSurface"));
         Assert.IsFalse(playlistSource.Contains("private CustomFolderOutputProjection CreateCustomFolderOutputProjection("));
@@ -281,6 +287,53 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(ownerSource, "internal CustomFolderBatchMaterializationResult MaterializeBatch(");
         StringAssert.Contains(ownerSource, "RemoveStaleManagedFiles(");
         StringAssert.Contains(ownerSource, "WriteAllText(file.FilePath");
+        StringAssert.Contains(maintenanceOwnerSource, "outputOwner.MaterializeBatch(");
+    }
+
+    [TestMethod]
+    public void CustomFolderMaintenance_UsesDedicatedLifecycleOwner()
+    {
+        string root = FindRepositoryRoot();
+        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string ownerSource = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "Models",
+            "BmsLibraryInternal",
+            "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
+
+        foreach (string route in new[]
+        {
+            "customFolderOutputMaintenanceOwner.TryReOutputCustomFolder",
+            "customFolderOutputMaintenanceOwner.TryMigrateCustomFolderOutputDirectory",
+            "customFolderOutputMaintenanceOwner.TryRemoveCustomFolder",
+            "customFolderOutputMaintenanceOwner.ReOutputTablesAsync",
+            "customFolderOutputMaintenanceOwner.MigrateCustomFolderOutputDirectories",
+            "customFolderOutputMaintenanceOwner.SyncRootFolderOutputDirectoriesToLr2Config",
+            "customFolderOutputMaintenanceOwner.SyncCustomFolderOutputSearchRootsAfterSettingsChange"
+        })
+        {
+            StringAssert.Contains(playlistSource, route);
+        }
+
+        foreach (string legacyRoute in new[]
+        {
+            "migrateCustomFolderOutputDirectoryFiles",
+            "reOutputCustomFolderFiles",
+            "DeleteCustomFolderOutputDirectoryTree",
+            "CleanupMigratedCustomFolderOutputDirectories",
+            "CreateCustomFolderMigrationProtectedOutputDirectories",
+            "private bool removeCustomFolder("
+        })
+        {
+            Assert.IsFalse(playlistSource.Contains(legacyRoute), "BMSPlaylist must not retain custom-folder maintenance route: " + legacyRoute);
+        }
+
+        StringAssert.Contains(ownerSource, "internal bool TryMigrateCustomFolderOutputDirectory(");
+        StringAssert.Contains(ownerSource, "internal void MigrateCustomFolderOutputDirectories(");
+        StringAssert.Contains(ownerSource, "internal bool TryRemoveCustomFolder(");
+        StringAssert.Contains(ownerSource, "internal async Task<CustomFolderBatchOutputResult> ReOutputTablesAsync(");
+        StringAssert.Contains(ownerSource, "CreateMigrationProtectedOutputDirectories(");
     }
 
     [TestMethod]
@@ -305,6 +358,12 @@ public sealed class PlaylistConcurrencyArchitectureTests
     public void SettingDialogCustomFolderSearchRootSynchronization_DelegatesToPlaylist()
     {
         string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string maintenanceOwnerSource = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "BeMusicSeeker",
+            "Models",
+            "BmsLibraryInternal",
+            "PlaylistCustomFolderOutputMaintenanceOwner.cs"));
         string settingDialogSource = File.ReadAllText(Path.Combine(
             FindRepositoryRoot(),
             "BeMusicSeeker",
@@ -313,7 +372,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
             "MainWindowViewModel.SettingDialogViewModel.cs"));
 
         StringAssert.Contains(playlistSource, "SyncCustomFolderOutputSearchRootsAfterSettingsChange(");
-        StringAssert.Contains(playlistSource, "config.SetBMSSearchDirectories(nextDirectories);");
+        StringAssert.Contains(playlistSource, "customFolderOutputMaintenanceOwner.SyncCustomFolderOutputSearchRootsAfterSettingsChange(");
+        StringAssert.Contains(maintenanceOwnerSource, "config.SetBMSSearchDirectories(nextDirectories);");
         StringAssert.Contains(settingDialogSource, "ownerViewModel.tables.SyncCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(");
         Assert.IsFalse(settingDialogSource.Contains("lr2config.SetBMSSearchDirectories(nextDirectories)"));
         Assert.IsFalse(settingDialogSource.Contains("private static bool IsRootOutputBaseAdoptionRemovalTarget"));
