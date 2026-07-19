@@ -157,82 +157,6 @@ public partial class BMSPlaylist : NotificationObject
         scope.Add(new OperationNotification(message, caption, severity));
     }
 
-    internal sealed class ComparablePlaylistEntryRow
-    {
-        public string Md5 { get; set; }
-
-        public string Sha256 { get; set; }
-
-        public string Level { get; set; }
-
-        public string Title { get; set; }
-
-        public string Artist { get; set; }
-
-        public string Lr2BmsId { get; set; }
-
-        public string Url { get; set; }
-
-        public string UrlDiff { get; set; }
-
-        public string NameDiff { get; set; }
-
-        public string Comment { get; set; }
-
-        public string Fingerprint { get; set; }
-    }
-
-    internal sealed class PlaylistContentDiffResult
-    {
-        public bool HasChanges { get; set; }
-
-        public int PersistedOnlyCount { get; set; }
-
-        public int ReloadedOnlyCount { get; set; }
-
-        public IReadOnlyList<string> PersistedOnlySamples { get; set; }
-
-        public IReadOnlyList<string> ReloadedOnlySamples { get; set; }
-    }
-
-    private sealed class PlaylistHashChangeResult
-    {
-        public bool HeaderKnownChanged { get; set; }
-
-        public bool HeaderHashInitialized { get; set; }
-
-        public bool HeaderHashMigrated { get; set; }
-
-        public bool DataKnownChanged { get; set; }
-
-        public bool DataHashInitialized { get; set; }
-    }
-
-    internal sealed class PlaylistReloadPersistenceDecision
-    {
-        public bool EntryFingerprintChanged { get; internal set; }
-
-        public bool HeaderKnownChanged { get; internal set; }
-
-        public bool HeaderHashInitialized { get; internal set; }
-
-        public bool HeaderHashMigrated { get; internal set; }
-
-        public bool DataKnownChanged { get; internal set; }
-
-        public bool DataHashInitialized { get; internal set; }
-
-        public bool UpdatesLastUpdate => HeaderKnownChanged || DataKnownChanged;
-
-        public bool NeedsHeaderPersistence => HeaderKnownChanged || HeaderHashInitialized || HeaderHashMigrated || DataKnownChanged || DataHashInitialized;
-
-        public bool NeedsEntryPersistence => EntryFingerprintChanged || DataKnownChanged || DataHashInitialized;
-
-        public bool NeedsStatePersistence => NeedsHeaderPersistence || NeedsEntryPersistence;
-
-        public bool NeedsBmtExport => NeedsStatePersistence;
-    }
-
     public sealed class PlaylistTableUpdateContext
     {
         public BMSTable NewTable { get; internal set; }
@@ -1048,7 +972,7 @@ public partial class BMSPlaylist : NotificationObject
         }
         lr2SongDBPath = _lr2SongDB;
         playlistPersistenceRepository = new PlaylistPersistenceRepository(_lr2SongDB);
-        playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository);
+        playlistAggregatePersistenceOwner = new PlaylistAggregatePersistenceOwner(playlistPersistenceRepository, rwlockBMSTables);
         playlistAggregatePersistenceOwner.SetActiveCollection([], _BMSTables);
         lr2ScoreDBPath = _lr2ScoreDB;
         lr2config = (getLR2Config ?? (Func<LR2Config>)(() => (LR2Config)null));
@@ -1071,6 +995,7 @@ public partial class BMSPlaylist : NotificationObject
             (exception, reason) => Ribbit.Logging.NLogWrapper.FileLogger?.Warn(
                 exception,
                 "playlist_entries_hydration_completion_failed reason=" + FormatTextForLog(reason)));
+        playlistAggregatePersistenceOwner.AttachEntriesHydrationOwner(playlistEntriesHydrationOwner);
         playlistEntriesHydrationOwner.PropertyChanged += (_, eventArgs) =>
             RaisePropertyChanged(eventArgs.PropertyName);
         listenerForRwlockBMSTablesInitializedAll = new PropertyChangedEventListener(rwlockBMSTablesInitializeAll);
@@ -7668,7 +7593,7 @@ public partial class BMSPlaylist : NotificationObject
         BMSTable newTable = table;
         List<BMSTableEntry> oldEntriesSnapshot = null;
         List<BMSTableEntry> newEntriesSnapshot = null;
-        PlaylistReloadPersistenceDecision persistenceDecision = null;
+        PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision persistenceDecision = null;
         bool updated = false;
         bool applySkipped = false;
         int sourceEntriesRevision = 0;
@@ -7688,7 +7613,7 @@ public partial class BMSPlaylist : NotificationObject
             }
             if (!UriEquals(uri, sourceUri))
             {
-                throw new PlaylistReloadApplyException(
+                throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
                     "Playlist reload request no longer matches the active playlist source URI.");
             }
             BMSTable reloadedTable = await reloadBMSTableAsync(table, uri, cancellationToken).ConfigureAwait(false);
@@ -7702,12 +7627,17 @@ public partial class BMSPlaylist : NotificationObject
                         StringComparison.Ordinal)
                     || !UriEquals(uri, table.Page_url ?? table.Header_url))
                 {
-                    throw new PlaylistReloadApplyException(
+                    throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
                         "Playlist reload source changed while the external snapshot was loading.");
                 }
                 oldEntriesSnapshot = [.. (table.entries ?? []).Where(entry => entry != null).Select(entry => entry.CreatePlaylistReloadSnapshot())];
-                IReadOnlyList<BMSTableEntry> persistedActiveEntries = LoadPersistedActivePlaylistEntries(table.playlist_id);
-                newTable = MergeReloadedBMSTableState(table, reloadedTable, BuildComparablePlaylistEntryRows(persistedActiveEntries), out persistenceDecision, logLastUpdateDecision: true);
+                IReadOnlyList<BMSTableEntry> persistedActiveEntries = playlistAggregatePersistenceOwner.LoadPersistedActivePlaylistEntries(table.playlist_id);
+                newTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
+                    table,
+                    reloadedTable,
+                    PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(persistedActiveEntries),
+                    out persistenceDecision,
+                    logLastUpdateDecision: true);
                 updated = persistenceDecision.UpdatesLastUpdate;
                 if (persistenceDecision.NeedsEntryPersistence)
                 {
@@ -7726,7 +7656,7 @@ public partial class BMSPlaylist : NotificationObject
                     }
                 }
             }
-            if (!TryApplyReloadedTable(
+            if (!playlistAggregatePersistenceOwner.TryApplyReloadedTable(
                 table,
                 newTable,
                 persistenceDecision,
@@ -7735,7 +7665,7 @@ public partial class BMSPlaylist : NotificationObject
                 sourceStateFingerprint,
                 requireCurrentTargetForApply))
             {
-                failure = new PlaylistReloadApplyException(
+                failure = new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
                     "Playlist reload result could not be applied to the active table.");
                 applySkipped = true;
                 newTable = table;
@@ -7749,9 +7679,9 @@ public partial class BMSPlaylist : NotificationObject
             {
                 if (requireCurrentTargetForApply
                     && System.Windows.Application.Current != null
-                    && !ContainsBMSTable(newTable))
+                    && !playlistAggregatePersistenceOwner.IsActive(newTable))
                 {
-                    throw new PlaylistReloadApplyException(
+                    throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
                         "Playlist reload result was applied to a table that is no longer active.");
                 }
                 if (persistenceDecision?.NeedsBmtExport == true)
@@ -7762,7 +7692,7 @@ public partial class BMSPlaylist : NotificationObject
                 syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated));
             }
         }
-        catch (PlaylistReloadApplyException ex)
+        catch (PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException ex)
         {
             failure = ex;
             applySkipped = true;
@@ -7809,195 +7739,6 @@ public partial class BMSPlaylist : NotificationObject
             Exception = failure,
             UpdateContext = updateContext
         };
-    }
-
-    private bool TryApplyReloadedTable(
-        BMSTable oldTable,
-        BMSTable newTable,
-        PlaylistReloadPersistenceDecision persistenceDecision,
-        int sourceEntriesRevision,
-        DateTime sourceLastUpdate,
-        string sourceStateFingerprint,
-        bool requireCurrentTargetForApply)
-    {
-        if (!playlistAggregatePersistenceOwner.TryReserveReload(
-            oldTable,
-            requireCurrentTargetForApply,
-            out bool targetWasActiveAtReservation,
-            out bool alreadyReserved))
-        {
-            if (alreadyReserved)
-            {
-                throw new PlaylistReloadApplyException(
-                    "Another playlist reload is already applying for this target.");
-            }
-            return false;
-        }
-
-        try
-        {
-            using (oldTable.ReaderWriterLock.GetReaderGuard())
-            {
-                if (requireCurrentTargetForApply
-                    && (!targetWasActiveAtReservation
-                        || playlistAggregatePersistenceOwner.IsRetiredOrRemoved(oldTable)))
-                {
-                    return false;
-                }
-                bool persisted = playlistAggregatePersistenceOwner.TryPersistReloadedTable(
-                    oldTable,
-                    newTable,
-                    sourceEntriesRevision,
-                    sourceLastUpdate,
-                    sourceStateFingerprint,
-                    persistenceDecision?.NeedsEntryPersistence == true,
-                    persistenceDecision?.NeedsHeaderPersistence == true,
-                    out bool staleSnapshot);
-                if (staleSnapshot)
-                {
-                    throw new PlaylistReloadApplyException(
-                        "Playlist reload result was based on a stale local playlist snapshot.");
-                }
-                if (!persisted)
-                {
-                    return false;
-                }
-            }
-            if (persistenceDecision?.NeedsStatePersistence == true)
-            {
-                bool replacementCompleted;
-                bool replacementApplied;
-                try
-                {
-                    bool replacementBlocked;
-                    replacementBlocked = requireCurrentTargetForApply
-                        && playlistAggregatePersistenceOwner.IsRetiredOrRemoved(oldTable);
-                    if (replacementBlocked)
-                    {
-                        replacementCompleted = true;
-                        replacementApplied = false;
-                    }
-                    else
-                    {
-                        // Retire the old object before crossing the dispatcher boundary.
-                        // Entry commits then resolve to the replacement (or fail closed if
-                        // the replacement is removed) even during the small UI-queue window.
-                        playlistAggregatePersistenceOwner.MarkReloadRetired(oldTable);
-                        replacementApplied = ReplaceBMSTableInCollection(oldTable, newTable, out replacementCompleted);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    if (ContainsBMSTable(oldTable))
-                    {
-                        playlistAggregatePersistenceOwner.RemoveReloadRetired(oldTable);
-                    }
-                    ReconcileUnappliedReload(oldTable, newTable);
-                    throw new PlaylistReloadApplyException(
-                        "Playlist table replacement failed.",
-                        ex);
-                }
-                if (!replacementCompleted || !replacementApplied)
-                {
-                    if (ContainsBMSTable(oldTable))
-                    {
-                        playlistAggregatePersistenceOwner.RemoveReloadRetired(oldTable);
-                    }
-                    ReconcileUnappliedReload(oldTable, newTable);
-                    if (requireCurrentTargetForApply)
-                    {
-                        throw new PlaylistReloadApplyException();
-                    }
-                    return false;
-                }
-            }
-            else if (requireCurrentTargetForApply && !ContainsBMSTable(oldTable))
-            {
-                ReconcileUnappliedReload(oldTable, newTable);
-                return false;
-            }
-            return true;
-        }
-        finally
-        {
-            playlistAggregatePersistenceOwner.ReleaseReload(oldTable);
-        }
-    }
-
-    private void ReconcileUnappliedReload(BMSTable oldTable, BMSTable newTable)
-    {
-        BMSTable tableToCommit = null;
-        bool deleteNewTable = false;
-        AcquireReaderLockBMSTables();
-        try
-        {
-            bool oldTableIsActive = BMSTables?.Contains(oldTable) == true;
-            BMSTable replacementTable = !oldTableIsActive && newTable?.playlist_id.HasValue == true
-                ? BMSTables?.FirstOrDefault(table => table?.playlist_id == newTable.playlist_id.Value)
-                : null;
-            if (oldTableIsActive)
-            {
-                tableToCommit = oldTable;
-            }
-            else
-            {
-                tableToCommit = replacementTable;
-                deleteNewTable = tableToCommit == null && newTable?.playlist_id.HasValue == true;
-            }
-            if (tableToCommit != null)
-            {
-                CommitBMSTable(
-                    tableToCommit,
-                    entriesAlreadyLoaded: tableToCommit.ArePlaylistEntriesLoaded,
-                    allowReloadReservation: true,
-                    collectionReadLockHeld: true);
-            }
-        }
-        finally
-        {
-            FreeReaderLockBMSTables();
-        }
-        if (tableToCommit == null && deleteNewTable)
-        {
-            AcquireReaderLockBMSTables();
-            try
-            {
-                bool replacementIsActive = newTable?.playlist_id.HasValue == true
-                    && BMSTables?.Any(table => table?.playlist_id == newTable.playlist_id.Value) == true;
-                if (!replacementIsActive)
-                {
-                    playlistAggregatePersistenceOwner.DeleteUnpublishedTables([newTable]);
-                }
-            }
-            finally
-            {
-                FreeReaderLockBMSTables();
-            }
-        }
-    }
-
-    [Serializable]
-    private sealed class PlaylistReloadApplyException : InvalidOperationException
-    {
-        public PlaylistReloadApplyException()
-            : base("Playlist reload result could not be applied to the active table.")
-        {
-        }
-
-        public PlaylistReloadApplyException(string message)
-            : base(message)
-        {
-        }
-
-        public PlaylistReloadApplyException(string message, Exception innerException)
-            : base(message, innerException)
-        {
-        }
-
-        private PlaylistReloadApplyException(SerializationInfo info, StreamingContext context)
-            : base(info, context)
-        {
-        }
     }
 
     private static void InvokePlaylistUpdateCallbacks(PlaylistTableUpdateContext updateContext, List<Action<PlaylistTableUpdateContext>> updateCallbackActions, Uri uri)
@@ -8283,158 +8024,6 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         });
-    }
-
-    private bool ReplaceBMSTableInCollection(BMSTable oldTable, BMSTable newTable, out bool replacementCompleted)
-    {
-        replacementCompleted = false;
-        DispatcherCollection<BMSTable> tables = BMSTables;
-        if (tables == null)
-        {
-            return false;
-        }
-
-        bool replaced = false;
-        object replacementGate = new();
-        int replacementAllowed = 1;
-        void ReplaceCore()
-        {
-            int index = tables.IndexOf(oldTable);
-            if (index >= 0)
-            {
-                try
-                {
-                    tables[index] = newTable;
-                    replaced = true;
-                }
-                finally
-                {
-                    if (index < tables.Count && ReferenceEquals(tables[index], newTable))
-                    {
-                        playlistAggregatePersistenceOwner.ReplaceActive(oldTable, newTable);
-                    }
-                }
-            }
-        }
-
-        System.Windows.Threading.Dispatcher dispatcher = GetBMSTablesDispatcher(tables);
-        if (dispatcher == null && Application.Current == null && tables.Dispatcher == null)
-        {
-            // DispatcherCollection permits a null dispatcher for headless tests, but its
-            // mutating indexer still expects one.  Bind the collection to this thread's
-            // dispatcher before taking the direct, same-thread path.
-            tables.Dispatcher = System.Windows.Threading.Dispatcher.CurrentDispatcher;
-            dispatcher = tables.Dispatcher;
-        }
-        if (dispatcher == null || dispatcher.CheckAccess())
-        {
-            try
-            {
-                lock (replacementGate)
-                {
-                    if (replacementAllowed != 0)
-                    {
-                        using (rwlockBMSTables.GetWriterGuard())
-                        {
-                            ReplaceCore();
-                        }
-                    }
-                }
-                replacementCompleted = true;
-                return replaced;
-            }
-            catch (Exception ex)
-            {
-                replacementCompleted = true;
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_direct_failed");
-                return false;
-            }
-        }
-
-        System.Windows.Threading.DispatcherOperation operation;
-        try
-        {
-            operation = dispatcher.BeginInvoke((Action)delegate
-            {
-                lock (replacementGate)
-                {
-                    if (replacementAllowed != 0)
-                    {
-                        using (rwlockBMSTables.GetWriterGuard())
-                        {
-                            ReplaceCore();
-                        }
-                    }
-                }
-            });
-        }
-        catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
-        {
-            replacementCompleted = true;
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_enqueue_failed");
-            return false;
-        }
-        if (Application.Current == null)
-        {
-            // A headless caller may own a different dispatcher without running its message
-            // pump.  Do not report success while the queued replacement can still mutate the
-            // collection after the database reconciliation below.  Disabling the callback
-            // first also makes an unsuccessful Abort safe if the operation is already queued.
-            lock (replacementGate)
-            {
-                replacementAllowed = 0;
-                try
-                {
-                    operation.Abort();
-                }
-                catch (Exception ex) when (ex is InvalidOperationException || ex is ObjectDisposedException)
-                {
-                }
-            }
-            replacementCompleted = true;
-            return replaced;
-        }
-        try
-        {
-            operation.Wait(TimeSpan.FromSeconds(5));
-            if (operation.Status == System.Windows.Threading.DispatcherOperationStatus.Completed)
-            {
-                replacementCompleted = true;
-                return replaced;
-            }
-            lock (replacementGate)
-            {
-                replacementAllowed = 0;
-                try
-                {
-                    operation.Abort();
-                }
-                catch (InvalidOperationException)
-                {
-                }
-            }
-            if (!replaced)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn("playlist_table_replace_dispatch_wait_incomplete status=" + operation.Status);
-            }
-        }
-        catch (Exception ex) when (ex is InvalidOperationException || ex is ThreadInterruptedException)
-        {
-            lock (replacementGate)
-            {
-                replacementAllowed = 0;
-                try
-                {
-                    operation.Abort();
-                }
-                catch (InvalidOperationException)
-                {
-                }
-            }
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_table_replace_dispatch_wait_failed");
-        }
-        replacementCompleted = true;
-        return replaced;
     }
 
     /// <summary>
@@ -9417,533 +9006,9 @@ public partial class BMSPlaylist : NotificationObject
     /// <summary>
     /// 外部テーブルを再取得し、既存プレイリストが持つローカル状態を維持した差分結果を生成します。
     /// </summary>
-    /// <param name="oldTable">再取得前のプレイリスト。</param>
+    /// <param name="bmsTable">再取得前のプレイリスト。</param>
     /// <param name="pageUri">再取得に使用する URI。省略時は既存プレイリストに保持された URL を使用します。</param>
-    /// <param name="logLastUpdateDecision"><c>last_update</c> の補正判断を INFO ログへ出力するか。</param>
     /// <returns>差分統合後のプレイリスト。</returns>
-    private BMSTable MergeReloadedBMSTableWithExistingState(BMSTable oldTable, Uri pageUri = null, bool logLastUpdateDecision = false)
-    {
-        if (pageUri == null)
-        {
-            pageUri = oldTable.Page_url ?? oldTable.Header_url;
-        }
-        BMSTable reloadedTable = reloadBMSTable(oldTable, pageUri);
-        EnsurePlaylistEntriesLoaded(oldTable, "MergeReloadedBMSTableWithExistingState");
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)), out bool _, logLastUpdateDecision);
-    }
-
-    private async Task<BMSTable> MergeReloadedBMSTableWithExistingStateAsync(BMSTable oldTable, Uri pageUri = null, bool logLastUpdateDecision = false, CancellationToken cancellationToken = default)
-    {
-        if (pageUri == null)
-        {
-            pageUri = oldTable.Page_url ?? oldTable.Header_url;
-        }
-        BMSTable reloadedTable = await reloadBMSTableAsync(oldTable, pageUri, cancellationToken).ConfigureAwait(false);
-        EnsurePlaylistEntriesLoaded(oldTable, "MergeReloadedBMSTableWithExistingStateAsync");
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)), out bool _, logLastUpdateDecision);
-    }
-
-    /// <summary>
-    /// 再取得済みプレイリストへ既存ローカル状態をマージします。
-    /// </summary>
-    /// <param name="oldTable">既存プレイリスト。</param>
-    /// <param name="reloadedTable">外部から再取得したプレイリスト。</param>
-    /// <param name="logLastUpdateDecision"><c>last_update</c> の補正判断を INFO ログへ出力するか。</param>
-    /// <returns>マージ後のプレイリスト。</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="oldTable"/> または <paramref name="reloadedTable"/> が <see langword="null"/> の場合。</exception>
-    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, bool logLastUpdateDecision = false)
-    {
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)), out bool _, logLastUpdateDecision);
-    }
-
-    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, bool logLastUpdateDecision = false)
-    {
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, persistedActiveRows, out hasContentChanges, out _, logLastUpdateDecision);
-    }
-
-    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, out bool hasStateToPersist, bool logLastUpdateDecision = false)
-    {
-        BMSTable mergedTable = MergeReloadedBMSTableState(oldTable, reloadedTable, persistedActiveRows, out PlaylistReloadPersistenceDecision persistenceDecision, logLastUpdateDecision);
-        hasContentChanges = persistenceDecision.UpdatesLastUpdate;
-        hasStateToPersist = persistenceDecision.NeedsStatePersistence;
-        return mergedTable;
-    }
-
-    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out PlaylistReloadPersistenceDecision persistenceDecision, bool logLastUpdateDecision = false)
-    {
-        return MergeReloadedBMSTableState(oldTable, reloadedTable, persistedActiveRows, out _, out _, out persistenceDecision, logLastUpdateDecision);
-    }
-
-    internal static BMSTable MergeReloadedBMSTableState(BMSTable oldTable, BMSTable reloadedTable, IReadOnlyCollection<ComparablePlaylistEntryRow> persistedActiveRows, out bool hasContentChanges, out bool hasStateToPersist, out PlaylistReloadPersistenceDecision persistenceDecision, bool logLastUpdateDecision = false)
-    {
-        if (oldTable == null)
-        {
-            throw new ArgumentNullException("oldTable");
-        }
-        if (reloadedTable == null)
-        {
-            throw new ArgumentNullException("reloadedTable");
-        }
-
-        BMSTable newTable = reloadedTable;
-        var list = persistedActiveRows?.Where(row => row != null).ToList();
-        IReadOnlyList<ComparablePlaylistEntryRow> normalizedPersistedRows = list ?? (IReadOnlyList<ComparablePlaylistEntryRow>)[];
-        IReadOnlyList<ComparablePlaylistEntryRow> normalizedReloadedRows = BuildComparablePlaylistEntryRows(newTable.entries);
-        PlaylistContentDiffResult playlistContentDiffResult = AnalyzePlaylistContentDiff(normalizedPersistedRows, normalizedReloadedRows);
-        PlaylistHashChangeResult hashChangeResult = AnalyzePlaylistHashChanges(oldTable, newTable);
-        persistenceDecision = new PlaylistReloadPersistenceDecision
-        {
-            EntryFingerprintChanged = playlistContentDiffResult.HasChanges,
-            HeaderKnownChanged = hashChangeResult.HeaderKnownChanged,
-            HeaderHashInitialized = hashChangeResult.HeaderHashInitialized,
-            HeaderHashMigrated = hashChangeResult.HeaderHashMigrated,
-            DataKnownChanged = hashChangeResult.DataKnownChanged,
-            DataHashInitialized = hashChangeResult.DataHashInitialized
-        };
-        hasContentChanges = persistenceDecision.UpdatesLastUpdate;
-        hasStateToPersist = persistenceDecision.NeedsStatePersistence;
-
-        Dictionary<string, List<BMSTableEntry>> newEntriesByMd5 = BuildEntryLookup(newTable.entries, entry => entry.md5, StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, List<BMSTableEntry>> newEntriesBySha256 = BuildEntryLookup(newTable.entries, entry => entry.sha256, StringComparer.OrdinalIgnoreCase);
-        Dictionary<string, List<BMSTableEntry>> newEntriesByComparableRow = BuildComparableEntryLookup(newTable.entries);
-
-        List<BMSTableEntry> matchedOldEntries = [.. oldTable.entries.Where(delegate (BMSTableEntry oe)
-        {
-            BMSTableEntry matchedNew = ResolveReloadedEntryMatch(oe, newEntriesByMd5, newEntriesBySha256, newEntriesByComparableRow);
-            if (matchedNew == null)
-            {
-                return false;
-            }
-            matchedNew.memo = oe.memo;
-            matchedNew.adddate = oe.adddate;
-            matchedNew.is_removed = false;
-            return true;
-        })];
-
-        DateTime oldLastUpdate = oldTable.last_update;
-        DateTime reloadedLastUpdate = newTable.last_update;
-        if (oldTable.playlist_id.HasValue)
-        {
-            newTable.last_update = persistenceDecision.UpdatesLastUpdate ? DateTime.Now : oldTable.last_update;
-        }
-        else if (persistenceDecision.UpdatesLastUpdate)
-        {
-            newTable.last_update = ((reloadedLastUpdate != default) ? reloadedLastUpdate : DateTime.Now);
-        }
-        else
-        {
-            newTable.last_update = ((reloadedLastUpdate != default) ? reloadedLastUpdate : oldTable.last_update);
-        }
-
-        List<BMSTableEntry> removedEntries = [.. oldTable.entries
-            .Except(matchedOldEntries)
-            .Select(entry => entry.CreatePlaylistReloadSnapshot())];
-        foreach (BMSTableEntry item in removedEntries)
-        {
-            item.is_removed = true;
-        }
-        newTable.entries = [.. newTable.entries, .. removedEntries];
-        bool lastUpdateChanged = newTable.last_update != oldLastUpdate;
-        if (logLastUpdateDecision)
-        {
-            if (playlistContentDiffResult.HasChanges)
-            {
-                LogPlaylistContentDiff(newTable.name, playlistContentDiffResult);
-            }
-            Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync last_update_decision table=" + (newTable.name ?? string.Empty) + " changed=" + persistenceDecision.UpdatesLastUpdate.ToString().ToLowerInvariant() + " entryFingerprintChanged=" + playlistContentDiffResult.HasChanges.ToString().ToLowerInvariant() + " headerChanged=" + hashChangeResult.HeaderKnownChanged.ToString().ToLowerInvariant() + " dataChanged=" + hashChangeResult.DataKnownChanged.ToString().ToLowerInvariant() + " headerInitialized=" + hashChangeResult.HeaderHashInitialized.ToString().ToLowerInvariant() + " headerMigrated=" + hashChangeResult.HeaderHashMigrated.ToString().ToLowerInvariant() + " dataInitialized=" + hashChangeResult.DataHashInitialized.ToString().ToLowerInvariant() + " persistHeader=" + persistenceDecision.NeedsHeaderPersistence.ToString().ToLowerInvariant() + " persistEntry=" + persistenceDecision.NeedsEntryPersistence.ToString().ToLowerInvariant() + " old=" + oldLastUpdate.ToString("O") + " reloaded=" + reloadedLastUpdate.ToString("O") + " final=" + newTable.last_update.ToString("O"));
-        }
-        return newTable;
-    }
-
-    private static PlaylistHashChangeResult AnalyzePlaylistHashChanges(BMSTable oldTable, BMSTable newTable)
-    {
-        var result = new PlaylistHashChangeResult();
-        if (oldTable == null || newTable == null)
-        {
-            return result;
-        }
-        ApplyHeaderHashChange(oldTable, newTable, result);
-        ApplyHashChange(
-            oldTable.data_sha256,
-            newTable.data_sha256,
-            () => result.DataHashInitialized = true,
-            () => result.DataKnownChanged = true);
-        return result;
-    }
-
-    private static void ApplyHeaderHashChange(BMSTable oldTable, BMSTable newTable, PlaylistHashChangeResult result)
-    {
-        string normalizedOldHash = NormalizeHash(oldTable.header_sha256);
-        string normalizedNewHash = NormalizeHash(newTable.header_sha256);
-        if (string.Equals(normalizedOldHash, normalizedNewHash, StringComparison.Ordinal))
-        {
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(normalizedOldHash) && !string.IsNullOrWhiteSpace(normalizedNewHash))
-        {
-            result.HeaderHashInitialized = true;
-            return;
-        }
-        string loadedRawHeaderHash = NormalizeHash(newTable.LoadedRawHeaderSha256);
-        if (!string.IsNullOrWhiteSpace(loadedRawHeaderHash)
-            && string.Equals(normalizedOldHash, loadedRawHeaderHash, StringComparison.Ordinal))
-        {
-            result.HeaderHashMigrated = true;
-            return;
-        }
-        result.HeaderKnownChanged = true;
-    }
-
-    private static void ApplyHashChange(string oldHash, string newHash, Action markInitialized, Action markKnownChanged)
-    {
-        string normalizedOldHash = NormalizeHash(oldHash);
-        string normalizedNewHash = NormalizeHash(newHash);
-        if (string.Equals(normalizedOldHash, normalizedNewHash, StringComparison.Ordinal))
-        {
-            return;
-        }
-        if (string.IsNullOrWhiteSpace(normalizedOldHash) && !string.IsNullOrWhiteSpace(normalizedNewHash))
-        {
-            markInitialized?.Invoke();
-            return;
-        }
-        markKnownChanged?.Invoke();
-    }
-
-    private static Dictionary<string, List<BMSTableEntry>> BuildEntryLookup(IEnumerable<BMSTableEntry> entries, Func<BMSTableEntry, string> keySelector, IEqualityComparer<string> comparer)
-    {
-        return entries.Where(delegate (BMSTableEntry entry)
-        {
-            string text = keySelector(entry);
-            return !string.IsNullOrWhiteSpace(text);
-        }).GroupBy(entry => keySelector(entry), comparer).ToDictionary(group => group.Key, group => group.ToList(), comparer);
-    }
-
-    private static BMSTableEntry ResolveReloadedEntryMatch(BMSTableEntry oldEntry, Dictionary<string, List<BMSTableEntry>> entriesByMd5, Dictionary<string, List<BMSTableEntry>> entriesBySha256, Dictionary<string, List<BMSTableEntry>> entriesByComparableRow)
-    {
-        List<BMSTableEntry> list = GetEntryMatchCandidates(oldEntry.md5, entriesByMd5) ?? GetEntryMatchCandidates(oldEntry.sha256, entriesBySha256);
-        if (list == null)
-        {
-            ComparablePlaylistEntryRow comparableRow = CreateComparablePlaylistEntryRow(oldEntry);
-            if (comparableRow != null)
-            {
-                list = GetEntryMatchCandidates(comparableRow.Fingerprint, entriesByComparableRow);
-            }
-        }
-        return SelectBestMatchedEntry(oldEntry, list);
-    }
-
-    private IReadOnlyList<BMSTableEntry> LoadPersistedActivePlaylistEntries(int? playlistId)
-    {
-        return LoadPersistedPlaylistEntries(playlistId, activeOnly: true);
-    }
-
-    private IReadOnlyList<BMSTableEntry> LoadPersistedPlaylistEntries(int? playlistId, bool activeOnly)
-    {
-        return playlistPersistenceRepository.LoadPersistedPlaylistEntries(playlistId, activeOnly);
-    }
-
-    private static Dictionary<string, List<BMSTableEntry>> BuildComparableEntryLookup(IEnumerable<BMSTableEntry> entries)
-    {
-        var dictionary = new Dictionary<string, List<BMSTableEntry>>(StringComparer.Ordinal);
-        foreach (BMSTableEntry entry in entries ?? [])
-        {
-            ComparablePlaylistEntryRow comparableRow = CreateComparablePlaylistEntryRow(entry);
-            if (comparableRow == null)
-            {
-                continue;
-            }
-            if (!dictionary.TryGetValue(comparableRow.Fingerprint, out List<BMSTableEntry> value))
-            {
-                value = [];
-                dictionary[comparableRow.Fingerprint] = value;
-            }
-            value.Add(entry);
-        }
-        return dictionary;
-    }
-
-    internal static IReadOnlyList<ComparablePlaylistEntryRow> BuildComparablePlaylistEntryRows(IEnumerable<BMSTableEntry> entries)
-    {
-        if (entries == null)
-        {
-            return [];
-        }
-        return [.. entries.Select(CreateComparablePlaylistEntryRow).Where(row => row != null)];
-    }
-
-    internal static ComparablePlaylistEntryRow CreateComparablePlaylistEntryRow(BMSTableEntry entry)
-    {
-        if (entry == null)
-        {
-            return null;
-        }
-        var comparableRow = new ComparablePlaylistEntryRow
-        {
-            Md5 = NormalizeHash(entry.md5),
-            Sha256 = NormalizeHash(entry.sha256),
-            Level = NormalizeLevel(entry.level),
-            Title = NormalizeText(entry.title),
-            Artist = NormalizeText(entry.artist),
-            Lr2BmsId = NormalizeText(entry.lr2_bmsid),
-            Url = NormalizeText(entry.url),
-            UrlDiff = NormalizeText(entry.url_diff),
-            NameDiff = NormalizeText(entry.name_diff),
-            Comment = NormalizeText(entry.comment)
-        };
-        if (!HasMeaningfulComparableContent(comparableRow))
-        {
-            return null;
-        }
-        return new ComparablePlaylistEntryRow
-        {
-            Md5 = comparableRow.Md5,
-            Sha256 = comparableRow.Sha256,
-            Level = comparableRow.Level,
-            Title = comparableRow.Title,
-            Artist = comparableRow.Artist,
-            Lr2BmsId = comparableRow.Lr2BmsId,
-            Url = comparableRow.Url,
-            UrlDiff = comparableRow.UrlDiff,
-            NameDiff = comparableRow.NameDiff,
-            Comment = comparableRow.Comment,
-            Fingerprint = BuildComparablePlaylistEntryFingerprint(comparableRow)
-        };
-    }
-
-    internal static PlaylistContentDiffResult AnalyzePlaylistContentDiff(IEnumerable<ComparablePlaylistEntryRow> persistedRows, IEnumerable<ComparablePlaylistEntryRow> reloadedRows)
-    {
-        Dictionary<string, int> dictionary = BuildComparableRowFingerprintCounts(persistedRows);
-        Dictionary<string, int> dictionary2 = BuildComparableRowFingerprintCounts(reloadedRows);
-        var playlistContentDiffResult = new PlaylistContentDiffResult
-        {
-            PersistedOnlySamples = [],
-            ReloadedOnlySamples = []
-        };
-        List<string> list = null;
-        List<string> list2 = null;
-        foreach (string item in dictionary.Keys.Union(dictionary2.Keys, StringComparer.Ordinal).OrderBy(key => key, StringComparer.Ordinal))
-        {
-            dictionary.TryGetValue(item, out int value);
-            dictionary2.TryGetValue(item, out int value2);
-            if (value == value2)
-            {
-                continue;
-            }
-            if (value > value2)
-            {
-                int num = value - value2;
-                playlistContentDiffResult.PersistedOnlyCount += num;
-                list ??= new List<string>(PlaylistDiffSampleLogCount);
-                AppendDiffSamples(list, item, num);
-            }
-            else
-            {
-                int num2 = value2 - value;
-                playlistContentDiffResult.ReloadedOnlyCount += num2;
-                list2 ??= new List<string>(PlaylistDiffSampleLogCount);
-                AppendDiffSamples(list2, item, num2);
-            }
-        }
-        playlistContentDiffResult.HasChanges = playlistContentDiffResult.PersistedOnlyCount > 0 || playlistContentDiffResult.ReloadedOnlyCount > 0;
-        playlistContentDiffResult.PersistedOnlySamples = (IReadOnlyList<string>)(list ?? (IReadOnlyList<string>)[]);
-        playlistContentDiffResult.ReloadedOnlySamples = (IReadOnlyList<string>)(list2 ?? (IReadOnlyList<string>)[]);
-        return playlistContentDiffResult;
-    }
-
-    internal static bool HasPlaylistContentChanges(IEnumerable<ComparablePlaylistEntryRow> persistedRows, IEnumerable<ComparablePlaylistEntryRow> reloadedRows)
-    {
-        return AnalyzePlaylistContentDiff(persistedRows, reloadedRows).HasChanges;
-    }
-
-    private static Dictionary<string, int> BuildComparableRowFingerprintCounts(IEnumerable<ComparablePlaylistEntryRow> rows)
-    {
-        var dictionary = new Dictionary<string, int>(StringComparer.Ordinal);
-        if (rows == null)
-        {
-            return dictionary;
-        }
-        foreach (ComparablePlaylistEntryRow row in rows.Where(row => row != null))
-        {
-            if (dictionary.TryGetValue(row.Fingerprint, out int value))
-            {
-                dictionary[row.Fingerprint] = value + 1;
-            }
-            else
-            {
-                dictionary[row.Fingerprint] = 1;
-            }
-        }
-        return dictionary;
-    }
-
-    private static void AppendDiffSamples(List<string> samples, string fingerprint, int count)
-    {
-        if (samples == null || count <= 0)
-        {
-            return;
-        }
-        int num = PlaylistDiffSampleLogCount - samples.Count;
-        if (num <= 0)
-        {
-            return;
-        }
-        for (int i = 0; i < count && i < num; i++)
-        {
-            samples.Add(fingerprint);
-        }
-    }
-
-    private static void LogPlaylistContentDiff(string tableName, PlaylistContentDiffResult diffResult)
-    {
-        if (diffResult == null || !diffResult.HasChanges)
-        {
-            return;
-        }
-        Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync diff_summary table=" + (tableName ?? string.Empty) + " persistedOnlyCount=" + diffResult.PersistedOnlyCount + " reloadedOnlyCount=" + diffResult.ReloadedOnlyCount + " sampleCount=" + PlaylistDiffSampleLogCount);
-        Ribbit.Logging.NLogWrapper.FileLogger?.Info("playlist_resync diff_samples table=" + (tableName ?? string.Empty) + " persistedOnly=[" + JoinDiffSamplesForLog(diffResult.PersistedOnlySamples) + "] reloadedOnly=[" + JoinDiffSamplesForLog(diffResult.ReloadedOnlySamples) + "]");
-    }
-
-    private static string JoinDiffSamplesForLog(IEnumerable<string> samples)
-    {
-        IEnumerable<string> enumerable = samples ?? (IEnumerable<string>)[];
-        return string.Join(", ", enumerable.Select(EscapeFingerprintForLog));
-    }
-
-    private static string EscapeFingerprintForLog(string fingerprint)
-    {
-        if (fingerprint == null)
-        {
-            return string.Empty;
-        }
-        return fingerprint.Replace("\\", "\\\\").Replace("\r", "\\r").Replace("\n", "\\n").Replace("\t", "\\t");
-    }
-
-    private static bool HasMeaningfulComparableContent(ComparablePlaylistEntryRow row)
-    {
-        return row != null && (!string.IsNullOrWhiteSpace(row.Md5) || !string.IsNullOrWhiteSpace(row.Sha256) || !string.IsNullOrWhiteSpace(row.Level) || !string.IsNullOrWhiteSpace(row.Title) || !string.IsNullOrWhiteSpace(row.Artist) || !string.IsNullOrWhiteSpace(row.Lr2BmsId) || !string.IsNullOrWhiteSpace(row.Url) || !string.IsNullOrWhiteSpace(row.UrlDiff) || !string.IsNullOrWhiteSpace(row.NameDiff) || !string.IsNullOrWhiteSpace(row.Comment));
-    }
-
-    private static string NormalizeHash(string value)
-    {
-        string text = value?.Trim();
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            return null;
-        }
-        return text.ToLowerInvariant();
-    }
-
-    private static string NormalizeText(string value)
-    {
-        if (value == null)
-        {
-            return string.Empty;
-        }
-        int num = value.IndexOf('\0');
-        if (num >= 0)
-        {
-            value = value.Substring(0, num);
-        }
-        var stringBuilder = new StringBuilder(value.Length);
-        foreach (char c in value)
-        {
-            if (char.IsControl(c) && c != '\r' && c != '\n' && c != '\t')
-            {
-                continue;
-            }
-            stringBuilder.Append(c);
-        }
-        return stringBuilder.ToString().Trim();
-    }
-
-    private static string NormalizeLevel(double? value)
-    {
-        if (!value.HasValue)
-        {
-            return string.Empty;
-        }
-        return value.Value.ToString("R", CultureInfo.InvariantCulture);
-    }
-
-    private static string BuildComparablePlaylistEntryFingerprint(ComparablePlaylistEntryRow row)
-    {
-        var stringBuilder = new StringBuilder();
-        AppendComparableFingerprintPart(stringBuilder, row.Md5);
-        AppendComparableFingerprintPart(stringBuilder, row.Sha256);
-        AppendComparableFingerprintPart(stringBuilder, row.Level);
-        AppendComparableFingerprintPart(stringBuilder, row.Title);
-        AppendComparableFingerprintPart(stringBuilder, row.Artist);
-        AppendComparableFingerprintPart(stringBuilder, row.Lr2BmsId);
-        AppendComparableFingerprintPart(stringBuilder, row.Url);
-        AppendComparableFingerprintPart(stringBuilder, row.UrlDiff);
-        AppendComparableFingerprintPart(stringBuilder, row.NameDiff);
-        AppendComparableFingerprintPart(stringBuilder, row.Comment);
-        return stringBuilder.ToString();
-    }
-
-    private static void AppendComparableFingerprintPart(StringBuilder builder, string value)
-    {
-        string text = value ?? string.Empty;
-        builder.Append(text.Length).Append(':').Append(text).Append('|');
-    }
-
-    private static List<BMSTableEntry> GetEntryMatchCandidates(string key, Dictionary<string, List<BMSTableEntry>> lookup)
-    {
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return null;
-        }
-        lookup.TryGetValue(key, out List<BMSTableEntry> value);
-        if (value == null || value.Count == 0)
-        {
-            return null;
-        }
-        return value;
-    }
-
-    private static BMSTableEntry SelectBestMatchedEntry(BMSTableEntry oldEntry, List<BMSTableEntry> candidates)
-    {
-        if (candidates == null || candidates.Count == 0)
-        {
-            return null;
-        }
-        if (candidates.Count == 1)
-        {
-            return candidates[0];
-        }
-        return candidates.OrderBy(ne => Math.Abs((ne.level ?? 0.0) - (oldEntry.level ?? 0.0))).First();
-    }
-
-    /// <summary>
-    /// プレイリストの構成差分有無を判定します。
-    /// </summary>
-    /// <param name="oldTable">既存プレイリスト。</param>
-    /// <param name="newTable">再取得プレイリスト。</param>
-    /// <param name="matchedOldEntryCount">新旧で対応付けられた既存エントリ数。</param>
-    /// <returns>構成差分があれば <see langword="true"/>。</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="oldTable"/> または <paramref name="newTable"/> が <see langword="null"/> の場合。</exception>
-    internal static bool HasPlaylistStructuralChanges(BMSTable oldTable, BMSTable newTable, int matchedOldEntryCount)
-    {
-        if (oldTable == null)
-        {
-            throw new ArgumentNullException("oldTable");
-        }
-        if (newTable == null)
-        {
-            throw new ArgumentNullException("newTable");
-        }
-        List<string> oldFolderList = oldTable.folder_list;
-        List<string> newFolderList = newTable.folder_list;
-        return newTable.entries.Count != matchedOldEntryCount || matchedOldEntryCount != oldTable.entries.Where(entry => !entry.is_removed).Count() || oldFolderList.Except(newFolderList).Any() || newFolderList.Except(oldFolderList).Any();
-    }
-
-    /// <summary>
-    /// 既存プレイリストの保持設定を引き継いだまま、外部ソースから生の再取得結果を作成します。
-    /// </summary>
-    /// <param name="bmsTable">再取得対象の既存プレイリスト。</param>
-    /// <param name="pageUri">再取得に使う URI。省略時はプレイリスト保持値を使用します。</param>
-    /// <returns>未マージの再取得プレイリスト。</returns>
     private BMSTable reloadBMSTable(BMSTable bmsTable, Uri pageUri = null)
     {
         if (pageUri == null)

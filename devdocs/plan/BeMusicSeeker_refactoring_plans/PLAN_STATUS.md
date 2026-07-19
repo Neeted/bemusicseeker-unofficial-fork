@@ -19,7 +19,7 @@
 
 active outcome base commit: `eef386ce`
 active execution package: `PL-01 Playlist persistence and reload ownership`
-sequence cursor: `PL01-U4 External snapshot diff, reload decision, durable/live apply`
+sequence cursor: `PL01-U5 Catalog-driven playlist summary owner and PL-01 closure`
 
 目的:
 

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using Codeplex.Data;
@@ -754,7 +755,7 @@ public class BMSTable : LR2SongDBExtended.playlist
         {
             dynamic val = DynamicJson.Parse(_data_json);
             base.data_sha256 = ComputeSha256Hex(_data_json);
-            entries = [.. ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).Where(entry => BMSPlaylist.CreateComparablePlaylistEntryRow(entry) != null)];
+            entries = [.. ((object[])val).Select((dynamic json) => new BMSTableEntry(json, this)).Where(entry => PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(entry) != null)];
             ResolveDefaultCompatPrefixFolderOrderAfterDataLoad();
             RewriteLoadedCompatPrefixFolderOrderAfterDataLoad();
         }

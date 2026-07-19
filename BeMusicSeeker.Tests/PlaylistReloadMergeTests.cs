@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -32,7 +33,7 @@ public sealed class PlaylistReloadMergeTests
             default,
             CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"));
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(oldTable, reloadedTable);
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(oldTable, reloadedTable);
 
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update, "No-change reload must preserve the previous last_update.");
 
@@ -62,11 +63,11 @@ public sealed class PlaylistReloadMergeTests
             CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"),
             CreateEntry("cccccccccccccccccccccccccccccccc", "FolderC"));
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
-            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
 
         Assert.IsTrue(decision.EntryFingerprintChanged);
         Assert.IsFalse(decision.UpdatesLastUpdate);
@@ -92,11 +93,11 @@ public sealed class PlaylistReloadMergeTests
             CreateEntry("dddddddddddddddddddddddddddddddd", "FolderD"));
         reloadedTable.data_sha256 = dataHash;
 
-        BMSPlaylist.MergeReloadedBMSTableState(
+        PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
-            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
 
         Assert.IsTrue(decision.EntryFingerprintChanged);
         Assert.IsFalse(decision.DataKnownChanged);
@@ -119,7 +120,7 @@ public sealed class PlaylistReloadMergeTests
             default,
             CreateEntry(null, "FolderA", sha256: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"));
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(oldTable, reloadedTable);
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(oldTable, reloadedTable);
         BMSTableEntry matchedEntry = mergedTable.entries.Single(entry => entry.sha256 == "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" && entry.folder == "FolderA");
 
         Assert.IsNull(matchedEntry.md5);
@@ -143,7 +144,7 @@ public sealed class PlaylistReloadMergeTests
             default,
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA", comment: "same"));
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(oldTable, reloadedTable);
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(oldTable, reloadedTable);
         BMSTableEntry matchedEntry = mergedTable.entries.Single(entry => entry.title == "Title Only" && !entry.is_removed);
 
         Assert.AreEqual(existingLastUpdate, mergedTable.last_update);
@@ -164,11 +165,11 @@ public sealed class PlaylistReloadMergeTests
             default,
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA", comment: "new"));
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
-            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
 
         Assert.IsTrue(decision.EntryFingerprintChanged);
         Assert.IsFalse(decision.UpdatesLastUpdate);
@@ -193,10 +194,10 @@ public sealed class PlaylistReloadMergeTests
         reloadedTable.header_sha256 = new string('a', 64);
         reloadedTable.data_sha256 = new string('b', 64);
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
             out bool hasContentChanges,
             out bool hasStateToPersist);
 
@@ -221,11 +222,11 @@ public sealed class PlaylistReloadMergeTests
             CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"));
         reloadedTable.header_sha256 = new string('a', 64);
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
-            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
 
         Assert.IsTrue(decision.HeaderHashInitialized);
         Assert.IsTrue(decision.NeedsHeaderPersistence);
@@ -250,11 +251,11 @@ public sealed class PlaylistReloadMergeTests
             CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "FolderB"));
         reloadedTable.data_sha256 = new string('b', 64);
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
-            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
 
         Assert.IsTrue(decision.DataHashInitialized);
         Assert.IsTrue(decision.NeedsHeaderPersistence);
@@ -281,13 +282,13 @@ public sealed class PlaylistReloadMergeTests
             CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "FolderA"));
         reloadedTable.header_sha256 = new string('b', 64);
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
             out bool hasContentChanges,
             out bool hasStateToPersist,
-            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+            out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
 
         Assert.IsTrue(hasContentChanges);
         Assert.IsTrue(hasStateToPersist);
@@ -313,13 +314,13 @@ public sealed class PlaylistReloadMergeTests
         reloadedTable.LoadHeaderJSON(headerJson);
         reloadedTable.entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "EXTERNAL 1")];
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
             out bool hasContentChanges,
             out bool hasStateToPersist,
-            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+            out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
 
         Assert.IsFalse(hasContentChanges);
         Assert.IsTrue(hasStateToPersist);
@@ -348,11 +349,11 @@ public sealed class PlaylistReloadMergeTests
         reloadedTable.data_sha256 = new string('b', 64);
 
         DateTime beforeMerge = DateTime.Now;
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
-            out BMSPlaylist.PlaylistReloadPersistenceDecision decision);
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            out PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision decision);
         DateTime afterMerge = DateTime.Now;
 
         Assert.IsTrue(decision.DataKnownChanged);
@@ -376,16 +377,16 @@ public sealed class PlaylistReloadMergeTests
             CreateComparableOnlyEntry("Title Only", "Artist", "Remote Folder"));
 
         Assert.AreEqual(
-            BMSPlaylist.CreateComparablePlaylistEntryRow(oldTable.entries.Single())?.Fingerprint,
-            BMSPlaylist.CreateComparablePlaylistEntryRow(reloadedTable.entries.Single())?.Fingerprint);
-        Assert.IsFalse(BMSPlaylist.HasPlaylistContentChanges(
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
-            BMSPlaylist.BuildComparablePlaylistEntryRows(reloadedTable.entries)));
+            PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(oldTable.entries.Single())?.Fingerprint,
+            PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(reloadedTable.entries.Single())?.Fingerprint);
+        Assert.IsFalse(PlaylistAggregatePersistenceOwner.HasPlaylistContentChanges(
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(reloadedTable.entries)));
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
             out bool hasContentChanges);
 
         Assert.IsFalse(hasContentChanges);
@@ -408,16 +409,16 @@ public sealed class PlaylistReloadMergeTests
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA"));
 
         Assert.AreEqual(
-            BMSPlaylist.CreateComparablePlaylistEntryRow(oldTable.entries.Single())?.Fingerprint,
-            BMSPlaylist.CreateComparablePlaylistEntryRow(reloadedTable.entries.Single())?.Fingerprint);
-        Assert.IsFalse(BMSPlaylist.HasPlaylistContentChanges(
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
-            BMSPlaylist.BuildComparablePlaylistEntryRows(reloadedTable.entries)));
+            PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(oldTable.entries.Single())?.Fingerprint,
+            PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(reloadedTable.entries.Single())?.Fingerprint);
+        Assert.IsFalse(PlaylistAggregatePersistenceOwner.HasPlaylistContentChanges(
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(reloadedTable.entries)));
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
             oldTable,
             reloadedTable,
-            BMSPlaylist.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
+            PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(oldTable.entries.Where(entry => !entry.is_removed)),
             out bool hasContentChanges);
 
         Assert.IsFalse(hasContentChanges);
@@ -433,8 +434,8 @@ public sealed class PlaylistReloadMergeTests
         BMSTableEntry dirtyEntry = CreateComparableOnlyEntry("Crash || Nothing\r\n [\0]\r", "Artist", "FolderA", comment: "memo\0");
 
         Assert.AreEqual(
-            BMSPlaylist.CreateComparablePlaylistEntryRow(cleanEntry)?.Fingerprint,
-            BMSPlaylist.CreateComparablePlaylistEntryRow(dirtyEntry)?.Fingerprint);
+            PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(cleanEntry)?.Fingerprint,
+            PlaylistAggregatePersistenceOwner.CreateComparablePlaylistEntryRow(dirtyEntry)?.Fingerprint);
     }
 
     [TestMethod]
@@ -451,7 +452,7 @@ public sealed class PlaylistReloadMergeTests
             default,
             CreateEntry("f2eac2c1eb70512eb9785aa33bfc817e", "2026/03"));
 
-        BMSTable mergedTable = BMSPlaylist.MergeReloadedBMSTableState(oldTable, reloadedTable);
+        BMSTable mergedTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(oldTable, reloadedTable);
         BMSTableEntry matchedEntry = mergedTable.entries.Single(entry => entry.md5 == "f2eac2c1eb70512eb9785aa33bfc817e");
 
         Assert.AreEqual("revived", matchedEntry.memo);
@@ -463,12 +464,12 @@ public sealed class PlaylistReloadMergeTests
     [TestCategory("Playlist")]
     public void AnalyzePlaylistContentDiff_NoDifference_ReturnsEmptySamples()
     {
-        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> rows = BMSPlaylist.BuildComparablePlaylistEntryRows(
+        IReadOnlyList<PlaylistAggregatePersistenceOwner.ComparablePlaylistEntryRow> rows = PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(
         [
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA", comment: "same")
         ]);
 
-        BMSPlaylist.PlaylistContentDiffResult result = BMSPlaylist.AnalyzePlaylistContentDiff(rows, rows);
+        PlaylistAggregatePersistenceOwner.PlaylistContentDiffResult result = PlaylistAggregatePersistenceOwner.AnalyzePlaylistContentDiff(rows, rows);
 
         Assert.IsFalse(result.HasChanges);
         Assert.AreEqual(0, result.PersistedOnlyCount);
@@ -481,16 +482,16 @@ public sealed class PlaylistReloadMergeTests
     [TestCategory("Playlist")]
     public void AnalyzePlaylistContentDiff_CommentDifference_ReturnsOneSamplePerSide()
     {
-        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> persistedRows = BMSPlaylist.BuildComparablePlaylistEntryRows(
+        IReadOnlyList<PlaylistAggregatePersistenceOwner.ComparablePlaylistEntryRow> persistedRows = PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(
         [
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA", comment: "old")
         ]);
-        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> reloadedRows = BMSPlaylist.BuildComparablePlaylistEntryRows(
+        IReadOnlyList<PlaylistAggregatePersistenceOwner.ComparablePlaylistEntryRow> reloadedRows = PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(
         [
             CreateComparableOnlyEntry("Title Only", "Artist", "FolderA", comment: "new")
         ]);
 
-        BMSPlaylist.PlaylistContentDiffResult result = BMSPlaylist.AnalyzePlaylistContentDiff(persistedRows, reloadedRows);
+        PlaylistAggregatePersistenceOwner.PlaylistContentDiffResult result = PlaylistAggregatePersistenceOwner.AnalyzePlaylistContentDiff(persistedRows, reloadedRows);
 
         Assert.IsTrue(result.HasChanges);
         Assert.AreEqual(1, result.PersistedOnlyCount);
@@ -503,16 +504,16 @@ public sealed class PlaylistReloadMergeTests
     [TestCategory("Playlist")]
     public void AnalyzePlaylistContentDiff_SampleCount_IsLimitedToThree()
     {
-        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> persistedRows = BMSPlaylist.BuildComparablePlaylistEntryRows(
+        IReadOnlyList<PlaylistAggregatePersistenceOwner.ComparablePlaylistEntryRow> persistedRows = PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(
         [
             CreateComparableOnlyEntry("Title 1", "Artist", "FolderA", comment: "old"),
             CreateComparableOnlyEntry("Title 2", "Artist", "FolderA", comment: "old"),
             CreateComparableOnlyEntry("Title 3", "Artist", "FolderA", comment: "old"),
             CreateComparableOnlyEntry("Title 4", "Artist", "FolderA", comment: "old")
         ]);
-        IReadOnlyList<BMSPlaylist.ComparablePlaylistEntryRow> reloadedRows = BMSPlaylist.BuildComparablePlaylistEntryRows([]);
+        IReadOnlyList<PlaylistAggregatePersistenceOwner.ComparablePlaylistEntryRow> reloadedRows = PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows([]);
 
-        BMSPlaylist.PlaylistContentDiffResult result = BMSPlaylist.AnalyzePlaylistContentDiff(persistedRows, reloadedRows);
+        PlaylistAggregatePersistenceOwner.PlaylistContentDiffResult result = PlaylistAggregatePersistenceOwner.AnalyzePlaylistContentDiff(persistedRows, reloadedRows);
 
         Assert.IsTrue(result.HasChanges);
         Assert.AreEqual(4, result.PersistedOnlyCount);
