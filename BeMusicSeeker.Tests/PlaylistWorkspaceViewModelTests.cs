@@ -103,9 +103,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "private readonly PlaylistPropertySaveService propertySaveService;");
         StringAssert.Contains(workspaceSource, "private readonly Func<BMSLibrary> getPlaylistLibrary;");
         Assert.AreEqual(-1, workspaceSource.IndexOf("presentPlaylistOperationNotifications", StringComparison.Ordinal));
-        StringAssert.Contains(workspaceSource, "internal event EventHandler<PlaylistOperationNotificationsFlushRequestedEventArgs> PlaylistOperationNotificationsFlushRequested;");
-        StringAssert.Contains(workspaceSource, "PlaylistOperationNotificationsFlushRequestedEventArgs(scope, routeName)");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistOperationNotificationsFlushRequested += PlaylistWorkspacePlaylistOperationNotificationsFlushRequested;");
+        StringAssert.Contains(workspaceSource, "internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;");
+        StringAssert.Contains(workspaceSource, "PlaylistOperationNotificationPresentationRequestedEventArgs(session.TakeReceipt(), routeName)");
+        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;");
         StringAssert.Contains(workspaceSource, "private readonly Func<LR2Config> getLr2Config;");
         StringAssert.Contains(entrySnapshotSource, "using (table.ReaderWriterLock.GetReaderGuard())");
         StringAssert.Contains(entrySnapshotSource, "return [.. table.GetEntriesExceptDummy()]");
@@ -235,7 +235,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, workspaceSource.IndexOf("TryGetPlaylistSummaryTableCount", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)");
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(");
-        StringAssert.Contains(workspaceSource, "internal long RequestPlaylistSummaryDataRefresh(\n        string reason,");
+        StringAssert.Contains(workspaceSource, "internal long RequestPlaylistSummaryDataRefresh(");
+        StringAssert.Contains(workspaceSource, "        string reason,");
         StringAssert.Contains(workspaceSource, "private readonly Action<Action<bool>> playlistSummaryDataRefreshGate;");
         StringAssert.Contains(workspaceSource, "Action<Action<bool>> playlistSummaryPresentationRefreshGate,");
         StringAssert.Contains(workspaceSource, "Action<Action<bool>> playlistSummaryDataRefreshGate,");
@@ -323,7 +324,8 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);");
         StringAssert.Contains(workspaceSource, "ReplaceCurrentPlaylistDetailSelectionTable(");
         StringAssert.Contains(workspaceSource, "RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders);");
-        StringAssert.Contains(workspaceSource, "RaiseRequiredEvent(\n            PlaylistReferenceSortInvalidationRequested,");
+        StringAssert.Contains(workspaceSource, "RaiseRequiredEvent(");
+        StringAssert.Contains(workspaceSource, "            PlaylistReferenceSortInvalidationRequested,");
         StringAssert.Contains(workspaceSource, "private void ForwardPlaylistEntriesChanged(");
         StringAssert.Contains(workspaceSource, "PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible);");
         Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistWorkspaceEntriesChangedEventArgs", StringComparison.Ordinal));
@@ -346,7 +348,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.RefreshPlaylistSummaryKeywordSearchSuggestions(");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.CommitPlaylistSummaryKeywordSearchHistory(");
         StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ClosePlaylistSummaryKeywordSearchSuggestions();");
-        StringAssert.Contains(workspaceSource, "RequestPlaylistSummaryRefresh(\n            \"playlist_table_removed\"");
+        StringAssert.Contains(workspaceSource, "\"playlist_table_removed\"");
         StringAssert.Contains(workspaceSource, "rebuildAsync: false");
         StringAssert.Contains(workspaceSource, "internal Task RemovePlaylistSummaryRowsAsync(");
         StringAssert.Contains(workspaceSource, "PlaylistSummaryRemovalConfirmationRequested");
@@ -366,7 +368,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryColumnResetConfirmationRequested += PlaylistWorkspacePlaylistSummaryColumnResetConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistRecommendedTableImportConfirmationRequested += PlaylistWorkspacePlaylistRecommendedTableImportConfirmationRequested;");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;");
-        StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistImportNotificationsFlushRequested += PlaylistWorkspacePlaylistImportNotificationsFlushRequested;");
+        Assert.IsFalse(logicalSource.Contains("PlaylistWorkspace.PlaylistImportNotificationsFlushRequested"));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;");
         Assert.AreEqual(-1, logicalSource.IndexOf("ExternalPlaylistImportSummaryRefreshRequested", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.ConfigureExternalPlaylistImportLogging(", StringComparison.Ordinal));
@@ -778,7 +780,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
                 if (!writerCompleted)
                 {
-                    playlist.FreeReaderLockBMSTables();
                     writerProbe.Wait(TimeSpan.FromSeconds(2));
                 }
             }

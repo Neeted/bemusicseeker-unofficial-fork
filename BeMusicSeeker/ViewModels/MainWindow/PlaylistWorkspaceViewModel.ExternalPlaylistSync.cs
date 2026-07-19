@@ -94,7 +94,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 ExternalPlaylistSyncRequestSnapshot request = CaptureDeferredExternalSyncRequest();
                 DateTime startedAt = DateTime.UtcNow;
-                using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
+                using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
                 bool succeeded = false;
                 int updatedCount = 0;
                 try
@@ -214,8 +214,8 @@ public sealed partial class PlaylistWorkspaceViewModel
                 finally
                 {
                     EndPlaylistSyncProgressOperation();
-                    RaisePlaylistOperationNotificationsFlushRequested(
-                        notificationScope,
+                    RaisePlaylistOperationNotificationPresentationRequested(
+                        notificationSession.TakeReceipt(),
                         "external playlist sync notification");
                 }
 
@@ -373,13 +373,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
     }
 
-    private void RaisePlaylistOperationNotificationsFlushRequested(
-        BMSPlaylist.OperationNotificationScope scope,
+    private void RaisePlaylistOperationNotificationPresentationRequested(
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
         string routeName)
     {
-        PlaylistOperationNotificationsFlushRequested?.Invoke(
+        PlaylistOperationNotificationPresentationRequested?.Invoke(
             this,
-            new PlaylistOperationNotificationsFlushRequestedEventArgs(scope, routeName));
+            new PlaylistOperationNotificationPresentationRequestedEventArgs(receipt, routeName));
     }
 
     private readonly struct ExternalPlaylistSyncRequestSnapshot

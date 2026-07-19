@@ -159,9 +159,7 @@ internal sealed class PlaylistRecommendedTableOwner
 
     private readonly Func<Uri, BMSTable> externalTableLoader;
 
-    private readonly Action<string, string> queueWarning;
-
-    private readonly Action<string, string> queueInformation;
+    private readonly PlaylistOperationNotificationOwner notificationOwner;
 
     private readonly IPlaylistRecommendedTableHttpClient httpClient;
 
@@ -189,16 +187,14 @@ internal sealed class PlaylistRecommendedTableOwner
         Func<SemaphoreSlim> initializationSemaphoreProvider,
         Func<Uri, BMSTable> externalTableLoader,
         IPlaylistRecommendedTableHttpClient httpClient,
-        Action<string, string> queueWarning,
-        Action<string, string> queueInformation)
+        PlaylistOperationNotificationOwner notificationOwner)
     {
         this.lr2ScoreDbPath = lr2ScoreDbPath;
         this.bmsScoresProvider = bmsScoresProvider;
         this.initializationSemaphoreProvider = initializationSemaphoreProvider;
         this.externalTableLoader = externalTableLoader ?? throw new ArgumentNullException(nameof(externalTableLoader));
         this.httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
-        this.queueWarning = queueWarning;
-        this.queueInformation = queueInformation;
+        this.notificationOwner = notificationOwner ?? throw new ArgumentNullException(nameof(notificationOwner));
     }
 
     internal BMSTable LoadWalkureTable(Uri pageUri, BMSTable baseTable = null)
@@ -498,14 +494,14 @@ internal sealed class PlaylistRecommendedTableOwner
             }
             catch (Exception exception)
             {
-                queueWarning?.Invoke(string.Format(Resources.Warn_RecommendUpdateFailed, exception.Message), null);
+                notificationOwner.QueueWarning(string.Format(Resources.Warn_RecommendUpdateFailed, exception.Message), null);
             }
         }
         Uri address = new(recommendJsonUriStr + lr2Id, UriKind.Absolute);
         dynamic value = DynamicJson.Parse(httpClient.GetString(address));
         if ((string)value.status != "success")
         {
-            queueWarning?.Invoke(string.Format(Resources.Warn_RecommendFetchFailed, (string)value.message), null);
+            notificationOwner.QueueWarning(string.Format(Resources.Warn_RecommendFetchFailed, (string)value.message), null);
             throw new InvalidOperationException(Resources.Error_RecommendFetchFailed);
         }
         double skill = (double)value.hoshi;
@@ -577,7 +573,7 @@ internal sealed class PlaylistRecommendedTableOwner
                 double previousSkill = double.Parse(match.Groups[1].Value);
                 if (previousSkill != skill)
                 {
-                    queueInformation?.Invoke(
+                    notificationOwner.QueueInformation(
                         string.Format(Resources.Recommend_SkillUpdatedMessage, skill.ToString("F2"), (skill - previousSkill).ToString(" (+#0.00); (-#0.00);"), lastModified.ToString()),
                         Resources.Recommend_SkillUpdatedTitle);
                 }

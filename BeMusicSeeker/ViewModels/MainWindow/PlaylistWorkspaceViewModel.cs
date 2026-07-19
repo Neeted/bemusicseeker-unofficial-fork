@@ -229,7 +229,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         propertySaveService.PlaylistPropertyExternalSyncFailed += ForwardPlaylistPropertyExternalSyncFailed;
         propertySaveService.PlaylistPropertySummaryDataRefreshRequested += ForwardPlaylistSummaryDataRefreshRequested;
         propertySaveService.PlaylistPropertyEntriesChanged += ForwardPlaylistEntriesChanged;
-        propertySaveService.PlaylistPropertyNotificationsFlushRequested += ForwardPlaylistNotificationsFlushRequested;
+        propertySaveService.PlaylistOperationNotificationPresentationRequested += ForwardPlaylistOperationNotificationPresentationRequested;
     }
 
     internal void ResetPlaylistSummaryColumnsToDefault()

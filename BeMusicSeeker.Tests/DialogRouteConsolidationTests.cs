@@ -97,10 +97,11 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(ubmplayCode.Contains("DispatcherMessageBox.Show("), "uBMplay must report startup failures to its caller instead of showing message boxes from the model layer.");
         Assert.IsFalse(fastDirectoryEnumeratorCode.Contains("DispatcherMessageBox.Show("), "FastDirectoryEnumerator must not show message boxes while enumerating utility paths.");
         Assert.IsFalse(taskExCode.Contains("DispatcherMessageBox.Show("), "TaskEx must record task faults without showing message boxes from utility continuations.");
-        StringAssert.Contains(playlistCode, "OperationNotificationScope");
-        StringAssert.Contains(playlistCode, "QueueOperationNotification");
-        StringAssert.Contains(viewModelCode, "FlushPlaylistOperationNotifications(");
-        StringAssert.Contains(viewModelCode, "BMSPlaylist.BeginOperationNotificationScope()");
+        Assert.IsFalse(playlistCode.Contains("OperationNotificationScope"), "BMSPlaylist must not own the mutable presentation scope.");
+        Assert.IsFalse(playlistCode.Contains("QueueOperationNotification"), "BMSPlaylist must not own the notification queue implementation.");
+        StringAssert.Contains(playlistCode, "OperationNotificationOwner");
+        StringAssert.Contains(viewModelCode, "PresentPlaylistOperationNotifications(");
+        Assert.IsFalse(viewModelCode.Contains("BMSPlaylist.BeginOperationNotificationScope()"));
     }
 
     [TestMethod]

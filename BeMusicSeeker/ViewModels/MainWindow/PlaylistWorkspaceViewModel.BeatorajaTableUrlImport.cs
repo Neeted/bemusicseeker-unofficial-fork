@@ -144,7 +144,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         int postProgressCompletedCount = totalCount;
         var totalStopwatch = Stopwatch.StartNew();
         BMSPlaylist tables = GetPlaylistStore();
-        using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
         BeginPlaylistSyncProgressOperation();
         try
         {
@@ -332,10 +332,10 @@ public sealed partial class PlaylistWorkspaceViewModel
             totalStopwatch.Stop();
             WriteBeatorajaTableUrlImportInfo("beatoraja_table_url_import completed targetCount=" + totalCount + " elapsedMs=" + totalStopwatch.ElapsedMilliseconds);
             EndPlaylistSyncProgressOperation();
-            PlaylistImportNotificationsFlushRequested?.Invoke(
+            PlaylistOperationNotificationPresentationRequested?.Invoke(
                 this,
-                new PlaylistImportNotificationsFlushRequestedEventArgs(
-                    notificationScope,
+                new PlaylistOperationNotificationPresentationRequestedEventArgs(
+                    notificationSession.TakeReceipt(),
                     "beatoraja Table URL import notification"));
             Interlocked.Exchange(ref beatorajaTableUrlImportRunning, 0);
         }

@@ -2,7 +2,7 @@
 
 [リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md) / [Codex 共通実行ルール](./00_Codex共通実行ルール.md)
 
-最終更新日: 2026-07-19
+最終更新日: 2026-07-20
 
 ## Baseline
 
@@ -13,30 +13,30 @@
 
 ## Active outcome
 
-### `PL-02 Playlist external-sync and output ownership`
+### `UI-05 Shell closure`
 
-状態: in progress
+状態: ready
 
-active outcome base commit: `d9241f10`
-active execution package: `PL-02 Playlist external-sync and output ownership`
-sequence cursor: `PL02-U6 Operation-notification receipt owner / presentation boundary`
+active outcome base commit: `6b31ea0a`
+active execution package: `UI-05 Shell closure`
+sequence cursor: `UI05 planner required`
 
 目的:
 
-playlist の BMT、custom-folder、recommended-table、外部 HTTP 同期と registration の state / durable output / live apply / presentation receipt を、それぞれの feature owner に移し、`BMSPlaylist` を persistence aggregate と composition entry に限定する。
+settings dialog、library refresh、package operation、残存 feature の root pass-through と code-behind workflow を、明示的な shell composition と feature owner へ移し、UI Gate に残る責務を閉じる。
 
 Acceptance criteria:
 
-- BMT output、recommended / estimation build、custom-folder materialization、外部 HTTP sync / registration が production の通常経路で各 owner に直接接続され、旧 writer、queue、callback host、test-only seam が同じ unit で削除される。
-- `.bmt` JSON、manifest、`config_sys.json` URL、LR2 folder / DB schema / data、setting key / serialized value、外部 URL の failure / cancellation / progress、UI observable behavior を維持する。
-- prepare、durable commit、live apply、immutable receipt publish の順序と shutdown / scheduler rejection / stale generation の失敗契約を維持する。
-- 各 execution unit の behavior test、PL-02 outcome-wide Full verification、Release executable UI smoke、重大指摘なしの static / outcome review を完了する。
+- settings dialog、normal library refresh、package operation、残存 feature workflow が production の通常経路で owner / shell composition に直接接続され、旧 root pass-through、code-behind workflow、callback host、test-only seam が同じ unit で削除される。
+- UI observable behavior、失敗契約、setting key / serialized value、DB schema / data、外部ファイル形式、外部同期の cancellation / progress を維持する。
+- owner handoff、live apply、immutable receipt / completion publish の順序と shutdown / scheduler rejection / stale generation の失敗契約を維持する。
+- 各 execution unit の behavior test、UI-05 outcome-wide Full verification、Release executable UI smoke、重大指摘なしの static / outcome review を完了する。
 
 Non-goals:
 
-- shell の残存 root pass-through / code-behind workflow（UI-05）。
 - feature 内に残る `Settings.Default` の除去（各 feature outcome と `MIG-01`）。
 - `.NET 10` TFM 変更、NuGet の一括更新、native dependency の置換。
+- feature owner 自体の責務再設計（各 feature outcome）。
 
 ## Outcome states
 
@@ -54,8 +54,8 @@ Non-goals:
 | LIB-05 Playlist-reference ownership | completed |
 | LIB-06 Library facade and scan integration closure | completed |
 | PL-01 Playlist persistence and reload ownership | completed |
-| PL-02 Playlist external-sync and output ownership | in progress |
-| UI-05 Shell closure | not started |
+| PL-02 Playlist external-sync and output ownership | completed |
+| UI-05 Shell closure | ready |
 | MIG-01 Platform boundary closure | not started |
 | GATE-01 Refactoring completion audit | not started |
 
@@ -70,15 +70,15 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Gate area | State | Current evidence |
 |---|---|---|
 | UI ownership | not met | UI-01 の main table / regular owner、UI-02 の playback owner、UI-03 の playlist workspace owner、UI-04 の play-history owner は completed。設定画面と残る code-behind workflow は UI-05 の対象。settings の composition / adapter 境界は APP-01 で扱う |
-| Library ownership | not met | scan core、catalog rows / digest / owned collection、resource-health、catalog-owned maintenance / maintenance-table hydration、chart-info hydration / backfill、generic mutation の relocation / removal protocol、canonical receipt、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner、LIB-06 facade / scan integration closure、PL-01 persistence / reload owner は completed。PL-02 external-sync / output は PL-02、shell closure は UI-05 の対象 |
-| Playlist ownership | not met | persistence / reload は PL-01 で分離済み。external-sync / output は PL-02 に残る。playlist-reference lifecycle は LR2 から分離して LIB-05 で completed |
+| Library ownership | not met | scan core、catalog rows / digest / owned collection、resource-health、catalog-owned maintenance / maintenance-table hydration、chart-info hydration / backfill、generic mutation の relocation / removal protocol、canonical receipt、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner、LIB-06 facade / scan integration closure、PL-01 persistence / reload owner、PL-02 external-sync / output owner は completed。shell closure は UI-05 の対象 |
+| Playlist ownership | not met | persistence / reload は PL-01、external-sync / output は PL-02 で分離済み。shell consumer routes は UI-05 に残る。playlist-reference lifecycle は LR2 から分離して LIB-05 で completed |
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
-| Migration readiness | not met | resource-health / maintenance / chart-info owner と generic mutation の prepare / durable commit / live apply / immutable receipt publish protocol、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner、LIB-06 facade / scan integration closure、PL-01 persistence / reload owner は成立済み。残る PL-02 external-sync / output と shell consumer owner の課題はそれぞれ PL-02、UI-05 で扱う |
-| Quality | in progress | PL-01 の Release build、targeted behavior verification、Full verification、UI smoke、static review は完了。残る outcomes / Gate evidence は未完了 |
+| Migration readiness | not met | resource-health / maintenance / chart-info owner と generic mutation の prepare / durable commit / live apply / immutable receipt publish protocol、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner、LIB-06 facade / scan integration closure、PL-01 persistence / reload owner、PL-02 external-sync / output owner は成立済み。残る shell consumer owner は UI-05、platform boundary は MIG-01 で扱う |
+| Quality | in progress | PL-02 の Release build、targeted behavior verification、Full verification、対象 `bin\\x64\\Release\\net472\\BeMusicSeeker.exe` の process-path 確認を含む UI smoke、static / outcome review は完了。UI-05 以降の outcomes / Gate evidence は未完了 |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 
 ## Active outcome blockers
 
-なし。PL-02 の external-sync / output ownership を execution cursor に従って連続して進める。具体的な `EXTERNAL_BLOCKER` 以外はユーザー確認待ちにしない。
+なし。UI-05 の shell closure を planner の execution cursor に従って連続して進める。具体的な `EXTERNAL_BLOCKER` 以外はユーザー確認待ちにしない。

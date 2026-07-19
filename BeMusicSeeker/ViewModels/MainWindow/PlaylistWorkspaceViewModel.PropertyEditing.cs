@@ -18,8 +18,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistPropertyExternalSyncFailedEventArgs> PlaylistPropertyExternalSyncFailed;
 
-    internal event EventHandler<PlaylistPropertyNotificationsFlushRequestedEventArgs> PlaylistPropertyNotificationsFlushRequested;
-
     public PlaylistPropertyDialogViewModel ActivePropertyDialog
     {
         get => activePropertyDialog;
@@ -165,14 +163,14 @@ public sealed partial class PlaylistWorkspaceViewModel
         PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible);
     }
 
-    private void ForwardPlaylistNotificationsFlushRequested(
+    private void ForwardPlaylistOperationNotificationPresentationRequested(
         object sender,
-        PlaylistPropertyNotificationsFlushRequestedEventArgs request)
+        PlaylistOperationNotificationPresentationRequestedEventArgs request)
     {
         RaiseRequiredEvent(
-            PlaylistPropertyNotificationsFlushRequested,
+            PlaylistOperationNotificationPresentationRequested,
             request,
-            nameof(PlaylistPropertyNotificationsFlushRequested));
+            nameof(PlaylistOperationNotificationPresentationRequested));
     }
 
     private void RaiseRequiredEvent(EventHandler handler, EventArgs args, string eventName)

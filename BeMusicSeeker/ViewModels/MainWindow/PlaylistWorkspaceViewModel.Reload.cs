@@ -81,6 +81,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             bool isFullReload = activeTables.Count > 1;
             var stopwatch = Stopwatch.StartNew();
             List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = null;
+            using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlists.OperationNotificationOwner.BeginSession();
             try
             {
                 BeginPlaylistSyncProgressOperation();
@@ -124,6 +125,9 @@ public sealed partial class PlaylistWorkspaceViewModel
             finally
             {
                 EndPlaylistSyncProgressOperation();
+                PublishPlaylistOperationNotificationReceipt(
+                    notificationSession,
+                    "manual playlist resync notification");
             }
         }
         finally

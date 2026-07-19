@@ -68,24 +68,37 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
+        BMSPlaylist tables = GetPlaylistStore();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
+        try
+        {
+            RunPlaylistSummaryBulkOperationWithinSession(operation);
+        }
+        finally
+        {
+            PublishPlaylistOperationNotificationReceipt(notificationSession, routeName);
+        }
+    }
+
+    private void RunPlaylistSummaryBulkOperationWithinSession(Action operation)
+    {
+        if (operation == null)
+        {
+            return;
+        }
         BeginPlaylistSyncProgressOperation();
         bool progressEnded = false;
         try
         {
-            RunWithNotifications(
-                () =>
-                {
-                    try
-                    {
-                        operation();
-                    }
-                    finally
-                    {
-                        progressEnded = true;
-                        EndPlaylistSyncProgressOperation();
-                    }
-                },
-                routeName);
+            try
+            {
+                operation();
+            }
+            finally
+            {
+                progressEnded = true;
+                EndPlaylistSyncProgressOperation();
+            }
         }
         finally
         {
@@ -740,6 +753,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
         BMSPlaylist tables = GetPlaylistStore();
+        BMSLibrary library = getPlaylistLibrary();
         List<BMSTable> targetTables = [.. rows
             .Where(row => row?.TableRef != null)
             .Select(row => row.TableRef)
@@ -755,6 +769,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         bool summaryRefreshRequired = false;
         bool summaryRefreshAttempted = false;
         bool playlistTablesReaderLockHeld = false;
+        bool referenceDisplayRefreshRequired = false;
+        bool referenceSortInvalidationPublishedByEntryChange = false;
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
         BeginPlaylistSyncProgressOperation();
         try
         {
@@ -902,6 +919,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     table.Output_dir = BMSTable.CreateDefaultOutputDirectoryName(table.name);
                 }
+                if (library != null && change.BmtProjectionChanged)
+                {
+                    library.RefreshReferenceDisplayForTable(table);
+                    referenceDisplayRefreshRequired = true;
+                }
 
                 if (entryFolderProjectionChanged)
                 {
@@ -936,10 +958,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     PublishEntriesChanged(table, refreshSummaryIfVisible: false);
                 }
+                referenceSortInvalidationPublishedByEntryChange = true;
             }
             if (outputChangedTables.Count > 0)
             {
-                RunPlaylistSummaryBulkOperation(
+                RunPlaylistSummaryBulkOperationWithinSession(
                     () =>
                     {
                         UpdatePlaylistSummaryCustomFolderOutputProgress(0, outputChangedTables.Count, string.Empty);
@@ -951,8 +974,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             wasRootFolderBeforeByTable,
                             outputBaseDirPathBeforeByTable: outputBaseDirPathBeforeByTable,
                             settings: settings);
-                    },
-                    "playlist summary custom folder migration notification");
+                    });
                 UpdatePlaylistSummaryRootOutputDirectoriesAfterExternalInitialization(
                     outputChangedTables,
                     outputDirPathBeforeByTable,
@@ -962,7 +984,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             bool sameOutputReOutputCommitted = sameOutputReOutputTableList.Count > 0 && settings.OperationModeLR2DB;
             if (sameOutputReOutputCommitted)
             {
-                RunPlaylistSummaryBulkOperation(
+                RunPlaylistSummaryBulkOperationWithinSession(
                     () =>
                     {
                         UpdatePlaylistSummaryCustomFolderOutputProgress(0, sameOutputReOutputTableList.Count, string.Empty);
@@ -971,8 +993,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                             reason,
                             UpdatePlaylistSummaryCustomFolderOutputProgress,
                             settings);
-                    },
-                    "playlist summary custom folder output notification");
+                    });
             }
             List<BMSTable> headerOnlyCommitTables = [.. (sameOutputReOutputCommitted
                 ? headerOnlyTables.Except(sameOutputReOutputTables)
@@ -1008,7 +1029,14 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     tables.FreeReaderLockBMSTables();
                 }
+                if (referenceDisplayRefreshRequired && !referenceSortInvalidationPublishedByEntryChange)
+                {
+                    RequestPlaylistReferenceSortInvalidation();
+                }
                 EndPlaylistSyncProgressOperation();
+                PublishPlaylistOperationNotificationReceipt(
+                    notificationSession,
+                    "playlist summary external property initialization notification");
             }
         }
     }

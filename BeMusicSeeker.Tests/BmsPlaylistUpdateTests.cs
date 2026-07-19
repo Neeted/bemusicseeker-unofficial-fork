@@ -674,6 +674,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 message => lifecycleLogs.Add(message),
                 (exception, message) => failureLogs.Add((exception, message)), request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             int progressCount = 0;
             int referenceSortInvalidationCount = 0;
             long summaryDataGenerationBeforeResync = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -811,6 +812,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 _ => { },
                 (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
             workspace.RequestDetailSelection(table, PlaylistFolderNode.CreateFolder("Mutation"));
             workspace.IsPlaylistDetailViewActive = true;
 
@@ -1324,6 +1326,7 @@ public sealed class BmsPlaylistUpdateTests
                 () => { },
                 _ => { },
                 (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
 
             await workspace.ApplyPlaylistSummaryExternalPropertyInitializationAsync(
                 [new PlaylistSummaryRow { TableRef = tableA }, new PlaylistSummaryRow { TableRef = tableB }],
@@ -2108,12 +2111,13 @@ public sealed class BmsPlaylistUpdateTests
 
             Assert.ThrowsException<InvalidOperationException>(() => playlist.ReOutputCustomFolder(table));
 
-            using (BMSPlaylist.OperationNotificationScope scope = BMSPlaylist.BeginOperationNotificationScope())
+            using (PlaylistOperationNotificationOwner.OperationNotificationSession session = playlist.OperationNotificationOwner.BeginSession())
             {
                 playlist.ReOutputCustomFolder(table);
-                Assert.AreEqual(1, scope.Notifications.Count);
-                Assert.AreEqual(BMSPlaylist.OperationNotificationSeverity.Warning, scope.Notifications[0].Severity);
-                StringAssert.Contains(scope.Notifications[0].Message, table.name);
+                PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
+                Assert.AreEqual(1, receipt.Notifications.Count);
+                Assert.AreEqual(PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning, receipt.Notifications[0].Severity);
+                StringAssert.Contains(receipt.Notifications[0].Message, table.name);
             }
         }
         finally
@@ -6897,7 +6901,7 @@ public sealed class BmsPlaylistUpdateTests
                 _ => { },
                 (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
             var notificationRoutes = new List<string>();
-            workspace.PlaylistOperationNotificationsFlushRequested += (_, request) => notificationRoutes.Add(request.RouteName);
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, request) => notificationRoutes.Add(request.RouteName);
             long summaryDataGenerationBeforeRemoval = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
 
             bool removalConfirmationRequested = false;

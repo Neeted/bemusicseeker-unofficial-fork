@@ -72,7 +72,9 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             playlistRow.Entry.ApplyPlaylistHashesFromChart(chart);
         }
-        playlistStore.CommitBMSTableEntry(playlistRow.Entry, editedPropertyName);
+        RunWithNotifications(
+            () => playlistStore.CommitBMSTableEntry(playlistRow.Entry, editedPropertyName),
+            "playlist detail cell edit notification");
     }
 
     private void CompleteDetailEditSession()

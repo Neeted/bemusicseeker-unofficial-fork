@@ -41,7 +41,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
 
     private readonly Action<string> logPerformance;
 
-    private readonly Action<string> queueWarning;
+    private readonly PlaylistOperationNotificationOwner notificationOwner;
 
     internal PlaylistCustomFolderOutputMaintenanceOwner(
         PlaylistCustomFolderOutputOwner outputOwner,
@@ -54,7 +54,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         Action<BMSTable> deleteStatus,
         Func<BMSTable, CustomFolderOutputSettingsSnapshot, string> outputDirectoryResolver,
         Action<string> logPerformance,
-        Action<string> queueWarning)
+        PlaylistOperationNotificationOwner notificationOwner)
     {
         this.outputOwner = outputOwner ?? throw new ArgumentNullException(nameof(outputOwner));
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
@@ -66,7 +66,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         this.deleteStatus = deleteStatus ?? throw new ArgumentNullException(nameof(deleteStatus));
         this.outputDirectoryResolver = outputDirectoryResolver ?? throw new ArgumentNullException(nameof(outputDirectoryResolver));
         this.logPerformance = logPerformance;
-        this.queueWarning = queueWarning;
+        this.notificationOwner = notificationOwner ?? throw new ArgumentNullException(nameof(notificationOwner));
     }
 
     internal bool SyncRootFolderOutputDirectoriesToLr2Config(CustomFolderOutputSettingsSnapshot settings)
@@ -206,7 +206,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         }
         catch
         {
-            queueWarning?.Invoke(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, ResolveOutputDirectory(table, settings)));
+            notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, ResolveOutputDirectory(table, settings)));
             return false;
         }
     }
@@ -269,7 +269,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             {
                 if (deletionFailure)
                 {
-                    queueWarning?.Invoke(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectoryBefore));
+                    notificationOwner.QueueWarning(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectoryBefore));
                 }
                 return false;
             }
@@ -290,7 +290,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         }
         catch
         {
-            queueWarning?.Invoke(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, resolvedOutputDirectoryAfter));
+            notificationOwner.QueueWarning(string.Format(Resources.Warn_CustomFolderOutputFailed, table?.name, resolvedOutputDirectoryAfter));
             return false;
         }
     }
@@ -309,7 +309,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         {
             if (deletionFailure)
             {
-                queueWarning?.Invoke(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory));
+                notificationOwner.QueueWarning(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory));
             }
             return false;
         }
@@ -323,7 +323,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
         }
         catch
         {
-            queueWarning?.Invoke(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory));
+            notificationOwner.QueueWarning(string.Format(Resources.Warn_FileOrDirDeleteFailed, outputDirectory));
             return false;
         }
     }
@@ -431,7 +431,7 @@ internal sealed class PlaylistCustomFolderOutputMaintenanceOwner
             }
             else if (deletionFailure)
             {
-                queueWarning?.Invoke(string.Format(Resources.Warn_FileOrDirDeleteFailed, plan.OutputDirectoryBefore));
+                notificationOwner.QueueWarning(string.Format(Resources.Warn_FileOrDirDeleteFailed, plan.OutputDirectoryBefore));
             }
             progressCallback?.Invoke(index, plans.Count, plan.Table?.name ?? string.Empty);
         }

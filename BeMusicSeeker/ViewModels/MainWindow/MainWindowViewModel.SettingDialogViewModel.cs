@@ -5389,45 +5389,45 @@ public partial class MainWindowViewModel
                     CustomFolderOutputBaseSearchRootSyncPlan normalOutputBaseRootSyncPlan = default;
                     CustomFolderOutputBaseSearchRootSyncResult normalOutputBaseRootSyncResult = default;
                     bool rootOutputBaseRootSyncChanged = false;
-                    using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
-                    try
-                    {
-                        await Task.Run(delegate
+                    await ownerViewModel.PlaylistWorkspace.RunWithPlaylistOperationNotificationsAsync(
+                        async () =>
                         {
-                            normalOutputBaseRootSyncPlan = PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(customFolderOutputSettingsAfterSave);
-                            if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir) && tempLR2CustomFolderOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir)
+                            try
                             {
-                                ownerViewModel.tables.ChangeCustomFolderBaseDirectoryWithSettings(
-                                    tempLR2CustomFolderOutputDir,
-                                    customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir,
-                                    tempLR2CustomFolderAdditionalOutputBaseDirs,
-                                    customFolderOutputSettingsAfterSave.LR2CustomFolderAdditionalOutputBaseDirs,
-                                    customFolderOutputSettingsAfterSave);
+                                await Task.Run(delegate
+                                {
+                                    normalOutputBaseRootSyncPlan = PrepareCustomFolderNormalOutputBaseSearchRootSyncWithSettings(customFolderOutputSettingsAfterSave);
+                                    if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir) && tempLR2CustomFolderOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir)
+                                    {
+                                        ownerViewModel.tables.ChangeCustomFolderBaseDirectoryWithSettings(
+                                            tempLR2CustomFolderOutputDir,
+                                            customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDir,
+                                            tempLR2CustomFolderAdditionalOutputBaseDirs,
+                                            customFolderOutputSettingsAfterSave.LR2CustomFolderAdditionalOutputBaseDirs,
+                                            customFolderOutputSettingsAfterSave);
+                                    }
+                                    ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(customFolderOutputSettingsAfterSave);
+                                    normalOutputBaseRootSyncResult = CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
+                                        normalOutputBaseRootSyncPlan,
+                                        customFolderOutputSettingsAfterSave);
+                                    if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType) && tempLR2CustomFolderAsRootOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType)
+                                    {
+                                        ownerViewModel.tables.ChangeCustomFolderBaseDirectoryRootWithSettings(
+                                            tempLR2CustomFolderAsRootOutputDir,
+                                            customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType,
+                                            customFolderOutputSettingsAfterSave);
+                                    }
+                                    rootOutputBaseRootSyncChanged = SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
+                                        customFolderOutputSettingsAfterSave);
+                                }).ConfigureAwait(false);
                             }
-                            ApplyCustomFolderAdditionalOutputBaseRegistrationChangesWithSettings(customFolderOutputSettingsAfterSave);
-                            normalOutputBaseRootSyncResult = CompleteCustomFolderNormalOutputBaseSearchRootSyncWithSettings(
-                                normalOutputBaseRootSyncPlan,
-                                customFolderOutputSettingsAfterSave);
-                            if (!string.IsNullOrWhiteSpace(tempLR2CustomFolderAsRootOutputDir) && !string.IsNullOrWhiteSpace(customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType) && tempLR2CustomFolderAsRootOutputDir != customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType)
+                            catch (Exception ex)
                             {
-                                ownerViewModel.tables.ChangeCustomFolderBaseDirectoryRootWithSettings(
-                                    tempLR2CustomFolderAsRootOutputDir,
-                                    customFolderOutputSettingsAfterSave.LR2CustomFolderOutputBaseDirRootType,
-                                    customFolderOutputSettingsAfterSave);
+                                NLogWrapper.FileLogger?.Error(ex, "necessaryStepsAfterSaved failed");
+                                throw;
                             }
-                            rootOutputBaseRootSyncChanged = SyncRootCustomFolderOutputSearchRootsAfterSettingsChangeWithSettings(
-                                customFolderOutputSettingsAfterSave);
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        NLogWrapper.FileLogger?.Error(ex, "necessaryStepsAfterSaved failed");
-                        throw;
-                    }
-                    finally
-                    {
-                        FlushPlaylistOperationNotifications(notificationScope, "custom folder output base sync notification");
-                    }
+                        },
+                        "custom folder output base sync notification");
                     ApplyCustomFolderNormalOutputBaseSearchRootSyncResult(normalOutputBaseRootSyncResult);
                     if (rootOutputBaseRootSyncChanged)
                     {

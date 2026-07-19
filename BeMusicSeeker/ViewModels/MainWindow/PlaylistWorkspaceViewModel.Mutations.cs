@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
@@ -14,7 +15,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistWorkspaceMutationRejectedEventArgs> MutationRejected;
 
-    internal event EventHandler<PlaylistOperationNotificationsFlushRequestedEventArgs> PlaylistOperationNotificationsFlushRequested;
+    internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;
 
     internal event EventHandler PlaylistReferenceSortInvalidationRequested;
 
@@ -89,6 +90,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         string oldName = folder.FolderName;
         BMSPlaylist playlistStore = GetPlaylistStore();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
         playlistStore.AcquireReaderLockBMSTables();
         try
         {
@@ -109,6 +111,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         finally
         {
             playlistStore.FreeReaderLockBMSTables();
+            PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist rename folder notification");
         }
     }
 
@@ -121,6 +124,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         BMSPlaylist playlistStore = GetPlaylistStore();
         string folderName = folder.FolderName;
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
         playlistStore.AcquireReaderLockBMSTables();
         try
         {
@@ -141,6 +145,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         finally
         {
             playlistStore.FreeReaderLockBMSTables();
+            PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist remove folder notification");
         }
     }
 
@@ -251,6 +256,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             return;
         }
         BMSPlaylist playlistStore = GetPlaylistStore();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
         playlistStore.AcquireReaderLockBMSTables();
         try
         {
@@ -268,6 +274,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         finally
         {
             playlistStore.FreeReaderLockBMSTables();
+            PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist create folder notification");
         }
     }
 
@@ -308,10 +315,13 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         BMSPlaylist playlistStore = GetPlaylistStore();
         BMSLibrary library = GetPlaylistLibrary();
-        playlistStore.EnsurePlaylistEntriesLoaded(table, "PlaylistWorkspaceViewModel.AddRowsToFolder");
-        playlistStore.AcquireReaderLockBMSTables();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
+        bool readerLockHeld = false;
         try
         {
+            playlistStore.EnsurePlaylistEntriesLoaded(table, "PlaylistWorkspaceViewModel.AddRowsToFolder");
+            playlistStore.AcquireReaderLockBMSTables();
+            readerLockHeld = true;
             if (!CanMutate(table, PlaylistWorkspaceMutationKind.AddEntries)
                 || !playlistStore.ContainsBMSTable(table))
             {
@@ -378,15 +388,19 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
             }
 
-            RunWithNotifications(
-                () => playlistStore.ReOutputCustomFolderAndCommitToDB(table),
-                "playlist drop custom folder output notification");
+            playlistStore.ReOutputCustomFolderAndCommitToDB(table);
             library.AddReferenceBMSTablesToCharts(table, resolvedCharts);
             PublishEntriesChanged(table);
         }
         finally
         {
-            playlistStore.FreeReaderLockBMSTables();
+            if (readerLockHeld)
+            {
+                playlistStore.FreeReaderLockBMSTables();
+            }
+            PublishPlaylistOperationNotificationReceipt(
+                notificationSession,
+                "playlist drop custom folder output notification");
         }
     }
 
@@ -408,6 +422,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         BMSPlaylist playlistStore = GetPlaylistStore();
         BMSLibrary library = GetPlaylistLibrary();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = playlistStore.OperationNotificationOwner.BeginSession();
         playlistStore.AcquireReaderLockBMSTables();
         try
         {
@@ -423,6 +438,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         finally
         {
             playlistStore.FreeReaderLockBMSTables();
+            PublishPlaylistOperationNotificationReceipt(notificationSession, "playlist delete entries notification");
         }
     }
 
@@ -542,18 +558,44 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        using BMSPlaylist.OperationNotificationScope scope = BMSPlaylist.BeginOperationNotificationScope();
+        BMSPlaylist store = GetPlaylistStore();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession session = store.OperationNotificationOwner.BeginSession();
         try
         {
             operation();
         }
         finally
         {
-            RaiseRequiredEvent(
-                PlaylistOperationNotificationsFlushRequested,
-                new PlaylistOperationNotificationsFlushRequestedEventArgs(scope, routeName),
-                nameof(PlaylistOperationNotificationsFlushRequested));
+            PublishPlaylistOperationNotificationReceipt(session, routeName);
         }
+    }
+
+    internal async Task RunWithPlaylistOperationNotificationsAsync(Func<Task> operation, string routeName)
+    {
+        if (operation == null)
+        {
+            return;
+        }
+        BMSPlaylist store = GetPlaylistStore();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession session = store.OperationNotificationOwner.BeginSession();
+        try
+        {
+            await operation().ConfigureAwait(false);
+        }
+        finally
+        {
+            PublishPlaylistOperationNotificationReceipt(session, routeName);
+        }
+    }
+
+    private void PublishPlaylistOperationNotificationReceipt(
+        PlaylistOperationNotificationOwner.OperationNotificationSession session,
+        string routeName)
+    {
+        RaiseRequiredEvent(
+            PlaylistOperationNotificationPresentationRequested,
+            new PlaylistOperationNotificationPresentationRequestedEventArgs(session.TakeReceipt(), routeName),
+            nameof(PlaylistOperationNotificationPresentationRequested));
     }
 
     private void PublishEntriesChanged(BMSTable table, bool refreshSummaryIfVisible = true)
@@ -604,17 +646,17 @@ internal sealed class PlaylistWorkspaceMutationRejectedEventArgs : EventArgs
     internal PlaylistWorkspaceMutationKind Kind { get; }
 }
 
-internal sealed class PlaylistOperationNotificationsFlushRequestedEventArgs : EventArgs
+internal sealed class PlaylistOperationNotificationPresentationRequestedEventArgs : EventArgs
 {
-    internal PlaylistOperationNotificationsFlushRequestedEventArgs(
-        BMSPlaylist.OperationNotificationScope scope,
+    internal PlaylistOperationNotificationPresentationRequestedEventArgs(
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
         string routeName)
     {
-        Scope = scope;
+        Receipt = receipt ?? throw new ArgumentNullException(nameof(receipt));
         RouteName = routeName;
     }
 
-    internal BMSPlaylist.OperationNotificationScope Scope { get; }
+    internal PlaylistOperationNotificationOwner.OperationNotificationReceipt Receipt { get; }
 
     internal string RouteName { get; }
 }

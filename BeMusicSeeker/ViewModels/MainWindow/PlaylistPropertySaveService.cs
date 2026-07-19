@@ -45,7 +45,7 @@ internal sealed class PlaylistPropertySaveService
 
     internal event EventHandler<PlaylistPropertyEntriesChangedEventArgs> PlaylistPropertyEntriesChanged;
 
-    internal event EventHandler<PlaylistPropertyNotificationsFlushRequestedEventArgs> PlaylistPropertyNotificationsFlushRequested;
+    internal event EventHandler<PlaylistOperationNotificationPresentationRequestedEventArgs> PlaylistOperationNotificationPresentationRequested;
 
     internal PlaylistPropertySaveService(
         Func<BMSPlaylist> playlistStore,
@@ -265,7 +265,7 @@ internal sealed class PlaylistPropertySaveService
         PlaylistPropertyBaseline baseline = commit.Baseline;
         CustomFolderOutputSettingsSnapshot settings = commit.Settings;
         BMSTable table = commit.Table;
-        using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = store.OperationNotificationOwner.BeginSession();
         bool prefixChanged = !string.Equals(baseline.CompatPrefix, table.compat_prefix, StringComparison.Ordinal);
         bool outputDirectoryChanged = !string.Equals(
             BMSTable.NormalizeOutputDirectoryName(baseline.OutputDirectory),
@@ -380,9 +380,9 @@ internal sealed class PlaylistPropertySaveService
                         EventArgs.Empty,
                         "Playlist property sync-finish presentation");
                     RaiseRequiredEvent(
-                        PlaylistPropertyNotificationsFlushRequested,
-                        new PlaylistPropertyNotificationsFlushRequestedEventArgs(
-                            notificationScope,
+                        PlaylistOperationNotificationPresentationRequested,
+                        new PlaylistOperationNotificationPresentationRequestedEventArgs(
+                            notificationSession.TakeReceipt(),
                             "playlist property external sync notification"),
                         "Playlist property notification flushing");
                 }
@@ -494,9 +494,9 @@ internal sealed class PlaylistPropertySaveService
             finally
             {
                 RaiseRequiredEvent(
-                    PlaylistPropertyNotificationsFlushRequested,
-                    new PlaylistPropertyNotificationsFlushRequestedEventArgs(
-                        notificationScope,
+                    PlaylistOperationNotificationPresentationRequested,
+                    new PlaylistOperationNotificationPresentationRequestedEventArgs(
+                        notificationSession.TakeReceipt(),
                         "playlist property custom folder notification"),
                     "Playlist property notification flushing");
             }
@@ -920,19 +920,4 @@ internal sealed class PlaylistPropertyEntriesChangedEventArgs : EventArgs
     internal BMSTable Table { get; }
 
     internal bool RefreshSummaryIfVisible { get; }
-}
-
-internal sealed class PlaylistPropertyNotificationsFlushRequestedEventArgs : EventArgs
-{
-    internal PlaylistPropertyNotificationsFlushRequestedEventArgs(
-        BMSPlaylist.OperationNotificationScope scope,
-        string routeName)
-    {
-        Scope = scope;
-        RouteName = routeName;
-    }
-
-    internal BMSPlaylist.OperationNotificationScope Scope { get; }
-
-    internal string RouteName { get; }
 }

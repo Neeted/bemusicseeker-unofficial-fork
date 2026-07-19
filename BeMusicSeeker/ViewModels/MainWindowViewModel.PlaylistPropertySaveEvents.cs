@@ -160,18 +160,11 @@ public partial class MainWindowViewModel
         ShowExternalPlaylistImportQueueSummary(request?.Summary);
     }
 
-    private void PlaylistWorkspacePlaylistImportNotificationsFlushRequested(
+    private void PlaylistWorkspacePlaylistOperationNotificationPresentationRequested(
         object sender,
-        PlaylistImportNotificationsFlushRequestedEventArgs request)
+        PlaylistOperationNotificationPresentationRequestedEventArgs request)
     {
-        FlushPlaylistOperationNotifications(request.Scope, request.RouteName);
-    }
-
-    private void PlaylistWorkspacePlaylistOperationNotificationsFlushRequested(
-        object sender,
-        PlaylistOperationNotificationsFlushRequestedEventArgs request)
-    {
-        FlushPlaylistOperationNotifications(request.Scope, request.RouteName);
+        PresentPlaylistOperationNotifications(request.Receipt, request.RouteName);
     }
 
     private void PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed(
@@ -250,10 +243,4 @@ public partial class MainWindowViewModel
         ShowPlaylistLoadFailure(request.Exception);
     }
 
-    private void PlaylistWorkspacePlaylistPropertyNotificationsFlushRequested(
-        object sender,
-        PlaylistPropertyNotificationsFlushRequestedEventArgs request)
-    {
-        FlushPlaylistOperationNotifications(request.Scope, request.RouteName);
-    }
 }

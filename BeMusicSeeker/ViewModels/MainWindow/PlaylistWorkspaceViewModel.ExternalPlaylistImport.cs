@@ -16,8 +16,6 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<ExternalPlaylistImportQueueSummaryReadyEventArgs> ExternalPlaylistImportQueueSummaryReady;
 
-    internal event EventHandler<PlaylistImportNotificationsFlushRequestedEventArgs> PlaylistImportNotificationsFlushRequested;
-
     internal event EventHandler<ExternalPlaylistImportSummaryRefreshFailedEventArgs> ExternalPlaylistImportSummaryRefreshFailed;
 
     internal void EnqueueExternalPlaylistBMSTableImport(Uri uri)
@@ -38,7 +36,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         const int ExternalPlaylistImportPostProgressStepCount = 4;
         List<ExternalPlaylistImportOutcome> outcomes = [];
         BMSPlaylist tables = GetPlaylistStore();
-        using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
+        using PlaylistOperationNotificationOwner.OperationNotificationSession notificationSession = tables.OperationNotificationOwner.BeginSession();
         BeginPlaylistSyncProgressOperation();
         try
         {
@@ -198,10 +196,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         finally
         {
             EndPlaylistSyncProgressOperation();
-            PlaylistImportNotificationsFlushRequested?.Invoke(
+            PlaylistOperationNotificationPresentationRequested?.Invoke(
                 this,
-                new PlaylistImportNotificationsFlushRequestedEventArgs(
-                    notificationScope,
+                new PlaylistOperationNotificationPresentationRequestedEventArgs(
+                    notificationSession.TakeReceipt(),
                     "external playlist import notification"));
         }
         ExternalPlaylistImportQueueSummaryReady?.Invoke(
@@ -415,21 +413,6 @@ internal sealed class ExternalPlaylistImportQueueSummaryReadyEventArgs : EventAr
     }
 
     internal ExternalPlaylistImportQueueSummary Summary { get; }
-}
-
-internal sealed class PlaylistImportNotificationsFlushRequestedEventArgs : EventArgs
-{
-    internal PlaylistImportNotificationsFlushRequestedEventArgs(
-        BMSPlaylist.OperationNotificationScope scope,
-        string routeName)
-    {
-        Scope = scope;
-        RouteName = routeName;
-    }
-
-    internal BMSPlaylist.OperationNotificationScope Scope { get; }
-
-    internal string RouteName { get; }
 }
 
 internal sealed class ExternalPlaylistImportSummaryRefreshFailedEventArgs : EventArgs

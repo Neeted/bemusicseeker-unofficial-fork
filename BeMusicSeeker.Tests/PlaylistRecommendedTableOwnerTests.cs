@@ -99,21 +99,23 @@ public sealed class PlaylistRecommendedTableOwnerTests
     [TestMethod]
     public void LoadWalkureTable_RecommendedFetchFailureQueuesWarningAndThrows()
     {
-        var warnings = new List<string>();
         var httpClient = new FakeHttpClient
         {
             GetStringHandler = _ => "{\"status\":\"failed\",\"message\":\"offline\"}"
         };
+        var notificationOwner = new PlaylistOperationNotificationOwner();
         PlaylistRecommendedTableOwner owner = CreateOwner(
             httpClient: httpClient,
-            queueWarning: (message, _) => warnings.Add(message));
+            notificationOwner: notificationOwner);
 
+        using PlaylistOperationNotificationOwner.OperationNotificationSession session = notificationOwner.BeginSession();
         InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
             () => owner.LoadWalkureTable(new Uri("bmseeker:table.recommended?id=123&mode=readonly")));
 
         Assert.AreEqual(Resources.Error_RecommendFetchFailed, exception.Message);
-        Assert.AreEqual(1, warnings.Count);
-        StringAssert.Contains(warnings[0], "offline");
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
+        Assert.AreEqual(1, receipt.Notifications.Count);
+        StringAssert.Contains(receipt.Notifications[0].Message, "offline");
         Assert.AreEqual(1, httpClient.GetUris.Count);
     }
 
@@ -168,7 +170,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
             httpClient.PostFormHandler = (_, form) => string.Empty;
             var postForms = new List<NameValueCollection>();
             httpClient.PostFormObserver = form => postForms.Add(form);
-            var information = new List<string>();
+            var notificationOwner = new PlaylistOperationNotificationOwner();
             PlaylistRecommendedTableOwner owner = CreateOwner(
                 scoreDbPath,
                 () =>
@@ -180,9 +182,10 @@ public sealed class PlaylistRecommendedTableOwnerTests
                 }],
                 httpClient,
                 uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : overjoy,
-                queueInformation: (message, _) => information.Add(message));
+                notificationOwner: notificationOwner);
             var baseTable = new BMSTable { org_name = "Recommended ★11.00" };
 
+            using PlaylistOperationNotificationOwner.OperationNotificationSession session = notificationOwner.BeginSession();
             BMSTable table = owner.LoadWalkureTable(
                 new Uri("bmseeker:table.recommended?mode=normal&filter=clear&base=failed"),
                 baseTable);
@@ -194,8 +197,9 @@ public sealed class PlaylistRecommendedTableOwnerTests
             Assert.AreEqual(1, table.entries.Count);
             Assert.AreEqual("CLEAR", table.entries.Single().folder);
             Assert.AreEqual(3.5, table.entries.Single().level);
-            Assert.AreEqual(1, information.Count);
-            StringAssert.Contains(information[0], "12.50");
+            PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt = session.TakeReceipt();
+            Assert.AreEqual(1, receipt.Notifications.Count);
+            StringAssert.Contains(receipt.Notifications[0].Message, "12.50");
         }
         finally
         {
@@ -212,8 +216,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
         Func<List<BMSScore>>? bmsScoresProvider = null,
         IPlaylistRecommendedTableHttpClient? httpClient = null,
         Func<Uri, BMSTable>? externalTableLoader = null,
-        Action<string, string>? queueWarning = null,
-        Action<string, string>? queueInformation = null)
+        PlaylistOperationNotificationOwner? notificationOwner = null)
     {
         return new PlaylistRecommendedTableOwner(
             lr2ScoreDbPath: lr2ScoreDbPath,
@@ -221,8 +224,7 @@ public sealed class PlaylistRecommendedTableOwnerTests
             initializationSemaphoreProvider: () => null,
             externalTableLoader: externalTableLoader ?? (_ => null!),
             httpClient: httpClient ?? new FakeHttpClient(),
-            queueWarning: queueWarning ?? ((_, _) => { }),
-            queueInformation: queueInformation ?? ((_, _) => { }));
+            notificationOwner: notificationOwner ?? new PlaylistOperationNotificationOwner());
     }
 
     private sealed class FakeHttpClient : IPlaylistRecommendedTableHttpClient

@@ -4082,7 +4082,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
         PlaylistWorkspace.MutationRejected += PlaylistWorkspaceMutationRejected;
-        PlaylistWorkspace.PlaylistOperationNotificationsFlushRequested += PlaylistWorkspacePlaylistOperationNotificationsFlushRequested;
+        PlaylistWorkspace.PlaylistOperationNotificationPresentationRequested += PlaylistWorkspacePlaylistOperationNotificationPresentationRequested;
         PlaylistWorkspace.PlaylistReferenceSortInvalidationRequested += PlaylistWorkspacePlaylistReferenceSortInvalidationRequested;
         PlaylistWorkspace.PlaylistTableRemovalInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistTableRemovalInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistTableRemovalConfirmationRequested += PlaylistWorkspacePlaylistTableRemovalConfirmationRequested;
@@ -4093,7 +4093,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistSummaryRemovalConfirmationRequested += PlaylistWorkspacePlaylistSummaryRemovalConfirmationRequested;
         PlaylistWorkspace.PlaylistFolderRemovalConfirmationRequested += PlaylistWorkspacePlaylistFolderRemovalConfirmationRequested;
         PlaylistWorkspace.ExternalPlaylistImportQueueSummaryReady += PlaylistWorkspaceExternalPlaylistImportQueueSummaryReady;
-        PlaylistWorkspace.PlaylistImportNotificationsFlushRequested += PlaylistWorkspacePlaylistImportNotificationsFlushRequested;
         PlaylistWorkspace.ExternalPlaylistImportSummaryRefreshFailed += PlaylistWorkspaceExternalPlaylistImportSummaryRefreshFailed;
         PlaylistWorkspace.BeatorajaTableUrlImportConfirmationRequested += PlaylistWorkspaceBeatorajaTableUrlImportConfirmationRequested;
         PlaylistWorkspace.BeatorajaTableUrlImportNotificationRequested += PlaylistWorkspaceBeatorajaTableUrlImportNotificationRequested;
@@ -4105,7 +4104,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistPropertyExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistPropertyExternalSyncConfirmationRequested;
         PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += PlaylistWorkspacePlaylistPropertyExternalSyncFailed;
-        PlaylistWorkspace.PlaylistPropertyNotificationsFlushRequested += PlaylistWorkspacePlaylistPropertyNotificationsFlushRequested;
         PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
         PlaylistWorkspace.PlaylistEntriesHydrationRequested += PlaylistWorkspacePlaylistEntriesHydrationRequested;
@@ -11422,19 +11420,25 @@ public partial class MainWindowViewModel : ViewModel
         ThrowIfUiDialogNotShown(result, routeName);
     }
 
-    private static void FlushPlaylistOperationNotifications(BMSPlaylist.OperationNotificationScope scope, string routeName)
+    private static void PresentPlaylistOperationNotifications(
+        PlaylistOperationNotificationOwner.OperationNotificationReceipt receipt,
+        string routeName)
     {
-        scope?.Flush(notification =>
+        if (receipt == null)
+        {
+            return;
+        }
+        foreach (PlaylistOperationNotificationOwner.OperationNotification notification in receipt.Notifications)
         {
             MessageBoxImage icon = notification.Severity switch
             {
-                BMSPlaylist.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
-                BMSPlaylist.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
-                BMSPlaylist.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information => MessageBoxImage.Asterisk,
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning => MessageBoxImage.Exclamation,
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error => MessageBoxImage.Hand,
                 _ => MessageBoxImage.None,
             };
             ShowUiMessage(notification.Message, notification.Caption, icon, routeName);
-        });
+        }
     }
 
     private static bool ToUiConfirmationDecision(UiDialogResult result, string routeName)
