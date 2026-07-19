@@ -88,7 +88,6 @@ public sealed class DialogRouteConsolidationTests
     {
         string root = FindRepositoryRoot();
         string playlistCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        string notificationOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistOperationNotificationOwner.cs"));
         string ubmplayCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "uBMplay.cs"));
         string fastDirectoryEnumeratorCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "FastDirectoryEnumerator.cs"));
         string taskExCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "TaskEx.cs"));
@@ -98,12 +97,10 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(ubmplayCode.Contains("DispatcherMessageBox.Show("), "uBMplay must report startup failures to its caller instead of showing message boxes from the model layer.");
         Assert.IsFalse(fastDirectoryEnumeratorCode.Contains("DispatcherMessageBox.Show("), "FastDirectoryEnumerator must not show message boxes while enumerating utility paths.");
         Assert.IsFalse(taskExCode.Contains("DispatcherMessageBox.Show("), "TaskEx must record task faults without showing message boxes from utility continuations.");
-        Assert.IsFalse(playlistCode.Contains("OperationNotificationScope"), "BMSPlaylist must not own operation notification scope state.");
-        Assert.IsFalse(playlistCode.Contains("QueueOperationNotification"), "BMSPlaylist must not own operation notification queueing.");
-        StringAssert.Contains(notificationOwnerCode, "OperationNotificationScope");
-        StringAssert.Contains(notificationOwnerCode, "QueueNotification");
+        StringAssert.Contains(playlistCode, "OperationNotificationScope");
+        StringAssert.Contains(playlistCode, "QueueOperationNotification");
         StringAssert.Contains(viewModelCode, "FlushPlaylistOperationNotifications(");
-        StringAssert.Contains(viewModelCode, "OperationNotificationOwner.BeginScope()");
+        StringAssert.Contains(viewModelCode, "BMSPlaylist.BeginOperationNotificationScope()");
     }
 
     [TestMethod]

@@ -5389,7 +5389,7 @@ public partial class MainWindowViewModel
                     CustomFolderOutputBaseSearchRootSyncPlan normalOutputBaseRootSyncPlan = default;
                     CustomFolderOutputBaseSearchRootSyncResult normalOutputBaseRootSyncResult = default;
                     bool rootOutputBaseRootSyncChanged = false;
-                    using PlaylistOperationNotificationOwner.OperationNotificationScope notificationScope = ownerViewModel.tables.OperationNotificationOwner.BeginScope();
+                    using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
                     try
                     {
                         await Task.Run(delegate

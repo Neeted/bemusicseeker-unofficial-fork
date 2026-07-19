@@ -94,15 +94,12 @@ public sealed partial class PlaylistWorkspaceViewModel
             {
                 ExternalPlaylistSyncRequestSnapshot request = CaptureDeferredExternalSyncRequest();
                 DateTime startedAt = DateTime.UtcNow;
-                BMSPlaylist currentPlaylists = null;
-                PlaylistOperationNotificationOwner.OperationNotificationScope notificationScope = null;
+                using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
                 bool succeeded = false;
                 int updatedCount = 0;
                 try
                 {
                     BeginPlaylistSyncProgressOperation();
-                    currentPlaylists = GetPlaylistStore();
-                    notificationScope = currentPlaylists.OperationNotificationOwner.BeginScope();
                     string operationKind = GetPlaylistReloadOperationKindText(
                         request.Reason,
                         request.FromReloadTables);
@@ -123,6 +120,11 @@ public sealed partial class PlaylistWorkspaceViewModel
                     List<Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext>> updateCallbackActions = request.UpdateCallback == null
                         ? null
                         : [request.UpdateCallback];
+                    BMSPlaylist currentPlaylists = getPlaylistStore();
+                    if (currentPlaylists == null)
+                    {
+                        throw new InvalidOperationException("Playlist persistence is not available.");
+                    }
                     List<BMSTable> tables = await currentPlaylists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
                         reloadExtPlaylist: true,
                         updateCallbackActions,
@@ -211,17 +213,10 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
                 finally
                 {
-                    try
-                    {
-                        EndPlaylistSyncProgressOperation();
-                        RaisePlaylistOperationNotificationsFlushRequested(
-                            notificationScope,
-                            "external playlist sync notification");
-                    }
-                    finally
-                    {
-                        notificationScope?.Dispose();
-                    }
+                    EndPlaylistSyncProgressOperation();
+                    RaisePlaylistOperationNotificationsFlushRequested(
+                        notificationScope,
+                        "external playlist sync notification");
                 }
 
                 PlaylistExternalSyncCompleted?.Invoke(
@@ -379,7 +374,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     private void RaisePlaylistOperationNotificationsFlushRequested(
-        PlaylistOperationNotificationOwner.OperationNotificationScope scope,
+        BMSPlaylist.OperationNotificationScope scope,
         string routeName)
     {
         PlaylistOperationNotificationsFlushRequested?.Invoke(

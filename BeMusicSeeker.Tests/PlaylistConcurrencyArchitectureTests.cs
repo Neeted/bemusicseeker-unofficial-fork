@@ -246,27 +246,6 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
-    public void PlaylistOperationNotifications_AreOwnedOutsideBmsPlaylist()
-    {
-        string root = FindRepositoryRoot();
-        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        string ownerSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistOperationNotificationOwner.cs"));
-        string workspaceSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.Mutations.cs"));
-        string importSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.ExternalPlaylistImport.cs"));
-        string propertySource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistPropertySaveService.cs"));
-
-        Assert.IsFalse(playlistSource.Contains("OperationNotificationScope"));
-        Assert.IsFalse(playlistSource.Contains("QueueOperationNotification"));
-        StringAssert.Contains(playlistSource, "new PlaylistOperationNotificationOwner()");
-        StringAssert.Contains(playlistSource, "operationNotificationOwner.QueueWarning");
-        StringAssert.Contains(ownerSource, "AsyncLocal<OperationNotificationScope>");
-        StringAssert.Contains(ownerSource, "OperationNotificationSeverity");
-        StringAssert.Contains(workspaceSource, "playlistStore.OperationNotificationOwner.BeginScope()");
-        StringAssert.Contains(importSource, "tables.OperationNotificationOwner.BeginScope()");
-        StringAssert.Contains(propertySource, "store.OperationNotificationOwner.BeginScope()");
-    }
-
-    [TestMethod]
     public void CustomFolderProjectionAndMaterialization_UseDedicatedOwner()
     {
         string root = FindRepositoryRoot();

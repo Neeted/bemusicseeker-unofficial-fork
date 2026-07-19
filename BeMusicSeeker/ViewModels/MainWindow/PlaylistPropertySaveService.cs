@@ -265,7 +265,7 @@ internal sealed class PlaylistPropertySaveService
         PlaylistPropertyBaseline baseline = commit.Baseline;
         CustomFolderOutputSettingsSnapshot settings = commit.Settings;
         BMSTable table = commit.Table;
-        using PlaylistOperationNotificationOwner.OperationNotificationScope notificationScope = store.OperationNotificationOwner.BeginScope();
+        using BMSPlaylist.OperationNotificationScope notificationScope = BMSPlaylist.BeginOperationNotificationScope();
         bool prefixChanged = !string.Equals(baseline.CompatPrefix, table.compat_prefix, StringComparison.Ordinal);
         bool outputDirectoryChanged = !string.Equals(
             BMSTable.NormalizeOutputDirectoryName(baseline.OutputDirectory),
@@ -925,14 +925,14 @@ internal sealed class PlaylistPropertyEntriesChangedEventArgs : EventArgs
 internal sealed class PlaylistPropertyNotificationsFlushRequestedEventArgs : EventArgs
 {
     internal PlaylistPropertyNotificationsFlushRequestedEventArgs(
-        PlaylistOperationNotificationOwner.OperationNotificationScope scope,
+        BMSPlaylist.OperationNotificationScope scope,
         string routeName)
     {
         Scope = scope;
         RouteName = routeName;
     }
 
-    internal PlaylistOperationNotificationOwner.OperationNotificationScope Scope { get; }
+    internal BMSPlaylist.OperationNotificationScope Scope { get; }
 
     internal string RouteName { get; }
 }

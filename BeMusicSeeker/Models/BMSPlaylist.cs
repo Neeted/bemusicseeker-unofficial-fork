@@ -42,6 +42,124 @@ public partial class BMSPlaylist : NotificationObject
 {
     private const string CustomFolderOutputLr2FolderEnumerationGroupName = "lr2folder";
 
+    private static readonly AsyncLocal<OperationNotificationScope> currentOperationNotificationScope = new();
+
+    internal enum OperationNotificationSeverity
+    {
+        Information,
+        Warning,
+        Error
+    }
+
+    internal sealed class OperationNotification
+    {
+        internal OperationNotification(string message, string caption, OperationNotificationSeverity severity)
+        {
+            Message = message;
+            Caption = caption;
+            Severity = severity;
+        }
+
+        internal string Message { get; }
+
+        internal string Caption { get; }
+
+        internal OperationNotificationSeverity Severity { get; }
+    }
+
+    internal sealed class OperationNotificationScope : IDisposable
+    {
+        private readonly object gate = new();
+        private readonly OperationNotificationScope parent;
+        private readonly List<OperationNotification> notifications = [];
+        private bool disposed;
+
+        internal OperationNotificationScope()
+        {
+            parent = currentOperationNotificationScope.Value;
+            currentOperationNotificationScope.Value = this;
+        }
+
+        internal IReadOnlyList<OperationNotification> Notifications
+        {
+            get
+            {
+                lock (gate)
+                {
+                    return [.. notifications];
+                }
+            }
+        }
+
+        internal void Add(OperationNotification notification)
+        {
+            if (notification == null)
+            {
+                return;
+            }
+            lock (gate)
+            {
+                notifications.Add(notification);
+            }
+        }
+
+        internal void Flush(Action<OperationNotification> presenter)
+        {
+            if (presenter == null)
+            {
+                throw new ArgumentNullException(nameof(presenter));
+            }
+            List<OperationNotification> snapshot;
+            lock (gate)
+            {
+                snapshot = [.. notifications];
+                notifications.Clear();
+            }
+            foreach (OperationNotification notification in snapshot)
+            {
+                presenter(notification);
+            }
+        }
+
+        public void Dispose()
+        {
+            if (disposed)
+            {
+                return;
+            }
+            if (ReferenceEquals(currentOperationNotificationScope.Value, this))
+            {
+                currentOperationNotificationScope.Value = parent;
+            }
+            disposed = true;
+        }
+    }
+
+    internal static OperationNotificationScope BeginOperationNotificationScope()
+    {
+        return new OperationNotificationScope();
+    }
+
+    private static void QueueOperationWarning(string message, string caption = null)
+    {
+        QueueOperationNotification(message, caption ?? Resources.MessageBoxTitle_Warning, OperationNotificationSeverity.Warning);
+    }
+
+    private static void QueueOperationInformation(string message, string caption)
+    {
+        QueueOperationNotification(message, caption, OperationNotificationSeverity.Information);
+    }
+
+    private static void QueueOperationNotification(string message, string caption, OperationNotificationSeverity severity)
+    {
+        OperationNotificationScope scope = currentOperationNotificationScope.Value;
+        if (scope == null)
+        {
+            throw new InvalidOperationException("BMSPlaylist operation notification scope is not active.");
+        }
+        scope.Add(new OperationNotification(message, caption, severity));
+    }
+
     /// <summary>
     /// プレイリスト更新処理の性能ログを出力するロガーです。
     /// </summary>
@@ -122,8 +240,6 @@ public partial class BMSPlaylist : NotificationObject
 
     private readonly PlaylistShutdownCoordinator shutdownCoordinator = new();
 
-    private readonly PlaylistOperationNotificationOwner operationNotificationOwner;
-
     private readonly PlaylistBmtOutputOwner bmtOutput;
 
     private readonly PlaylistRecommendedTableOwner recommendedTableOwner;
@@ -177,8 +293,6 @@ public partial class BMSPlaylist : NotificationObject
     internal PlaylistBmtOutputOwner BmtOutput => bmtOutput;
 
     internal PlaylistExternalSyncOwner ExternalSyncOwner => externalSyncOwner;
-
-    internal PlaylistOperationNotificationOwner OperationNotificationOwner => operationNotificationOwner;
 
     internal bool IsShutdownRequested => shutdownCoordinator.IsRequested;
 
@@ -538,7 +652,6 @@ public partial class BMSPlaylist : NotificationObject
         this.beatorajaBmtOptionsProvider = beatorajaBmtOptionsProvider ?? BeatorajaBmtOptionsSnapshot.CreateCurrent;
         this.customFolderOutputSettingsProvider = customFolderOutputSettingsProvider ?? CustomFolderOutputSettingsSnapshot.CreateCurrent;
         this.lr2PlaylistFolderSynchronization = lr2PlaylistFolderSynchronization;
-        operationNotificationOwner = new PlaylistOperationNotificationOwner();
         playlistEntriesHydrationOwner = new PlaylistEntriesHydrationOwner(
             playlistPersistenceRepository,
             () => playlistAggregatePersistenceOwner.GetActiveCollectionSnapshot(),
@@ -565,8 +678,8 @@ public partial class BMSPlaylist : NotificationObject
             () => initSemaphore,
             uri => externalSyncOwnerLocal.LoadExternalTable(uri),
             new AppPlaylistRecommendedTableHttpClient(playlistHttpClient),
-            (message, caption) => operationNotificationOwner.QueueWarning(message, caption),
-            (message, caption) => operationNotificationOwner.QueueInformation(message, caption));
+            (message, caption) => QueueOperationWarning(message, caption),
+            (message, caption) => QueueOperationInformation(message, caption));
         externalSyncOwnerLocal = new PlaylistExternalSyncOwner(
             playlistHttpClient,
             recommendedTableOwner,
@@ -696,7 +809,7 @@ public partial class BMSPlaylist : NotificationObject
             DeleteCustomFolderOutputStatus,
             ResolveCustomFolderOutputDirectory,
             LogPlaylistPerformance,
-             message => operationNotificationOwner.QueueWarning(message));
+             message => QueueOperationWarning(message));
         playlistAggregatePersistenceOwner.AttachEntriesHydrationOwner(playlistEntriesHydrationOwner);
         playlistEntriesHydrationOwner.PropertyChanged += (_, eventArgs) =>
             RaisePropertyChanged(eventArgs.PropertyName);

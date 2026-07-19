@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 
@@ -543,8 +542,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             return;
         }
-        BMSPlaylist playlistStore = GetPlaylistStore();
-        using PlaylistOperationNotificationOwner.OperationNotificationScope scope = playlistStore.OperationNotificationOwner.BeginScope();
+        using BMSPlaylist.OperationNotificationScope scope = BMSPlaylist.BeginOperationNotificationScope();
         try
         {
             operation();
@@ -609,14 +607,14 @@ internal sealed class PlaylistWorkspaceMutationRejectedEventArgs : EventArgs
 internal sealed class PlaylistOperationNotificationsFlushRequestedEventArgs : EventArgs
 {
     internal PlaylistOperationNotificationsFlushRequestedEventArgs(
-        PlaylistOperationNotificationOwner.OperationNotificationScope scope,
+        BMSPlaylist.OperationNotificationScope scope,
         string routeName)
     {
         Scope = scope;
         RouteName = routeName;
     }
 
-    internal PlaylistOperationNotificationOwner.OperationNotificationScope Scope { get; }
+    internal BMSPlaylist.OperationNotificationScope Scope { get; }
 
     internal string RouteName { get; }
 }
