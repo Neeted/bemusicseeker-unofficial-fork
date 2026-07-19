@@ -478,55 +478,6 @@ public partial class BMSPlaylist
         return tableStats;
     }
 
-    private BMSTable ResolveOwningTableForEntry(BMSTableEntry entry)
-    {
-        bool parentRetiredOrRemoved = false;
-        if (entry?.parent != null)
-        {
-            lock (playlistPersistenceGate)
-            {
-                if (playlistReloadApplyReservations.Contains(entry.parent)
-                    || playlistReloadRetiredTables.TryGetValue(entry.parent, out _)
-                    || playlistRemovedTables.TryGetValue(entry.parent, out _)
-                    || playlistKnownActiveTables.TryGetValue(entry.parent, out _))
-                {
-                    parentRetiredOrRemoved = true;
-                }
-            }
-            if (!parentRetiredOrRemoved && ContainsBMSTable(entry.parent))
-            {
-                return entry.parent;
-            }
-        }
-        if (entry?.playlist_id == null)
-        {
-            return parentRetiredOrRemoved ? null : entry?.parent;
-        }
-        using (rwlockBMSTables.GetReaderGuard())
-        {
-            BMSTable activeTable = BMSTables.FirstOrDefault(table => table != null && table.playlist_id == entry.playlist_id);
-            if (activeTable != null)
-            {
-                return activeTable;
-            }
-        }
-        if (entry.parent != null
-            && !parentRetiredOrRemoved)
-        {
-            lock (playlistPersistenceGate)
-            {
-                if (!playlistReloadApplyReservations.Contains(entry.parent)
-                    && !playlistReloadRetiredTables.TryGetValue(entry.parent, out _)
-                    && !playlistRemovedTables.TryGetValue(entry.parent, out _)
-                    && !playlistKnownActiveTables.TryGetValue(entry.parent, out _))
-                {
-                    return entry.parent;
-                }
-            }
-        }
-        return null;
-    }
-
     private sealed class PlaylistUrlCompletionRefreshSourceResult
     {
         public bool ShouldReplaceSnapshot { get; private set; }

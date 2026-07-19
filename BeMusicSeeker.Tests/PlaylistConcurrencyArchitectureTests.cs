@@ -13,11 +13,17 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
         string method = ExtractMethodBody(source, "internal async Task<BMSTable> RegistrateExternalTableAsync(BMSTable bMSTable");
+        string commitAndAddMethod = ExtractMethodBody(source, "private Task CommitAndAddBMSTableAsync");
+        string commitAndAddWriterBlock = ExtractBlockBody(commitAndAddMethod, "using (rwlockBMSTables.GetWriterGuard())");
 
-        StringAssert.Contains(method, "await AddCommittedBMSTableToVisibleCollectionAsync(bMSTable).ConfigureAwait(false)");
+        StringAssert.Contains(method, "await CommitAndAddBMSTableAsync(bMSTable).ConfigureAwait(false)");
         Assert.IsFalse(
             method.Contains("BMSTables.Add(bMSTable);"),
             "External registration must not call DispatcherCollection.Add while the registration writer lock is held.");
+        Assert.IsFalse(
+            commitAndAddWriterBlock.Contains("CommitBMSTable("),
+            "External registration collection writer must not cover playlist DB persistence.");
+        StringAssert.Contains(commitAndAddMethod, "playlistAggregatePersistenceOwner.TryBeginRegistration()");
     }
 
     [TestMethod]
@@ -30,8 +36,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         Assert.IsFalse(
             writerBlock.Contains("CommitBMSTable("),
             "External registration writer lock must not cover playlist DB persistence.");
-        StringAssert.Contains(method, "CommitBMSTable(bMSTable, requireCurrentTarget: false);");
-        StringAssert.Contains(method, "await AddCommittedBMSTableToVisibleCollectionAsync(bMSTable).ConfigureAwait(false)");
+        StringAssert.Contains(method, "await CommitAndAddBMSTableAsync(bMSTable).ConfigureAwait(false)");
     }
 
     [TestMethod]
@@ -39,14 +44,19 @@ public sealed class PlaylistConcurrencyArchitectureTests
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
         string method = ExtractMethodBody(source, "internal async Task<RegisteredExternalTableBatchResult> RegistrateExternalTablesAsync");
+        string commitAndAddMethod = ExtractMethodBody(source, "private Task CommitAndAddBMSTablesAsync");
+        string commitAndAddWriterBlock = ExtractBlockBody(commitAndAddMethod, "using (rwlockBMSTables.GetWriterGuard())");
         string writerBlock = ExtractBlockBody(method, "using (rwlockBMSTables.GetWriterGuard())");
 
         Assert.IsFalse(
             writerBlock.Contains("CommitBMSTable("),
             "Batch external registration writer lock must not cover playlist DB persistence.");
-        StringAssert.Contains(method, "CommitBMSTable(tableList, requireCurrentTarget: false);");
-        StringAssert.Contains(method, "await AddCommittedBMSTablesToVisibleCollectionAsync(tableList).ConfigureAwait(false)");
+        StringAssert.Contains(method, "await CommitAndAddBMSTablesAsync(tableList).ConfigureAwait(false)");
         StringAssert.Contains(method, "ApplyCachedPlaylistUrlCompletionToTables(tableList, operationReason);");
+        Assert.IsFalse(
+            commitAndAddWriterBlock.Contains("CommitBMSTable("),
+            "Batch external registration collection writer must not cover playlist DB persistence.");
+        StringAssert.Contains(commitAndAddMethod, "playlistAggregatePersistenceOwner.TryBeginRegistration()");
     }
 
     [TestMethod]
@@ -55,10 +65,10 @@ public sealed class PlaylistConcurrencyArchitectureTests
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
         string method = ExtractMethodBody(source, "internal void CommitBMSTablesWithEntriesToDB");
         int tableLockIndex = method.IndexOf("writerGuards.Add(table.ReaderWriterLock.GetWriterGuard())", StringComparison.Ordinal);
-        int repositoryWriteIndex = method.IndexOf("playlistPersistenceRepository.ReplaceTablesWithEntries(tableList", StringComparison.Ordinal);
+        int repositoryWriteIndex = method.IndexOf("playlistAggregatePersistenceOwner.ReplaceTablesWithEntries(", StringComparison.Ordinal);
 
         Assert.IsTrue(tableLockIndex >= 0, "Batch entry commit must acquire table writer locks explicitly.");
-        Assert.IsTrue(repositoryWriteIndex >= 0, "Batch entry commit must delegate the durable write to the playlist persistence repository.");
+        Assert.IsTrue(repositoryWriteIndex >= 0, "Batch entry commit must delegate the durable write to the playlist aggregate persistence owner.");
         Assert.IsTrue(
             tableLockIndex < repositoryWriteIndex,
             "Batch entry commit must keep the existing lock order: table writer lock before playlist repository transaction.");
@@ -513,11 +523,12 @@ public sealed class PlaylistConcurrencyArchitectureTests
     public void CommittedPlaylistVisibleCollectionReflection_IsNotCanceledAfterDatabaseCommit()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
-        string addMethod = ExtractMethodBody(source, "private async Task AddCommittedBMSTableToVisibleCollectionAsync");
-        string invokeAsyncMethod = ExtractMethodBody(source, "private async Task<T> InvokeBMSTablesCollectionMutationAsync<T>");
+        string addMethod = ExtractMethodBody(source, "private Task CommitAndAddBMSTableAsync");
+        string invokeMethod = ExtractMethodBody(source, "private T InvokeBMSTablesCollectionMutation<T>");
 
         Assert.IsFalse(addMethod.Contains("CancellationToken"), "Post-commit visible collection reflection must not accept a cancellation token.");
-        Assert.IsFalse(invokeAsyncMethod.Contains("CancellationToken"), "Post-commit dispatcher reflection must not be canceled after DB commit.");
+        Assert.IsFalse(invokeMethod.Contains("CancellationToken"), "Post-commit dispatcher reflection must not be canceled after DB commit.");
+        StringAssert.Contains(addMethod, "InvokeBMSTablesCollectionMutation(");
     }
 
     [TestMethod]
