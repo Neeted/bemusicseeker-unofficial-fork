@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 using Ribbit.Logging;
 
@@ -55,7 +56,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     continue;
                 }
                 UpdateExternalPlaylistImportProgress(0, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_load_tables);
-                List<BMSPlaylist.PlaylistExternalTableLoadResult> loadResults = await tables.LoadExternalTableSnapshotsAsync(
+                List<PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult> loadResults = await tables.ExternalSyncOwner.LoadExternalTableSnapshotsAsync(
                     loadItems.Select(item => item.SourceTable),
                     inheritLocalTableProperties: false,
                     snapshot => UpdateExternalPlaylistImportProgress(
@@ -69,7 +70,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     schedulePlaylistUrlCompletionRefresh: false).ConfigureAwait(false);
 
                 var itemBySourceTable = loadItems.ToDictionary(item => item.SourceTable);
-                foreach (BMSPlaylist.PlaylistExternalTableLoadResult loadResult in loadResults)
+                foreach (PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult loadResult in loadResults)
                 {
                     if (loadResult == null || !itemBySourceTable.TryGetValue(loadResult.SourceTable, out ExternalPlaylistImportWorkItem item))
                     {
@@ -98,7 +99,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         try
                         {
                             UpdateExternalPlaylistImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Playlist_import_progress_phase_register_playlists);
-                            await tables.RegistrateExternalTablesAsync(
+                            await tables.ExternalSyncOwner.RegistrateExternalTablesAsync(
                                 pendingRegistrationItems.Select(item => item.LoadedTable),
                                 renameDuplicateName: false,
                                 "external_playlist_import",

@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -79,7 +80,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             bool isFullReload = activeTables.Count > 1;
             var stopwatch = Stopwatch.StartNew();
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = null;
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = null;
             try
             {
                 BeginPlaylistSyncProgressOperation();
@@ -88,7 +89,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     + GetPlaylistReloadOperationKindText(isFullReload)
                     + " reason=manual_resync tableCount="
                     + activeTables.Count);
-                results = await playlists.ReloadPlaylistTargetsAsync(
+                results = await playlists.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                     activeTables,
                     [CreateReferenceReplaceUpdateCallback()],
                     result =>
@@ -145,7 +146,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             + (result.PageUri?.ToString() ?? string.Empty));
     }
 
-    internal Action<BMSPlaylist.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()
+    internal Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()
     {
         return updateContext =>
         {

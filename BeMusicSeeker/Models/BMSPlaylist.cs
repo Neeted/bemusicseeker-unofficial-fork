@@ -7,12 +7,9 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Serialization;
-using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Xml.Linq;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
@@ -27,7 +24,6 @@ using Ribbit.Net;
 using Ribbit.Util;
 using Ribbit.Util.Extensions;
 using SQLite;
-using Sgml;
 
 using CustomFolderBatchMaterializationResult = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult;
 using CustomFolderDefinition = BeMusicSeeker.Models.BmsLibraryInternal.PlaylistCustomFolderOutputOwner.CustomFolderDefinition;
@@ -164,58 +160,6 @@ public partial class BMSPlaylist : NotificationObject
         scope.Add(new OperationNotification(message, caption, severity));
     }
 
-    public sealed class PlaylistTableUpdateContext
-    {
-        public BMSTable NewTable { get; internal set; }
-
-        public bool Updated { get; internal set; }
-
-        public bool ReferenceEntriesChanged { get; internal set; }
-
-        public BMSTable OldTable { get; internal set; }
-
-        public IReadOnlyList<BMSTableEntry> OldEntriesSnapshot { get; internal set; }
-
-        public IReadOnlyList<BMSTableEntry> NewEntriesSnapshot { get; internal set; }
-    }
-
-    internal sealed class PlaylistReloadTargetResult
-    {
-        public BMSTable SourceTable { get; internal set; }
-
-        public BMSTable ResultTable { get; internal set; }
-
-        public Uri Uri { get; internal set; }
-
-        public bool Updated { get; internal set; }
-
-        public Exception Exception { get; internal set; }
-
-        public PlaylistTableUpdateContext UpdateContext { get; internal set; }
-
-        public bool Succeeded => Exception == null;
-    }
-
-    internal sealed class PlaylistExternalTableLoadResult
-    {
-        public BMSTable SourceTable { get; internal set; }
-
-        public BMSTable ExternalTable { get; internal set; }
-
-        public Uri Uri { get; internal set; }
-
-        public Exception Exception { get; internal set; }
-
-        public bool Succeeded => Exception == null && ExternalTable != null;
-    }
-
-    internal sealed class RegisteredExternalTableBatchResult
-    {
-        public IReadOnlyList<BMSTable> RegisteredTables { get; internal set; } = [];
-
-        public IReadOnlyList<BMSTable> MigratedCustomFolderTables { get; internal set; } = [];
-    }
-
     /// <summary>
     /// プレイリスト更新処理の性能ログを出力するロガーです。
     /// </summary>
@@ -284,12 +228,6 @@ public partial class BMSPlaylist : NotificationObject
     private static readonly AppHttpClient playlistHttpClient = AppHttpClient.Create(PlaylistWebTimeoutMs);
 
     /// <summary>
-    /// 外部プレイリスト同期で同時に走らせる取得数の上限です。
-    /// HTTP 待ち主体のため CPU 数ではなく接続数ベースで抑制します。
-    /// </summary>
-    private const int ExternalPlaylistSyncMaxConcurrency = 32;
-
-    /// <summary>
     /// プレイリストを保存する LR2 Song DB のパスを保持します。
     /// </summary>
     private readonly string lr2SongDBPath;
@@ -309,6 +247,8 @@ public partial class BMSPlaylist : NotificationObject
     private readonly PlaylistCustomFolderOutputOwner customFolderOutputOwner;
 
     private readonly PlaylistCustomFolderOutputMaintenanceOwner customFolderOutputMaintenanceOwner;
+
+    private readonly PlaylistExternalSyncOwner externalSyncOwner;
 
     private readonly ILr2PlaylistFolderSynchronizationPort lr2PlaylistFolderSynchronization;
 
@@ -351,6 +291,8 @@ public partial class BMSPlaylist : NotificationObject
     internal Func<string, string, string, Func<Task>, bool> StartupBackgroundTaskScheduler { get; set; }
 
     internal PlaylistBmtOutputOwner BmtOutput => bmtOutput;
+
+    internal PlaylistExternalSyncOwner ExternalSyncOwner => externalSyncOwner;
 
     internal bool IsShutdownRequested => shutdownCoordinator.IsRequested;
 
@@ -729,14 +671,116 @@ public partial class BMSPlaylist : NotificationObject
             LogPlaylistPerformance,
             (exception, message) => Ribbit.Logging.NLogWrapper.FileLogger?.Warn(exception, message),
             () => shutdownCoordinator.IsRequested);
+        PlaylistExternalSyncOwner externalSyncOwnerLocal = null;
         recommendedTableOwner = new PlaylistRecommendedTableOwner(
             _lr2ScoreDB,
             getBMSScores ?? (() => null),
             () => initSemaphore,
-            uri => LoadExternalTable(uri),
+            uri => externalSyncOwnerLocal.LoadExternalTable(uri),
             new AppPlaylistRecommendedTableHttpClient(playlistHttpClient),
             (message, caption) => QueueOperationWarning(message, caption),
             (message, caption) => QueueOperationInformation(message, caption));
+        externalSyncOwnerLocal = new PlaylistExternalSyncOwner(
+            playlistHttpClient,
+            recommendedTableOwner,
+            (exception, message) => NLogWrapper.FileLogger?.Warn(exception, message),
+            IsPlaylistUrlCompletionEnabled,
+            SchedulePlaylistUrlCompletionRefresh,
+            playlistAggregatePersistenceOwner,
+            EnsurePlaylistEntriesLoaded,
+            table => playlistAggregatePersistenceOwner.IsActive(table),
+            (table, reason) => BmtOutput.QueueBeatorajaBmtExportForTable(table, reason),
+            ApplyCachedPlaylistUrlCompletionToTable,
+            EnterPlaylistUpdating,
+            ExitPlaylistUpdating,
+            LogPlaylistPerformance,
+            () =>
+            {
+                if (rwlockBMSTables.IsWriteLockHeld)
+                {
+                    return BMSTables == null ? [] : [.. BMSTables];
+                }
+                using (rwlockBMSTables.GetReaderGuard())
+                {
+                    return BMSTables == null ? [] : [.. BMSTables];
+                }
+            },
+            table => InvokeBMSTablesCollectionMutation(delegate
+            {
+                using (rwlockBMSTables.GetWriterGuard())
+                {
+                    if (BMSTables.Contains(table))
+                    {
+                        return true;
+                    }
+                    if (BMSTables.Any(existing => existing != null
+                        && !ReferenceEquals(existing, table)
+                        && string.Equals(existing.name, table.name, StringComparison.Ordinal)))
+                    {
+                        return false;
+                    }
+                    playlistAggregatePersistenceOwner.MarkActiveTables([table]);
+                    BMSTables.Add(table);
+                    return true;
+                }
+            }),
+            tables => InvokeBMSTablesCollectionMutation(delegate
+            {
+                using (rwlockBMSTables.GetWriterGuard())
+                {
+                    var visibleNames = new HashSet<string>(
+                        BMSTables.Select(table => table?.name).Where(name => name != null),
+                        StringComparer.Ordinal);
+                    BMSTable duplicate = (tables ?? [])
+                        .Where(table => table != null)
+                        .FirstOrDefault(table => BMSTables.Contains(table));
+                    if (duplicate == null)
+                    {
+                        foreach (BMSTable table in tables ?? [])
+                        {
+                            if (!visibleNames.Add(table?.name))
+                            {
+                                duplicate = table;
+                                break;
+                            }
+                        }
+                    }
+                    if (duplicate != null)
+                    {
+                        return duplicate;
+                    }
+                    foreach (BMSTable table in tables ?? [])
+                    {
+                        playlistAggregatePersistenceOwner.MarkActiveTables([table]);
+                        BMSTables.Add(table);
+                    }
+                    return null;
+                }
+            }),
+            RemoveTablesFromVisibleCollection,
+            this.customFolderOutputSettingsProvider,
+            ResolveCustomFolderOutputDirectory,
+            (table, outputDirectoryBefore, outputDirectoryAfter, isRootFolder, rootOutputBaseDirectoryBefore, outputBaseDirectoryBefore, inferOutputBaseDirectoryBeforeWhenMissing, settings) =>
+                customFolderOutputMaintenanceOwner.TryMigrateCustomFolderOutputDirectory(
+                    table,
+                    outputDirectoryBefore,
+                    outputDirectoryAfter,
+                    isRootFolder,
+                    rootOutputBaseDirectoryBefore,
+                    outputBaseDirectoryBefore,
+                    inferOutputBaseDirectoryBeforeWhenMissing,
+                    settings),
+            (tables, reason) => BmtOutput.QueueBeatorajaBmtExportForTables(tables, reason),
+            ApplyCachedPlaylistUrlCompletionToTables,
+            action =>
+            {
+                using (rwlockBMSTablesInitializeMin.GetReaderGuard())
+                using (rwlockBMSTables.GetWriterGuard())
+                {
+                    action();
+                }
+            });
+        externalSyncOwner = externalSyncOwnerLocal;
         customFolderOutputOwner = new PlaylistCustomFolderOutputOwner(
             this.customFolderOutputSettingsProvider,
             (table, settings) => BuildCustomFolderDefinitions(table, settings),
@@ -983,7 +1027,7 @@ public partial class BMSPlaylist : NotificationObject
                 {
                     return;
                 }
-                UpdateBMSTables(reloadExtPlaylist: true);
+                externalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true).GetAwaiter().GetResult();
                 externalSyncCompleted = true;
                 if (IsShutdownRequested)
                 {
@@ -3865,634 +3909,6 @@ public partial class BMSPlaylist : NotificationObject
         }
     }
 
-    public BMSTable RegistrateExternalTable(Uri pageUri)
-    {
-        return RegistrateExternalTableAsync(pageUri).GetAwaiter().GetResult();
-    }
-
-    internal async Task<BMSTable> RegistrateExternalTableAsync(Uri pageUri, CancellationToken cancellationToken = default)
-    {
-        return await RegistrateExternalTableAsync(pageUri, renameDuplicateName: false, "RegistrateExternalTableAsync", preserveSourceUrlText: false, cancellationToken).ConfigureAwait(false);
-    }
-
-    internal async Task<BMSTable> RegistrateExternalTableAsync(Uri pageUri, bool renameDuplicateName, string reason, bool preserveSourceUrlText = false, CancellationToken cancellationToken = default)
-    {
-        if (!pageUri.IsAbsoluteUri)
-        {
-            throw new InvalidOperationException("pageUri.IsAbsoluteUri is not true");
-        }
-        if (!preserveSourceUrlText)
-        {
-            pageUri = CreateNormalizedAbsoluteUri(pageUri);
-        }
-        BMSTable bMSTable = await LoadExternalTableAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
-        cancellationToken.ThrowIfCancellationRequested();
-        return await RegistrateExternalTableAsync(bMSTable, renameDuplicateName, reason ?? "RegistrateExternalTableAsync", cancellationToken).ConfigureAwait(false);
-    }
-
-    internal async Task<BMSTable> RegistrateExternalTableAsync(BMSTable bMSTable, bool renameDuplicateName, string reason, CancellationToken cancellationToken = default)
-    {
-        if (bMSTable == null)
-        {
-            throw new ArgumentNullException(nameof(bMSTable));
-        }
-        cancellationToken.ThrowIfCancellationRequested();
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
-        bool migrateCustomFolderOutput = false;
-        string customFolderOutputDirectory = null;
-        using (rwlockBMSTablesInitializeMin.GetReaderGuard())
-        {
-            using (rwlockBMSTables.GetWriterGuard())
-            {
-                if (bMSTable.last_update == default)
-                {
-                    bMSTable.last_update = DateTime.Now;
-                }
-                if (BMSTables.Select(t => t.name).Contains(bMSTable.name))
-                {
-                    if (!renameDuplicateName)
-                    {
-                        throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bMSTable.name);
-                    }
-                    bMSTable.name = ResolveUniqueImportedPlaylistName(bMSTable.name, BMSTables);
-                }
-                if (string.IsNullOrWhiteSpace(bMSTable.Output_dir))
-                {
-                    throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
-                }
-                bMSTable.bmt_sort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(BMSTables);
-                bMSTable.is_bmt_output = true;
-                if (settings.OperationModeLR2DB)
-                {
-                    migrateCustomFolderOutput = true;
-                    customFolderOutputDirectory = ResolveCustomFolderOutputDirectory(bMSTable, settings);
-                }
-            }
-        }
-        await CommitAndAddBMSTableAsync(bMSTable).ConfigureAwait(false);
-        if (migrateCustomFolderOutput)
-        {
-            customFolderOutputMaintenanceOwner.TryMigrateCustomFolderOutputDirectory(
-                bMSTable,
-                customFolderOutputDirectory,
-                customFolderOutputDirectory,
-                bMSTable.is_root_folder,
-                rootOutputBaseDirectoryBefore: null,
-                outputBaseDirectoryBefore: null,
-                inferOutputBaseDirectoryBeforeWhenMissing: true,
-                settings);
-        }
-        BmtOutput.QueueBeatorajaBmtExportForTable(bMSTable, reason ?? "RegistrateExternalTableAsync");
-        ApplyCachedPlaylistUrlCompletionToTable(bMSTable, reason ?? "RegistrateExternalTableAsync");
-        SchedulePlaylistUrlCompletionRefresh(reason ?? "RegistrateExternalTableAsync");
-        return bMSTable;
-    }
-
-    internal async Task<RegisteredExternalTableBatchResult> RegistrateExternalTablesAsync(IEnumerable<BMSTable> bMSTables, bool renameDuplicateName, string reason, CancellationToken cancellationToken = default)
-    {
-        List<BMSTable> tableList = [.. (bMSTables ?? []).Where(table => table != null).Distinct()];
-        if (tableList.Count == 0)
-        {
-            return new RegisteredExternalTableBatchResult();
-        }
-        cancellationToken.ThrowIfCancellationRequested();
-        CustomFolderOutputSettingsSnapshot settings = GetCustomFolderOutputSettings();
-        string operationReason = reason ?? "RegistrateExternalTablesAsync";
-        List<BMSTable> migrateCustomFolderOutputTables = [];
-        List<CustomFolderOutputMigrationTarget> customFolderOutputTargets = [];
-        using (rwlockBMSTablesInitializeMin.GetReaderGuard())
-        {
-            using (rwlockBMSTables.GetWriterGuard())
-            {
-                var reservedNames = new HashSet<string>(
-                    BMSTables.Select(table => table?.name).Where(name => name != null),
-                    StringComparer.Ordinal);
-                int nextBmtSort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(BMSTables);
-                foreach (BMSTable bMSTable in tableList)
-                {
-                    if (bMSTable.last_update == default)
-                    {
-                        bMSTable.last_update = DateTime.Now;
-                    }
-                    string desiredName = bMSTable.name ?? string.Empty;
-                    if (reservedNames.Contains(desiredName))
-                    {
-                        if (!renameDuplicateName)
-                        {
-                            throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, bMSTable.name);
-                        }
-                        bMSTable.name = ResolveUniqueImportedPlaylistName(desiredName, reservedNames);
-                    }
-                    else
-                    {
-                        bMSTable.name = desiredName;
-                    }
-                    reservedNames.Add(bMSTable.name);
-                    if (string.IsNullOrWhiteSpace(bMSTable.Output_dir))
-                    {
-                        throw new InvalidOperationException(Resources.Error_OutputDirNameEmpty);
-                    }
-                    bMSTable.bmt_sort = nextBmtSort++;
-                    bMSTable.is_bmt_output = true;
-                    if (settings.OperationModeLR2DB)
-                    {
-                        migrateCustomFolderOutputTables.Add(bMSTable);
-                        customFolderOutputTargets.Add(new CustomFolderOutputMigrationTarget
-                        {
-                            Table = bMSTable,
-                            Directory = ResolveCustomFolderOutputDirectory(bMSTable, settings)
-                        });
-                    }
-                }
-            }
-        }
-        await CommitAndAddBMSTablesAsync(tableList).ConfigureAwait(false);
-        foreach (CustomFolderOutputMigrationTarget target in customFolderOutputTargets)
-        {
-            try
-            {
-                customFolderOutputMaintenanceOwner.TryMigrateCustomFolderOutputDirectory(
-                    target.Table,
-                    target.Directory,
-                    target.Directory,
-                    target.Table.is_root_folder,
-                    rootOutputBaseDirectoryBefore: null,
-                    outputBaseDirectoryBefore: null,
-                    inferOutputBaseDirectoryBeforeWhenMissing: true,
-                    settings);
-            }
-            catch (Exception ex)
-            {
-                NLogWrapper.FileLogger?.Warn(ex, "external_table_batch_custom_folder_migration_failed reason=" + FormatTextForLog(operationReason) + " table=" + FormatTextForLog(target.Table?.name));
-            }
-        }
-        BmtOutput.QueueBeatorajaBmtExportForTables(tableList, operationReason);
-        ApplyCachedPlaylistUrlCompletionToTables(tableList, operationReason);
-        SchedulePlaylistUrlCompletionRefresh(operationReason);
-        return new RegisteredExternalTableBatchResult
-        {
-            RegisteredTables = tableList,
-            MigratedCustomFolderTables = migrateCustomFolderOutputTables
-        };
-    }
-
-    private static string ResolveUniqueImportedPlaylistName(string desiredName, IEnumerable<BMSTable> existingTables)
-    {
-        string baseName = desiredName ?? string.Empty;
-        var existingNames = new HashSet<string>(
-            (existingTables ?? []).Select(table => table?.name).Where(name => name != null),
-            StringComparer.Ordinal);
-        if (!existingNames.Contains(baseName))
-        {
-            return baseName;
-        }
-        for (int suffix = 1; suffix < int.MaxValue; suffix++)
-        {
-            string candidate = baseName + "(" + suffix.ToString(CultureInfo.InvariantCulture) + ")";
-            if (!existingNames.Contains(candidate))
-            {
-                return candidate;
-            }
-        }
-        throw new InvalidOperationException("Failed to resolve unique playlist name.");
-    }
-
-    private static string ResolveUniqueImportedPlaylistName(string desiredName, ISet<string> reservedNames)
-    {
-        string baseName = desiredName ?? string.Empty;
-        if (reservedNames?.Contains(baseName) != true)
-        {
-            return baseName;
-        }
-        for (int suffix = 1; suffix < int.MaxValue; suffix++)
-        {
-            string candidate = baseName + "(" + suffix.ToString(CultureInfo.InvariantCulture) + ")";
-            if (!reservedNames.Contains(candidate))
-            {
-                return candidate;
-            }
-        }
-        throw new InvalidOperationException("Failed to resolve unique playlist name.");
-    }
-
-    private sealed class CustomFolderOutputMigrationTarget
-    {
-        internal BMSTable Table { get; set; }
-
-        internal string Directory { get; set; }
-    }
-
-    private static Uri CreateNormalizedAbsoluteUri(Uri uri)
-    {
-        if (uri == null || !uri.IsAbsoluteUri)
-        {
-            return uri;
-        }
-        return new Uri(uri.AbsoluteUri, UriKind.Absolute);
-    }
-
-    /// <summary>
-    /// プレイリスト一覧を走査し、必要な外部同期と後処理コールバックを実行します。
-    /// </summary>
-    /// <param name="reloadExtPlaylist">外部同期対象プレイリストを再取得するかどうか。</param>
-    /// <param name="updateCallbackActions">各プレイリスト処理後に呼ぶコールバック群。</param>
-    /// <returns><c>last_update</c> が変化したプレイリスト一覧。</returns>
-    public List<BMSTable> UpdateBMSTables(bool reloadExtPlaylist = true, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null)
-    {
-        return UpdateBMSTablesInternalAsync(reloadExtPlaylist, updateCallbackActions, null).GetAwaiter().GetResult();
-    }
-
-    internal List<BMSTable> UpdateBMSTablesInternal(bool reloadExtPlaylist = true, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null)
-    {
-        return UpdateBMSTablesInternalAsync(reloadExtPlaylist, updateCallbackActions, syncResultCallback, null).GetAwaiter().GetResult();
-    }
-
-    internal async Task<List<BMSTable>> UpdateBMSTablesInternalAsync(bool reloadExtPlaylist = true, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, CancellationToken cancellationToken = default)
-    {
-        EnterPlaylistUpdating();
-        try
-        {
-            var stopwatchUpdateTablesTotal = Stopwatch.StartNew();
-            List<BMSTable> tableSnapshot;
-            using (rwlockBMSTables.GetReaderGuard())
-            {
-                tableSnapshot = [.. BMSTables];
-            }
-            List<BMSTable> reloadTargets = [.. tableSnapshot.Where(delegate (BMSTable table)
-            {
-                Uri uri2 = table?.Page_url ?? table?.Header_url;
-                return reloadExtPlaylist && table != null && table.is_external_sync && uri2 != null && uri2.IsAbsoluteUri;
-            })];
-            List<PlaylistReloadTargetResult> results = await ReloadPlaylistTargetsAsync(
-                reloadTargets,
-                updateCallbackActions,
-                syncResultCallback,
-                progressCallback,
-                "UpdateBMSTablesInternalAsync",
-                cancellationToken,
-                requireCurrentTargetForApply: true).ConfigureAwait(false);
-            if (updateCallbackActions != null)
-            {
-                var reloadedTables = new HashSet<BMSTable>(results.Select(result => result.SourceTable).Where(table => table != null));
-                foreach (BMSTable table in tableSnapshot.Where(table => table != null && !reloadedTables.Contains(table)))
-                {
-                    InvokePlaylistUpdateCallbacks(new PlaylistTableUpdateContext
-                    {
-                        NewTable = table,
-                        Updated = false,
-                        ReferenceEntriesChanged = false,
-                        OldTable = table,
-                        OldEntriesSnapshot = null,
-                        NewEntriesSnapshot = null
-                    }, updateCallbackActions, table.Page_url ?? table.Header_url);
-                }
-            }
-            stopwatchUpdateTablesTotal.Stop();
-            List<BMSTable> updatedTables = [.. results.Where(result => result.Succeeded && result.Updated && result.ResultTable != null).Select(result => result.ResultTable)];
-            LogPlaylistPerformance("playlist_update table_count=" + tableSnapshot.Count + " target_count=" + reloadTargets.Count + " updated_count=" + updatedTables.Count + " total_ms=" + stopwatchUpdateTablesTotal.ElapsedMilliseconds);
-            return updatedTables;
-        }
-        finally
-        {
-            ExitPlaylistUpdating();
-        }
-    }
-
-    internal async Task<List<PlaylistReloadTargetResult>> ReloadPlaylistTargetsAsync(IEnumerable<BMSTable> targets, List<Action<PlaylistTableUpdateContext>> updateCallbackActions = null, Action<PlaylistSyncAttemptResult> syncResultCallback = null, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "ReloadPlaylistTargetsAsync", CancellationToken cancellationToken = default, bool requireCurrentTargetForApply = true)
-    {
-        EnterPlaylistUpdating();
-        try
-        {
-            List<BMSTable> targetSnapshot = [.. (targets ?? [])
-                .Where(table => table != null)
-                .Distinct()
-                .Where(delegate (BMSTable table)
-                {
-                    Uri uri = table.Page_url ?? table.Header_url;
-                    return uri != null && uri.IsAbsoluteUri;
-                })];
-            int completedTableCount = 0;
-            List<PlaylistReloadTargetResult> results = [];
-            object resultLock = new();
-            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-            {
-                IsActive = targetSnapshot.Count > 0,
-                TotalTableCount = targetSnapshot.Count,
-                CompletedTableCount = 0,
-                CurrentTableName = string.Empty,
-                CurrentUri = null
-            });
-            using var semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
-            await Task.WhenAll([.. targetSnapshot.Select(async delegate (BMSTable table)
-            {
-                await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
-                Uri uri = table.Page_url ?? table.Header_url;
-                try
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-                    {
-                        IsActive = true,
-                        TotalTableCount = targetSnapshot.Count,
-                        CompletedTableCount = Volatile.Read(ref completedTableCount),
-                        CurrentTableName = table.name,
-                        CurrentUri = uri
-                    });
-                    PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(table, uri, updateCallbackActions, syncResultCallback, reason, cancellationToken, requireCurrentTargetForApply).ConfigureAwait(false);
-                    lock (resultLock)
-                    {
-                        results.Add(result);
-                    }
-                }
-                finally
-                {
-                    int num = Interlocked.Increment(ref completedTableCount);
-                    progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-                    {
-                        IsActive = true,
-                        TotalTableCount = targetSnapshot.Count,
-                        CompletedTableCount = num,
-                        CurrentTableName = table.name,
-                        CurrentUri = uri
-                    });
-                    semaphoreSlim.Release();
-                }
-            })]).ConfigureAwait(false);
-            progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-            {
-                IsActive = false,
-                TotalTableCount = targetSnapshot.Count,
-                CompletedTableCount = completedTableCount,
-                CurrentTableName = string.Empty,
-                CurrentUri = null
-            });
-            if (targetSnapshot.Count > 0 && IsPlaylistUrlCompletionEnabled())
-            {
-                SchedulePlaylistUrlCompletionRefresh(reason);
-            }
-            return results;
-        }
-        finally
-        {
-            ExitPlaylistUpdating();
-        }
-    }
-
-    internal async Task<List<PlaylistExternalTableLoadResult>> LoadExternalTableSnapshotsAsync(IEnumerable<BMSTable> targets, bool inheritLocalTableProperties, Action<PlaylistSyncProgressSnapshot> progressCallback = null, string reason = "LoadExternalTableSnapshotsAsync", CancellationToken cancellationToken = default, bool schedulePlaylistUrlCompletionRefresh = true)
-    {
-        List<BMSTable> targetSnapshot = [.. (targets ?? [])
-            .Where(table => table != null)
-            .Distinct()
-            .Where(delegate (BMSTable table)
-            {
-                Uri uri = table.Page_url ?? table.Header_url;
-                return uri != null && uri.IsAbsoluteUri;
-            })];
-        int completedTableCount = 0;
-        PlaylistExternalTableLoadResult[] results = new PlaylistExternalTableLoadResult[targetSnapshot.Count];
-        progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-        {
-            IsActive = targetSnapshot.Count > 0,
-            TotalTableCount = targetSnapshot.Count,
-            CompletedTableCount = 0,
-            CurrentTableName = string.Empty,
-            CurrentUri = null
-        });
-        using var semaphoreSlim = new SemaphoreSlim(ExternalPlaylistSyncMaxConcurrency, ExternalPlaylistSyncMaxConcurrency);
-        await Task.WhenAll([.. targetSnapshot.Select(async delegate (BMSTable table, int index)
-        {
-            await semaphoreSlim.WaitAsync(cancellationToken).ConfigureAwait(false);
-            Uri uri = table.Page_url ?? table.Header_url;
-            try
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-                {
-                    IsActive = true,
-                    TotalTableCount = targetSnapshot.Count,
-                    CompletedTableCount = Volatile.Read(ref completedTableCount),
-                    CurrentTableName = table.name,
-                    CurrentUri = uri
-                });
-                BMSTable externalTable = await LoadExternalTableAsync(uri, inheritLocalTableProperties ? table : null, cancellationToken).ConfigureAwait(false);
-                results[index] = new PlaylistExternalTableLoadResult
-                {
-                    SourceTable = table,
-                    ExternalTable = externalTable,
-                    Uri = uri
-                };
-            }
-            catch (Exception ex)
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_external_snapshot_load_failed reason=" + FormatTextForLog(reason) + " table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
-                results[index] = new PlaylistExternalTableLoadResult
-                {
-                    SourceTable = table,
-                    Uri = uri,
-                    Exception = ex
-                };
-            }
-            finally
-            {
-                int num = Interlocked.Increment(ref completedTableCount);
-                progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-                {
-                    IsActive = true,
-                    TotalTableCount = targetSnapshot.Count,
-                    CompletedTableCount = num,
-                    CurrentTableName = table.name,
-                    CurrentUri = uri
-                });
-                semaphoreSlim.Release();
-            }
-        })]).ConfigureAwait(false);
-        progressCallback?.Invoke(new PlaylistSyncProgressSnapshot
-        {
-            IsActive = false,
-            TotalTableCount = targetSnapshot.Count,
-            CompletedTableCount = completedTableCount,
-            CurrentTableName = string.Empty,
-            CurrentUri = null
-        });
-        if (schedulePlaylistUrlCompletionRefresh && targetSnapshot.Count > 0 && IsPlaylistUrlCompletionEnabled())
-        {
-            SchedulePlaylistUrlCompletionRefresh(reason);
-        }
-        return [.. results.Where(result => result != null)];
-    }
-
-    private async Task<PlaylistReloadTargetResult> ReloadPlaylistTargetCoreAsync(BMSTable table, Uri uri, List<Action<PlaylistTableUpdateContext>> updateCallbackActions, Action<PlaylistSyncAttemptResult> syncResultCallback, string reason, CancellationToken cancellationToken, bool requireCurrentTargetForApply = true)
-    {
-        BMSTable newTable = table;
-        List<BMSTableEntry> oldEntriesSnapshot = null;
-        List<BMSTableEntry> newEntriesSnapshot = null;
-        PlaylistAggregatePersistenceOwner.PlaylistReloadPersistenceDecision persistenceDecision = null;
-        bool updated = false;
-        bool applySkipped = false;
-        int sourceEntriesRevision = 0;
-        DateTime sourceLastUpdate = default;
-        string sourceStateFingerprint = string.Empty;
-        Uri sourceUri = null;
-        Exception failure = null;
-        try
-        {
-            EnsurePlaylistEntriesLoaded(table, reason);
-            using (table.ReaderWriterLock.GetWriterGuard())
-            {
-                sourceEntriesRevision = table.PlaylistEntriesRevision;
-                sourceLastUpdate = table.last_update;
-                sourceStateFingerprint = PlaylistAggregatePersistenceOwner.CreateReloadSourceFingerprint(table);
-                sourceUri = table.Page_url ?? table.Header_url;
-            }
-            if (!UriEquals(uri, sourceUri))
-            {
-                throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
-                    "Playlist reload request no longer matches the active playlist source URI.");
-            }
-            BMSTable reloadedTable = await reloadBMSTableAsync(table, uri, cancellationToken).ConfigureAwait(false);
-            using (table.ReaderWriterLock.GetWriterGuard())
-            {
-                if (table.PlaylistEntriesRevision != sourceEntriesRevision
-                    || table.last_update != sourceLastUpdate
-                    || !string.Equals(
-                        PlaylistAggregatePersistenceOwner.CreateReloadSourceFingerprint(table),
-                        sourceStateFingerprint,
-                        StringComparison.Ordinal)
-                    || !UriEquals(uri, table.Page_url ?? table.Header_url))
-                {
-                    throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
-                        "Playlist reload source changed while the external snapshot was loading.");
-                }
-                oldEntriesSnapshot = [.. (table.entries ?? []).Where(entry => entry != null).Select(entry => entry.CreatePlaylistReloadSnapshot())];
-                IReadOnlyList<BMSTableEntry> persistedActiveEntries = playlistAggregatePersistenceOwner.LoadPersistedActivePlaylistEntries(table.playlist_id);
-                newTable = PlaylistAggregatePersistenceOwner.MergeReloadedBMSTableState(
-                    table,
-                    reloadedTable,
-                    PlaylistAggregatePersistenceOwner.BuildComparablePlaylistEntryRows(persistedActiveEntries),
-                    out persistenceDecision,
-                    logLastUpdateDecision: true);
-                updated = persistenceDecision.UpdatesLastUpdate;
-                if (persistenceDecision.NeedsEntryPersistence)
-                {
-                    newEntriesSnapshot = [.. (newTable.entries ?? []).Where(entry => entry != null).Select(entry => entry.CreatePlaylistReloadSnapshot())];
-                }
-                else
-                {
-                    newEntriesSnapshot = [.. oldEntriesSnapshot];
-                    if (persistenceDecision.NeedsHeaderPersistence)
-                    {
-                        newTable.entries = [.. oldEntriesSnapshot];
-                    }
-                    if (!persistenceDecision.NeedsStatePersistence)
-                    {
-                        newTable = table;
-                    }
-                }
-            }
-            if (!playlistAggregatePersistenceOwner.TryApplyReloadedTable(
-                table,
-                newTable,
-                persistenceDecision,
-                sourceEntriesRevision,
-                sourceLastUpdate,
-                sourceStateFingerprint,
-                requireCurrentTargetForApply))
-            {
-                failure = new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
-                    "Playlist reload result could not be applied to the active table.");
-                applySkipped = true;
-                newTable = table;
-                oldEntriesSnapshot = null;
-                newEntriesSnapshot = null;
-                persistenceDecision = null;
-                updated = false;
-                syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateFailure(table, uri, failure));
-            }
-            else
-            {
-                if (requireCurrentTargetForApply
-                    && System.Windows.Application.Current != null
-                    && !playlistAggregatePersistenceOwner.IsActive(newTable))
-                {
-                    throw new PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException(
-                        "Playlist reload result was applied to a table that is no longer active.");
-                }
-                if (persistenceDecision?.NeedsBmtExport == true)
-                {
-                    BmtOutput.QueueBeatorajaBmtExportForTable(newTable, reason);
-                }
-                ApplyCachedPlaylistUrlCompletionToTable(newTable, reason);
-                syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateSuccess(table, newTable, uri, updated));
-            }
-        }
-        catch (PlaylistAggregatePersistenceOwner.PlaylistReloadApplyException ex)
-        {
-            failure = ex;
-            applySkipped = true;
-            newTable = table;
-            oldEntriesSnapshot = null;
-            newEntriesSnapshot = null;
-            persistenceDecision = null;
-            updated = false;
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_reload_apply_failed reason=" + FormatTextForLog(reason) + " table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
-            syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateFailure(table, uri, ex));
-        }
-        catch (Exception ex)
-        {
-            failure = ex;
-            applySkipped = true;
-            newTable = table;
-            oldEntriesSnapshot = null;
-            newEntriesSnapshot = null;
-            persistenceDecision = null;
-            updated = false;
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_reload_target_failed reason=" + FormatTextForLog(reason) + " table=" + FormatTextForLog(table?.name) + " uri=" + FormatUriForLog(uri));
-            syncResultCallback?.Invoke(PlaylistSyncAttemptResult.CreateFailure(table, uri, ex));
-        }
-        PlaylistTableUpdateContext updateContext = null;
-        if (!applySkipped)
-        {
-            updateContext = new PlaylistTableUpdateContext
-            {
-                NewTable = newTable,
-                Updated = updated,
-                ReferenceEntriesChanged = persistenceDecision?.NeedsEntryPersistence == true,
-                OldTable = table,
-                OldEntriesSnapshot = oldEntriesSnapshot,
-                NewEntriesSnapshot = newEntriesSnapshot
-            };
-            InvokePlaylistUpdateCallbacks(updateContext, updateCallbackActions, uri);
-        }
-        return new PlaylistReloadTargetResult
-        {
-            SourceTable = table,
-            ResultTable = newTable,
-            Uri = uri,
-            Updated = updated,
-            Exception = failure,
-            UpdateContext = updateContext
-        };
-    }
-
-    private static void InvokePlaylistUpdateCallbacks(PlaylistTableUpdateContext updateContext, List<Action<PlaylistTableUpdateContext>> updateCallbackActions, Uri uri)
-    {
-        if (updateCallbackActions == null)
-        {
-            return;
-        }
-        try
-        {
-            foreach (Action<PlaylistTableUpdateContext> item in updateCallbackActions.Where(action => action != null))
-            {
-                item(updateContext);
-            }
-        }
-        catch (Exception ex)
-        {
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_update_callback_failed table=" + FormatTextForLog(updateContext?.NewTable?.name) + " uri=" + FormatUriForLog(uri));
-        }
-    }
-
     private static System.Windows.Threading.Dispatcher GetBMSTablesDispatcher(DispatcherCollection<BMSTable> tables)
     {
         if (tables == null)
@@ -4528,20 +3944,6 @@ public partial class BMSPlaylist : NotificationObject
         return (T)dispatcher.Invoke(mutation, System.Windows.Threading.DispatcherPriority.Normal);
     }
 
-    private async Task<T> InvokeBMSTablesCollectionMutationAsync<T>(Func<T> mutation)
-    {
-        if (mutation == null)
-        {
-            throw new ArgumentNullException(nameof(mutation));
-        }
-        System.Windows.Threading.Dispatcher dispatcher = GetBMSTablesDispatcher(BMSTables);
-        if (dispatcher == null || dispatcher.CheckAccess())
-        {
-            return mutation();
-        }
-        return await dispatcher.InvokeAsync(mutation, System.Windows.Threading.DispatcherPriority.Normal).Task.ConfigureAwait(false);
-    }
-
     private void InvokeBMSTablesCollectionMutation(Action mutation)
     {
         InvokeBMSTablesCollectionMutation(delegate
@@ -4549,182 +3951,6 @@ public partial class BMSPlaylist : NotificationObject
             mutation();
             return true;
         });
-    }
-
-    private Task CommitAndAddBMSTableAsync(BMSTable table)
-    {
-        if (!playlistAggregatePersistenceOwner.TryBeginRegistration())
-        {
-            throw new InvalidOperationException("Playlist registration cannot run while playlist initialization or reload is active.");
-        }
-        try
-        {
-            bool durableCommitted = false;
-            Dictionary<BMSTable, int?> originalPlaylistIds = new()
-            {
-                [table] = table.playlist_id
-            };
-            try
-            {
-                playlistAggregatePersistenceOwner.CommitTablesWithEntries(
-                    [table],
-                    requireCurrentTarget: false,
-                    hydrationReason: "ExternalTableRegistration");
-                durableCommitted = true;
-                bool added = InvokeBMSTablesCollectionMutation(delegate
-                {
-                    using (rwlockBMSTables.GetWriterGuard())
-                    {
-                        if (BMSTables.Contains(table))
-                        {
-                            return true;
-                        }
-                        if (BMSTables.Any(existing => existing != null
-                            && !ReferenceEquals(existing, table)
-                            && string.Equals(existing.name, table.name, StringComparison.Ordinal)))
-                        {
-                            return false;
-                        }
-                        playlistAggregatePersistenceOwner.MarkActiveTables([table]);
-                        BMSTables.Add(table);
-                        return true;
-                    }
-                });
-                if (!added)
-                {
-                    playlistAggregatePersistenceOwner.DeleteUnpublishedTables([table], originalPlaylistIds);
-                    throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, table?.name);
-                }
-            }
-            catch (Exception error)
-            {
-                if (durableCommitted)
-                {
-                    Exception rollbackFailure = RollbackRegisteredTables([table], originalPlaylistIds);
-                    if (rollbackFailure != null)
-                    {
-                        throw new AggregateException("Playlist registration failed and rollback encountered errors.", error, rollbackFailure);
-                    }
-                }
-                throw;
-            }
-        }
-        finally
-        {
-            playlistAggregatePersistenceOwner.EndRegistration();
-        }
-        return Task.CompletedTask;
-    }
-
-    private Task CommitAndAddBMSTablesAsync(IEnumerable<BMSTable> tables)
-    {
-        List<BMSTable> tableList = [.. (tables ?? []).Where(table => table != null).Distinct()];
-        if (tableList.Count == 0)
-        {
-            return Task.CompletedTask;
-        }
-        if (!playlistAggregatePersistenceOwner.TryBeginRegistration())
-        {
-            throw new InvalidOperationException("Playlist registration cannot run while playlist initialization or reload is active.");
-        }
-        try
-        {
-            bool durableCommitted = false;
-            Dictionary<BMSTable, int?> originalPlaylistIds = tableList
-                .ToDictionary(table => table, table => table.playlist_id);
-            try
-            {
-                playlistAggregatePersistenceOwner.CommitTablesWithEntries(
-                    tableList,
-                    requireCurrentTarget: false,
-                    hydrationReason: "ExternalTableBatchRegistration");
-                durableCommitted = true;
-                BMSTable duplicateTable = InvokeBMSTablesCollectionMutation(delegate
-                {
-                    using (rwlockBMSTables.GetWriterGuard())
-                    {
-                        var visibleNames = new HashSet<string>(
-                            BMSTables.Select(table => table?.name).Where(name => name != null),
-                            StringComparer.Ordinal);
-                        BMSTable duplicate = tableList.FirstOrDefault(table => BMSTables.Contains(table));
-                        if (duplicate == null)
-                        {
-                            foreach (BMSTable table in tableList)
-                            {
-                                if (!visibleNames.Add(table.name))
-                                {
-                                    duplicate = table;
-                                    break;
-                                }
-                            }
-                        }
-                        if (duplicate != null)
-                        {
-                            return duplicate;
-                        }
-                        foreach (BMSTable table in tableList)
-                        {
-                            playlistAggregatePersistenceOwner.MarkActiveTables([table]);
-                            BMSTables.Add(table);
-                        }
-                        return null;
-                    }
-                });
-                if (duplicateTable != null)
-                {
-                    playlistAggregatePersistenceOwner.DeleteUnpublishedTables(tableList, originalPlaylistIds);
-                    throw new PlaylistAlreadyExistsException(Resources.Error_PlaylistAlreadyExists, duplicateTable.name);
-                }
-            }
-            catch (Exception error)
-            {
-                if (durableCommitted)
-                {
-                    Exception rollbackFailure = RollbackRegisteredTables(tableList, originalPlaylistIds);
-                    if (rollbackFailure != null)
-                    {
-                        throw new AggregateException("Playlist registration failed and rollback encountered errors.", error, rollbackFailure);
-                    }
-                }
-                throw;
-            }
-        }
-        finally
-        {
-            playlistAggregatePersistenceOwner.EndRegistration();
-        }
-        return Task.CompletedTask;
-    }
-
-    private Exception RollbackRegisteredTables(
-        IEnumerable<BMSTable> tables,
-        IReadOnlyDictionary<BMSTable, int?> originalPlaylistIds)
-    {
-        List<Exception> failures = [];
-        try
-        {
-            RemoveTablesFromVisibleCollection(tables);
-        }
-        catch (Exception ex)
-        {
-            failures.Add(ex);
-        }
-
-        try
-        {
-            playlistAggregatePersistenceOwner.DeleteUnpublishedTables(tables, originalPlaylistIds);
-        }
-        catch (Exception ex)
-        {
-            failures.Add(ex);
-        }
-
-        return failures.Count switch
-        {
-            0 => null,
-            1 => failures[0],
-            _ => new AggregateException(failures).Flatten()
-        };
     }
 
     private void RemoveTablesFromVisibleCollection(IEnumerable<BMSTable> tables)
@@ -4763,45 +3989,6 @@ public partial class BMSPlaylist : NotificationObject
                 }
             }
         });
-    }
-
-    /// <summary>
-    /// 指定した外部プレイリストを再取得し、既存のローカル状態を維持しながら差分同期結果へ置き換えます。
-    /// <c>is_external_sync</c> の有無に関わらず明示指定されたプレイリストを対象にし、<c>last_update</c> は header/data hash の既知値変化に応じて維持または更新されます。
-    /// </summary>
-    /// <param name="bmsTable">再同期対象のプレイリスト。</param>
-    /// <param name="pageUri">再取得に使用する URI。省略時は対象プレイリストに保持された URL を使用します。</param>
-    /// <returns>差分統合後のプレイリスト。</returns>
-    /// <exception cref="ArgumentNullException"><paramref name="bmsTable"/> が <see langword="null"/> の場合。</exception>
-    public BMSTable ResetBMSTable(BMSTable bmsTable, Uri pageUri = null)
-    {
-        return ResetBMSTableAsync(bmsTable, pageUri).GetAwaiter().GetResult();
-    }
-
-    internal async Task<BMSTable> ResetBMSTableAsync(BMSTable bmsTable, Uri pageUri = null, CancellationToken cancellationToken = default)
-    {
-        if (bmsTable == null)
-        {
-            throw new ArgumentNullException("bmsTable");
-        }
-        if (pageUri == null)
-        {
-            pageUri = bmsTable.Page_url ?? bmsTable.Header_url;
-        }
-        if (pageUri == null || !pageUri.IsAbsoluteUri)
-        {
-            throw new InvalidOperationException("Playlist reload URI is not absolute.");
-        }
-        PlaylistReloadTargetResult result = await ReloadPlaylistTargetCoreAsync(bmsTable, pageUri, null, null, "ResetBMSTableAsync", cancellationToken, requireCurrentTargetForApply: true).ConfigureAwait(false);
-        if (result.Exception != null)
-        {
-            throw result.Exception;
-        }
-        if (IsPlaylistUrlCompletionEnabled())
-        {
-            SchedulePlaylistUrlCompletionRefresh("ResetBMSTableAsync");
-        }
-        return result.ResultTable;
     }
 
     /// <summary>
@@ -5362,171 +4549,6 @@ public partial class BMSPlaylist : NotificationObject
         {
             collectionReadGuard?.Dispose();
         }
-    }
-
-    /// <summary>
-    /// 外部プレイリスト URI を解決し、ヘッダとデータ本体を取得してプレイリストを構築します。
-    /// </summary>
-    /// <param name="pageUri">取得元の絶対 URI。</param>
-    /// <param name="baseTable">設定引き継ぎに使う既存プレイリスト。</param>
-    /// <returns>取得したプレイリスト。</returns>
-    /// <exception cref="ArgumentException">URI が無効な場合。</exception>
-    public BMSTable LoadExternalTable(Uri pageUri, BMSTable baseTable = null)
-    {
-        return LoadExternalTableAsync(pageUri, baseTable).GetAwaiter().GetResult();
-    }
-
-    internal async Task<BMSTable> LoadExternalTableAsync(Uri pageUri, BMSTable baseTable = null, CancellationToken cancellationToken = default)
-    {
-        if (pageUri == null || !pageUri.IsAbsoluteUri)
-        {
-            throw new ArgumentException(Resources.Error_URIMustBeAbsolute, "pageUri");
-        }
-        if (pageUri.Scheme == "bmseeker")
-        {
-            return recommendedTableOwner.LoadWalkureTable(pageUri, baseTable);
-        }
-        Uri originalPageUri = pageUri;
-        Uri headerUri = null;
-        Uri resolvedHeaderUri = null;
-        Uri resolvedDataUri = null;
-        BMSTable bMSTable = null;
-        try
-        {
-            string input = await playlistHttpClient.GetStringAsync(pageUri, null, cancellationToken).ConfigureAwait(false);
-            string header_json;
-            if (TryResolveHeaderUri(input, pageUri, out headerUri))
-            {
-                resolvedHeaderUri = (!headerUri.IsAbsoluteUri) ? new Uri(pageUri, headerUri) : headerUri;
-                header_json = await playlistHttpClient.GetStringAsync(resolvedHeaderUri, null, cancellationToken).ConfigureAwait(false);
-            }
-            else if (LooksLikeJsonContent(input))
-            {
-                headerUri = pageUri;
-                pageUri = null;
-                resolvedHeaderUri = headerUri;
-                header_json = input;
-            }
-            else
-            {
-                throw new PlaylistHeaderUriNotFoundException(originalPageUri);
-            }
-            bMSTable = new BMSTable();
-            if (baseTable != null)
-            {
-                bMSTable.compat_prefix = baseTable.compat_prefix;
-            }
-            bMSTable.LoadHeaderJSON(header_json, pageUri, headerUri, preserveLoadedCompatPrefix: baseTable != null);
-            if (baseTable != null)
-            {
-                bMSTable.playlist_id = baseTable.playlist_id;
-                bMSTable.name = baseTable.name;
-                bMSTable.symbol = baseTable.symbol;
-                bMSTable.ignore_folder_output = baseTable.ignore_folder_output;
-                bMSTable.is_external_sync = baseTable.is_external_sync;
-                bMSTable.Output_dir = baseTable.Output_dir;
-                bMSTable.is_root_folder = baseTable.is_root_folder;
-                bMSTable.custom_folder_output_base_name = baseTable.custom_folder_output_base_name;
-                bMSTable.bmt_sort = baseTable.bmt_sort;
-                bMSTable.is_bmt_output = baseTable.is_bmt_output;
-            }
-            else
-            {
-                bMSTable.ignore_folder_output = ReadNewPlaylistIgnoreFolderOutputDefault();
-            }
-            resolvedDataUri = bMSTable.GetAbsoluteDataUrl();
-            if (resolvedDataUri == null)
-            {
-                throw new InvalidOperationException("Failed to resolve playlist data_url. rawDataUrl=" + FormatTextForLog(bMSTable.data_url) + " pageUrl=" + FormatUriForLog(bMSTable.Page_url) + " headerUrl=" + FormatUriForLog(bMSTable.Header_url) + " sourcePage=" + FormatUriForLog(originalPageUri));
-            }
-            string data_json = await playlistHttpClient.GetStringAsync(resolvedDataUri, null, cancellationToken).ConfigureAwait(false);
-            bMSTable.LoadDataJSON(data_json);
-            return bMSTable;
-        }
-        catch (Exception ex)
-        {
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "playlist_external_load_failed pageUri=" + FormatUriForLog(originalPageUri) + " resolvedPageUri=" + FormatUriForLog(pageUri) + " rawHeaderUri=" + FormatUriForLog(headerUri) + " resolvedHeaderUri=" + FormatUriForLog(resolvedHeaderUri) + " rawDataUrl=" + FormatTextForLog(bMSTable?.data_url) + " storedPageUrl=" + FormatUriForLog(bMSTable?.Page_url) + " storedHeaderUrl=" + FormatUriForLog(bMSTable?.Header_url) + " resolvedDataUri=" + FormatUriForLog(resolvedDataUri) + " baseTable=" + FormatTextForLog(baseTable?.name));
-            throw;
-        }
-    }
-
-    private static bool TryResolveHeaderUri(string input, Uri pageUri, out Uri headerUri)
-    {
-        headerUri = null;
-        if (string.IsNullOrWhiteSpace(input) || pageUri == null)
-        {
-            return false;
-        }
-        var stringBuilder = new StringBuilder();
-        try
-        {
-            XDocument xDocument;
-            using (var reader = new SgmlReader
-            {
-                Href = pageUri.AbsoluteUri,
-                InputStream = new StringReader(input),
-                IgnoreDtd = true,
-                ErrorLog = new StringWriter(stringBuilder)
-            })
-            {
-                xDocument = XDocument.Load(reader);
-            }
-            XNamespace xNamespace = xDocument.Root.Name.Namespace;
-            string text = (from item in xDocument.Descendants(xNamespace + "meta")
-                           let attrName = item.Attribute("name")
-                           let attrCont = item.Attribute("content")
-                           where attrName != null && attrCont != null && attrName.Value == "bmstable" && !string.IsNullOrWhiteSpace(attrCont.Value)
-                           select attrCont.Value).FirstOrDefault();
-            if (!string.IsNullOrWhiteSpace(text))
-            {
-                headerUri = new Uri(text, UriKind.RelativeOrAbsolute);
-                return true;
-            }
-        }
-        catch
-        {
-        }
-        Match match = new Regex("name\\s*=\\s*\"bmstable\"[^<>]*content\\s*=\\s*\"([^?\"<>]+)[\"?<>]", RegexOptions.IgnoreCase).Match(input);
-        if (!match.Success || string.IsNullOrWhiteSpace(match.Groups[1].Value))
-        {
-            return false;
-        }
-        headerUri = new Uri(match.Groups[1].Value, UriKind.RelativeOrAbsolute);
-        return true;
-    }
-
-    private static bool LooksLikeJsonContent(string input)
-    {
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            return false;
-        }
-        string text = input.TrimStart('\ufeff', ' ', '\t', '\r', '\n');
-        return text.StartsWith("{", StringComparison.Ordinal) || text.StartsWith("[", StringComparison.Ordinal);
-    }
-
-    /// <summary>
-    /// 外部テーブルを再取得し、既存プレイリストが持つローカル状態を維持した差分結果を生成します。
-    /// </summary>
-    /// <param name="bmsTable">再取得前のプレイリスト。</param>
-    /// <param name="pageUri">再取得に使用する URI。省略時は既存プレイリストに保持された URL を使用します。</param>
-    /// <returns>差分統合後のプレイリスト。</returns>
-    private BMSTable reloadBMSTable(BMSTable bmsTable, Uri pageUri = null)
-    {
-        if (pageUri == null)
-        {
-            pageUri = bmsTable.Page_url ?? bmsTable.Header_url;
-        }
-        return LoadExternalTable(pageUri, bmsTable);
-    }
-
-    private async Task<BMSTable> reloadBMSTableAsync(BMSTable bmsTable, Uri pageUri = null, CancellationToken cancellationToken = default)
-    {
-        if (pageUri == null)
-        {
-            pageUri = bmsTable.Page_url ?? bmsTable.Header_url;
-        }
-        return await LoadExternalTableAsync(pageUri, bmsTable, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>

@@ -759,7 +759,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         try
         {
             UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, targetTables.Count, string.Empty);
-            List<BMSPlaylist.PlaylistExternalTableLoadResult> loadResults = await tables.LoadExternalTableSnapshotsAsync(
+            List<PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult> loadResults = await tables.ExternalSyncOwner.LoadExternalTableSnapshotsAsync(
                 targetTables,
                 inheritLocalTableProperties: false,
                 UpdatePlaylistSummaryExternalPropertyInitializationLoadProgress,
@@ -769,7 +769,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
             List<PlaylistSummaryExternalPropertyInitializationChange> pendingChanges = [];
             int inspectedLoadResultCount = 0;
-            foreach (BMSPlaylist.PlaylistExternalTableLoadResult result in loadResults)
+            foreach (PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult result in loadResults)
             {
                 inspectedLoadResultCount++;
                 BMSTable table = result?.SourceTable;

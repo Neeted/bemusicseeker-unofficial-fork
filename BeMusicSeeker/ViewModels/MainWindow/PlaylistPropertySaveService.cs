@@ -327,7 +327,7 @@ internal sealed class PlaylistPropertySaveService
                     {
                         oldEntries = [.. table.entries];
                     }
-                    table = await store.ResetBMSTableAsync(table, uri);
+                    table = await store.ExternalSyncOwner.ReloadAndApplySingleTableAsync(table, uri, "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync");
                     commit.Table = table;
                     GetLibrary().ReplaceReferenceBMSTable(sourceTable, table, oldEntries);
                     RaiseRequiredEvent(

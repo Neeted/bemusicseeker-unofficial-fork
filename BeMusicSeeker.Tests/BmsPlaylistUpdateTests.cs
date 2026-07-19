@@ -150,14 +150,14 @@ public sealed class BmsPlaylistUpdateTests
             };
             bool callbackInvoked = false;
 
-            List<BMSTable> updated = playlist.UpdateBMSTablesInternal(reloadExtPlaylist: false, updateCallbackActions:
+            List<BMSTable> updated = playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions:
             [
                 delegate
                 {
                     callbackInvoked = true;
                     throw new InvalidOperationException("callback failure");
                 }
-            ], syncResultCallback: null);
+            ], syncResultCallback: null).GetAwaiter().GetResult();
 
             Assert.IsTrue(callbackInvoked);
             Assert.AreEqual(0, updated.Count);
@@ -186,7 +186,7 @@ public sealed class BmsPlaylistUpdateTests
             };
             bool callbackInvoked = false;
 
-            List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions:
+            List<BMSTable> updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: false, updateCallbackActions:
             [
                 delegate
                 {
@@ -225,21 +225,21 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
-            BMSPlaylist.PlaylistTableUpdateContext? callbackContext = null;
+            PlaylistExternalSyncOwner.PlaylistTableUpdateContext? callbackContext = null;
 
-            List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions:
+            List<BMSTable> updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions:
             [
-                delegate(BMSPlaylist.PlaylistTableUpdateContext context)
+                delegate(PlaylistExternalSyncOwner.PlaylistTableUpdateContext context)
                 {
                     callbackContext = context;
                 }
-            ], syncResultCallback: null);
+            ], syncResultCallback: _ => throw new InvalidOperationException("sync result callback failure"));
 
             Assert.IsNotNull(callbackContext);
-            BMSPlaylist.PlaylistTableUpdateContext actualCallbackContext = callbackContext!;
+            PlaylistExternalSyncOwner.PlaylistTableUpdateContext actualCallbackContext = callbackContext!;
             Assert.AreSame(table, actualCallbackContext.OldTable);
             Assert.IsNotNull(actualCallbackContext.NewTable);
             Assert.IsNotNull(actualCallbackContext.OldEntriesSnapshot);
@@ -278,7 +278,7 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             table.playlist_id = 900001;
             table.header_sha256 = null;
@@ -295,11 +295,11 @@ public sealed class BmsPlaylistUpdateTests
             }
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Hash Init Song\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"Repaired Song\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
-            BMSPlaylist.PlaylistTableUpdateContext? callbackContext = null;
+            PlaylistExternalSyncOwner.PlaylistTableUpdateContext? callbackContext = null;
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([table],
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table],
             [
-                delegate(BMSPlaylist.PlaylistTableUpdateContext context)
+                delegate(PlaylistExternalSyncOwner.PlaylistTableUpdateContext context)
                 {
                     callbackContext = context;
                 }
@@ -348,13 +348,13 @@ public sealed class BmsPlaylistUpdateTests
 
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.EnableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
 
             List<PlaylistSyncProgressSnapshot> snapshots = [];
 
-            List<BMSTable> updated = await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: null, syncResultCallback: null, progressCallback: snapshots.Add);
+            List<BMSTable> updated = await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: null, syncResultCallback: null, progressCallback: snapshots.Add);
 
             Assert.IsNotNull(updated);
             Assert.IsTrue(snapshots.Count >= 3);
@@ -395,7 +395,7 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable externalTable = await playlist.LoadExternalTableAsync(new Uri(externalHeaderPath));
+            BMSTable externalTable = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(externalHeaderPath));
             externalTable.EnableExternalSync();
             var manualTable = new BMSTable
             {
@@ -407,7 +407,7 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { externalTable, manualTable }), Dispatcher.CurrentDispatcher);
             List<PlaylistSyncAttemptResult> syncResults = [];
 
-            await playlist.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: null, syncResults.Add);
+            await playlist.ExternalSyncOwner.UpdateBMSTablesInternalAsync(reloadExtPlaylist: true, updateCallbackActions: null, syncResults.Add);
 
             Assert.AreEqual(1, syncResults.Count);
             Assert.AreSame(externalTable, syncResults[0].SourceTable);
@@ -441,13 +441,13 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9001;
             table.DisableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), null!);
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([table], reason: "test_explicit_reload");
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table], reason: "test_explicit_reload");
 
             Assert.AreEqual(1, results.Count);
             Assert.IsTrue(results[0].Succeeded);
@@ -470,6 +470,56 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
+    public async Task ReloadAndApplySingleTable_UsesExplicitUriOverride()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        string firstDirectory = Path.Combine(tempDirectory, "first");
+        string secondDirectory = Path.Combine(tempDirectory, "second");
+        Directory.CreateDirectory(firstDirectory);
+        Directory.CreateDirectory(secondDirectory);
+        try
+        {
+            string firstHeaderPath = Path.Combine(firstDirectory, "header.json");
+            string firstScorePath = Path.Combine(firstDirectory, "score.json");
+            string secondHeaderPath = Path.Combine(secondDirectory, "header.json");
+            string secondScorePath = Path.Combine(secondDirectory, "score.json");
+            const string headerJson = "{\r\n\"name\":\"ExplicitUriTarget\",\r\n\"symbol\":\"E\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}";
+            File.WriteAllBytes(firstHeaderPath, CreateUtf8BomBytes(headerJson));
+            File.WriteAllBytes(secondHeaderPath, CreateUtf8BomBytes(headerJson));
+            File.WriteAllBytes(firstScorePath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+            File.WriteAllBytes(secondScorePath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(firstHeaderPath));
+            table.playlist_id = 9002;
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), null!);
+
+            BMSTable result = await playlist.ExternalSyncOwner.ReloadAndApplySingleTableAsync(
+                table,
+                new Uri(secondHeaderPath),
+                "test_explicit_uri");
+
+            using (result.ReaderWriterLock.GetReaderGuard())
+            {
+                Assert.AreEqual(2, result.entries.Count(entry => !entry.is_removed));
+            }
+        }
+        finally
+        {
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
     public async Task ReloadPlaylistTargetsAsync_SkipsRemovedTargetBeforeApply()
     {
         bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
@@ -477,7 +527,7 @@ public sealed class BmsPlaylistUpdateTests
         string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tempDirectory);
         IDisposable? tableWriterGuard = null;
-        Task<List<BMSPlaylist.PlaylistReloadTargetResult>>? reloadTask = null;
+        Task<List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult>>? reloadTask = null;
         try
         {
             string headerJsonPath = Path.Combine(tempDirectory, "header.json");
@@ -488,7 +538,7 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
+            BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
             table.playlist_id = 9021;
             table.DisableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(
@@ -507,7 +557,7 @@ public sealed class BmsPlaylistUpdateTests
             int callbackCount = 0;
             int syncResultCount = 0;
             tableWriterGuard = table.ReaderWriterLock.GetWriterGuard();
-            reloadTask = playlist.ReloadPlaylistTargetsAsync(
+            reloadTask = playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync(
                 [table],
                 [context => callbackCount++],
                 _ => syncResultCount++,
@@ -520,7 +570,7 @@ public sealed class BmsPlaylistUpdateTests
             tableWriterGuard.Dispose();
             tableWriterGuard = null;
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await reloadTask;
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await reloadTask;
 
             Assert.IsTrue(reloadReachedMerge);
             Assert.AreEqual(1, results.Count);
@@ -574,7 +624,7 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9011;
             table.DisableExternalSync();
             playlist.BMSTables = new DispatcherCollection<BMSTable>(
@@ -945,7 +995,7 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9031;
             playlist.BMSTables = new DispatcherCollection<BMSTable>(
                 new ObservableCollection<BMSTable>([table]),
@@ -961,7 +1011,7 @@ public sealed class BmsPlaylistUpdateTests
 
             BMSTableEntry staleEntry = table.entries.Single();
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Song\",\"artist\":\"Artist\",\"level\":\"9\",\"url\":\"https://external.example/song\"}]"));
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([table], reason: "test_stale_detail_edit");
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table], reason: "test_stale_detail_edit");
 
             Assert.IsTrue(results.Single().Succeeded);
             BMSTable reloadedTable = playlist.BMSTables.Single();
@@ -1049,7 +1099,7 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { table }), Dispatcher.CurrentDispatcher);
             List<PlaylistSyncProgressSnapshot> snapshots = [];
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([table], progressCallback: snapshots.Add, reason: "test_skip_no_uri");
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([table], progressCallback: snapshots.Add, reason: "test_skip_no_uri");
 
             Assert.AreEqual(0, results.Count);
             Assert.IsTrue(snapshots.Count >= 2);
@@ -1084,7 +1134,7 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable goodTable = await playlist.LoadExternalTableAsync(new Uri(goodHeaderPath));
+            BMSTable goodTable = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(goodHeaderPath));
             var badTable = new BMSTable
             {
                 name = "BadTarget",
@@ -1094,7 +1144,7 @@ public sealed class BmsPlaylistUpdateTests
             playlist.BMSTables = new DispatcherCollection<BMSTable>(new ObservableCollection<BMSTable>(new[] { goodTable, badTable }), Dispatcher.CurrentDispatcher);
             List<PlaylistSyncAttemptResult> syncResults = [];
 
-            List<BMSPlaylist.PlaylistReloadTargetResult> results = await playlist.ReloadPlaylistTargetsAsync([goodTable, badTable], syncResultCallback: syncResults.Add, reason: "test_partial_failure");
+            List<PlaylistExternalSyncOwner.PlaylistReloadTargetResult> results = await playlist.ExternalSyncOwner.ReloadPlaylistTargetsAsync([goodTable, badTable], syncResultCallback: syncResults.Add, reason: "test_partial_failure");
 
             Assert.AreEqual(2, results.Count);
             Assert.AreEqual(2, syncResults.Count);
@@ -1133,7 +1183,7 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9501;
             table.name = "Local Name";
             table.symbol = "L";
@@ -1226,8 +1276,8 @@ public sealed class BmsPlaylistUpdateTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             PlaylistPersistenceRepository.EnsureSchema(songDbPath);
             var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable tableA = await playlist.LoadExternalTableAsync(new Uri(headerAPath));
-            BMSTable tableB = await playlist.LoadExternalTableAsync(new Uri(headerBPath));
+            BMSTable tableA = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerAPath));
+            BMSTable tableB = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerBPath));
             tableA.playlist_id = 9502;
             tableA.name = "LocalA";
             tableA.symbol = "A1";
@@ -1360,7 +1410,7 @@ public sealed class BmsPlaylistUpdateTests
                 BeatorajaBmtOptionsSnapshot.CreateCurrent,
                 getOutputSettings,
                 new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
             table.playlist_id = 9504;
             table.name = "LocalName";
             table.symbol = "LC";
@@ -8078,7 +8128,7 @@ public sealed class BmsPlaylistUpdateTests
                 Folder_order = ["Single Folder"]
             };
 
-            await playlist.RegistrateExternalTableAsync(singleTable, false, "test_external_single");
+            await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(singleTable, false, "test_external_single");
 
             BMSTable batchTableA = new()
             {
@@ -8101,7 +8151,7 @@ public sealed class BmsPlaylistUpdateTests
                 Folder_order = ["Batch Folder B"]
             };
 
-            var batchResult = await playlist.RegistrateExternalTablesAsync(
+            var batchResult = await playlist.ExternalSyncOwner.RegistrateExternalTablesAsync(
                 [batchTableA, batchTableB],
                 false,
                 "test_external_batch");

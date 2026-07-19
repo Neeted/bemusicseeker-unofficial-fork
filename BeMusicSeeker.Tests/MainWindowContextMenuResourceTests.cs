@@ -1682,7 +1682,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(initialize.Contains("Settings.Default.LR2BackupNum"));
         Assert.IsFalse(initialize.Contains("Settings.Default.TableListURL"));
         StringAssert.Contains(externalSyncWorkspace, "currentPlaylists.BmtOutput.QueueBeatorajaBmtExportAll(\"DeferredExternalSync:\" + request.Reason)");
-        StringAssert.Contains(externalSyncWorkspace, "currentPlaylists.UpdateBMSTablesInternalAsync(");
+        StringAssert.Contains(externalSyncWorkspace, "currentPlaylists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(");
         Assert.IsFalse(viewModelCode.Contains("StartDeferredExternalPlaylistSync("));
         StringAssert.Contains(initialize, "initialSetupCompletionMessagePending = true;");
         Assert.IsFalse(initialize.Contains("Resources.Msg_init_completed"));
@@ -2883,7 +2883,7 @@ public sealed class MainWindowContextMenuResourceTests
             "ViewModels",
             "MainWindowViewModel.PlaylistPropertySaveEvents.cs");
 
-        StringAssert.Contains(workspaceCode, "playlists.ReloadPlaylistTargetsAsync(");
+        StringAssert.Contains(workspaceCode, "playlists.ExternalSyncOwner.ReloadPlaylistTargetsAsync(");
         StringAssert.Contains(workspaceCode, "CreateReferenceReplaceUpdateCallback()");
         StringAssert.Contains(workspaceCode, "requireCurrentTargetForApply: true");
         StringAssert.Contains(workspaceCode, "playlists.BmtOutput.QueueBeatorajaBmtExportAll(\"manual_resync\")");
@@ -2947,7 +2947,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private static bool IsValid(");
         string replaceCallback = ExtractBetween(
             File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.Reload.cs")),
-            "internal Action<BMSPlaylist.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()",
+            "internal Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> CreateReferenceReplaceUpdateCallback()",
             "internal sealed class PlaylistSyncProgressChangedEventArgs");
 
         AssertReplaceInvalidatesReferenceSortKey(propertyDialogSave);

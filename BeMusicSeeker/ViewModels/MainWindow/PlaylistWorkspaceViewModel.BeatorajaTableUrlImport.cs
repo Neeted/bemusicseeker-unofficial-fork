@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.Utils;
 
 namespace BeMusicSeeker.ViewModels;
@@ -190,7 +191,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (loadItems.Count > 0)
             {
                 int completedBeforeLoad = completedCount;
-                List<BMSPlaylist.PlaylistExternalTableLoadResult> loadResults = await tables.LoadExternalTableSnapshotsAsync(
+                List<PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult> loadResults = await tables.ExternalSyncOwner.LoadExternalTableSnapshotsAsync(
                     loadItems.Select(item => item.SourceTable),
                     inheritLocalTableProperties: false,
                     snapshot => UpdateBeatorajaTableUrlImportProgress(
@@ -208,7 +209,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 {
                     UpdateBeatorajaTableUrlImportProgress(totalCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_restore_bmt);
                 }
-                foreach (BMSPlaylist.PlaylistExternalTableLoadResult loadResult in loadResults)
+                foreach (PlaylistExternalSyncOwner.PlaylistExternalTableLoadResult loadResult in loadResults)
                 {
                     if (loadResult == null || !itemBySourceTable.TryGetValue(loadResult.SourceTable, out BeatorajaTableUrlImportWorkItem item))
                     {
@@ -255,7 +256,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     try
                     {
                         UpdateBeatorajaTableUrlImportProgress(postProgressCompletedCount, progressTotalCount, null, string.Empty, BeMusicSeeker.Properties.Resources.Beatoraja_table_url_import_progress_phase_register_playlists);
-                        await tables.RegistrateExternalTablesAsync(
+                        await tables.ExternalSyncOwner.RegistrateExternalTablesAsync(
                             registrationItems.Select(item => item.LoadedTable),
                             renameDuplicateName: true,
                             "beatoraja_table_url_import",

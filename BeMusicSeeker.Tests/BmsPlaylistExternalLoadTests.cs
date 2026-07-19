@@ -71,7 +71,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
 
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
             Assert.AreEqual(expectedMask, table.ignore_folder_output);
         }
@@ -111,7 +111,7 @@ public sealed class BmsPlaylistExternalLoadTests
                 ignore_folder_output = expectedMask
             };
 
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
 
             Assert.AreEqual(expectedMask, table.ignore_folder_output);
         }
@@ -141,7 +141,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
 
-            BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
+            BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
             Assert.AreEqual("Samalite難易度表", table.name);
             Assert.AreEqual("夏", table.symbol);
@@ -175,7 +175,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
 
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
             Assert.AreEqual("Samalite難易度表", table.name);
             Assert.AreEqual("夏", table.symbol);
@@ -207,7 +207,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
 
-            Assert.ThrowsException<PlaylistHeaderUriNotFoundException>(() => playlist.LoadExternalTable(new Uri(htmlPath)));
+            Assert.ThrowsException<PlaylistHeaderUriNotFoundException>(() => playlist.ExternalSyncOwner.LoadExternalTable(new Uri(htmlPath)));
         }
         finally
         {
@@ -235,7 +235,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
 
-            BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
+            BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
             Assert.AreEqual(1, table.entries.Count);
             Assert.IsNull(table.entries.Single().md5);
@@ -267,7 +267,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
 
-            BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
+            BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
             Assert.AreEqual(1, table.entries.Count);
             Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", table.entries.Single().md5);
@@ -298,7 +298,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
 
-            BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
+            BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
             Assert.AreEqual(1, table.entries.Count);
             Assert.AreEqual("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", table.entries.Single().md5);
@@ -329,7 +329,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
 
-            BMSTable table = playlist.LoadExternalTable(new Uri(headerJsonPath));
+            BMSTable table = playlist.ExternalSyncOwner.LoadExternalTable(new Uri(headerJsonPath));
 
             Assert.AreEqual(1, table.entries.Count);
             Assert.AreEqual("Title Only", table.entries.Single().title);
@@ -367,7 +367,7 @@ public sealed class BmsPlaylistExternalLoadTests
                 compat_prefix = compatPrefix
             };
 
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
 
             Assert.AreEqual(compatPrefix, table.compat_prefix);
             Assert.AreEqual(expectedFolder, table.entries.Single().folder);
@@ -405,7 +405,7 @@ public sealed class BmsPlaylistExternalLoadTests
                 compat_prefix = compatPrefix
             };
 
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
 
             Assert.AreEqual(compatPrefix, table.compat_prefix);
             Assert.AreEqual(expectedFolder, table.entries.Single().folder);
@@ -441,7 +441,7 @@ public sealed class BmsPlaylistExternalLoadTests
                 compat_prefix = "LOCAL "
             };
 
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath), baseTable);
 
             CollectionAssert.AreEqual(new[] { "LOCAL 2", "LOCAL 1" }, table.Folder_order);
             CollectionAssert.AreEqual(new[] { "LOCAL 2", "LOCAL 1" }, table.folder_list);
@@ -470,10 +470,10 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Reloaded\",\"symbol\":\"st\",\"compat_prefix\":\"EXTERNAL \",\"data_url\":\"./score.json\",\"folder_order\":[\"EXTERNAL 1\"]}"));
-            BMSTable first = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable first = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\"name\":\"Reloaded\",\"symbol\":\"st\",\"compat_prefix\":\"CHANGED \",\"data_url\":\"./score.json\",\"folder_order\":[\"CHANGED 1\"]}"));
-            BMSTable second = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath), first);
+            BMSTable second = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath), first);
 
             Assert.AreEqual(first.header_sha256, second.header_sha256);
             Assert.AreEqual(first.compat_prefix, second.compat_prefix);
@@ -503,7 +503,7 @@ public sealed class BmsPlaylistExternalLoadTests
             string songDbPath = CreateTempSongDbPath(tempDirectory);
             var playlist = new BMSPlaylist(songDbPath);
 
-            BMSTable table = await playlist.LoadExternalTableAsync(new Uri(headerJsonPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
 
             Assert.AreEqual("st", table.compat_prefix);
             Assert.AreEqual("st0", table.entries.Single().folder);
@@ -543,7 +543,7 @@ public sealed class BmsPlaylistExternalLoadTests
 
             PlaylistAlreadyExistsException ex = await Assert.ThrowsExceptionAsync<PlaylistAlreadyExistsException>(async delegate
             {
-                await playlist.RegistrateExternalTableAsync(new Uri(headerJsonPath));
+                await playlist.ExternalSyncOwner.RegistrateExternalTableAsync(new Uri(headerJsonPath));
             });
 
             Assert.AreEqual(BeMusicSeeker.Properties.Resources.Error_PlaylistAlreadyExists, ex.Message);

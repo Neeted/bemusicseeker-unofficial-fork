@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -17,7 +18,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private bool deferredExternalSyncFromReloadTables;
 
-    private Action<BMSPlaylist.PlaylistTableUpdateContext> deferredExternalSyncUpdateCallback;
+    private Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> deferredExternalSyncUpdateCallback;
 
     private long deferredExternalSyncOperationToken;
 
@@ -34,7 +35,7 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal void QueueExternalPlaylistSync(
         string reason,
         bool fromReloadTables,
-        Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallbackAction,
+        Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> updateCallbackAction,
         long operationToken)
     {
         BMSPlaylist playlists = getPlaylistStore();
@@ -116,7 +117,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         + request.FromReloadTables.ToString().ToLowerInvariant()
                         + " version="
                         + request.Version);
-                    List<Action<BMSPlaylist.PlaylistTableUpdateContext>> updateCallbackActions = request.UpdateCallback == null
+                    List<Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext>> updateCallbackActions = request.UpdateCallback == null
                         ? null
                         : [request.UpdateCallback];
                     BMSPlaylist currentPlaylists = getPlaylistStore();
@@ -124,7 +125,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     {
                         throw new InvalidOperationException("Playlist persistence is not available.");
                     }
-                    List<BMSTable> tables = await currentPlaylists.UpdateBMSTablesInternalAsync(
+                    List<BMSTable> tables = await currentPlaylists.ExternalSyncOwner.UpdateBMSTablesInternalAsync(
                         reloadExtPlaylist: true,
                         updateCallbackActions,
                         result =>
@@ -387,7 +388,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             int version,
             string reason,
             bool fromReloadTables,
-            Action<BMSPlaylist.PlaylistTableUpdateContext> updateCallback,
+            Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> updateCallback,
             long operationToken)
         {
             Version = version;
@@ -403,7 +404,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         internal bool FromReloadTables { get; }
 
-        internal Action<BMSPlaylist.PlaylistTableUpdateContext> UpdateCallback { get; }
+        internal Action<PlaylistExternalSyncOwner.PlaylistTableUpdateContext> UpdateCallback { get; }
 
         internal long OperationToken { get; }
     }

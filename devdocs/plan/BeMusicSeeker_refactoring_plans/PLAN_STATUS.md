@@ -19,7 +19,7 @@
 
 active outcome base commit: `d9241f10`
 active execution package: `PL-02 Playlist external-sync and output ownership`
-sequence cursor: `PL02-U5 External HTTP sync / registration lifecycle owner`
+sequence cursor: `PL02-U6 Operation-notification receipt owner / presentation boundary`
 
 目的:
 
