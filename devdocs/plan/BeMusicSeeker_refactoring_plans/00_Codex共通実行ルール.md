@@ -162,6 +162,10 @@ git diff --check
 
 小さい unit は targeted test を先に実行してよい。レビュー修正後は、最終差分に対して統合入口を再実行する。
 
+targeted / Full test で失敗を検出した場合、直接の変更箇所と無関係に見えても「既知の失敗」「baseline failure」「flaky」と分類して完了扱いしない。コンテキスト圧縮により、現在の agent が原因となった過去の implementation unit を保持していない可能性を前提に、失敗 test、production route、期待値の導入・変更 commit を Git 履歴から確認する。現行契約に対して実装または期待値のどちらが誤っているかを判断し、同じ作業サイクルで修正して最終差分を再検証する。
+
+全体 test で失敗し個別実行で成功する test は、一過性の成功ではなく test isolation / synchronization の欠陥として扱う。共有 mutable static、実行順、非同期 worker と observable apply の完了条件、dispatcher / scheduler queue、時刻、file / DB / environment state を調査する。個別再実行の成功だけで閉じず、observable completion を待つ、専用 dispatcher / state へ隔離する、共有状態を確実に復元するなど test 構造を改善し、反復実行と全体 test の両方で確認する。
+
 SDK は `global.json` の .NET SDK 10 系を使う。Roslynator 0.12.0 が MSBuild 18 で動作しない間は、上記のとおり Visual Studio 2022 / MSBuild 17 を指定する。analyzer Gate はコマンドが正常終了し、今回差分による warning が増えていないこととする。既存 warning は root `AGENTS.md` の方針に従い、info 診断は目的を定めた棚卸しでだけ扱う。
 
 ### UI outcome の smoke check

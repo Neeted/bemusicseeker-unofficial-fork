@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -925,50 +926,93 @@ public sealed class ApplicationCompositionTests
     [TestMethod]
     public void PlaylistTreeSelectionFromWorkerAppliesOnUiDispatcher()
     {
-        Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
-        Dispatcher uiDispatcher = Dispatcher.CurrentDispatcher;
-        DispatcherHelper.UIDispatcher = uiDispatcher;
-        try
+        RunOnStaDispatcherThread(() =>
         {
-            var composition = new ApplicationComposition(
-                () => new BmsLibraryOptionsSnapshot(),
-                firstStartupProvider: () => false,
-                completeFirstStartup: () =>
+            Dispatcher previousDispatcher = DispatcherHelper.UIDispatcher;
+            Dispatcher uiDispatcher = Dispatcher.CurrentDispatcher;
+            DispatcherHelper.UIDispatcher = uiDispatcher;
+            try
+            {
+                var composition = new ApplicationComposition(
+                    () => new BmsLibraryOptionsSnapshot(),
+                    firstStartupProvider: () => false,
+                    completeFirstStartup: () =>
+                    {
+                    });
+                MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
+                int uiThreadId = Thread.CurrentThread.ManagedThreadId;
+                int workerThreadId = 0;
+                int propertyChangedThreadId = 0;
+                int propertyChangedCount = 0;
+                viewModel.PlaylistWorkspace.PropertyChanged += (_, e) =>
                 {
+                    if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode))
+                    {
+                        propertyChangedThreadId = Thread.CurrentThread.ManagedThreadId;
+                        propertyChangedCount++;
+                    }
+                };
+
+                Task worker = Task.Run(() =>
+                {
+                    workerThreadId = Thread.CurrentThread.ManagedThreadId;
+                    viewModel.PlaylistWorkspace.RequestSummarySelection();
                 });
-            MainWindowViewModel viewModel = composition.CreateMainWindowViewModel();
-            int uiThreadId = Thread.CurrentThread.ManagedThreadId;
-            int propertyChangedThreadId = 0;
-            viewModel.PlaylistWorkspace.PropertyChanged += (_, e) =>
-            {
-                if (e.PropertyName == nameof(PlaylistWorkspaceViewModel.IsPlaylistSummaryMode))
-                {
-                    propertyChangedThreadId = Thread.CurrentThread.ManagedThreadId;
-                }
-            };
+                var frame = new DispatcherFrame();
+                _ = worker.ContinueWith(
+                    _ => uiDispatcher.BeginInvoke(
+                        DispatcherPriority.ContextIdle,
+                        (Action)(() => frame.Continue = false)),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
 
-            Task worker = Task.Run(() => viewModel.PlaylistWorkspace.RequestSummarySelection());
-            var frame = new DispatcherFrame();
-            void PumpDispatcher()
-            {
-                if (worker.IsCompleted)
-                {
-                    frame.Continue = false;
-                    return;
-                }
-                uiDispatcher.BeginInvoke(DispatcherPriority.Background, (Action)PumpDispatcher);
+                Dispatcher.PushFrame(frame);
+                worker.GetAwaiter().GetResult();
+
+                Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryMode);
+                Assert.AreNotEqual(uiThreadId, workerThreadId);
+                Assert.AreEqual(uiThreadId, propertyChangedThreadId);
+                Assert.AreEqual(1, propertyChangedCount);
             }
+            finally
+            {
+                DispatcherHelper.UIDispatcher = previousDispatcher;
+            }
+        });
+    }
 
-            uiDispatcher.BeginInvoke(DispatcherPriority.Background, (Action)PumpDispatcher);
-            Dispatcher.PushFrame(frame);
-            worker.GetAwaiter().GetResult();
-
-            Assert.IsTrue(viewModel.PlaylistWorkspace.IsPlaylistSummaryMode);
-            Assert.AreEqual(uiThreadId, propertyChangedThreadId);
-        }
-        finally
+    private static void RunOnStaDispatcherThread(Action action)
+    {
+        Exception? exception = null;
+        var thread = new Thread(() =>
         {
-            DispatcherHelper.UIDispatcher = previousDispatcher;
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                exception = ex;
+            }
+            finally
+            {
+                Dispatcher dispatcher = Dispatcher.FromThread(Thread.CurrentThread);
+                if (dispatcher != null && !dispatcher.HasShutdownStarted)
+                {
+                    dispatcher.InvokeShutdown();
+                }
+            }
+        })
+        {
+            IsBackground = true
+        };
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (exception != null)
+        {
+            ExceptionDispatchInfo.Capture(exception).Throw();
         }
     }
 

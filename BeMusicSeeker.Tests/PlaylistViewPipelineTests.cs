@@ -3313,7 +3313,15 @@ public sealed class PlaylistViewPipelineTests
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RemoveFromLibrary));
         Assert.IsFalse(target.HasCapability(ChartOperationCapabilities.RepairInstalledLocation));
         Assert.IsTrue(target.HasCapability(ChartOperationCapabilities.UseLr2Ir));
-        Assert.IsNull(target.ToLibraryChartRef());
+        LibraryChartRef chartRef = target.ToLibraryChartRef();
+        Assert.IsNotNull(chartRef);
+        Assert.AreEqual(LibraryChartKind.Bms, chartRef.Kind);
+        Assert.IsNull(chartRef.Path);
+        Assert.AreEqual(entry.md5, chartRef.Md5);
+        Assert.IsNull(chartRef.GetBmsStorageOwner());
+        Assert.IsNull(chartRef.GetBmsonStorageOwner());
+        Assert.AreSame(target.Chart, chartRef.GetChartSnapshot());
+        Assert.IsFalse(ChartLibraryMoveRequest.TryCreate([target], "C:\\Songs", out _));
     }
 
     [TestMethod]

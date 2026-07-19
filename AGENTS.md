@@ -41,6 +41,8 @@
 - script が環境要因で実行できない場合だけ、`00_Codex共通実行ルール.md` の個別コマンドを実行し、未実施項目を明示する。
 - 検証コマンドと検証用 script に固定の実行時間制限を設けない。特に 120 秒（2 分）の timeout で build / test / analyzer を打ち切らず、プロセスの完了まで待つ。
 - UI smoke の対象は、Release build が完了したリポジトリ内の `bin\x64\Release\net472\BeMusicSeeker.exe` だけとする。インストール版の executable path を取得・列挙・起動してはならない。起動後は対象 process の executable path がこの resolved path と一致することを確認し、一致を確認できない場合は UI 操作を行わず smoke 未実施として扱う。
+- targeted / Full test で失敗を検出した場合、直接の変更箇所と無関係に見えても「既知」「baseline」「flaky」として放置しない。コンテキスト圧縮前の変更で発生した可能性を前提に、Git 履歴と現行実装を確認し、実装または期待値を修正して最終差分で再検証する。
+- 全体実行で失敗し個別実行で成功する test は、成功した個別再実行を根拠に合格扱いしない。共有状態、実行順、非同期完了条件、dispatcher / scheduler、時刻・ファイル・DB isolation を調査し、observable completion を待つ、専用状態へ隔離するなど test 構造を改善してから全体実行を再確認する。
 - behavior test を優先し、private method 名や一時的な配置を固定する source-text / reflection test を完成後の主要保証にしない。
 
 ## サブエージェント

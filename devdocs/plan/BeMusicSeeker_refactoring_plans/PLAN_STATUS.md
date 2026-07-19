@@ -2,7 +2,7 @@
 
 [リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md) / [Codex 共通実行ルール](./00_Codex共通実行ルール.md)
 
-最終更新日: 2026-07-18
+最終更新日: 2026-07-19
 
 ## Baseline
 
@@ -76,7 +76,7 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
 | Migration readiness | not met | resource-health / maintenance / chart-info owner と generic mutation の prepare / durable commit / live apply / immutable receipt publish protocol、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner、LIB-06 facade / scan integration closure は成立済み。残る playlist / shell consumer owner の課題は PL-01、PL-02、UI-05 で扱う |
-| Quality | in progress | PL-01 の Release build、targeted behavior verification、static review は完了。Full verification は既知の無関係な既存テスト失敗を再現しており、UI smoke と残る outcomes / Gate evidence は未完了 |
+| Quality | in progress | PL-01 の Release build、targeted behavior verification、Full verification、static review は完了。UI smoke と残る outcomes / Gate evidence は未完了 |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 
