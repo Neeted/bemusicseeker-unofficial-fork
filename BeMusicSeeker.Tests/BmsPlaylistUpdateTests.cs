@@ -1977,7 +1977,14 @@ public sealed class BmsPlaylistUpdateTests
             {
                 db.CreateTable<LR2SongDB.folder>();
             }
-            var playlist = new BMSPlaylist(songDbPath, new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            string outputPath = Path.Combine(outputBaseDir, "FolderTable", "0001.lr2folder");
+            var synchronization = new TestLr2PlaylistFolderSynchronizationPort(songDbPath)
+            {
+                PhysicalSurfaceFactory = () => CustomFolderOutputPhysicalSurface.FromEntries(
+                    [new RootFileEnumerationEntry(outputPath, DateTime.UtcNow)],
+                    discoveryComplete: true)
+            };
+            var playlist = new BMSPlaylist(songDbPath, synchronization)
             {
                 BMSTables = new DispatcherCollection<BMSTable>(
                     new ObservableCollection<BMSTable>(new[] { table }),
@@ -1986,7 +1993,6 @@ public sealed class BmsPlaylistUpdateTests
 
             playlist.ReOutputCustomFolderAndCommitToDB(table);
 
-            string outputPath = Path.Combine(outputBaseDir, "FolderTable", "0001.lr2folder");
             Assert.IsTrue(File.Exists(outputPath));
             string text = File.ReadAllText(outputPath, Encoding.GetEncoding("shift_jis"));
             StringAssert.Contains(text, "#TITLE Folder A");

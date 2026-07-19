@@ -1986,7 +1986,7 @@ public sealed class MainWindowContextMenuResourceTests
         string manualResyncPlaylistMethod = ExtractBetween(
             playlistCode,
             "private async Task<Lr2SongDbSyncPreparedDataSurface> ReOutputAllCustomFoldersForLr2SongDbSyncCoreAsync",
-            "private sealed class CustomFolderOutputProjection");
+            "private List<CustomFolderDefinition> BuildCustomFolderDefinitions(");
 
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];");
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. GetStandaloneBmsRootPathsForCurrentSession()];");

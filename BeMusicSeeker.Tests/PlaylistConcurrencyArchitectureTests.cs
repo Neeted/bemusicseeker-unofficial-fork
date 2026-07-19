@@ -247,6 +247,43 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void CustomFolderProjectionAndMaterialization_UseDedicatedOwner()
+    {
+        string root = FindRepositoryRoot();
+        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string ownerSource = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "Models",
+            "BmsLibraryInternal",
+            "PlaylistCustomFolderOutputOwner.cs"));
+
+        StringAssert.Contains(playlistSource, "customFolderOutputOwner.CreateProjection");
+        StringAssert.Contains(playlistSource, "customFolderOutputOwner.MaterializeBatch");
+        StringAssert.Contains(playlistSource, "CreateCustomFolderOutputPhysicalSurfaceFromGroupedEnumeration,");
+        Assert.IsFalse(playlistSource.Contains("customFolderOutputOwner,\n            ResolveCustomFolderOutputPhysicalSurface"));
+        Assert.IsFalse(playlistSource.Contains("private CustomFolderOutputProjection CreateCustomFolderOutputProjection("));
+        Assert.IsFalse(playlistSource.Contains("private CustomFolderBatchMaterializationResult MaterializeCustomFolderOutputBatch("));
+        foreach (string legacyHelper in new[]
+        {
+            "RemoveStaleManagedCustomFolderFiles",
+            "EnumerateManagedCustomFolderFiles",
+            "TryDeleteManagedCustomFolderFile",
+            "AddCustomFolderPruneScopePath",
+            "RemoveEmptyCustomFolderDirectories",
+            "TryDeleteEmptyCustomFolderDirectory",
+            "private static void WriteAllText("
+        })
+        {
+            Assert.IsFalse(playlistSource.Contains(legacyHelper), "BMSPlaylist must not retain materialization writer helper: " + legacyHelper);
+        }
+        StringAssert.Contains(ownerSource, "internal CustomFolderOutputProjection CreateProjection(");
+        StringAssert.Contains(ownerSource, "internal CustomFolderBatchMaterializationResult MaterializeBatch(");
+        StringAssert.Contains(ownerSource, "RemoveStaleManagedFiles(");
+        StringAssert.Contains(ownerSource, "WriteAllText(file.FilePath");
+    }
+
+    [TestMethod]
     public void CustomFolderOutputResolution_UsesDedicatedProviderBoundary()
     {
         string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
