@@ -96,12 +96,12 @@ public sealed partial class PlaylistWorkspaceViewModel
     {
         if (playlistTreeRefreshSuppressedProvider())
         {
-            RequestPlaylistSummaryDataRefresh(reason, invalidateTableCountCache: true);
+            RequestPlaylistSummaryDataRefresh(reason);
             return true;
         }
         if (playlistTreeRefreshDeferredProvider(reason))
         {
-            RequestPlaylistSummaryDataRefresh(reason, invalidateTableCountCache: true);
+            RequestPlaylistSummaryDataRefresh(reason);
             return true;
         }
         return false;
@@ -116,7 +116,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
         RefreshPlaylistTreePresentation();
         PlaylistTablesPresentationChanged?.Invoke(this, EventArgs.Empty);
-        RequestPlaylistSummaryDataRefresh(reason, invalidateTableCountCache: true);
+        RequestPlaylistSummaryDataRefresh(reason);
     }
 
     private void HandlePlaylistEntriesHydrationCompleted(int version)
@@ -127,13 +127,11 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (playlistTreeRefreshDeferredProvider("playlist_entries_hydration_completed"))
         {
             RequestPlaylistSummaryDataRefresh(
-                "playlist_entries_hydration_completed",
-                invalidateTableCountCache: true);
+                "playlist_entries_hydration_completed");
             return;
         }
         RequestPlaylistSummaryDataRefresh(
-            "playlist_entries_hydration_completed",
-            invalidateTableCountCache: true);
+            "playlist_entries_hydration_completed");
         RequestPlaylistDetailReloadRefresh();
     }
 }

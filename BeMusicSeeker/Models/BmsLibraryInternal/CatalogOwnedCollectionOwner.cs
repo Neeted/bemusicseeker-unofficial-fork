@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading;
 using BeMusicSeeker.Models.LR2;
 
@@ -23,6 +24,16 @@ internal sealed class CatalogOwnedCollectionOwner
 
     private int collectionVersion;
 
+    private readonly object hashIndexSnapshotGate = new();
+
+    private OwnedChartHashIndexVersionedSnapshot hashIndexSnapshot;
+
+    private int hashIndexSnapshotVersion;
+
+    private int hashIndexInvalidationVersion;
+
+    private int digestMutationWindowDepth;
+
     internal object Gate => gate;
 
     internal OwnedChartCollectionState Collection => collection;
@@ -34,6 +45,158 @@ internal sealed class CatalogOwnedCollectionOwner
     internal int BmsonRowsVersion => bmsonRowsVersion;
 
     internal int CollectionVersion => Volatile.Read(ref collectionVersion);
+
+    internal void BeginDigestMutationWindow()
+    {
+        Interlocked.Increment(ref digestMutationWindowDepth);
+    }
+
+    internal void EndDigestMutationWindow()
+    {
+        Interlocked.Decrement(ref digestMutationWindowDepth);
+        InvalidateHashIndexSnapshot();
+    }
+
+    internal bool IsDigestMutationWindowActive()
+    {
+        return Volatile.Read(ref digestMutationWindowDepth) > 0;
+    }
+
+    internal void WaitForDigestMutationWindowIdle(CancellationToken cancellationToken = default)
+    {
+        while (IsDigestMutationWindowActive())
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Thread.Sleep(20);
+        }
+    }
+
+    internal void InvalidateHashIndexSnapshot()
+    {
+        lock (hashIndexSnapshotGate)
+        {
+            hashIndexSnapshot = null;
+            hashIndexInvalidationVersion++;
+        }
+    }
+
+    internal OwnedChartHashIndexVersionedSnapshot GetHashIndexSnapshot(
+        CatalogStorageRowsOwner storageRowsOwner,
+        CancellationToken cancellationToken,
+        out bool cacheHit,
+        out int staleRetryCount)
+    {
+        if (storageRowsOwner == null)
+        {
+            throw new ArgumentNullException(nameof(storageRowsOwner));
+        }
+
+        staleRetryCount = 0;
+        while (true)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            bool waitForDigestWindow = false;
+            int invalidationVersion;
+            lock (hashIndexSnapshotGate)
+            {
+                OwnedChartHashIndexVersionedSnapshot currentSnapshot = hashIndexSnapshot;
+                int currentOwnedCollectionVersion = CollectionVersion;
+                if (currentSnapshot != null)
+                {
+                    if (IsHashIndexSnapshotCurrent(currentSnapshot, storageRowsOwner, currentOwnedCollectionVersion))
+                    {
+                        cacheHit = true;
+                        return currentSnapshot;
+                    }
+                    hashIndexSnapshot = null;
+                    hashIndexInvalidationVersion++;
+                }
+                if (IsDigestMutationWindowActive())
+                {
+                    waitForDigestWindow = true;
+                }
+                invalidationVersion = hashIndexInvalidationVersion;
+            }
+
+            if (waitForDigestWindow)
+            {
+                WaitForDigestMutationWindowIdle(cancellationToken);
+                staleRetryCount++;
+                continue;
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            EnsureCurrent(storageRowsOwner, cancellationToken);
+            OwnedChartHashIndexSnapshot builtSnapshot;
+            StorageRowsVersionSnapshot storageRowsVersion;
+            int ownedCollectionVersion;
+            using (storageRowsOwner.WriteGate.GetReaderGuard())
+            {
+                storageRowsVersion = storageRowsOwner.CaptureVersionSnapshot();
+                lock (gate)
+                {
+                    if (!initialized
+                        || bmsRowsVersion != storageRowsVersion.BmsRowsVersion
+                        || bmsonRowsVersion != storageRowsVersion.BmsonRowsVersion)
+                    {
+                        staleRetryCount++;
+                        continue;
+                    }
+                    builtSnapshot = collection.CreateOwnedHashIndexSnapshot(cancellationToken);
+                    ownedCollectionVersion = CollectionVersion;
+                }
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            lock (hashIndexSnapshotGate)
+            {
+                OwnedChartHashIndexVersionedSnapshot currentSnapshot = hashIndexSnapshot;
+                if (currentSnapshot != null)
+                {
+                    if (IsHashIndexSnapshotCurrent(currentSnapshot, storageRowsOwner, CollectionVersion))
+                    {
+                        cacheHit = true;
+                        return currentSnapshot;
+                    }
+                    hashIndexSnapshot = null;
+                    hashIndexInvalidationVersion++;
+                    staleRetryCount++;
+                    continue;
+                }
+                if (hashIndexInvalidationVersion != invalidationVersion
+                    || CollectionVersion != ownedCollectionVersion
+                    || storageRowsOwner.BmsRowsVersion != storageRowsVersion.BmsRowsVersion
+                    || storageRowsOwner.BmsonRowsVersion != storageRowsVersion.BmsonRowsVersion
+                    || IsDigestMutationWindowActive())
+                {
+                    staleRetryCount++;
+                    continue;
+                }
+                OwnedChartHashIndexVersionedSnapshot rebuiltSnapshot = new(
+                    builtSnapshot,
+                    Interlocked.Increment(ref hashIndexSnapshotVersion),
+                    stopwatch.ElapsedMilliseconds,
+                    invalidationVersion,
+                    ownedCollectionVersion,
+                    storageRowsVersion.BmsRowsVersion,
+                    storageRowsVersion.BmsonRowsVersion);
+                hashIndexSnapshot = rebuiltSnapshot;
+                cacheHit = false;
+                return rebuiltSnapshot;
+            }
+        }
+    }
+
+    private bool IsHashIndexSnapshotCurrent(
+        OwnedChartHashIndexVersionedSnapshot snapshot,
+        CatalogStorageRowsOwner storageRowsOwner,
+        int currentOwnedCollectionVersion)
+    {
+        return snapshot != null
+            && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion
+            && storageRowsOwner.BmsRowsVersion == snapshot.BmsRowsVersion
+            && storageRowsOwner.BmsonRowsVersion == snapshot.BmsonRowsVersion;
+    }
 
     internal int IncrementVersion() => Interlocked.Increment(ref collectionVersion);
 

@@ -389,8 +389,7 @@ internal sealed class PlaylistPropertySaveService
                 RaiseRequiredEvent(
                     PlaylistPropertySummaryDataRefreshRequested,
                     new PlaylistSummaryDataRefreshRequestedEventArgs(
-                        "playlist_property_resync",
-                        invalidateTableCountCache: true),
+                        "playlist_property_resync"),
                     "Playlist property summary refresh");
             }
         }
@@ -435,8 +434,7 @@ internal sealed class PlaylistPropertySaveService
                 RaiseRequiredEvent(
                     PlaylistPropertySummaryDataRefreshRequested,
                     new PlaylistSummaryDataRefreshRequestedEventArgs(
-                        "playlist_property_changed",
-                        invalidateTableCountCache: true),
+                        "playlist_property_changed"),
                     "Playlist property summary refresh");
             }
         }
@@ -535,8 +533,7 @@ internal sealed class PlaylistPropertySaveService
             RaiseRequiredEvent(
                 PlaylistPropertySummaryDataRefreshRequested,
                 new PlaylistSummaryDataRefreshRequestedEventArgs(
-                    "playlist_property_output_changed",
-                    invalidateTableCountCache: false),
+                    "playlist_property_output_changed"),
                 "Playlist property summary refresh");
         }
         bool bmtProjectionChanged = displayProjectionChanged

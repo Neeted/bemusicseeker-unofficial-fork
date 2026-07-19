@@ -169,7 +169,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                             {
                                 QueuePlaylistSummaryDataRefreshFromImport(
                                     "external_playlist_import",
-                                    invalidateTableCountCache: true,
                                     ReportExternalPlaylistImportSummaryRefreshFailure);
                             }
                             catch (Exception ex)
@@ -359,15 +358,13 @@ public sealed partial class PlaylistWorkspaceViewModel
         if (queueSummaryRefresh)
         {
             QueuePlaylistSummaryDataRefreshFromImport(
-                reason ?? "playlist_registered",
-                invalidateTableCountCache: true);
+                reason ?? "playlist_registered");
         }
         return true;
     }
 
     private void QueuePlaylistSummaryDataRefreshFromImport(
         string reason,
-        bool invalidateTableCountCache,
         Action<Exception> failure = null)
     {
         dispatchPresentation(() =>
@@ -375,8 +372,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             try
             {
                 RequestPlaylistSummaryDataRefresh(
-                    reason,
-                    invalidateTableCountCache);
+                    reason);
             }
             catch (Exception exception) when (failure != null)
             {

@@ -1871,14 +1871,12 @@ public partial class MainWindowViewModel : ViewModel
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "chart_info_dependent_views"))
         {
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "chart_info_dependent_views",
-                invalidateTableCountCache: true);
+                "chart_info_dependent_views");
         }
         else
         {
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "chart_info_dependent_views",
-                invalidateTableCountCache: true);
+                "chart_info_dependent_views");
             PlaylistWorkspace.RequestPlaylistDetailReloadRefresh();
         }
         if (TrySuppress(UiRefreshChannel.LibraryMainView))
@@ -2472,15 +2470,13 @@ public partial class MainWindowViewModel : ViewModel
         if (TrySuppress(UiRefreshChannel.LibraryMainView))
         {
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                reason,
-                invalidateTableCountCache: false);
+                reason);
             return;
         }
         if (TryDeferStartupPresentationRefresh(UiRefreshChannel.LibraryMainView | UiRefreshChannel.PlaylistTree, reason))
         {
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                reason,
-                invalidateTableCountCache: true);
+                reason);
             return;
         }
         if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
@@ -2491,14 +2487,12 @@ public partial class MainWindowViewModel : ViewModel
                 ExecMaintenanceFilter(type);
             }
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                reason,
-                invalidateTableCountCache: false);
+                reason);
             return;
         }
         RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);
         PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-            reason,
-            invalidateTableCountCache: false);
+            reason);
     }
 
     private void IncrementNormalLibrarySourceGenerationForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
@@ -2884,7 +2878,7 @@ public partial class MainWindowViewModel : ViewModel
             cancellationToken.ThrowIfCancellationRequested();
             BMSLibrary.InstalledPrimaryHashWarmupResult primaryHashResult = library.WarmInstalledPrimaryHashLookup("post_startup_" + (reason ?? string.Empty));
             cancellationToken.ThrowIfCancellationRequested();
-            BMSLibrary.OwnedHashIndexWarmupResult playlistSummaryResult = library.WarmPlaylistSummaryOwnedHashSnapshot("post_startup_" + (reason ?? string.Empty));
+            OwnedHashIndexWarmupResult playlistSummaryResult = library.WarmOwnedChartHashIndexSnapshot("post_startup_" + (reason ?? string.Empty));
             stopwatch.Stop();
             LogMainViewBuild("post_startup_warmup done reason=" + (reason ?? string.Empty)
                 + " runId=" + runId
@@ -5249,8 +5243,7 @@ public partial class MainWindowViewModel : ViewModel
         {
             RefreshLibraryMainViewForCurrentFilter();
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "score_only_reload",
-                invalidateTableCountCache: false);
+                "score_only_reload");
         }
         SkipUnrequestedStartupProgressPhases(
             "ReloadScoresOnly:scheduled",
@@ -5746,13 +5739,11 @@ public partial class MainWindowViewModel : ViewModel
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "score_hydration_completed"))
             {
                 PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                    "score_hydration_completed",
-                    invalidateTableCountCache: true);
+                    "score_hydration_completed");
                 return;
             }
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "score_hydration_completed",
-                invalidateTableCountCache: false);
+                "score_hydration_completed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.ScoreSnapshotVersion, delegate
         {
@@ -5763,8 +5754,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             PlaylistWorkspace.RequestPlaylistDetailScoreSnapshotRefresh(files.ScoreSnapshotVersion);
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "score_snapshot_changed",
-                invalidateTableCountCache: false);
+                "score_snapshot_changed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.RankingRefreshRequestedVersion, delegate
         {
@@ -5781,13 +5771,11 @@ public partial class MainWindowViewModel : ViewModel
             if (TryDeferStartupPresentationRefresh(UiRefreshChannel.PlaylistTree, "ranking_refresh_completed"))
             {
                 PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                    "ranking_refresh_completed",
-                    invalidateTableCountCache: true);
+                    "ranking_refresh_completed");
                 return;
             }
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "ranking_refresh_completed",
-                invalidateTableCountCache: false);
+                "ranking_refresh_completed");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.MaintenanceHydrationRequestedVersion, delegate
         {

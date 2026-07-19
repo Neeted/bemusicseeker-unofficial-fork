@@ -2810,7 +2810,7 @@ public sealed class MainWindowContextMenuResourceTests
         int realPathWarmup = ownedWarmup.IndexOf("WarmOwnedRealPathDirectoryView", StringComparison.Ordinal);
         int installDestinationOverlayWarmup = ownedWarmup.IndexOf("WarmInstallDestinationOverlaySnapshot", StringComparison.Ordinal);
         int primaryHashWarmup = ownedWarmup.IndexOf("WarmInstalledPrimaryHashLookup", StringComparison.Ordinal);
-        int playlistSummaryWarmup = ownedWarmup.IndexOf("WarmPlaylistSummaryOwnedHashSnapshot", StringComparison.Ordinal);
+        int playlistSummaryWarmup = ownedWarmup.IndexOf("WarmOwnedChartHashIndexSnapshot", StringComparison.Ordinal);
         Assert.IsTrue(realPathWarmup >= 0);
         Assert.IsTrue(installDestinationOverlayWarmup > realPathWarmup);
         Assert.IsTrue(primaryHashWarmup > installDestinationOverlayWarmup);

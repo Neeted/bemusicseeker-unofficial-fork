@@ -725,7 +725,7 @@ public sealed class ApplicationCompositionTests
                     visibleInsertIndex: 0,
                     currentPlaylistId: third.playlist_id);
                 Assert.IsTrue(supersededGeneration > 0L);
-                workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false);
+                workspace.RequestPlaylistSummaryDataRefresh();
                 Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
 
                 long synchronousGeneration = await workspace.DropSummaryRowsInBmtOrderAsync(

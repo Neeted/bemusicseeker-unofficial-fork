@@ -174,7 +174,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         RequestPlaylistSummaryRefresh(
             "playlist_table_removed",
-            invalidateTableCountCache: true,
             rebuildAsync: false);
     }
 
@@ -575,8 +574,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (refreshSummaryIfVisible)
             {
                 RequestPlaylistSummaryDataRefresh(
-                    "playlist_entries_updated",
-                    invalidateTableCountCache: true);
+                    "playlist_entries_updated");
             }
         }
     }

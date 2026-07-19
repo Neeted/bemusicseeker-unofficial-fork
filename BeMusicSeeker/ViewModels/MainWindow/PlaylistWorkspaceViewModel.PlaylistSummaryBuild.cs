@@ -47,8 +47,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         playlists.CommitBMSTableHeadersToDB(changedTables);
         playlists.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bmt_output_changed");
         RequestPlaylistSummaryDataRefresh(
-            "playlist_summary_bmt_output_changed",
-            invalidateTableCountCache: false);
+            "playlist_summary_bmt_output_changed");
     }
 
     /// <summary>
@@ -115,7 +114,6 @@ public sealed partial class PlaylistWorkspaceViewModel
                     library,
                     playlists,
                     syncStatusSnapshot,
-                    buildRequest.TableCountCacheGeneration,
                     buildRequest.CancellationToken);
             }
             catch (OperationCanceledException)
@@ -143,7 +141,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
             string sortColumn = PlaylistSummarySortParameters?.ColumnsName ?? nameof(PlaylistSummaryRow.Name);
             string sortDirection = PlaylistSummarySortParameters?.Direction.ToString() ?? ListSortDirection.Ascending.ToString();
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot ownedSnapshot = buildResult.OwnedHashSnapshot;
+            OwnedChartHashIndexVersionedSnapshot ownedSnapshot = buildResult.OwnedHashSnapshot;
             LogBuild("playlist_summary_build tableCount=" + buildResult.TableCount
                 + " unloadedTableCount=" + buildResult.UnloadedTableCount
                 + " entryScanCount=" + buildResult.EntryScanCount
@@ -233,12 +231,10 @@ public sealed partial class PlaylistWorkspaceViewModel
         BMSLibrary library,
         BMSPlaylist playlists,
         IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> syncStatusSnapshot,
-        long expectedTableCountCacheGeneration,
         CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        BMSLibrary.PlaylistSummaryOwnedHashSnapshot ownedHashSnapshot = library?.GetPlaylistSummaryOwnedHashSnapshot(cancellationToken);
-        int ownedSnapshotVersion = ownedHashSnapshot?.Version ?? 0;
+        OwnedChartHashIndexVersionedSnapshot ownedHashSnapshot = library?.GetOwnedChartHashIndexSnapshot(cancellationToken);
         List<BMSTable> tablesSnapshot = [];
         if (playlists != null)
         {
@@ -266,19 +262,21 @@ public sealed partial class PlaylistWorkspaceViewModel
             cancellationToken.ThrowIfCancellationRequested();
             bool entriesLoaded = table.ArePlaylistEntriesLoaded;
             PlaylistSummaryCountResult countResult = default;
-            string countCacheKey = entriesLoaded ? GetPlaylistSummaryTableCountCacheKey(table, ownedSnapshotVersion) : null;
-            if (entriesLoaded && TryGetPlaylistSummaryTableCount(countCacheKey, out countResult))
+            if (entriesLoaded)
             {
-                result.SummaryCacheHitCount++;
-            }
-            else if (entriesLoaded)
-            {
-                countResult = CalculatePlaylistSummaryCounts(
-                    SnapshotPlaylistEntriesExceptDummy(table),
+                countResult = playlistCatalogSummaryOwner.GetOrBuildTableCount(
+                    table,
                     ownedHashSnapshot,
-                    cancellationToken);
-                TrySetPlaylistSummaryTableCount(countCacheKey, countResult, expectedTableCountCacheGeneration);
-                result.SummaryCacheMissCount++;
+                    cancellationToken,
+                    out bool cacheHit);
+                if (cacheHit)
+                {
+                    result.SummaryCacheHitCount++;
+                }
+                else
+                {
+                    result.SummaryCacheMissCount++;
+                }
             }
             else
             {
@@ -442,83 +440,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     }
 
     /// <summary>
-    /// Counts active hashed entries against explicit owned-digest sets for deterministic tests and callers.
-    /// </summary>
-    /// <param name="entries">Playlist entries to scan.</param>
-    /// <param name="ownedMd5Hashes">Owned MD5 digests.</param>
-    /// <param name="ownedSha256Hashes">Owned SHA-256 digests.</param>
-    /// <returns>Scanned, total, and owned entry counts.</returns>
-    internal static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(
-        IEnumerable<BMSTableEntry> entries,
-        HashSet<string> ownedMd5Hashes,
-        HashSet<string> ownedSha256Hashes)
-    {
-        HashSet<string> safeMd5Hashes = ownedMd5Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        HashSet<string> safeSha256Hashes = ownedSha256Hashes ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        return CalculatePlaylistSummaryCounts(
-            entries,
-            md5 => !string.IsNullOrWhiteSpace(md5) && safeMd5Hashes.Contains(md5),
-            sha256 => !string.IsNullOrWhiteSpace(sha256) && safeSha256Hashes.Contains(sha256));
-    }
-
-    /// <summary>
-    /// Counts active hashed entries against a library-owned digest snapshot.
-    /// </summary>
-    /// <param name="entries">Playlist entries to scan.</param>
-    /// <param name="ownedHashSnapshot">The owned digest snapshot.</param>
-    /// <returns>Scanned, total, and owned entry counts.</returns>
-    internal static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(
-        IEnumerable<BMSTableEntry> entries,
-        BMSLibrary.PlaylistSummaryOwnedHashSnapshot ownedHashSnapshot)
-    {
-        return CalculatePlaylistSummaryCounts(entries, ownedHashSnapshot, CancellationToken.None);
-    }
-
-    private static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(
-        IEnumerable<BMSTableEntry> entries,
-        BMSLibrary.PlaylistSummaryOwnedHashSnapshot ownedHashSnapshot,
-        CancellationToken cancellationToken)
-    {
-        return CalculatePlaylistSummaryCounts(
-            entries,
-            ownedHashSnapshot == null ? null : new Func<string, bool>(ownedHashSnapshot.ContainsMd5),
-            ownedHashSnapshot == null ? null : new Func<string, bool>(ownedHashSnapshot.ContainsSha256),
-            cancellationToken);
-    }
-
-    private static PlaylistSummaryCountResult CalculatePlaylistSummaryCounts(
-        IEnumerable<BMSTableEntry> entries,
-        Func<string, bool> containsMd5,
-        Func<string, bool> containsSha256,
-        CancellationToken cancellationToken = default)
-    {
-        PlaylistSummaryCountResult result = default;
-        containsMd5 ??= _ => false;
-        containsSha256 ??= _ => false;
-        foreach (BMSTableEntry entry in entries ?? [])
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            result.ScannedEntries++;
-            if (entry == null || entry.is_removed)
-            {
-                continue;
-            }
-            bool hasMd5 = !string.IsNullOrWhiteSpace(entry.md5);
-            bool hasSha256 = !string.IsNullOrWhiteSpace(entry.sha256);
-            if (!hasMd5 && !hasSha256)
-            {
-                continue;
-            }
-            result.TotalCharts++;
-            if ((hasMd5 && containsMd5(entry.md5)) || (!hasMd5 && containsSha256(entry.sha256)))
-            {
-                result.OwnedCharts++;
-            }
-        }
-        return result;
-    }
-
-    /// <summary>
     /// Applies keyword and ownership filters while preserving deferred enumeration.
     /// </summary>
     /// <param name="rows">Rows to filter.</param>
@@ -574,21 +495,6 @@ public sealed partial class PlaylistWorkspaceViewModel
             || string.Equals(explicitOutputDirectoryName, defaultOutputDirectoryName, StringComparison.Ordinal);
     }
 
-    private static string GetPlaylistSummaryTableCountCacheKey(BMSTable table, int ownedSnapshotVersion)
-    {
-        if (table == null)
-        {
-            return null;
-        }
-        string tableKey = table.playlist_id.HasValue
-            ? "id:" + table.playlist_id.Value.ToString(CultureInfo.InvariantCulture)
-            : "name:" + (table.name ?? string.Empty) + "|symbol:" + (table.symbol ?? string.Empty);
-        return tableKey
-            + "|entryRevision:" + table.PlaylistEntriesRevision.ToString(CultureInfo.InvariantCulture)
-            + "|owned:" + ownedSnapshotVersion.ToString(CultureInfo.InvariantCulture)
-            + "|state:" + table.PlaylistEntriesLoadState;
-    }
-
     private static PlaylistSyncRuntimeStatus GetPlaylistSyncRuntimeStatus(
         BMSTable table,
         IReadOnlyDictionary<string, PlaylistSyncRuntimeStatus> snapshot)
@@ -632,7 +538,7 @@ internal sealed class PlaylistSummaryRowsBuildResult
 {
     internal List<PlaylistSummaryRow> Rows { get; } = [];
 
-    internal BMSLibrary.PlaylistSummaryOwnedHashSnapshot OwnedHashSnapshot { get; set; }
+    internal OwnedChartHashIndexVersionedSnapshot OwnedHashSnapshot { get; set; }
 
     internal int TableCount { get; set; }
 

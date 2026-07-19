@@ -151,7 +151,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         }
         RequestPlaylistSummaryDataRefresh(
             request.Reason,
-            request.InvalidateTableCountCache,
             request.RebuildAsync);
     }
 

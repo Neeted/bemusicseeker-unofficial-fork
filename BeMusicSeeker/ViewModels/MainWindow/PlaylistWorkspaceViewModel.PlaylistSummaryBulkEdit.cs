@@ -99,12 +99,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private void RequestPlaylistSummaryRefresh(
         string reason,
-        bool invalidateTableCountCache,
         bool rebuildAsync = true)
     {
         RequestPlaylistSummaryDataRefresh(
             reason,
-            invalidateTableCountCache,
             rebuildAsync);
     }
 
@@ -992,7 +990,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
             UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, 0, string.Empty);
             summaryRefreshAttempted = true;
-            RequestPlaylistSummaryRefresh(reason, invalidateTableCountCache: true);
+            RequestPlaylistSummaryRefresh(reason);
         }
         finally
         {
@@ -1001,7 +999,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 if (summaryRefreshRequired && !summaryRefreshAttempted)
                 {
                     summaryRefreshAttempted = true;
-                    RequestPlaylistSummaryRefresh(reason, invalidateTableCountCache: true);
+                    RequestPlaylistSummaryRefresh(reason);
                 }
             }
             finally
@@ -1231,7 +1229,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 }
             },
             "playlist summary custom folder output notification");
-        RequestPlaylistSummaryRefresh("playlist_summary_bulk_custom_folder_output_changed", invalidateTableCountCache: false);
+        RequestPlaylistSummaryRefresh("playlist_summary_bulk_custom_folder_output_changed");
     }
 
     private void UpdatePlaylistSummaryCustomFolderOutputProgress(int completedTableCount, int totalTableCount, string currentTableName)
@@ -1275,7 +1273,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 "playlist_summary_bulk_external_sync_changed"),
             "playlist summary external sync notification");
         tables.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bulk_external_sync_changed");
-        RequestPlaylistSummaryRefresh("playlist_summary_bulk_external_sync_changed", invalidateTableCountCache: true);
+        RequestPlaylistSummaryRefresh("playlist_summary_bulk_external_sync_changed");
     }
 
     internal static bool ApplyPlaylistSummaryExternalSyncFlagForTable(BMSTable table, bool isExternalSync)
@@ -1409,7 +1407,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             lr2config.Save();
         }
 
-        RequestPlaylistSummaryRefresh("playlist_properties_bulk_changed", invalidateTableCountCache: true);
+        RequestPlaylistSummaryRefresh("playlist_properties_bulk_changed");
     }
 
     internal void ApplyPlaylistSummaryOutputBase(IEnumerable<PlaylistSummaryRow> rows, string outputBaseName)
@@ -1499,7 +1497,7 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             tables.CommitBMSTableHeadersToDB(changedTables);
         }
-        RequestPlaylistSummaryRefresh("playlist_summary_output_base_changed", invalidateTableCountCache: false);
+        RequestPlaylistSummaryRefresh("playlist_summary_output_base_changed");
     }
 
 }

@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using Livet;
 
@@ -48,6 +49,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     private readonly SemaphoreSlim manualReloadSemaphore = new(1, 1);
 
     private readonly PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort;
+
+    private readonly PlaylistCatalogSummaryOwner playlistCatalogSummaryOwner = new();
+
+    internal PlaylistCatalogSummaryOwner CatalogSummaryOwner => playlistCatalogSummaryOwner;
 
     private readonly Action<Action<bool>> playlistSummaryPresentationRefreshGate;
 
@@ -475,7 +480,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     {
         return RequestPlaylistSummaryDataRefresh(
             reason,
-            invalidateTableCountCache: false,
             rebuildAsync: false,
             beforeRefreshRequested);
     }
@@ -545,10 +549,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     private bool playlistSummaryRowsCacheValid;
 
     private long playlistSummaryRowsCacheDataRebuildGeneration;
-
-    private readonly Dictionary<string, PlaylistSummaryCountResult> playlistSummaryTableCountCache = new(StringComparer.OrdinalIgnoreCase);
-
-    private long playlistSummaryTableCountCacheGeneration;
 
     private CancellationTokenSource playlistSummaryDataBuildCancellation;
 
@@ -1050,7 +1050,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     }
 
     internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(
-        bool invalidateTableCountCache,
         Action<long> beforeRefreshRequested = null)
     {
         CancellationTokenSource cancellation;
@@ -1061,7 +1060,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             {
                 return default;
             }
-            cancellation = InvalidatePlaylistSummaryDataUnsafe(invalidateTableCountCache);
+            cancellation = InvalidatePlaylistSummaryDataUnsafe();
             bool queued = isPlaylistSummaryMode;
             if (queued)
             {
@@ -1089,13 +1088,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     /// Requests a summary data refresh and drains it when the shell permits presentation work.
     /// </summary>
     /// <param name="reason">The boundary that invalidated the summary data.</param>
-    /// <param name="invalidateTableCountCache">Whether table-count cache entries must be invalidated.</param>
     /// <param name="rebuildAsync">Whether the data build should run asynchronously.</param>
     /// <param name="beforeRefreshRequested">Optional state publication performed before the request is drained.</param>
     /// <returns>The next data-build generation, or the accepted drained generation.</returns>
     internal long RequestPlaylistSummaryDataRefresh(
         string reason,
-        bool invalidateTableCountCache,
         bool rebuildAsync = true,
         Action<long> beforeRefreshRequested = null)
     {
@@ -1104,7 +1101,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             throw new ArgumentNullException(nameof(reason));
         }
         PlaylistSummaryDataRefreshRequestResult request = RequestPlaylistSummaryDataRefresh(
-            invalidateTableCountCache,
             beforeRefreshRequested);
         bool drainNow = true;
         if (request.Queued)
@@ -1203,18 +1199,13 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    private CancellationTokenSource InvalidatePlaylistSummaryDataUnsafe(bool invalidateTableCountCache)
+    private CancellationTokenSource InvalidatePlaylistSummaryDataUnsafe()
     {
         CancellationTokenSource cancellation = playlistSummaryDataBuildCancellation;
         playlistSummaryDataBuildCancellation = null;
         playlistSummaryDataRebuildGeneration++;
         playlistSummaryPresentationGeneration++;
         playlistSummaryRowsCache.Clear();
-        if (invalidateTableCountCache)
-        {
-            playlistSummaryTableCountCache.Clear();
-            playlistSummaryTableCountCacheGeneration++;
-        }
         playlistSummaryRowsCacheValid = false;
         playlistSummaryRowsCacheDataRebuildGeneration = 0L;
         playlistSummaryRowsCacheGeneration++;
@@ -1247,7 +1238,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             request = new PlaylistSummaryDataBuildRequest(
                 ++playlistSummaryDataRebuildGeneration,
                 playlistSummaryRowsCacheGeneration,
-                playlistSummaryTableCountCacheGeneration,
                 playlistSummaryDataBuildCancellation);
             ClearPlaylistSummarySelectionRestoreIfSupersededUnsafe(request.Generation);
             playlistSummaryDataBuildActiveCount++;
@@ -1340,16 +1330,11 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    internal void InvalidatePlaylistSummaryCache(bool invalidateTableCountCache)
+    internal void InvalidatePlaylistSummaryCache()
     {
         lock (playlistSummaryTransitionLock)
         {
             playlistSummaryRowsCache.Clear();
-            if (invalidateTableCountCache)
-            {
-                playlistSummaryTableCountCache.Clear();
-                playlistSummaryTableCountCacheGeneration++;
-            }
             playlistSummaryRowsCacheValid = false;
             playlistSummaryRowsCacheDataRebuildGeneration = 0L;
             playlistSummaryRowsCacheGeneration++;
@@ -1385,39 +1370,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
                 return null;
             }
             return [.. playlistSummaryRowsCache];
-        }
-    }
-
-    internal bool TryGetPlaylistSummaryTableCount(string key, out PlaylistSummaryCountResult countResult)
-    {
-        lock (playlistSummaryTransitionLock)
-        {
-            return playlistSummaryTableCountCache.TryGetValue(key ?? string.Empty, out countResult);
-        }
-    }
-
-    internal bool TrySetPlaylistSummaryTableCount(
-        string key,
-        PlaylistSummaryCountResult countResult,
-        long expectedTableCountCacheGeneration)
-    {
-        if (string.IsNullOrWhiteSpace(key))
-        {
-            return false;
-        }
-        lock (playlistSummaryTransitionLock)
-        {
-            if (expectedTableCountCacheGeneration != playlistSummaryTableCountCacheGeneration)
-            {
-                return false;
-            }
-            playlistSummaryTableCountCache[key] = countResult;
-            if (playlistSummaryTableCountCache.Count > 10000)
-            {
-                playlistSummaryTableCountCache.Clear();
-                playlistSummaryTableCountCacheGeneration++;
-            }
-            return true;
         }
     }
 
@@ -1541,20 +1493,16 @@ internal sealed class PlaylistSummaryDataBuildRequest
     internal PlaylistSummaryDataBuildRequest(
         long generation,
         long cacheGeneration,
-        long tableCountCacheGeneration,
         CancellationTokenSource cancellationSource)
     {
         Generation = generation;
         CacheGeneration = cacheGeneration;
-        TableCountCacheGeneration = tableCountCacheGeneration;
         CancellationSource = cancellationSource ?? throw new ArgumentNullException(nameof(cancellationSource));
     }
 
     internal long Generation { get; }
 
     internal long CacheGeneration { get; }
-
-    internal long TableCountCacheGeneration { get; }
 
     internal CancellationTokenSource CancellationSource { get; }
 
@@ -1564,15 +1512,6 @@ internal sealed class PlaylistSummaryDataBuildRequest
     {
         return Interlocked.Exchange(ref completed, 1) == 0;
     }
-}
-
-internal struct PlaylistSummaryCountResult
-{
-    internal int ScannedEntries;
-
-    internal int TotalCharts;
-
-    internal int OwnedCharts;
 }
 
 internal enum PlaylistSummaryDeferredRefreshKind
@@ -1618,17 +1557,13 @@ internal sealed class PlaylistSummaryDataRefreshRequestedEventArgs : EventArgs
 {
     internal PlaylistSummaryDataRefreshRequestedEventArgs(
         string reason,
-        bool invalidateTableCountCache,
         bool rebuildAsync = true)
     {
         Reason = reason ?? throw new ArgumentNullException(nameof(reason));
-        InvalidateTableCountCache = invalidateTableCountCache;
         RebuildAsync = rebuildAsync;
     }
 
     internal string Reason { get; }
-
-    internal bool InvalidateTableCountCache { get; }
 
     internal bool RebuildAsync { get; }
 }

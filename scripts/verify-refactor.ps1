@@ -9,6 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $repoRoot 'BeMusicSeeker.sln'
+$uiExecutable = Join-Path $repoRoot 'bin\x64\Release\net472\BeMusicSeeker.exe'
 
 function Invoke-CheckedCommand {
     param(
@@ -32,7 +33,15 @@ try {
         Invoke-CheckedCommand dotnet tool restore
     }
 
+    # Verification commands intentionally have no fixed timeout; wait for each process to finish.
     Invoke-CheckedCommand dotnet build $solution '/p:Configuration=Release' '--no-restore'
+
+    if (-not (Test-Path -LiteralPath $uiExecutable -PathType Leaf)) {
+        throw "Release UI smoke executable was not produced: $uiExecutable"
+    }
+
+    $resolvedUiExecutable = (Resolve-Path -LiteralPath $uiExecutable).Path
+    Write-Host "Release UI smoke executable: $resolvedUiExecutable"
 
     $testArguments = @('test', $solution, '/p:Configuration=Release', '--no-build', '--no-restore')
     if ($Mode -eq 'Quick' -and -not [string]::IsNullOrWhiteSpace($TestFilter)) {

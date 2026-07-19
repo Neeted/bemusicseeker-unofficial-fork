@@ -865,7 +865,7 @@ dispatcher の log は、全 index に個別詳細 log を増やすのではな�
 - `owned_adjacent_index_warmup index=installed_primary_hash`
 - `owned_adjacent_index_warmup index=real_path`
 - `owned_adjacent_index_warmup index=install_destination_overlay`
-- `owned_adjacent_index_warmup index=playlist_summary_owned_hash`
+- `owned_adjacent_index_warmup index=catalog_owned_hash`
 - `post_startup_warmup stage=owned_adjacent_index`
 - `owned_collection_mutation_dispatch`
 - `duplicate_merge_model prepare_done`

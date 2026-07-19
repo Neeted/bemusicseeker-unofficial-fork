@@ -39,6 +39,8 @@
 - PowerShell 7 と `rg` を使用する。明示的に PowerShell を起動する場合は `pwsh` を使う。
 - 標準入口は `scripts/verify-refactor.ps1` とする。unit 中は `-Mode Quick`、outcome 完了候補および共有 ViewModel / DB / settings / dispatcher / concurrency 変更では `-Mode Full` を使う。
 - script が環境要因で実行できない場合だけ、`00_Codex共通実行ルール.md` の個別コマンドを実行し、未実施項目を明示する。
+- 検証コマンドと検証用 script に固定の実行時間制限を設けない。特に 120 秒（2 分）の timeout で build / test / analyzer を打ち切らず、プロセスの完了まで待つ。
+- UI smoke の対象は、Release build が完了したリポジトリ内の `bin\x64\Release\net472\BeMusicSeeker.exe` だけとする。インストール版の executable path を取得・列挙・起動してはならない。起動後は対象 process の executable path がこの resolved path と一致することを確認し、一致を確認できない場合は UI 操作を行わず smoke 未実施として扱う。
 - behavior test を優先し、private method 名や一時的な配置を固定する source-text / reflection test を完成後の主要保証にしない。
 
 ## サブエージェント

@@ -3056,7 +3056,7 @@ public sealed class OwnedChartCollectionStateTests
             SetLibraryBmsonSongsWithoutNotification(library, []);
             SetDuplicateChartGroupsWithoutNotification(library, []);
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot initialSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot initialSummary = library.GetOwnedChartHashIndexSnapshot();
             EnsureCurrentResourceHealthIndex(library);
             int handledNotificationVersion = library.NormalLibraryRefreshNotificationVersion;
             int bmsFilesChanged = 0;
@@ -3079,7 +3079,7 @@ public sealed class OwnedChartCollectionStateTests
                 [ChartFileProjection.FromBmsFile(bmsFile, includeWarningSnapshot: false)]);
 
             InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot updatedSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot updatedSummary = library.GetOwnedChartHashIndexSnapshot();
             NormalLibraryRefreshNotificationBatch batch = library.GetNormalLibraryRefreshNotificationsAfter(handledNotificationVersion);
             Assert.AreEqual(1, result.DigestChanges.Count);
             Assert.AreEqual(snapshot.Md5, bmsFile.hash);
@@ -3163,7 +3163,7 @@ public sealed class OwnedChartCollectionStateTests
                 DuplicateChartGroups = []
             };
             InstalledChartLookupIndexSnapshot initialLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot initialSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot initialSummary = library.GetOwnedChartHashIndexSnapshot();
             EnsureCurrentResourceHealthIndex(library);
             bmsFile.SetSha256(newSha256);
 
@@ -3173,7 +3173,7 @@ public sealed class OwnedChartCollectionStateTests
                 "test_sha_only_digest");
 
             InstalledChartLookupIndexSnapshot updatedLookup = InvokeCreateInstalledChartLookupSnapshot(library);
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot updatedSummary = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot updatedSummary = library.GetOwnedChartHashIndexSnapshot();
             Assert.IsTrue(initialLookup.ContainsPrimaryHash(md5));
             Assert.IsTrue(updatedLookup.ContainsPrimaryHash(md5));
             Assert.IsFalse(updatedLookup.Sha256Directories.ContainsKey(oldSha256));

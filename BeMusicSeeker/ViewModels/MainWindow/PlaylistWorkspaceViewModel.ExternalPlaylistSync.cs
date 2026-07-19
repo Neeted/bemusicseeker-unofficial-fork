@@ -152,8 +152,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                                 request.OperationToken));
                     }
                     RequestPlaylistSummaryDataRefresh(
-                        "deferred_external_sync",
-                        invalidateTableCountCache: true);
+                        "deferred_external_sync");
                     bool cleanupQueued = QueuePlaylistReloadCleanup(
                         request.Reason,
                         request.FromReloadTables,

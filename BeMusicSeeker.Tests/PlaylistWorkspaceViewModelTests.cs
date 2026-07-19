@@ -50,6 +50,8 @@ public sealed class PlaylistWorkspaceViewModelTests
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.cs");
         string bulkEditSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "ViewModels", "MainWindow", "PlaylistWorkspaceViewModel.PlaylistSummaryBulkEdit.cs");
+        string catalogSummaryOwnerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistCatalogSummaryOwner.cs");
 
         foreach (string rootField in new[]
         {
@@ -62,7 +64,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             "playlistSummaryRowsCacheGeneration",
             "lockPlaylistSummaryRowsCache",
             "playlistSummaryRowsCache",
-            "playlistSummaryTableCountCache",
             "deferredPlaylistSummaryRefreshRequested",
             "deferredPlaylistSummaryPresentationRefreshRequested",
             "previousPlaylistSummaryViewWeakReference",
@@ -110,8 +111,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(entrySnapshotSource, "return [.. table.GetEntriesExceptDummy()]");
         StringAssert.Contains(detailSource, "SnapshotPlaylistEntriesExceptDummy(table)");
         Assert.AreEqual(-1, detailSource.IndexOf("table.GetEntriesExceptDummy()", StringComparison.Ordinal));
-        StringAssert.Contains(summaryBuildSource, "SnapshotPlaylistEntriesExceptDummy(table)");
+        Assert.AreEqual(-1, summaryBuildSource.IndexOf("SnapshotPlaylistEntriesExceptDummy(table)", StringComparison.Ordinal));
         Assert.AreEqual(-1, summaryBuildSource.IndexOf("table.GetEntriesExceptDummy()", StringComparison.Ordinal));
+        StringAssert.Contains(catalogSummaryOwnerSource, "using (table.ReaderWriterLock.GetReaderGuard())");
+        StringAssert.Contains(catalogSummaryOwnerSource, "table.GetEntriesExceptDummy()");
         StringAssert.Contains(workspaceSource, "private readonly Action<string> summaryBulkWarningLog;");
         StringAssert.Contains(workspaceSource, "IMainChartColumnSettingsStore playlistSummaryColumnSettingsStore");
         StringAssert.Contains(workspaceSource, "PlaylistSummaryBmtSortCoordinator playlistSummaryBmtSort");
@@ -229,7 +232,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "internal bool TryApplyPlaylistSummary(PlaylistSummaryApplyRequest request)");
         StringAssert.Contains(workspaceSource, "private CancellationTokenSource playlistSummaryDataBuildCancellation;");
         StringAssert.Contains(workspaceSource, "internal bool TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest request)");
-        StringAssert.Contains(workspaceSource, "internal bool TryGetPlaylistSummaryTableCount(");
+        Assert.AreEqual(-1, workspaceSource.IndexOf("TryGetPlaylistSummaryTableCount", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDeferredRefreshKind TakeDeferredPlaylistSummaryRefresh(bool dataRefreshRequired)");
         StringAssert.Contains(workspaceSource, "internal PlaylistSummaryDataRefreshRequestResult RequestPlaylistSummaryDataRefresh(");
         StringAssert.Contains(workspaceSource, "internal long RequestPlaylistSummaryDataRefresh(\n        string reason,");
@@ -3581,7 +3584,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
-        workspace.InvalidatePlaylistSummaryCache(invalidateTableCountCache: false);
+        workspace.InvalidatePlaylistSummaryCache();
         long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
         var rows = new ObservableCollection<PlaylistSummaryRow> { new() { TotalCharts = 3 } };
         var notifications = new List<string>();
@@ -3653,7 +3656,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         workspace.IsPlaylistSummaryMode = true;
         long dataGeneration = workspace.BeginPlaylistSummaryDataRebuildGeneration();
         long presentationGeneration = workspace.BeginPlaylistSummaryPresentationGeneration();
-        workspace.InvalidatePlaylistSummaryCache(invalidateTableCountCache: false);
+        workspace.InvalidatePlaylistSummaryCache();
         long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
         var originalRows = workspace.PlaylistSummaryView;
 
@@ -3676,7 +3679,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             CacheGeneration = cacheGeneration
         }));
 
-        workspace.InvalidatePlaylistSummaryCache(invalidateTableCountCache: false);
+        workspace.InvalidatePlaylistSummaryCache();
         long currentCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
         Assert.IsFalse(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
         {
@@ -3918,19 +3921,26 @@ public sealed class PlaylistWorkspaceViewModelTests
             TotalCharts = 3,
             OwnedCharts = 2
         };
-        long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
-        Assert.IsTrue(workspace.TrySetPlaylistSummaryTableCount("content-key", expected, cacheGeneration));
+        var table = new BMSTable
+        {
+            playlist_id = 1
+        };
+        Assert.IsTrue(workspace.CatalogSummaryOwner.TrySetTableCount(
+            table,
+            ownedSnapshotVersion: 1,
+            countResult: expected,
+            expectedGeneration: workspace.CatalogSummaryOwner.TableCountCacheGeneration));
 
         workspace.BeginPlaylistSummaryDataRebuildGeneration();
         workspace.BeginPlaylistSummaryDataRebuildGeneration();
 
-        Assert.IsTrue(workspace.TryGetPlaylistSummaryTableCount("content-key", out PlaylistSummaryCountResult actual));
+        Assert.IsTrue(workspace.CatalogSummaryOwner.TryGetTableCount(table, ownedSnapshotVersion: 1, out PlaylistSummaryCountResult actual));
         Assert.AreEqual(expected.ScannedEntries, actual.ScannedEntries);
         Assert.AreEqual(expected.TotalCharts, actual.TotalCharts);
         Assert.AreEqual(expected.OwnedCharts, actual.OwnedCharts);
 
-        workspace.InvalidatePlaylistSummaryCache(invalidateTableCountCache: true);
-        Assert.IsFalse(workspace.TryGetPlaylistSummaryTableCount("content-key", out _));
+        workspace.CatalogSummaryOwner.InvalidateTableCounts();
+        Assert.IsFalse(workspace.CatalogSummaryOwner.TryGetTableCount(table, ownedSnapshotVersion: 1, out _));
     }
 
     [TestMethod]
@@ -3978,13 +3988,19 @@ public sealed class PlaylistWorkspaceViewModelTests
             OwnedCharts = 2
         };
 
-        workspace.InvalidatePlaylistSummaryCache(invalidateTableCountCache: true);
+        long tableCountGeneration = workspace.CatalogSummaryOwner.TableCountCacheGeneration;
+        workspace.CatalogSummaryOwner.InvalidateTableCounts();
 
-        Assert.IsFalse(workspace.TrySetPlaylistSummaryTableCount(
-            "content-key",
-            staleResult,
-            staleBuild.TableCountCacheGeneration));
-        Assert.IsFalse(workspace.TryGetPlaylistSummaryTableCount("content-key", out _));
+        var table = new BMSTable
+        {
+            playlist_id = 1
+        };
+        Assert.IsFalse(workspace.CatalogSummaryOwner.TrySetTableCount(
+            table,
+            ownedSnapshotVersion: 1,
+            countResult: staleResult,
+            expectedGeneration: tableCountGeneration));
+        Assert.IsFalse(workspace.CatalogSummaryOwner.TryGetTableCount(table, ownedSnapshotVersion: 1, out _));
         workspace.CompletePlaylistSummaryDataBuild(staleBuild);
     }
 
@@ -4086,7 +4102,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest activeBuild));
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
 
-        long nextBuildGeneration = workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false).NextBuildGeneration;
+        long nextBuildGeneration = workspace.RequestPlaylistSummaryDataRefresh().NextBuildGeneration;
         workspace.RequestDeferredPlaylistSummaryPresentationRefresh();
 
         Assert.IsTrue(activeBuild.CancellationToken.IsCancellationRequested);
@@ -4194,7 +4210,7 @@ public sealed class PlaylistWorkspaceViewModelTests
         long hiddenDataGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
         long hiddenCacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
 
-        PlaylistSummaryDataRefreshRequestResult hidden = workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: false);
+        PlaylistSummaryDataRefreshRequestResult hidden = workspace.RequestPlaylistSummaryDataRefresh();
 
         Assert.IsFalse(hidden.Queued);
         Assert.AreEqual(0L, hidden.NextBuildGeneration);
@@ -4202,11 +4218,11 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsTrue(workspace.CurrentPlaylistSummaryRowsCacheGeneration > hiddenCacheGeneration);
 
         workspace.IsPlaylistSummaryMode = true;
-        PlaylistSummaryDataRefreshRequestResult visible = workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: true);
+        PlaylistSummaryDataRefreshRequestResult visible = workspace.RequestPlaylistSummaryDataRefresh();
         Assert.IsTrue(visible.Queued);
         Assert.AreEqual(workspace.CurrentPlaylistSummaryDataRebuildGeneration + 1L, visible.NextBuildGeneration);
 
-        PlaylistSummaryDataRefreshRequestResult coalesced = workspace.RequestPlaylistSummaryDataRefresh(invalidateTableCountCache: true);
+        PlaylistSummaryDataRefreshRequestResult coalesced = workspace.RequestPlaylistSummaryDataRefresh();
         Assert.IsTrue(coalesced.Queued);
         Assert.AreEqual(workspace.CurrentPlaylistSummaryDataRebuildGeneration + 1L, coalesced.NextBuildGeneration);
         Assert.AreEqual(
@@ -4226,7 +4242,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         long initialGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
         long deferredGeneration = workspace.RequestPlaylistSummaryDataRefresh(
             "test_deferred_summary_data",
-            invalidateTableCountCache: false,
             rebuildAsync: false);
 
         Assert.AreEqual(initialGeneration + 2L, deferredGeneration);
@@ -4237,7 +4252,6 @@ public sealed class PlaylistWorkspaceViewModelTests
         deferred = false;
         long drainedGeneration = workspace.RequestPlaylistSummaryDataRefresh(
             "test_drained_summary_data",
-            invalidateTableCountCache: false,
             rebuildAsync: false);
 
         Assert.IsTrue(drainedGeneration > deferredGeneration);
@@ -4252,7 +4266,6 @@ public sealed class PlaylistWorkspaceViewModelTests
             0L,
             workspace.RequestPlaylistSummaryDataRefresh(
                 "test_hidden_summary_data",
-                invalidateTableCountCache: false,
                 rebuildAsync: false));
         Assert.IsTrue(workspace.CurrentPlaylistSummaryDataRebuildGeneration > hiddenGenerationBefore);
     }

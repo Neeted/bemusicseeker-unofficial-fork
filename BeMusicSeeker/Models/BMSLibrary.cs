@@ -270,86 +270,6 @@ public partial class BMSLibrary : NotificationObject
     }
 
     /// <summary>
-    /// プレイリストサマリー集計で再利用する所持譜面ハッシュ一覧の snapshot です。
-    /// owned chart collection から hash だけを抽出し、集計ごとの一時 allocation を避けるために使用します。
-    /// </summary>
-    internal sealed class PlaylistSummaryOwnedHashSnapshot
-    {
-        private HashSet<string> md5Hashes;
-        private HashSet<string> sha256Hashes;
-        private IReadOnlyCollection<string> md5HashSnapshot;
-        private IReadOnlyCollection<string> sha256HashSnapshot;
-
-        internal PlaylistSummaryOwnedHashSnapshot(
-            HashSet<string> md5Hashes = null,
-            HashSet<string> sha256Hashes = null)
-        {
-            this.md5Hashes = new HashSet<string>(md5Hashes ?? [], StringComparer.OrdinalIgnoreCase);
-            this.sha256Hashes = new HashSet<string>(sha256Hashes ?? [], StringComparer.OrdinalIgnoreCase);
-            md5HashSnapshot = new ReadOnlyCollection<string>([.. this.md5Hashes]);
-            sha256HashSnapshot = new ReadOnlyCollection<string>([.. this.sha256Hashes]);
-        }
-
-        internal int Version { get; set; }
-
-        internal long BuildElapsedMs { get; set; }
-
-        internal int InvalidationVersion { get; set; }
-
-        internal int OwnedCollectionVersion { get; set; }
-
-        internal int BmsRowsVersion { get; set; }
-
-        internal int BmsonRowsVersion { get; set; }
-
-        internal IReadOnlyCollection<string> Md5Hashes => md5HashSnapshot;
-
-        internal IReadOnlyCollection<string> Sha256Hashes => sha256HashSnapshot;
-
-        internal int Md5Count => md5Hashes.Count;
-
-        internal int Sha256Count => sha256Hashes.Count;
-
-        internal bool ContainsMd5(string md5)
-        {
-            return !string.IsNullOrWhiteSpace(md5) && md5Hashes.Contains(md5);
-        }
-
-        internal bool ContainsSha256(string sha256)
-        {
-            return !string.IsNullOrWhiteSpace(sha256) && sha256Hashes.Contains(sha256);
-        }
-    }
-
-    /// <summary>
-    /// playlist summary 用 owned hash snapshot の warmup 結果です。
-    /// </summary>
-    internal sealed class OwnedHashIndexWarmupResult
-    {
-        internal string IndexName { get; set; }
-
-        internal string Status { get; set; }
-
-        internal long ElapsedMs { get; set; }
-
-        internal int Md5Count { get; set; }
-
-        internal int Sha256Count { get; set; }
-
-        internal int SnapshotVersion { get; set; }
-
-        internal int InvalidationVersion { get; set; }
-
-        internal int OwnedCollectionVersion { get; set; }
-
-        internal int BmsRowsVersion { get; set; }
-
-        internal int BmsonRowsVersion { get; set; }
-
-        internal int StaleRetryCount { get; set; }
-    }
-
-    /// <summary>
     /// playlist detail resolve index の runtime cache 状態です。
     /// </summary>
     internal sealed class PlaylistLibraryResolveIndexRuntimeState
@@ -740,16 +660,6 @@ public partial class BMSLibrary : NotificationObject
 
     private int scoreSnapshotVersion;
 
-    private readonly object lockPlaylistSummaryOwnedHashSnapshot = new();
-
-    private PlaylistSummaryOwnedHashSnapshot playlistSummaryOwnedHashSnapshot;
-
-    private int playlistSummaryOwnedHashSnapshotVersion;
-
-    private int playlistSummaryOwnedHashInvalidationVersion;
-
-    private int playlistSummaryOwnedHashInvalidationOwnedCollectionVersion;
-
     private readonly object lockPlaylistLibraryResolveIndexSnapshot = new();
 
     private PlaylistLibraryResolveIndexSnapshot playlistLibraryResolveIndexSnapshot;
@@ -759,8 +669,6 @@ public partial class BMSLibrary : NotificationObject
     private int playlistLibraryResolveIndexInvalidationVersion;
 
     private int playlistLibraryResolveIndexInvalidationOwnedCollectionVersion;
-
-    private int ownedDigestMutationWindowDepth;
 
     private int chartInfoBackfillRequestedVersion
     {
@@ -1106,7 +1014,7 @@ public partial class BMSLibrary : NotificationObject
         CatalogStorageRowsReplacementReceipt replacementReceipt;
         using (resourceHealthOwner.BeginInputMutation())
         {
-            InvalidatePlaylistSummaryOwnedHashSnapshot();
+            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
             InvalidatePlaylistLibraryResolveIndexSnapshot();
             replacementReceipt = catalogMutationOwner.ApplyStorageRowsReplacement(request);
             bmsRowsChanged = replacementReceipt.BmsRowsChanged;
@@ -1116,7 +1024,7 @@ public partial class BMSLibrary : NotificationObject
                 MarkDuplicateWarningFullClearPending();
             }
             int ownedCollectionVersion = NotifyOwnedChartCollectionChanged();
-            InvalidatePlaylistSummaryOwnedHashSnapshot(ownedCollectionVersion);
+            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
             InvalidatePlaylistLibraryResolveIndexSnapshot(ownedCollectionVersion);
             if ((notifyBmsRows && bmsRowsChanged) || (notifyBmsonRows && bmsonRowsChanged))
             {
@@ -6239,17 +6147,6 @@ public partial class BMSLibrary : NotificationObject
         return entries.All(entry => ContainsInstalledChartUnsafe(entry?.Chart));
     }
 
-    private void InvalidatePlaylistSummaryOwnedHashSnapshot(int ownedCollectionVersion = 0)
-    {
-        int resolvedOwnedCollectionVersion = ownedCollectionVersion > 0 ? ownedCollectionVersion : OwnedChartCollectionVersion;
-        lock (lockPlaylistSummaryOwnedHashSnapshot)
-        {
-            playlistSummaryOwnedHashSnapshot = null;
-            playlistSummaryOwnedHashInvalidationVersion++;
-            playlistSummaryOwnedHashInvalidationOwnedCollectionVersion = resolvedOwnedCollectionVersion;
-        }
-    }
-
     private void InvalidatePlaylistLibraryResolveIndexSnapshot(int ownedCollectionVersion = 0)
     {
         int resolvedOwnedCollectionVersion = ownedCollectionVersion > 0 ? ownedCollectionVersion : OwnedChartCollectionVersion;
@@ -6263,7 +6160,7 @@ public partial class BMSLibrary : NotificationObject
 
     private IDisposable BeginOwnedDigestMutationWindow()
     {
-        Interlocked.Increment(ref ownedDigestMutationWindowDepth);
+        catalogOwnedCollectionOwner.BeginDigestMutationWindow();
         return new OwnedDigestMutationWindowScope(this, resourceHealthOwner.BeginInputMutation());
     }
 
@@ -6278,24 +6175,19 @@ public partial class BMSLibrary : NotificationObject
         }
         finally
         {
-            Interlocked.Decrement(ref ownedDigestMutationWindowDepth);
-            InvalidatePlaylistSummaryOwnedHashSnapshot();
+            catalogOwnedCollectionOwner.EndDigestMutationWindow();
             InvalidatePlaylistLibraryResolveIndexSnapshot();
         }
     }
 
     private bool IsOwnedDigestMutationWindowActive()
     {
-        return Volatile.Read(ref ownedDigestMutationWindowDepth) > 0;
+        return catalogOwnedCollectionOwner.IsDigestMutationWindowActive();
     }
 
     private void WaitForOwnedDigestMutationWindowIdle(CancellationToken cancellationToken = default)
     {
-        while (IsOwnedDigestMutationWindowActive())
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            Thread.Sleep(20);
-        }
+        catalogOwnedCollectionOwner.WaitForDigestMutationWindowIdle(cancellationToken);
     }
 
     private sealed class OwnedDigestMutationWindowScope(
@@ -6412,8 +6304,6 @@ public partial class BMSLibrary : NotificationObject
 
         public bool DuplicateCacheInvalidated { get; set; }
 
-        public bool PlaylistSummaryOwnedHashInvalidated { get; set; }
-
         public bool OwnedCollectionChanged { get; set; }
 
         public bool OwnedCollectionChangeNotified { get; set; }
@@ -6456,7 +6346,6 @@ public partial class BMSLibrary : NotificationObject
             || InstalledPackagePathChangedCount > 0
             || ParentFolderInvalidated
             || DuplicateCacheInvalidated
-            || PlaylistSummaryOwnedHashInvalidated
             || OwnedCollectionChanged
             || ResourceHealthMutation.HasChanges
             || InstallEstimationMetadataProfileCacheInvalidated
@@ -6486,8 +6375,6 @@ public partial class BMSLibrary : NotificationObject
 
         public bool HasChanges => AddedCount > 0 || RemovedCount > 0 || MovedCount > 0;
 
-        public bool HasHashSetChanges => AddedCount > 0 || RemovedCount > 0;
-
         public void AddAddedTargets(ChartStorageTargetSet addedTargets)
         {
             if (addedTargets == null)
@@ -6499,6 +6386,16 @@ public partial class BMSLibrary : NotificationObject
             AddedBmsonSongs.AddRange(addedTargets.BmsonSongs);
             AddedCharts.AddRange(addedTargets.Charts.Where(chart => chart != null));
         }
+    }
+
+    private static bool HasOwnedHashSetChanges(OwnedChartCollectionMutationResult result)
+    {
+        return result != null
+            && (result.StorageRowsChanged
+                || result.DigestChangedCount > 0
+                || result.AddedCount > 0
+                || result.RemovedCount > 0
+                || result.DuplicateCacheInvalidated);
     }
 
     private readonly struct InstalledChartLookupMutationEntry(string path, string md5, string sha256)
@@ -6521,129 +6418,56 @@ public partial class BMSLibrary : NotificationObject
         public string Sha256 { get; } = sha256;
     }
 
-    /// <summary>
-    /// playlist summary 集計用の所持譜面ハッシュ snapshot を返します。
-    /// 所持譜面や digest 変更時に無効化し、次回要求時にだけ再構築します。
-    /// </summary>
-    internal PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot()
+    internal OwnedChartHashIndexVersionedSnapshot GetOwnedChartHashIndexSnapshot()
     {
-        return GetPlaylistSummaryOwnedHashSnapshot(out _, out _);
+        return GetOwnedChartHashIndexSnapshot(CancellationToken.None);
     }
 
-    internal PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot(CancellationToken cancellationToken)
+    internal OwnedChartHashIndexVersionedSnapshot GetOwnedChartHashIndexSnapshot(CancellationToken cancellationToken)
     {
-        return GetPlaylistSummaryOwnedHashSnapshot(cancellationToken, out _, out _);
+        return catalogOwnedCollectionOwner.GetHashIndexSnapshot(
+            catalogStorageRowsOwner,
+            cancellationToken,
+            out _,
+            out _);
     }
 
-    private PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot(out bool cacheHit, out int staleRetryCount)
+    internal OwnedHashIndexWarmupResult WarmOwnedChartHashIndexSnapshot(string reason)
     {
-        return GetPlaylistSummaryOwnedHashSnapshot(CancellationToken.None, out cacheHit, out staleRetryCount);
-    }
-
-    private PlaylistSummaryOwnedHashSnapshot GetPlaylistSummaryOwnedHashSnapshot(CancellationToken cancellationToken, out bool cacheHit, out int staleRetryCount)
-    {
-        PlaylistSummaryOwnedHashSnapshot snapshot;
-        staleRetryCount = 0;
-        while (true)
+        var stopwatch = Stopwatch.StartNew();
+        OwnedChartHashIndexVersionedSnapshot snapshot = catalogOwnedCollectionOwner.GetHashIndexSnapshot(
+            catalogStorageRowsOwner,
+            CancellationToken.None,
+            out bool cacheHit,
+            out int staleRetryCount);
+        stopwatch.Stop();
+        var result = new OwnedHashIndexWarmupResult
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            bool waitForDigestWindow = false;
-            int invalidationVersion;
-            int invalidationOwnedCollectionVersion;
-            lock (lockPlaylistSummaryOwnedHashSnapshot)
-            {
-                snapshot = playlistSummaryOwnedHashSnapshot;
-                int currentOwnedCollectionVersion = OwnedChartCollectionVersion;
-                if (snapshot != null)
-                {
-                    if (IsPlaylistSummaryOwnedHashSnapshotCurrent(snapshot, currentOwnedCollectionVersion))
-                    {
-                        cacheHit = true;
-                        return snapshot;
-                    }
-                    playlistSummaryOwnedHashSnapshot = null;
-                    playlistSummaryOwnedHashInvalidationVersion++;
-                    playlistSummaryOwnedHashInvalidationOwnedCollectionVersion = currentOwnedCollectionVersion;
-                }
-                if (IsOwnedDigestMutationWindowActive())
-                {
-                    waitForDigestWindow = true;
-                }
-                invalidationVersion = playlistSummaryOwnedHashInvalidationVersion;
-                invalidationOwnedCollectionVersion = playlistSummaryOwnedHashInvalidationOwnedCollectionVersion;
-            }
-            if (waitForDigestWindow)
-            {
-                WaitForOwnedDigestMutationWindowIdle(cancellationToken);
-                staleRetryCount++;
-                continue;
-            }
-
-            cancellationToken.ThrowIfCancellationRequested();
-            var stopwatch = Stopwatch.StartNew();
-            OwnedChartHashIndexSnapshot ownedHashSnapshot;
-            StorageRowsVersionSnapshot storageRowsVersion;
-            int ownedCollectionVersion;
-            using (rwlockBMSFiles.GetReaderGuard())
-            {
-                ownedHashSnapshot = CreateOwnedHashIndexSnapshotUnsafe(cancellationToken, out storageRowsVersion);
-                ownedCollectionVersion = OwnedChartCollectionVersion;
-            }
-            cancellationToken.ThrowIfCancellationRequested();
-            var rebuiltSnapshot = new PlaylistSummaryOwnedHashSnapshot(
-                ownedHashSnapshot.Md5Hashes,
-                ownedHashSnapshot.Sha256Hashes)
-            {
-                BuildElapsedMs = stopwatch.ElapsedMilliseconds,
-                InvalidationVersion = invalidationVersion,
-                OwnedCollectionVersion = invalidationOwnedCollectionVersion == ownedCollectionVersion ? invalidationOwnedCollectionVersion : ownedCollectionVersion,
-                BmsRowsVersion = storageRowsVersion.BmsRowsVersion,
-                BmsonRowsVersion = storageRowsVersion.BmsonRowsVersion
-            };
-            lock (lockPlaylistSummaryOwnedHashSnapshot)
-            {
-                snapshot = playlistSummaryOwnedHashSnapshot;
-                if (snapshot != null)
-                {
-                    if (IsPlaylistSummaryOwnedHashSnapshotCurrent(snapshot, OwnedChartCollectionVersion))
-                    {
-                        cacheHit = true;
-                        return snapshot;
-                    }
-                    playlistSummaryOwnedHashSnapshot = null;
-                    playlistSummaryOwnedHashInvalidationVersion++;
-                    playlistSummaryOwnedHashInvalidationOwnedCollectionVersion = OwnedChartCollectionVersion;
-                    staleRetryCount++;
-                    continue;
-                }
-                if (playlistSummaryOwnedHashInvalidationVersion != invalidationVersion
-                    || OwnedChartCollectionVersion != ownedCollectionVersion
-                    || !IsStorageRowsVersionCurrent(storageRowsVersion))
-                {
-                    staleRetryCount++;
-                    continue;
-                }
-                if (IsOwnedDigestMutationWindowActive())
-                {
-                    staleRetryCount++;
-                    continue;
-                }
-                rebuiltSnapshot.Version = Interlocked.Increment(ref playlistSummaryOwnedHashSnapshotVersion);
-                playlistSummaryOwnedHashSnapshot = rebuiltSnapshot;
-                cacheHit = false;
-                return rebuiltSnapshot;
-            }
-        }
-    }
-
-    private bool IsPlaylistSummaryOwnedHashSnapshotCurrent(
-        PlaylistSummaryOwnedHashSnapshot snapshot,
-        int currentOwnedCollectionVersion)
-    {
-        return snapshot != null
-            && snapshot.OwnedCollectionVersion == currentOwnedCollectionVersion
-            && catalogStorageRowsOwner.BmsRowsVersion == snapshot.BmsRowsVersion
-            && catalogStorageRowsOwner.BmsonRowsVersion == snapshot.BmsonRowsVersion;
+            IndexName = "catalog_owned_hash",
+            Status = cacheHit ? "cached" : "built",
+            ElapsedMs = stopwatch.ElapsedMilliseconds,
+            Md5Count = snapshot?.Md5Count ?? 0,
+            Sha256Count = snapshot?.Sha256Count ?? 0,
+            SnapshotVersion = snapshot?.Version ?? 0,
+            InvalidationVersion = snapshot?.InvalidationVersion ?? 0,
+            OwnedCollectionVersion = snapshot?.OwnedCollectionVersion ?? 0,
+            BmsRowsVersion = snapshot?.BmsRowsVersion ?? 0,
+            BmsonRowsVersion = snapshot?.BmsonRowsVersion ?? 0,
+            StaleRetryCount = staleRetryCount
+        };
+        LogInstallPerformance("owned_adjacent_index_warmup index=" + result.IndexName
+            + " reason=" + (reason ?? string.Empty)
+            + " status=" + result.Status
+            + " elapsedMs=" + result.ElapsedMs
+            + " md5Hashes=" + result.Md5Count
+            + " sha256Hashes=" + result.Sha256Count
+            + " snapshotVersion=" + result.SnapshotVersion
+            + " invalidationVersion=" + result.InvalidationVersion
+            + " ownedCollectionVersion=" + result.OwnedCollectionVersion
+            + " bmsRowsVersion=" + result.BmsRowsVersion
+            + " bmsonRowsVersion=" + result.BmsonRowsVersion
+            + " staleRetries=" + result.StaleRetryCount);
+        return result;
     }
 
     /// <summary>
@@ -6889,36 +6713,6 @@ public partial class BMSLibrary : NotificationObject
             && catalogStorageRowsOwner.BmsonRowsVersion == storageRowsVersion.BmsonRowsVersion;
     }
 
-    private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe()
-    {
-        return CreateOwnedHashIndexSnapshotUnsafe(out _);
-    }
-
-    private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe(out StorageRowsVersionSnapshot storageRowsVersion)
-    {
-        return CreateOwnedHashIndexSnapshotUnsafe(CancellationToken.None, out storageRowsVersion);
-    }
-
-    private OwnedChartHashIndexSnapshot CreateOwnedHashIndexSnapshotUnsafe(
-        CancellationToken cancellationToken,
-        out StorageRowsVersionSnapshot storageRowsVersion)
-    {
-        EnsureOwnedChartCollectionBuiltUnsafe(cancellationToken);
-        lock (lockStorageRowsVersion)
-        {
-            StorageRowsVersionSnapshot currentVersion = CreateCurrentStorageRowsVersionSnapshotUnsafe();
-            lock (lockOwnedChartCollection)
-            {
-                if (!catalogOwnedCollectionOwner.IsCurrent(currentVersion.BmsRowsVersion, currentVersion.BmsonRowsVersion))
-                {
-                    throw new InvalidOperationException("Owned chart collection storage row version is not current.");
-                }
-                storageRowsVersion = currentVersion;
-                return catalogOwnedCollectionOwner.Collection.CreateOwnedHashIndexSnapshot(cancellationToken);
-            }
-        }
-    }
-
     private List<ChartFile> CreateOwnedChartInfoFullBackfillTargetSnapshot()
     {
         EnsureOwnedChartCollectionBuiltUnsafe();
@@ -7076,45 +6870,6 @@ public partial class BMSLibrary : NotificationObject
             + " bmson=" + result.BmsonCount
             + " rows=" + (result.BmsCount + result.BmsonCount)
             + " fullDirectoryLookupInitialized=" + result.FullDirectoryLookupInitialized);
-        return result;
-    }
-
-    /// <summary>
-    /// playlist summary の所持 hash snapshot を readiness 外で温めます。
-    /// </summary>
-    /// <param name="reason">warmup を要求した理由。</param>
-    /// <returns>warmup 結果。</returns>
-    internal OwnedHashIndexWarmupResult WarmPlaylistSummaryOwnedHashSnapshot(string reason)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        PlaylistSummaryOwnedHashSnapshot snapshot = GetPlaylistSummaryOwnedHashSnapshot(out bool cacheHit, out int staleRetryCount);
-        stopwatch.Stop();
-        var result = new OwnedHashIndexWarmupResult
-        {
-            IndexName = "playlist_summary_owned_hash",
-            Status = cacheHit ? "cached" : "built",
-            ElapsedMs = stopwatch.ElapsedMilliseconds,
-            Md5Count = snapshot?.Md5Count ?? 0,
-            Sha256Count = snapshot?.Sha256Count ?? 0,
-            SnapshotVersion = snapshot?.Version ?? 0,
-            InvalidationVersion = snapshot?.InvalidationVersion ?? 0,
-            OwnedCollectionVersion = snapshot?.OwnedCollectionVersion ?? 0,
-            BmsRowsVersion = snapshot?.BmsRowsVersion ?? 0,
-            BmsonRowsVersion = snapshot?.BmsonRowsVersion ?? 0,
-            StaleRetryCount = staleRetryCount
-        };
-        LogInstallPerformance("owned_adjacent_index_warmup index=" + result.IndexName
-            + " reason=" + (reason ?? string.Empty)
-            + " status=" + result.Status
-            + " elapsedMs=" + result.ElapsedMs
-            + " md5Hashes=" + result.Md5Count
-            + " sha256Hashes=" + result.Sha256Count
-            + " snapshotVersion=" + result.SnapshotVersion
-            + " invalidationVersion=" + result.InvalidationVersion
-            + " ownedCollectionVersion=" + result.OwnedCollectionVersion
-            + " bmsRowsVersion=" + result.BmsRowsVersion
-            + " bmsonRowsVersion=" + result.BmsonRowsVersion
-            + " staleRetries=" + result.StaleRetryCount);
         return result;
     }
 
@@ -7450,9 +7205,9 @@ public partial class BMSLibrary : NotificationObject
         {
             InvalidateDuplicateChartGroupsCache();
         }
-        if (mutationResult.PlaylistSummaryOwnedHashInvalidated)
+        if (HasOwnedHashSetChanges(mutationResult))
         {
-            InvalidatePlaylistSummaryOwnedHashSnapshot();
+            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
         }
         if (mutationResult.OwnedCollectionChanged)
         {
@@ -7622,9 +7377,9 @@ public partial class BMSLibrary : NotificationObject
         {
             InvalidateInstalledDirectoryIndex();
         }
-        if (mutationResult?.PlaylistSummaryOwnedHashInvalidated == true)
+        if (HasOwnedHashSetChanges(mutationResult))
         {
-            InvalidatePlaylistSummaryOwnedHashSnapshot();
+            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
         }
         if (mutationResult?.OwnedCollectionChanged == true)
         {
@@ -7688,7 +7443,6 @@ public partial class BMSLibrary : NotificationObject
             MovedCount = storageMutation.MovedCount,
             ParentFolderInvalidated = request.HasDbDiff,
             DuplicateCacheInvalidated = request.HasDbDiff,
-            PlaylistSummaryOwnedHashInvalidated = storageRowsChanged,
             OwnedCollectionChanged = storageRowsChanged,
             ResourceHealthIndexInvalidated = resourceHealthShouldInvalidate,
             WarningPresentationChanged = fileScanPresentationChanged,
@@ -7788,7 +7542,6 @@ public partial class BMSLibrary : NotificationObject
             InstalledPackagePathChangedCount = delta?.UpdatedInstalledPackagePaths.Count ?? 0,
             ParentFolderInvalidated = delta?.InvalidateParentFolderCache == true,
             DuplicateCacheInvalidated = delta?.ClearDuplicatedCache == true,
-            PlaylistSummaryOwnedHashInvalidated = storageMutation.HasHashSetChanges,
             OwnedCollectionChanged = storageMutation.HasChanges,
             WarningPresentationChanged = delta?.ClearDuplicatedCache == true || storageMutation.HasChanges,
             BmsFilesStorageRowsChanged = HasBmsStorageRowCollectionChange(storageMutation)
@@ -7911,7 +7664,6 @@ public partial class BMSLibrary : NotificationObject
         result.AddedCount = result.StorageMutation.AddedCount;
         result.ParentFolderInvalidated = result.StorageMutation.AddedCount > 0;
         result.DuplicateCacheInvalidated = result.StorageMutation.AddedCount > 0;
-        result.PlaylistSummaryOwnedHashInvalidated = result.StorageMutation.HasHashSetChanges;
         result.OwnedCollectionChanged = result.StorageMutation.HasChanges;
         result.WarningPresentationChanged = result.StorageMutation.HasChanges;
         result.BmsFilesStorageRowsChanged = result.StorageMutation.AddedBmsFiles.Count > 0;
@@ -8017,7 +7769,6 @@ public partial class BMSLibrary : NotificationObject
             InstalledLookupMutation = BuildInstalledChartLookupDigestMutation(changes),
             InstallEstimationMetadataProfileCacheInvalidated = anyChanges,
             DuplicateCacheInvalidated = primaryHashChanged,
-            PlaylistSummaryOwnedHashInvalidated = anyChanges,
             OwnedCollectionChanged = anyChanges,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated && md5Changed,
             WarningPresentationChanged = primaryHashChanged || (resourceHealthIndexInvalidated && md5Changed),
@@ -8043,7 +7794,6 @@ public partial class BMSLibrary : NotificationObject
             InstalledLookupMutation = new InstalledChartLookupMutation { RequiresFullInvalidate = true },
             InstallEstimationMetadataProfileCacheInvalidated = true,
             DuplicateCacheInvalidated = true,
-            PlaylistSummaryOwnedHashInvalidated = true,
             OwnedCollectionChanged = true,
             ResourceHealthIndexInvalidated = resourceHealthIndexInvalidated,
             WarningPresentationChanged = resourceHealthIndexInvalidated,
@@ -8136,10 +7886,10 @@ public partial class BMSLibrary : NotificationObject
             InvalidateDuplicateChartGroupsCache();
             duplicateMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        if (result.PlaylistSummaryOwnedHashInvalidated)
+        if (HasOwnedHashSetChanges(result))
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            InvalidatePlaylistSummaryOwnedHashSnapshot();
+            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
             playlistSummaryMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.OwnedCollectionChanged)
@@ -8149,10 +7899,10 @@ public partial class BMSLibrary : NotificationObject
             PublishOwnedCollectionChangeNotification(result);
             ownedCollectionNotifyMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
-        if (result.PlaylistSummaryOwnedHashInvalidated)
+        if (HasOwnedHashSetChanges(result))
         {
             Stopwatch stepStopwatch = StartPerformanceStepStopwatch(collectDispatchDetails);
-            InvalidatePlaylistSummaryOwnedHashSnapshot(result.OwnedCollectionVersion);
+            catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
             playlistSummaryMs += StopPerformanceStepStopwatch(stepStopwatch);
         }
         if (result.OwnedCollectionChanged)
@@ -8207,7 +7957,7 @@ public partial class BMSLibrary : NotificationObject
                 + " installedLookup=" + ToMutationDispatchLogValue(result.InstalledLookupMutation)
                 + " parentFolder=" + ToInvalidateLogValue(result.ParentFolderInvalidated)
                 + " duplicate=" + ToInvalidateLogValue(result.DuplicateCacheInvalidated)
-                + " playlistSummaryHash=" + ToInvalidateLogValue(result.PlaylistSummaryOwnedHashInvalidated)
+                + " catalogHashSet=" + ToInvalidateLogValue(HasOwnedHashSetChanges(result))
                 + " playlistResolve=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
                 + " ownedCollection=" + ToInvalidateLogValue(result.OwnedCollectionChanged)
                 + " resourceHealth=" + ToResourceHealthMutationDispatchLogValue(result.ResourceHealthMutation)
@@ -11087,9 +10837,9 @@ public partial class BMSLibrary : NotificationObject
             {
                 InvalidateDuplicateChartGroupsCache();
             }
-            if (mutationResult?.PlaylistSummaryOwnedHashInvalidated == true)
+            if (HasOwnedHashSetChanges(mutationResult))
             {
-                InvalidatePlaylistSummaryOwnedHashSnapshot();
+                catalogOwnedCollectionOwner.InvalidateHashIndexSnapshot();
             }
             if (mutationResult?.OwnedCollectionChanged == true)
             {
@@ -11131,8 +10881,6 @@ public partial class BMSLibrary : NotificationObject
         mutationResult.OwnedCollectionVersion = receipt.OwnedCollectionVersion;
         mutationResult.OwnedCollectionVersionAlreadyAdvanced = hasCatalogFacts;
         mutationResult.OwnedCollectionChanged |= hasCatalogFacts;
-        mutationResult.PlaylistSummaryOwnedHashInvalidated |= receipt.AddedCharts.Count > 0
-            || receipt.RemovedCharts.Count > 0;
         mutationResult.DuplicateCacheInvalidated |= receipt.AddedCharts.Count > 0
             || receipt.RemovedCharts.Count > 0;
         mutationResult.WarningPresentationChanged |= mutationResult.OwnedCollectionChanged;

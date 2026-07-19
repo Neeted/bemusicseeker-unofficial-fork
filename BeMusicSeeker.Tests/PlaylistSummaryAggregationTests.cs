@@ -19,7 +19,7 @@ namespace BeMusicSeeker.Tests;
 public sealed class PlaylistSummaryAggregationTests
 {
     [TestMethod]
-    public void GetPlaylistSummaryOwnedHashSnapshot_RejectsCanceledBuildBeforeReadingStorage()
+    public void GetOwnedChartHashIndexSnapshot_RejectsCanceledBuildBeforeReadingStorage()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -28,7 +28,7 @@ public sealed class PlaylistSummaryAggregationTests
             cancellation.Cancel();
 
             Assert.ThrowsException<OperationCanceledException>(() =>
-                library.GetPlaylistSummaryOwnedHashSnapshot(cancellation.Token));
+                library.GetOwnedChartHashIndexSnapshot(cancellation.Token));
         });
     }
 
@@ -44,7 +44,7 @@ public sealed class PlaylistSummaryAggregationTests
             CreateEntry("cccccccccccccccccccccccccccccccc", null, isRemoved: true)
         ];
 
-        PlaylistSummaryCountResult result = PlaylistWorkspaceViewModel.CalculatePlaylistSummaryCounts(
+        PlaylistSummaryCountResult result = PlaylistCatalogSummaryOwner.CalculateTableCount(
             entries,
             CreateHashSet("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
             CreateHashSet("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
@@ -63,7 +63,7 @@ public sealed class PlaylistSummaryAggregationTests
                 "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         ];
 
-        PlaylistSummaryCountResult result = PlaylistWorkspaceViewModel.CalculatePlaylistSummaryCounts(
+        PlaylistSummaryCountResult result = PlaylistCatalogSummaryOwner.CalculateTableCount(
             entries,
             CreateHashSet("cccccccccccccccccccccccccccccccc"),
             CreateHashSet("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
@@ -80,7 +80,7 @@ public sealed class PlaylistSummaryAggregationTests
             CreateEntry(null, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
         ];
 
-        PlaylistSummaryCountResult result = PlaylistWorkspaceViewModel.CalculatePlaylistSummaryCounts(
+        PlaylistSummaryCountResult result = PlaylistCatalogSummaryOwner.CalculateTableCount(
             entries,
             CreateHashSet(),
             CreateHashSet("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"));
@@ -90,7 +90,93 @@ public sealed class PlaylistSummaryAggregationTests
     }
 
     [TestMethod]
-    public void GetPlaylistSummaryOwnedHashSnapshot_IncludesBmsonHashes()
+    public void PlaylistCatalogSummaryOwner_DoesNotReuseCountForReplacedTableInstance()
+    {
+        var ownedHashes = new OwnedChartHashIndexSnapshot();
+        ownedHashes.Md5Hashes.Add("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var ownedSnapshot = new OwnedChartHashIndexVersionedSnapshot(
+            ownedHashes,
+            version: 1,
+            buildElapsedMs: 0,
+            invalidationVersion: 1,
+            ownedCollectionVersion: 1,
+            bmsRowsVersion: 1,
+            bmsonRowsVersion: 0);
+        var owner = new PlaylistCatalogSummaryOwner();
+        var firstTable = new BMSTable
+        {
+            playlist_id = 42
+        };
+        firstTable.entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null)];
+
+        PlaylistSummaryCountResult first = owner.GetOrBuildTableCount(
+            firstTable,
+            ownedSnapshot,
+            CancellationToken.None,
+            out bool firstCacheHit);
+
+        var replacementTable = new BMSTable
+        {
+            playlist_id = 42
+        };
+        replacementTable.entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", null)];
+
+        PlaylistSummaryCountResult replacement = owner.GetOrBuildTableCount(
+            replacementTable,
+            ownedSnapshot,
+            CancellationToken.None,
+            out bool replacementCacheHit);
+
+        Assert.IsFalse(firstCacheHit);
+        Assert.AreEqual(1, first.TotalCharts);
+        Assert.AreEqual(1, first.OwnedCharts);
+        Assert.IsFalse(replacementCacheHit);
+        Assert.AreEqual(1, replacement.TotalCharts);
+        Assert.AreEqual(0, replacement.OwnedCharts);
+    }
+
+    [TestMethod]
+    public void PlaylistCatalogSummaryOwner_DoesNotPublishCountAfterTableRevisionChanges()
+    {
+        var ownedHashes = new OwnedChartHashIndexSnapshot();
+        ownedHashes.Md5Hashes.Add("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        var ownedSnapshot = new OwnedChartHashIndexVersionedSnapshot(
+            ownedHashes,
+            version: 1,
+            buildElapsedMs: 0,
+            invalidationVersion: 1,
+            ownedCollectionVersion: 1,
+            bmsRowsVersion: 1,
+            bmsonRowsVersion: 0);
+        var owner = new PlaylistCatalogSummaryOwner();
+        var table = new BMSTable
+        {
+            playlist_id = 42
+        };
+        table.entries = [CreateEntry("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", null)];
+
+        PlaylistSummaryCountResult first = owner.GetOrBuildTableCount(
+            table,
+            ownedSnapshot,
+            CancellationToken.None,
+            out bool firstCacheHit);
+
+        table.entries = [CreateEntry("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", null)];
+
+        PlaylistSummaryCountResult changed = owner.GetOrBuildTableCount(
+            table,
+            ownedSnapshot,
+            CancellationToken.None,
+            out bool changedCacheHit);
+
+        Assert.IsFalse(firstCacheHit);
+        Assert.AreEqual(1, first.OwnedCharts);
+        Assert.IsFalse(changedCacheHit);
+        Assert.AreEqual(0, changed.OwnedCharts);
+    }
+
+    [TestMethod]
+    public void GetOwnedChartHashIndexSnapshot_IncludesBmsonHashes()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -110,7 +196,7 @@ public sealed class PlaylistSummaryAggregationTests
                 }
             ]);
 
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot snapshot = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot snapshot = library.GetOwnedChartHashIndexSnapshot();
 
             CollectionAssert.Contains(new List<string>(snapshot.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
             CollectionAssert.Contains(new List<string>(snapshot.Md5Hashes), "cccccccccccccccccccccccccccccccc");
@@ -120,7 +206,7 @@ public sealed class PlaylistSummaryAggregationTests
     }
 
     [TestMethod]
-    public void GetPlaylistSummaryOwnedHashSnapshot_RebuildsAfterLibraryOwnershipChanges()
+    public void GetOwnedChartHashIndexSnapshot_RebuildsAfterLibraryOwnershipChanges()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -131,13 +217,13 @@ public sealed class PlaylistSummaryAggregationTests
                     CreateLibraryFile(@"C:\Songs\old.bms", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
                 ]
             };
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot first = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot first = library.GetOwnedChartHashIndexSnapshot();
 
             library.BMSFiles =
             [
                 CreateLibraryFile(@"C:\Songs\new.bms", "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
             ];
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot second = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot second = library.GetOwnedChartHashIndexSnapshot();
 
             Assert.IsTrue(second.Version > first.Version);
             CollectionAssert.DoesNotContain(new List<string>(second.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -146,7 +232,7 @@ public sealed class PlaylistSummaryAggregationTests
     }
 
     [TestMethod]
-    public void GetPlaylistSummaryOwnedHashSnapshot_RebuildsAfterLibraryMutationDelta()
+    public void GetOwnedChartHashIndexSnapshot_RebuildsAfterLibraryMutationDelta()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -156,12 +242,12 @@ public sealed class PlaylistSummaryAggregationTests
             {
                 BMSFiles = [removedFile, keptFile]
             };
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot first = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot first = library.GetOwnedChartHashIndexSnapshot();
             var delta = new LibraryMutationDelta();
             delta.ChartRemoveRequests.Add(OwnedChartRemoveRequest.FromOwnerReference(removedFile));
 
             InvokeApplyLibraryMutationDelta(library, delta);
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot second = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot second = library.GetOwnedChartHashIndexSnapshot();
 
             Assert.IsTrue(second.Version > first.Version);
             CollectionAssert.DoesNotContain(new List<string>(second.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -170,7 +256,7 @@ public sealed class PlaylistSummaryAggregationTests
     }
 
     [TestMethod]
-    public void GetPlaylistSummaryOwnedHashSnapshot_RebuildsAfterInstalledChartUpsert()
+    public void GetOwnedChartHashIndexSnapshot_RebuildsAfterInstalledChartUpsert()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -181,10 +267,10 @@ public sealed class PlaylistSummaryAggregationTests
             {
                 BMSFiles = [replacedFile]
             };
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot first = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot first = library.GetOwnedChartHashIndexSnapshot();
 
             InvokeApplyInstalledChartStorageTargets(library, ChartStorageTargetSet.FromRows([newFile], []));
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot second = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedChartHashIndexVersionedSnapshot second = library.GetOwnedChartHashIndexSnapshot();
 
             Assert.IsTrue(second.Version > first.Version);
             CollectionAssert.DoesNotContain(new List<string>(second.Md5Hashes), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
@@ -193,7 +279,7 @@ public sealed class PlaylistSummaryAggregationTests
     }
 
     [TestMethod]
-    public void WarmPlaylistSummaryOwnedHashSnapshot_BuildsReusesAndRebuildsAfterOwnershipChange()
+    public void WarmOwnedChartHashIndexSnapshot_BuildsReusesAndRebuildsAfterOwnershipChange()
     {
         WithTemporarySongDb(delegate (string songDbPath)
         {
@@ -205,10 +291,10 @@ public sealed class PlaylistSummaryAggregationTests
                 ]
             };
 
-            BMSLibrary.OwnedHashIndexWarmupResult first = library.WarmPlaylistSummaryOwnedHashSnapshot("test");
-            BMSLibrary.OwnedHashIndexWarmupResult second = library.WarmPlaylistSummaryOwnedHashSnapshot("test");
+            OwnedHashIndexWarmupResult first = library.WarmOwnedChartHashIndexSnapshot("test");
+            OwnedHashIndexWarmupResult second = library.WarmOwnedChartHashIndexSnapshot("test");
 
-            Assert.AreEqual("playlist_summary_owned_hash", first.IndexName);
+            Assert.AreEqual("catalog_owned_hash", first.IndexName);
             Assert.AreEqual("built", first.Status);
             Assert.AreEqual(1, first.Md5Count);
             Assert.AreEqual(1, first.Sha256Count);
@@ -228,8 +314,8 @@ public sealed class PlaylistSummaryAggregationTests
                 CreateLibraryFile(@"C:\Songs\new.bms", "cccccccccccccccccccccccccccccccc", "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd")
             ];
 
-            BMSLibrary.OwnedHashIndexWarmupResult third = library.WarmPlaylistSummaryOwnedHashSnapshot("test");
-            BMSLibrary.PlaylistSummaryOwnedHashSnapshot snapshot = library.GetPlaylistSummaryOwnedHashSnapshot();
+            OwnedHashIndexWarmupResult third = library.WarmOwnedChartHashIndexSnapshot("test");
+            OwnedChartHashIndexVersionedSnapshot snapshot = library.GetOwnedChartHashIndexSnapshot();
 
             Assert.AreEqual("built", third.Status);
             Assert.IsTrue(third.SnapshotVersion > second.SnapshotVersion);

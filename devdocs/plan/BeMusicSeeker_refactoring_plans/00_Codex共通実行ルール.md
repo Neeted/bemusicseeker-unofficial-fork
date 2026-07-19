@@ -10,6 +10,7 @@
 - DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約、明示的にサポートする SDK / plugin / CLI / IPC / COM / automation contract を変更する必要が生じたら、実装前にユーザーへ確認する。
 - 意味の変わる fallback を追加しない。失敗を隠すより、既存の失敗契約を維持して明示的に失敗させる。
 - C# symbol rename は text replacement ではなく semantic rename / compiler-driven edit を使う。
+- 検証用 script / command に固定 timeout を追加しない。特に 120 秒（2 分）で build、test、format、analyzer を打ち切らず、開始したプロセスが完了するまで待つ。既存の検証入口にも 120 秒 timeout を導入してはならない。
 
 ## 実行ロール
 
@@ -173,12 +174,12 @@ UI observable behavior に触れる outcome の完了時は、自動テストに
 <repo-root>\bin\x64\Release\net472\BeMusicSeeker.exe
 ```
 
-- `bin\Release\net472`、インストール済み BeMusicSeeker、表示名だけで見つけた同名 window は検証対象にしない。
+- `bin\Release\net472`、インストール済み BeMusicSeeker、表示名だけで見つけた同名 window は検証対象にしない。インストール版の path を取得・列挙する必要はなく、検証対象にも含めない。
 - 起動前に上記ファイルが今回の build で生成済みであることを確認する。
-- UI 操作ツールで起動・選択する場合は executable path の完全一致で対象 process / window を同定する。同名候補が複数ある場合は操作せず、path を再確認する。
-- Computer Use では raw executable path が同名のインストール済み app へ解決される場合があるため、`process:<resolved-absolute-executable-path>` を launch / window 識別子に使う。返された window の `app` が同じ `process:` path と完全一致しなければ操作しない。
+- 起動は resolved absolute path を `Start-Process -FilePath` または UI 操作ツールの `process:<resolved-absolute-executable-path>` に直接渡す。インストール版を探すための app 一覧取得や path 置換を行わない。
+- UI 操作ツールで対象 process / window を同定する場合は、built executable path の完全一致を process 側で確認する。同名候補や別 executable path が返っても、それを検証対象へ切り替えない。対象 process と window の対応を確認できない場合は操作せず、smoke 未実施として報告する。
 - screenshot や目視結果を evidence とする前に、対象 process の executable path が上記の resolved absolute path と一致することを確認する。一致を確認できない実操作結果は無効とする。
-- smoke check 後は起動した repository build を正常終了し、インストール版を起動・終了しない。
+- smoke check 後は起動した repository build だけを正常終了する。インストール版の起動・終了・path 取得は行わない。
 
 - application startup、initial scan / reload、正常 shutdown。
 - regular chart / playlist detail / playlist summary / play history の表示切替。
