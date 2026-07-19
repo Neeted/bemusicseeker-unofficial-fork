@@ -19,7 +19,7 @@
 
 active outcome base commit: `d9241f10`
 active execution package: `PL-02 Playlist external-sync and output ownership`
-sequence cursor: `PL02-U2 Recommended / estimation table build owner`
+sequence cursor: `PL02-U3 Custom-folder projection / materialization owner`
 
 目的:
 

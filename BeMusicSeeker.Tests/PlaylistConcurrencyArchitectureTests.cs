@@ -221,6 +221,32 @@ public sealed class PlaylistConcurrencyArchitectureTests
     }
 
     [TestMethod]
+    public void RecommendedTableWorkflow_IsOwnedByDedicatedOwner()
+    {
+        string root = FindRepositoryRoot();
+        string playlistSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string ownerSource = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistRecommendedTableOwner.cs"));
+
+        StringAssert.Contains(playlistSource, "recommendedTableOwner.LoadWalkureTable");
+        Assert.IsFalse(playlistSource.Contains("public BMSTable LoadWalkureTable"));
+        foreach (string legacyMember in new[]
+        {
+            "estimationTableLock",
+            "insaneTable",
+            "overjoyTable",
+            "updatedClearedSongs",
+            "loadRecommendedTable",
+            "setEstimationTable"
+        })
+        {
+            Assert.IsFalse(playlistSource.Contains(legacyMember), "BMSPlaylist must not retain recommended-table member: " + legacyMember);
+        }
+        StringAssert.Contains(ownerSource, "internal BMSTable LoadWalkureTable");
+        StringAssert.Contains(ownerSource, "UpdatedClearedSongs");
+        StringAssert.Contains(ownerSource, "BuildEstimationEntries");
+    }
+
+    [TestMethod]
     public void CustomFolderOutputResolution_UsesDedicatedProviderBoundary()
     {
         string playlistSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));

@@ -1,0 +1,266 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.Specialized;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Properties;
+using Codeplex.Data;
+using Microsoft.VisualStudio.TestTools.UnitTesting;
+using SQLite;
+
+namespace BeMusicSeeker.Tests;
+
+[TestClass]
+public sealed class PlaylistRecommendedTableOwnerTests
+{
+    [TestMethod]
+    public void LoadWalkureTable_RejectsNonBmseekerUri()
+    {
+        PlaylistRecommendedTableOwner owner = CreateOwner();
+
+        ArgumentException exception = Assert.ThrowsException<ArgumentException>(
+            () => owner.LoadWalkureTable(new Uri("https://example.invalid/table.json")));
+
+        StringAssert.StartsWith(exception.Message, Resources.Error_SchemeMustBeBemusic);
+    }
+
+    [TestMethod]
+    public void LoadWalkureTable_RejectsUnsupportedRoute()
+    {
+        PlaylistRecommendedTableOwner owner = CreateOwner();
+
+        ArgumentException exception = Assert.ThrowsException<ArgumentException>(
+            () => owner.LoadWalkureTable(new Uri("bmseeker:table.unsupported")));
+
+        StringAssert.StartsWith(exception.Message, Resources.Error_UnsupportedURI);
+    }
+
+    [TestMethod]
+    public void LoadWalkureTable_RecommendedWithoutScoreDatabaseFailsBeforeFetch()
+    {
+        PlaylistRecommendedTableOwner owner = CreateOwner();
+
+        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+            () => owner.LoadWalkureTable(new Uri("bmseeker:table.recommended?id=0")));
+
+        Assert.AreEqual(Resources.Error_ScoreDBConnectionFailed, exception.Message);
+    }
+
+    [TestMethod]
+    public void LoadWalkureTable_RecommendedBuildsEntriesAndPreservesBaseProperties()
+    {
+        const string md5 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
+        BMSTable overjoy = CreateTable();
+        var httpClient = new FakeHttpClient
+        {
+            GetStringHandler = _ => "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote〜Name\",\"recommended\":[{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"new_lamp\":\"hard\",\"p\":4.25}]}",
+        };
+        PlaylistRecommendedTableOwner owner = CreateOwner(
+            httpClient: httpClient,
+            externalTableLoader: uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : overjoy);
+        var baseTable = new BMSTable
+        {
+            compat_prefix = "BASE ",
+            playlist_id = 17,
+            symbol = "BASE",
+            ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.UserFolder,
+            is_external_sync = false,
+            custom_folder_output_base_name = "base-output",
+            bmt_sort = 4,
+            is_bmt_output = true
+        };
+
+        BMSTable table = owner.LoadWalkureTable(
+            new Uri("bmseeker:table.recommended?id=123&mode=readonly&name=Shown"),
+            baseTable);
+
+        Assert.AreEqual(1, table.entries.Count);
+        Assert.AreEqual(md5, table.entries.Single().md5);
+        Assert.AreEqual("HARD", table.entries.Single().folder);
+        Assert.AreEqual(4.25, table.entries.Single().level);
+        Assert.AreEqual("BASE ", table.compat_prefix);
+        Assert.AreEqual(17, table.playlist_id);
+        Assert.AreEqual("BASE", table.symbol);
+        Assert.AreEqual(LR2SongDBExtended.playlist.CustomFolderType.UserFolder, table.ignore_folder_output);
+        Assert.IsFalse(table.is_external_sync);
+        Assert.AreEqual("base-output", table.custom_folder_output_base_name);
+        Assert.AreEqual(4, table.bmt_sort);
+        Assert.IsTrue(table.is_bmt_output);
+        Assert.AreEqual(1, httpClient.GetUris.Count);
+        StringAssert.Contains(httpClient.GetUris.Single().Query, "id=123");
+    }
+
+    [TestMethod]
+    public void LoadWalkureTable_RecommendedFetchFailureQueuesWarningAndThrows()
+    {
+        var warnings = new List<string>();
+        var httpClient = new FakeHttpClient
+        {
+            GetStringHandler = _ => "{\"status\":\"failed\",\"message\":\"offline\"}"
+        };
+        PlaylistRecommendedTableOwner owner = CreateOwner(
+            httpClient: httpClient,
+            queueWarning: (message, _) => warnings.Add(message));
+
+        InvalidOperationException exception = Assert.ThrowsException<InvalidOperationException>(
+            () => owner.LoadWalkureTable(new Uri("bmseeker:table.recommended?id=123&mode=readonly")));
+
+        Assert.AreEqual(Resources.Error_RecommendFetchFailed, exception.Message);
+        Assert.AreEqual(1, warnings.Count);
+        StringAssert.Contains(warnings[0], "offline");
+        Assert.AreEqual(1, httpClient.GetUris.Count);
+    }
+
+    [TestMethod]
+    public async Task LoadWalkureTable_EstimationLoadsJsonOnceForConcurrentRequests()
+    {
+        int getCount = 0;
+        var httpClient = new FakeHttpClient
+        {
+            GetStringHandler = _ =>
+            {
+                Interlocked.Increment(ref getCount);
+                Thread.Sleep(50);
+                return "{}";
+            }
+        };
+        PlaylistRecommendedTableOwner owner = CreateOwner(
+            httpClient: httpClient,
+            externalTableLoader: _ => CreateTable());
+        Uri uri = new("bmseeker:table.estimation?type=easy");
+
+        BMSTable[] tables = await Task.WhenAll(
+            Enumerable.Range(0, 8).Select(_ => Task.Run(() => owner.LoadWalkureTable(uri))));
+
+        Assert.AreEqual(1, getCount);
+        Assert.IsTrue(tables.All(table => table.entries.Count == 0));
+    }
+
+    [TestMethod]
+    [DoNotParallelize]
+    public void LoadWalkureTable_RecommendedUpdatesClearedSongsAndNotifiesSkillChange()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "PlaylistRecommendedTableOwnerTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        string scoreDbPath = Path.Combine(tempDirectory, "score.db");
+        const string md5 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        bool previousShowMessage = Settings.Default.ShowRecommUpdatedMsg;
+        Settings.Default.ShowRecommUpdatedMsg = true;
+        try
+        {
+            using (var db = new LR2ScoreDBExtended(scoreDbPath))
+            {
+                db.CreateTable<LR2ScoreDB.player>();
+                db.Insert(new LR2ScoreDB.player { id = "player", irid = 321, name = "Player" });
+            }
+            BMSTable insane = CreateTable(CreateEntry(md5, "1001", "Insane song"));
+            BMSTable overjoy = CreateTable();
+            var httpClient = new FakeHttpClient
+            {
+                GetStringHandler = _ => "{\"status\":\"success\",\"hoshi\":12.5,\"last_modified\":0,\"name\":\"Remote Name\",\"recommended\":[{\"bms\":{\"type\":\"normal\",\"bmsid\":1001},\"new_lamp\":\"clear\",\"p\":3.5}]}",
+            };
+            httpClient.PostFormHandler = (_, form) => string.Empty;
+            var postForms = new List<NameValueCollection>();
+            httpClient.PostFormObserver = form => postForms.Add(form);
+            var information = new List<string>();
+            PlaylistRecommendedTableOwner owner = CreateOwner(
+                scoreDbPath,
+                () =>
+                [new BMSScore
+                {
+                    hash = md5,
+                    clear = ClearType.HARD,
+                    rank = RankType.A
+                }],
+                httpClient,
+                uri => uri.AbsoluteUri.IndexOf("insane1", StringComparison.Ordinal) >= 0 ? insane : overjoy,
+                queueInformation: (message, _) => information.Add(message));
+            var baseTable = new BMSTable { org_name = "Recommended ★11.00" };
+
+            BMSTable table = owner.LoadWalkureTable(
+                new Uri("bmseeker:table.recommended?mode=normal&filter=clear&base=failed"),
+                baseTable);
+
+            Assert.AreEqual(1, postForms.Count);
+            Assert.AreEqual("321", postForms[0].Get("id"));
+            Assert.AreEqual("Player", postForms[0].Get("name"));
+            StringAssert.Contains(postForms[0].Get("data"), "1001-4");
+            Assert.AreEqual(1, table.entries.Count);
+            Assert.AreEqual("CLEAR", table.entries.Single().folder);
+            Assert.AreEqual(3.5, table.entries.Single().level);
+            Assert.AreEqual(1, information.Count);
+            StringAssert.Contains(information[0], "12.50");
+        }
+        finally
+        {
+            Settings.Default.ShowRecommUpdatedMsg = previousShowMessage;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    private static PlaylistRecommendedTableOwner CreateOwner(
+        string? lr2ScoreDbPath = null,
+        Func<List<BMSScore>>? bmsScoresProvider = null,
+        IPlaylistRecommendedTableHttpClient? httpClient = null,
+        Func<Uri, BMSTable>? externalTableLoader = null,
+        Action<string, string>? queueWarning = null,
+        Action<string, string>? queueInformation = null)
+    {
+        return new PlaylistRecommendedTableOwner(
+            lr2ScoreDbPath: lr2ScoreDbPath,
+            bmsScoresProvider: bmsScoresProvider ?? (() => null!),
+            initializationSemaphoreProvider: () => null,
+            externalTableLoader: externalTableLoader ?? (_ => null!),
+            httpClient: httpClient ?? new FakeHttpClient(),
+            queueWarning: queueWarning ?? ((_, _) => { }),
+            queueInformation: queueInformation ?? ((_, _) => { }));
+    }
+
+    private sealed class FakeHttpClient : IPlaylistRecommendedTableHttpClient
+    {
+        internal Func<Uri, string>? GetStringHandler { get; set; }
+
+        internal Func<Uri, NameValueCollection, string>? PostFormHandler { get; set; }
+
+        internal Action<NameValueCollection>? PostFormObserver { get; set; }
+
+        internal List<Uri> GetUris { get; } = [];
+
+        public string GetString(Uri uri)
+        {
+            GetUris.Add(uri);
+            return GetStringHandler?.Invoke(uri) ?? throw new InvalidOperationException("Unexpected HTTP GET: " + uri);
+        }
+
+        public string PostForm(Uri uri, NameValueCollection formData)
+        {
+            NameValueCollection copy = new();
+            foreach (string key in formData.AllKeys)
+            {
+                copy.Add(key, formData.Get(key));
+            }
+            PostFormObserver?.Invoke(copy);
+            return PostFormHandler?.Invoke(uri, formData) ?? throw new InvalidOperationException("Unexpected HTTP POST: " + uri);
+        }
+    }
+
+    private static BMSTable CreateTable(params BMSTableEntry[] entries)
+    {
+        return new BMSTable { entries = [.. entries] };
+    }
+
+    private static BMSTableEntry CreateEntry(string md5, string lr2BmsId, string title)
+    {
+        return new BMSTableEntry(DynamicJson.Parse(
+            "{\"md5\":\"" + md5 + "\",\"lr2_bmsid\":\"" + lr2BmsId + "\",\"title\":\"" + title + "\"}"));
+    }
+}
