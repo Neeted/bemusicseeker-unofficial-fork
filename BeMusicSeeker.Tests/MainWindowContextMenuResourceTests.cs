@@ -1681,7 +1681,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(initialize.Contains("Settings.Default.LR2BackupSpan"));
         Assert.IsFalse(initialize.Contains("Settings.Default.LR2BackupNum"));
         Assert.IsFalse(initialize.Contains("Settings.Default.TableListURL"));
-        StringAssert.Contains(externalSyncWorkspace, "currentPlaylists.QueueBeatorajaBmtExportAll(\"DeferredExternalSync:\" + request.Reason)");
+        StringAssert.Contains(externalSyncWorkspace, "currentPlaylists.BmtOutput.QueueBeatorajaBmtExportAll(\"DeferredExternalSync:\" + request.Reason)");
         StringAssert.Contains(externalSyncWorkspace, "currentPlaylists.UpdateBMSTablesInternalAsync(");
         Assert.IsFalse(viewModelCode.Contains("StartDeferredExternalPlaylistSync("));
         StringAssert.Contains(initialize, "initialSetupCompletionMessagePending = true;");
@@ -2879,7 +2879,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(workspaceCode, "playlists.ReloadPlaylistTargetsAsync(");
         StringAssert.Contains(workspaceCode, "CreateReferenceReplaceUpdateCallback()");
         StringAssert.Contains(workspaceCode, "requireCurrentTargetForApply: true");
-        StringAssert.Contains(workspaceCode, "playlists.QueueBeatorajaBmtExportAll(\"manual_resync\")");
+        StringAssert.Contains(workspaceCode, "playlists.BmtOutput.QueueBeatorajaBmtExportAll(\"manual_resync\")");
         StringAssert.Contains(workspaceCode, "LogPlaylistSyncFailure(result)");
         StringAssert.Contains(workspaceCode, "playlist_manual_resync_failed table=");
         StringAssert.Contains(propertyEditingCode, "LogPlaylistPropertyExternalSyncFailure(request)");
@@ -2916,15 +2916,15 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void BeatorajaBmtFullExport_DoesNotShowNoOpProgress()
     {
-        string playlistCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string playlistCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistBmtOutputOwner.cs"));
         string method = ExtractBetween(
             playlistCode,
             "internal void QueueBeatorajaBmtExportAll(string reason, string cleanupTablePath = null)",
-            "private bool IsCurrentBeatorajaBmtFullExportGeneration(long generation)");
+            "internal void QueueBeatorajaBmtExportForTable(BMSTable table, string reason)");
 
         StringAssert.Contains(method, "bool shouldReportProgress = projectionTablesSnapshot.Count > 0;");
         StringAssert.Contains(method, "if (shouldReportProgress)");
-        StringAssert.Contains(method, "ReportBeatorajaBmtExportProgress(progressOperationId, true, projectionTablesSnapshot.Count, 0, string.Empty);");
+        StringAssert.Contains(method, "ReportProgress(progressOperationId, true, projectionTablesSnapshot.Count, 0, string.Empty);");
         StringAssert.Contains(method, "shouldReportProgress");
         StringAssert.Contains(method, ": null);");
     }

@@ -5653,7 +5653,7 @@ public partial class MainWindowViewModel : ViewModel
             files.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
             files.StartupBackgroundTaskReporter = RecordStartupBackgroundTaskCompleted;
             tables.StartupBackgroundTaskScheduler = QueueStartupBackgroundTask;
-            tables.BeatorajaBmtExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
+            tables.BmtOutput.ExportProgressReporter = PlaylistWorkspace.ReportPlaylistSyncProgress;
             if (!libraryProfile.OperationModeLR2DB)
             {
                 files.SearchTargets.AddRange(libraryProfile.SearchRoots);
@@ -10673,7 +10673,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 tables.LoadPlaylistDump(lines);
                 tables.ReloadTables();
-                tables.QueueBeatorajaBmtExportAll("RestoreBMSTables");
+                tables.BmtOutput.QueueBeatorajaBmtExportAll("RestoreBMSTables");
                 ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_success_playlist_restore, BeMusicSeeker.Properties.Resources.Success, MessageBoxImage.Asterisk);
             }
             catch (Exception ex)

@@ -1,4 +1,5 @@
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -83,7 +84,7 @@ public sealed class BeatorajaBmtOptionsSnapshotTests
         };
         try
         {
-            playlist.QueueBeatorajaBmtExportForTables([new BMSTable { playlist_id = 1 }], "disabled_queue_test");
+            playlist.BmtOutput.QueueBeatorajaBmtExportForTables([new BMSTable { playlist_id = 1 }], "disabled_queue_test");
             Assert.AreEqual(1, schedulerCallCount);
             Assert.IsNotNull(queuedWork);
 

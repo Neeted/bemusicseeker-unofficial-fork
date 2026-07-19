@@ -99,7 +99,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                     ReportPlaylistSyncProgress,
                     "manual_resync",
                     requireCurrentTargetForApply: true);
-                playlists.QueueBeatorajaBmtExportAll("manual_resync");
+                playlists.BmtOutput.QueueBeatorajaBmtExportAll("manual_resync");
                 RequestPlaylistSummaryDataRefresh(
                     "manual_playlist_resync");
                 RequestPlaylistDetailReloadRefresh();

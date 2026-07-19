@@ -547,7 +547,7 @@ internal sealed class PlaylistPropertySaveService
             || !HasSameStringSequence(baseline.FolderOrder, table.Folder_order);
         if (bmtProjectionChanged)
         {
-            store.QueueBeatorajaBmtExportForTable(table, "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync");
+            store.BmtOutput.QueueBeatorajaBmtExportForTable(table, "PlaylistPropertySaveService.ApplyPostSaveUpdatesAsync");
         }
     }
 

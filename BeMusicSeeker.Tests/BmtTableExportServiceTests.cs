@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using System.Text;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
@@ -32,13 +33,13 @@ public sealed class BmtTableExportServiceTests
             new BmtTableExportService.ManagedTableUrlEntry { PlaylistIdentity = "1", Name = "Alpha", Url = "file:///alpha.bmt" },
             new BmtTableExportService.ManagedTableUrlEntry { PlaylistIdentity = "old", Name = "Old", Url = "file:///old.bmt" }
         };
-        var sortKeys = new Dictionary<string, BMSPlaylist.BeatorajaBmtTableUrlSortKey>(StringComparer.Ordinal)
+        var sortKeys = new Dictionary<string, PlaylistBmtOutputOwner.BeatorajaBmtTableUrlSortKey>(StringComparer.Ordinal)
         {
-            ["1"] = new BMSPlaylist.BeatorajaBmtTableUrlSortKey { Sort = 2, Name = "Alpha", PlaylistId = 1 },
-            ["2"] = new BMSPlaylist.BeatorajaBmtTableUrlSortKey { Sort = 1, Name = "Beta", PlaylistId = 2 }
+            ["1"] = new PlaylistBmtOutputOwner.BeatorajaBmtTableUrlSortKey { Sort = 2, Name = "Alpha", PlaylistId = 1 },
+            ["2"] = new PlaylistBmtOutputOwner.BeatorajaBmtTableUrlSortKey { Sort = 1, Name = "Beta", PlaylistId = 2 }
         };
 
-        List<string> result = BMSPlaylist.BuildBeatorajaManagedTableUrlsForConfigSync(managedTables, sortKeys);
+        List<string> result = PlaylistBmtOutputOwner.BuildBeatorajaManagedTableUrlsForConfigSync(managedTables, sortKeys);
 
         CollectionAssert.AreEqual(new[] { "file:///beta.bmt", "file:///alpha.bmt", "file:///old.bmt" }, result);
     }
@@ -288,7 +289,7 @@ public sealed class BmtTableExportServiceTests
         var charlie = new BMSTable { playlist_id = 3, name = "Charlie", bmt_sort = 1 };
         var tables = new[] { bravo, charlie, alpha };
 
-        int changedCount = BMSPlaylist.NormalizeBeatorajaBmtSortOrder(tables);
+        int changedCount = PlaylistBmtOutputOwner.NormalizeBeatorajaBmtSortOrder(tables);
 
         Assert.AreEqual(2, changedCount);
         Assert.AreEqual(1, alpha.bmt_sort);

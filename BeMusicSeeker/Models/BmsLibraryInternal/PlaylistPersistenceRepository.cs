@@ -351,7 +351,7 @@ internal sealed class PlaylistPersistenceRepository
                 db.Execute(item);
             }
             List<BMSTable> restoredTables = [.. db.Table<BMSTable>()];
-            if (BMSPlaylist.NormalizePersistedBeatorajaBmtPlaylistSettings(restoredTables) > 0)
+            if (PlaylistBmtOutputOwner.NormalizePersistedBeatorajaBmtPlaylistSettings(restoredTables) > 0)
             {
                 foreach (BMSTable table in restoredTables)
                 {
@@ -585,7 +585,7 @@ internal sealed class PlaylistPersistenceRepository
     private static void NormalizePersistedBeatorajaBmtPlaylistSettings(LR2SongDBExtended db)
     {
         List<BMSTable> tables = [.. db.Table<BMSTable>()];
-        if (BMSPlaylist.NormalizePersistedBeatorajaBmtPlaylistSettings(tables) == 0)
+        if (PlaylistBmtOutputOwner.NormalizePersistedBeatorajaBmtPlaylistSettings(tables) == 0)
         {
             return;
         }

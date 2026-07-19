@@ -206,14 +206,18 @@ public sealed class PlaylistConcurrencyArchitectureTests
     public void BeatorajaBmtSettings_UseDedicatedProviderBoundary()
     {
         string source = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BMSPlaylist.cs"));
+        string ownerSource = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Models", "BmsLibraryInternal", "PlaylistBmtOutputOwner.cs"));
 
-        Assert.IsFalse(source.Contains("Settings.Default.EnableBeatorajaBmtOutput"));
-        Assert.IsFalse(source.Contains("Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled"));
-        Assert.IsFalse(source.Contains("Settings.Default.BeatorajaRootPath"));
-        Assert.IsFalse(source.Contains("Settings.Default.BeatorajaBmtTablePath"));
-        Assert.IsFalse(source.Contains("Settings.Default.RegisterBeatorajaBmtUrls"));
-        Assert.IsFalse(source.Contains("Settings.Default.BeatorajaBmtHashOutputMode"));
-        StringAssert.Contains(source, "GetBeatorajaBmtOptions()");
+        foreach (string pathSource in new[] { source, ownerSource })
+        {
+            Assert.IsFalse(pathSource.Contains("Settings.Default.EnableBeatorajaBmtOutput"));
+            Assert.IsFalse(pathSource.Contains("Settings.Default.KeepBeatorajaBmtFilesWhenOutputDisabled"));
+            Assert.IsFalse(pathSource.Contains("Settings.Default.BeatorajaRootPath"));
+            Assert.IsFalse(pathSource.Contains("Settings.Default.BeatorajaBmtTablePath"));
+            Assert.IsFalse(pathSource.Contains("Settings.Default.RegisterBeatorajaBmtUrls"));
+            Assert.IsFalse(pathSource.Contains("Settings.Default.BeatorajaBmtHashOutputMode"));
+        }
+        StringAssert.Contains(ownerSource, "GetOptions()");
     }
 
     [TestMethod]
@@ -667,7 +671,7 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(importMethod, "schedulePlaylistUrlCompletionRefresh: false");
         StringAssert.Contains(importMethod, "await tables.RegistrateExternalTablesAsync(");
         StringAssert.Contains(importMethod, "tables.CommitBMSTableHeadersToDB(rawUrlChangedTables);");
-        StringAssert.Contains(importMethod, "tables.QueueBeatorajaBmtExportForTables(rawUrlChangedTables");
+        StringAssert.Contains(importMethod, "tables.BmtOutput.QueueBeatorajaBmtExportForTables(rawUrlChangedTables");
         StringAssert.Contains(completionMethod, "files.AddReferenceBMSTablesIncremental(tableList);");
         StringAssert.Contains(importMethod, "BeatorajaTableUrlImportPostProgressStepCount");
         StringAssert.Contains(importMethod, "Beatoraja_table_url_import_progress_phase_register_playlists");

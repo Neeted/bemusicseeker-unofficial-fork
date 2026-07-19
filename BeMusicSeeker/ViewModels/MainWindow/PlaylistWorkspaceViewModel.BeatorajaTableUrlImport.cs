@@ -184,7 +184,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (rawUrlChangedTables.Count > 0)
             {
                 tables.CommitBMSTableHeadersToDB(rawUrlChangedTables);
-                tables.QueueBeatorajaBmtExportForTables(rawUrlChangedTables, "beatoraja_table_url_import_raw_url_changed");
+                tables.BmtOutput.QueueBeatorajaBmtExportForTables(rawUrlChangedTables, "beatoraja_table_url_import_raw_url_changed");
             }
 
             if (loadItems.Count > 0)

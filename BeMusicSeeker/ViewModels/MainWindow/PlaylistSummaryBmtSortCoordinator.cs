@@ -180,7 +180,7 @@ internal sealed class PlaylistSummaryBmtSortCoordinator
                 writerGuards.Clear();
                 if (changed)
                 {
-                    playlist.QueueBeatorajaBmtUrlSync(reason);
+                    playlist.BmtOutput.QueueBeatorajaBmtUrlSync(reason);
                 }
             }
             finally

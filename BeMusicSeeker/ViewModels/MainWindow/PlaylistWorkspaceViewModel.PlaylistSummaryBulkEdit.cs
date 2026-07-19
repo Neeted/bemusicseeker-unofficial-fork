@@ -986,7 +986,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             if (bmtProjectionTables.Count > 0)
             {
                 UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, bmtProjectionTables.Distinct().Count(), string.Empty);
-                tables.QueueBeatorajaBmtExportForTables(bmtProjectionTables.Distinct(), reason);
+                tables.BmtOutput.QueueBeatorajaBmtExportForTables(bmtProjectionTables.Distinct(), reason);
             }
             UpdatePlaylistSummaryExternalPropertyInitializationProgress(0, 0, string.Empty);
             summaryRefreshAttempted = true;
@@ -1272,7 +1272,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                 changedTables,
                 "playlist_summary_bulk_external_sync_changed"),
             "playlist summary external sync notification");
-        tables.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bulk_external_sync_changed");
+        tables.BmtOutput.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bulk_external_sync_changed");
         RequestPlaylistSummaryRefresh("playlist_summary_bulk_external_sync_changed");
     }
 

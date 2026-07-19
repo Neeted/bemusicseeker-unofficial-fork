@@ -45,7 +45,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             table.is_bmt_output = isBmtOutput;
         }
         playlists.CommitBMSTableHeadersToDB(changedTables);
-        playlists.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bmt_output_changed");
+        playlists.BmtOutput.QueueBeatorajaBmtExportForTables(changedTables, "playlist_summary_bmt_output_changed");
         RequestPlaylistSummaryDataRefresh(
             "playlist_summary_bmt_output_changed");
     }

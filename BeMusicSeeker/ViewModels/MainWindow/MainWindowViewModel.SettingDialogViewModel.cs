@@ -5501,7 +5501,7 @@ public partial class MainWindowViewModel
                             NLogWrapper.FileLogger?.Warn(ex, "beatoraja_old_table_url_cleanup_failed root=" + (tempBeatorajaRootPath ?? string.Empty));
                         }
                     }
-                    ownerViewModel.tables.QueueBeatorajaBmtExportAll("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath);
+                    ownerViewModel.tables.BmtOutput.QueueBeatorajaBmtExportAll("SettingDialog.SaveSettings", tempBeatorajaBmtTablePath);
                 }
                 beatorajaBmtExportMs = beatorajaBmtExportStopwatch.ElapsedMilliseconds;
             }

@@ -133,7 +133,7 @@ public sealed partial class PlaylistWorkspaceViewModel
                         },
                         ReportPlaylistSyncProgress).ConfigureAwait(false);
                     updatedCount = tables?.Count ?? 0;
-                    currentPlaylists.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + request.Reason);
+                    currentPlaylists.BmtOutput.QueueBeatorajaBmtExportAll("DeferredExternalSync:" + request.Reason);
                     if (request.UpdateCallback == null)
                     {
                         PlaylistExternalSyncReferenceApplyRequested?.Invoke(
