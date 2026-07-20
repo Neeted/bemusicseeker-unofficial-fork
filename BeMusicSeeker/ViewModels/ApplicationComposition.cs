@@ -501,6 +501,10 @@ internal sealed class MainWindowChildComposition
             message => NLogWrapper.FileLogger?.Info(message),
             exception => NLogWrapper.FileLogger?.Warn(exception, "startup_update warning"),
             exception => NLogWrapper.FileLogger?.Error(exception, "startup_update error"));
+        ElevatedProcessWarningWorkflow = new ElevatedProcessWarningWorkflowOwner(
+            ProcessElevationProbe.IsCurrentProcessElevated,
+            (exception, context) => NLogWrapper.FileLogger?.Warn(exception, context),
+            message => NLogWrapper.FileLogger?.Warn(message));
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -524,6 +528,8 @@ internal sealed class MainWindowChildComposition
     internal FolderAutoRenameWorkflowOwner FolderAutoRenameWorkflow { get; }
 
     internal StartupUpdateWorkflowOwner StartupUpdateWorkflow { get; }
+
+    internal ElevatedProcessWarningWorkflowOwner ElevatedProcessWarningWorkflow { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

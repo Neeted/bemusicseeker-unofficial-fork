@@ -119,6 +119,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal StartupUpdateWorkflowOwner StartupUpdateWorkflow { get; private set; }
 
+    internal ElevatedProcessWarningWorkflowOwner ElevatedProcessWarningWorkflow { get; private set; }
+
     /// <summary>
     /// Gets playback adapter state and telemetry while chart-row traversal remains on the shell ViewModel.
     /// </summary>
@@ -3670,6 +3672,7 @@ public partial class MainWindowViewModel : ViewModel
         FolderAutoRenameWorkflow.ProgressChanged += FolderAutoRenameWorkflowProgressChanged;
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
+        ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,

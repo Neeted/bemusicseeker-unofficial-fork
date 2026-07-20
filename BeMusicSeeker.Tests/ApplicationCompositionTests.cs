@@ -490,6 +490,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.PackageInstallWorkflow);
             Assert.IsNotNull(childComposition.FolderAutoRenameWorkflow);
             Assert.IsNotNull(childComposition.StartupUpdateWorkflow);
+            Assert.IsNotNull(childComposition.ElevatedProcessWarningWorkflow);
         }
         finally
         {

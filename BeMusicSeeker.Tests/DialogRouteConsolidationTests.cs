@@ -232,6 +232,34 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(mainWindowCode.Contains("TryDeleteDownloadedUpdatePackage("), "MainWindow must not own downloaded-package cleanup.");
         Assert.IsFalse(mainWindowCode.Contains("updateCheckService"), "MainWindow must not retain the update-check service field.");
         Assert.IsFalse(mainWindowCode.Contains("updateDownloadService"), "MainWindow must not retain the update-download service field.");
+        StringAssert.Contains(mainWindowCode, "ElevatedProcessWarningWorkflow.Start(CanPresentElevatedProcessWarning);");
+        StringAssert.Contains(mainWindowCode, "UiDialogRoute.ShowMessageBox(");
+        StringAssert.Contains(mainWindowCode, "Warn_ElevatedProcessDragDropLimited");
+        Assert.IsFalse(mainWindowCode.Contains("ShowElevatedProcessWarningIfNeeded"), "MainWindow must not retain the elevated warning workflow.");
+        Assert.IsFalse(mainWindowCode.Contains("ShouldSkipElevatedProcessWarning"), "MainWindow must keep only the presentation guard for the elevated warning.");
+        Assert.IsFalse(mainWindowCode.Contains("IsCurrentProcessElevated"), "MainWindow must not own the platform elevation probe.");
+        Assert.IsFalse(mainWindowCode.Contains("WindowsIdentity"), "MainWindow must not depend on the platform elevation API.");
+        Assert.IsFalse(mainWindowCode.Contains("WindowsPrincipal"), "MainWindow must not depend on the platform elevation API.");
+        string elevationProbeCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "Utils", "ProcessElevationProbe.cs"));
+        StringAssert.Contains(elevationProbeCode, "WindowsIdentity");
+        StringAssert.Contains(elevationProbeCode, "WindowsPrincipal");
+        string warningOwnerCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ElevatedProcessWarningWorkflowOwner.cs"));
+        StringAssert.Contains(warningOwnerCode, "processElevationProbe()");
+        StringAssert.Contains(warningOwnerCode, "PresentationRequested");
+        StringAssert.Contains(warningOwnerCode, "CanPresent(run)");
+        string warningPresentationHandler = ExtractBetween(
+            mainWindowCode,
+            "private void MainWindowViewModel_ElevatedProcessWarningPresentationRequested",
+            "private void MainWindowViewModel_StartupUpdatePresentationRequested");
+        StringAssert.Contains(warningPresentationHandler, "CanPresentElevatedProcessWarning()");
+        StringAssert.Contains(warningPresentationHandler, "Warn_ElevatedProcessDragDropLimited");
+        StringAssert.Contains(warningPresentationHandler, "BeMusicSeeker.Properties.Resources.Warning");
+        StringAssert.Contains(warningPresentationHandler, "MessageBoxButton.OK");
+        StringAssert.Contains(warningPresentationHandler, "MessageBoxImage.Exclamation");
+        StringAssert.Contains(warningPresentationHandler, "request.Complete(true)");
+        StringAssert.Contains(warningPresentationHandler, "request.Fail(exception)");
+        string closingHandler = ExtractBetween(mainWindowCode, "protected override void OnClosing", "private static void CloseContextMenuIfOpen");
+        StringAssert.Contains(closingHandler, "ElevatedProcessWarningWorkflow.NotifyClosing()");
         StringAssert.Contains(mainWindowCode, "ShowWindowAsync(new UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>");
         StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>");
         StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>");

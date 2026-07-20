@@ -11,7 +11,6 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Security.Principal;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -308,80 +307,34 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void MainWindow_ContentRendered(object sender, EventArgs e)
     {
         ContentRendered -= MainWindow_ContentRendered;
-        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)ShowElevatedProcessWarningIfNeeded);
+        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)(() =>
+        {
+            if (base.DataContext is MainWindowViewModel viewModel)
+            {
+                viewModel.ElevatedProcessWarningWorkflow.Start(CanPresentElevatedProcessWarning);
+            }
+        }));
     }
 
-    private void ShowElevatedProcessWarningIfNeeded()
-    {
-        if (ShouldSkipElevatedProcessWarning())
-        {
-            return;
-        }
-
-        bool isElevated;
-        try
-        {
-            isElevated = IsCurrentProcessElevated();
-        }
-        catch (Exception ex)
-        {
-            NLogWrapper.FileLogger?.Warn(ex, "process_elevation_check_failed");
-            return;
-        }
-
-        if (!isElevated)
-        {
-            return;
-        }
-
-        if (ShouldSkipElevatedProcessWarning())
-        {
-            return;
-        }
-
-        NLogWrapper.FileLogger?.Warn("process_elevated drag_drop_limited_warning_detected=true");
-        try
-        {
-            UiDialogRoute.ShowMessageBox(
-                this,
-                BeMusicSeeker.Properties.Resources.Warn_ElevatedProcessDragDropLimited,
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxButton.OK,
-                MessageBoxImage.Exclamation,
-                MessageBoxResult.OK);
-            NLogWrapper.FileLogger?.Warn("process_elevated drag_drop_limited_warning_shown=true");
-        }
-        catch (Exception ex)
-        {
-            NLogWrapper.FileLogger?.Warn(ex, "process_elevated drag_drop_limited_warning_failed");
-        }
-    }
-
-    private bool ShouldSkipElevatedProcessWarning()
+    private bool CanPresentElevatedProcessWarning()
     {
         if (_isClosingOrClosed || !IsLoaded || Visibility != Visibility.Visible)
         {
-            return true;
+            return false;
         }
 
         Application application = Application.Current;
         if (application == null)
         {
-            return true;
+            return false;
         }
 
         Dispatcher applicationDispatcher = application.Dispatcher;
-        return applicationDispatcher == null
-            || applicationDispatcher.HasShutdownStarted
-            || applicationDispatcher.HasShutdownFinished
-            || Dispatcher.HasShutdownStarted
-            || Dispatcher.HasShutdownFinished;
-    }
-
-    private static bool IsCurrentProcessElevated()
-    {
-        using WindowsIdentity identity = WindowsIdentity.GetCurrent();
-        return new WindowsPrincipal(identity).IsInRole(WindowsBuiltInRole.Administrator);
+        return applicationDispatcher != null
+            && !applicationDispatcher.HasShutdownStarted
+            && !applicationDispatcher.HasShutdownFinished
+            && !Dispatcher.HasShutdownStarted
+            && !Dispatcher.HasShutdownFinished;
     }
 
     private bool IsPlaylistUrlDownloadRunning
@@ -415,6 +368,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.StartupUpdateWorkflow.ShutdownPreparationRequested += MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
         viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         viewModel.StartupUpdateWorkflow.ApplicationShutdownRequested += MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
+        viewModel.ElevatedProcessWarningWorkflow.PresentationRequested += MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
     }
 
     private void UnsubscribeViewModelUiInteractions()
@@ -438,12 +392,41 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.StartupUpdateWorkflow.ShutdownPreparationRequested -= MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
         subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.ApplicationShutdownRequested -= MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
+        subscribedViewModel.ElevatedProcessWarningWorkflow.PresentationRequested -= MainWindowViewModel_ElevatedProcessWarningPresentationRequested;
         subscribedViewModel = null;
     }
 
     private void MainWindowViewModel_FolderAutoRenameTerminalPublished()
     {
         RefreshCustomTableViewDisplayAsync();
+    }
+
+    private void MainWindowViewModel_ElevatedProcessWarningPresentationRequested(ElevatedProcessWarningPresentationRequest request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        try
+        {
+            if (!CanPresentElevatedProcessWarning())
+            {
+                request.Complete(false);
+                return;
+            }
+            UiDialogRoute.ShowMessageBox(
+                this,
+                BeMusicSeeker.Properties.Resources.Warn_ElevatedProcessDragDropLimited,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxButton.OK,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.OK);
+            request.Complete(true);
+        }
+        catch (Exception exception)
+        {
+            request.Fail(exception);
+        }
     }
 
     private void MainWindowViewModel_StartupUpdatePresentationRequested(StartupUpdatePresentationRequest request)
@@ -1054,6 +1037,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             e.Cancel = true;
             MainWindowViewModel closingViewModel = base.DataContext as MainWindowViewModel;
+            closingViewModel?.ElevatedProcessWarningWorkflow.NotifyClosing();
             if (closingViewModel?.StartupUpdateWorkflow.NotifyClosing() == true)
             {
                 _shutdownPreparationRunning = true;
