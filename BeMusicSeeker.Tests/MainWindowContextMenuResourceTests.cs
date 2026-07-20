@@ -2380,13 +2380,13 @@ public sealed class MainWindowContextMenuResourceTests
         string forceResourceHealthMethod = ExtractMethodBody(
             rootViewModelCode,
             "private void ForceResourceHealthCheckCharts(IEnumerable<ChartFile> charts)");
-        string allResourceHealthMethod = ExtractMethodBody(
+        string maintenanceCompletionHandler = ExtractMethodBody(
             rootViewModelCode,
-            "public void StartRescanAllOwnedChartMaintenance()");
+            "private void MaintenanceRescanWorkflowCompletionPublished(MaintenanceRescanCompletionReceipt receipt)");
         StringAssert.Contains(forceResourceHealthMethod, "invalidateSortDependency: false");
-        StringAssert.Contains(allResourceHealthMethod, "invalidateSortDependency: false");
         Assert.IsFalse(forceResourceHealthMethod.Contains("InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance"));
-        Assert.IsFalse(allResourceHealthMethod.Contains("InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance"));
+        StringAssert.Contains(maintenanceCompletionHandler, "RefreshResourceHealthViewsAfterMaintenanceChanged");
+        StringAssert.Contains(maintenanceCompletionHandler, "invalidateSortDependency: false");
         StringAssert.Contains(regularOwnerCode, "notificationBatch.NotifiesBmsFiles");
         StringAssert.Contains(regularOwnerCode, "notificationBatch.NotifiesBmsonSongs");
         StringAssert.Contains(regularOwnerCode, "OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles");

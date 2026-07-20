@@ -267,7 +267,12 @@ internal sealed class ApplicationComposition
         Action<string> mainViewLogWarning,
         Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
         Action<Action> dispatchPackageInstallUi,
-        Action<Exception> reportPackageInstallWorkflowNotificationFailure = null)
+        Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
+        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
+        Func<Action, Task> maintenanceRescanScheduler = null,
+        Action<string> maintenanceRescanLog = null,
+        Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
+        Action<Exception> reportMaintenanceRescanWorkflowFailure = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -281,7 +286,12 @@ internal sealed class ApplicationComposition
             mainViewLogWarning,
             installPackageBatch,
             dispatchPackageInstallUi,
-            reportPackageInstallWorkflowNotificationFailure);
+            reportPackageInstallWorkflowNotificationFailure,
+            maintenanceRescanExecutor,
+            maintenanceRescanScheduler,
+            maintenanceRescanLog,
+            reportMaintenanceRescanWorkflowNotificationFailure,
+            reportMaintenanceRescanWorkflowFailure);
     }
 
     internal IBMSPlayer CreateBmsPlayer(
@@ -402,7 +412,12 @@ internal sealed class MainWindowChildComposition
         Action<string> mainViewLogWarning,
         Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
         Action<Action> dispatchPackageInstallUi,
-        Action<Exception> reportPackageInstallWorkflowNotificationFailure = null)
+        Action<Exception> reportPackageInstallWorkflowNotificationFailure = null,
+        Func<BMSLibrary, Action<MaintenanceWorkflowProgress>, CancellationToken, MaintenanceWorkflowResult> maintenanceRescanExecutor = null,
+        Func<Action, Task> maintenanceRescanScheduler = null,
+        Action<string> maintenanceRescanLog = null,
+        Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
+        Action<Exception> reportMaintenanceRescanWorkflowFailure = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -431,6 +446,13 @@ internal sealed class MainWindowChildComposition
             installPackageBatch,
             dispatchPackageInstallUi,
             reportPackageInstallWorkflowNotificationFailure);
+        MaintenanceRescanWorkflow = new MaintenanceRescanWorkflowOwner(
+            maintenanceRescanExecutor ?? MissingMaintenanceRescanExecutor,
+            maintenanceRescanScheduler ?? (action => Task.Run(action)),
+            dispatchMainChartListAction,
+            maintenanceRescanLog,
+            reportMaintenanceRescanWorkflowNotificationFailure,
+            reportMaintenanceRescanWorkflowFailure);
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -448,6 +470,16 @@ internal sealed class MainWindowChildComposition
     internal RegularChartListOwner RegularChartListOwner { get; }
 
     internal PackageInstallWorkflowOwner PackageInstallWorkflow { get; }
+
+    internal MaintenanceRescanWorkflowOwner MaintenanceRescanWorkflow { get; }
+
+    private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
+        BMSLibrary library,
+        Action<MaintenanceWorkflowProgress> progress,
+        CancellationToken cancellationToken)
+    {
+        throw new InvalidOperationException("Maintenance rescan executor is not configured.");
+    }
 }
 
 /// <summary>

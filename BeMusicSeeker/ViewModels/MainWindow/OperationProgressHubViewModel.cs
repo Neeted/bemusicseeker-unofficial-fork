@@ -1,5 +1,6 @@
 using System;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
@@ -197,6 +198,36 @@ public sealed class OperationProgressHubViewModel : ViewModel
     {
         get => maintenanceRescanCanCancel;
         internal set => SetValue(ref maintenanceRescanCanCancel, value, nameof(MaintenanceRescanCanCancel));
+    }
+
+    internal void UpdateMaintenanceRescanProgress(MaintenanceWorkflowProgress progress)
+    {
+        if (progress == null)
+        {
+            return;
+        }
+        if (progress.IsCompleted)
+        {
+            MaintenanceRescanLabel = progress.IsCanceled
+                ? BeMusicSeeker.Properties.Resources.Maintenance_rescan_canceled
+                : BeMusicSeeker.Properties.Resources.Maintenance_rescan_complete;
+            MaintenanceRescanSubLabel = string.Empty;
+            MaintenanceRescanCanCancel = false;
+            IsMaintenanceRescanProgressActive = false;
+            return;
+        }
+
+        IsMaintenanceRescanProgressActive = true;
+        int total = Math.Max(progress.TotalCount, 1);
+        int processed = Math.Max(0, Math.Min(progress.ProcessedCount, total));
+        MaintenanceRescanMaximum = total;
+        MaintenanceRescanValue = processed;
+        MaintenanceRescanLabel = string.Format(
+            BeMusicSeeker.Properties.Resources.Maintenance_rescan_progress_label_format,
+            processed,
+            total);
+        MaintenanceRescanSubLabel = progress.CurrentPath ?? string.Empty;
+        MaintenanceRescanCanCancel = !progress.IsCanceled;
     }
 
     /// <summary>

@@ -105,6 +105,11 @@ public partial class MainWindowViewModel : ViewModel
     internal PackageInstallWorkflowOwner PackageInstallWorkflow { get; private set; }
 
     /// <summary>
+    /// Gets the composed all-owned maintenance rescan workflow.
+    /// </summary>
+    internal MaintenanceRescanWorkflowOwner MaintenanceRescanWorkflow { get; private set; }
+
+    /// <summary>
     /// Gets playback adapter state and telemetry while chart-row traversal remains on the shell ViewModel.
     /// </summary>
     public PlaybackPanelViewModel PlaybackPanel { get; }
@@ -601,8 +606,6 @@ public partial class MainWindowViewModel : ViewModel
     private int lastMainViewBuildThreadId;
 
     private int lastMainViewBuildMode;
-
-    private CancellationTokenSource maintenanceRescanCancellationTokenSource;
 
     private long playlistSyncProgressUiVersion;
 
@@ -2975,60 +2978,6 @@ public partial class MainWindowViewModel : ViewModel
     public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
 
     /// <summary>
-    /// Gets whether maintenance rescan progress is visible.
-    /// </summary>
-    public bool IsMaintenanceRescanProgressActive
-    {
-        get => ProgressHub.IsMaintenanceRescanProgressActive;
-        private set => ProgressHub.IsMaintenanceRescanProgressActive = value;
-    }
-
-    /// <summary>
-    /// Gets the primary maintenance rescan progress label.
-    /// </summary>
-    public string MaintenanceRescanLabel
-    {
-        get => ProgressHub.MaintenanceRescanLabel;
-        private set => ProgressHub.MaintenanceRescanLabel = value;
-    }
-
-    /// <summary>
-    /// Gets the secondary maintenance rescan progress label.
-    /// </summary>
-    public string MaintenanceRescanSubLabel
-    {
-        get => ProgressHub.MaintenanceRescanSubLabel;
-        private set => ProgressHub.MaintenanceRescanSubLabel = value;
-    }
-
-    /// <summary>
-    /// Gets the current maintenance rescan progress value.
-    /// </summary>
-    public double MaintenanceRescanValue
-    {
-        get => ProgressHub.MaintenanceRescanValue;
-        private set => ProgressHub.MaintenanceRescanValue = value;
-    }
-
-    /// <summary>
-    /// Gets the maintenance rescan progress maximum.
-    /// </summary>
-    public double MaintenanceRescanMaximum
-    {
-        get => ProgressHub.MaintenanceRescanMaximum;
-        private set => ProgressHub.MaintenanceRescanMaximum = value;
-    }
-
-    /// <summary>
-    /// Gets whether active maintenance rescan work can be canceled.
-    /// </summary>
-    public bool MaintenanceRescanCanCancel
-    {
-        get => ProgressHub.MaintenanceRescanCanCancel;
-        private set => ProgressHub.MaintenanceRescanCanCancel = value;
-    }
-
-    /// <summary>
     /// Gets whether automatic folder rename progress is visible.
     /// </summary>
     public bool IsFolderAutoRenameProgressActive
@@ -3712,7 +3661,12 @@ public partial class MainWindowViewModel : ViewModel
             LogMainViewBuildWarning,
             ExecutePackageInstallMutation,
             DispatchPackageInstallUi,
-            ReportPackageInstallWorkflowNotificationFailure);
+            ReportPackageInstallWorkflowNotificationFailure,
+            (library, progress, cancellationToken) => library.RescanAllOwnedChartMaintenance(progress, cancellationToken),
+            action => Task.Run(action),
+            message => NLogWrapper.FileLogger?.Info(message),
+            ReportMaintenanceRescanWorkflowNotificationFailure,
+            ReportMaintenanceRescanWorkflowFailure);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3723,6 +3677,9 @@ public partial class MainWindowViewModel : ViewModel
         PackageInstallWorkflow.StatusChanged += PackageInstallWorkflowStatusChanged;
         PackageInstallWorkflow.CompletionPublished += PackageInstallWorkflowCompletionPublished;
         PackageInstallWorkflow.FailurePublished += PackageInstallWorkflowFailurePublished;
+        MaintenanceRescanWorkflow = childComposition.MaintenanceRescanWorkflow;
+        MaintenanceRescanWorkflow.ProgressChanged += MaintenanceRescanWorkflowProgressChanged;
+        MaintenanceRescanWorkflow.CompletionPublished += MaintenanceRescanWorkflowCompletionPublished;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
@@ -4154,7 +4111,13 @@ public partial class MainWindowViewModel : ViewModel
             || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineValue)
             || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineMaximum)
             || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineCanCancel);
-        if (!installPipelineProperty)
+        bool maintenanceRescanProperty = propertyName == nameof(OperationProgressHubViewModel.IsMaintenanceRescanProgressActive)
+            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanSubLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanValue)
+            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanMaximum)
+            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanCanCancel);
+        if (!installPipelineProperty && !maintenanceRescanProperty)
         {
             RaisePropertyChanged(propertyName);
         }
@@ -4217,6 +4180,7 @@ public partial class MainWindowViewModel : ViewModel
             () => "running=" + regularChartListOwner.IsVirtualOrderPrewarmRunning).ConfigureAwait(false);
         await (regularChartListStopTask ?? Task.CompletedTask).ConfigureAwait(false);
         await WaitForDropInstallQueueIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForMaintenanceRescanIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistBuildIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistSummaryDataBuildIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForStartupBackgroundTasksIdleAsync(waitTracker).ConfigureAwait(false);
@@ -4253,7 +4217,7 @@ public partial class MainWindowViewModel : ViewModel
         TryShutdownStep("play_history", CancelPlayHistoryRequestsForShutdown);
         TryShutdownStep("playlist_index_prewarm", PlaylistWorkspace.CancelPlaylistLibraryIndexPrewarmForShutdown);
         TryShutdownStep("playlist_reload_cleanup", PlaylistWorkspace.CancelPlaylistReloadCleanupForShutdown);
-        TryShutdownStep("maintenance_rescan", CancelMaintenanceRescan);
+        TryShutdownStep("maintenance_rescan", () => MaintenanceRescanWorkflow?.RequestShutdown());
         TryShutdownStep("package_install", () => PackageInstallWorkflow?.RequestShutdown());
         TryShutdownStep("startup_background_queue", () => CancelStartupBackgroundTasksForShutdown(reason));
     }
@@ -4397,6 +4361,16 @@ public partial class MainWindowViewModel : ViewModel
             ShutdownQueueDrainWarningThreshold,
             tracker,
             () => "idle=" + FormatBool(PackageInstallWorkflow == null || PackageInstallWorkflow.IsIdle)).ConfigureAwait(false);
+    }
+
+    private async Task WaitForMaintenanceRescanIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "maintenanceRescan",
+            () => MaintenanceRescanWorkflow == null || MaintenanceRescanWorkflow.IsIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => "idle=" + FormatBool(MaintenanceRescanWorkflow == null || MaintenanceRescanWorkflow.IsIdle)).ConfigureAwait(false);
     }
 
     private async Task WaitForPlaylistBuildIdleAsync(ShutdownWaitTracker tracker)
@@ -5292,6 +5266,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 files = applicationComposition.CreateBmsLibrary(libraryProfile);
                 PackageInstallWorkflow.AttachLibrary(files);
+                MaintenanceRescanWorkflow.AttachLibrary(files);
             }
             finally
             {
@@ -6927,112 +6902,27 @@ public partial class MainWindowViewModel : ViewModel
         ForceResourceHealthCheckCharts(request.Charts);
     }
 
-    public void StartRescanAllOwnedChartMaintenance()
+    private void MaintenanceRescanWorkflowProgressChanged(MaintenanceWorkflowProgress progress)
     {
-        if (files == null || IsMaintenanceRescanProgressActive)
-        {
-            return;
-        }
-        var cancellationSource = new CancellationTokenSource();
-        maintenanceRescanCancellationTokenSource = cancellationSource;
-        UpdateMaintenanceRescanProgressStatus(new MaintenanceWorkflowProgress
-        {
-            TotalCount = 1,
-            ProcessedCount = 0
-        });
-        Task.Run(delegate
-        {
-            var stopwatch = Stopwatch.StartNew();
-            try
-            {
-                Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan start scope=all_owned");
-                MaintenanceWorkflowResult result = files.RescanAllOwnedChartMaintenance(delegate (MaintenanceWorkflowProgress progress)
-                {
-                    if (progress != null && !progress.IsCompleted)
-                    {
-                        Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan progress scope=all_owned processed=" + progress.ProcessedCount + "/" + progress.TotalCount + " current=" + (progress.CurrentPath ?? string.Empty));
-                    }
-                    UpdateMaintenanceRescanProgressStatus(progress);
-                }, cancellationSource.Token);
-                stopwatch.Stop();
-                bool canceled = result?.Canceled == true;
-                Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan " + (canceled ? "canceled" : "done") + " scope=all_owned elapsedMs=" + stopwatch.ElapsedMilliseconds);
-                FinishMaintenanceRescanProgress(canceled);
-                RefreshResourceHealthViewsAfterMaintenanceChanged(
-                    "maintenance_hydration_completed",
-                    "maintenance_changed",
-                    invalidateSortDependency: false);
-            }
-            catch (Exception ex)
-            {
-                stopwatch.Stop();
-                Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan failed scope=all_owned elapsedMs=" + stopwatch.ElapsedMilliseconds + " message=" + (ex.Message ?? string.Empty).Replace(Environment.NewLine, " "));
-                FinishMaintenanceRescanProgress(canceled: true);
-                throw;
-            }
-            finally
-            {
-                if (maintenanceRescanCancellationTokenSource == cancellationSource)
-                {
-                    maintenanceRescanCancellationTokenSource = null;
-                }
-                cancellationSource.Dispose();
-            }
-        }).Logging("StartRescanAllOwnedChartMaintenance");
+        ProgressHub.UpdateMaintenanceRescanProgress(progress);
     }
 
-    public void CancelMaintenanceRescan()
+    private void MaintenanceRescanWorkflowCompletionPublished(MaintenanceRescanCompletionReceipt receipt)
     {
-        maintenanceRescanCancellationTokenSource?.Cancel();
-        MaintenanceRescanCanCancel = false;
+        RefreshResourceHealthViewsAfterMaintenanceChanged(
+            "maintenance_hydration_completed",
+            "maintenance_changed",
+            invalidateSortDependency: false);
     }
 
-    private void UpdateMaintenanceRescanProgressStatus(MaintenanceWorkflowProgress progress)
+    private static void ReportMaintenanceRescanWorkflowNotificationFailure(Exception exception)
     {
-        Action reflect = delegate
-        {
-            if (progress == null)
-            {
-                return;
-            }
-            IsMaintenanceRescanProgressActive = true;
-            int total = Math.Max(progress.TotalCount, 1);
-            int processed = Math.Max(0, Math.Min(progress.ProcessedCount, total));
-            MaintenanceRescanMaximum = total;
-            MaintenanceRescanValue = processed;
-            MaintenanceRescanLabel = string.Format(BeMusicSeeker.Properties.Resources.Maintenance_rescan_progress_label_format, processed, total);
-            MaintenanceRescanSubLabel = progress.CurrentPath ?? string.Empty;
-            MaintenanceRescanCanCancel = !progress.IsCompleted && !progress.IsCanceled;
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-        }
+        NLogWrapper.FileLogger?.Error(exception, "maintenance_rescan_workflow_notification_failed");
     }
 
-    private void FinishMaintenanceRescanProgress(bool canceled)
+    private static void ReportMaintenanceRescanWorkflowFailure(Exception exception)
     {
-        Action reflect = delegate
-        {
-            MaintenanceRescanLabel = canceled
-                ? BeMusicSeeker.Properties.Resources.Maintenance_rescan_canceled
-                : BeMusicSeeker.Properties.Resources.Maintenance_rescan_complete;
-            MaintenanceRescanSubLabel = string.Empty;
-            MaintenanceRescanCanCancel = false;
-            IsMaintenanceRescanProgressActive = false;
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-        }
+        NLogWrapper.FileLogger?.Error(exception, "maintenance_rescan failed scope=all_owned");
     }
 
     private void BeginFolderAutoRenameProgress()

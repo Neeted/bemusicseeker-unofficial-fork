@@ -5959,7 +5959,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (menuItemFullScanAllCharts != null)
         {
             bool canRescanAllCharts = menuItem10?.Visibility == Visibility.Visible
-                && !mainWindowViewModel.IsMaintenanceRescanProgressActive;
+                && mainWindowViewModel.MaintenanceRescanWorkflow?.IsActive != true;
             menuItemFullScanAllCharts.Visibility = Visibility.Visible;
             menuItemFullScanAllCharts.IsEnabled = canRescanAllCharts;
         }
@@ -6647,7 +6647,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
 
     private void cancelMaintenanceRescanClick(object sender, RoutedEventArgs e)
     {
-        (base.DataContext as MainWindowViewModel)?.CancelMaintenanceRescan();
+        (base.DataContext as MainWindowViewModel)?.MaintenanceRescanWorkflow?.Cancel();
     }
 
     private void retryLr2SongDbSyncClick(object sender, RoutedEventArgs e)
@@ -6863,7 +6863,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         var viewModel = base.DataContext as MainWindowViewModel;
-        viewModel?.StartRescanAllOwnedChartMaintenance();
+        viewModel?.MaintenanceRescanWorkflow?.Start();
         e.Handled = true;
     }
 
