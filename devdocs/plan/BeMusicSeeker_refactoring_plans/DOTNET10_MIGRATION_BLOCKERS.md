@@ -1,8 +1,8 @@
 # .NET 10 migration blocker register
 
-[リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md)に対する living blocker register。現在の `net472` behavior を維持しながら、Refactoring Completion Gate 前に境界へ閉じる課題と、Gate 後の純粋な `.NET 10` 移行課題を区別する。
+[リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md)に対する living blocker register。現在の `net472` behavior を維持しながら、Refactoring Completion Gate 前に ownership / adapter / project boundaryへ閉じる課題と、Gate後の純粋な `.NET 10` 移行課題を区別する。
 
-この文書は調査履歴や次 ticket の候補を保存しない。blocker の owner、境界、status が変わった場合だけ更新する。
+この文書は調査履歴や次 ticket の候補を保存しない。blockerの owner、境界、state、migration分類が変わった場合だけ更新する。
 
 ## Current project baseline
 
@@ -12,36 +12,42 @@
 - config: `app.config`、`System.Configuration`、custom portable settings provider
 - dependencies: NuGet と `libs/*.dll` HintPath の混在
 - native: `native/*.dll`、`vendor/native/x64/*.dll`、custom output relocation
+- migration rehearsal: 未実施
 
 ## Blockers
 
-| ID | Area | Current coupling | Refactoring Gate の境界条件 | Gate 後の migration work | State |
-|---|---|---|---|---|---|
-| CFG-01 | `Settings.Default` / `System.Configuration` | ViewModel、domain、XAML、tests が global settings と save timing に直接依存 | load / edit / save / upgrade を configuration owner に集約し、workflow は snapshot / interface を受け取る | ConfigurationManager 継続か新 store かを決め、既存 user.config migration を実装する | open |
-| DB-01 | SQLite / raw SQL / schema / transaction | `BMSLibrary`、`BMSPlaylist`、LR2、internal service に connection、SQL、schema、transaction ownership が分散 | `LIB-01` の scan commit、`LIB-03` の catalog mutation、`LIB-04` の LR2 sync、`PL-01` の playlist persistence ごとに repository / gateway と transaction owner を明示し、application / domain workflow が raw connection / SQL を直接所有しない。schema 変更は構造整理と分離する | SQLite provider / native runtime の互換性を検証し、必要な package / API 移行を行う | open |
-| CONC-01 | Library mutation serialization / lock ordering | generic mutation route が path / folder / removal の DB write、live catalog apply、owned collection、package residual、LR2 block / folder sync、resource-health、notification を broad host と外側 lock / callback ordering で束ねる | `LIB-03` の catalog owner が immutable request prepare、catalog guard 下の durable transaction、canonical live apply / version、guard release、immutable receipt / canonical event publish を一つの write protocol として所有する。package / LR2 / playlist / UI residual は receipt 後に適用し、catalog guard 中に別 owner を callback せず、owner 間で lock / mutable collection を取得しない。DB failure 時に live catalog と consumer residual が変化しない behavior test を持ち、既存の owned-collection version / PropertyChanged timing を維持する | .NET 10 上で cancellation、synchronization primitive、dispatcher interaction、failure / shutdown ordering を再検証する | open |
-| LAYOUT-01 | `app.config` probing / managed output | build 後に managed DLL を `libs` へ移動し root から削除 | output policy と path owner を project / loader 境界へ閉じ、business workflow に漏らさない | deps.json / apphost / publish layout に置換する | open |
-| DEP-01 | HintPath managed DLL | Livet、MetroRadiance、Expression、sqlite.net、Bass.Net 等の互換性と identity が未確定 | DLL 固有型を application / domain contract から排除する | 各 DLL の互換性を検証し、NuGet / replacement / retention を決定する | open |
-| NAT-01 | Native DLL layout | app / tests で copy 先と load path が不統一 | base directory と native load を用途別 adapter に閉じる | RID native asset / explicit copy / publish layout を決定する | open |
-| INT-01 | P/Invoke / manual load / CAS | Everything、filesystem、window、audio に P/Invoke と legacy attribute が残る | call site を既存または新しい platform adapter 内に限定する | platform annotation、interop方式、CAS削除、loader error policy を決定する | open |
-| UIH-01 | WPF + WinForms + WebBrowser / COM | MainWindow、player host、dialog、resource が UI technology と結合 | View / view-host adapter の外へ UI 型を出さない | WinForms 継続、WebBrowser / WebView2、System.Drawing の扱いを決定する | open |
-| PROC-01 | External process | player、explorer、browser、update / restart の path と quoting が call site に分散 | 用途別 process gateway と request contract に集約する | apphost location と command line behavior を再検証する | open |
-| PATH-01 | Base directory / assembly location | settings、native、update、metadata、language catalog が process layout と結合 | application path policy を一つの provider が所有する | framework-dependent / self-contained / single-file 対応範囲を決定する | open |
-| UPD-01 | Updater coupling | updater は `net472` exe と custom copy / restart path を前提とする | update / restart を application workflow から gateway へ分離する | updater 同時移行か外部 legacy tool 継続かを決定する | open |
-| DEPLOY-01 | `System.Deployment` | project reference はあるが source usage と release policy が不明確 | 実使用の有無を code / build から確定し、不要依存を business code から除く | 不要なら削除、必要なら .NET 対応 deployment を別設計する | open |
+| ID | Area | Current coupling | Refactoring Gate の境界条件 | Owner outcome | Gate後の migration work | State |
+|---|---|---|---|---|---|---|
+| CFG-01 | `Settings.Default` / `System.Configuration` | View、ViewModel、model、testsがglobal settingsとsave timingへ直接依存 | load / edit / save / upgradeをconfiguration ownerへ集約し、workflowはsnapshot /用途別storeを受け取る。View固有設定もview settings adapterを通す | `MIG-01` | ConfigurationManager継続か新storeかを決め、既存user.config migrationを実装 | open |
+| CTX-01 | Application / Dispatcher context | `Application.Current`、`DispatcherHelper.UIDispatcher`、global UI schedulerがViewModel / model / aggregateへ漏れる | application lifetime、UI scheduling、shutdown / rejectionをapplication context / scheduler portまたはView boundaryへ限定する | `MIG-01` | .NET 10 WPF dispatcher / startup / shutdown behaviorを再検証 | open |
+| DB-01 | SQLite / raw SQL / schema / transaction | repository ownerはあるが、playlist custom-folder output statusなどaggregate / facadeにraw SQL / transaction residualが残る | scan、catalog mutation、LR2、playlist persistence、custom-folder output statusごとにtransaction ownerを明示し、application-facing facade / aggregateがraw connection / SQLを直接所有しない | `OWN-01` | SQLite provider / native runtimeの互換性と必要なpackage / API移行を検証 | open |
+| CONC-01 | Mutation serialization / lock ordering | pending estimated-install routeがfacade lock、private callback、catalog / package / maintenance / resource-health applyをbroad hostで束ねる | canonical ownerのguard / transaction / live apply / receipt順序を維持し、owner間はimmutable request / receipt /用途別capabilityで接続する。別ownerのlock / mutable stateをhostで露出しない | `OWN-01` | cancellation、synchronization primitive、dispatcher interaction、failure / shutdown orderingを再検証 | open |
+| PATH-01 | Base directory / assembly location | settings、native、update、metadata、language catalogがprocess / assembly layoutへ直接依存 | application path policyを用途別providerが所有し、workflowへraw assembly / executable path取得を漏らさない | `MIG-02` | framework-dependent / self-contained / single-file対応範囲を決定 | open |
+| PROC-01 | External process | player、explorer、browser、score viewer、restartのpath / quoting / shell policyがcall siteへ分散 | 用途別process gatewayとimmutable request contractへ集約する | `MIG-02` | apphost location、UseShellExecute、quoting behaviorを再検証 | open |
+| UPD-01 | Updater coupling | updaterは`net472` exe、custom copy、restart pathを前提としapplication workflowと結合 | update check / launch / restartをapplication workflowからgatewayへ分離し、path policyを`MIG-02`へ置く | `MIG-02` | updater同時移行か外部legacy tool継続かを決定 | open |
+| NAT-01 | Native DLL layout | app / testsでcopy先とload pathが不統一 | base directoryとnative asset resolution / loadを用途別adapterへ閉じる | `MIG-03` / `MIG-04` | RID native asset、explicit copy、publish layoutを決定 | open |
+| INT-01 | P/Invoke / manual load / CAS | Everything、filesystem、window、audioにP/Invoke、manual load、legacy security attributeが残る | call siteをplatform adapter内に限定し、application / domain contractへnative handle / loader policyを漏らさない | `MIG-03` | platform annotation、interop方式、CAS削除、loader error policyを決定 | open |
+| UIH-01 | WPF + WinForms + WebBrowser / COM | MainWindow、player host、dialog、resourceがUI technologyと結合 | WPF / WinForms / COM型をView / view-host adapterの外へ出さない。View固有code量は問題にせずdependency directionで判定する | `UI-05` / `MIG-03` | WinForms継続、WebBrowser / WebView2、System.Drawingの扱いを決定 | open |
+| LAYOUT-01 | `app.config` probing / managed output | build後にmanaged DLLを`libs`へ移動しrootから削除 | output policy、probing、copy / removalをproject / loader boundaryへ閉じ、business workflowへ漏らさない | `MIG-04` | deps.json / apphost / publish layoutへ置換 | open |
+| DEP-01 | HintPath managed DLL | Livet、MetroRadiance、Expression、sqlite.net、Bass.Net等のcompatibility / identityが未確定 | DLL固有型をapplication / domain contractから排除し、各依存のusage / load policyをproject境界で説明できる | `MIG-04` | NuGet / replacement / retentionを依存ごとに決定 | open |
+| DEPLOY-01 | `System.Deployment` / updater project | project referenceとcustom updater copyがあるがsource usage / release policyが不明確 | 実使用をcode / buildから確定し、不要referenceまたはdeployment-specific codeをproject boundaryへ限定する | `MIG-04` | 不要なら削除、必要なら.NET対応deploymentを別設計 | open |
+| PROBE-01 | `.NET 10` migration rehearsal | `net10.0-windows` restore / buildで表面化するerror分類が未確認 | disposable worktree / copyで最小TFM probeを実行し、残失敗が既存blockerのpackage / API / runtime / layout / deployment / data migrationへ分類され、owner / MVVM再設計が残っていない | `MIG-05` | 分類済みerrorを入力にproduction migrationを実装 | open |
 
 ## Gate classification rule
 
-各 blocker は Gate audit 時に次のどちらかでなければならない。
+Gate audit時、`PROBE-01`以外は次のどちらかでなければならない。
 
-1. `boundary met`: architecture 上の owner / adapter / gateway があり、残作業が package、TFM、runtime、deployment、data migration の変更だけである。
+1. `boundary met`: architecture上のowner / adapter / gateway / project boundaryがあり、残作業がpackage、API、TFM、runtime、deployment、data migrationの変更だけである。
 2. `not applicable`: 実使用がなく、安全に削除済みである。
 
-「巨大型の private workflow を分けないと移行判断できない」「UI / domain の owner が未定」「global settings の save timing が複数箇所に分散」「複数 workflow が同じ facade lock / mutation-block flag / callback host を共有する」は `boundary met` ではない。
+`PROBE-01` は rehearsal実行と分類が完了した `verified` でなければならない。
+
+「巨大型のprivate workflowを分けないと移行判断できない」「UI / domain ownerが未定」「global settingsのsave timingが複数箇所に分散」「複数workflowが同じfacade lock / callback hostを共有する」は `boundary met` ではない。行数trigger超過だけは blockerではない。
 
 ## Update rule
 
-- implementation unit ごとの調査結果や候補 class 名を追記しない。
-- owner / boundary が成立した outcome commit で State と Current coupling を更新する。
-- package version、replacement、runtime layout の最終決定は Gate 後の `.NET 10` migration plan に置く。
-- blocker を close するときは、対応する code / project / test を evidence とし、完了履歴は commit に残す。
+- implementation unitごとの調査結果、候補class名、full build logを追記しない。
+- owner / boundaryが成立したOutcome commitでStateとCurrent couplingを更新する。
+- `MIG-05` は probeのerror categoryと対応blockerのclassificationだけを反映し、temporary source / project差分を保存しない。
+- package version、replacement、runtime layoutの最終決定とproduction TFM変更はGate後の`.NET 10` migration planに置く。
+- blockerをcloseするときは対応するcode / project / test / rehearsal evidenceを使い、完了履歴はcommitに残す。

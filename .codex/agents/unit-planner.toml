@@ -32,6 +32,8 @@ planner 自身が、対象 package の production route、caller、writer、lock
 - package、LR2、playlist、UI など consumer residual apply
 - broad host / factory / compatibility seam の retirement
 
+行数、file 数、type 数の削減を unit objective、acceptance criteria、completion evidence にしてはいけません。structural review trigger を超える scope は ownership、dependency direction、testability の violation を調べ、実在する responsibility corridor だけを unit にしてください。残る責務が許可された shell / facade / aggregate / view-host boundaryで cohesive なら、trigger 超過のままでも行数削減 unitを作らないでください。partial split、file move、thin forwarding class、service locator、broad callback hostによる見かけの削減を提案してはいけません。
+
 helper、interface、adapter、DTO、result、partial split、rename、test fixture の追加だけを unit として提案してはいけません。各 unit は production route を前進させ、移管した corridor の旧 writer / callback / seam を減らし、build と behavior test が可能な状態で終える必要があります。ただし broad host 全体や全 caller の削除を毎 unit に強制せず、計画に明記された後続 retirement unit まで、surface を増やさない既存 residual composition を残して構いません。
 
 複数 caller、broad host、lock ordering、DB / live atomicity、package / LR2 / resource-health residual、変更量、追加調査の必要性は内部の分解条件であり、blocker ではありません。これらを理由に `NO_SAFE_UNIT` を返してはいけません。

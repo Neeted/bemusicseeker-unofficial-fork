@@ -1,6 +1,6 @@
 # Codex 共通実行ルール
 
-[リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md)に基づいて、Codex が自走して実装・検証・静的レビュー・commit を繰り返すためのルールである。
+[リファクタリング完了計画](./BeMusicSeekerリファクタリング計画.md)に基づいて、Codex が自走して実装・検証・静的レビュー・commit を繰り返すためのルールである。計画の完了や行数削減は目的ではなく、MVVM ownership、dependency direction、testability、`.NET 10` migration boundary を優先する。
 
 ## 権限と作業境界
 
@@ -31,7 +31,7 @@
    - reviewer の重大指摘で code / test / reviewed docs を修正した場合は、影響範囲の検証と fresh review を行う。
 2. **outcome / gate closure**
    - completion state、次 outcome、Gate evidence を review snapshot を凍結する前に更新し、code range と status を一度の outcome / gate review で評価する。
-   - outcome は Full verification、該当する UI smoke、outcome review、最後の code unit を同じ commit で閉じる。`GATE-01` と承認済み plan rebaseline audit は audit range を評価するため、production code 差分がなくても audit review を行う。
+   - outcome は Full verification、該当する UI smoke、outcome review、最後の code unit を同じ commit で閉じる。`MIG-05`、`GATE-01`、承認済み plan rebaseline audit は audit / probe range を評価するため、production code 差分がなくても review と audit/status commit を行ってよい。
 3. **sequence cursor-only update**
    - review 済み implementation unit の次 cursor を planner 出力どおり `PLAN_STATUS.md` の現在値へ反映する。
    - cursor 行以外の差分が混ざっていないことと `git diff --check` を確認し、同じ implementation unit commit に含める。cursor 前進によって code の検証結果と review 結果は変わらないため、build / test / analyzer / UI smoke /再レビューは追加しない。
@@ -59,6 +59,7 @@ review 依頼には review kind、absolute repo path、scope、base/head SHA を
 
 - `not started` → `ready`: 先行 outcome と依存条件が満たされ、次に着手できるときだけ遷移する。
 - `ready` → `in progress`: active outcome として選択し、最初の implementation unit を開始するときに遷移する。同時に開始時の clean commit を `active outcome base commit` として記録する。
+- `MIG-05 ready` → `MIG-05 in progress`: implementation unit ではなく migration rehearsal を開始するときに遷移する。開始時の clean commit を `active outcome base commit` として記録し、temporary probe差分はmain worktreeへ戻さない。
 - `GATE-01 ready` → `GATE-01 in progress`: implementation unit ではなく、gate review scope の snapshot を凍結して Full verification を開始するときに遷移する。gate review は `code baseline commit` を base にするため、新しい `active outcome base commit` は記録しない。
 - `ready` → `blocked`: planner または root が、ユーザー入力または外部状態変更なしには解消できない具体的な `EXTERNAL_BLOCKER` を確認した場合だけ遷移する。内部の ownership 分解、複数 caller、broad host、lock / transaction、変更量は該当しない。
 - `in progress` → `blocked`: 同じ `EXTERNAL_BLOCKER` が実装中にも確認され、ユーザー入力または外部状態変更なしに進めない場合だけ遷移する。難しい、調査が必要、変更量が大きい、既存 route が broad であることは理由にしない。
@@ -66,15 +67,16 @@ review 依頼には review kind、absolute repo path、scope、base/head SHA を
 - `blocked` → `in progress`: unit 開始後に blocked となり、既に `active outcome base commit` がある outcome の阻害条件が解消したときに限り、同じ base を保持して遷移する。
 - `in progress` → `not started`: production evidence により責務が active outcome ではなく別の prerequisite outcome に属すると判明し、target architecture / ordered backlog を変えるユーザー承認済みの ownership 再編を行う場合だけ使う。planner が broad route を分解できない、内部調査が増えた、安全な unit が大きいという理由では使わない。変更前の outcome base から frozen snapshot までを re-plan review し、移動先、依存順、必要な bridge baseline と retirement outcome を正本へ記録してから、prerequisite を唯一の active outcome にする。criteria の破棄や通常の延期には使わず、元 outcome を再開するときはその時点の clean commit を新しい base とする。
 - `in progress` → `completed`: acceptance criteria、outcome-wide Full verification、outcome review、UI smoke check（該当時）が完了したときだけ遷移する。
-- `completed` → `in progress`: `GATE-01` の監査で、その outcome の acceptance criteria が現行 production code で満たされていないことが判明した場合だけ使う。`GATE-01` を `not started` に戻し、修正開始時の clean commit を新しい active outcome base として記録する。
-- `GATE-01 in progress` → `GATE-01 not started`: Gate の Full verification、UI smoke check、または gate review で未達 criteria が見つかり、指摘が属する completed outcome を再開するときだけ遷移する。
+- `completed` → `in progress`: `MIG-05` / `GATE-01` の監査で、後続の `OWN-01` / `MIG-01`〜`MIG-04` では扱えない直接 regressionにより、その outcome の acceptance criteriaが現行 production codeで満たされていないことが判明した場合だけ使う。修正開始時の clean commitを新しい active outcome baseとして記録する。
+- `MIG-05 in progress` → `MIG-05 not started`: rehearsalで unresolved ownership / MVVM / platform boundaryが見つかり、最も近い未達 `OWN-01` / `MIG-01`〜`MIG-04`へ戻るときに使う。
+- `GATE-01 in progress` → `GATE-01 not started`: GateのFull verification、UI smoke、gate reviewで未達criteriaが見つかり、正本の最も近い未達remedial outcomeまたは直接 regressionしたcompleted outcomeへ戻るときに使う。
 - `GATE-01 in progress` → `gate met`: 全 Gate criteria、Full verification、該当する UI smoke check、gate review が完了したときだけ遷移する。`gate met` は GATE-01 以外に使わない。
 
 通常 outcome の `completed` への状態更新は、最後の production code implementation unit の outcome review snapshot に先に含め、code・test・関連資料・status を一度に review して同じ commit で閉じる。完了条件がコード変更なしで初めて満たされたように見える場合は、完了監査が遅れていないか再確認し、安全な最後の vertical unit と一緒に閉じる。
 
 ただし、ユーザー承認済みの計画再編により `in progress` outcome を一貫した責務境界へ縮小し、移動した責務、後続 outcome、bridge retirement outcome が正本に明記され、縮小後の acceptance criteria が再編前の production code ですでに満たされている場合は、plan rebaseline audit 例外を使ってよい。Full verification、outcome review、該当する UI smoke check を再編後の criteria で実施し、無修正で通った場合に限り completion と次 outcome の `ready` を記録する audit/status commit を作る。監査のための無意味な production code変更は行わない。監査で欠陥が見つかった場合は、修正を含む最後の vertical unit と同じ commit で閉じる。
 
-`GATE-01` は production implementation unit を持たない最終監査 outcome なので、同様に audit/status commit を許可する。全 Gate criteria、Full verification、該当する UI smoke check、gate review が無修正で完了した場合は、`gate met` と Release Freeze の状態だけを記録してよい。監査を通すための無意味な production code変更を行ってはならない。
+`MIG-05` は production implementation unitを持たないrehearsal outcomeとして、blocker classificationとstatusのaudit commitを許可する。`GATE-01` もproduction implementation unitを持たない最終監査 outcomeなのでaudit/status commitを許可する。全Gate criteria、Full verification、該当するUI smoke、gate reviewが無修正で完了した場合は、`gate met`とRelease Freezeの状態だけを記録してよい。監査を通すための無意味なproduction code変更を行ってはならない。
 
 ## 互換性契約の判定
 
@@ -89,7 +91,7 @@ review 依頼には review kind、absolute repo path、scope、base/head SHA を
 
 1. [PLAN_STATUS](./PLAN_STATUS.md) の active outcome、active execution package、sequence cursor、acceptance criteria を読む。
 2. `git status --short` で既存差分を確認する。
-3. `PLAN_STATUS.md` が plan rebaseline audit を次の作業として明記している場合、または active outcome が `GATE-01` の場合は、`unit-planner` を呼ばず下記 audit-only branch へ進む。
+3. `PLAN_STATUS.md` が plan rebaseline audit を次の作業として明記している場合、または active outcome が `MIG-05` / `GATE-01` の場合は、`unit-planner` を呼ばず下記 audit / rehearsal branch へ進む。
 4. active outcome がなければ、総合計画の ordered backlog から最初の `ready` outcome を選ぶ。`ready` がなければ、先行 outcome と依存条件を確認して一つだけ `ready` にする。
 5. 通常実装 branch では single-flight で `unit-planner` を一度だけ呼び、現在の cursor から 1〜5 unit の `IMPLEMENTATION_SEQUENCE` を作らせる。root は planner 実行中の repository 調査を凍結する。
 6. planner 結果後、root は最初の unit が named production route、削除または縮小する旧 responsibility corridor、behavior test、検証を持つことだけを bounded check する。別の architecture survey、独立調査、第 2 planner の consensus を行わない。
@@ -101,19 +103,23 @@ internal owner dependency、複数 caller、broad host、lock ordering、DB / li
 
 planner の有効な出力は `IMPLEMENTATION_SEQUENCE` または具体的な `EXTERNAL_BLOCKER` だけである。`NO_SAFE_UNIT` は無効な出力として扱う。内部複雑性を理由に返された場合、root は作業を停止せず、上記 corridor と正本の named sequence を引用して planner に repair request を出し、実装可能な sequence を返させる。再び無効な出力になった場合は、正本の sequence cursor が指す named unit をそのまま開始し、同じ問いの再調査を繰り返さない。正本の target architecture / ordered backlog を変えない局所的な sequence 修正はユーザー承認を要しない。意味のある外部契約または target architecture の選択が必要な場合だけ escalation する。
 
-## Audit-only branch
+## Audit / migration-rehearsal branch
 
-plan rebaseline audit と `GATE-01` は implementation unit ではないため、開始時に `unit-planner` を呼ばない。
+plan rebaseline audit、`MIG-05`、`GATE-01` は通常の implementation unit ではないため、開始時に `unit-planner` を呼ばない。
 
-1. plan rebaseline audit は outcome review、`GATE-01` は gate review の scope で Full verification と該当する UI smoke check を行う。
-2. verification evidence が criteria を満たした場合は、completion / `gate met` と次状態を `PLAN_STATUS.md` に反映してから snapshot を凍結する。
-3. code range、現行コード、Gate evidence、status を一度の fresh read-only outcome / gate review で評価する。
-4. 未達 criteria または重大指摘が見つかった場合は completion 候補を取り下げる。plan rebaseline audit では修正対象を planner に渡して最初の実装可能 unit を含む sequence を作らせ、通常の実装ループへ入る。`GATE-01` では指摘が属する completed outcome を上記遷移で唯一の active outcome に戻してから、planner に修正 sequence を計画させる。
-5. 重大指摘の修正を行った場合は影響範囲を再検証し、新しい frozen snapshot を fresh reviewer に渡す。重大指摘がなくなった最終差分の format / whitespace と `git diff --check` を確認し、対象 outcome ID を含む audit/status commit を作る。監査ログや定型的な証跡資料は追加しない。
+1. plan rebaseline audit は outcome review、`MIG-05` は migration rehearsal + outcome review、`GATE-01` は gate review の scope で進める。
+2. `MIG-05` は clean HEAD から temporary worktree または repository 外の disposable copy を作り、最小の TFM 変更で `net10.0-windows` restore / build を試す。probe の project / package / source 変更と artifact は production worktreeへ戻さず commitしない。
+3. rehearsal failure は blocker IDごとに package / API / TFM / runtime layout / deployment / data migration / unresolved ownershipへ分類する。最初の六分類だけなら blocker registerへ反映する。unresolved ownership、root workflow、global save timing、cross-owner lock、raw durable writerが必要なら `MIG-05` を完了せず、最も近い `OWN-01` / `MIG-01`〜`MIG-04` を active に戻す。
+4. verification evidence が criteria を満たした場合は completion / `gate met` と次状態を `PLAN_STATUS.md` に反映してから snapshotを凍結する。
+5. code range、現行コード、Gate / blocker evidence、status を一度の fresh read-only outcome / gate reviewで評価する。reviewer は temporary probe worktreeを編集・buildせず、main worktreeの boundaryと分類の整合を評価する。
+6. 未達 criteria または重大指摘が見つかった場合は completion候補を取り下げる。plan rebaseline auditでは plannerへ最初の実装可能 sequenceを作らせる。`MIG-05` / `GATE-01` では、正本に定義済みの最も近い未達 remedial outcomeを唯一の active outcomeにする。completed outcomeを再開するのは、後続 reconciliation outcomeでは扱えない直接 regressionがその acceptance criteriaにある場合だけとする。
+7. 重大指摘の修正を行った場合は影響範囲を再検証し、新しい frozen snapshotを fresh reviewerへ渡す。重大指摘がなくなった最終差分の format / whitespace と `git diff --check` を確認し、対象 outcome IDを含む audit/status commitを作る。監査ログ、probe log、定型証跡資料はrepositoryへ追加しない。
 
 ## Implementation unit の条件
 
 implementation unit は、1 つの user-visible workflow、1 つの ownership boundary、または broad route を横断する 1 つの responsibility corridor を、production 経路から behavior test まで閉じるまとまりにする。seam 1 個、method 1 個、test 1 個を単位にしない。
+
+行数、file 数、type 数の削減を unit の目的にしない。structural review trigger を超える場合は、planner が責務 inventory から具体的な ownership / dependency violation を一つ選び、その corridorを閉じる。violation がなく cohesive なら、数値を下げる unitを作らない。
 
 - 同じ outcome の acceptance criteria を少なくとも 1 つ前進させる。
 - build 可能で、関連 behavior を検証できる。
@@ -123,6 +129,8 @@ implementation unit は、1 つの user-visible workflow、1 つの ownership bo
 - durable state と live state を扱う unit は、prepare → durable commit → canonical live apply → guard release → receipt publish の順序と failure atomicity を behavior test で固定する。
 - package、LR2、playlist、UI など後続 owner の baseline residual は canonical receipt publish 後の composition として残してよい。catalog guard を保持したまま別 owner を callback しない。
 - 構造変更と意図的な挙動変更を混ぜない。
+- WPF view-host、cohesive algorithm、transaction / failure boundary を行数のためだけに分断しない。
+- partial split、thin forwarding class、service locator、broad callback host で見かけの行数だけを減らさない。
 
 DTO、interface、result、planner、host、diagnostics API の追加だけで implementation unit を完了しない。安全上どうしても一時 scaffolding が必要でも、同じ未コミット unit 内で production 接続と corridor 固有の旧 route 削除まで進める。
 
@@ -141,7 +149,7 @@ broad host 全体、全 operation-specific caller、全 consumer residual の削
 9. **commit は内部 checkpoint であり、ユーザーへの応答境界ではない。** outcome が未完なら planner sequence の次 unit を直ちに開始する。sequence を使い切っても outcome が未完なら、ユーザー承認待ちにせず single-flight で planner を再実行する。outcome が完了したなら `ready` にした次 outcome へ進む。
 10. planner sequence の前提が実装 evidence で崩れた場合だけ、その差異を限定して planner に局所的な再分解を依頼する。root の broad な独立調査や同じ package の全面再調査を行わず、現在 unit の code snapshot を閉じる。
 
-`GATE-01` だけは完了時に `completed` ではなく `gate met` とし、Active outcome を `none`、次 outcome を設定しない。Release Freeze は `gate met / explicit release instruction required` と記録し、`.NET 10` migration plan またはリリース作業を自動開始しない。
+`MIG-05` は rehearsal / audit/status commitで `completed` にし、次の `GATE-01` を `ready` にする。`GATE-01` だけは完了時に `completed` ではなく `gate met` とし、Active outcome を `none`、次 outcome を設定しない。Release Freeze は `gate met / explicit release instruction required` と記録し、`.NET 10` migration実装またはリリース作業を自動開始しない。
 
 レビュー修正で code / test / build / resource / reviewed docs が変わった場合は、影響範囲を再検証する。reviewer が重大指摘なしとした snapshot に cursor-only 前進を加えただけの場合は、review 前の検証結果を最終結果として扱う。
 
@@ -181,6 +189,12 @@ targeted / Full test で失敗を検出した場合、直接の変更箇所と�
 全体 test で失敗し個別実行で成功する test は、一過性の成功ではなく test isolation / synchronization の欠陥として扱う。共有 mutable static、実行順、非同期 worker と observable apply の完了条件、dispatcher / scheduler queue、時刻、file / DB / environment state を調査する。個別再実行の成功だけで閉じず、observable completion を待つ、専用 dispatcher / state へ隔離する、共有状態を確実に復元するなど test 構造を改善し、反復実行と全体 test の両方で確認する。
 
 SDK は `global.json` の .NET SDK 10 系を使う。Roslynator 0.12.0 が MSBuild 18 で動作しない間は、上記のとおり Visual Studio 2022 / MSBuild 17 を指定する。analyzer Gate はコマンドが正常終了し、今回差分による warning が増えていないこととする。既存 warning は root `AGENTS.md` の方針に従い、info 診断は目的を定めた棚卸しでだけ扱う。
+
+### `.NET 10` migration rehearsal
+
+`MIG-05` は main worktree が clean であることを確認し、temporary worktree / disposable copy だけで実行する。最初の probe は package replacementや互換 shimを追加せず、TFM / Windows targetingに必要な最小変更で restore / buildする。その後の補助 probeも blocker分類に必要な最小変更だけとし、production branchへcherry-pickしない。
+
+root は command、終了コード、主要 error category、対応 blocker IDを task内のevidenceとして保持する。full logや一時 projectをrepositoryへ保存しない。probe環境自体が利用不能な場合だけ具体的な `EXTERNAL_BLOCKER` とし、通常コードの難しさを rehearsal blockerにしない。
 
 ### UI outcome の smoke check
 
@@ -236,6 +250,8 @@ git diff / git status / git ls-files / rg / Get-Content などの読み取りだ
 - View / global singleton / Settings / NLog / DB / Dispatcher への依存方向を悪化させていないか
 - private 実装配置を固定する brittle test を増やしていないか
 - .NET 10 migration blocker を増やしていないか
+- 行数削減が目的化し、cohesive な View / transaction / algorithm を不自然に分断していないか
+- structural triggerを超える scopeの残責務が許可 boundaryまたは明示 ownerで説明できるか
 
 重大度順にファイルと行番号を付けて返してください。
 問題がなければ「重大な指摘なし」と返してください。
@@ -248,13 +264,14 @@ git diff / git status / git ls-files / rg / Get-Content などの読み取りだ
 - responsibility owner が増える、循環する、または root に残ったままになる。
 - production の通常経路で使わない abstraction や test 専用 seam を追加する。
 - global dependency、UI technology、DB connection、lock、Dispatcher の漏出を増やす。
-- Gate の測定値だけを partial split や file move で満たす。
+- Structural size triggerだけを満たすために partial split、file move、thin forwarding ownerを追加する。
+- trigger超過だけを重大指摘にする、または trigger未満だけでownership成立と判断する。
 
 ## Outcome 完了判定
 
 implementation unit の積み重ねだけで outcome を自動完了にしない。開始 commit からの全差分と現行コードを確認し、総合計画の Outcome completion rule をすべて満たすことを確認する。
 
-完了候補の unit では、Full verification と該当する UI smoke check の後に `PLAN_STATUS.md` の completion 候補を作り、開始 commit 以降の commit 済み変更、現在の未コミット差分、現行コード、completion state を一度の outcome review で評価する。重大指摘の修正、再検証、fresh review を同じ最終 unit に含める。通常 outcome の completion は最後の code unit と同じ commit に置き、Outcome state 遷移で定義した plan rebaseline audit と `GATE-01` だけは audit range を評価した audit/status commit を使う。
+完了候補の unit では、Full verification と該当する UI smoke check の後に `PLAN_STATUS.md` の completion 候補を作り、開始 commit 以降の commit 済み変更、現在の未コミット差分、現行コード、completion state を一度の outcome review で評価する。重大指摘の修正、再検証、fresh review を同じ最終 unit に含める。通常 outcome の completion は最後の code unit と同じ commit に置き、Outcome state 遷移で定義した plan rebaseline audit、`MIG-05`、`GATE-01` だけは audit / probe rangeを評価した audit/status commitを使う。
 
 ## 計画資料と ADR
 
@@ -292,5 +309,6 @@ Codex は、active outcome の範囲内で planning、設計、実装、test、r
 - package、LR2、playlist、resource-health、UI の residual が同じ旧 route に残る。
 - 実装が大きい、難しい、時間がかかる、追加調査が必要である。
 - planner の最初の候補が広すぎる、または一つの unit に閉じない。
+- structural size triggerを超えているが、残る責務がcohesiveで許可 boundary内にある。
 
 これらは planner が responsibility corridor と依存順へ再分解して解消する。root は planner 実行中に独立調査せず、結果後は sequence を継続して実装する。

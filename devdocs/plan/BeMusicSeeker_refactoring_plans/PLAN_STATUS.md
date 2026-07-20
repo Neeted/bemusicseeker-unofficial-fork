@@ -8,7 +8,7 @@
 
 - code baseline commit: `44fd2fde`
 - Release Freeze: active
-- `git push` / tag / release / publish: Gate 前は禁止。Gate 後もユーザーの明示指示まで禁止
+- `git push` / tag / release / publish: Gate前は禁止。Gate後もユーザーの明示指示まで禁止
 
 ## Active outcome
 
@@ -17,25 +17,29 @@
 状態: in progress
 
 active outcome base commit: `6d170cb9`
-active execution package: `UI-05 Shell closure`
-sequence cursor: `UI05 planner required`
+active execution package: `UI05-R Remaining shell closure`
+sequence cursor: `UI05-R1 Playlist presentation / view-host residual — first incomplete production route (planner required)`
 
 目的:
 
-settings dialog、library refresh、package operation、残存 feature の root pass-through と code-behind workflow を、明示的な shell composition と feature owner へ移し、UI Gate に残る責務を閉じる。
+残るroot binding relay、feature workflow、code-behind orchestration、非event `async void`を、child owner / application workflow / view-hostの正しい境界へ移す。行数削減ではなく、state / behavior ownershipとdependency directionでUI Gateを閉じる。
 
 Acceptance criteria:
 
-- settings dialog、normal library refresh、package operation、残存 feature workflow が production の通常経路で owner / shell composition に直接接続され、旧 root pass-through、code-behind workflow、callback host、test-only seam が同じ unit で削除される。
-- UI observable behavior、失敗契約、setting key / serialized value、DB schema / data、外部ファイル形式、外部同期の cancellation / progress を維持する。
-- owner handoff、live apply、immutable receipt / completion publish の順序と shutdown / scheduler rejection / stale generation の失敗契約を維持する。
-- 各 execution unit の behavior test、UI-05 outcome-wide Full verification、Release executable UI smoke、重大指摘なしの static / outcome review を完了する。
+- feature View / UserControlがchild ownerをbinding rootとし、rootはchild ViewModelのcomposition propertyを除いてleaf property / command / `PropertyChanged`を再公開しない。
+- `MainWindowViewModel`に非eventの`async void`、feature-local mutable state、feature workflow、private callback hostが残らない。
+- `MainWindow.cs`のevent handlerは、一つのfeature command / queryへのrequest変換と、focus / selection / scroll / hit-test / drag visual / dialog presentation等のView固有applyだけで説明できる。
+- settings dialog、normal library refresh、package operation、playlist / library / chart actionの残存routeがproductionの通常経路でowner / shell compositionへ直接接続され、旧pass-through、workflow body、callback host、test-only seamが担当unitで削除される。
+- UI observable behavior、失敗契約、setting key / serialized value、DB schema / data、外部ファイル形式、external syncのcancellation / progressを維持する。
+- 各execution unitのbehavior test、UI-05 outcome-wide Full verification、Release executable UI smoke、重大指摘なしのstatic / outcome reviewを完了する。
+- Structural size triggerの達成を完了条件にせず、triggerを超える残scopeの責務が許可shell / view-host boundaryで説明できることをoutcome reviewで確認する。
 
 Non-goals:
 
-- feature 内に残る `Settings.Default` の除去（各 feature outcome と `MIG-01`）。
-- `.NET 10` TFM 変更、NuGet の一括更新、native dependency の置換。
-- feature owner 自体の責務再設計（各 feature outcome）。
+- feature / model内に残るglobal settings、application / dispatcher contextの最終除去（`MIG-01`）。
+- pending estimated-install broad hostとplaylist custom-folder status persistenceの解消（`OWN-01`）。
+- native / process / path / output layout、`.NET 10` TFM / package変更（`MIG-02`〜`MIG-05`とGate後migration）。
+- WPF固有のselection、focus、scroll、hit-test、virtualization、drag visualを行数のためだけにView外へ移すこと。
 
 ## Outcome states
 
@@ -55,24 +59,28 @@ Non-goals:
 | PL-01 Playlist persistence and reload ownership | completed |
 | PL-02 Playlist external-sync and output ownership | completed |
 | UI-05 Shell closure | in progress |
-| MIG-01 Platform boundary closure | not started |
+| OWN-01 Residual owner-boundary reconciliation | not started |
+| MIG-01 Configuration and application-context closure | not started |
+| MIG-02 Path, process and updater closure | not started |
+| MIG-03 Native interop and UI-host closure | not started |
+| MIG-04 Build, dependency and output closure | not started |
+| MIG-05 .NET 10 migration rehearsal and handoff | not started |
 | GATE-01 Refactoring completion audit | not started |
 
-許可する状態は `not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。`completed` は個別 outcome の全 acceptance criteria を満たした場合だけ、`gate met` は `GATE-01` にだけ使う。internal complexity は execution package 内で分解し、責務が別 outcome に属することが production evidence で確定した場合だけ ordered backlog の prerequisite outcome を再編する。
+許可する状態は`not started`、`ready`、`in progress`、`blocked`、`completed`、`gate met`。internal complexity、行数trigger超過、複数caller、broad routeはexecution packageへ分解し、`blocked`理由にしない。production evidenceが別outcomeの明示boundaryに属する場合は、ordered backlogの次ownerへ引き渡す。
 
 ## Gate scorecard
 
-| Gate area | State | Current evidence |
+| Gate area | State | Current evidence / owner |
 |---|---|---|
-| UI ownership | not met | feature ownership outcomes は completed。settings dialog と残る shell / code-behind workflow を UI-05 で閉じ、Gate audit で確認する |
-| Library ownership | not met | library / playlist owner outcomes は completed。残る shell composition を UI-05 で閉じ、Gate audit で owner boundary と旧 route 不在を確認する |
-| Playlist ownership | not met | persistence / reload と external-sync / output の owner outcomes は completed。残る shell consumer route を UI-05 で閉じ、Gate audit で確認する |
-| Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
-| Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
-| Migration readiness | not met | domain / playlist owner outcomes は completed。UI-05 の shell closure と MIG-01 の platform boundary closure 後に Gate audit で確認する |
-| Quality | in progress | committed implementation units は unit-level verification / review 済み。UI-05 outcome-wide verification / review と最終 Gate evidence は未完了 |
-
-数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
+| UI ownership | not met | UI-05は継続中。root ViewModelに非event `async void`、MainWindow code-behindに複数のfeature workflow / multi-step actionが残る。`UI05-R1`〜`R4`で閉じる |
+| Library ownership | not met | `IPendingEstimatedInstallHost`相当がfacade lock / private operationを広く露出する。`OWN01-A` / `C`で閉じる |
+| Playlist ownership | not met | `BMSPlaylist`にcustom-folder output statusのraw SQL / transactionとglobal dispatcher / application residualが残る。`OWN01-B`と`MIG-01`で閉じる |
+| Configuration ownership | not met | `Settings.Default`、application / dispatcher contextの直接依存がView / ViewModel / modelへ残る。`MIG-01`で境界化する |
+| Platform boundary | not met | HintPath DLL、custom managed/native layout、P/Invoke、external process、updater、WPF / WinForms / WebBrowserが混在する。`MIG-02`〜`MIG-04`で閉じる |
+| Migration readiness | not met | `net10.0-windows` disposable restore / build rehearsalが未実施。`MIG-05`で分類する |
+| Structural cohesion / size | review required | 現行静的計測では4 scope中3 scopeがreview trigger超。数値自体はfailureではなく、残責務inventoryをUI-05 / OWN-01 / Gate reviewで判定する。trigger未満のplaylistにもownership違反があるため、行数だけでは通過させない |
+| Quality | in progress | committed UI-05 unitsは個別verification / review済み。UI-05 outcome-wide verification / smoke / reviewと後続Outcome、最終Gate evidenceは未完了 |
 
 ## Active outcome blockers
 

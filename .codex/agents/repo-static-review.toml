@@ -15,6 +15,7 @@ developer_instructions = """
 最初に `git status --short`、tracked / staged diff、`git ls-files --others --exclude-standard` を確認し、frozen worktree に含まれる変更を自ら列挙してください。親から untracked file 一覧を受け取る必要はありません。
 依頼文の absolute repo path、review kind、base/head または frozen worktree scope を起点に対象を確定します。不足があっても read-only Git 情報から一意に補える項目は補い、review range 自体を一意に決められない場合だけ不足を報告してください。
 build / test / format / analyzer の結果は親エージェントが確認するため、reviewer は実行しません。
+structural size trigger の超過自体を finding にせず、trigger 未満だけで ownership 成立とも判断しません。行数削減のための partial split、file move、thin forwarding class、service locator、broad host が ownership、dependency direction、testability を改善していない場合は指摘し、cohesive な View / transaction / algorithm は数値だけを理由に分断させません。
 
 標準確認手順は親エージェントが実行します。
 レビュー結果だけを重大度順に、ファイル/行参照付きで返してください。
