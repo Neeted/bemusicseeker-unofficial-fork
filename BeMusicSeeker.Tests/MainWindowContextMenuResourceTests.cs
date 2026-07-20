@@ -3477,6 +3477,9 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(mainWindowCode.Contains("PlaylistWorkspacePlaylistUrlInstallQueueRequested"));
         Assert.IsFalse(mainWindowCode.Contains("PackageInstallWorkflow.EnqueueSingle"));
         Assert.IsFalse(mainWindowCode.Contains("PackageInstallWorkflow.Enqueue(request"));
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested"));
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested"));
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady"));
         StringAssert.Contains(workspaceCode, "DownloadCandidateAsync");
         StringAssert.Contains(workspaceCode, "DownloadSelectedPlaylistUrlsAsync");
         StringAssert.Contains(workspaceCode, "DownloadSelectedPlaylistExternalPackagesAsync");
@@ -3529,13 +3532,21 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(workspaceCode, "DispatchPlaylistUrlAcquisitionAction");
         StringAssert.Contains(workspaceCode, "PlaylistUrlDownloadStatusChanged");
         StringAssert.Contains(statusBridge, "UpdatePlaylistUrlDownloadStatus");
+        StringAssert.Contains(statusBridge, "PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested");
+        StringAssert.Contains(statusBridge, "PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested");
+        StringAssert.Contains(statusBridge, "PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady");
+        StringAssert.Contains(statusBridge, "ShowUiConfirmation(");
+        StringAssert.Contains(statusBridge, "ShowUiMessage(");
+        StringAssert.Contains(statusBridge, "Confirm_SelectedPlaylistExternalPackageLookup");
+        StringAssert.Contains(statusBridge, "Msg_SelectedPlaylistUrlDownloadResult");
 
         string dropHandler = ExtractBetween(mainWindowCode, "private void Window_Drop", "private void Window_DragOver");
         string dragOverHandler = ExtractBetween(mainWindowCode, "private void Window_DragOver", "private void Window_MouseLeftButtonDown");
         StringAssert.Contains(dropHandler, "IsPlaylistUrlDownloadRunning");
         StringAssert.Contains(dragOverHandler, "IsPlaylistUrlDownloadRunning");
-        StringAssert.Contains(mainWindowCode, "PlaylistUrlAcquisitionConfirmationRequested");
-        StringAssert.Contains(mainWindowCode, "PlaylistUrlAcquisitionSummaryReady");
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistUrlAcquisitionConfirmationRequested"));
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistUrlAcquisitionNotificationRequested"));
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistUrlAcquisitionSummaryReady"));
     }
 
     [TestMethod]

@@ -3629,6 +3629,9 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistPropertyInvalidOutputDirectoryRequested += PlaylistWorkspacePlaylistPropertyInvalidOutputDirectoryRequested;
         PlaylistWorkspace.PlaylistPropertyExternalSyncFailed += PlaylistWorkspacePlaylistPropertyExternalSyncFailed;
         PlaylistWorkspace.PlaylistUrlDownloadStatusChanged += PlaylistWorkspacePlaylistUrlDownloadStatusChanged;
+        PlaylistWorkspace.PlaylistUrlAcquisitionConfirmationRequested += PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested;
+        PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested += PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
+        PlaylistWorkspace.PlaylistUrlAcquisitionSummaryReady += PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady;
         PlaylistWorkspace.PlaylistTablesPresentationChanged += PlaylistWorkspacePlaylistTablesPresentationChanged;
         PlaylistWorkspace.PlaylistEntriesHydrationRequested += PlaylistWorkspacePlaylistEntriesHydrationRequested;
         PlaylistWorkspace.PlaylistEntriesHydrationCompleted += PlaylistWorkspacePlaylistEntriesHydrationCompleted;
@@ -10740,10 +10743,17 @@ public partial class MainWindowViewModel : ViewModel
         MessageBoxImage icon,
         MessageBoxButton button,
         string routeName = "UI confirmation dialog",
-        MessageBoxResult defaultResult = MessageBoxResult.None)
+        MessageBoxResult defaultResult = MessageBoxResult.None,
+        string warningMessageBoxText = null)
     {
         UiDialogResult result = new UiDialogCoordinator()
-            .ConfirmAsync(new UiConfirmationRequest(messageBoxText, caption, button, icon, defaultResult))
+            .ConfirmAsync(new UiConfirmationRequest(
+                messageBoxText,
+                caption,
+                button,
+                icon,
+                defaultResult,
+                warningMessageBoxText: warningMessageBoxText))
             .GetAwaiter()
             .GetResult();
         return ToUiConfirmationDecision(result, routeName);

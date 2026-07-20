@@ -359,9 +359,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
         viewModel.PlaylistWorkspace.PlaylistUrlInstallQueued += PlaylistWorkspacePlaylistUrlInstallQueued;
         viewModel.PlaylistWorkspace.PlaylistUrlBrowserOpenRequested += PlaylistWorkspacePlaylistUrlBrowserOpenRequested;
-        viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionConfirmationRequested += PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested;
-        viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested += PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
-        viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionSummaryReady += PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
         viewModel.StartupUpdateWorkflow.ShutdownPreparationRequested += MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
@@ -382,9 +379,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallQueued -= PlaylistWorkspacePlaylistUrlInstallQueued;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlBrowserOpenRequested -= PlaylistWorkspacePlaylistUrlBrowserOpenRequested;
-        subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionConfirmationRequested -= PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested;
-        subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested -= PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
-        subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionSummaryReady -= PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.ShutdownPreparationRequested -= MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
@@ -576,115 +570,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         Process.Start(request.Uri.ToString());
-    }
-
-    private void PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested(
-        object sender,
-        PlaylistUrlAcquisitionConfirmationRequestedEventArgs request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        if (request.Kind == PlaylistUrlAcquisitionConfirmationKind.ExternalPackages)
-        {
-            string confirmationMessage = string.Format(
-                BeMusicSeeker.Properties.Resources.Confirm_SelectedPlaylistExternalPackageLookup,
-                request.TargetCount);
-            request.Confirmed = UiDialogRoute.ShowMessageBox(
-                Window.GetWindow(this),
-                confirmationMessage,
-                BeMusicSeeker.Properties.Resources.Confirm,
-                MessageBoxButton.OKCancel,
-                MessageBoxImage.Question,
-                MessageBoxResult.Cancel,
-                warningMessageBoxText: BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookup) != MessageBoxResult.Cancel;
-            return;
-        }
-
-        string urlKind = request.IsDiffUrl
-            ? BeMusicSeeker.Properties.Resources.Diff_URL
-            : BeMusicSeeker.Properties.Resources.Original_URL;
-        string selectedUrlsMessage = string.Format(
-            BeMusicSeeker.Properties.Resources.Confirm_SelectedPlaylistUrlDownload,
-            request.TargetCount,
-            urlKind);
-        string largeSelectionWarningMessage = request.TargetCount >= request.LargeSelectionWarningThreshold
-            ? string.Format(
-                BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadLargeSelection,
-                request.LargeSelectionWarningThreshold)
-            : null;
-        request.Confirmed = UiDialogRoute.ShowMessageBox(
-            Window.GetWindow(this),
-            selectedUrlsMessage,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Question,
-            MessageBoxResult.Cancel,
-            warningMessageBoxText: largeSelectionWarningMessage) != MessageBoxResult.Cancel;
-    }
-
-    private void PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested(
-        object sender,
-        PlaylistUrlAcquisitionNotificationRequestedEventArgs request)
-    {
-        if (request == null)
-        {
-            return;
-        }
-        string message = request.Kind switch
-        {
-            PlaylistUrlAcquisitionNotificationKind.SelectedUrlsNoTargets => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadNoTargets,
-            PlaylistUrlAcquisitionNotificationKind.SelectedUrlsBlockedByInstallQueue => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistUrlDownloadBlockedByInstallQueue,
-            PlaylistUrlAcquisitionNotificationKind.ExternalPackagesNoTargets => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupNoTargets,
-            PlaylistUrlAcquisitionNotificationKind.ExternalPackagesBlockedByInstallQueue => BeMusicSeeker.Properties.Resources.Warn_SelectedPlaylistExternalPackageLookupBlockedByInstallQueue,
-            _ => throw new ArgumentOutOfRangeException(nameof(request.Kind), request.Kind, null)
-        };
-        UiDialogRoute.ShowMessageBox(
-            Window.GetWindow(this),
-            message,
-            BeMusicSeeker.Properties.Resources.Warning,
-            MessageBoxButton.OK,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
-    }
-
-    private void PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady(
-        object sender,
-        PlaylistUrlAcquisitionSummaryReadyEventArgs summary)
-    {
-        if (summary == null)
-        {
-            return;
-        }
-        string message = summary.ExternalPackageLookup
-            ? string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistExternalPackageLookupResult,
-                summary.TargetCount,
-                summary.DownloadedCount,
-                summary.NoCandidateCount,
-                summary.DuplicateDownloadedUrlCount,
-                summary.DuplicateFailedUrlCount,
-                summary.BlockedBySizeLimitCount,
-                summary.UnsupportedCount,
-                summary.FailedCount,
-                summary.CanceledCount)
-            : string.Format(
-                BeMusicSeeker.Properties.Resources.Msg_SelectedPlaylistUrlDownloadResult,
-                summary.TargetCount,
-                summary.DownloadedCount,
-                summary.BrowserFallbackCount,
-                summary.BlockedBySizeLimitCount,
-                summary.DuplicateCount,
-                summary.FailedCount,
-                summary.CanceledCount);
-        UiDialogRoute.ShowMessageBox(
-            Window.GetWindow(this),
-            message,
-            BeMusicSeeker.Properties.Resources.Information,
-            MessageBoxButton.OK,
-            summary.DownloadedCount > 0 ? MessageBoxImage.Asterisk : MessageBoxImage.Exclamation,
-            MessageBoxResult.OK);
     }
 
     private void playbackPanelViewPlaybackStarting(object sender, RoutedEventArgs e) => scrollIntoView();
