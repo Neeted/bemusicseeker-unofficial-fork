@@ -128,6 +128,18 @@ public sealed class ApplicationCompositionTests
                 LR2SongDBExtended.playlist.CustomFolderType.AllFolders,
                 created.ignore_folder_output);
             Assert.IsTrue(created.is_bmt_output);
+
+            PlaylistPropertyDialogViewModel dialog =
+                await workspace.CreatePlaylistPropertyDialogAsync();
+            Assert.IsNotNull(dialog);
+            Assert.AreEqual(2, playlist.BMSTables.Count);
+            Assert.AreSame(dialog, workspace.ActivePropertyDialog);
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.ResetPropertiesAsync());
+            dialog.Dispose();
+            workspace.ClosePropertyDialog(dialog);
+            Assert.AreEqual(1, playlist.BMSTables.Count);
         }
         finally
         {

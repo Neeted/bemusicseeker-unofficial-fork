@@ -9,6 +9,54 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     internal event EventHandler<PlaylistSummaryExternalSyncConfirmationRequestedEventArgs> PlaylistSummaryExternalSyncConfirmationRequested;
 
+    internal async Task HandlePlaylistSummaryCellActionAsync(
+        IEnumerable<PlaylistSummaryRow> selectedRows,
+        PlaylistSummaryRow row,
+        string columnId)
+    {
+        if (row == null || string.IsNullOrWhiteSpace(columnId))
+        {
+            return;
+        }
+
+        switch (columnId)
+        {
+            case "Link":
+                await OpenPlaylistSummaryUriAsync(row.LinkUri);
+                return;
+            case "Header":
+                await OpenPlaylistSummaryUriAsync(row.HeaderUri);
+                return;
+            case "Data":
+                await OpenPlaylistSummaryUriAsync(row.DataUri);
+                return;
+            case "IsExternalSync":
+                await ApplyPlaylistSummaryCellActionAsync(
+                    selectedRows,
+                    columnId,
+                    !row.IsExternalSync);
+                return;
+            case "IsRootFolder":
+                await ApplyPlaylistSummaryCellActionAsync(
+                    selectedRows,
+                    columnId,
+                    !row.IsRootFolder);
+                return;
+            case "IsBmtOutput":
+                await ApplyPlaylistSummaryCellActionAsync(
+                    selectedRows,
+                    columnId,
+                    !row.IsBmtOutput);
+                return;
+        }
+    }
+
+    internal bool CanDropSummaryRowsInBmtOrder(IEnumerable<PlaylistSummaryRow> rows)
+    {
+        return IsPlaylistSummarySortedByBmtSortAscending
+            && CapturePlaylistSummaryActionRows(rows).Count > 0;
+    }
+
     /// <summary>
     /// Applies a playlist-summary flag-cell action through the workspace owner.
     /// </summary>

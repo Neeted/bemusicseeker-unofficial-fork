@@ -367,14 +367,21 @@ public partial class BMSPlaylist : NotificationObject
     {
         get
         {
-            using (rwlockBMSTables.GetReaderGuard())
+            if (!rwlockBMSTables.TryEnterReadLock(0))
             {
-                if (BMSTables != null)
-                {
-                    return BMSTables.Any(t => t.ReaderWriterLock.LockingWriteCount != 0 || t.ReaderWriterLock.WaitingWriteCount > 0);
-                }
+                return true;
             }
-            return true;
+            try
+            {
+                return BMSTables == null
+                    || BMSTables.Any(t =>
+                        t.ReaderWriterLock.LockingWriteCount != 0
+                        || t.ReaderWriterLock.WaitingWriteCount > 0);
+            }
+            finally
+            {
+                rwlockBMSTables.ExitReadLock();
+            }
         }
     }
 
@@ -591,58 +598,64 @@ public partial class BMSPlaylist : NotificationObject
                     return BMSTables == null ? [] : [.. BMSTables];
                 }
             },
-            table => InvokeBMSTablesCollectionMutation(delegate
+            table =>
             {
-                using (rwlockBMSTables.GetWriterGuard())
+                return InvokeBMSTablesCollectionMutation(delegate
                 {
-                    if (BMSTables.Contains(table))
+                    using (rwlockBMSTables.GetWriterGuard())
                     {
-                        return true;
-                    }
-                    if (BMSTables.Any(existing => existing != null
-                        && !ReferenceEquals(existing, table)
-                        && string.Equals(existing.name, table.name, StringComparison.Ordinal)))
-                    {
-                        return false;
-                    }
-                    playlistAggregatePersistenceOwner.MarkActiveTables([table]);
-                    BMSTables.Add(table);
-                    return true;
-                }
-            }),
-            tables => InvokeBMSTablesCollectionMutation(delegate
-            {
-                using (rwlockBMSTables.GetWriterGuard())
-                {
-                    var visibleNames = new HashSet<string>(
-                        BMSTables.Select(table => table?.name).Where(name => name != null),
-                        StringComparer.Ordinal);
-                    BMSTable duplicate = (tables ?? [])
-                        .Where(table => table != null)
-                        .FirstOrDefault(table => BMSTables.Contains(table));
-                    if (duplicate == null)
-                    {
-                        foreach (BMSTable table in tables ?? [])
+                        if (BMSTables.Contains(table))
                         {
-                            if (!visibleNames.Add(table?.name))
-                            {
-                                duplicate = table;
-                                break;
-                            }
+                            return true;
                         }
-                    }
-                    if (duplicate != null)
-                    {
-                        return duplicate;
-                    }
-                    foreach (BMSTable table in tables ?? [])
-                    {
+                        if (BMSTables.Any(existing => existing != null
+                            && !ReferenceEquals(existing, table)
+                            && string.Equals(existing.name, table.name, StringComparison.Ordinal)))
+                        {
+                            return false;
+                        }
                         playlistAggregatePersistenceOwner.MarkActiveTables([table]);
                         BMSTables.Add(table);
+                        return true;
                     }
-                    return null;
-                }
-            }),
+                });
+            },
+            tables =>
+            {
+                return InvokeBMSTablesCollectionMutation(delegate
+                {
+                    using (rwlockBMSTables.GetWriterGuard())
+                    {
+                        var visibleNames = new HashSet<string>(
+                            BMSTables.Select(table => table?.name).Where(name => name != null),
+                            StringComparer.Ordinal);
+                        BMSTable duplicate = (tables ?? [])
+                            .Where(table => table != null)
+                            .FirstOrDefault(table => BMSTables.Contains(table));
+                        if (duplicate == null)
+                        {
+                            foreach (BMSTable table in tables ?? [])
+                            {
+                                if (!visibleNames.Add(table?.name))
+                                {
+                                    duplicate = table;
+                                    break;
+                                }
+                            }
+                        }
+                        if (duplicate != null)
+                        {
+                            return duplicate;
+                        }
+                        foreach (BMSTable table in tables ?? [])
+                        {
+                            playlistAggregatePersistenceOwner.MarkActiveTables([table]);
+                            BMSTables.Add(table);
+                        }
+                        return null;
+                    }
+                });
+            },
             RemoveTablesFromVisibleCollection,
             this.customFolderOutputSettingsProvider,
             ResolveCustomFolderOutputDirectory,
@@ -3883,32 +3896,102 @@ public partial class BMSPlaylist : NotificationObject
     /// <returns>実際に削除されたプレイリスト。対象が存在しない場合は <see langword="null"/>。</returns>
     public BMSTable RemoveBMSTable(BMSTable bmsTable)
     {
+        Exception collectionNotificationFailure = null;
         BMSTable tableToRemove = InvokeBMSTablesCollectionMutation(delegate
         {
             using (rwlockBMSTables.GetWriterGuard())
             {
-                BMSTable candidateToRemove = BMSTables.FirstOrDefault(candidate =>
+                BMSTable activeTable = BMSTables.FirstOrDefault(candidate =>
                     ReferenceEquals(candidate, bmsTable)
                     || (bmsTable?.playlist_id.HasValue == true
                         && candidate?.playlist_id == bmsTable.playlist_id));
-                if (candidateToRemove == null)
+                if (activeTable == null)
                 {
                     return null;
                 }
-                playlistAggregatePersistenceOwner.DeleteActiveTables([candidateToRemove]);
-                if (!BMSTables.RemoveExt(candidateToRemove))
+                EnsurePlaylistEntriesLoaded(activeTable, "BMSPlaylist.RemoveBMSTable");
+                try
                 {
-                    throw new InvalidOperationException("Playlist collection removal failed after durable deletion.");
+                    playlistAggregatePersistenceOwner.DeleteActiveTables([activeTable]);
                 }
-                return candidateToRemove;
+                catch (Exception deletionFailure)
+                {
+                    RestoreActivePlaylistAfterFailedRemoval(activeTable, deletionFailure);
+                    throw;
+                }
+
+                bool removed;
+                try
+                {
+                    removed = BMSTables.RemoveExt(activeTable);
+                }
+                catch (Exception removalFailure)
+                {
+                    removed = !BMSTables.Contains(activeTable);
+                    if (removed)
+                    {
+                        collectionNotificationFailure = removalFailure;
+                        NLogWrapper.FileLogger?.Warn(
+                            removalFailure,
+                            "playlist_collection_remove_notification_failed_after_commit table="
+                            + (activeTable.name ?? string.Empty));
+                    }
+                }
+                if (!removed)
+                {
+                    RestoreActivePlaylistAfterFailedRemoval(
+                        activeTable,
+                        new InvalidOperationException("Playlist collection removal failed after durable deletion."));
+                    throw new InvalidOperationException("Playlist removal rollback unexpectedly returned.");
+                }
+                return activeTable;
             }
         });
         if (tableToRemove == null)
         {
             return null;
         }
-        BmtOutput.QueueBeatorajaBmtRemoveForTable(tableToRemove, "RemoveBMSTable");
+        Exception bmtRemovalFailure = null;
+        try
+        {
+            BmtOutput.QueueBeatorajaBmtRemoveForTable(tableToRemove, "RemoveBMSTable");
+        }
+        catch (Exception ex)
+        {
+            bmtRemovalFailure = ex;
+        }
+        if (collectionNotificationFailure != null && bmtRemovalFailure != null)
+        {
+            throw new AggregateException(collectionNotificationFailure, bmtRemovalFailure).Flatten();
+        }
+        if (collectionNotificationFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(collectionNotificationFailure).Throw();
+        }
+        if (bmtRemovalFailure != null)
+        {
+            ExceptionDispatchInfo.Capture(bmtRemovalFailure).Throw();
+        }
         return tableToRemove;
+    }
+
+    private void RestoreActivePlaylistAfterFailedRemoval(
+        BMSTable table,
+        Exception removalFailure)
+    {
+        try
+        {
+            playlistAggregatePersistenceOwner.MarkActiveTables([table]);
+            playlistAggregatePersistenceOwner.CommitTablesWithEntries(
+                [table],
+                requireCurrentTarget: true,
+                hydrationReason: "BMSPlaylist.RemoveBMSTableRollback");
+        }
+        catch (Exception rollbackFailure)
+        {
+            throw new AggregateException(removalFailure, rollbackFailure).Flatten();
+        }
+        ExceptionDispatchInfo.Capture(removalFailure).Throw();
     }
 
     /// <summary>
@@ -3922,20 +4005,56 @@ public partial class BMSPlaylist : NotificationObject
             last_update = DateTime.Now,
             ignore_folder_output = ReadNewPlaylistIgnoreFolderOutputDefault()
         };
-        InvokeBMSTablesCollectionMutation(delegate
+        return InvokeBMSTablesCollectionMutation(delegate
         {
             using (rwlockBMSTablesInitializeMin.GetReaderGuard())
+            using (rwlockBMSTables.GetWriterGuard())
             {
-                using (rwlockBMSTables.GetWriterGuard())
+                try
                 {
                     bMSTable.bmt_sort = PlaylistBmtOutputOwner.ResolveNextBeatorajaBmtSort(BMSTables);
                     bMSTable.is_bmt_output = true;
                     BMSTables.Add(bMSTable);
                     playlistAggregatePersistenceOwner.MarkActiveTables([bMSTable]);
                 }
+                catch (Exception creationFailure)
+                {
+                    var rollbackFailures = new List<Exception>();
+                    try
+                    {
+                        bool isVisible = BMSTables.Contains(bMSTable);
+                        if (isVisible)
+                        {
+                            BMSTables.RemoveExt(bMSTable);
+                        }
+                    }
+                    catch (Exception rollbackFailure)
+                    {
+                        rollbackFailures.Add(rollbackFailure);
+                    }
+                    try
+                    {
+                        bool remainsVisible = BMSTables.Contains(bMSTable);
+                        if (remainsVisible)
+                        {
+                            rollbackFailures.Add(
+                                new InvalidOperationException("New playlist remained visible after creation rollback."));
+                        }
+                    }
+                    catch (Exception rollbackFailure)
+                    {
+                        rollbackFailures.Add(rollbackFailure);
+                    }
+                    if (rollbackFailures.Count > 0)
+                    {
+                        rollbackFailures.Insert(0, creationFailure);
+                        throw new AggregateException(rollbackFailures).Flatten();
+                    }
+                    throw;
+                }
+                return bMSTable;
             }
         });
-        return bMSTable;
     }
 
     internal static LR2SongDBExtended.playlist.CustomFolderType ReadNewPlaylistIgnoreFolderOutputDefault()

@@ -932,22 +932,45 @@ public class BMSTable : LR2SongDBExtended.playlist
 
     internal bool RewriteCompatibleFolderPrefix(string oldPrefix, string newPrefix, out IReadOnlyDictionary<string, string> rewrittenFolders)
     {
-        IReadOnlyDictionary<string, string> folderMap = CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix);
-        if (folderMap.Count == 0)
-        {
-            rewrittenFolders = folderMap;
-            return false;
-        }
-        rewrittenFolders = folderMap;
+        CompatibleFolderPrefixRewritePlan rewritePlan = CreateCompatibleFolderPrefixRewritePlan(oldPrefix, newPrefix);
+        rewrittenFolders = rewritePlan.FolderMap;
+        return ApplyCompatibleFolderPrefixRewritePlan(rewritePlan);
+    }
 
+    internal CompatibleFolderPrefixRewritePlan CreateCompatibleFolderPrefixRewritePlan(string oldPrefix, string newPrefix)
+    {
+        IReadOnlyDictionary<string, string> folderMap = CreateValidatedCompatibleFolderPrefixRewriteMap(oldPrefix, newPrefix);
+        var entryRewrites = new List<CompatibleFolderPrefixEntryRewrite>();
         foreach (BMSTableEntry entry in entries ?? [])
         {
             if (entry != null && folderMap.TryGetValue(entry.folder ?? string.Empty, out string rewrittenFolder))
             {
-                entry.folder = rewrittenFolder;
+                entryRewrites.Add(new CompatibleFolderPrefixEntryRewrite(entry, rewrittenFolder));
             }
         }
-        Folder_order = [.. (Folder_order ?? []).Select(folder => folderMap.TryGetValue(folder ?? string.Empty, out string rewrittenFolder) ? rewrittenFolder : folder).Distinct(StringComparer.Ordinal)];
+        List<string> rewrittenFolderOrder = [.. (Folder_order ?? [])
+            .Select(folder => folderMap.TryGetValue(folder ?? string.Empty, out string rewrittenFolder) ? rewrittenFolder : folder)
+            .Distinct(StringComparer.Ordinal)];
+        return new CompatibleFolderPrefixRewritePlan(folderMap, entryRewrites, rewrittenFolderOrder);
+    }
+
+    internal bool ApplyCompatibleFolderPrefixRewritePlan(CompatibleFolderPrefixRewritePlan rewritePlan)
+    {
+        if (rewritePlan == null)
+        {
+            throw new ArgumentNullException(nameof(rewritePlan));
+        }
+        IReadOnlyDictionary<string, string> folderMap = rewritePlan.FolderMap;
+        if (folderMap.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (CompatibleFolderPrefixEntryRewrite entryRewrite in rewritePlan.EntryRewrites)
+        {
+            entryRewrite.Entry.folder = entryRewrite.RewrittenFolder;
+        }
+        Folder_order = [.. rewritePlan.RewrittenFolderOrder];
         RebuildFolderState();
         TouchPlaylistEntriesRevision();
         return true;
@@ -1382,4 +1405,36 @@ public class BMSTable : LR2SongDBExtended.playlist
             : folderName.ReplaceFromStart(sourceCompatPrefix, string.Empty);
         return (targetCompatPrefix ?? string.Empty) + compatibleLevel;
     }
+}
+
+internal sealed class CompatibleFolderPrefixRewritePlan
+{
+    internal CompatibleFolderPrefixRewritePlan(
+        IReadOnlyDictionary<string, string> folderMap,
+        IReadOnlyList<CompatibleFolderPrefixEntryRewrite> entryRewrites,
+        IReadOnlyList<string> rewrittenFolderOrder)
+    {
+        FolderMap = folderMap ?? throw new ArgumentNullException(nameof(folderMap));
+        EntryRewrites = entryRewrites ?? throw new ArgumentNullException(nameof(entryRewrites));
+        RewrittenFolderOrder = rewrittenFolderOrder ?? throw new ArgumentNullException(nameof(rewrittenFolderOrder));
+    }
+
+    internal IReadOnlyDictionary<string, string> FolderMap { get; }
+
+    internal IReadOnlyList<CompatibleFolderPrefixEntryRewrite> EntryRewrites { get; }
+
+    internal IReadOnlyList<string> RewrittenFolderOrder { get; }
+}
+
+internal sealed class CompatibleFolderPrefixEntryRewrite
+{
+    internal CompatibleFolderPrefixEntryRewrite(BMSTableEntry entry, string rewrittenFolder)
+    {
+        Entry = entry ?? throw new ArgumentNullException(nameof(entry));
+        RewrittenFolder = rewrittenFolder ?? string.Empty;
+    }
+
+    internal BMSTableEntry Entry { get; }
+
+    internal string RewrittenFolder { get; }
 }

@@ -28,18 +28,27 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
             ?? throw new InvalidOperationException("Playlist property dialog is not hosted by MainWindow.");
     }
 
-    private void CancelAndClose(object sender, RoutedEventArgs e)
+    private async void CancelAndClose(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is PlaylistPropertyDialogViewModel playlistPropertyDialogViewModel)
         {
-            if (playlistPropertyDialogViewModel.ResetProperties())
+            try
             {
-                playlistPropertyDialogViewModel.Dispose();
-                GetDialogHost().ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel);
+                PlaylistPropertyDialogOperationResult result =
+                    await playlistPropertyDialogViewModel.ResetPropertiesAsync();
+                if (result == PlaylistPropertyDialogOperationResult.Completed)
+                {
+                    playlistPropertyDialogViewModel.Dispose();
+                    GetDialogHost().ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel);
+                }
+                else if (result == PlaylistPropertyDialogOperationResult.ValidationFailed)
+                {
+                    ShowValidationError();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "プレイリスト名・URI・出力先フォルダ名を確認して下さい。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand);
+                ShowOperationFailure(ex);
             }
         }
     }
@@ -48,17 +57,45 @@ public partial class PlaylistPropertyDialog : UserControl, IComponentConnector
     {
         if (base.DataContext is PlaylistPropertyDialogViewModel playlistPropertyDialogViewModel)
         {
-            if (playlistPropertyDialogViewModel.SaveProperties())
+            try
             {
-                playlistPropertyDialogViewModel.Dispose();
-                GetDialogHost().ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel);
-                await playlistPropertyDialogViewModel.ApplyPostSaveUpdatesAsync();
+                PlaylistPropertyDialogOperationResult result =
+                    await playlistPropertyDialogViewModel.SaveAndApplyAsync();
+                if (result == PlaylistPropertyDialogOperationResult.Completed)
+                {
+                    playlistPropertyDialogViewModel.Dispose();
+                    GetDialogHost().ClosePlaylistPropertyDialog(playlistPropertyDialogViewModel);
+                }
+                else if (result == PlaylistPropertyDialogOperationResult.ValidationFailed)
+                {
+                    ShowValidationError();
+                }
             }
-            else
+            catch (Exception ex)
             {
-                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), "プレイリスト名・URI・出力先フォルダ名を確認して下さい。", "エラー", MessageBoxButton.OK, MessageBoxImage.Hand);
+                ShowOperationFailure(ex);
             }
         }
+    }
+
+    private void ShowValidationError()
+    {
+        UiDialogRoute.ShowMessageBox(
+            Window.GetWindow(this),
+            "プレイリスト名・URI・出力先フォルダ名を確認して下さい。",
+            "エラー",
+            MessageBoxButton.OK,
+            MessageBoxImage.Hand);
+    }
+
+    private void ShowOperationFailure(Exception exception)
+    {
+        UiDialogRoute.ShowMessageBox(
+            Window.GetWindow(this),
+            BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + exception,
+            BeMusicSeeker.Properties.Resources.Error,
+            MessageBoxButton.OK,
+            MessageBoxImage.Hand);
     }
 
     private void folderListUp(object sender, RoutedEventArgs e)

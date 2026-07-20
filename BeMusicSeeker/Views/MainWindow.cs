@@ -1173,13 +1173,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (e?.Data == null
             || !CustomTableDataTransfer.HasRowDragKind(e.Data, CustomTableRowDragKind.PlaylistSummaryRows)
             || base.DataContext is not MainWindowViewModel viewModel
-            || !viewModel.PlaylistWorkspace.IsPlaylistSummarySortedByBmtSortAscending
             || !CustomTableDataTransfer.TryGetSelectedRows(e.Data, out List<object> selectedRows))
         {
             return false;
         }
         draggedRows = [.. selectedRows.OfType<PlaylistSummaryRow>().Where(row => row?.TableRef != null && row.PlaylistId.HasValue)];
-        if (draggedRows.Count == 0)
+        if (!viewModel.PlaylistWorkspace.CanDropSummaryRowsInBmtOrder(draggedRows))
         {
             return false;
         }
@@ -1391,7 +1390,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is not MainWindowViewModel viewModel
             || e.Row is not PlaylistSummaryRow playlistSummaryRow
             || playlistSummaryRow.TableRef == null
-            || !CanOpenPlaylistEditDialog(viewModel)
             || !viewModel.PlaylistWorkspace.CanBeginSummaryPropertyEdit(playlistSummaryRow, e.EditPropertyName))
         {
             e.Cancel = true;
@@ -1442,35 +1440,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        switch (e.Column?.Id)
+        if (base.DataContext is MainWindowViewModel viewModel)
         {
-            case "Link":
-                await OpenPlaylistSummaryUriAsync(playlistSummaryRow.LinkUri).Logging("customTablePlaylistSummary_CellActionRequested_Link");
-                break;
-            case "Header":
-                await OpenPlaylistSummaryUriAsync(playlistSummaryRow.HeaderUri).Logging("customTablePlaylistSummary_CellActionRequested_Header");
-                break;
-            case "Data":
-                await OpenPlaylistSummaryUriAsync(playlistSummaryRow.DataUri).Logging("customTablePlaylistSummary_CellActionRequested_Data");
-                break;
-            case "IsExternalSync":
-            case "IsRootFolder":
-            case "IsBmtOutput":
-                if (base.DataContext is MainWindowViewModel viewModel)
-                {
-                    bool value = e.Column.Id switch
-                    {
-                        "IsExternalSync" => !playlistSummaryRow.IsExternalSync,
-                        "IsRootFolder" => !playlistSummaryRow.IsRootFolder,
-                        "IsBmtOutput" => !playlistSummaryRow.IsBmtOutput,
-                        _ => false
-                    };
-                    await viewModel.PlaylistWorkspace.ApplyPlaylistSummaryCellActionAsync(
-                        getSelectedPlaylistSummaryRows(playlistSummaryRow),
-                        e.Column.Id,
-                        value).Logging("customTablePlaylistSummary_CellActionRequested_" + e.Column.Id);
-                }
-                break;
+            await viewModel.PlaylistWorkspace.HandlePlaylistSummaryCellActionAsync(
+                getSelectedPlaylistSummaryRows(playlistSummaryRow),
+                playlistSummaryRow,
+                e.Column?.Id).Logging("customTablePlaylistSummary_CellActionRequested");
         }
     }
 
@@ -3031,31 +3006,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// <returns>プレイリストツリー項目の選択に成功した場合は <see langword="true"/>。</returns>
     private bool TrySelectPlaylistTreeItemFromSummary(PlaylistSummaryRow playlistSummaryRow)
     {
-        if (playlistSummaryRow?.TableRef == null)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return false;
         }
-        BMSTable selectionTarget = FindReloadedPlaylistTable(playlistSummaryRow.TableRef);
-        bool restoredByHeader = false;
-        if (selectionTarget == null)
-        {
-            selectionTarget = FindPlaylistTableByName(playlistSummaryRow.Name);
-            restoredByHeader = selectionTarget != null;
-        }
+        BMSTable selectionTarget =
+            viewModel.PlaylistWorkspace.ResolveActivePlaylistSummaryTable(playlistSummaryRow);
         string playlistName = selectionTarget?.name ?? playlistSummaryRow.Name ?? string.Empty;
         string playlistId = playlistSummaryRow.PlaylistId?.ToString() ?? string.Empty;
         if (selectionTarget == null)
         {
-            NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=false reason=target_not_found table=" + playlistName + " playlistId=" + playlistId + " fallbackByHeader=" + restoredByHeader);
+            NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=false reason=target_not_found table=" + playlistName + " playlistId=" + playlistId);
             return false;
         }
         bool selected = TrySelectPlaylistTreeItem(selectionTarget, out bool usedVirtualizationFallback, out bool realizeByIndexAvailable);
         if (!selected)
         {
-            NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=false reason=container_not_realized table=" + playlistName + " playlistId=" + playlistId + " fallbackByHeader=" + restoredByHeader + " realize_by_index_available=" + realizeByIndexAvailable);
+            NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=false reason=container_not_realized table=" + playlistName + " playlistId=" + playlistId + " realize_by_index_available=" + realizeByIndexAvailable);
             return false;
         }
-        NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=true table=" + playlistName + " playlistId=" + playlistId + " fallbackByHeader=" + restoredByHeader + " usedVirtualizationFallback=" + usedVirtualizationFallback + " expanded=true");
+        NLogWrapper.FileLogger?.Info("playlist_summary_double_click_select success=true table=" + playlistName + " playlistId=" + playlistId + " usedVirtualizationFallback=" + usedVirtualizationFallback + " expanded=true");
         return true;
     }
 
@@ -3202,45 +3172,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         return FindDescendant<VirtualizingStackPanel>(playlistItemsPresenter);
     }
 
-    /// <summary>
-    /// 指定されたプレイリスト名に一致するトップレベルプレイリストを検索します。
-    /// </summary>
-    /// <param name="playlistName">検索対象のプレイリスト名。</param>
-    /// <returns>一致する <see cref="BMSTable"/>。見つからない場合は <see langword="null"/>。</returns>
-    private BMSTable FindPlaylistTableByName(string playlistName)
-    {
-        if (string.IsNullOrWhiteSpace(playlistName))
-        {
-            return null;
-        }
-        return treeViewItemPlaylist.Items.OfType<BMSTable>().FirstOrDefault(playlistTable => playlistTable != null && string.Equals(playlistTable.name, playlistName, StringComparison.Ordinal));
-    }
-
     private async void playlistSummaryLinkClick(object sender, RoutedEventArgs e)
     {
-        if (!(sender is Button { DataContext: PlaylistSummaryRow playlistSummaryRow }) || playlistSummaryRow.LinkUri == null)
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || sender is not Button { DataContext: PlaylistSummaryRow playlistSummaryRow })
         {
             return;
         }
-        await OpenPlaylistSummaryUriAsync(playlistSummaryRow.LinkUri).Logging("playlistSummaryLinkClick");
-    }
-
-    private Task OpenPlaylistSummaryUriAsync(Uri uri)
-    {
-        if (uri == null)
-        {
-            return Task.CompletedTask;
-        }
-        return Task.Run(delegate
-        {
-            try
-            {
-                Process.Start(uri.ToString());
-            }
-            catch
-            {
-            }
-        });
+        await viewModel.PlaylistWorkspace.OpenPlaylistSummaryUriAsync(playlistSummaryRow.LinkUri)
+            .Logging("playlistSummaryLinkClick");
     }
 
     private async void playlistSummaryContextMenuResyncClick(object sender, RoutedEventArgs e)
@@ -3260,9 +3200,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private async void playlistSummaryContextMenuOpenPageClick(object sender, RoutedEventArgs e)
     {
         PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
-        if (playlistSummaryRow?.LinkUri != null)
+        if (base.DataContext is MainWindowViewModel viewModel && playlistSummaryRow != null)
         {
-            await OpenPlaylistSummaryUriAsync(playlistSummaryRow.LinkUri).Logging("playlistSummaryContextMenuOpenPageClick");
+            await viewModel.PlaylistWorkspace.OpenPlaylistSummaryUriAsync(playlistSummaryRow.LinkUri)
+                .Logging("playlistSummaryContextMenuOpenPageClick");
         }
     }
 
@@ -3309,7 +3250,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel && CanOpenPlaylistEditDialog(mainWindowViewModel))
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel)
         {
             PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel dialog =
                 mainWindowViewModel.PlaylistWorkspace.OpenSummaryBulkEditDialog(selectedPlaylistSummaryRows);
@@ -3322,34 +3263,27 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void playlistSummaryContextMenuOpenPropertyClick(object sender, RoutedEventArgs e)
+    private async void playlistSummaryContextMenuOpenPropertyClick(object sender, RoutedEventArgs e)
     {
         PlaylistSummaryRow playlistSummaryRow = resolvePlaylistSummaryRowFromSender(sender);
         if (playlistSummaryRow?.TableRef == null)
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel && CanOpenPlaylistEditDialog(mainWindowViewModel))
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel)
         {
-            OpenPlaylistPropertyDialog(mainWindowViewModel, playlistSummaryRow.TableRef);
+            await OpenPlaylistPropertyDialogAsync(
+                mainWindowViewModel,
+                playlistSummaryRow.TableRef);
         }
     }
 
-    private static bool CanOpenPlaylistEditDialog(MainWindowViewModel viewModel)
-    {
-        return viewModel != null
-            && viewModel.PlaylistWorkspace != null
-            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin
-            && !viewModel.PlaylistWorkspace.IsWriteLockHeldBMSTables
-            && !viewModel.PlaylistWorkspace.IsWriteLockHeldAnyBMSTable;
-    }
-
-    private void OpenPlaylistPropertyDialog(
+    private async Task OpenPlaylistPropertyDialogAsync(
         MainWindowViewModel viewModel,
-        BMSTable table,
-        bool isNewTable = false)
+        BMSTable table)
     {
-        PlaylistPropertyDialogViewModel dialog = viewModel.PlaylistWorkspace.OpenPropertyDialog(table, isNewTable);
+        PlaylistPropertyDialogViewModel dialog =
+            await viewModel.PlaylistWorkspace.OpenPropertyDialogAsync(table);
         if (dialog == null)
         {
             return;
@@ -3676,9 +3610,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem != null)
         {
-            menuItem.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin
-                && !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTables
-                && !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldAnyBMSTable;
+            menuItem.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanOpenPlaylistEditDialog;
         }
         if (menuItem2 != null)
         {
@@ -3701,20 +3633,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     private async void treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem || !CanOpenPlaylistEditDialog(viewModel))
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem)
         {
             return;
         }
         try
         {
-            if (!CanOpenPlaylistEditDialog(viewModel))
+            PlaylistPropertyDialogViewModel dialog = await viewModel.PlaylistWorkspace
+                .CreatePlaylistPropertyDialogAsync()
+                .Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
+            if (dialog != null)
             {
-                return;
-            }
-            BMSTable bMSTable = await viewModel.PlaylistWorkspace.CreatePlaylistAsync().Logging("treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
-            if (bMSTable != null)
-            {
-                OpenPlaylistPropertyDialog(viewModel, bMSTable, isNewTable: true);
+                playlistPropertyDialog.DataContext = dialog;
+                ShowOverlayDialog(playlistPropertyDialog);
             }
         }
         catch
@@ -3838,9 +3769,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         menuItem4.IsEnabled = !dataContext.is_external_sync;
         menuItem3.IsEnabled = true;
         menuItem5.IsEnabled = true;
-        menuItem6.IsEnabled = !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTablesInitializeMin
-            && !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldBMSTables
-            && !mainWindowViewModel.PlaylistWorkspace.IsWriteLockHeldAnyBMSTable;
+        menuItem6.IsEnabled = mainWindowViewModel.PlaylistWorkspace.CanOpenPlaylistEditDialog;
     }
 
     /// <summary>
@@ -3853,17 +3782,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await viewModel.PlaylistWorkspace.ResyncPlaylistsAsync([table]).Logging("treeViewPlaylistTableContextMenuItemReloadClick");
-        RestorePlaylistTableSelectionAfterReload(table);
+        BMSTable selectionTarget = await viewModel.PlaylistWorkspace
+            .ResyncPlaylistTableAsync(table)
+            .Logging("treeViewPlaylistTableContextMenuItemReloadClick");
+        RestorePlaylistTableSelectionAfterReload(selectionTarget);
     }
 
-    private void RestorePlaylistTableSelectionAfterReload(BMSTable tableBeforeReload)
+    private void RestorePlaylistTableSelectionAfterReload(BMSTable selectionTarget)
     {
-        if (tableBeforeReload == null)
-        {
-            return;
-        }
-        BMSTable selectionTarget = FindReloadedPlaylistTable(tableBeforeReload);
         if (selectionTarget == null)
         {
             NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload skipped reason=target_not_found");
@@ -3878,36 +3804,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         NLogWrapper.FileLogger?.Info("playlist_selection_restore_single_reload restored=true table=" + selectionTarget.name + " expanded=true usedVirtualizationFallback=" + usedVirtualizationFallback);
     }
 
-    private BMSTable FindReloadedPlaylistTable(BMSTable tableBeforeReload)
-    {
-        IEnumerable<BMSTable> source = treeViewItemPlaylist.Items.OfType<BMSTable>();
-        if (tableBeforeReload.playlist_id.HasValue)
-        {
-            BMSTable byId = source.FirstOrDefault(t => t != null && t.playlist_id.HasValue && t.playlist_id.Value == tableBeforeReload.playlist_id.Value);
-            if (byId != null)
-            {
-                return byId;
-            }
-        }
-        string pageUrl = tableBeforeReload.Page_url?.AbsoluteUri ?? string.Empty;
-        string headerUrl = tableBeforeReload.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty;
-        BMSTable byUrl = source.FirstOrDefault(delegate (BMSTable t)
-        {
-            if (t == null)
-            {
-                return false;
-            }
-            string text = t.Page_url?.AbsoluteUri ?? string.Empty;
-            string text2 = t.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty;
-            return string.Equals(text, pageUrl, StringComparison.OrdinalIgnoreCase) && string.Equals(text2, headerUrl, StringComparison.OrdinalIgnoreCase);
-        });
-        if (byUrl != null)
-        {
-            return byUrl;
-        }
-        return source.FirstOrDefault(t => t != null && string.Equals(t.name, tableBeforeReload.name, StringComparison.Ordinal));
-    }
-
     /// <summary>
     /// テーブル階層コンテキストメニュー「配布ページを開く」実行時の処理。
     /// BMSTableに設定されたURL (Page_url または Header_url) を標準ブラウザ等で開きます。
@@ -3920,10 +3816,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (mainWindowViewModel.PlaylistWorkspace.TryResolvePlaylistTablePageUri(dataContext, out Uri uri))
-        {
-            Process.Start(uri.ToString());
-        }
+        mainWindowViewModel.PlaylistWorkspace.OpenPlaylistTablePage(dataContext);
     }
 
     /// <summary>
@@ -3933,10 +3826,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void treeViewPlaylistTableContextMenuItemOpenClearLampClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is MainWindowViewModel mainWindowViewModel
-            && sender is MenuItem { DataContext: BMSTable dataContext }
-            && mainWindowViewModel.PlaylistWorkspace.TryResolvePlaylistTableClearLampUri(dataContext, out Uri uri))
+            && sender is MenuItem { DataContext: BMSTable dataContext })
         {
-            Process.Start(uri.OriginalString);
+            mainWindowViewModel.PlaylistWorkspace.OpenPlaylistTableClearLamp(dataContext);
         }
     }
 
@@ -4053,11 +3945,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// テーブル階層コンテキストメニュー「プロパティ」実行時の処理。
     /// 選択中の難易度表（BMSTable）の詳細情報や同期URLなどを確認・編集できる専用ダイアログを開きます。
     /// </summary>
-    private void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick(object sender, RoutedEventArgs e)
+    private async void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is MainWindowViewModel mainWindowViewModel && sender is MenuItem menuItem && menuItem.DataContext is BMSTable table && CanOpenPlaylistEditDialog(mainWindowViewModel))
+        if (base.DataContext is MainWindowViewModel mainWindowViewModel
+            && sender is MenuItem { DataContext: BMSTable table })
         {
-            OpenPlaylistPropertyDialog(mainWindowViewModel, table);
+            await OpenPlaylistPropertyDialogAsync(mainWindowViewModel, table);
         }
     }
 

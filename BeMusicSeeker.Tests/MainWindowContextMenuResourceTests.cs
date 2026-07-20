@@ -131,7 +131,7 @@ public sealed class MainWindowContextMenuResourceTests
         string route = ExtractBetween(
             mainWindowSource,
             "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick",
-            "private void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick");
+            "private async void treeViewPlaylistTableCcontextMenuItemOpenPropertyDialogClick");
 
         StringAssert.Contains(route, "ConfirmPlaylistTableRemoval(bmsTable)");
         StringAssert.Contains(route, "SelectNextSiblingOrRoot(");
@@ -1465,7 +1465,7 @@ public sealed class MainWindowContextMenuResourceTests
         string externalReloadBlock = ExtractBetween(
             saveFollowup,
             "bool shouldReloadExternalPlaylist =",
-            "if (shouldReloadExternalPlaylist)");
+            ";");
         Assert.IsTrue(headerCommitIndex >= 0);
         Assert.IsTrue(fullCommitIndex >= 0);
         Assert.IsTrue(detailRefreshIndex >= 0);

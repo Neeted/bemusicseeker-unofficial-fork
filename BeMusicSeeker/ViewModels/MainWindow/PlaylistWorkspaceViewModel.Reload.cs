@@ -52,6 +52,68 @@ public sealed partial class PlaylistWorkspaceViewModel
         return ResyncPlaylistsAsync(tables);
     }
 
+    internal async Task<BMSTable> ResyncPlaylistTableAsync(BMSTable table)
+    {
+        if (table == null)
+        {
+            return null;
+        }
+
+        await ResyncPlaylistsAsync([table]);
+        return ResolveActivePlaylistTable(table, table.name);
+    }
+
+    internal BMSTable ResolveActivePlaylistSummaryTable(PlaylistSummaryRow row)
+    {
+        return row?.TableRef == null
+            ? null
+            : ResolveActivePlaylistTable(row.TableRef, row.Name);
+    }
+
+    internal BMSTable ResolveActivePlaylistTable(BMSTable previousTable, string fallbackName = null)
+    {
+        if (previousTable == null)
+        {
+            return null;
+        }
+
+        IEnumerable<BMSTable> activeTables = GetPlaylistStore().BMSTables?.Cast<BMSTable>()
+            ?? Enumerable.Empty<BMSTable>();
+        if (previousTable.playlist_id.HasValue)
+        {
+            BMSTable byId = activeTables.FirstOrDefault(candidate =>
+                candidate?.playlist_id == previousTable.playlist_id);
+            return byId;
+        }
+
+        string pageUrl = previousTable.Page_url?.AbsoluteUri ?? string.Empty;
+        string headerUrl = previousTable.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty;
+        if (!string.IsNullOrEmpty(pageUrl) || !string.IsNullOrEmpty(headerUrl))
+        {
+            BMSTable byUrl = activeTables.FirstOrDefault(candidate =>
+                candidate != null
+                && string.Equals(
+                    candidate.Page_url?.AbsoluteUri ?? string.Empty,
+                    pageUrl,
+                    StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    candidate.GetAbsoluteHeaderUrl()?.AbsoluteUri ?? string.Empty,
+                    headerUrl,
+                    StringComparison.OrdinalIgnoreCase));
+            if (byUrl != null)
+            {
+                return byUrl;
+            }
+        }
+
+        string name = string.IsNullOrWhiteSpace(fallbackName)
+            ? previousTable.name
+            : fallbackName;
+        return activeTables.FirstOrDefault(candidate =>
+            candidate != null
+            && string.Equals(candidate.name, name, StringComparison.Ordinal));
+    }
+
     internal async Task ResyncPlaylistsAsync(IEnumerable<BMSTable> tablesToResync)
     {
         if (tablesToResync == null)

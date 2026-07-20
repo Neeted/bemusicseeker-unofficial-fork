@@ -42,7 +42,11 @@
 - planning / operation Markdown、`AGENTS.md`、`.codex/config.toml`、`.codex/agents/*.toml` だけを変更する場合は、TOML 構文、文書参照、whitespace、`git diff --check` など差分に直接対応する軽量検証を行う。
 - review 済み implementation unit の cursor-only 更新は、`PLAN_STATUS.md` の変更が次の cursor 一行に限定されることと `git diff --check` を確認する。
 - script が環境要因で実行できない場合だけ、`00_Codex共通実行ルール.md` の個別コマンドを実行し、未実施項目を明示する。
-- 検証コマンドと検証用 script に固定の実行時間制限を設けない。特に 120 秒（2 分）の timeout で build / test / analyzer を打ち切らず、プロセスの完了まで待つ。
+- build / format / analyzer には固定の実行時間制限を設けず、プロセスの完了まで待つ。test は root を拘束する直接実行ではなく、`scripts/verify-refactor.ps1` の監視付き test process として実行する。開始から 180 秒で未完なら process tree snapshot を保存し、testhost を停止して blame sequence を確定し、異常調査を開始する。診断開始後も test runner が戻らない場合は bounded grace period 後に残る process tree を停止する。180 秒到達後に runner が終了コード 0 を返しても検証は失敗とする。120 秒 timeout は使用しない。
+- Codex から検証を起動するときは、実行プロセスを継続したまま 10 秒以内に制御が戻る resumable execution cell を使い、終了まで 60 秒以内の間隔でポーリングする。一つの同期 tool call で完了まで待たない。resumable execution cell を使えない場合は、標準出力と終了状態を artifact へ保存する background process として起動し、60 秒以内の間隔で監視する。このポーリングは test process の timeout ではなく、Codex が 180 秒到達時に必ず診断結果を回収して調査へ移るための制御手順とする。
+- 180 秒で診断へ移った test は失敗として扱う。保存した sequence と process snapshot から実行中 test、process、dispatcher / scheduler / async wait、共有状態、I/O、重複・無駄な test work を特定し、原因を修正してから同じ test scope を再実行する。active unit と直接関係しない test でも対象とし、修正は発見した implementation unit の差分と commit に含める。
+- process 列挙、diagnostic artifact 保存、testhost 停止のいずれかが失敗した場合は診断成功として扱わず、monitored root process tree を停止して診断開始失敗を明示する。
+- 180 秒超過が hang、isolation 不良、無駄な待機ではなく、必要な test 件数・処理量による正当な所要時間だと command output と test breakdown で確認できた場合は、実測根拠に基づいて監視閾値を見直す。個別実行の成功や単なる再実行だけで閾値を延長しない。
 - UI smoke の対象は、Release build が完了したリポジトリ内の `bin\x64\Release\net472\BeMusicSeeker.exe` だけとする。インストール版の executable path を取得・列挙・起動してはならない。起動後は対象 process の executable path がこの resolved path と一致することを確認し、一致を確認できない場合は UI 操作を行わず smoke 未実施として扱う。
 - targeted / Full test で失敗を検出した場合、直接の変更箇所と無関係に見えても「既知」「baseline」「flaky」として放置しない。コンテキスト圧縮前の変更で発生した可能性を前提に、Git 履歴と現行実装を確認し、実装または期待値を修正して最終差分で再検証する。
 - 全体実行で失敗し個別実行で成功する test は、成功した個別再実行を根拠に合格扱いしない。共有状態、実行順、非同期完了条件、dispatcher / scheduler、時刻・ファイル・DB isolation を調査し、observable completion を待つ、専用状態へ隔離するなど test 構造を改善してから全体実行を再確認する。

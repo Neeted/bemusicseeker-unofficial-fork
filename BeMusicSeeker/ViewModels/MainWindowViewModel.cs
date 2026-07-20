@@ -3606,7 +3606,7 @@ public partial class MainWindowViewModel : ViewModel
                 reason,
                 null,
                 work),
-            action => DispatcherHelper.UIDispatcher.InvokeAsync(action).Task,
+            ApplyMainChartListPresentationActionAsync,
             () => DispatcherHelper.UIDispatcher.CheckAccess());
         PlaylistWorkspace.TreeSelectionActivated += PlaylistWorkspaceTreeSelectionActivated;
         PlaylistWorkspace.PlaylistDetailScoreSnapshotRefreshRequested += PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested;
@@ -4041,6 +4041,16 @@ public partial class MainWindowViewModel : ViewModel
     private void DispatchMainChartListPresentationAction(Action action)
     {
         InvokeMainChartListPresentationAction(action);
+    }
+
+    private Task ApplyMainChartListPresentationActionAsync(Action action)
+    {
+        if (!InvokeMainChartListPresentationAction(action))
+        {
+            return Task.FromException(
+                new InvalidOperationException("The UI dispatcher is shutting down."));
+        }
+        return Task.CompletedTask;
     }
 
     private bool InvokeMainChartListPresentationAction(Action action)

@@ -52,9 +52,11 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
 
     private PlaylistPropertyEditSession editSession;
 
-    private PlaylistPropertySaveCommit pendingSaveCommit;
-
     private readonly bool isForNewTable;
+
+    private int operationInProgress;
+
+    private PlaylistPropertySaveCommit incompletePostSaveCommit;
 
     private ObservableCollection<string> _folder_order;
 
@@ -500,13 +502,12 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
 
     internal PlaylistPropertyDialogViewModel(
         PlaylistPropertySaveService service,
-        BMSTable table,
-        bool isForNewTable = false)
+        PlaylistPropertyEditSession preparedSession)
     {
         saveService = service ?? throw new ArgumentNullException(nameof(service));
-        bmsTable = table ?? throw new ArgumentNullException(nameof(table));
-        this.isForNewTable = isForNewTable;
-        editSession = saveService.BeginEdit(bmsTable, isForNewTable);
+        editSession = preparedSession ?? throw new ArgumentNullException(nameof(preparedSession));
+        bmsTable = editSession.Table;
+        isForNewTable = editSession.IsNewTable;
         temp_custom_folder_output_settings = editSession.Settings;
         loadTableProperties(editSession.Values);
     }
@@ -593,15 +594,29 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         return saveService.IsOutputDirectoryValid(editSession, name, storedValue);
     }
 
-    public bool ResetProperties()
+    internal async Task<PlaylistPropertyDialogOperationResult> ResetPropertiesAsync()
     {
-        PlaylistPropertyValues values = saveService.Reset(editSession);
-        loadTableProperties(values);
-        if (isForNewTable)
+        if (Interlocked.CompareExchange(ref operationInProgress, 1, 0) != 0)
         {
-            return true;
+            return PlaylistPropertyDialogOperationResult.Busy;
         }
-        return CheckValidation();
+        try
+        {
+            if (incompletePostSaveCommit != null)
+            {
+                throw new InvalidOperationException(
+                    "Playlist save follow-up is incomplete. Retry Save before closing the dialog.");
+            }
+            PlaylistPropertyValues values = await saveService.ResetAsync(editSession);
+            loadTableProperties(values);
+            return isForNewTable || CheckValidation()
+                ? PlaylistPropertyDialogOperationResult.Completed
+                : PlaylistPropertyDialogOperationResult.ValidationFailed;
+        }
+        finally
+        {
+            Volatile.Write(ref operationInProgress, 0);
+        }
     }
 
     public bool CheckValidation()
@@ -609,12 +624,71 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         return saveService.IsValid(editSession, CreatePropertyValues());
     }
 
-    public bool SaveProperties()
+    internal async Task<PlaylistPropertyDialogOperationResult> SaveAndApplyAsync()
     {
-        PlaylistPropertyValues values = CreatePropertyValues();
-        bool saved = saveService.TrySave(editSession, values, out PlaylistPropertySaveCommit commit);
-        pendingSaveCommit = saved ? commit : null;
-        return saved;
+        if (Interlocked.CompareExchange(ref operationInProgress, 1, 0) != 0)
+        {
+            return PlaylistPropertyDialogOperationResult.Busy;
+        }
+        PlaylistPropertySaveCommit commit = null;
+        try
+        {
+            PlaylistPropertyValues values = CreatePropertyValues();
+            if (incompletePostSaveCommit != null)
+            {
+                if (!PlaylistPropertyValues.ContentEquals(
+                    incompletePostSaveCommit.AppliedValues,
+                    values))
+                {
+                    throw new InvalidOperationException(
+                        "Playlist save follow-up must be retried before changing properties again.");
+                }
+                if (!await saveService.IsRetryTargetCurrentAsync(
+                    editSession,
+                    incompletePostSaveCommit))
+                {
+                    throw new InvalidOperationException(
+                        "Playlist properties changed while save follow-up was pending. Reopen the dialog before saving again.");
+                }
+                commit = incompletePostSaveCommit;
+            }
+            else
+            {
+                commit = await saveService.TrySaveAsync(editSession, values);
+                if (commit == null)
+                {
+                    return PlaylistPropertyDialogOperationResult.ValidationFailed;
+                }
+            }
+            await Task.Run(() => saveService.ApplyPostSaveUpdatesAsync(commit));
+            bmsTable = commit.Table;
+            incompletePostSaveCommit = null;
+            return PlaylistPropertyDialogOperationResult.Completed;
+        }
+        catch (Exception saveFailure) when (commit != null)
+        {
+            incompletePostSaveCommit = commit;
+            try
+            {
+                PlaylistPropertyEditSession reconciledSession =
+                    await saveService.ReconcileFailedSaveAsync(editSession, commit);
+                editSession.Dispose();
+                editSession = reconciledSession;
+                bmsTable = reconciledSession.Table;
+                loadTableProperties(reconciledSession.Values);
+                commit.AppliedValues = CreatePropertyValues();
+            }
+            catch (Exception reconciliationFailure)
+            {
+                throw new AggregateException(saveFailure, reconciliationFailure).Flatten();
+            }
+            ExceptionDispatchInfo.Capture(saveFailure).Throw();
+            throw new InvalidOperationException("Playlist save failure propagation unexpectedly returned.");
+        }
+        finally
+        {
+            Volatile.Write(ref operationInProgress, 0);
+        }
     }
 
     private PlaylistPropertyValues CreatePropertyValues()
@@ -680,16 +754,6 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
         RaisePropertyChanged(() => compat_prefix);
     }
 
-    internal async Task ApplyPostSaveUpdatesAsync()
-    {
-        PlaylistPropertySaveCommit commit = pendingSaveCommit
-            ?? throw new InvalidOperationException("Playlist properties have not been saved.");
-        await saveService.ApplyPostSaveUpdatesAsync(commit);
-        bmsTable = commit.Table;
-        pendingSaveCommit = null;
-        return;
-    }
-
     protected override void Dispose(bool disposing)
     {
         if (disposing)
@@ -698,4 +762,11 @@ public sealed partial class PlaylistPropertyDialogViewModel : ViewModel
             editSession = null;
         }
     }
+}
+
+internal enum PlaylistPropertyDialogOperationResult
+{
+    Completed,
+    ValidationFailed,
+    Busy
 }

@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -689,7 +690,7 @@ public sealed class BmsPlaylistUpdateTests
             Assert.IsTrue(workspace.ContainsActivePlaylistSummaryRows([new PlaylistSummaryRow { TableRef = table }]));
 
             File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"title\":\"Before\",\"artist\":\"Artist\",\"level\":\"1\"},{\"md5\":\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\",\"title\":\"After\",\"artist\":\"Artist\",\"level\":\"2\"}]"));
-            await workspace.ResyncPlaylistsAsync([table]);
+            BMSTable firstSelectionTarget = await workspace.ResyncPlaylistTableAsync(table);
 
             Assert.AreEqual(
                 1,
@@ -705,6 +706,7 @@ public sealed class BmsPlaylistUpdateTests
 
             BMSTable reloadedTable = playlist.BMSTables.Single();
             Assert.AreNotSame(table, reloadedTable);
+            Assert.AreSame(reloadedTable, firstSelectionTarget);
             PlaylistDetailSelection reloadedSelection = workspace.CapturePlaylistDetailSelection()
                 ?? throw new AssertFailedException("Replacement detail selection was not retained.");
             Assert.AreSame(reloadedTable, reloadedSelection.Table);
@@ -715,10 +717,11 @@ public sealed class BmsPlaylistUpdateTests
 
             reloadedTable.header_sha256 = null;
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"WorkspaceTarget\",\r\n\"symbol\":\"W\",\r\n\"tag\":\"header-refresh\",\r\n\"data_url\":\"./workspace-score.json\",\r\n\"level_order\":[1]\r\n}"));
-            await workspace.ResyncPlaylistsAsync([reloadedTable]);
+            BMSTable secondSelectionTarget = await workspace.ResyncPlaylistTableAsync(reloadedTable);
             Assert.AreEqual(2, referenceSortInvalidationCount);
             BMSTable headerRefreshedTable = playlist.BMSTables.Single();
             Assert.AreNotSame(reloadedTable, headerRefreshedTable);
+            Assert.AreSame(headerRefreshedTable, secondSelectionTarget);
             Assert.AreSame(headerRefreshedTable, workspace.CapturePlaylistDetailSelection().Table);
             Assert.IsFalse(workspace.ContainsActivePlaylistTable(reloadedTable));
             Assert.IsTrue(workspace.ContainsActivePlaylistTable(headerRefreshedTable));
@@ -732,10 +735,11 @@ public sealed class BmsPlaylistUpdateTests
             headerRefreshedTable.header_sha256 = null;
             File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{"));
             Uri failureUri = headerRefreshedTable.Page_url ?? headerRefreshedTable.Header_url;
-            await workspace.ResyncPlaylistsAsync([headerRefreshedTable]);
+            BMSTable failureSelectionTarget = await workspace.ResyncPlaylistTableAsync(headerRefreshedTable);
             Assert.AreEqual(1, failureLogs.Count);
             Assert.AreEqual(2, referenceSortInvalidationCount);
             Assert.AreSame(headerRefreshedTable, workspace.CapturePlaylistDetailSelection().Table);
+            Assert.AreSame(headerRefreshedTable, failureSelectionTarget);
             Assert.IsNotNull(failureLogs[0].Exception);
             Assert.AreEqual(
                 "playlist_manual_resync_failed table=WorkspaceTarget uri=" + failureUri,
@@ -1078,6 +1082,102 @@ public sealed class BmsPlaylistUpdateTests
             playlist.RemoveBMSTable(table);
 
             Assert.ThrowsException<InvalidOperationException>(() => playlist.CommitBMSTableEntry(entry));
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(0, verify.Table<BMSTable>().Count(row => row.playlist_id == table.playlist_id));
+            Assert.AreEqual(0, verify.Table<BMSTableEntry>().Count(row => row.playlist_id == table.playlist_id));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void CreateBMSTable_CollectionNotificationFailureRollsBackVisibleMembership()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>(),
+                    Dispatcher.CurrentDispatcher)
+            };
+            playlist.BMSTables.CollectionChanged += (_, request) =>
+            {
+                if (request.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Add)
+                {
+                    throw new InvalidOperationException("test add notification failure");
+                }
+            };
+
+            InvalidOperationException failure =
+                Assert.ThrowsException<InvalidOperationException>(() => playlist.CreateBMSTable());
+
+            Assert.AreEqual("test add notification failure", failure.Message);
+            Assert.AreEqual(0, playlist.BMSTables.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public void RemoveBMSTable_CollectionNotificationFailureLeavesVisibleAndDurableStateRemoved()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable table = new()
+            {
+                playlist_id = 9033,
+                name = "RemovalNotificationFailure",
+                entries = [CreateEntry("cccccccccccccccccccccccccccccccc", "Removed")]
+            };
+            using (var setup = new LR2SongDBExtended(songDbPath))
+            {
+                setup.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                setup.InsertOrReplace(table.entries.Single(), typeof(LR2SongDBExtended.playlist_entry));
+            }
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            playlist.BMSTables.CollectionChanged += (_, request) =>
+            {
+                if (request.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Remove)
+                {
+                    throw new InvalidOperationException("test remove notification failure");
+                }
+            };
+
+            InvalidOperationException notificationFailure = Assert.ThrowsException<InvalidOperationException>(
+                () => playlist.RemoveBMSTable(table));
+
+            Assert.AreEqual("test remove notification failure", notificationFailure.Message);
+            Assert.AreEqual(0, playlist.BMSTables.Count);
             using var verify = new LR2SongDBExtended(songDbPath);
             Assert.AreEqual(0, verify.Table<BMSTable>().Count(row => row.playlist_id == table.playlist_id));
             Assert.AreEqual(0, verify.Table<BMSTableEntry>().Count(row => row.playlist_id == table.playlist_id));
@@ -2810,7 +2910,12 @@ public sealed class BmsPlaylistUpdateTests
 
     [TestMethod]
     [TestCategory("Playlist")]
-    public async Task PlaylistPropertyDialogApplyPostSaveUpdates_UsesOpenCustomFolderSettingsSnapshot()
+    public void PlaylistPropertyDialogApplyPostSaveUpdates_UsesOpenCustomFolderSettingsSnapshot()
+    {
+        RunOnStaDispatcherThread(PlaylistPropertyDialogApplyPostSaveUpdatesCoreAsync);
+    }
+
+    private async Task PlaylistPropertyDialogApplyPostSaveUpdatesCoreAsync()
     {
         bool previousOperationModeLr2Db = Settings.Default.OperationModeLR2DB;
         string previousOutputBaseDir = Settings.Default.LR2CustomFolderOutputBaseDir;
@@ -2917,19 +3022,20 @@ public sealed class BmsPlaylistUpdateTests
                 .GetField("lr2config", BindingFlags.Instance | BindingFlags.NonPublic)
                 ?.SetValue(viewModel, config);
 
-            dialog = viewModel.PlaylistWorkspace.OpenPropertyDialog(table);
-            Assert.IsTrue(playlist.IsWriteLockHeldBMSTables);
+            dialog = await viewModel.PlaylistWorkspace.OpenPropertyDialogAsync(table);
+            Assert.IsFalse(playlist.IsWriteLockHeldBMSTables);
             CollectionAssert.AreEquivalent(
                 new[] { "Folder D", "Folder E" },
                 dialog.folder_order.ToArray());
             currentSettings = changedSettings;
             dialog.is_root_folder = true;
-            Assert.IsTrue(dialog.SaveProperties());
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.SaveAndApplyAsync());
             PlaylistPropertyDialogViewModel savedDialog = dialog;
             savedDialog.Dispose();
             Assert.IsFalse(playlist.IsWriteLockHeldBMSTables);
             dialog = null;
-            await savedDialog.ApplyPostSaveUpdatesAsync();
 
             string newOutputDirectory = Path.Combine(initialRootOutputBaseDir, table.Output_dir);
             Assert.AreEqual(1, viewModelProviderCallCount);
@@ -2955,9 +3061,11 @@ public sealed class BmsPlaylistUpdateTests
             currentSettings = new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false };
             table.entry_type = LR2SongDBExtended.playlist.EntryUnitType.Folder;
             table.ignore_folder_output = LR2SongDBExtended.playlist.CustomFolderType.UserFolder;
-            dialog = viewModel.PlaylistWorkspace.OpenPropertyDialog(table);
+            dialog = await viewModel.PlaylistWorkspace.OpenPropertyDialogAsync(table);
             dialog.symbol = "DSS3";
-            Assert.IsTrue(dialog.SaveProperties());
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.SaveAndApplyAsync());
             dialog.Dispose();
             dialog = null;
             Assert.AreEqual(
@@ -2972,6 +3080,464 @@ public sealed class BmsPlaylistUpdateTests
             Settings.Default.LR2CustomFolderOutputBaseDirRootType = previousRootOutputBaseDir;
             Settings.Default.LR2CustomFolderAdditionalOutputBaseDirs = previousAdditionalOutputBaseDirs;
             DispatcherHelper.UIDispatcher = previousDispatcher;
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistPropertyDialog_PostSaveFailureReconcilesDialogWithDurableActiveState()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var table = new BMSTable
+            {
+                playlist_id = 7313,
+                name = "PostSaveFailure",
+                symbol = "OLD",
+                Output_dir = "PostSaveFailure",
+                entries = [CreateEntry("ffffffffffffffffffffffffffffffff", "Folder")]
+            };
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                seed.InsertOrReplace(table.entries.Single(), typeof(LR2SongDBExtended.playlist_entry));
+            }
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            int libraryProviderCallCount = 0;
+            var library = new BMSLibrary(songDbPath);
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => Interlocked.Increment(ref libraryProviderCallCount) == 1
+                    ? throw new InvalidOperationException("test post-save failure")
+                    : library,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+            service.PlaylistPropertySummaryDataRefreshRequested += (_, _) => { };
+            PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            dialog = new PlaylistPropertyDialogViewModel(service, session)
+            {
+                symbol = "NEW"
+            };
+
+            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await dialog.SaveAndApplyAsync());
+
+            Assert.AreEqual("test post-save failure", failure.Message);
+            Assert.AreEqual("NEW", table.symbol);
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await dialog.ResetPropertiesAsync());
+            Assert.AreEqual("NEW", dialog.symbol);
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.SaveAndApplyAsync());
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.ResetPropertiesAsync());
+            Assert.AreEqual(2, libraryProviderCallCount);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(
+                "NEW",
+                verify.Table<BMSTable>().Single(row => row.playlist_id == table.playlist_id).symbol);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistPropertyDialog_PostSaveRetryDoesNotRewriteCompatiblePrefixTwice()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTableEntry entry = CreateEntry("abababababababababababababababab", "Alpha");
+            entry.folder = "Alpha";
+            var table = new BMSTable
+            {
+                playlist_id = 7314,
+                name = "PrefixRetry",
+                symbol = "PR",
+                Output_dir = "PrefixRetry",
+                compat_prefix = string.Empty,
+                entries = [entry],
+                Folder_order = ["Alpha"]
+            };
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var library = new BMSLibrary(songDbPath);
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => library,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            int remapRequestCount = 0;
+            service.PlaylistPropertyFolderSelectionRemapped += (_, _) =>
+            {
+                if (Interlocked.Increment(ref remapRequestCount) == 1)
+                {
+                    throw new InvalidOperationException("test remap presentation failure");
+                }
+            };
+            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+            service.PlaylistPropertyEntriesChanged += (_, _) => { };
+            PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            dialog = new PlaylistPropertyDialogViewModel(service, session)
+            {
+                compat_prefix = "★"
+            };
+
+            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await dialog.SaveAndApplyAsync());
+
+            Assert.AreEqual("test remap presentation failure", failure.Message);
+            Assert.AreEqual("★Alpha", table.entries.Single().folder);
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.SaveAndApplyAsync());
+            Assert.AreEqual("★Alpha", table.entries.Single().folder);
+            Assert.AreEqual(2, remapRequestCount);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(
+                "★Alpha",
+                verify.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id).folder);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistPropertyDialog_PrefixRewriteNotificationFailureRetriesTheFixedMap()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTableEntry entry = CreateEntry("acacacacacacacacacacacacacacacac", "Alpha");
+            entry.folder = "Alpha";
+            BMSTableEntry prefixedEntry = CreateEntry("aeaeaeaeaeaeaeaeaeaeaeaeaeaeaeae", "★Alpha");
+            prefixedEntry.folder = "★Alpha";
+            var table = new BMSTable
+            {
+                playlist_id = 7316,
+                name = "PrefixNotificationRetry",
+                symbol = "PNR",
+                Output_dir = "PrefixNotificationRetry",
+                compat_prefix = string.Empty,
+                entries = [entry, prefixedEntry],
+                Folder_order = ["Alpha", "★Alpha"]
+            };
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                seed.InsertOrReplace(prefixedEntry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => new BMSLibrary(songDbPath),
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            service.PlaylistPropertyFolderSelectionRemapped += (_, _) => { };
+            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+            service.PlaylistPropertyEntriesChanged += (_, _) => { };
+            bool failRewriteNotification = true;
+            table.PropertyChanged += (_, change) =>
+            {
+                if (failRewriteNotification
+                    && string.Equals(change.PropertyName, "Folder_order", StringComparison.Ordinal))
+                {
+                    failRewriteNotification = false;
+                    throw new InvalidOperationException("test prefix rewrite notification failure");
+                }
+            };
+            PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            dialog = new PlaylistPropertyDialogViewModel(service, session)
+            {
+                compat_prefix = "★"
+            };
+
+            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await dialog.SaveAndApplyAsync());
+
+            Assert.AreEqual("test prefix rewrite notification failure", failure.Message);
+            Assert.AreEqual("★Alpha", table.entries.Single(candidate => candidate.md5 == entry.md5).folder);
+            Assert.AreEqual("★★Alpha", table.entries.Single(candidate => candidate.md5 == prefixedEntry.md5).folder);
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.SaveAndApplyAsync());
+            Assert.AreEqual("★Alpha", table.entries.Single(candidate => candidate.md5 == entry.md5).folder);
+            Assert.AreEqual("★★Alpha", table.entries.Single(candidate => candidate.md5 == prefixedEntry.md5).folder);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.AreEqual(
+                "★Alpha",
+                verify.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.md5 == entry.md5).folder);
+            Assert.AreEqual(
+                "★★Alpha",
+                verify.Table<BMSTableEntry>().Single(row => row.playlist_id == table.playlist_id && row.md5 == prefixedEntry.md5).folder);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistPropertyDialog_PostSaveRetryRejectsAConcurrentLivePropertyChange()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTableEntry entry = CreateEntry("adadadadadadadadadadadadadadadad", "Alpha");
+            entry.folder = "Alpha";
+            var table = new BMSTable
+            {
+                playlist_id = 7317,
+                name = "PrefixStaleRetry",
+                symbol = "PSR",
+                Output_dir = "PrefixStaleRetry",
+                compat_prefix = string.Empty,
+                entries = [entry],
+                Folder_order = ["Alpha"]
+            };
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath))
+            {
+                BMSTables = new DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => new BMSLibrary(songDbPath),
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            int remapCount = 0;
+            service.PlaylistPropertyFolderSelectionRemapped += (_, _) =>
+            {
+                if (Interlocked.Increment(ref remapCount) == 1)
+                {
+                    throw new InvalidOperationException("test pending follow-up failure");
+                }
+            };
+            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+            service.PlaylistPropertyEntriesChanged += (_, _) => { };
+            PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            dialog = new PlaylistPropertyDialogViewModel(service, session)
+            {
+                compat_prefix = "★"
+            };
+
+            await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await dialog.SaveAndApplyAsync());
+            table.symbol = "CONCURRENT";
+
+            InvalidOperationException stale = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await dialog.SaveAndApplyAsync());
+
+            StringAssert.Contains(stale.Message, "changed while save follow-up was pending");
+            Assert.AreEqual("CONCURRENT", table.symbol);
+            Assert.AreEqual("★Alpha", table.entries.Single().folder);
+            Assert.AreEqual(1, remapCount);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("Playlist")]
+    public async Task PlaylistPropertyDialog_PostSaveRetryDoesNotReloadExternalSourceTwice()
+    {
+        bool previousEnablePlaylistUrlCompletion = Settings.Default.EnablePlaylistUrlCompletion;
+        Settings.Default.EnablePlaylistUrlCompletion = false;
+        string tempDirectory = Path.Combine(Path.GetTempPath(), "BmsPlaylistUpdateTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            string headerJsonPath = Path.Combine(tempDirectory, "header.json");
+            string scoreJsonPath = Path.Combine(tempDirectory, "score.json");
+            File.WriteAllBytes(headerJsonPath, CreateUtf8BomBytes("{\r\n\"name\":\"ExternalRetry\",\r\n\"symbol\":\"ER\",\r\n\"data_url\":\"./score.json\",\r\n\"level_order\":[1]\r\n}"));
+            File.WriteAllBytes(scoreJsonPath, CreateUtf8BomBytes("[{\"md5\":\"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\",\"title\":\"External Retry Song\",\"artist\":\"Artist\",\"level\":\"1\"}]"));
+
+            string songDbPath = CreateTempSongDbPath(tempDirectory);
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var playlist = new BMSPlaylist(
+                songDbPath,
+                new TestLr2PlaylistFolderSynchronizationPort(songDbPath));
+            BMSTable table = await playlist.ExternalSyncOwner.LoadExternalTableAsync(new Uri(headerJsonPath));
+            table.playlist_id = 7315;
+            table.Page_url = new Uri(headerJsonPath);
+            table.DisableExternalSync();
+            foreach (BMSTableEntry entry in table.entries)
+            {
+                entry.playlist_id = table.playlist_id;
+            }
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                foreach (BMSTableEntry entry in table.entries)
+                {
+                    seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                }
+            }
+            playlist.BMSTables = new DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>([table]),
+                Dispatcher.CurrentDispatcher);
+            var library = new BMSLibrary(songDbPath);
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => library,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            service.ExternalSyncConfirmationRequested += (_, request) => request.Confirmed = true;
+            int activeSyncOperationCount = 0;
+            service.PlaylistPropertySyncStarted += (_, _) =>
+                Interlocked.Increment(ref activeSyncOperationCount);
+            int completionProgressCount = 0;
+            service.PlaylistPropertySyncProgressChanged += (_, request) =>
+            {
+                if (request.Snapshot.CompletedTableCount == 1
+                    && Interlocked.Increment(ref completionProgressCount) == 1)
+                {
+                    throw new InvalidOperationException("test post-reload completion presentation failure");
+                }
+            };
+            service.PlaylistPropertySyncFinished += (_, _) =>
+                Interlocked.Decrement(ref activeSyncOperationCount);
+            int referenceReplacementPresentationCount = 0;
+            service.PlaylistPropertyReferenceTableReplaced += (_, _) =>
+                Interlocked.Increment(ref referenceReplacementPresentationCount);
+            service.PlaylistPropertyFolderSelectionRemapped += (_, _) => { };
+            service.PlaylistPropertyReferenceSortInvalidationRequested += (_, _) => { };
+            service.PlaylistPropertySyncResultReported += (_, _) => { };
+            service.PlaylistPropertyExternalSyncFailed += (_, _) => { };
+            service.PlaylistPropertyEntriesChanged += (_, _) => { };
+            service.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            int summaryRefreshCount = 0;
+            service.PlaylistPropertySummaryDataRefreshRequested += (_, request) =>
+            {
+                if (string.Equals(request.Reason, "playlist_property_resync", StringComparison.Ordinal))
+                {
+                    Interlocked.Increment(ref summaryRefreshCount);
+                }
+            };
+            PlaylistPropertyEditSession session = await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            dialog = new PlaylistPropertyDialogViewModel(service, session)
+            {
+                is_external_sync = true
+            };
+
+            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await dialog.SaveAndApplyAsync());
+
+            Assert.AreEqual("test post-reload completion presentation failure", failure.Message);
+            Assert.AreEqual(0, activeSyncOperationCount);
+            File.Delete(headerJsonPath);
+            File.Delete(scoreJsonPath);
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.SaveAndApplyAsync());
+            Assert.AreEqual(2, referenceReplacementPresentationCount);
+            Assert.AreEqual(2, completionProgressCount);
+            Assert.AreEqual(0, activeSyncOperationCount);
+            Assert.AreEqual(1, summaryRefreshCount);
+            Assert.IsTrue(dialog.is_external_sync);
+            using var verify = new LR2SongDBExtended(songDbPath);
+            Assert.IsTrue(
+                verify.Table<BMSTable>()
+                    .Single(row => row.playlist_id == table.playlist_id)
+                    .is_external_sync);
+            Assert.AreEqual(
+                1,
+                verify.Table<BMSTableEntry>()
+                    .Count(row => row.playlist_id == table.playlist_id && !row.is_removed));
+        }
+        finally
+        {
+            dialog?.Dispose();
+            Settings.Default.EnablePlaylistUrlCompletion = previousEnablePlaylistUrlCompletion;
             if (Directory.Exists(tempDirectory))
             {
                 Directory.Delete(tempDirectory, recursive: true);
@@ -8202,6 +8768,50 @@ public sealed class BmsPlaylistUpdateTests
         db.Execute("INSERT OR REPLACE INTO song(hash, title, path) VALUES (?, ?, ?);", hash, hash, hash + ".bms");
         db.Execute("INSERT INTO playlist_entry (playlist_id, md5, title, is_removed) VALUES (7305, ?, ?, 0);", hash, hash);
         db.Execute("INSERT OR REPLACE INTO score(hash, clear, rank, op_history, minbp) VALUES (?, ?, ?, ?, 0);", hash, clear, rank, opHistory);
+    }
+
+    private static void RunOnStaDispatcherThread(Func<Task> action)
+    {
+        if (action == null)
+        {
+            throw new ArgumentNullException(nameof(action));
+        }
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            Dispatcher dispatcher = Dispatcher.CurrentDispatcher;
+            SynchronizationContext.SetSynchronizationContext(
+                new DispatcherSynchronizationContext(dispatcher));
+            try
+            {
+                Task task = action();
+                var frame = new DispatcherFrame();
+                _ = task.ContinueWith(
+                    _ => dispatcher.BeginInvoke(
+                        DispatcherPriority.ContextIdle,
+                        (Action)(() => frame.Continue = false)),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+                Dispatcher.PushFrame(frame);
+                task.GetAwaiter().GetResult();
+            }
+            catch (Exception ex)
+            {
+                failure = ex;
+            }
+            finally
+            {
+                dispatcher.InvokeShutdown();
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (failure != null)
+        {
+            ExceptionDispatchInfo.Capture(failure).Throw();
+        }
     }
 
     private static long CountCustomFolderCommandMatches(LR2SongDBExtended db, string command, string hash)

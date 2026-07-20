@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 
 namespace BeMusicSeeker.ViewModels;
@@ -83,6 +84,48 @@ public sealed partial class PlaylistWorkspaceViewModel
             + Uri.EscapeDataString(lr2Id.ToString())
             + "&table_url="
             + Uri.EscapeDataString(table.Page_url.ToString()));
+        return true;
+    }
+
+    internal Task OpenPlaylistSummaryUriAsync(Uri uri)
+    {
+        if (uri == null || !uri.IsAbsoluteUri)
+        {
+            return Task.CompletedTask;
+        }
+
+        return Task.Run(() =>
+        {
+            try
+            {
+                playlistUrlBrowserOpenSink(uri);
+            }
+            catch
+            {
+                // Summary links historically ignore browser-launch failures.
+            }
+        });
+    }
+
+    internal bool OpenPlaylistTablePage(BMSTable table)
+    {
+        if (!TryResolvePlaylistTablePageUri(table, out Uri uri))
+        {
+            return false;
+        }
+
+        playlistUrlBrowserOpenSink(uri);
+        return true;
+    }
+
+    internal bool OpenPlaylistTableClearLamp(BMSTable table)
+    {
+        if (!TryResolvePlaylistTableClearLampUri(table, out Uri uri))
+        {
+            return false;
+        }
+
+        playlistUrlBrowserOpenSink(uri);
         return true;
     }
 

@@ -99,7 +99,9 @@ public sealed class PlaylistSummaryBulkEditTests
         {
             Status = Lr2PlayHistorySchemaStatus.SkippedProfile
         });
-        var dialog = owner.PlaylistWorkspace.OpenSummaryBulkEditDialog([]);
+        var dialog = new PlaylistWorkspaceViewModel.PlaylistSummaryBulkEditDialogViewModel(
+            owner.PlaylistWorkspace,
+            []);
 
         dialog.OutputLastPlaySortFolder = true;
 

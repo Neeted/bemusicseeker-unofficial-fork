@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -203,8 +204,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("PlaylistWorkspace.PlaylistSummaryText =", StringComparison.Ordinal));
         Assert.AreEqual(-1, rootSource.IndexOf("internal BMSTable CreateBMSTable()", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal Task<BMSTable> CreatePlaylistAsync()");
+        StringAssert.Contains(workspaceSource, "internal async Task<PlaylistPropertyDialogViewModel> CreatePlaylistPropertyDialogAsync()");
         StringAssert.Contains(workspaceSource, "return GetPlaylistStore().CreateBMSTable();");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.CreatePlaylistAsync()");
+        StringAssert.Contains(mainWindowSource, "CreatePlaylistPropertyDialogAsync()");
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("viewModel.PlaylistWorkspace.CreatePlaylistAsync()", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("PlaylistWorkspace.SetPlaylistSummaryMode(enabled: true)", StringComparison.Ordinal));
         Assert.AreEqual(-1, logicalSource.IndexOf("private void ApplyPlaylistSummarySelection(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.IsPlaylistDetailViewActive");
@@ -327,11 +330,11 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(workspaceSource, "RequestPlaylistDetailReloadRefresh();");
         StringAssert.Contains(workspaceSource, "PlaylistReferenceSortInvalidationRequested?.Invoke(this, EventArgs.Empty);");
         StringAssert.Contains(workspaceSource, "ReplaceCurrentPlaylistDetailSelectionTable(");
-        StringAssert.Contains(workspaceSource, "RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders);");
+        StringAssert.Contains(workspaceSource, "() => RemapCurrentPlaylistDetailFolderSelection(request.Table, request.RewrittenFolders)");
         StringAssert.Contains(workspaceSource, "RaiseRequiredEvent(");
         StringAssert.Contains(workspaceSource, "            PlaylistReferenceSortInvalidationRequested,");
         StringAssert.Contains(workspaceSource, "private void ForwardPlaylistEntriesChanged(");
-        StringAssert.Contains(workspaceSource, "PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible);");
+        StringAssert.Contains(workspaceSource, "() => PublishEntriesChanged(request.Table, request.RefreshSummaryIfVisible)");
         Assert.AreEqual(-1, workspaceSource.IndexOf("PlaylistWorkspaceEntriesChangedEventArgs", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal Task AddRowsToFolderAsync(");
         StringAssert.Contains(workspaceSource, "internal Task DeleteEntriesAsync(");
@@ -507,10 +510,11 @@ public sealed class PlaylistWorkspaceViewModelTests
             "private async void treeViewPlaylistTableContextMenuItemRemoveTableClick(");
         Assert.AreEqual(-1, tableRemoveSelectionSource.IndexOf("Task.Run", StringComparison.Ordinal));
         StringAssert.Contains(tableRemoveSelectionSource, "viewModel.PlaylistWorkspace.RequestDetailSelection(null);");
-        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.ApplyPlaylistSummaryCellActionAsync(");
+        StringAssert.Contains(mainWindowSource, "viewModel.PlaylistWorkspace.HandlePlaylistSummaryCellActionAsync(");
         StringAssert.Contains(bulkEditSource, "ownerWorkspace.ApplyPlaylistSummaryBmtOutput(");
         StringAssert.Contains(workspaceSource, "internal void ApplyPlaylistSummaryBmtOutput(");
         StringAssert.Contains(workspaceSource, "internal async Task ApplyPlaylistSummaryCellActionAsync(");
+        StringAssert.Contains(workspaceSource, "internal async Task HandlePlaylistSummaryCellActionAsync(");
         StringAssert.Contains(workspaceSource, "PlaylistSummaryExternalSyncConfirmationRequested");
         StringAssert.Contains(logicalSource, "PlaylistWorkspace.PlaylistSummaryExternalSyncConfirmationRequested += PlaylistWorkspacePlaylistSummaryExternalSyncConfirmationRequested;");
         Assert.AreEqual(-1, mainWindowSource.IndexOf("ApplyPlaylistSummarySyncFromCustomTableAsync", StringComparison.Ordinal));
@@ -835,7 +839,10 @@ public sealed class PlaylistWorkspaceViewModelTests
             "CanOpenPlaylistTablePage",
             "CanOpenPlaylistTableClearLamp",
             "TryResolvePlaylistTablePageUri",
-            "TryResolvePlaylistTableClearLampUri"
+            "TryResolvePlaylistTableClearLampUri",
+            "OpenPlaylistTablePage",
+            "OpenPlaylistTableClearLamp",
+            "OpenPlaylistSummaryUriAsync"
         })
         {
             StringAssert.Contains(workspaceSource, member);
@@ -844,9 +851,10 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.CanReloadPlaylistTable(dataContext)");
         StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.CanOpenPlaylistTablePage(dataContext)");
         StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.CanOpenPlaylistTableClearLamp(dataContext)");
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.TryResolvePlaylistTablePageUri(dataContext, out Uri uri)");
-        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.TryResolvePlaylistTableClearLampUri(dataContext, out Uri uri)");
-        StringAssert.Contains(mainWindowSource, "Process.Start(uri.OriginalString)");
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.OpenPlaylistTablePage(dataContext)");
+        StringAssert.Contains(mainWindowSource, "PlaylistWorkspace.OpenPlaylistTableClearLamp(dataContext)");
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("OpenPlaylistSummaryUriAsync(Uri uri)", StringComparison.Ordinal));
+        Assert.AreEqual(-1, mainWindowSource.IndexOf("Process.Start(uri.", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainWindowSource.IndexOf("bmseeker:table.estimation", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainWindowSource.IndexOf("bmseeker:table.recommended", StringComparison.Ordinal));
         Assert.AreEqual(-1, mainWindowSource.IndexOf("recommended_mypage", StringComparison.Ordinal));
@@ -955,6 +963,480 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.IsFalse(workspace.TryResolvePlaylistTablePageUri(
             new BMSTable { Page_url = new Uri("bmseeker:table.other") },
             out _));
+    }
+
+    [TestMethod]
+    public async Task PlaylistExternalLinkActions_UseWorkspaceBrowserBoundaryAndPreserveFailureContracts()
+    {
+        var openedUris = new List<Uri>();
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            browserOpenSink: openedUris.Add);
+        Uri summaryUri = new("https://example.test/summary");
+        BMSTable table = new() { Page_url = new Uri("https://example.test/table") };
+
+        await workspace.OpenPlaylistSummaryUriAsync(summaryUri);
+        Assert.IsTrue(workspace.OpenPlaylistTablePage(table));
+
+        CollectionAssert.AreEqual(
+            new[] { summaryUri, table.Page_url },
+            openedUris);
+
+        PlaylistWorkspaceViewModel failingWorkspace = CreateDetailWorkspace(
+            out _,
+            browserOpenSink: _ => throw new InvalidOperationException("launch failed"));
+        await failingWorkspace.OpenPlaylistSummaryUriAsync(summaryUri);
+        Assert.ThrowsException<InvalidOperationException>(
+            () => failingWorkspace.OpenPlaylistTablePage(table));
+    }
+
+    [TestMethod]
+    public void PlaylistWorkspaceResolvesCurrentTableIdentityOutsideTheView()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable active = new()
+            {
+                playlist_id = 42,
+                name = "Current",
+                Page_url = new Uri("https://example.test/table")
+            };
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([active]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist);
+            BMSTable stale = new()
+            {
+                playlist_id = 42,
+                name = "Old",
+                Page_url = active.Page_url
+            };
+
+            Assert.AreSame(active, workspace.ResolveActivePlaylistTable(stale));
+            Assert.AreSame(
+                active,
+                workspace.ResolveActivePlaylistSummaryTable(new PlaylistSummaryRow
+                {
+                    TableRef = stale,
+                    Name = active.name
+                }));
+
+            BMSTable deletedPersistentTable = new()
+            {
+                playlist_id = 99,
+                name = active.name,
+                Page_url = active.Page_url
+            };
+            Assert.IsNull(workspace.ResolveActivePlaylistTable(deletedPersistentTable));
+
+            BMSTable transientTable = new()
+            {
+                name = active.name,
+                Page_url = active.Page_url
+            };
+            Assert.AreSame(active, workspace.ResolveActivePlaylistTable(transientTable));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistPropertySave_WaitsOffUiThreadBehindAWriter()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable table = new() { name = "Edit target" };
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => null!,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot());
+            PlaylistPropertyEditSession session =
+                await service.CreateEditSessionAsync(table);
+            Assert.IsNotNull(session);
+            var writerAcquired = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseWriter = new ManualResetEventSlim();
+            Task writer = Task.Run(() =>
+            {
+                playlist.AcquireWriterLockBMSTables();
+                try
+                {
+                    writerAcquired.SetResult(true);
+                    releaseWriter.Wait();
+                }
+                finally
+                {
+                    playlist.FreeWriterLockBMSTables();
+                }
+            });
+            await writerAcquired.Task;
+            try
+            {
+                Assert.IsTrue(playlist.IsWriteLockHeldAnyBMSTable);
+                Task<PlaylistPropertySaveCommit> saveTask =
+                    service.TrySaveAsync(session, session.Values);
+                Assert.IsFalse(saveTask.IsCompleted);
+                releaseWriter.Set();
+                Assert.IsNotNull(await saveTask);
+            }
+            finally
+            {
+                releaseWriter.Set();
+                await writer;
+                session.Dispose();
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistPropertySave_RejectsAStaleDetachedSessionWithoutOverwritingConcurrentChanges()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable table = new()
+            {
+                name = "Initial name",
+                symbol = "OLD"
+            };
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => null!,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot());
+            using PlaylistPropertyEditSession session =
+                await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            session.Values.Name = "Dialog edit";
+            table.symbol = "CONCURRENT";
+
+            InvalidOperationException conflict = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await service.TrySaveAsync(session, session.Values));
+
+            StringAssert.Contains(conflict.Message, "changed after editing began");
+            Assert.AreEqual("Initial name", table.name);
+            Assert.AreEqual("CONCURRENT", table.symbol);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistPropertySave_RollsBackAllValuesWhenAPropertyNotificationFails()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTable table = new()
+            {
+                name = "Initial name",
+                symbol = "OLD",
+                folder_sort_key = LR2SongDBExtended.playlist.CustomFolderSortType.NONE,
+                entries =
+                [
+                    new BMSTableEntry { folder = "A" },
+                    new BMSTableEntry { folder = "B" }
+                ],
+                Folder_order = ["B"]
+            };
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => null!,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot());
+            using PlaylistPropertyEditSession session =
+                await service.CreateEditSessionAsync(table)
+                ?? throw new AssertFailedException("Playlist edit session was not created.");
+            session.Values.Name = "Dialog edit";
+            session.Values.Symbol = "NEW";
+            session.Values.FolderSortKey = LR2SongDBExtended.playlist.CustomFolderSortType.TITLE;
+            table.PropertyChanged += (_, change) =>
+            {
+                if (string.Equals(change.PropertyName, "name", StringComparison.Ordinal))
+                {
+                    throw new InvalidOperationException("test property notification failure");
+                }
+            };
+
+            await Assert.ThrowsExceptionAsync<AggregateException>(
+                async () => await service.TrySaveAsync(session, session.Values));
+
+            Assert.AreEqual("Initial name", table.name);
+            Assert.AreEqual("OLD", table.symbol);
+            Assert.AreEqual(
+                LR2SongDBExtended.playlist.CustomFolderSortType.NONE,
+                table.folder_sort_key);
+            CollectionAssert.AreEqual(new[] { "B" }, table.Folder_order);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySummaryPropertyEdit_RetriesPendingFollowUpWithoutReapplyingPrefixRewrite()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            BMSTableEntry entry = new TestablePlaylistEntry(
+                "abababababababababababababababab",
+                "Alpha")
+            {
+                playlist_id = 7301,
+                folder = "Alpha"
+            };
+            BMSTableEntry prefixedEntry = new TestablePlaylistEntry(
+                "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+                "Prefixed Alpha")
+            {
+                playlist_id = 7301,
+                folder = "★Alpha"
+            };
+            BMSTable table = new()
+            {
+                playlist_id = 7301,
+                name = "Inline prefix retry",
+                symbol = "IPR",
+                compat_prefix = string.Empty,
+                entries = [entry, prefixedEntry],
+                Folder_order = ["Alpha", "★Alpha"]
+            };
+            using (var seed = new LR2SongDBExtended(songDbPath))
+            {
+                seed.InsertOrReplace(table, typeof(LR2SongDBExtended.playlist));
+                seed.InsertOrReplace(entry, typeof(LR2SongDBExtended.playlist_entry));
+                seed.InsertOrReplace(prefixedEntry, typeof(LR2SongDBExtended.playlist_entry));
+            }
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                    new ObservableCollection<BMSTable>([table]),
+                    Dispatcher.CurrentDispatcher)
+            };
+            var library = new BMSLibrary(songDbPath);
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => library,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot { OperationModeLR2DB = false });
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                playlistLibraryProvider: () => library,
+                propertySaveService: service);
+            workspace.PlaylistReferenceSortInvalidationRequested += (_, _) => { };
+            workspace.PlaylistOperationNotificationPresentationRequested += (_, _) => { };
+            int prefixPresentationCount = 0;
+            service.PlaylistPropertyFolderSelectionRemapped += (_, _) =>
+            {
+                if (Interlocked.Increment(ref prefixPresentationCount) == 1)
+                {
+                    throw new InvalidOperationException("test inline prefix presentation failure");
+                }
+            };
+            PlaylistSummaryRow row = new() { TableRef = table };
+
+            InvalidOperationException failure = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+                async () => await workspace.ApplySummaryPropertyEditAsync(
+                    row,
+                    nameof(PlaylistSummaryRow.CompatPrefix),
+                    "★"));
+
+            Assert.AreEqual("test inline prefix presentation failure", failure.Message);
+            CollectionAssert.AreEqual(
+                new[] { "★Alpha", "★★Alpha" },
+                table.entries.Select(candidate => candidate.folder).ToArray());
+            Assert.IsTrue(await workspace.ApplySummaryPropertyEditAsync(
+                row,
+                nameof(PlaylistSummaryRow.CompatPrefix),
+                "★"));
+            Assert.AreEqual(2, prefixPresentationCount);
+            CollectionAssert.AreEqual(
+                new[] { "★Alpha", "★★Alpha" },
+                table.entries.Select(candidate => candidate.folder).ToArray());
+            using var verify = new LR2SongDBExtended(songDbPath);
+            CollectionAssert.AreEqual(
+                new[] { "★Alpha", "★★Alpha" },
+                new[]
+                {
+                    verify.ExecuteScalar<string>(
+                        "SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND is_removed = 0;",
+                        table.playlist_id,
+                        entry.md5),
+                    verify.ExecuteScalar<string>(
+                        "SELECT folder FROM playlist_entry WHERE playlist_id = ? AND md5 = ? AND is_removed = 0;",
+                        table.playlist_id,
+                        prefixedEntry.md5)
+                });
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task CreatePlaylistPropertyDialog_RejectsConcurrentOpenWithoutLeavingAnOrphanTable()
+    {
+        string tempDirectory = Path.Combine(
+            Path.GetTempPath(),
+            nameof(PlaylistWorkspaceViewModelTests),
+            Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        PlaylistPropertyDialogViewModel? dialog = null;
+        try
+        {
+            string songDbPath = Path.Combine(tempDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(songDbPath))
+            {
+            }
+            PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+            var visibleTables = new ObservableCollection<BMSTable>();
+            BMSPlaylist playlist = new(songDbPath)
+            {
+                BMSTables = new Livet.DispatcherCollection<BMSTable>(visibleTables, null!)
+            };
+            var service = new PlaylistPropertySaveService(
+                () => playlist,
+                () => null!,
+                () => null!,
+                () => new CustomFolderOutputSettingsSnapshot());
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+                out _,
+                playlistStoreProvider: () => playlist,
+                propertySaveService: service);
+            var firstTableAdded = new TaskCompletionSource<bool>(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+            using var releaseFirstCreation = new ManualResetEventSlim();
+            visibleTables.CollectionChanged += (_, change) =>
+            {
+                if (change.Action == NotifyCollectionChangedAction.Add)
+                {
+                    firstTableAdded.TrySetResult(true);
+                    releaseFirstCreation.Wait();
+                }
+            };
+
+            Task<PlaylistPropertyDialogViewModel> firstOpen =
+                workspace.CreatePlaylistPropertyDialogAsync();
+            await firstTableAdded.Task;
+            PlaylistPropertyDialogViewModel secondDialog =
+                await workspace.CreatePlaylistPropertyDialogAsync();
+            Assert.IsNull(secondDialog);
+            releaseFirstCreation.Set();
+            dialog = await firstOpen;
+
+            Assert.IsNotNull(dialog);
+            Assert.AreEqual(1, visibleTables.Count);
+            Assert.AreEqual(
+                PlaylistPropertyDialogOperationResult.Completed,
+                await dialog.ResetPropertiesAsync());
+            Assert.AreEqual(0, visibleTables.Count);
+        }
+        finally
+        {
+            dialog?.Dispose();
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
     }
 
     [TestMethod]
@@ -2859,7 +3341,9 @@ public sealed class PlaylistWorkspaceViewModelTests
         PlaylistSummaryBmtSortCoordinator? playlistSummaryBmtSort = null,
         Action<PlaylistSummarySelectionRestoreRequest>? selectionRestoreSink = null,
         Func<Action, Task>? restoreUiApplyScheduler = null,
-        Func<bool>? restoreUiThreadCheck = null)
+        Func<bool>? restoreUiThreadCheck = null,
+        Action<Uri>? browserOpenSink = null,
+        PlaylistPropertySaveService? propertySaveService = null)
     {
         var workspace = new PlaylistWorkspaceViewModel(
             dispatchPresentation ?? (action => action()),
@@ -2874,7 +3358,7 @@ public sealed class PlaylistWorkspaceViewModelTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
-            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+            browserOpenSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
             selectionRestoreSink ?? PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
@@ -2885,7 +3369,7 @@ public sealed class PlaylistWorkspaceViewModelTests
                 playlistSummaryBmtSort ?? PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
             PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
             playlistStoreProvider ?? PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
-            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            propertySaveService ?? PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
             playlistLibraryProvider ?? (() => null!),
             () => null!,
             _ => { },

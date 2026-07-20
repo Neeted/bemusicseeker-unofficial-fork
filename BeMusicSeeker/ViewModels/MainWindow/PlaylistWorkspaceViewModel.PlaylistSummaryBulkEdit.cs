@@ -25,7 +25,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal PlaylistSummaryBulkEditDialogViewModel OpenSummaryBulkEditDialog(IEnumerable<PlaylistSummaryRow> rows)
     {
-        if (!ContainsActivePlaylistSummaryRows(rows))
+        if (!CanOpenPlaylistEditDialog || !ContainsActivePlaylistSummaryRows(rows))
         {
             return null;
         }
