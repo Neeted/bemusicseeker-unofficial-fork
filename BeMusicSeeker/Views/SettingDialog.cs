@@ -385,11 +385,15 @@ public partial class SettingDialog : UserControl, IComponentConnector
         if (result.Status == UiDialogStatus.Accepted)
         {
             settingDialogOperationGrid.IsEnabled = false;
-            await Task.Run(delegate
+            try
             {
-                viewModel.BackupBMSTables(result.FileName);
-            }).Logging("detailTabItemBackupButtonClicked");
-            settingDialogOperationGrid.IsEnabled = true;
+                await viewModel.PlaylistWorkspace.BackupPlaylistAsync(result.FileName)
+                    .Logging("detailTabItemBackupButtonClicked");
+            }
+            finally
+            {
+                settingDialogOperationGrid.IsEnabled = true;
+            }
         }
     }
 

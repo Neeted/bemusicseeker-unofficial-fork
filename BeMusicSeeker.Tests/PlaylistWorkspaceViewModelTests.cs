@@ -398,6 +398,11 @@ public sealed class PlaylistWorkspaceViewModelTests
         Assert.AreEqual(-1, rootSource.IndexOf("BuildBeatorajaTableUrlImportTargets(", StringComparison.Ordinal));
         string settingDialogSource = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "Views", "SettingDialog.cs");
         StringAssert.Contains(settingDialogSource, "mainWindowViewModel.PlaylistWorkspace.StartBeatorajaTableUrlImport(");
+        StringAssert.Contains(workspaceSource, "internal Task BackupPlaylistAsync(string fileName)");
+        StringAssert.Contains(workspaceSource, "playlist backup notification");
+        StringAssert.Contains(settingDialogSource, "viewModel.PlaylistWorkspace.BackupPlaylistAsync(result.FileName)");
+        Assert.AreEqual(-1, logicalSource.IndexOf("BackupBMSTables(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, settingDialogSource.IndexOf("viewModel.BackupBMSTables(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "ownerViewModel.PlaylistWorkspace.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(");
         string summaryRemovalConfirmationSource = SourceTextTestHelper.ExtractMethodBody(
             logicalSource,
@@ -2879,6 +2884,31 @@ public sealed class PlaylistWorkspaceViewModelTests
         return workspace;
     }
 
+    private static PlaylistWorkspaceViewModel CreateBackupWorkspace(
+        string songDbPath,
+        IEnumerable<BMSTable> tables,
+        out BMSPlaylist playlist,
+        out List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications)
+    {
+        PlaylistPersistenceRepository.EnsureSchema(songDbPath);
+        BMSPlaylist createdPlaylist = new BMSPlaylist(songDbPath)
+        {
+            BMSTables = new Livet.DispatcherCollection<BMSTable>(
+                new ObservableCollection<BMSTable>(tables),
+                Dispatcher.CurrentDispatcher)
+        };
+        PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(
+            out _,
+            playlistStoreProvider: () => createdPlaylist);
+        workspace.RefreshPlaylistTreeTables(createdPlaylist);
+        List<PlaylistOperationNotificationPresentationRequestedEventArgs> capturedNotifications = [];
+        workspace.PlaylistOperationNotificationPresentationRequested +=
+            (_, request) => capturedNotifications.Add(request);
+        playlist = createdPlaylist;
+        notifications = capturedNotifications;
+        return workspace;
+    }
+
     private sealed class FakePlaylistDetailDataSource : IPlaylistDetailDataSource
     {
         internal int EnsureEntriesLoadedCallCount { get; private set; }
@@ -3951,6 +3981,127 @@ public sealed class PlaylistWorkspaceViewModelTests
             {
                 workspace.CompletePlaylistSummaryDataBuild(buildRequest);
             }
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceBackupPlaylistAsync_PublishesSuccessWarningAndFailureReceipts()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            PlaylistWorkspaceViewModel unavailableWorkspace = CreateDetailWorkspace(out _);
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> unavailableNotifications = [];
+            unavailableWorkspace.PlaylistOperationNotificationPresentationRequested +=
+                (_, request) => unavailableNotifications.Add(request);
+            string unavailablePath = Path.Combine(tempDirectory, "unavailable-backup.sql");
+
+            await unavailableWorkspace.BackupPlaylistAsync(unavailablePath);
+
+            Assert.IsFalse(File.Exists(unavailablePath));
+            Assert.AreEqual(1, unavailableNotifications.Count);
+            Assert.AreEqual(
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
+                unavailableNotifications[0].Receipt.Notifications.Single().Severity);
+            StringAssert.Contains(
+                unavailableNotifications[0].Receipt.Notifications.Single().Message,
+                BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup);
+
+            string successDbDirectory = Path.Combine(tempDirectory, "success");
+            Directory.CreateDirectory(successDbDirectory);
+            string successDbPath = Path.Combine(successDbDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(successDbPath))
+            {
+            }
+            BMSPlaylist successPlaylist;
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> successNotifications;
+            PlaylistWorkspaceViewModel successWorkspace = CreateBackupWorkspace(
+                successDbPath,
+                [new BMSTable { playlist_id = 1, name = "Backup", symbol = "B", bmt_sort = 1 }],
+                out successPlaylist,
+                out successNotifications);
+            string expectedDump = successPlaylist.GetPlaylistDump();
+            string successPath = Path.Combine(tempDirectory, "backup.sql");
+
+            await successWorkspace.BackupPlaylistAsync(successPath);
+
+            Assert.IsTrue(File.Exists(successPath));
+            Assert.AreEqual(expectedDump, File.ReadAllText(successPath));
+            Assert.AreEqual(1, successNotifications.Count);
+            Assert.AreEqual("playlist backup notification", successNotifications[0].RouteName);
+            Assert.AreEqual(
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Information,
+                successNotifications[0].Receipt.Notifications.Single().Severity);
+            StringAssert.Contains(
+                successNotifications[0].Receipt.Notifications.Single().Message,
+                BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup);
+
+            string emptyDbDirectory = Path.Combine(tempDirectory, "empty");
+            Directory.CreateDirectory(emptyDbDirectory);
+            string emptyDbPath = Path.Combine(emptyDbDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(emptyDbPath))
+            {
+            }
+            BMSPlaylist emptyPlaylist;
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> emptyNotifications;
+            PlaylistWorkspaceViewModel emptyWorkspace = CreateBackupWorkspace(
+                emptyDbPath,
+                [],
+                out emptyPlaylist,
+                out emptyNotifications);
+            string emptyPath = Path.Combine(tempDirectory, "empty-backup.sql");
+
+            await emptyWorkspace.BackupPlaylistAsync(emptyPath);
+
+            Assert.IsFalse(File.Exists(emptyPath));
+            Assert.AreEqual(1, emptyNotifications.Count);
+            Assert.AreEqual(
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Warning,
+                emptyNotifications[0].Receipt.Notifications.Single().Severity);
+            StringAssert.Contains(
+                emptyNotifications[0].Receipt.Notifications.Single().Message,
+                BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup);
+
+            string failureDbDirectory = Path.Combine(tempDirectory, "failure");
+            Directory.CreateDirectory(failureDbDirectory);
+            string failureDbPath = Path.Combine(failureDbDirectory, "song.db");
+            using (var _ = new LR2SongDBExtended(failureDbPath))
+            {
+            }
+            BMSPlaylist failurePlaylist;
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> failureNotifications;
+            PlaylistWorkspaceViewModel failureWorkspace = CreateBackupWorkspace(
+                failureDbPath,
+                [new BMSTable { playlist_id = 2, name = "Failure", symbol = "F", bmt_sort = 1 }],
+                out failurePlaylist,
+                out failureNotifications);
+            string invalidPath = Path.Combine(tempDirectory, "missing", "backup.sql");
+
+            await failureWorkspace.BackupPlaylistAsync(invalidPath);
+
+            Assert.IsFalse(File.Exists(invalidPath));
+            Assert.AreEqual(1, failureNotifications.Count);
+            PlaylistOperationNotificationOwner.OperationNotification failureNotification =
+                failureNotifications[0].Receipt.Notifications.Single();
+            Assert.AreEqual(
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
+                failureNotification.Severity);
+            StringAssert.Contains(
+                failureNotification.Message,
+                BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup);
+            StringAssert.Contains(failureNotification.Message, "missing");
+            Assert.IsFalse(failureNotifications.Any(request => request.Receipt.Notifications.Any(
+                notification => notification.Message.IndexOf(
+                    BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
+                    StringComparison.Ordinal) >= 0)));
         }
         finally
         {

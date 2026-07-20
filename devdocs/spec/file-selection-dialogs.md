@@ -79,7 +79,7 @@ LR2 player path は実行ファイル選択ではなく LR2 root folder 選択�
 
 | Tab | UI | Dialog | Kind | Target | Filter | Default FileName | Default Extension | Default Extension Source | Selection Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| バックアップ | プレイリストのバックアップ | `UiSaveFilePickerRequest` | File save | playlist backup SQL | `*.sql` | `BeMusicSeeker_backup.sql` | `.sql` | Direct | `BackupBMSTables(fileDialog.FileName)` |
+| バックアップ | プレイリストのバックアップ | `UiSaveFilePickerRequest` | File save | playlist backup SQL | `*.sql` | `BeMusicSeeker_backup.sql` | `.sql` | Direct | `PlaylistWorkspace.BackupPlaylistAsync(result.FileName)` |
 | バックアップ | プレイリストの復元 | `UiFilePickerRequest` | File open | playlist backup SQL | `*.sql` | `BeMusicSeeker_backup.sql` | `.sql` | Direct | `RestoreBMSTables(fileDialog.FileName)` |
 | バックアップ | LR2 backup 保存先参照 | `UiFolderPickerRequest` | Folder | LR2 backup directory | N/A | N/A | N/A | N/A | `settingDialog.LR2BackupPath` |
 

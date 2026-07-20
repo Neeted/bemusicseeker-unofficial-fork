@@ -9995,29 +9995,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    internal void BackupBMSTables(string fileName)
-    {
-        if (PlaylistWorkspace.PlaylistTreeTables == null)
-        {
-            return;
-        }
-        if (PlaylistWorkspace.PlaylistTreeTables.Count() == 0)
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_warn_playlist_backup, BeMusicSeeker.Properties.Resources.Warning, MessageBoxImage.Exclamation);
-            return;
-        }
-        try
-        {
-            string playlistDump = tables.GetPlaylistDump();
-            File.WriteAllText(fileName, playlistDump);
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup, BeMusicSeeker.Properties.Resources.Success, MessageBoxImage.Asterisk);
-        }
-        catch (Exception ex)
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_playlist_backup + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Failure, MessageBoxImage.Hand);
-        }
-    }
-
     internal void RestoreBMSTables(string fileName)
     {
         if (PlaylistWorkspace.PlaylistTreeTables == null)
