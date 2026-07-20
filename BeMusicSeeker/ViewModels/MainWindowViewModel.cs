@@ -9952,49 +9952,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    internal void ExportBMSTable(BMSTable bmsTable, string fileNameHeader, string fileNameData)
-    {
-        if (bmsTable == null)
-        {
-            throw new ArgumentNullException("bmsTable");
-        }
-        if (fileNameHeader == null)
-        {
-            throw new ArgumentNullException("fileNameHeader");
-        }
-        if (fileNameData == null)
-        {
-            throw new ArgumentNullException("fileNameData");
-        }
-        tables?.EnsurePlaylistEntriesLoaded(bmsTable, "ExportBMSTable");
-        bool flag = false;
-        Uri data_url = null;
-        if (string.IsNullOrWhiteSpace(bmsTable.Data_url?.ToString()))
-        {
-            data_url = bmsTable.Data_url;
-            bmsTable.Data_url = new Uri(Path.GetFileName(fileNameData), UriKind.Relative);
-            flag = true;
-        }
-        string contents = bmsTable.HeaderToJson();
-        dynamic val = bmsTable.DataToJson();
-        try
-        {
-            File.WriteAllText(fileNameHeader, contents);
-            File.WriteAllText(fileNameData, val);
-        }
-        catch
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-        }
-        finally
-        {
-            if (flag)
-            {
-                bmsTable.Data_url = data_url;
-            }
-        }
-    }
-
     internal void RestoreBMSTables(string fileName)
     {
         if (PlaylistWorkspace.PlaylistTreeTables == null)

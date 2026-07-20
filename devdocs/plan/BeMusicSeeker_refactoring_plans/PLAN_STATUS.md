@@ -19,7 +19,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI-05 Shell closure`
-sequence cursor: `UI05 planner required`
+sequence cursor: `UI05-U15 — playlist table JSON export handoff`
 
 目的:
 

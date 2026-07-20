@@ -3998,10 +3998,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await Task.Run(delegate
-        {
-            viewModel.ExportBMSTable(bmsTable, headerResult.FileName, dataResult.FileName);
-        }).Logging("treeViewPlaylistTableContextMenuItemExportTableClick");
+        await viewModel.PlaylistWorkspace
+            .ExportPlaylistTableAsync(bmsTable, headerResult.FileName, dataResult.FileName)
+            .Logging("treeViewPlaylistTableContextMenuItemExportTableClick");
     }
 
     /// <summary>

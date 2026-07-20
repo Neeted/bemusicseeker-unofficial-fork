@@ -95,6 +95,36 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void PlaylistTableJsonExportRoutesThroughWorkspaceOwner()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string route = ExtractBetween(
+            mainWindowSource,
+            "private async void treeViewPlaylistTableContextMenuItemExportTableClick",
+            "private void treeViewPlaylistTableContextMenuItemOverwriteLevelClick");
+        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
+        string selectionSpec = File.ReadAllText(Path.Combine(
+            FindRepositoryRoot(),
+            "devdocs",
+            "spec",
+            "file-selection-dialogs.md"));
+
+        StringAssert.Contains(route, "Header export save picker");
+        StringAssert.Contains(route, "Data export save picker");
+        StringAssert.Contains(route, "ExportPlaylistTableAsync(bmsTable, headerResult.FileName, dataResult.FileName)");
+        Assert.IsTrue(route.IndexOf("Header export save picker", StringComparison.Ordinal) < route.IndexOf("Data export save picker", StringComparison.Ordinal));
+        Assert.AreEqual(-1, route.IndexOf("Task.Run", StringComparison.Ordinal));
+        Assert.AreEqual(-1, route.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
+        StringAssert.Contains(workspaceSource, "internal Task ExportPlaylistTableAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)");
+        StringAssert.Contains(workspaceSource, "HeaderToJson()");
+        StringAssert.Contains(workspaceSource, "DataToJson()");
+        Assert.AreEqual(-1, rootViewModelSource.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
+        StringAssert.Contains(selectionSpec, "PlaylistWorkspace.ExportPlaylistTableAsync(bmsTable, headerResult.FileName, dataResult.FileName)");
+    }
+
+    [TestMethod]
     public void PlaylistTableRemoval_RoutesConfirmationThroughWorkspaceOwner()
     {
         string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();

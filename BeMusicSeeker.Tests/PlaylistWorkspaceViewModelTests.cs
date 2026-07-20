@@ -400,8 +400,14 @@ public sealed class PlaylistWorkspaceViewModelTests
         StringAssert.Contains(settingDialogSource, "mainWindowViewModel.PlaylistWorkspace.StartBeatorajaTableUrlImport(");
         StringAssert.Contains(workspaceSource, "internal Task BackupPlaylistAsync(string fileName)");
         StringAssert.Contains(workspaceSource, "playlist backup notification");
+        StringAssert.Contains(workspaceSource, "internal Task ExportPlaylistTableAsync(BMSTable bmsTable, string fileNameHeader, string fileNameData)");
+        StringAssert.Contains(workspaceSource, "tables?.EnsurePlaylistEntriesLoaded(bmsTable, \"ExportBMSTable\")");
+        StringAssert.Contains(workspaceSource, "File.WriteAllText(fileNameHeader, contents)");
+        StringAssert.Contains(workspaceSource, "File.WriteAllText(fileNameData, val)");
         StringAssert.Contains(settingDialogSource, "viewModel.PlaylistWorkspace.BackupPlaylistAsync(result.FileName)");
+        StringAssert.Contains(mainWindowSource, "ExportPlaylistTableAsync(bmsTable, headerResult.FileName, dataResult.FileName)");
         Assert.AreEqual(-1, logicalSource.IndexOf("BackupBMSTables(", StringComparison.Ordinal));
+        Assert.AreEqual(-1, logicalSource.IndexOf("ExportBMSTable(", StringComparison.Ordinal));
         Assert.AreEqual(-1, settingDialogSource.IndexOf("viewModel.BackupBMSTables(", StringComparison.Ordinal));
         StringAssert.Contains(logicalSource, "ownerViewModel.PlaylistWorkspace.HasUnimportedBeatorajaTableUrlsForBmtOutputGuide(");
         string summaryRemovalConfirmationSource = SourceTextTestHelper.ExtractMethodBody(
@@ -4102,6 +4108,118 @@ public sealed class PlaylistWorkspaceViewModelTests
                 notification => notification.Message.IndexOf(
                     BeMusicSeeker.Properties.Resources.Msg_success_playlist_backup,
                     StringComparison.Ordinal) >= 0)));
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceExportPlaylistTableAsync_WritesJsonAndPreservesDataUrl()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            BMSTable table = new BMSTable
+            {
+                name = "Export",
+                symbol = "EX",
+                Folder_order = []
+            };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
+            workspace.PlaylistOperationNotificationPresentationRequested +=
+                (_, request) => notifications.Add(request);
+            string headerPath = Path.Combine(tempDirectory, "header.json");
+            string dataPath = Path.Combine(tempDirectory, "data.json");
+            Uri originalDataUrl = table.Data_url;
+            table.Data_url = new Uri(Path.GetFileName(dataPath), UriKind.Relative);
+            string expectedHeader = table.HeaderToJson();
+            string expectedData = (string)table.DataToJson();
+            table.Data_url = originalDataUrl;
+
+            await workspace.ExportPlaylistTableAsync(table, headerPath, dataPath);
+
+            Assert.IsTrue(File.Exists(headerPath));
+            Assert.IsTrue(File.Exists(dataPath));
+            Assert.AreEqual(expectedHeader, File.ReadAllText(headerPath));
+            Assert.AreEqual(expectedData, File.ReadAllText(dataPath));
+            Assert.IsNull(table.Data_url);
+            Assert.AreEqual(1, notifications.Count);
+            Assert.IsTrue(notifications[0].Receipt.IsEmpty);
+
+            Uri persistedDataUrl = new Uri("https://example.test/export-data.json");
+            table.Data_url = persistedDataUrl;
+            string persistedHeaderPath = Path.Combine(tempDirectory, "persisted-header.json");
+            string persistedDataPath = Path.Combine(tempDirectory, "persisted-data.json");
+            string expectedPersistedHeader = table.HeaderToJson();
+
+            await workspace.ExportPlaylistTableAsync(table, persistedHeaderPath, persistedDataPath);
+
+            Assert.AreEqual(persistedDataUrl, table.Data_url);
+            Assert.AreEqual(expectedPersistedHeader, File.ReadAllText(persistedHeaderPath));
+            Assert.AreEqual(expectedData, File.ReadAllText(persistedDataPath));
+            Assert.AreEqual(2, notifications.Count);
+            Assert.IsTrue(notifications[1].Receipt.IsEmpty);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDirectory))
+            {
+                Directory.Delete(tempDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task PlaylistWorkspaceExportPlaylistTableAsync_PublishesFileFailureAndPreservesHeaderFirstOrder()
+    {
+        string tempDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistWorkspaceViewModelTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDirectory);
+        try
+        {
+            BMSTable table = new BMSTable { name = "Export failure", Folder_order = [] };
+            PlaylistWorkspaceViewModel workspace = CreateDetailWorkspace(out _);
+            List<PlaylistOperationNotificationPresentationRequestedEventArgs> notifications = [];
+            workspace.PlaylistOperationNotificationPresentationRequested +=
+                (_, request) => notifications.Add(request);
+            string headerPath = Path.Combine(tempDirectory, "partial-header.json");
+            string dataDirectory = Path.Combine(tempDirectory, "data-directory");
+            Directory.CreateDirectory(dataDirectory);
+
+            await workspace.ExportPlaylistTableAsync(table, headerPath, dataDirectory);
+
+            Assert.IsTrue(File.Exists(headerPath));
+            Assert.IsTrue(Directory.Exists(dataDirectory));
+            Assert.IsNull(table.Data_url);
+            Assert.AreEqual(1, notifications.Count);
+            PlaylistOperationNotificationOwner.OperationNotification failure =
+                notifications[0].Receipt.Notifications.Single();
+            Assert.AreEqual(
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
+                failure.Severity);
+            Assert.AreEqual(BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist, failure.Message);
+
+            notifications.Clear();
+            string invalidHeaderPath = Path.Combine(tempDirectory, "missing", "header.json");
+            string validDataPath = Path.Combine(tempDirectory, "unwritten-data.json");
+
+            await workspace.ExportPlaylistTableAsync(table, invalidHeaderPath, validDataPath);
+
+            Assert.IsFalse(File.Exists(invalidHeaderPath));
+            Assert.IsFalse(File.Exists(validDataPath));
+            Assert.AreEqual(1, notifications.Count);
+            Assert.AreEqual(
+                PlaylistOperationNotificationOwner.OperationNotificationSeverity.Error,
+                notifications[0].Receipt.Notifications.Single().Severity);
+            Assert.AreEqual(
+                BeMusicSeeker.Properties.Resources.Msg_failed_save_playlist,
+                notifications[0].Receipt.Notifications.Single().Message);
         }
         finally
         {

@@ -90,8 +90,8 @@ backup save は `AddExtension = true` を明示する。restore は existing fil
 | Screen | UI | Dialog | Kind | Target | Filter | Default FileName | Default Extension | Default Extension Source | Selection Result |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | ライブラリ root context menu | ルートフォルダ追加 | `UiFolderPickerRequest` | Folder | BMS root directory | N/A | N/A | N/A | N/A | `AddBmsSearchRootPathFromMainWindowPicker` |
-| プレイリスト tree context menu | 一覧をエクスポート JSON: header | `UiSaveFilePickerRequest` | File save | playlist header JSON | `Resources.Json_file_exts` | header URL basename or `header.json` | `.json` | Direct | `ExportBMSTable(headerPath, dataPath)` |
-| プレイリスト tree context menu | 一覧をエクスポート JSON: data | `UiSaveFilePickerRequest` | File save | playlist data JSON | `Resources.Json_file_exts` | data URL basename or `data.json` | `.json` | Direct | `ExportBMSTable(headerPath, dataPath)` |
+| プレイリスト tree context menu | 一覧をエクスポート JSON: header | `UiSaveFilePickerRequest` | File save | playlist header JSON | `Resources.Json_file_exts` | header URL basename or `header.json` | `.json` | Direct | `PlaylistWorkspace.ExportPlaylistTableAsync(bmsTable, headerResult.FileName, dataResult.FileName)` |
+| プレイリスト tree context menu | 一覧をエクスポート JSON: data | `UiSaveFilePickerRequest` | File save | playlist data JSON | `Resources.Json_file_exts` | data URL basename or `data.json` | `.json` | Direct | `PlaylistWorkspace.ExportPlaylistTableAsync(bmsTable, headerResult.FileName, dataResult.FileName)` |
 | 譜面 table context menu | 音声ファイルへ変換 | `UiFolderPickerRequest` | Folder | audio export directory | N/A | N/A | N/A | N/A | `ConvertBMSToAudioFiles(..., saveDir, ...)` |
 
 JSON export save は header/data の両方に `DefaultExt = ".json"` と `AddExtension = true` を設定する。
