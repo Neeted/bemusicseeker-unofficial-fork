@@ -69,6 +69,190 @@ public sealed class RegularChartListOwnerTests
     }
 
     [TestMethod]
+    public void NavigateTree_OwnsFilterIdentitySummaryTransitionAndRefreshRequest()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), workspace);
+        var presentations = new List<(string? FilterIdentity, bool KeywordRefresh, MainViewUpdateMode RefreshMode)>();
+        owner.TreeNavigationPresentationRequested += (_, request) => presentations.Add((
+            owner.CaptureTreeFilter(enabled: true)?.Identity,
+            request.KeywordPresentationRefreshRequired,
+            request.RefreshMode));
+
+        Assert.IsTrue(owner.NavigateTree(
+            RegularChartFolderFilterKind.Directory,
+            @"C:\Charts\Folder A"));
+        Assert.AreEqual(1, presentations.Count);
+        Assert.AreEqual(
+            "directory:" + @"C:\Charts\Folder A" + Path.DirectorySeparatorChar,
+            presentations[0].FilterIdentity);
+        Assert.IsFalse(presentations[0].KeywordRefresh);
+        Assert.AreEqual(MainViewUpdateMode.FolderFilterSelected, presentations[0].RefreshMode);
+
+        workspace.SetPlaylistSummaryMode(enabled: true);
+        Assert.IsTrue(owner.NavigateTree(RegularChartFolderFilterKind.Artist, "Artist A"));
+        Assert.AreEqual("artist:Artist A", presentations[1].FilterIdentity);
+        Assert.IsTrue(presentations[1].KeywordRefresh);
+        Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+
+        Assert.IsTrue(owner.NavigateTree(filterKind: null));
+        Assert.IsNull(presentations[2].FilterIdentity);
+        Assert.IsFalse(presentations[2].KeywordRefresh);
+
+        workspace.SetPlaylistSummaryMode(enabled: true);
+        Assert.IsFalse(owner.NavigateTree((RegularChartFolderFilterKind)999, "invalid"));
+        Assert.AreEqual(3, presentations.Count);
+        Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+        Assert.IsNull(owner.CaptureTreeFilter(enabled: true));
+    }
+
+    [TestMethod]
+    public void NavigateMaintenance_OwnsSummaryTransitionAndAllMaintenanceRefreshRequests()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath)
+            {
+                DuplicateChartGroups = []
+            };
+            PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
+            using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), workspace);
+            owner.AttachNormalLibraryRefreshSource(library);
+            var presentations = new List<RegularChartMaintenanceNavigationPresentationRequestedEventArgs>();
+            owner.MaintenanceNavigationPresentationRequested += (_, request) => presentations.Add(request);
+            MainViewUpdateMode[] modes =
+            [
+                MainViewUpdateMode.FullScanAllChartsFilterSelected,
+                MainViewUpdateMode.FileMissingFilterSelected,
+                MainViewUpdateMode.FileMissingIgnoredFilterSelected,
+                MainViewUpdateMode.DuplicateFilterSelected,
+                MainViewUpdateMode.GarbledFilterSelected,
+                MainViewUpdateMode.GarbleFixedFilterSelected,
+                MainViewUpdateMode.UnregisteredFilterSelected,
+                MainViewUpdateMode.ZeroNoteFilterSelected,
+                MainViewUpdateMode.ChartInfoParseErrorFilterSelected
+            ];
+
+            workspace.SetPlaylistSummaryMode(enabled: true);
+            for (int index = 0; index < modes.Length; index++)
+            {
+                object? parameter = index == 3 ? "duplicate-folder" : null;
+
+                Assert.IsTrue(owner.NavigateMaintenance(modes[index], parameter, "test_navigation"));
+
+                RegularChartMaintenanceNavigationPresentationRequestedEventArgs request = presentations[index];
+                Assert.AreEqual(modes[index], request.Mode);
+                Assert.AreSame(parameter, request.Parameter);
+                Assert.AreEqual(index == 0, request.KeywordPresentationRefreshRequired);
+                Assert.IsTrue(request.RefreshRequested);
+            }
+            Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+
+            int presentationCount = presentations.Count;
+            workspace.SetPlaylistSummaryMode(enabled: true);
+            Assert.IsFalse(owner.NavigateMaintenance(MainViewUpdateMode.SortUpdated));
+            Assert.AreEqual(presentationCount, presentations.Count);
+            Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+        });
+    }
+
+    [TestMethod]
+    public void NavigateMaintenance_WithoutLibraryStillPublishesOwnedSummaryTransition()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), workspace);
+        var presentations = new List<RegularChartMaintenanceNavigationPresentationRequestedEventArgs>();
+        owner.MaintenanceNavigationPresentationRequested += (_, request) => presentations.Add(request);
+        workspace.SetPlaylistSummaryMode(enabled: true);
+
+        Assert.IsTrue(owner.NavigateMaintenance(MainViewUpdateMode.FileMissingFilterSelected));
+
+        Assert.AreEqual(1, presentations.Count);
+        Assert.AreEqual(MainViewUpdateMode.FileMissingFilterSelected, presentations[0].Mode);
+        Assert.IsTrue(presentations[0].KeywordPresentationRefreshRequired);
+        Assert.IsFalse(presentations[0].RefreshRequested);
+        Assert.IsFalse(workspace.IsPlaylistSummaryMode);
+
+        Assert.IsTrue(owner.NavigateMaintenance(MainViewUpdateMode.ZeroNoteFilterSelected));
+        Assert.AreEqual(1, presentations.Count);
+    }
+
+    [TestMethod]
+    public void NavigateMaintenance_DuplicateModeBuildsCacheBeforeRefreshPresentation()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles =
+                [
+                    CreateTestableBmsFile(@"C:\Charts\duplicate-a.bms"),
+                    CreateTestableBmsFile(@"C:\Charts\duplicate-b.bms")
+                ]
+            };
+            using RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(),
+                CreateWorkspaceForOwner());
+            owner.AttachNormalLibraryRefreshSource(library);
+            var cacheWasReadyAtPresentation = new List<bool>();
+            owner.MaintenanceNavigationPresentationRequested += (_, request) =>
+            {
+                if (request.RefreshRequested)
+                {
+                    cacheWasReadyAtPresentation.Add(library.DuplicateChartGroups != null);
+                }
+            };
+
+            Assert.IsTrue(owner.NavigateMaintenance(
+                MainViewUpdateMode.DuplicateFilterSelected,
+                parameter: "duplicate-folder",
+                reason: "test_duplicate_navigation"));
+
+            Assert.IsNotNull(library.DuplicateChartGroups);
+            Assert.AreEqual(1, library.DuplicateChartGroups.Count);
+            CollectionAssert.AreEqual(new[] { true }, cacheWasReadyAtPresentation);
+        });
+    }
+
+    [TestMethod]
+    public void NavigateInstall_OwnsSummaryTransitionAndPackageRefreshRequests()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateWorkspaceForOwner();
+        using RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), workspace);
+        var presentations = new List<RegularChartInstallNavigationPresentationRequestedEventArgs>();
+        owner.InstallNavigationPresentationRequested += (_, request) => presentations.Add(request);
+        var installedPackage = new ChartPackage { path = @"C:\Installed\Package" };
+        var pendingPackage = new ChartPackage { path = @"C:\Pending\Package" };
+
+        workspace.SetPlaylistSummaryMode(enabled: true);
+        Assert.IsTrue(owner.NavigateInstall(MainViewUpdateMode.NewlyInstalledFolderSelected));
+        Assert.AreEqual(MainViewUpdateMode.NewlyInstalledFolderSelected, presentations[0].Mode);
+        Assert.IsNull(presentations[0].Parameter);
+        Assert.IsTrue(presentations[0].KeywordPresentationRefreshRequired);
+
+        Assert.IsTrue(owner.NavigateInstall(
+            MainViewUpdateMode.NewlyInstalledFolderSelected,
+            installedPackage));
+        Assert.AreSame(installedPackage, presentations[1].Parameter);
+        Assert.IsFalse(presentations[1].KeywordPresentationRefreshRequired);
+
+        Assert.IsTrue(owner.NavigateInstall(MainViewUpdateMode.PendingInstallFolderSelected));
+        Assert.AreEqual(MainViewUpdateMode.PendingInstallFolderSelected, presentations[2].Mode);
+        Assert.IsNull(presentations[2].Parameter);
+
+        Assert.IsTrue(owner.NavigateInstall(
+            MainViewUpdateMode.PendingInstallFolderSelected,
+            pendingPackage));
+        Assert.AreSame(pendingPackage, presentations[3].Parameter);
+
+        int presentationCount = presentations.Count;
+        workspace.SetPlaylistSummaryMode(enabled: true);
+        Assert.IsFalse(owner.NavigateInstall(MainViewUpdateMode.FileMissingFilterSelected));
+        Assert.AreEqual(presentationCount, presentations.Count);
+        Assert.IsTrue(workspace.IsPlaylistSummaryMode);
+    }
+
+    [TestMethod]
     public void AttachNormalLibraryRefreshSource_CatchesUpOnceAndSuppressesDuplicate()
     {
         WithTemporarySongDb(delegate (string songDbPath)

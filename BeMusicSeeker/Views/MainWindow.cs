@@ -2890,9 +2890,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        if (e.Source is TreeViewItem treeViewItem)
+        if (base.DataContext is MainWindowViewModel viewModel
+            && e.Source is TreeViewItem treeViewItem)
         {
-            (base.DataContext as MainWindowViewModel).ExecFolderFilter(MainWindowViewModel.FolderFilterType.DirectoryFilter, treeViewItem.Header.ToString());
+            viewModel.RegularChartList.NavigateTree(
+                RegularChartFolderFilterKind.Directory,
+                treeViewItem.Header.ToString());
             e.Handled = true;
         }
     }
@@ -2947,9 +2950,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        if (e.Source is TreeViewItem treeViewItem)
+        if (base.DataContext is MainWindowViewModel viewModel
+            && e.Source is TreeViewItem treeViewItem)
         {
-            (base.DataContext as MainWindowViewModel).ExecFolderFilter(MainWindowViewModel.FolderFilterType.ArtistFilter, treeViewItem.Header.ToString());
+            viewModel.RegularChartList.NavigateTree(
+                RegularChartFolderFilterKind.Artist,
+                treeViewItem.Header.ToString());
             e.Handled = true;
         }
     }
@@ -2961,9 +2967,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        if (e.OriginalSource is TreeViewItem)
+        if (base.DataContext is MainWindowViewModel viewModel
+            && e.OriginalSource is TreeViewItem)
         {
-            (base.DataContext as MainWindowViewModel).ExecFolderFilter(MainWindowViewModel.FolderFilterType.FilterNone);
+            viewModel.RegularChartList.NavigateTree(filterKind: null);
         }
     }
 
@@ -3332,10 +3339,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeRoot)
         {
             e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.FileMissingFilter);
-            }).Logging("fullScanCheckFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateMaintenanceAsync(MainViewUpdateMode.FileMissingFilterSelected)
+                .Logging("fullScanCheckFolderSelect");
             treeRoot.IsExpanded = true;
         }
     }
@@ -3350,10 +3356,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeViewItem)
         {
             e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.FullScanAllChartsFilter);
-            }).Logging("fullScanAllChartsFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateMaintenanceAsync(MainViewUpdateMode.FullScanAllChartsFilterSelected)
+                .Logging("fullScanAllChartsFolderSelect");
         }
     }
 
@@ -3367,10 +3372,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeViewItem)
         {
             e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.FileMissingIgnoredFilter);
-            }).Logging("fullScanCheckIgnoredFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateMaintenanceAsync(MainViewUpdateMode.FileMissingIgnoredFilterSelected)
+                .Logging("fullScanCheckIgnoredFolderSelect");
         }
     }
 
@@ -3388,10 +3392,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
         if (treeRoot == treeViewItem)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.DuplicateFilter);
-            }).Logging("dupulicateFileCheckFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateMaintenanceAsync(MainViewUpdateMode.DuplicateFilterSelected)
+                .Logging("dupulicateFileCheckFolderSelect");
             treeRoot.IsExpanded = true;
             return;
         }
@@ -3408,10 +3411,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        await Task.Run(delegate
-        {
-            viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.DuplicateFilter, parameter);
-        }).Logging("dupulicateFileCheckFolderSelect");
+        await viewModel.RegularChartList
+            .NavigateMaintenanceAsync(MainViewUpdateMode.DuplicateFilterSelected, parameter)
+            .Logging("dupulicateFileCheckFolderSelect");
     }
 
     private async void garbledCheckFolderSelect(object sender, RoutedEventArgs e)
@@ -3424,10 +3426,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeRoot)
         {
             e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.GarbledFilter);
-            }).Logging("garbledCheckFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateMaintenanceAsync(MainViewUpdateMode.GarbledFilterSelected)
+                .Logging("garbledCheckFolderSelect");
             treeRoot.IsExpanded = true;
         }
     }
@@ -3442,10 +3443,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (base.DataContext is MainWindowViewModel viewModel && sender is TreeViewItem treeRoot)
         {
             e.Handled = true;
-            await Task.Run(delegate
-            {
-                viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.GarbleFixedFilter);
-            }).Logging("garbleFixedFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateMaintenanceAsync(MainViewUpdateMode.GarbleFixedFilterSelected)
+                .Logging("garbleFixedFolderSelect");
             treeRoot.IsExpanded = true;
         }
     }
@@ -3459,10 +3459,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        await Task.Run(delegate
-        {
-            viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.UnregisteredFilter);
-        }).Logging("unregisteredToDBFolderSelect");
+        await viewModel.RegularChartList
+            .NavigateMaintenanceAsync(MainViewUpdateMode.UnregisteredFilterSelected)
+            .Logging("unregisteredToDBFolderSelect");
     }
 
     private async void zeronoteFolderSelect(object sender, RoutedEventArgs e)
@@ -3474,10 +3473,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        await Task.Run(delegate
-        {
-            viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.ZeroNoteFilter);
-        }).Logging("zeronoteFolderSelect");
+        await viewModel.RegularChartList
+            .NavigateMaintenanceAsync(MainViewUpdateMode.ZeroNoteFilterSelected)
+            .Logging("zeronoteFolderSelect");
     }
 
     private async void chartInfoParseErrorFolderSelect(object sender, RoutedEventArgs e)
@@ -3489,10 +3487,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         var viewModel = base.DataContext as MainWindowViewModel;
         e.Handled = true;
-        await Task.Run(delegate
-        {
-            viewModel.ExecMaintenanceFilter(MainWindowViewModel.MaintenanceFilterType.ChartInfoParseErrorFilter);
-        }).Logging("chartInfoParseErrorFolderSelect");
+        await viewModel.RegularChartList
+            .NavigateMaintenanceAsync(MainViewUpdateMode.ChartInfoParseErrorFilterSelected)
+            .Logging("chartInfoParseErrorFolderSelect");
     }
 
     private void treeViewZeroNoteContextMenuItemRecheckClick(object sender, RoutedEventArgs e)
@@ -3520,19 +3517,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
         if (treeRoot == treeViewItem)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter);
-            }).Logging("newlyInstalledFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected)
+                .Logging("newlyInstalledFolderSelect");
             treeRoot.IsExpanded = true;
             return;
         }
         if (treeViewItem.DataContext is ChartPackage package)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter, package);
-            }).Logging("newlyInstalledFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected, package)
+                .Logging("newlyInstalledFolderSelect");
         }
     }
 
@@ -3550,19 +3545,17 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
         if (treeRoot == treeViewItem)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-            }).Logging("pendingInstallFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
+                .Logging("pendingInstallFolderSelect");
             treeRoot.IsExpanded = true;
             return;
         }
         if (treeViewItem.DataContext is ChartPackage package)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter, package);
-            }).Logging("pendingInstallFolderSelect");
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected, package)
+                .Logging("pendingInstallFolderSelect");
         }
     }
 
@@ -4409,10 +4402,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("treeViewInstallPackageContextMenuClearFolderClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-            }).Logging("treeViewInstallPackageContextMenuClearFolderClick");
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
+                .Logging("treeViewInstallPackageContextMenuClearFolderClick");
         }
     }
 
@@ -4447,10 +4439,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("treeViewInstalledFolderContextMenuClearFolderClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter);
-            }).Logging("treeViewInstalledFolderContextMenuClearFolderClick");
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected)
+                .Logging("treeViewInstalledFolderContextMenuClearFolderClick");
         }
     }
 
@@ -4504,10 +4495,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("treeViewInstallPackageContextMenuForceInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-            }).Logging("treeViewInstallPackageContextMenuForceInstallClick");
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
+                .Logging("treeViewInstallPackageContextMenuForceInstallClick");
         }
     }
 
@@ -4537,10 +4527,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("treeViewInstallPackageContextMenuManualInstallClick");
         if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-            }).Logging("treeViewInstallPackageContextMenuManualInstallClick");
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
+                .Logging("treeViewInstallPackageContextMenuManualInstallClick");
         }
     }
 
@@ -7003,10 +6992,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
             if (treeViewItemInstallPending.IsSelected && treeViewItemInstallPending.Items.Count == 0)
             {
-                await Task.Run(delegate
-                {
-                    viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.PendingInstallFilter);
-                }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
+                await viewModel.RegularChartList
+                    .NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)
+                    .Logging("tableContextMenuItemDeleteInstallPackagesClick");
             }
             return;
         }
@@ -7017,10 +7005,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
         if (newlyInstalledTreeViewItem.IsSelected && newlyInstalledTreeViewItem.Items.Count == 0)
         {
-            await Task.Run(delegate
-            {
-                viewModel.ExecInstallFilter(MainWindowViewModel.InstallFilterType.NewlyInstalledFilter);
-            }).Logging("tableContextMenuItemDeleteInstallPackagesClick");
+            await viewModel.RegularChartList
+                .NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected)
+                .Logging("tableContextMenuItemDeleteInstallPackagesClick");
         }
     }
 

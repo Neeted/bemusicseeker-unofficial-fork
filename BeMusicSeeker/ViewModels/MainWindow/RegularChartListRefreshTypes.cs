@@ -79,6 +79,63 @@ internal sealed class RegularNormalLibraryTreeFilter
     }
 }
 
+internal sealed class RegularChartTreeNavigationPresentationRequestedEventArgs : EventArgs
+{
+    internal RegularChartTreeNavigationPresentationRequestedEventArgs(
+        bool keywordPresentationRefreshRequired,
+        MainViewUpdateMode refreshMode)
+    {
+        KeywordPresentationRefreshRequired = keywordPresentationRefreshRequired;
+        RefreshMode = refreshMode;
+    }
+
+    internal bool KeywordPresentationRefreshRequired { get; }
+
+    internal MainViewUpdateMode RefreshMode { get; }
+}
+
+internal sealed class RegularChartMaintenanceNavigationPresentationRequestedEventArgs : EventArgs
+{
+    internal RegularChartMaintenanceNavigationPresentationRequestedEventArgs(
+        MainViewUpdateMode mode,
+        object parameter,
+        bool keywordPresentationRefreshRequired,
+        bool refreshRequested)
+    {
+        Mode = mode;
+        Parameter = parameter;
+        KeywordPresentationRefreshRequired = keywordPresentationRefreshRequired;
+        RefreshRequested = refreshRequested;
+    }
+
+    internal MainViewUpdateMode Mode { get; }
+
+    internal object Parameter { get; }
+
+    internal bool KeywordPresentationRefreshRequired { get; }
+
+    internal bool RefreshRequested { get; }
+}
+
+internal sealed class RegularChartInstallNavigationPresentationRequestedEventArgs : EventArgs
+{
+    internal RegularChartInstallNavigationPresentationRequestedEventArgs(
+        MainViewUpdateMode mode,
+        object parameter,
+        bool keywordPresentationRefreshRequired)
+    {
+        Mode = mode;
+        Parameter = parameter;
+        KeywordPresentationRefreshRequired = keywordPresentationRefreshRequired;
+    }
+
+    internal MainViewUpdateMode Mode { get; }
+
+    internal object Parameter { get; }
+
+    internal bool KeywordPresentationRefreshRequired { get; }
+}
+
 /// <summary>
 /// Captures the normalized inputs for the materialized regular chart-list pipeline.
 /// </summary>

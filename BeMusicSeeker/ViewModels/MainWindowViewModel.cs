@@ -141,6 +141,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     public ChartListFilterViewModel ChartFilters { get; }
 
+    internal RegularChartListOwner RegularChartList => regularChartListOwner;
+
     public PlayHistoryWorkflowOwner PlayHistory { get; }
 
     /// <summary>
@@ -165,14 +167,6 @@ public partial class MainWindowViewModel : ViewModel
         _10KEYS = 8,
         _14KEYS = 0x10,
         All = 0x1F
-    }
-
-    public enum FolderFilterType
-    {
-        DirectoryFilter,
-        ArtistFilter,
-        PlayListFilter,
-        FilterNone
     }
 
     /// <summary>
@@ -406,26 +400,6 @@ public partial class MainWindowViewModel : ViewModel
         internal string LastDetail = string.Empty;
     }
 
-    public enum MaintenanceFilterType
-    {
-        FullScanAllChartsFilter = 32,
-        FileMissingFilter = 33,
-        FileMissingIgnoredFilter,
-        DuplicateFilter,
-        GarbledFilter,
-        GarbleFixedFilter,
-        UnregisteredFilter,
-        ZeroNoteFilter,
-        ChartInfoParseErrorFilter,
-        FilterNone = 255
-    }
-
-    public enum InstallFilterType
-    {
-        NewlyInstalledFilter = 49,
-        PendingInstallFilter
-    }
-
     [Flags]
     private enum UiRefreshChannel
     {
@@ -537,10 +511,6 @@ public partial class MainWindowViewModel : ViewModel
     private readonly SemaphoreSlim packageInstallLibraryGate = new(1, 1);
 
     private int chartPackageMutationDepth;
-
-    private readonly object duplicateChartGroupsRefreshLock = new();
-
-    private bool duplicateChartGroupsRefreshRunning;
 
     private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.MainWindowViewModel");
 
@@ -1775,9 +1745,12 @@ public partial class MainWindowViewModel : ViewModel
 
     private void RefreshLibraryMainViewForCurrentFilter()
     {
-        if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
+        if (RegularChartListOwner.IsMaintenanceNavigationMode(treeViewFilterTypeSelected))
         {
-            ExecMaintenanceFilter((MaintenanceFilterType)treeViewFilterTypeSelected, treeViewFilterParameterSelected);
+            regularChartListOwner.NavigateMaintenance(
+                treeViewFilterTypeSelected,
+                treeViewFilterParameterSelected,
+                "refresh_current_filter");
         }
         else
         {
@@ -2428,12 +2401,14 @@ public partial class MainWindowViewModel : ViewModel
                 reason);
             return;
         }
-        if (Enum.IsDefined(typeof(MaintenanceFilterType), (int)treeViewFilterTypeSelected))
+        if (RegularChartListOwner.IsMaintenanceNavigationMode(treeViewFilterTypeSelected))
         {
-            var type = (MaintenanceFilterType)treeViewFilterTypeSelected;
-            if (type != MaintenanceFilterType.DuplicateFilter)
+            MainViewUpdateMode mode = treeViewFilterTypeSelected;
+            if (mode != MainViewUpdateMode.DuplicateFilterSelected)
             {
-                ExecMaintenanceFilter(type);
+                regularChartListOwner.NavigateMaintenance(
+                    mode,
+                    reason: reason);
             }
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
                 reason);
@@ -3434,13 +3409,6 @@ public partial class MainWindowViewModel : ViewModel
         target.AddRange(source ?? []);
     }
 
-    private void SetNormalLibraryTreeFilter(RegularNormalLibraryTreeFilter filter)
-    {
-        regularChartListOwner.SetTreeFilter(filter);
-        RaisePropertyChanged("FolderFilter");
-        RefreshChartRowsView(MainViewUpdateMode.FolderFilterSelected);
-    }
-
     public bool IsWriteLockHeldInitializeBMSFiles
     {
         get
@@ -3726,6 +3694,9 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;
         regularChartListOwner = childComposition.RegularChartListOwner;
         regularChartListOwner.NormalLibraryRefreshApplied += RegularChartListOwnerNormalLibraryRefreshApplied;
+        regularChartListOwner.TreeNavigationPresentationRequested += RegularChartListOwnerTreeNavigationPresentationRequested;
+        regularChartListOwner.MaintenanceNavigationPresentationRequested += RegularChartListOwnerMaintenanceNavigationPresentationRequested;
+        regularChartListOwner.InstallNavigationPresentationRequested += RegularChartListOwnerInstallNavigationPresentationRequested;
         MainChartList.SortRequested += MainChartListSortRequested;
         MainChartList.CellEditBeginningRequested += MainChartListCellEditBeginningRequested;
         MainChartList.CellEditStarted += MainChartListCellEditStarted;
@@ -3833,6 +3804,54 @@ public partial class MainWindowViewModel : ViewModel
         {
             RefreshNormalLibraryForNotificationPresentationEffects(request.NotificationBatch);
         }
+    }
+
+    private void RegularChartListOwnerTreeNavigationPresentationRequested(
+        object sender,
+        RegularChartTreeNavigationPresentationRequestedEventArgs request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (request.KeywordPresentationRefreshRequired)
+        {
+            UpdateKeywordSearchPresentation();
+        }
+        RefreshChartRowsView(request.RefreshMode);
+    }
+
+    private void RegularChartListOwnerMaintenanceNavigationPresentationRequested(
+        object sender,
+        RegularChartMaintenanceNavigationPresentationRequestedEventArgs request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (request.KeywordPresentationRefreshRequired)
+        {
+            UpdateKeywordSearchPresentation();
+        }
+        if (request.RefreshRequested)
+        {
+            RefreshChartRowsView(request.Mode, request.Parameter);
+        }
+    }
+
+    private void RegularChartListOwnerInstallNavigationPresentationRequested(
+        object sender,
+        RegularChartInstallNavigationPresentationRequestedEventArgs request)
+    {
+        if (request == null)
+        {
+            throw new ArgumentNullException(nameof(request));
+        }
+        if (request.KeywordPresentationRefreshRequired)
+        {
+            UpdateKeywordSearchPresentation();
+        }
+        RefreshChartRowsView(request.Mode, request.Parameter);
     }
 
     private void PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested(
@@ -6764,121 +6783,6 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.CommitMainTableColumnSetting(MainChartList, selection);
     }
 
-    public void ExecFolderFilter(FolderFilterType type, string filterKey = null)
-    {
-        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
-        {
-            UpdateKeywordSearchPresentation();
-        }
-        if (!string.IsNullOrWhiteSpace(filterKey))
-        {
-            switch (type)
-            {
-                case FolderFilterType.FilterNone:
-                    break;
-                default:
-                    return;
-                case FolderFilterType.DirectoryFilter:
-                    SetNormalLibraryTreeFilter(RegularNormalLibraryTreeFilter.Create(RegularChartFolderFilterKind.Directory, filterKey));
-                    return;
-                case FolderFilterType.ArtistFilter:
-                    SetNormalLibraryTreeFilter(RegularNormalLibraryTreeFilter.Create(RegularChartFolderFilterKind.Artist, filterKey));
-                    return;
-            }
-        }
-        SetNormalLibraryTreeFilter(null);
-    }
-
-    public void ExecMaintenanceFilter(MaintenanceFilterType type, object parameter = null)
-    {
-        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
-        {
-            UpdateKeywordSearchPresentation();
-        }
-        if (files != null)
-        {
-            if (type == MaintenanceFilterType.DuplicateFilter)
-            {
-                EnsureDuplicateChartGroupsReady("exec_maintenance_filter");
-            }
-            if (Enum.IsDefined(typeof(MainViewUpdateMode), (int)type))
-            {
-                RefreshChartRowsView((MainViewUpdateMode)type, parameter);
-            }
-        }
-    }
-
-    private bool EnsureDuplicateChartGroupsReady(string reason)
-    {
-        if (files == null)
-        {
-            return false;
-        }
-        if (files.DuplicateChartGroups != null)
-        {
-            return true;
-        }
-
-        int version = files.DuplicateChartGroupsInvalidationVersion;
-        var waitStopwatch = Stopwatch.StartNew();
-        bool waited = false;
-        lock (duplicateChartGroupsRefreshLock)
-        {
-            while (duplicateChartGroupsRefreshRunning)
-            {
-                waited = true;
-                Monitor.Wait(duplicateChartGroupsRefreshLock);
-                if (files.DuplicateChartGroups != null)
-                {
-                    LogDuplicateRefreshCoalesce(reason, version, "joined", waitStopwatch.ElapsedMilliseconds);
-                    return true;
-                }
-                version = files.DuplicateChartGroupsInvalidationVersion;
-            }
-
-            if (files.DuplicateChartGroups != null)
-            {
-                if (waited)
-                {
-                    LogDuplicateRefreshCoalesce(reason, version, "joined", waitStopwatch.ElapsedMilliseconds);
-                }
-                return true;
-            }
-
-            duplicateChartGroupsRefreshRunning = true;
-        }
-
-        int searchVersion = version;
-        var searchStopwatch = Stopwatch.StartNew();
-        try
-        {
-            files.SearchDuplicateChartGroups();
-            return files.DuplicateChartGroups != null;
-        }
-        finally
-        {
-            searchStopwatch.Stop();
-            lock (duplicateChartGroupsRefreshLock)
-            {
-                duplicateChartGroupsRefreshRunning = false;
-                Monitor.PulseAll(duplicateChartGroupsRefreshLock);
-            }
-            LogDuplicateRefreshCoalesce(reason, searchVersion, "searched", searchStopwatch.ElapsedMilliseconds);
-        }
-    }
-
-    private static void LogDuplicateRefreshCoalesce(string reason, int version, string action, long elapsedMs)
-    {
-        if (!installPerformanceLoggingEnabled)
-        {
-            return;
-        }
-        installPerformanceLogger.Info("duplicate_refresh_coalesce action=" + action
-            + " reason=" + reason
-            + " version=" + version
-            + " elapsedMs=" + elapsedMs);
-    }
-
     public void RemoveChartInfoParseFailuresByMd5(IEnumerable<string> md5s)
     {
         files?.RemoveChartInfoParseFailuresByMd5(NormalizeChartInfoParseFailureMd5s(md5s));
@@ -6887,23 +6791,6 @@ public partial class MainWindowViewModel : ViewModel
     internal static string[] NormalizeChartInfoParseFailureMd5s(IEnumerable<string> md5s)
     {
         return BMSLibrary.NormalizeChartInfoParseFailureMd5s(md5s);
-    }
-
-    public void ExecInstallFilter(InstallFilterType type, object parameter = null)
-    {
-        if (PlaylistWorkspace.SetPlaylistSummaryMode(enabled: false))
-        {
-            UpdateKeywordSearchPresentation();
-        }
-        switch (type)
-        {
-            case InstallFilterType.NewlyInstalledFilter:
-                RefreshChartRowsView(MainViewUpdateMode.NewlyInstalledFolderSelected, parameter);
-                break;
-            case InstallFilterType.PendingInstallFilter:
-                RefreshChartRowsView(MainViewUpdateMode.PendingInstallFolderSelected, parameter);
-                break;
-        }
     }
 
     internal void FixEncodingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string encoding = "")
@@ -7061,7 +6948,7 @@ public partial class MainWindowViewModel : ViewModel
             }
             if (files.DuplicateChartGroups == null)
             {
-                EnsureDuplicateChartGroupsReady(refreshReason);
+                regularChartListOwner.EnsureDuplicateChartGroupsReady(refreshReason);
                 return;
             }
             RefreshChartRowsView(MainViewUpdateMode.TreeViewFilterNotChanged);

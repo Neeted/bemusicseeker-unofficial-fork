@@ -35,9 +35,16 @@ internal sealed class RegularChartListOwner : IDisposable
 
     internal event EventHandler<RegularChartInstallDestinationEditRequestedEventArgs> InstallDestinationEditRequested;
 
+    internal event EventHandler<RegularChartTreeNavigationPresentationRequestedEventArgs> TreeNavigationPresentationRequested;
+
+    internal event EventHandler<RegularChartMaintenanceNavigationPresentationRequestedEventArgs> MaintenanceNavigationPresentationRequested;
+
+    internal event EventHandler<RegularChartInstallNavigationPresentationRequestedEventArgs> InstallNavigationPresentationRequested;
+
     private const int StartupVirtualOrderPrewarmMaxPriority = 3;
     private readonly object syncRoot = new();
     private readonly object normalLibraryRefreshApplyLock = new();
+    private readonly object duplicateChartGroupsRefreshLock = new();
     private readonly MainChartListViewModel mainChartList;
     private readonly PlaylistWorkspaceViewModel playlistWorkspace;
     private readonly Action<string> log;
@@ -80,6 +87,7 @@ internal sealed class RegularChartListOwner : IDisposable
     private PropertyChangedEventListener normalLibraryRefreshListener;
     private BMSLibrary normalLibraryRefreshSource;
     private int normalLibraryRefreshHandledNotificationVersion;
+    private bool duplicateChartGroupsRefreshRunning;
     private int virtualSummaryCacheVersion;
     private int virtualSummaryRunId;
     private CancellationTokenSource virtualOrderPrewarmCancellation;
@@ -239,12 +247,222 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
-    internal void SetTreeFilter(RegularNormalLibraryTreeFilter filter)
+    internal bool NavigateTree(RegularChartFolderFilterKind? filterKind, string filterKey = null)
+    {
+        if (filterKind.HasValue
+            && filterKind.Value != RegularChartFolderFilterKind.Directory
+            && filterKind.Value != RegularChartFolderFilterKind.Artist)
+        {
+            return false;
+        }
+        RegularNormalLibraryTreeFilter filter = filterKind.HasValue
+            ? RegularNormalLibraryTreeFilter.Create(filterKind.Value, filterKey)
+            : null;
+        bool keywordPresentationRefreshRequired = playlistWorkspace.SetPlaylistSummaryMode(enabled: false);
+        lock (syncRoot)
+        {
+            if (disposed)
+            {
+                throw new ObjectDisposedException(nameof(RegularChartListOwner));
+            }
+            treeFilter = filter;
+        }
+        (TreeNavigationPresentationRequested
+            ?? throw new InvalidOperationException("Regular chart tree navigation presentation is not composed."))(
+                this,
+                new RegularChartTreeNavigationPresentationRequestedEventArgs(
+                    keywordPresentationRefreshRequired,
+                    MainViewUpdateMode.FolderFilterSelected));
+        return true;
+    }
+
+    internal Task<bool> NavigateMaintenanceAsync(
+        MainViewUpdateMode mode,
+        object parameter = null,
+        string reason = "maintenance_navigation")
+    {
+        return Task.Run(() => NavigateMaintenance(mode, parameter, reason));
+    }
+
+    internal bool NavigateMaintenance(
+        MainViewUpdateMode mode,
+        object parameter = null,
+        string reason = "maintenance_navigation")
+    {
+        if (!IsMaintenanceNavigationMode(mode))
+        {
+            return false;
+        }
+        bool keywordPresentationRefreshRequired = playlistWorkspace.SetPlaylistSummaryMode(enabled: false);
+        BMSLibrary library = CaptureAttachedLibrary();
+        if (library == null)
+        {
+            if (keywordPresentationRefreshRequired)
+            {
+                RaiseMaintenanceNavigationPresentationRequested(
+                    mode,
+                    parameter,
+                    keywordPresentationRefreshRequired: true,
+                    refreshRequested: false);
+            }
+            return true;
+        }
+        if (mode == MainViewUpdateMode.DuplicateFilterSelected)
+        {
+            if (keywordPresentationRefreshRequired)
+            {
+                RaiseMaintenanceNavigationPresentationRequested(
+                    mode,
+                    parameter,
+                    keywordPresentationRefreshRequired: true,
+                    refreshRequested: false);
+                keywordPresentationRefreshRequired = false;
+            }
+            EnsureDuplicateChartGroupsReady(library, reason);
+        }
+        RaiseMaintenanceNavigationPresentationRequested(
+            mode,
+            parameter,
+            keywordPresentationRefreshRequired,
+            refreshRequested: true);
+        return true;
+    }
+
+    internal bool EnsureDuplicateChartGroupsReady(string reason)
+    {
+        BMSLibrary library = CaptureAttachedLibrary();
+        return library != null && EnsureDuplicateChartGroupsReady(library, reason);
+    }
+
+    internal static bool IsMaintenanceNavigationMode(MainViewUpdateMode mode)
+    {
+        return mode is MainViewUpdateMode.FullScanAllChartsFilterSelected
+            or MainViewUpdateMode.FileMissingFilterSelected
+            or MainViewUpdateMode.FileMissingIgnoredFilterSelected
+            or MainViewUpdateMode.DuplicateFilterSelected
+            or MainViewUpdateMode.GarbledFilterSelected
+            or MainViewUpdateMode.GarbleFixedFilterSelected
+            or MainViewUpdateMode.UnregisteredFilterSelected
+            or MainViewUpdateMode.ZeroNoteFilterSelected
+            or MainViewUpdateMode.ChartInfoParseErrorFilterSelected;
+    }
+
+    internal Task<bool> NavigateInstallAsync(MainViewUpdateMode mode, object parameter = null)
+    {
+        return Task.Run(() => NavigateInstall(mode, parameter));
+    }
+
+    internal bool NavigateInstall(MainViewUpdateMode mode, object parameter = null)
+    {
+        if (mode != MainViewUpdateMode.NewlyInstalledFolderSelected
+            && mode != MainViewUpdateMode.PendingInstallFolderSelected)
+        {
+            return false;
+        }
+        bool keywordPresentationRefreshRequired = playlistWorkspace.SetPlaylistSummaryMode(enabled: false);
+        lock (syncRoot)
+        {
+            if (disposed)
+            {
+                throw new ObjectDisposedException(nameof(RegularChartListOwner));
+            }
+        }
+        (InstallNavigationPresentationRequested
+            ?? throw new InvalidOperationException("Regular chart install navigation presentation is not composed."))(
+                this,
+                new RegularChartInstallNavigationPresentationRequestedEventArgs(
+                    mode,
+                    parameter,
+                    keywordPresentationRefreshRequired));
+        return true;
+    }
+
+    private BMSLibrary CaptureAttachedLibrary()
     {
         lock (syncRoot)
         {
-            treeFilter = filter;
+            if (disposed)
+            {
+                throw new ObjectDisposedException(nameof(RegularChartListOwner));
+            }
+            return normalLibraryRefreshSource;
         }
+    }
+
+    private bool EnsureDuplicateChartGroupsReady(BMSLibrary library, string reason)
+    {
+        if (library.DuplicateChartGroups != null)
+        {
+            return true;
+        }
+        int version = library.DuplicateChartGroupsInvalidationVersion;
+        var waitStopwatch = Stopwatch.StartNew();
+        bool waited = false;
+        lock (duplicateChartGroupsRefreshLock)
+        {
+            while (duplicateChartGroupsRefreshRunning)
+            {
+                waited = true;
+                Monitor.Wait(duplicateChartGroupsRefreshLock);
+                if (library.DuplicateChartGroups != null)
+                {
+                    LogDuplicateRefreshCoalesce(reason, version, "joined", waitStopwatch.ElapsedMilliseconds);
+                    return true;
+                }
+                version = library.DuplicateChartGroupsInvalidationVersion;
+            }
+            if (library.DuplicateChartGroups != null)
+            {
+                if (waited)
+                {
+                    LogDuplicateRefreshCoalesce(reason, version, "joined", waitStopwatch.ElapsedMilliseconds);
+                }
+                return true;
+            }
+            duplicateChartGroupsRefreshRunning = true;
+        }
+
+        int searchVersion = version;
+        var searchStopwatch = Stopwatch.StartNew();
+        try
+        {
+            library.SearchDuplicateChartGroups();
+            return library.DuplicateChartGroups != null;
+        }
+        finally
+        {
+            searchStopwatch.Stop();
+            lock (duplicateChartGroupsRefreshLock)
+            {
+                duplicateChartGroupsRefreshRunning = false;
+                Monitor.PulseAll(duplicateChartGroupsRefreshLock);
+            }
+            LogDuplicateRefreshCoalesce(reason, searchVersion, "searched", searchStopwatch.ElapsedMilliseconds);
+        }
+    }
+
+    private void LogDuplicateRefreshCoalesce(string reason, int version, string action, long elapsedMs)
+    {
+        log("duplicate_refresh_coalesce action=" + action
+            + " reason=" + (reason ?? string.Empty)
+            + " version=" + version
+            + " elapsedMs=" + elapsedMs);
+    }
+
+    private void RaiseMaintenanceNavigationPresentationRequested(
+        MainViewUpdateMode mode,
+        object parameter,
+        bool keywordPresentationRefreshRequired,
+        bool refreshRequested)
+    {
+        (MaintenanceNavigationPresentationRequested
+            ?? throw new InvalidOperationException("Regular chart maintenance navigation presentation is not composed."))(
+                this,
+                new RegularChartMaintenanceNavigationPresentationRequestedEventArgs(
+                    mode,
+                    parameter,
+                    keywordPresentationRefreshRequired,
+                    refreshRequested));
     }
 
     internal RegularNormalLibraryTreeFilter CaptureTreeFilter(bool enabled)

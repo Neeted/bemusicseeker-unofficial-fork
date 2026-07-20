@@ -263,10 +263,10 @@ public sealed class CustomTableColumnSettingsTests
     }
 
     [TestMethod]
-    public void MaintenanceFilterType_ChartInfoParseErrorKeepsExplicitValue()
+    public void MainViewUpdateMode_MaintenanceValuesRemainStable()
     {
-        Assert.AreEqual(40, (int)MainWindowViewModel.MaintenanceFilterType.ChartInfoParseErrorFilter);
-        Assert.AreEqual(255, (int)MainWindowViewModel.MaintenanceFilterType.FilterNone);
+        Assert.AreEqual(40, (int)MainViewUpdateMode.ChartInfoParseErrorFilterSelected);
+        Assert.AreEqual(255, (int)MainViewUpdateMode.UpdatedNone);
     }
 
     [TestMethod]

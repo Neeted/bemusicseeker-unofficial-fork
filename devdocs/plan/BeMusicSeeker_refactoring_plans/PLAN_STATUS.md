@@ -18,7 +18,7 @@
 
 active outcome base commit: `6d170cb9`
 active execution package: `UI05-R Remaining shell closure`
-sequence cursor: `UI05-R2A Library / maintenance / package navigation presentation`
+sequence cursor: `UI05-R2B Chart action / external action workflow — first incomplete production route`
 
 目的:
 

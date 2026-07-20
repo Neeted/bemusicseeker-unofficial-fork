@@ -62,6 +62,112 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void RegularLibraryTreeNavigation_RoutesThroughRegularChartListOwner()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string ownerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
+        string directoryRoute = ExtractBetween(
+            mainWindowSource,
+            "private void directoryFolderSelect",
+            "private void playHistoryPeriodSelect");
+        string artistRoute = ExtractBetween(
+            mainWindowSource,
+            "private void artistFolderSelect",
+            "private void rootFolderSelect");
+        string rootRoute = ExtractBetween(
+            mainWindowSource,
+            "private void rootFolderSelect",
+            "private List<PlaylistSummaryRow> getSelectedPlaylistSummaryRows");
+
+        StringAssert.Contains(directoryRoute, "ShouldBlockStartupUiInteraction(\"tree_directory_folder_select\")");
+        StringAssert.Contains(directoryRoute, "viewModel.RegularChartList.NavigateTree(");
+        StringAssert.Contains(directoryRoute, "RegularChartFolderFilterKind.Directory");
+        StringAssert.Contains(directoryRoute, "treeViewItem.Header.ToString()");
+        StringAssert.Contains(artistRoute, "ShouldBlockStartupUiInteraction(\"tree_artist_folder_select\")");
+        StringAssert.Contains(artistRoute, "viewModel.RegularChartList.NavigateTree(");
+        StringAssert.Contains(artistRoute, "RegularChartFolderFilterKind.Artist");
+        StringAssert.Contains(rootRoute, "ShouldBlockStartupUiInteraction(\"tree_root_folder_select\")");
+        StringAssert.Contains(rootRoute, "viewModel.RegularChartList.NavigateTree(filterKind: null)");
+        StringAssert.Contains(ownerSource, "playlistWorkspace.SetPlaylistSummaryMode(enabled: false)");
+        StringAssert.Contains(ownerSource, "TreeNavigationPresentationRequested");
+        Assert.IsFalse(rootViewModelSource.Contains("ExecFolderFilter"));
+        Assert.IsFalse(rootViewModelSource.Contains("FolderFilterType"));
+        Assert.IsFalse(rootViewModelSource.Contains("SetNormalLibraryTreeFilter"));
+        Assert.IsFalse(rootViewModelSource.Contains("RaisePropertyChanged(\"FolderFilter\")"));
+    }
+
+    [TestMethod]
+    public void MaintenanceTreeNavigation_RoutesThroughRegularChartListOwner()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string ownerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
+        string maintenanceRoutes = ExtractBetween(
+            mainWindowSource,
+            "private async void fullScanCheckFolderSelect",
+            "private void treeViewZeroNoteContextMenuItemRecheckClick");
+
+        string[] modes =
+        [
+            "FileMissingFilterSelected",
+            "FullScanAllChartsFilterSelected",
+            "FileMissingIgnoredFilterSelected",
+            "DuplicateFilterSelected",
+            "GarbledFilterSelected",
+            "GarbleFixedFilterSelected",
+            "UnregisteredFilterSelected",
+            "ZeroNoteFilterSelected",
+            "ChartInfoParseErrorFilterSelected"
+        ];
+        foreach (string mode in modes)
+        {
+            StringAssert.Contains(maintenanceRoutes, "NavigateMaintenanceAsync(MainViewUpdateMode." + mode);
+        }
+        StringAssert.Contains(maintenanceRoutes, "ShouldBlockStartupUiInteraction(");
+        StringAssert.Contains(maintenanceRoutes, "e.Handled = true;");
+        StringAssert.Contains(maintenanceRoutes, "treeRoot.IsExpanded = true;");
+        StringAssert.Contains(maintenanceRoutes, "treeViewItem.DataContext is DuplicateGroup");
+        StringAssert.Contains(ownerSource, "EnsureDuplicateChartGroupsReady(library, reason)");
+        StringAssert.Contains(ownerSource, "MaintenanceNavigationPresentationRequested");
+        Assert.IsFalse(rootViewModelSource.Contains("ExecMaintenanceFilter"));
+        Assert.IsFalse(rootViewModelSource.Contains("MaintenanceFilterType"));
+        Assert.IsFalse(rootViewModelSource.Contains("duplicateChartGroupsRefreshLock"));
+        Assert.IsFalse(rootViewModelSource.Contains("duplicateChartGroupsRefreshRunning"));
+    }
+
+    [TestMethod]
+    public void InstallPackageNavigation_RoutesThroughRegularChartListOwner()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string ownerSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindow", "RegularChartListOwner.cs");
+        string navigationRoutes = ExtractBetween(
+            mainWindowSource,
+            "private async void newlyInstalledFolderSelect",
+            "private void treeViewPlaylistRootContextMenuOpend");
+
+        StringAssert.Contains(navigationRoutes, "ShouldBlockStartupUiInteraction(\"tree_newly_installed_select\")");
+        StringAssert.Contains(navigationRoutes, "ShouldBlockStartupUiInteraction(\"tree_pending_install_select\")");
+        StringAssert.Contains(navigationRoutes, "NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected");
+        StringAssert.Contains(navigationRoutes, "NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected");
+        StringAssert.Contains(navigationRoutes, "treeViewItem.DataContext is ChartPackage package");
+        StringAssert.Contains(navigationRoutes, "treeRoot.IsExpanded = true;");
+        StringAssert.Contains(ownerSource, "InstallNavigationPresentationRequested");
+        StringAssert.Contains(mainWindowSource, ".NavigateInstallAsync(MainViewUpdateMode.PendingInstallFolderSelected)");
+        StringAssert.Contains(mainWindowSource, ".NavigateInstallAsync(MainViewUpdateMode.NewlyInstalledFolderSelected)");
+        Assert.IsFalse(mainWindowSource.Contains("ExecInstallFilter"));
+        Assert.IsFalse(rootViewModelSource.Contains("InstallFilterType"));
+        Assert.IsFalse(rootViewModelSource.Contains("ExecInstallFilter"));
+    }
+
+    [TestMethod]
     public void DeleteContextMenuItems_UseSpecificDeleteResourceKeys()
     {
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
