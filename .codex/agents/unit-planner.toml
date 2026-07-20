@@ -22,6 +22,7 @@ planner 自身が、対象 package の production route、caller、writer、lock
 7. 追加・更新する behavior tests
 8. targeted verification、Full verification が必要となる条件、static review scope
 9. 実装中に前提不一致が見つかった場合の局所的な再分解方法
+10. unit が重大指摘なしで完了した後に機械的に設定する次の sequence cursor（次 unit ID、`planner required`、または outcome closure）
 
 候補が broad すぎる場合は停止せず、次の責務 corridor で再帰的に分解してください。
 - immutable request の prepare / validation

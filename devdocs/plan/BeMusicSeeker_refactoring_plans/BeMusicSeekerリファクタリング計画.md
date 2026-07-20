@@ -34,17 +34,7 @@ C# の `public` / `protected` 修飾子だけでは互換性契約とみなさ�
 
 互換性を理由に escalation する前に、具体的な supported out-of-repository consumer を特定する。特定できなければ内部リファクタリングとして進める。
 
-compatibility-only debt は一括 public cleanup にせず、production caller、XAML、tests の更新と旧 wrapper 削除までを閉じる bounded unit で整理する。最初の対象は `BMSPlaylist.GetCustomFolderOutputDirectory(BMSTable)` の test-only / `Settings.Default`-backed overload とし、tests は明示的 settings 引数を取る overload または snapshot を使う。
-
-UI-01 の完了状態は public surface の変更だけを理由に再開しない。次の候補は production / XAML consumer と supported external consumer を監査し、外部 consumer がなく tests または root 内部だけで使われる場合に `ChartListSortParameters`、`ChartModeFilter`、`ChartFilters` へ置換して削除する。
-
-- `MainWindowViewModel.cSortParameters`
-- `MainWindowViewModel.ModeFilterType`
-- `MainWindowViewModel.ModeFilter`
-- `MainWindowViewModel.KeywordFilter`
-- `ToCompatibilitySortParameters`
-
-`PlaylistFilterType` は UI-03 で canonical feature type へ統合してよく、外部互換性を理由に残さない。
+compatibility-only debt は、該当する production owner を変更する bounded unit で production caller、XAML、tests を新しい call shape へ更新し、不要になった wrapper / forwarding member まで削除する。完了済み outcome は public modifier や過去の内部 call shape だけを理由に再開せず、現行の supported external contract または acceptance criteria の未達が確認された場合にだけ再開する。
 
 ## 計画単位
 
@@ -64,12 +54,7 @@ Gate を一段進める、利用者またはアーキテクチャから見て完
 
 DTO、result、helper、rename、test fixture、partial split、signature 調整など。これらだけを outcome、ticket、checkpoint、decision record にしない。
 
-次は禁止する。
-
-- production code を変えず「次の 1 seam」を選ぶ checkpoint。
-- private helper や reflection test の残数を起点にした無期限の ticket 生成。
-- 旧 owner / 旧経路を残したまま coordinator、host、adapter だけを成果とすること。
-- Git 履歴で確認できる完了作業、テスト件数、行数推移を計画資料へ追記すること。
+計画資料には target architecture、outcome の完了条件、現在の active boundary と依存順を置く。実装単位は production route と旧 owner の削除までを閉じ、checkpoint、helper 数、過去 cursor、完了作業、テスト件数、行数推移は Git の diff / commit で追跡する。
 
 ## 目標アーキテクチャ
 
@@ -148,85 +133,7 @@ cross-owner handoff は次の規則に従う。
 | playlist summary result cache / reload decision | `PL-01` が `LIB-03` の versioned owned-hash snapshot / catalog mutation receipt を消費 |
 | normal library refresh | `LIB-03` が canonical catalog-changed event を発行し、shell 側の表示接続は `UI-05` で閉じる |
 
-`b6f2ef7e` を library ownership 再編時の bridge baseline とする。この snapshot に既に存在する cross-owner bridge は、下表の retirement outcome まで一時的に残してよいが、member、factory、callback category を追加または拡張しない。上記 handoff 規則と completion rule の cross-owner handoff 条件は新規または恒久 contract と各 retirement outcome の完了判定に適用し、下表の baseline bridge だけは担当 outcome までの限定例外として先行 outcome の完了を妨げない。新 owner を接続できた category は同じ outcome 内で facade forwarding と旧 route を削除する。
-
-| Residual bridge category | Production owner を成立させる outcome | 削除対象 |
-|---|---|---|
-| current install destination cleanup、pending / installed package overlay、installable maintenance queue / mode commit / package target selection / progress、package / file-operation orchestration | `LIB-02` | scan host の package callback、installable maintenance host / queue state、package / file-operation host 群の facade-owned state forwarding |
-| storage rows、owned collection、non-scan runtime maintenance-table durable write、resource-health input / index、catalog write serialization / mutation apply / dispatch、post-scan maintenance、maintenance-table hydration、chart-info hydration / backfill | `LIB-03` | scan storage host / coordinator factory、mutation-delta broad host、installed-target apply host、maintenance hydration apply / dispatch host、chart-info queue / workflow state、resource-health state forwarding / rebuild / mutation host |
-| LR2 folder diff / normal-folder sync、LR2 request / run reservation、scan-surface、trust / freshness、request / run / status | `LIB-04` | scan LR2 host、scan host の LR2 callback、LR2-specific mutation-block callback、LR2 request / status host と facade-owned mutable state |
-| playlist reference maps / apply / display | `LIB-05` | playlist-reference host、facade-owned manager / apply workflow、catalog mutation fan-out 内の reference-specific branch |
-| progress / dialog / diagnostics / DB gateway の残る scan composition と、上記削除後に空になる nested host / factory | `LIB-06` | `LibraryFileScanPipelineHost` 相当の broad host、残存 nested host / forwarding、test-only production seam |
-
-実装順は `LIB-01` の再基準化監査を閉じた後、canonical catalog writer を先に成立させるため `LIB-03` → `LIB-02` → `LIB-04` → `LIB-05` → `LIB-06` とする。`LIB-02` の package / file operation と `LIB-04` の LR2 sync は、`LIB-03` の catalog snapshot / mutation request / receipt / lease を恒久 contract として使う。後続 owner が未成立のため vertical unit を作れない状態は external blocker として扱わず、不要な adapter を追加せずに prerequisite outcome を進める。
-
-library ownership phase の slicing は workflow / state boundary で行う。
-
-- `LIB-03`: broad generic route は responsibility corridor ごとに閉じてよい。各 unit は対象 corridor の request prepare、durable writer / transaction、canonical live apply / version、receipt または catalog event、failure behavior を owner へ移し、その corridor の旧 writer / callback / brittle test を削除する。全 caller、全 consumer residual、broad host 全体の削除を毎 unit に要求せず、surface を増やさない baseline composition を named retirement unit まで残す。interface / receipt だけを先に追加しない。
-- `LIB-02`: package / install-destination workflow と generic library file-operation workflow は別の vertical unit に分けてよいが、各 unit は file-system side effect、`LIB-03` への mutation request、state apply、failure / notification までを閉じる。host 一個ずつの移動にしない。
-- `LIB-04`: request / schedule / cancellation / run status と trust / freshness / folder sync を同じ owner family に置き、scan commit facts と `LIB-03` の catalog lease を production 接続した unit で対応する LR2 callback を削除する。
-- `LIB-05`: reference index state と table / chart apply を同じ owner に置き、owned / pending / installed の各 source を permanent snapshot / receipt へ接続した unit で facade apply host を削除する。
-- `LIB-06`: 新しい domain abstraction を設計する outcome ではない。既に成立した owner を直接 compose し、残る progress / dialog / diagnostics port を用途別に接続して broad host / factory / forwarding を削除する。
-
-#### `LIB-03` 残存責務の実行境界
-
-`LIB-03` の残作業は private helper、host member、coordinator file ごとに分けず、次の ownership boundary を順に閉じる。以下の owner 名は責務を示す概念名であり、C# type 名を固定しない。各 unit は記載した production route、state / behavior、旧 route 削除、behavior test を一つの未コミット差分で完了する。
-
-1. **Resource-health state owner closure**
-   - owner は index snapshot、invalidation、input / index version、mutation depth、invalidation suppression、full-owned target freshness と、full rebuild / delta / defer / failure invalidation / warning projection query を同じ境界で所有する。
-   - catalog mutation / generic delta、installed-target apply、maintenance hydration、owned maintenance / manual rescan、merge-directory、pending estimated-install、view query の production route をこの owner へ直接接続する。呼び出し側は catalog mutation receipt、versioned target snapshot、resource-health mutation facts のいずれかを渡し、owner の lock、version field、mutable snapshot を取得しない。
-   - `BMSLibrary` の resource-health private state と、それを列挙する full-rebuild / mutation-dispatch / input-mutation host、nested forwarding、test-only access を同じ unit で削除する。application-facing query / event が必要な場合は facade が owner へ委譲してよいが、state を複製しない。
-   - `LIB-02` まで残る installable maintenance / pending estimated-install host は package scheduling / composition の baseline bridge に限定し、resource-health currentness、suppression、mutation を private callback で所有しない。immutable package-target / mutation facts から resource-health owner の command / query を呼ぶ。
-   - `BmsLibraryMaintenanceService` はこの unit では resource-health projection の純粋な評価 capability として使用してよい。maintenance orchestration、DB、queue state を resource-health owner に吸収せず、次の unit で閉じる。
-   - full / delta の freshness、suppression 中の failure invalidation、stale full-owned target、deferred update、projection version の behavior test を owner の observable result で検証する。private field や nested host の reflection test は置き換える。
-2. **Catalog-owned maintenance and maintenance-table hydration owner closure**
-   - owner は maintenance-table hydration の requested / running / completed version と queue serialization、startup scheduling / shutdown、maintenance table load、owned chart への attach、stale-row detection、owned / installable target の maintenance evaluation、durable write request、resource-health 更新要求、progress / failure terminal result を所有する。
-   - startup initialization、post-scan、deferred maintenance hydration、owned-chart manual rescan、merge-directory、package install、fix-install、pending estimated-install と、baseline package bridge からの deferred installable maintenance request の production route をこの owner へ接続する。resource-health owner には immutable target / mutation facts、catalog storage / mutation owner には immutable maintenance upsert / stale-delete request と result で接続する。
-   - song / bmson row と maintenance row を同時に更新する non-scan runtime transaction を分割しない。maintenance owner は DB gateway を直接書かず、catalog mutation owner を hydration stale cleanup、maintenance rescan / installable maintenance、generic mutation の durable write / delete command owner とする。`LIB-01` の scan durable commit は committed facts を返す別境界として維持し、同じ scan result を再永続化しない。
-   - `IMaintenanceHydrationHost`、apply host、dispatch host、`BMSLibrary` の hydration queue state / lock と nested forwarding、および package-install / fix-install / pending estimated-install host から facade private `setMaintenanceInfo` へ入る forwarding を同じ unit で削除する。package / file-operation host 自体は `LIB-02` の baseline bridge として残してよいが、maintenance evaluator / writer の callback member を保持しない。facade に残せるのは application-facing command / status query / event と、用途別の scheduler、progress、DB gateway、logging / failure port の composition だけである。
-   - pending / installed package を対象にする installable maintenance の queue / mode commit / package target selection / progress は `LIB-02` に残す。mode commit → immutable maintenance request → resource-health result の ordering を維持し、既存 installable host は `LIB-02` で削除するまで scheduling / composition だけを行う。package state を catalog maintenance owner に吸収せず、catalog-owned target と installable target の mutable lifecycle を共有しない。
-   - queue coalescing、shutdown / scheduler reject、DB load、attach、stale cleanup、cleanup failure invalidation、owned rescan、package install / fix-install / pending estimated-install の mutation → maintenance → resource-health ordering と failure、progress / terminal notification を behavior test で検証し、method名を固定する source-text test は置き換える。
-3. **Chart-info hydration and backfill owner closure**
-   - owner は chart-info hydration / backfill の request / pending / running / completed version、queue serialization、all-current snapshot / display-index currentness、progress と、DB load / materialize / attach、candidate classification、parse / digest backfill / chunk write の lifecycle を所有する。
-   - startup metadata bundle import / deferred hydration、file-scan committed-row index upsert、LR2 sync committed-row callback / wait / all-current fast path、package install / pending estimated-install の inline build、user-facing parse-failure delete、lazy display-index load、full backfill の production route をこの owner へ接続する。scan core は chart-info / inline-maintenance の build と durable scan commit を維持し、commit 後の immutable facts だけを chart-info owner に渡して session index / projection を適用する。package、LR2 orchestration も各 outcome に残し、versioned owned-chart / committed-row / package-target snapshot と immutable command / result だけを渡す。LR2 completion / trust は `LIB-04` まで baseline residual bridge から immutable input として受け、LR2 private state や callback を chart-info owner に取り込まない。
-   - `BMSLibrary` の chart-info hydration / backfill queue、lock、mutable progress / currentness state、`UpsertChartInfoIndexRows` / `BuildAndPersistInlineChartInfoForInstalledCharts` 相当の private writer workflow、startup importer / parse-failure delete への direct DB writer route と、facade private state を列挙する inline-build host を同じ unit で削除する。metadata importer / DB gateway を owner 内の capability として使用してよいが、owner 外から write を開始しない。application-facing status / progress が必要な場合は owner の snapshot / event を facade が委譲し、同じ state を複製しない。
-   - queue coalescing、shutdown / scheduler reject、metadata import → hydration ordering / idempotence / failure、scan commit 後の index apply と非二重永続化、BMS / bmson attach、SHA-256 / MD5 currentness、all-current fast path、lazy display-index load、no-candidate skip、parse failure delete → currentness / presentation notification、chunk write、zero-note / digest projection 更新を behavior test で検証し、private method invocation test は production command / result の検証へ置き換える。
-4. **Execution package `LIB-03-GM Generic catalog mutation closure`**
-
-   planner は committed code から次の最初の未完 unit を選び、依存順を変えずに sequence を返す。全残件を一 unit に再結合してはならない。code evidence により unit 内の追加分割が必要な場合も、同じ responsibility corridor の production route と旧 writer 削除を持つ vertical slice に分け、停止結果にしない。隣接 unit は新しい seam を作らず atomicity と削除範囲が明確になる場合だけ結合してよい。
-
-   **`LIB-03-GM-A Catalog relocation corridor`**
-
-   - `ChartPathChanges` と `FolderPathChanges` を対象に、path / folder の normalization と immutable request prepare、BMS / bmson / folder row の combined durable replacement、canonical live path / folder / parent apply、catalog version / receipt を catalog owner family の一つの mutation corridor へ移す。
-   - durable transaction が成功する前に live BMS / bmson / folder state、package residual、LR2 residual、canonical catalog-changed event を変更しない。catalog guard の解放後に canonical receipt / event を publish し、既存 residual composition はその後に実行する。owned-collection version / PropertyChanged の既存 observable timing は regression test で維持する。
-   - `BmsLibraryStateApplier` から path / folder の DB writer と live catalog apply を削除する。既存 generic mutation entry / coordinator / host はこの corridor を owner へ委譲するため一時的に残してよいが、member / callback category を増やさず、この unit で path / folder writer surface を減らす。
-   - BMS / bmson / folder relocation、path normalization、maintenance / LR2 path semantics、DB failure 時に live path が変化しないこと、version / receipt / existing PropertyChanged / canonical event ordering を behavior test で検証する。全 operation-specific caller の構造変更は要求しない。
-
-   **`LIB-03-GM-B Catalog removal corridor`**
-
-   - `ChartRemoveRequests` と対応する session storage / owned collection removal を対象に、song + maintenance row または bmson row の durable delete、canonical live catalog removal、version update、removed identity / path / hash の immutable receipt を catalog owner family に移す。
-   - DB commit と canonical live apply が完了した receipt だけを package prune、installed lookup / path cleanup など既存 `LIB-02` residual composition へ渡す。durable failure 時は package state、owned collection、resource-health、notification を変更しない。
-   - `BmsLibraryStateApplier` から unregister / catalog DB delete / live row removal を削除し、残す場合は package 固有 residual apply だけへ縮小する。catalog storage / owned collection の旧 callback surface もこの corridor で減らす。
-   - BMS / bmson delete、maintenance row cleanup、adapterless bmson、installed package prune / path cleanup、DB failure atomicity、receipt version を behavior test で検証する。
-
-   **`LIB-03-GM-C Canonical receipt and intrinsic projection dispatch`**
-
-   - generic mutation の canonical result を added / removed / moved identity、affected path / hash、catalog / owned version、初期化種別など catalog facts だけの immutable receipt へ縮小する。
-   - digest / owned-hash、owned version、parent-folder、duplicate、directory / resource / catalog-intrinsic index と resource-health completion / failure invalidation は `LIB-03` owner family が canonical receipt から更新する。catalog guard 解放後に event を publish する。
-   - install destination / installed lookup / install estimation / package path は `LIB-02`、LR2 block / normal-folder sync / freshness は `LIB-04`、playlist reference は `LIB-05`、playlist summary は `PL-01`、normal refresh presentationは `UI-05` の residual composition として明示的に分ける。後続 owner 成立までは `BMSLibrary` composition が receipt 後に既存処理を呼んでよいが、consumer field を canonical receipt へ入れず、新しい residual aggregate DTO / broad callback host を作らない。
-   - `OwnedChartCollectionMutationResult` 相当の mega result から consumer-specific field / callback / fallback branch を削除し、generic broad host の catalog / resource-health callback surface を減らす。normal / failure path の intrinsic projection、resource-health invalidation、consumer residual ordering を behavior test で検証する。
-
-   **`LIB-03-GM-D Direct composition, broad-host retirement and outcome closure`**
-
-   - scan pipeline と operation-specific production entry を、explicit owner dependency を持つ bounded generic mutation workflow / facade command へ接続する。per-call coordinator factory、`ILibraryMutationDeltaApplyHost`、`LibraryMutationDeltaApplyHost`、facade private state を列挙する callback route、Noop / source-text construction test を削除する。
-   - `LibraryMutationDeltaApplyCoordinator` 相当は、broad host を受けず explicit owner と immutable request / receipt だけで orchestrationする production workflowである場合に限り残してよい。単なる forwarding coordinator、factory、private-state mirrorであれば削除する。
-   - package residual apply は DB / catalog row / owned collection / resource-health を書かない `LIB-02` composition、LR2 mutation block / normal-folder sync は `LIB-04` compositionとして残してよい。残存 port は用途別で、catalog callback 一覧を持たず、retirement outcomeを変えない。
-   - 全 generic mutation caller、scan route、旧 host construction test を更新し、prepare → durable commit → live apply → guard release → receipt publish → residual apply / notification の順序、DB failure atomicity、version、package prune、LR2 normal-folder sync、resource-health、catalog-changed event を behavior testで検証する。
-   - unit の最後に `LIB-03` 全 production routeを監査する。catalog / maintenance / chart-info / resource-health private writer、generic broad host、catalog state への direct writerが残る場合は、同じ sequence 内で局所的に追加分割して修正を続ける。Full verification、startup / catalog mutation / maintenance progress / failure の UI smoke check、outcome review、`PLAN_STATUS.md` の completionを最後の code unitに含める。
-
-package / installable state は `LIB-02`、LR2 request / reservation / freshness は `LIB-04` の residual composition に留める。shared evaluator、fast path、旧 route の広さを理由に mutable lifecycle owner を統合しない。上記 package に属さない新しい `LIB-03` writer が見つかった場合、planner は最も近い responsibility corridor へ局所的に追加分割し、target architecture / ordered backlog の変更がない限り実装を停止しない。
-
-本再編後の `LIB-01` は scan core の ownership だけを完了条件とする。post-scan maintenance、storage apply、install-destination cleanup、LR2 freshness の owner 化、恒久的な catalog handoff contract、residual host 削除を `LIB-01` のために実装しない。恒久的な immutable request / snapshot / receipt は consumer となる `LIB-03` で production 接続する。既存実装が縮小後の criteria を満たすかを outcome-wide に監査し、欠陥がなければ再基準化監査の例外で閉じる。
+完了済み library outcome の implementation sequence、temporary bridge、個別 host / helper の退役履歴は Git に残す。総合計画では上記 owner boundary、handoff、mutation ordering と Gate criteria を恒久的な設計契約として維持する。
 
 ### Configuration と platform boundary
 
@@ -303,13 +210,12 @@ internal owner dependency、複数 caller、broad host、lock / transaction の�
 - state と behavior の新 owner が明確である。
 - production の通常経路が新 owner を使う。
 - 旧 owner、旧 binding、旧 callback / host、不要な compatibility path を削除している。
-- library ownership phase で retirement outcome が明記された既存 residual bridge だけは、bridge baseline から追加・拡張せず、当該 outcome が担当する category を減らした場合に限り一時的に残してよい。`LIB-06` 完了時には例外を残さない。
-- 新規または恒久的な cross-owner handoff が immutable request / snapshot / receipt / event facts / lease であり、相手 owner の private state や callback 一覧を contract にしていない。前項の baseline residual bridge は担当 retirement outcome までの限定例外とする。
+- cross-owner handoff が immutable request / snapshot / receipt / event facts / lease であり、相手 owner の private state や callback 一覧を contract にしていない。
 - private 実装配置ではなく behavior を検証する test がある。
 - outcome 開始時より root の責務または migration blocker が測定可能に減っている。
 - outcome 全体の検証と静的レビューが完了している。
 
-implementation unit は seam や private helper の個数ではなく、1 つの user-visible workflow、ownership boundary、または broad route を横断する responsibility corridor を production 経路から behavior test まで閉じる大きさにする。移管した corridor の旧 writer / callback / seam は同じ unit で削除する。正本に named retirement unit がある broad host と他 corridor の baseline residual は、surface を増やさず各 unit で減らす限り残してよい。新 owner への委譲だけを追加して担当 corridor の旧 owner を残す commit、調査結果だけの commit、完了証跡だけの docs commit は作らない。plan rebaseline audit と `GATE-01` の audit/status commit だけは [Codex 共通実行ルール](./00_Codex共通実行ルール.md) の限定例外に従う。consumer 固有の invalidation / freshness / presentation 更新を一つの総合 mutation result や host に集約する変更も作らない。
+implementation unit は seam や private helper の個数ではなく、1 つの user-visible workflow、ownership boundary、または broad route を横断する responsibility corridor を production 経路から behavior test まで閉じる大きさにする。移管した corridor の旧 writer / callback / seam は同じ unit で削除する。正本に named retirement unit がある broad host と他 corridor の residual は、surface を増やさず各 unit で減らす限り残してよい。新 owner と production route、旧 route 削除、behavior test を同じ unit で閉じる。plan rebaseline audit と `GATE-01` の audit/status commit は [Codex 共通実行ルール](./00_Codex共通実行ルール.md) の限定条件に従う。consumer 固有の invalidation / freshness / presentation 更新は各 owner に置く。
 
 UI outcome の完了時は、移管済み child owner から `Application.Current`、`DispatcherHelper.UIDispatcher`、`MainWindowViewModel` の nested contract、`*ForTest` production method、root PropertyChanged relay、root callback / workflow host がなくなっていることを検索と静的レビューで確認する。例外が必要なら暗黙に残さず、当該 outcome の acceptance criteria で許可境界として説明する。
 

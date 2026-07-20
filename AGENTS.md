@@ -18,7 +18,8 @@
 ## Git と Release Freeze
 
 - active outcome の implementation unit は、検証とサブエージェント静的レビューで重大指摘がなくなった後、ユーザー承認待ちなしで commit してよい。commit subject に outcome ID を含める。
-- ユーザーが明示依頼した計画・運用構成の変更も、検証とレビュー後に独立 commit にしてよい。
+- ユーザーが明示依頼した計画・運用資料と agent 構成だけの変更は、適用対象の構文・参照・whitespace・`git diff --check` を確認して独立 commit にしてよい。production / test / build / resource / verification script に差分がなければ build、test、analyzer、code static review は行わない。
+- implementation unit の code / test / 関連資料を review 済みで重大指摘がない場合、同じ commit に入れる `PLAN_STATUS.md` の sequence cursor 前進だけを機械的に確認してよい。cursor-only 差分のために build / test や再レビューを追加しない。
 - 上記以外の通常作業は、ユーザーの動作確認と明示承認前に commit しない。
 - unrelated な既存差分を変更、stage、commit しない。
 - Refactoring Completion Gate 前は `git push`、tag、release、publish、version / release notes のリリース目的変更、配布 package 作成を禁止する。Gate 後もユーザーの明示指示なしには開始しない。
@@ -37,7 +38,9 @@
 ## 検証
 
 - PowerShell 7 と `rg` を使用する。明示的に PowerShell を起動する場合は `pwsh` を使う。
-- 標準入口は `scripts/verify-refactor.ps1` とする。unit 中は `-Mode Quick`、outcome 完了候補および共有 ViewModel / DB / settings / dispatcher / concurrency 変更では `-Mode Full` を使う。
+- production / test / build / resource / verification script を変更する implementation unit の標準入口は `scripts/verify-refactor.ps1` とする。unit 中は `-Mode Quick`、outcome 完了候補および共有 ViewModel / DB / settings / dispatcher / concurrency 変更では `-Mode Full` を使う。
+- planning / operation Markdown、`AGENTS.md`、`.codex/config.toml`、`.codex/agents/*.toml` だけを変更する場合は、TOML 構文、文書参照、whitespace、`git diff --check` など差分に直接対応する軽量検証を行う。
+- review 済み implementation unit の cursor-only 更新は、`PLAN_STATUS.md` の変更が次の cursor 一行に限定されることと `git diff --check` を確認する。
 - script が環境要因で実行できない場合だけ、`00_Codex共通実行ルール.md` の個別コマンドを実行し、未実施項目を明示する。
 - 検証コマンドと検証用 script に固定の実行時間制限を設けない。特に 120 秒（2 分）の timeout で build / test / analyzer を打ち切らず、プロセスの完了まで待つ。
 - UI smoke の対象は、Release build が完了したリポジトリ内の `bin\x64\Release\net472\BeMusicSeeker.exe` だけとする。インストール版の executable path を取得・列挙・起動してはならない。起動後は対象 process の executable path がこの resolved path と一致することを確認し、一致を確認できない場合は UI 操作を行わず smoke 未実施として扱う。
@@ -51,6 +54,8 @@
 - planner または reviewer を起動してから結果を受け取るまで、root agent は repository の読み取り調査、検索、編集、build、test、format、analyzer、stage、commit を凍結する。root による「独立調査」、第 2 planner、consensus 取得、同じ scope の並列読み直しを行わない。
 - planner は active execution package を実装可能な順序列へ分解する責任を持つ。複数 caller、broad host、lock ordering、DB / live atomicity、後続 owner の residual が絡むことを停止理由にせず、責務 corridor ごとに再分解する。
 - root agent だけを writer / stager / committer とする。planner の結果後は、指定された route / symbol / test に対する bounded feasibility check と実装に進み、別の architecture survey をやり直さない。
-- review 中は対象 snapshot を変更せず、修正した場合は新しい snapshot として fresh reviewer に再レビューする。サブエージェントは履歴を fork しない。
+- code / test / build / resource の変更と、それに伴う資料更新を unit / outcome / gate review の対象とする。planning / operation docs-only と、review 後の cursor-only 前進は通常の code review 対象にしない。
+- reviewer は frozen worktree の `git status`、tracked / staged diff、untracked file を read-only で自ら列挙して review scope を確定する。親から untracked file 一覧を渡すことを開始条件にしない。
+- review 中は対象 snapshot を変更せず、重大指摘の修正後は新しい snapshot として fresh reviewer に再レビューする。サブエージェントは履歴を fork しない。
 - 静的レビュー担当には編集、build、test、format、analyzer、commit を禁止し、指定 scope の読み取りだけで重大度順に報告させる。
-- 実装後は重大指摘がなくなるまで修正と再レビューを行う。レビュー完了後の最終差分に対する検証結果を最終結果とする。
+- 実装後は重大指摘がなくなるまで修正と再レビューを行う。review 後に code / test / reviewed docs を修正した場合だけ影響範囲の検証を再実行し、cursor-only 前進はその結果を無効にしない。
