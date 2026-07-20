@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Runtime.Serialization;
 using System.Threading;
@@ -10,6 +11,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views;
@@ -60,6 +62,235 @@ public sealed class RegularChartListOwnerTests
         Assert.IsFalse(owner.HasFolderRows);
         Assert.IsFalse(owner.HasKeywordRows);
         Assert.IsFalse(owner.HasModeRows);
+    }
+
+    [TestMethod]
+    public void AttachNormalLibraryRefreshSource_CatchesUpOnceAndSuppressesDuplicate()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath);
+            library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\catch-up.bms")];
+            RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
+            RegularMaterializedChartListApplyResult materialized = owner.TryApplyMaterialized(
+                CreateMaterializedApplyRequest(
+                [
+                    LibraryChartRow.FromChartFile(CreateSourceRow("Old", "old.bms").Chart)
+                ]));
+            Assert.IsTrue(materialized.WasCommitted);
+            Assert.IsTrue(owner.HasFolderRows);
+            var applied = new List<NormalLibraryRefreshAppliedEventArgs>();
+            owner.NormalLibraryRefreshApplied += (_, args) => applied.Add(args);
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+
+                Assert.AreEqual(1, applied.Count);
+                Assert.AreEqual("normal_library_refresh", applied[0].Reason);
+                Assert.IsTrue(applied[0].NotificationBatch.NotifiesBmsFiles);
+                Assert.IsTrue(applied[0].NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged));
+                Assert.IsTrue(owner.SourceGeneration > 0);
+                Assert.AreEqual(
+                    applied[0].NotificationBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged),
+                    owner.WarningGeneration > 0);
+                Assert.AreEqual(
+                    applied[0].NotificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged)
+                        && !applied[0].NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged),
+                    owner.InstallDestinationGeneration > 0);
+                Assert.IsFalse(owner.HasFolderRows);
+                Assert.IsFalse(owner.ApplyLatestNormalLibraryRefreshNotification("duplicate"));
+                Assert.AreEqual(1, applied.Count);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void AttachedNormalLibraryRefreshSource_AppliesPublishedStorageReplacement()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath);
+            RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
+            using var applied = new ManualResetEventSlim();
+            int appliedCount = 0;
+            owner.NormalLibraryRefreshApplied += (_, args) =>
+            {
+                if (args.NotificationBatch.NotifiesBmsFiles)
+                {
+                    Interlocked.Increment(ref appliedCount);
+                    applied.Set();
+                }
+            };
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+                library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\published.bms")];
+
+                Assert.IsTrue(applied.Wait(TimeSpan.FromSeconds(10)));
+                Assert.AreEqual(1, Volatile.Read(ref appliedCount));
+                Assert.IsFalse(owner.ApplyLatestNormalLibraryRefreshNotification("duplicate"));
+                Assert.AreEqual(1, Volatile.Read(ref appliedCount));
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void StopAsync_DrainsInFlightNormalLibraryRefreshApplication()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath);
+            RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
+            owner.AttachNormalLibraryRefreshSource(library);
+            using var applyEntered = new ManualResetEventSlim();
+            using var releaseApply = new ManualResetEventSlim();
+            using var stopStarted = new ManualResetEventSlim();
+            using var stopCompleted = new ManualResetEventSlim();
+            int appliedCount = 0;
+            owner.NormalLibraryRefreshApplied += (_, args) =>
+            {
+                if (!args.NotificationBatch.NotifiesBmsFiles)
+                {
+                    return;
+                }
+                Interlocked.Increment(ref appliedCount);
+                applyEntered.Set();
+                Assert.IsTrue(releaseApply.Wait(TimeSpan.FromSeconds(10)));
+            };
+
+            Task mutationTask = Task.Run(() =>
+            {
+                library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\in-flight.bms")];
+            });
+            Assert.IsTrue(applyEntered.Wait(TimeSpan.FromSeconds(10)));
+
+            Task stopTask = Task.Run(async delegate
+            {
+                stopStarted.Set();
+                await owner.StopAsync();
+                stopCompleted.Set();
+            });
+            Assert.IsTrue(stopStarted.Wait(TimeSpan.FromSeconds(10)));
+            Assert.IsFalse(stopCompleted.IsSet);
+
+            releaseApply.Set();
+            Task.WaitAll(mutationTask, stopTask);
+            Assert.AreEqual(1, Volatile.Read(ref appliedCount));
+        });
+    }
+
+    [TestMethod]
+    public void AttachedNormalLibraryRefreshSource_InvalidatesMaintenanceDependency()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            string chartPath = Path.Combine(Path.GetDirectoryName(songDbPath)!, "maintenance.bms");
+            File.WriteAllText(chartPath, "#PLAYER 1\r\n#TITLE maintenance\r\n");
+            TestableBmsFile file = CreateTestableBmsFile(chartPath);
+            file.SetMaintenanceInfo(new BMSFileMaintenanceInfo(file)
+            {
+                hash = file.hash,
+                wav_files_defined = 2,
+                wav_files_existing = 1
+            });
+            var library = new BMSLibrary(songDbPath)
+            {
+                BMSFiles = [file]
+            };
+            RegularChartListOwner owner = CreateOwner(new MainChartListViewModel(), CreateWorkspaceForOwner());
+            owner.AttachNormalLibraryRefreshSource(library);
+            long maintenanceGeneration = owner.MaintenanceGeneration;
+            using var applied = new ManualResetEventSlim();
+            owner.NormalLibraryRefreshApplied += (_, args) =>
+            {
+                if (args.NotificationBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged))
+                {
+                    applied.Set();
+                }
+            };
+            try
+            {
+                MaintenanceWorkflowResult result = library.RescanResourceHealthCharts(
+                    [ChartFileProjection.FromBmsFile(file, includeWarningSnapshot: false)]);
+
+                Assert.IsTrue(result.HasUpdates);
+                Assert.IsTrue(applied.Wait(TimeSpan.FromSeconds(10)));
+                Assert.AreEqual(maintenanceGeneration + 1, owner.MaintenanceGeneration);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void AttachedNormalLibraryRefreshSource_MarshalsApplyToExecutionLane()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath);
+            library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\queued.bms")];
+            var pendingActions = new Queue<Action>();
+            RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(),
+                CreateWorkspaceForOwner(),
+                pendingActions.Enqueue);
+            int appliedCount = 0;
+            owner.NormalLibraryRefreshApplied += (_, _) => appliedCount++;
+            try
+            {
+                owner.AttachNormalLibraryRefreshSource(library);
+
+                Assert.AreEqual(1, pendingActions.Count);
+                Assert.AreEqual(0, appliedCount);
+                Assert.AreEqual(0L, owner.SourceGeneration);
+
+                pendingActions.Dequeue()();
+
+                Assert.AreEqual(1, appliedCount);
+                Assert.IsTrue(owner.SourceGeneration > 0);
+            }
+            finally
+            {
+                owner.Dispose();
+            }
+        });
+    }
+
+    [TestMethod]
+    public void StopAsync_QueuedNormalLibraryRefreshBecomesNoOp()
+    {
+        WithTemporarySongDb(delegate (string songDbPath)
+        {
+            var library = new BMSLibrary(songDbPath);
+            library.BMSFiles = [CreateTestableBmsFile("C:\\Charts\\queued-stop.bms")];
+            var pendingActions = new Queue<Action>();
+            RegularChartListOwner owner = CreateOwner(
+                new MainChartListViewModel(),
+                CreateWorkspaceForOwner(),
+                pendingActions.Enqueue);
+            int appliedCount = 0;
+            owner.NormalLibraryRefreshApplied += (_, _) => appliedCount++;
+
+            owner.AttachNormalLibraryRefreshSource(library);
+            Assert.AreEqual(1, pendingActions.Count);
+
+            owner.StopAsync().GetAwaiter().GetResult();
+            pendingActions.Dequeue()();
+
+            Assert.AreEqual(0, appliedCount);
+            Assert.AreEqual(0L, owner.SourceGeneration);
+        });
     }
 
     [TestMethod]
@@ -2899,11 +3130,107 @@ public sealed class RegularChartListOwnerTests
         MainChartListViewModel table,
         PlaylistWorkspaceViewModel workspace)
     {
+        return CreateOwner(table, workspace, action => action());
+    }
+
+    private static RegularChartListOwner CreateOwner(
+        MainChartListViewModel table,
+        PlaylistWorkspaceViewModel workspace,
+        Action<Action> dispatchToUi)
+    {
         return new RegularChartListOwner(
             table,
             workspace,
             _ => { },
-            action => action());
+            dispatchToUi);
+    }
+
+    private static PlaylistWorkspaceViewModel CreateWorkspaceForOwner()
+    {
+        return new PlaylistWorkspaceViewModel(
+            action => action(),
+            new MainChartListViewModel(action => action()),
+            new PlaylistDetailBuildState(),
+            new PlaylistDetailViewState(),
+            _ => { },
+            _ => { },
+            () => new CustomFolderOutputSettingsSnapshot(),
+            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
+            PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
+            PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
+            PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
+            PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportInfoLog,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryColumnSettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistSummaryBmtSortCoordinator,
+            PlaylistWorkspaceTestPorts.KeywordSearchHistorySettingsStore,
+            PlaylistWorkspaceTestPorts.PlaylistStoreProvider,
+            PlaylistWorkspaceTestPorts.PlaylistPropertySaveService,
+            () => null!,
+            () => null!,
+            _ => { },
+            new Livet.DispatcherCollection<BMSTable>(System.Windows.Threading.Dispatcher.CurrentDispatcher),
+            (_, _) => false,
+            () => true,
+            () => MainViewUpdateMode.FolderFilterSelected,
+            () => Task.CompletedTask,
+            () => false,
+            () => { },
+            _ => { },
+            (exception, message) => { },
+            request => request(false),
+            request => request(false),
+            () => false,
+            _ => false,
+            (_, _) => false,
+            (_, _) => false);
+    }
+
+    private static TestableBmsFile CreateTestableBmsFile(string path)
+    {
+        var file = new TestableBmsFile { path = path };
+        file.SetHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        return file;
+    }
+
+    private static void WithTemporarySongDb(Action<string> testAction)
+    {
+        string tempRootPath = Path.Combine(Path.GetTempPath(), "BeMusicSeeker_RegularOwner_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRootPath);
+        string songDbPath = Path.Combine(tempRootPath, "song.db");
+        File.WriteAllBytes(songDbPath, []);
+        try
+        {
+            using (var songDb = new LR2SongDBExtended(songDbPath))
+            {
+                songDb.CreateTable<LR2SongDB.song>();
+                songDb.CreateTable<LR2SongDB.folder>();
+                songDb.CreateTable<LR2SongDBExtended.maintenance>();
+            }
+            testAction(songDbPath);
+        }
+        finally
+        {
+            if (Directory.Exists(tempRootPath))
+            {
+                Directory.Delete(tempRootPath, recursive: true);
+            }
+        }
+    }
+
+    private sealed class TestableBmsFile : BMSFile
+    {
+        internal void SetHash(string value)
+        {
+            hash = value;
+        }
+
+        internal void SetMaintenanceInfo(BMSFileMaintenanceInfo value)
+        {
+            SetMaintenanceInfo(value, suppressPropertyChanged: true);
+        }
     }
 
     private static RegularChartListEntryRequest CreateEntryRequest(

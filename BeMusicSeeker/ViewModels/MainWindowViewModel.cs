@@ -587,10 +587,6 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly RegularChartListOwner regularChartListOwner;
 
-    private readonly object normalLibraryRefreshNotificationLock = new();
-
-    private int normalLibraryRefreshHandledNotificationVersion;
-
     private long lastMainViewBuildRequestId;
 
     private long lastMainViewBuildEndTimestamp;
@@ -2387,63 +2383,6 @@ public partial class MainWindowViewModel : ViewModel
         }
     }
 
-    private void IncrementNormalLibrarySourceGeneration(string reason)
-    {
-        int cacheCount = regularChartListOwner.InvalidateSource();
-        LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
-    }
-
-    private bool TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(string reason)
-    {
-        return TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(files?.OwnedChartCollectionVersion ?? 0, reason);
-    }
-
-    private bool TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(int currentVersion, string reason)
-    {
-        if (!regularChartListOwner.TryInvalidateSourceForOwnedCollectionVersion(currentVersion, out int cacheCount))
-        {
-            return false;
-        }
-
-        LogNormalLibrarySortCacheInvalidation("source", reason, cacheCount);
-        return true;
-    }
-
-    private bool TryIncrementNormalLibrarySourceGenerationForRefreshNotification(
-        NormalLibraryRefreshNotificationBatch notificationBatch,
-        string reason)
-    {
-        if (notificationBatch?.HasRefreshNotification == true)
-        {
-            return notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged)
-                && TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(
-                    notificationBatch.OwnedCollectionVersion,
-                    reason);
-        }
-        return false;
-    }
-
-    private bool ApplyNormalLibraryRefreshNotificationEffects(
-        NormalLibraryRefreshNotificationBatch notificationBatch,
-        string sourceReason,
-        out bool sourceGenerationChanged,
-        out bool installDestinationStateChanged)
-    {
-        sourceGenerationChanged = TryIncrementNormalLibrarySourceGenerationForRefreshNotification(
-            notificationBatch,
-            sourceReason);
-        installDestinationStateChanged = notificationBatch?.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged) == true;
-        if (!sourceGenerationChanged && installDestinationStateChanged)
-        {
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.InstallDestination, NormalLibraryInstallDestinationChangedReason);
-        }
-        if (notificationBatch?.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged) == true)
-        {
-            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, NormalLibraryWarningChangedReason);
-        }
-        return notificationBatch?.HasRefreshNotification == true;
-    }
-
     private void RefreshNormalLibraryForNotificationPresentationEffects(NormalLibraryRefreshNotificationBatch notificationBatch)
     {
         if (notificationBatch?.HasRefreshNotification != true)
@@ -2460,13 +2399,15 @@ public partial class MainWindowViewModel : ViewModel
         }
         if (notificationBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged))
         {
-            RefreshResourceHealthViewsAfterMaintenanceChanged("normal_library_maintenance_changed");
+            RefreshResourceHealthViewsAfterMaintenanceChanged(
+                "normal_library_maintenance_changed",
+                "normal_library_maintenance_changed",
+                invalidateSortDependency: false);
         }
     }
 
     private void RefreshNormalLibraryAfterSourceChanged(string reason)
     {
-        regularChartListOwner.ResetDerivedCaches();
         if (TrySuppress(UiRefreshChannel.LibraryMainView))
         {
             PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
@@ -2495,168 +2436,38 @@ public partial class MainWindowViewModel : ViewModel
             reason);
     }
 
-    private void IncrementNormalLibrarySourceGenerationForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix)
+    private void IncrementNormalLibrarySourceGenerationForBmsonSync(
+        BmsonLibraryRowCacheSyncResult result,
+        string reasonPrefix)
     {
         ConsumeNormalLibrarySourceChangeForBmsonSync(result, reasonPrefix, out _);
     }
 
-    private bool ConsumeNormalLibrarySourceChangeForBmsonSync(BmsonLibraryRowCacheSyncResult result, string reasonPrefix, out bool sourceGenerationChanged)
+    private bool ConsumeNormalLibrarySourceChangeForBmsonSync(
+        BmsonLibraryRowCacheSyncResult result,
+        string reasonPrefix,
+        out bool sourceGenerationChanged)
     {
         sourceGenerationChanged = false;
         if (!result.SourceChanged)
         {
             return false;
         }
-        if (TryIncrementNormalLibrarySourceGenerationForOwnedCollectionVersion(
-            ResolveBmsonSourceGenerationReason(result, reasonPrefix)))
+
+        if (regularChartListOwner.TryInvalidateSourceForOwnedCollectionVersion(
+            files?.OwnedChartCollectionVersion ?? 0,
+            out int cacheCount))
         {
             sourceGenerationChanged = true;
+            LogNormalLibrarySortCacheInvalidation(
+                "source",
+                ResolveBmsonSourceGenerationReason(result, reasonPrefix),
+                cacheCount);
             return true;
         }
-        ClearVirtualNormalLibrarySourceRows();
+
+        regularChartListOwner.InvalidateVirtualSourceRows();
         return true;
-    }
-
-    private NormalLibraryRefreshNotificationBatch ConsumeNormalLibraryRefreshNotification()
-    {
-        NormalLibraryRefreshNotificationBatch notificationBatch = files?.GetNormalLibraryRefreshNotificationsAfter(normalLibraryRefreshHandledNotificationVersion);
-        if (notificationBatch == null || notificationBatch.LatestVersion <= normalLibraryRefreshHandledNotificationVersion)
-        {
-            return NormalLibraryRefreshNotificationBatch.Empty;
-        }
-        lock (normalLibraryRefreshNotificationLock)
-        {
-            if (notificationBatch.LatestVersion <= normalLibraryRefreshHandledNotificationVersion)
-            {
-                return NormalLibraryRefreshNotificationBatch.Empty;
-            }
-            normalLibraryRefreshHandledNotificationVersion = notificationBatch.LatestVersion;
-        }
-        return notificationBatch;
-    }
-
-    private NormalLibraryRefreshNotificationBatch ApplyNormalLibraryRefreshNotification()
-    {
-        NormalLibraryRefreshNotificationBatch notificationBatch = ConsumeNormalLibraryRefreshNotification();
-        IReadOnlyList<ChartFile> installDestinationChangedCharts = notificationBatch.InstallDestinationChangedCharts ?? [];
-        bool hasInstallDestinationChangedCharts = installDestinationChangedCharts.Count > 0;
-        bool installDestinationStateChanged = notificationBatch.ResetsPriorNotifications
-            || notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
-        if (!notificationBatch.HasRefreshNotification)
-        {
-            return NormalLibraryRefreshNotificationBatch.Empty;
-        }
-
-        if (notificationBatch.ResetsPriorNotifications)
-        {
-            MainChartList.RowProjection.ClearTransientStates();
-        }
-        if (hasInstallDestinationChangedCharts)
-        {
-            MainChartList.RowProjection.UpdateTransientStates(installDestinationChangedCharts, forceInstallDestinationProjection: true);
-            MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files);
-        }
-        else if (installDestinationStateChanged)
-        {
-            MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files);
-        }
-        return notificationBatch;
-    }
-
-    private bool ApplyLatestNormalLibraryRefreshNotification()
-    {
-        NormalLibraryRefreshNotificationBatch notificationBatch = ApplyNormalLibraryRefreshNotification();
-        ApplyNormalLibraryRefreshNotificationBatch(notificationBatch, "library_charts_changed");
-        if (!notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged))
-        {
-            return false;
-        }
-        return true;
-    }
-
-    private void ApplyNormalLibraryRefreshNotificationBatch(NormalLibraryRefreshNotificationBatch notificationBatch, string reason)
-    {
-        SyncNormalLibraryStorageRowCachesForRefreshNotification(notificationBatch);
-        ApplyNormalLibraryRefreshNotificationEffects(
-            notificationBatch,
-            reason,
-            out _,
-            out _);
-        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
-        {
-            RefreshNormalLibraryAfterSourceChanged(reason);
-        }
-        else
-        {
-            RefreshNormalLibraryForNotificationPresentationEffects(notificationBatch);
-        }
-    }
-
-    private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification(
-        NormalLibraryRefreshNotificationBatch notificationBatch)
-    {
-        if (notificationBatch?.HasRefreshNotification != true)
-        {
-            return default;
-        }
-
-        if (notificationBatch.StorageRowsRemoveDeltaComplete)
-        {
-            if (notificationBatch.NotifiesBmsFiles)
-            {
-                regularChartListOwner.RemoveBmsRows(notificationBatch.RemovedBmsFiles);
-            }
-
-            if (!notificationBatch.NotifiesBmsonSongs)
-            {
-                return default;
-            }
-
-            BmsonLibraryRowCacheSyncResult removeResult = regularChartListOwner.RemoveBmsonRows(notificationBatch.RemovedBmsonSongs);
-            if (removeResult.SortKeyChanged)
-            {
-                InvalidateNormalLibrarySortKeysForBmsonSync(removeResult);
-            }
-            if (removeResult.SourceChanged && !notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
-            {
-                ClearVirtualNormalLibrarySourceRows();
-                LogMainViewBuildWarning("normal_library_bmson_remove_delta_uncovered_source_change"
-                    + " notificationVersion=" + notificationBatch.LatestVersion
-                    + " membershipChanged=" + removeResult.MembershipChanged
-                    + " sourceIdentityChanged=" + removeResult.SourceIdentityChanged
-                    + " sourceReferenceChanged=" + removeResult.SourceReferenceChanged);
-            }
-            return removeResult;
-        }
-
-        OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles || notificationBatch.NotifiesBmsonSongs
-            ? files?.CreateNormalLibrarySourceStorageOwnerView()
-            : null;
-        if (notificationBatch.NotifiesBmsFiles)
-        {
-            regularChartListOwner.PruneBmsRows(sourceOwnerView?.BmsFiles);
-        }
-
-        if (!notificationBatch.NotifiesBmsonSongs)
-        {
-            return default;
-        }
-
-        BmsonLibraryRowCacheSyncResult result = regularChartListOwner.SyncBmsonRows(files, sourceOwnerView);
-        if (result.SortKeyChanged)
-        {
-            InvalidateNormalLibrarySortKeysForBmsonSync(result);
-        }
-        if (result.SourceChanged && !notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
-        {
-            ClearVirtualNormalLibrarySourceRows();
-            LogMainViewBuildWarning("normal_library_bmson_sync_uncovered_source_change"
-                + " notificationVersion=" + notificationBatch.LatestVersion
-                + " membershipChanged=" + result.MembershipChanged
-                + " sourceIdentityChanged=" + result.SourceIdentityChanged
-                + " sourceReferenceChanged=" + result.SourceReferenceChanged);
-        }
-        return result;
     }
 
     internal MainViewOperationSection CurrentMainViewOperationSection => ResolveMainViewOperationSection(treeViewFilterTypeSelected);
@@ -4167,6 +3978,7 @@ public partial class MainWindowViewModel : ViewModel
         PlaylistWorkspace.PlaylistDetailSortChanged += PlaylistWorkspacePlaylistDetailSortChanged;
         PlaylistWorkspace.PlaylistDetailFilterChanged += PlaylistWorkspacePlaylistDetailFilterChanged;
         regularChartListOwner = childComposition.RegularChartListOwner;
+        regularChartListOwner.NormalLibraryRefreshApplied += RegularChartListOwnerNormalLibraryRefreshApplied;
         MainChartList.SortRequested += MainChartListSortRequested;
         MainChartList.CellEditBeginningRequested += MainChartListCellEditBeginningRequested;
         MainChartList.CellEditStarted += MainChartListCellEditStarted;
@@ -4256,6 +4068,25 @@ public partial class MainWindowViewModel : ViewModel
             SetPendingInstallDestination(request.Request, request.DestinationDirectory);
             MainChartList.RequestDisplayRefresh();
         }).Logging("regularChartListInstallDestinationEditRequested");
+    }
+
+    private void RegularChartListOwnerNormalLibraryRefreshApplied(
+        object sender,
+        NormalLibraryRefreshAppliedEventArgs request)
+    {
+        if (request?.NotificationBatch?.HasRefreshNotification != true)
+        {
+            return;
+        }
+
+        if (request.NotificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+        {
+            RefreshNormalLibraryAfterSourceChanged(request.Reason);
+        }
+        else
+        {
+            RefreshNormalLibraryForNotificationPresentationEffects(request.NotificationBatch);
+        }
     }
 
     private void PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested(
@@ -5668,6 +5499,7 @@ public partial class MainWindowViewModel : ViewModel
             InvalidatePlayHistoryReadCache("initialize");
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings);
             files = applicationComposition.CreateBmsLibrary(libraryProfile);
+            regularChartListOwner.AttachNormalLibraryRefreshSource(files);
             PlaybackPanel.AttachLibrary(files);
             tables = applicationComposition.CreateBmsPlaylist(
                 libraryProfile,
@@ -5714,11 +5546,6 @@ public partial class MainWindowViewModel : ViewModel
                 "owned_collection_changed",
                 startupReadyOperableReached,
                 treeViewFilterTypeSelected);
-        });
-        listenerForBMSLibrary.RegisterHandler(() => files.NormalLibraryRefreshNotificationVersion, delegate
-        {
-            NormalLibraryRefreshNotificationBatch refreshNotification = ApplyNormalLibraryRefreshNotification();
-            ApplyNormalLibraryRefreshNotificationBatch(refreshNotification, "normal_library_refresh");
         });
         listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress, delegate
         {
@@ -7287,7 +7114,10 @@ public partial class MainWindowViewModel : ViewModel
                 "Resource health rescan blocked notification");
             return;
         }
-        RefreshResourceHealthViewsAfterMaintenanceChanged();
+        RefreshResourceHealthViewsAfterMaintenanceChanged(
+            "maintenance_hydration_completed",
+            "maintenance_changed",
+            invalidateSortDependency: false);
     }
 
     internal void ForceResourceHealthCheckCharts(ChartResourceHealthRequest request)
@@ -7330,7 +7160,10 @@ public partial class MainWindowViewModel : ViewModel
                 bool canceled = result?.Canceled == true;
                 Ribbit.Logging.NLogWrapper.FileLogger?.Info("maintenance_rescan " + (canceled ? "canceled" : "done") + " scope=all_owned elapsedMs=" + stopwatch.ElapsedMilliseconds);
                 FinishMaintenanceRescanProgress(canceled);
-                RefreshResourceHealthViewsAfterMaintenanceChanged();
+                RefreshResourceHealthViewsAfterMaintenanceChanged(
+                    "maintenance_hydration_completed",
+                    "maintenance_changed",
+                    invalidateSortDependency: false);
             }
             catch (Exception ex)
             {
@@ -7471,9 +7304,15 @@ public partial class MainWindowViewModel : ViewModel
         RefreshResourceHealthViewsAfterMaintenanceChanged(reason, reason);
     }
 
-    private void RefreshResourceHealthViewsAfterMaintenanceChanged(string filterReason, string dependencyReason)
+    private void RefreshResourceHealthViewsAfterMaintenanceChanged(
+        string filterReason,
+        string dependencyReason,
+        bool invalidateSortDependency = true)
     {
-        InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance, NormalLibraryMaintenanceChangedReason);
+        if (invalidateSortDependency)
+        {
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance, NormalLibraryMaintenanceChangedReason);
+        }
         Action refresh = delegate
         {
             if (treeViewFilterTypeSelected == MainViewUpdateMode.FileMissingFilterSelected
@@ -10973,7 +10812,7 @@ public partial class MainWindowViewModel : ViewModel
             if (!string.IsNullOrWhiteSpace(directoryNameSimple) && LongPathFileSystem.DirectoryExists(directoryNameSimple))
             {
                 files.RenameChartFolder(directoryNameSimple, newFolder, false);
-                ApplyLatestNormalLibraryRefreshNotification();
+                regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
                 InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             }
         }, [request.Chart], UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
@@ -10995,7 +10834,7 @@ public partial class MainWindowViewModel : ViewModel
                 PlaybackPanel.StopPlayback(closeProcess: true);
                 if (files?.AutoRenameAllChartFolders(parentDir, UpdateFolderAutoRenameProgressStatus) == true)
                 {
-                    ApplyLatestNormalLibraryRefreshNotification();
+                    regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
                     InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
                 }
             }
@@ -11022,7 +10861,7 @@ public partial class MainWindowViewModel : ViewModel
             try
             {
                 files.AutoRenameChartFolders(charts, progressReporter: UpdateFolderAutoRenameProgressStatus);
-                ApplyLatestNormalLibraryRefreshNotification();
+                regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
                 InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
             }
             finally
@@ -11050,7 +10889,7 @@ public partial class MainWindowViewModel : ViewModel
         RunChartPackageMutation(delegate
         {
             files.MoveLibraryRootFolder(request.Charts, request.NewParentDirectory, false);
-            ApplyLatestNormalLibraryRefreshNotification();
+            regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
             InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
         }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree, stopPlayback: () => PlaybackPanel.StopIfPlayingLibraryCharts(request.Charts));
     }

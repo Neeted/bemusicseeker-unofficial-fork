@@ -2269,9 +2269,9 @@ public sealed class MainWindowContextMenuResourceTests
             "MainWindow",
             "RegularChartListOwner.cs"));
         string notificationHandler = ExtractBetween(
-            viewModelCode,
-            "private NormalLibraryRefreshNotificationBatch ApplyNormalLibraryRefreshNotification",
-            "private bool ApplyLatestNormalLibraryRefreshNotification");
+            regularOwnerCode,
+            "private void ApplyNormalLibraryRefreshNotificationBatch",
+            "private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification");
         string bmsonSync = ExtractBetween(
             regularOwnerCode,
             "internal BmsonLibraryRowCacheSyncResult SyncBmsonRows",
@@ -2285,9 +2285,8 @@ public sealed class MainWindowContextMenuResourceTests
             "internal HashSet<string> CreateOwnedChartRuntimeStatePrimaryKeySnapshot",
             "private void EnsureOwnedChartCollectionBuiltUnsafe");
 
-        StringAssert.Contains(notificationHandler, "MainChartList.RowProjection.PruneTransientStatesToOwnedCharts(files)");
-        Assert.IsFalse(notificationHandler.Contains("files?.BMSFiles"));
-        Assert.IsFalse(notificationHandler.Contains("files?.BmsonSongs"));
+        StringAssert.Contains(notificationHandler, "mainChartList.RowProjection.PruneTransientStatesToOwnedCharts(library)");
+        Assert.IsFalse(notificationHandler.Contains("MainWindowViewModel"));
         StringAssert.Contains(bmsonSync, "library?.CreateNormalLibrarySourceStorageOwnerView()");
         Assert.IsFalse(bmsonSync.Contains("library?.BmsonSongs"));
         Assert.IsFalse(bmsonSync.Contains("OrderBy(song => song.path"));
@@ -2348,46 +2347,58 @@ public sealed class MainWindowContextMenuResourceTests
     {
         string root = FindRepositoryRoot();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string rootViewModelCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindowViewModel.cs"));
         string libraryCode = SourceTextTestHelper.ReadBmsLibrarySourceText();
-        string notificationVersionHandler = ExtractBetween(
+        string regularOwnerCode = File.ReadAllText(Path.Combine(
+            root,
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "RegularChartListOwner.cs"));
+        string refreshEventHandler = ExtractBetween(
             viewModelCode,
-            "listenerForBMSLibrary.RegisterHandler(() => files.NormalLibraryRefreshNotificationVersion",
-            "listenerForBMSLibrary.RegisterHandler(() => files.LibraryInitializationProgress");
-        string notificationSyncHelper = ExtractBetween(
-            viewModelCode,
-            "private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification",
-            "internal MainViewOperationSection CurrentMainViewOperationSection");
-        string notificationBatchApplier = ExtractBetween(
-            viewModelCode,
-            "private void ApplyNormalLibraryRefreshNotificationBatch",
-            "private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification");
-        string latestNotificationApplier = ExtractBetween(
-            viewModelCode,
-            "private bool ApplyLatestNormalLibraryRefreshNotification",
-            "private void ApplyNormalLibraryRefreshNotificationBatch");
+            "private void RegularChartListOwnerNormalLibraryRefreshApplied",
+            "private void PlaylistWorkspacePlaylistDetailScoreSnapshotRefreshRequested");
 
-        StringAssert.Contains(notificationVersionHandler, "ApplyNormalLibraryRefreshNotificationBatch(refreshNotification, \"normal_library_refresh\")");
-        StringAssert.Contains(latestNotificationApplier, "ApplyNormalLibraryRefreshNotificationBatch(notificationBatch, \"library_charts_changed\")");
+        StringAssert.Contains(regularOwnerCode, "AttachNormalLibraryRefreshSource(BMSLibrary library)");
+        StringAssert.Contains(regularOwnerCode, "RegisterHandler(");
+        StringAssert.Contains(regularOwnerCode, "ApplyLatestNormalLibraryRefreshNotification(\"normal_library_refresh\")");
+        StringAssert.Contains(viewModelCode, "regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification(\"library_charts_changed\")");
         Assert.IsFalse(viewModelCode.Contains("fallbackToCurrentOwnedCollectionVersion"));
         Assert.IsFalse(viewModelCode.Contains("NotifiesInstallDestinationOverlayProperties"));
         Assert.IsFalse(libraryCode.Contains("NotifiesInstallDestinationOverlayProperties"));
-        StringAssert.Contains(notificationBatchApplier, "SyncNormalLibraryStorageRowCachesForRefreshNotification(notificationBatch)");
-        string sourceChangedBranch = ExtractBlockAfter(notificationBatchApplier, "if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))");
-        string presentationBranch = ExtractBlockAfter(notificationBatchApplier, "else");
-        StringAssert.Contains(sourceChangedBranch, "RefreshNormalLibraryAfterSourceChanged(reason)");
-        Assert.IsFalse(sourceChangedBranch.Contains("RefreshNormalLibraryForNotificationPresentationEffects"));
-        StringAssert.Contains(presentationBranch, "RefreshNormalLibraryForNotificationPresentationEffects(notificationBatch)");
-        Assert.IsFalse(presentationBranch.Contains("RefreshNormalLibraryAfterSourceChanged"));
-        StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsFiles");
-        StringAssert.Contains(notificationSyncHelper, "notificationBatch.NotifiesBmsonSongs");
-        StringAssert.Contains(notificationSyncHelper, "OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles || notificationBatch.NotifiesBmsonSongs");
-        StringAssert.Contains(notificationSyncHelper, "regularChartListOwner.PruneBmsRows(sourceOwnerView?.BmsFiles)");
-        Assert.IsFalse(notificationSyncHelper.Contains("files?.BMSFiles"));
-        StringAssert.Contains(notificationSyncHelper, "regularChartListOwner.SyncBmsonRows(files, sourceOwnerView)");
-        Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles"));
-        Assert.IsFalse(viewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs"));
-        Assert.IsFalse(viewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFiles"));
-        Assert.IsFalse(viewModelCode.Contains("files?.BMSFiles"));
+        StringAssert.Contains(regularOwnerCode, "SyncNormalLibraryStorageRowCachesForRefreshNotification(library, notificationBatch)");
+        StringAssert.Contains(regularOwnerCode, "ApplyNormalLibraryRefreshNotificationEffects(notificationBatch, reason)");
+        StringAssert.Contains(regularOwnerCode, "InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance, \"maintenance_changed\")");
+        StringAssert.Contains(refreshEventHandler, "RefreshNormalLibraryAfterSourceChanged(request.Reason)");
+        StringAssert.Contains(refreshEventHandler, "RefreshNormalLibraryForNotificationPresentationEffects(request.NotificationBatch)");
+        StringAssert.Contains(rootViewModelCode, "invalidateSortDependency: false");
+        string forceResourceHealthMethod = ExtractMethodBody(
+            rootViewModelCode,
+            "private void ForceResourceHealthCheckCharts(IEnumerable<ChartFile> charts)");
+        string allResourceHealthMethod = ExtractMethodBody(
+            rootViewModelCode,
+            "public void StartRescanAllOwnedChartMaintenance()");
+        StringAssert.Contains(forceResourceHealthMethod, "invalidateSortDependency: false");
+        StringAssert.Contains(allResourceHealthMethod, "invalidateSortDependency: false");
+        Assert.IsFalse(forceResourceHealthMethod.Contains("InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance"));
+        Assert.IsFalse(allResourceHealthMethod.Contains("InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance"));
+        StringAssert.Contains(regularOwnerCode, "notificationBatch.NotifiesBmsFiles");
+        StringAssert.Contains(regularOwnerCode, "notificationBatch.NotifiesBmsonSongs");
+        StringAssert.Contains(regularOwnerCode, "OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles");
+        StringAssert.Contains(regularOwnerCode, "PruneBmsRows(sourceOwnerView?.BmsFiles)");
+        Assert.IsFalse(regularOwnerCode.Contains("library?.BMSFiles"));
+        StringAssert.Contains(regularOwnerCode, "SyncBmsonRows(library, sourceOwnerView)");
+        Assert.IsFalse(rootViewModelCode.Contains("NormalLibraryRefreshNotificationBatch refreshNotification"));
+        Assert.IsFalse(rootViewModelCode.Contains("ApplyNormalLibraryRefreshNotificationBatch("));
+        Assert.IsFalse(rootViewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BMSFiles"));
+        Assert.IsFalse(rootViewModelCode.Contains("listenerForBMSLibrary.RegisterHandler(() => files.BmsonSongs"));
+        Assert.IsFalse(rootViewModelCode.Contains("private IEnumerable<BeMusicSeeker.Models.BMSFile> BMSFiles"));
+        Assert.IsFalse(rootViewModelCode.Contains("files?.BMSFiles"));
         StringAssert.Contains(libraryCode, "internal void ReplaceBmsFileLevelByTableEntryLevel(BMSTable bmsTable)");
         StringAssert.Contains(libraryCode, "List<BMSFile> bmsFiles = [.. from file in _BMSFiles ?? []");
         StringAssert.Contains(libraryCode, "dbGateway.UpdateSongLevels(bmsFiles)");

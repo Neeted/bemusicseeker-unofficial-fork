@@ -15,6 +15,7 @@ using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views;
+using Livet.EventListeners;
 using Ribbit.Util;
 
 namespace BeMusicSeeker.ViewModels;
@@ -24,6 +25,8 @@ namespace BeMusicSeeker.ViewModels;
 /// </summary>
 internal sealed class RegularChartListOwner : IDisposable
 {
+    internal event EventHandler<NormalLibraryRefreshAppliedEventArgs> NormalLibraryRefreshApplied;
+
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortChanged;
 
     internal event EventHandler<MainChartListSortRequestedEventArgs> SortRefreshRequested;
@@ -34,6 +37,7 @@ internal sealed class RegularChartListOwner : IDisposable
 
     private const int StartupVirtualOrderPrewarmMaxPriority = 3;
     private readonly object syncRoot = new();
+    private readonly object normalLibraryRefreshApplyLock = new();
     private readonly MainChartListViewModel mainChartList;
     private readonly PlaylistWorkspaceViewModel playlistWorkspace;
     private readonly Action<string> log;
@@ -73,6 +77,9 @@ internal sealed class RegularChartListOwner : IDisposable
     private long maintenanceGeneration;
     private long referenceTablesGeneration;
     private int handledOwnedCollectionVersion;
+    private PropertyChangedEventListener normalLibraryRefreshListener;
+    private BMSLibrary normalLibraryRefreshSource;
+    private int normalLibraryRefreshHandledNotificationVersion;
     private int virtualSummaryCacheVersion;
     private int virtualSummaryRunId;
     private CancellationTokenSource virtualOrderPrewarmCancellation;
@@ -93,6 +100,82 @@ internal sealed class RegularChartListOwner : IDisposable
         this.dispatchToUi = dispatchToUi ?? throw new ArgumentNullException(nameof(dispatchToUi));
         this.logWarning = logWarning ?? log;
         this.mainChartList.AppliedColumnModeCommitted += MainChartListAppliedColumnModeCommitted;
+    }
+
+    internal void AttachNormalLibraryRefreshSource(BMSLibrary library)
+    {
+        PropertyChangedEventListener previousListener = null;
+        lock (normalLibraryRefreshApplyLock)
+        {
+            PropertyChangedEventListener nextListener = null;
+            lock (syncRoot)
+            {
+                if (ReferenceEquals(normalLibraryRefreshSource, library))
+                {
+                    return;
+                }
+
+                previousListener = normalLibraryRefreshListener;
+                normalLibraryRefreshListener = null;
+                normalLibraryRefreshSource = library;
+                normalLibraryRefreshHandledNotificationVersion = 0;
+                if (!disposed && library != null)
+                {
+                    nextListener = new PropertyChangedEventListener(library);
+                    normalLibraryRefreshListener = nextListener;
+                }
+            }
+
+            if (nextListener != null)
+            {
+                BMSLibrary attachedLibrary = library;
+                nextListener.RegisterHandler(
+                    () => attachedLibrary.NormalLibraryRefreshNotificationVersion,
+                    delegate
+                    {
+                        ApplyLatestNormalLibraryRefreshNotification("normal_library_refresh");
+                    });
+                ApplyLatestNormalLibraryRefreshNotification("normal_library_refresh");
+            }
+        }
+        previousListener?.Dispose();
+    }
+
+    internal bool ApplyLatestNormalLibraryRefreshNotification(string reason)
+    {
+        bool appliedSynchronously = false;
+        bool installDestinationStateChanged = false;
+        dispatchToUi(() =>
+        {
+            installDestinationStateChanged = ApplyLatestNormalLibraryRefreshNotificationOnExecutionLane(reason);
+            appliedSynchronously = true;
+        });
+        return appliedSynchronously && installDestinationStateChanged;
+    }
+
+    private bool ApplyLatestNormalLibraryRefreshNotificationOnExecutionLane(string reason)
+    {
+        lock (normalLibraryRefreshApplyLock)
+        {
+            BMSLibrary library;
+            lock (syncRoot)
+            {
+                if (disposed)
+                {
+                    return false;
+                }
+                library = normalLibraryRefreshSource;
+            }
+
+            NormalLibraryRefreshNotificationBatch notificationBatch = ConsumeNormalLibraryRefreshNotification(library);
+            if (!notificationBatch.HasRefreshNotification)
+            {
+                return false;
+            }
+
+            ApplyNormalLibraryRefreshNotificationBatch(library, notificationBatch, reason);
+            return notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
+        }
     }
 
     private void MainChartListAppliedColumnModeCommitted(MainViewUpdateMode mode)
@@ -463,6 +546,230 @@ internal sealed class RegularChartListOwner : IDisposable
         IEnumerable<LR2SongDBExtended.bmson_song> removedSongs)
     {
         return rowCache.RemoveBmsonSongs(removedSongs);
+    }
+
+    private NormalLibraryRefreshNotificationBatch ConsumeNormalLibraryRefreshNotification(BMSLibrary library)
+    {
+        if (library == null)
+        {
+            return NormalLibraryRefreshNotificationBatch.Empty;
+        }
+
+        NormalLibraryRefreshNotificationBatch notificationBatch =
+            library.GetNormalLibraryRefreshNotificationsAfter(normalLibraryRefreshHandledNotificationVersion);
+        if (notificationBatch == null)
+        {
+            return NormalLibraryRefreshNotificationBatch.Empty;
+        }
+
+        lock (syncRoot)
+        {
+            if (disposed
+                || !ReferenceEquals(normalLibraryRefreshSource, library)
+                || notificationBatch.LatestVersion <= normalLibraryRefreshHandledNotificationVersion)
+            {
+                return NormalLibraryRefreshNotificationBatch.Empty;
+            }
+            normalLibraryRefreshHandledNotificationVersion = notificationBatch.LatestVersion;
+        }
+        return notificationBatch;
+    }
+
+    private void ApplyNormalLibraryRefreshNotificationBatch(
+        BMSLibrary library,
+        NormalLibraryRefreshNotificationBatch notificationBatch,
+        string reason)
+    {
+        if (library == null || notificationBatch?.HasRefreshNotification != true)
+        {
+            return;
+        }
+
+        IReadOnlyList<ChartFile> installDestinationChangedCharts = notificationBatch.InstallDestinationChangedCharts ?? [];
+        bool installDestinationStateChanged = notificationBatch.ResetsPriorNotifications
+            || notificationBatch.HasEffect(LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
+        if (notificationBatch.ResetsPriorNotifications)
+        {
+            mainChartList.RowProjection.ClearTransientStates();
+        }
+        if (installDestinationChangedCharts.Count > 0)
+        {
+            mainChartList.RowProjection.UpdateTransientStates(
+                installDestinationChangedCharts,
+                forceInstallDestinationProjection: true);
+            mainChartList.RowProjection.PruneTransientStatesToOwnedCharts(library);
+        }
+        else if (installDestinationStateChanged)
+        {
+            mainChartList.RowProjection.PruneTransientStatesToOwnedCharts(library);
+        }
+
+        SyncNormalLibraryStorageRowCachesForRefreshNotification(library, notificationBatch);
+        ApplyNormalLibraryRefreshNotificationEffects(notificationBatch, reason);
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+        {
+            ResetDerivedCaches();
+        }
+        NormalLibraryRefreshApplied?.Invoke(
+            this,
+            new NormalLibraryRefreshAppliedEventArgs(notificationBatch, reason));
+    }
+
+    private BmsonLibraryRowCacheSyncResult SyncNormalLibraryStorageRowCachesForRefreshNotification(
+        BMSLibrary library,
+        NormalLibraryRefreshNotificationBatch notificationBatch)
+    {
+        if (library == null || notificationBatch?.HasRefreshNotification != true)
+        {
+            return default;
+        }
+
+        if (notificationBatch.StorageRowsRemoveDeltaComplete)
+        {
+            if (notificationBatch.NotifiesBmsFiles)
+            {
+                RemoveBmsRows(notificationBatch.RemovedBmsFiles);
+            }
+
+            if (!notificationBatch.NotifiesBmsonSongs)
+            {
+                return default;
+            }
+
+            BmsonLibraryRowCacheSyncResult removeResult = RemoveBmsonRows(notificationBatch.RemovedBmsonSongs);
+            if (removeResult.SortKeyChanged)
+            {
+                InvalidateNormalLibrarySortKeysForBmsonSync(removeResult);
+            }
+            if (removeResult.SourceChanged
+                && !notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+            {
+                InvalidateVirtualSourceRows();
+                logWarning("normal_library_bmson_remove_delta_uncovered_source_change"
+                    + " notificationVersion=" + notificationBatch.LatestVersion
+                    + " membershipChanged=" + removeResult.MembershipChanged
+                    + " sourceIdentityChanged=" + removeResult.SourceIdentityChanged
+                    + " sourceReferenceChanged=" + removeResult.SourceReferenceChanged);
+            }
+            return removeResult;
+        }
+
+        OwnedChartStorageOwnerView sourceOwnerView = notificationBatch.NotifiesBmsFiles
+            || notificationBatch.NotifiesBmsonSongs
+                ? library.CreateNormalLibrarySourceStorageOwnerView()
+                : null;
+        if (notificationBatch.NotifiesBmsFiles)
+        {
+            PruneBmsRows(sourceOwnerView?.BmsFiles);
+        }
+
+        if (!notificationBatch.NotifiesBmsonSongs)
+        {
+            return default;
+        }
+
+        BmsonLibraryRowCacheSyncResult result = SyncBmsonRows(library, sourceOwnerView);
+        if (result.SortKeyChanged)
+        {
+            InvalidateNormalLibrarySortKeysForBmsonSync(result);
+        }
+        if (result.SourceChanged
+            && !notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+        {
+            InvalidateVirtualSourceRows();
+            logWarning("normal_library_bmson_sync_uncovered_source_change"
+                + " notificationVersion=" + notificationBatch.LatestVersion
+                + " membershipChanged=" + result.MembershipChanged
+                + " sourceIdentityChanged=" + result.SourceIdentityChanged
+                + " sourceReferenceChanged=" + result.SourceReferenceChanged);
+        }
+        return result;
+    }
+
+    private void ApplyNormalLibraryRefreshNotificationEffects(
+        NormalLibraryRefreshNotificationBatch notificationBatch,
+        string reason)
+    {
+        int sourceCacheCount = 0;
+        bool sourceGenerationChanged = notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged)
+            && TryInvalidateSourceForOwnedCollectionVersion(
+                notificationBatch.OwnedCollectionVersion,
+                out sourceCacheCount);
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.SourceChanged))
+        {
+            LogNormalLibrarySortCacheInvalidation("source", reason, sourceCacheCount);
+        }
+
+        bool installDestinationStateChanged = notificationBatch.HasEffect(
+            LibraryChartRefreshEffects.InstallDestinationOverlayChanged);
+        if (!sourceGenerationChanged && installDestinationStateChanged)
+        {
+            InvalidateNormalLibrarySortDependency(
+                MainViewDataDependency.InstallDestination,
+                "install_destination_changed");
+        }
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.WarningPresentationChanged))
+        {
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Warning, "warning_changed");
+        }
+        if (notificationBatch.HasEffect(LibraryChartRefreshEffects.MaintenancePresentationChanged))
+        {
+            InvalidateNormalLibrarySortDependency(MainViewDataDependency.Maintenance, "maintenance_changed");
+        }
+    }
+
+    private void InvalidateNormalLibrarySortDependency(MainViewDataDependency dependency, string reason)
+    {
+        int removedCount = InvalidateSortCacheByDependency(dependency, out int cacheCount);
+        LogNormalLibrarySortCacheInvalidation("dependency", reason, cacheCount, dependency, removedCount);
+    }
+
+    private void InvalidateNormalLibrarySortKeysForBmsonSync(
+        BmsonLibraryRowCacheSyncResult result,
+        string reason = null)
+    {
+        if (!result.SortKeyChanged)
+        {
+            return;
+        }
+
+        string invalidationReason = result.SourceIdentityChanged
+            ? MainViewRefreshDecisionService.NormalLibraryBmsonSourceIdentityChangedReason
+            : (string.IsNullOrWhiteSpace(reason)
+                ? MainViewRefreshDecisionService.NormalLibraryBmsonSortKeyChangedReason
+                : reason);
+        bool clearSourceRows = MainViewRefreshDecisionService.ShouldClearSourceRowsForSortKeyChange(invalidationReason);
+        int cacheCount = InvalidateIdentitySortKeys(clearSourceRows);
+        LogNormalLibrarySortCacheInvalidation("sort_key", invalidationReason, cacheCount);
+    }
+
+    private void LogNormalLibrarySortCacheInvalidation(string reason, string detail, int cacheCountBefore)
+    {
+        log("normal_library_sort_cache_invalidate reason=" + (reason ?? string.Empty)
+            + " detail=" + (detail ?? string.Empty)
+            + " cacheCountBefore=" + cacheCountBefore
+            + " sourceGeneration=" + SourceGeneration
+            + " sortKeyGeneration=" + SortKeyGeneration);
+    }
+
+    private void LogNormalLibrarySortCacheInvalidation(
+        string reason,
+        string detail,
+        int cacheCountBefore,
+        MainViewDataDependency dependency,
+        int removedCount)
+    {
+        log("normal_library_sort_cache_invalidate reason=" + (reason ?? string.Empty)
+            + " detail=" + (detail ?? string.Empty)
+            + " dependency=" + dependency
+            + " cacheCountBefore=" + cacheCountBefore
+            + " removed=" + removedCount
+            + " sourceGeneration=" + SourceGeneration
+            + " sortKeyGeneration=" + SortKeyGeneration
+            + " warningGeneration=" + WarningGeneration
+            + " installDestinationGeneration=" + InstallDestinationGeneration
+            + " maintenanceGeneration=" + MaintenanceGeneration
+            + " referenceTablesGeneration=" + ReferenceTablesGeneration);
     }
 
     internal LibraryChartRow CreateVirtualRow(BMSLibrary library, ChartListSourceRow sourceRow)
@@ -2740,21 +3047,30 @@ internal sealed class RegularChartListOwner : IDisposable
         CancellationTokenSource requestCancellation;
         CancellationTokenSource prewarmCancellation;
         Task prewarmCompletion;
-        lock (syncRoot)
+        PropertyChangedEventListener normalLibraryRefreshListenerToDispose;
+        lock (normalLibraryRefreshApplyLock)
         {
-            if (disposed)
+            lock (syncRoot)
             {
-                return virtualOrderPrewarmCompletion;
+                if (disposed)
+                {
+                    return virtualOrderPrewarmCompletion;
+                }
+                disposed = true;
+                requestCancellation = currentCancellation;
+                currentCancellation = null;
+                currentRequestId = 0L;
+                regularRequestActive = false;
+                normalLibraryRefreshListenerToDispose = normalLibraryRefreshListener;
+                normalLibraryRefreshListener = null;
+                normalLibraryRefreshSource = null;
+                normalLibraryRefreshHandledNotificationVersion = 0;
+                prewarmCancellation = virtualOrderPrewarmCancellation;
+                prewarmCompletion = virtualOrderPrewarmCompletion;
             }
-            disposed = true;
-            requestCancellation = currentCancellation;
-            currentCancellation = null;
-            currentRequestId = 0L;
-            regularRequestActive = false;
-            prewarmCancellation = virtualOrderPrewarmCancellation;
-            prewarmCompletion = virtualOrderPrewarmCompletion;
         }
         mainChartList.AppliedColumnModeCommitted -= MainChartListAppliedColumnModeCommitted;
+        normalLibraryRefreshListenerToDispose?.Dispose();
         CancelAndDispose(requestCancellation);
         Cancel(prewarmCancellation);
         return DrainPrewarmAsync(prewarmCompletion, prewarmCancellation);
@@ -3124,6 +3440,21 @@ internal sealed class RegularChartListOwner : IDisposable
         }
     }
 
+}
+
+internal sealed class NormalLibraryRefreshAppliedEventArgs : EventArgs
+{
+    internal NormalLibraryRefreshAppliedEventArgs(
+        NormalLibraryRefreshNotificationBatch notificationBatch,
+        string reason)
+    {
+        NotificationBatch = notificationBatch ?? NormalLibraryRefreshNotificationBatch.Empty;
+        Reason = reason ?? string.Empty;
+    }
+
+    internal NormalLibraryRefreshNotificationBatch NotificationBatch { get; }
+
+    internal string Reason { get; }
 }
 
 internal sealed class RegularChartListRequestLease
