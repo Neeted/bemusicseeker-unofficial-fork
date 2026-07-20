@@ -286,7 +286,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         Deactivated += MainWindow_Deactivated;
         if (base.DataContext is MainWindowViewModel viewModel)
         {
-            viewModel.PlaylistWorkspace.PlaylistSummaryViewApplied += MainWindowViewModel_PlaylistSummaryViewApplied;
+            viewModel.PlaylistSummarySelectionRestoreRequested += MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
             SubscribeViewModelUiInteractions(viewModel);
         }
         Closed += delegate
@@ -917,7 +917,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (viewModel != null)
         {
-            viewModel.PlaylistWorkspace.PlaylistSummaryViewApplied -= MainWindowViewModel_PlaylistSummaryViewApplied;
+            viewModel.PlaylistSummarySelectionRestoreRequested -= MainWindowViewModel_PlaylistSummarySelectionRestoreRequested;
         }
         viewModel?.SetStartupUiInteractionBlocked(false);
         calcelAllContextMenuTasks();
@@ -1105,15 +1105,11 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             int? currentPlaylistId = primaryDraggedRow?.PlaylistId ?? draggedRows.FirstOrDefault(row => row?.PlaylistId != null)?.PlaylistId;
             if (base.DataContext is MainWindowViewModel viewModel)
             {
-                long dataRebuildGeneration = await viewModel.PlaylistWorkspace.DropSummaryRowsInBmtOrderAsync(
+                await viewModel.PlaylistWorkspace.DropSummaryRowsInBmtOrderAsync(
                     visibleRows,
                     draggedRows,
                     visibleInsertIndex,
                     currentPlaylistId).Logging("customTablePlaylistSummary_Drop");
-                if (dataRebuildGeneration > 0L)
-                {
-                    TryApplyPlaylistSummarySelectionRestoreToView();
-                }
             }
             e.Effects = DragDropEffects.Move;
         }
@@ -1136,21 +1132,25 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         customTablePlaylistSummary?.ClearRowDropInsertPreview();
     }
 
-    private void MainWindowViewModel_PlaylistSummaryViewApplied(object sender, PlaylistSummaryViewAppliedEventArgs e)
+    private void MainWindowViewModel_PlaylistSummarySelectionRestoreRequested(PlaylistSummarySelectionRestoreRequest request)
     {
-        if (!Dispatcher.CheckAccess())
+        if (request == null)
         {
-            Dispatcher.BeginInvoke(new Action(TryApplyPlaylistSummarySelectionRestoreToView), DispatcherPriority.Background);
             return;
         }
-        TryApplyPlaylistSummarySelectionRestoreToView();
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.BeginInvoke(
+                new Action(() => ApplyPlaylistSummarySelectionRestoreToView(request)),
+                DispatcherPriority.Background);
+            return;
+        }
+        ApplyPlaylistSummarySelectionRestoreToView(request);
     }
 
-    private void TryApplyPlaylistSummarySelectionRestoreToView()
+    private void ApplyPlaylistSummarySelectionRestoreToView(PlaylistSummarySelectionRestoreRequest request)
     {
-        if (customTablePlaylistSummary == null
-            || base.DataContext is not MainWindowViewModel viewModel
-            || !viewModel.PlaylistWorkspace.TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest request))
+        if (customTablePlaylistSummary == null || request == null)
         {
             return;
         }

@@ -3575,6 +3575,7 @@ public partial class MainWindowViewModel : ViewModel
             },
             uri => Process.Start(uri.ToString()),
             () => PlaylistUrlInstallTreeExpansionRequested?.Invoke(),
+            request => PlaylistSummarySelectionRestoreRequested?.Invoke(request),
             LogExternalPlaylistImportWarning,
             LogExternalPlaylistImportInfo,
             LogBeatorajaTableUrlImportWarning,

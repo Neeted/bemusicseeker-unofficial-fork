@@ -30,6 +30,8 @@ internal static class PlaylistWorkspaceTestPorts
 
     internal static Action PlaylistUrlInstallTreeExpansionSink => () => { };
 
+    internal static Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreSink => _ => { };
+
     internal static Action<Exception, string> ExternalPlaylistImportWarningLog => (_, _) => { };
 
     internal static Action<string> ExternalPlaylistImportInfoLog => _ => { };

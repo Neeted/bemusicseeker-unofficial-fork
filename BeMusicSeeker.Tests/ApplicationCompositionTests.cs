@@ -7,8 +7,8 @@ using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Threading;
-using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
 using BeMusicSeeker.ViewModels;
 using Livet;
@@ -68,6 +68,7 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
+                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
@@ -99,6 +100,7 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
+                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
@@ -410,6 +412,7 @@ public sealed class ApplicationCompositionTests
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
+                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             (_, _) => { },
             _ => { },
             (_, _) => { },
@@ -458,6 +461,7 @@ public sealed class ApplicationCompositionTests
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
+                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
             (_, _) => { },
             _ => { },
             (_, _) => { },
@@ -543,6 +547,7 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
+                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
@@ -640,6 +645,7 @@ public sealed class ApplicationCompositionTests
                     Dispatcher.CurrentDispatcher)
             };
             var composition = new ApplicationComposition(() => new BmsLibraryOptionsSnapshot());
+            var restoreRequests = new List<PlaylistSummarySelectionRestoreRequest>();
             MainChartListViewModel mainChartList = composition.CreateMainChartListViewModel(action => action(), _ => { });
             PlaylistWorkspaceViewModel workspace = composition.CreatePlaylistWorkspaceViewModel(
                 action => action(),
@@ -652,6 +658,7 @@ public sealed class ApplicationCompositionTests
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
+                restoreRequests.Add,
                 (_, _) => { },
                 _ => { },
                 (_, _) => { },
@@ -685,7 +692,7 @@ public sealed class ApplicationCompositionTests
             {
                 workspace.IsPlaylistSummaryMode = true;
 
-                long dataRebuildGeneration = await workspace.DropSummaryRowsInBmtOrderAsync(
+                await workspace.DropSummaryRowsInBmtOrderAsync(
                     [
                         new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
                         new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
@@ -695,10 +702,10 @@ public sealed class ApplicationCompositionTests
                     visibleInsertIndex: 0,
                     currentPlaylistId: second.playlist_id);
 
-                Assert.IsTrue(dataRebuildGeneration > 0L);
-                Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
+                Assert.AreEqual(0, restoreRequests.Count);
                 Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest buildRequest));
-                Assert.AreEqual(dataRebuildGeneration, buildRequest.Generation);
+                long dataRebuildGeneration = buildRequest.Generation;
+                Assert.IsTrue(dataRebuildGeneration > 0L);
 
                 long presentationGeneration = workspace.CurrentPlaylistSummaryPresentationGeneration;
                 long cacheGeneration = workspace.CurrentPlaylistSummaryRowsCacheGeneration;
@@ -710,13 +717,15 @@ public sealed class ApplicationCompositionTests
                     CacheGeneration = cacheGeneration
                 }));
 
-                Assert.IsTrue(workspace.TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest restore));
+                Assert.AreEqual(1, restoreRequests.Count);
+                PlaylistSummarySelectionRestoreRequest restore = restoreRequests[0];
                 CollectionAssert.AreEquivalent(new[] { second.playlist_id }, restore.PlaylistIds.ToArray());
                 Assert.AreEqual(second.playlist_id, restore.CurrentPlaylistId);
-                Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
+                Assert.AreEqual(1, restoreRequests.Count);
                 workspace.CompletePlaylistSummaryDataBuild(buildRequest);
 
-                long noOpGeneration = await workspace.DropSummaryRowsInBmtOrderAsync(
+                long previousDataRebuildGeneration = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
+                await workspace.DropSummaryRowsInBmtOrderAsync(
                     [
                         new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
                         new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
@@ -725,10 +734,10 @@ public sealed class ApplicationCompositionTests
                     [new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second }],
                     visibleInsertIndex: 0,
                     currentPlaylistId: second.playlist_id);
-                Assert.AreEqual(0L, noOpGeneration);
-                Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
+                Assert.AreEqual(previousDataRebuildGeneration, workspace.CurrentPlaylistSummaryDataRebuildGeneration);
+                Assert.AreEqual(1, restoreRequests.Count);
 
-                long supersededGeneration = await workspace.DropSummaryRowsInBmtOrderAsync(
+                await workspace.DropSummaryRowsInBmtOrderAsync(
                     [
                         new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
                         new PlaylistSummaryRow { PlaylistId = first.playlist_id, TableRef = first },
@@ -737,11 +746,10 @@ public sealed class ApplicationCompositionTests
                     [new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third }],
                     visibleInsertIndex: 0,
                     currentPlaylistId: third.playlist_id);
-                Assert.IsTrue(supersededGeneration > 0L);
                 workspace.RequestPlaylistSummaryDataRefresh();
-                Assert.IsFalse(workspace.TryTakePlaylistSummarySelectionRestore(out _));
+                Assert.AreEqual(1, restoreRequests.Count);
 
-                long synchronousGeneration = await workspace.DropSummaryRowsInBmtOrderAsync(
+                await workspace.DropSummaryRowsInBmtOrderAsync(
                     [
                         new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third },
                         new PlaylistSummaryRow { PlaylistId = second.playlist_id, TableRef = second },
@@ -750,12 +758,11 @@ public sealed class ApplicationCompositionTests
                     [new PlaylistSummaryRow { PlaylistId = third.playlist_id, TableRef = third }],
                     visibleInsertIndex: 2,
                     currentPlaylistId: third.playlist_id);
-                Assert.IsTrue(synchronousGeneration > 0L);
                 Assert.IsTrue(workspace.TryBeginPlaylistSummaryDataBuild(out PlaylistSummaryDataBuildRequest synchronousBuild));
                 PlaylistSummarySelectionRestoreRequest synchronousRestore;
                 try
                 {
-                    Assert.AreEqual(synchronousGeneration, synchronousBuild.Generation);
+                    Assert.IsTrue(synchronousBuild.Generation > 0L);
                     Assert.IsTrue(workspace.TryApplyPlaylistSummary(new PlaylistSummaryApplyRequest
                     {
                         Rows = new ObservableCollection<PlaylistSummaryRow>(),
@@ -763,7 +770,8 @@ public sealed class ApplicationCompositionTests
                         DataRebuildGeneration = synchronousBuild.Generation,
                         CacheGeneration = synchronousBuild.CacheGeneration
                     }));
-                    Assert.IsTrue(workspace.TryTakePlaylistSummarySelectionRestore(out synchronousRestore));
+                    Assert.AreEqual(2, restoreRequests.Count);
+                    synchronousRestore = restoreRequests[1];
                 }
                 finally
                 {
@@ -837,6 +845,7 @@ public sealed class ApplicationCompositionTests
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
+                PlaylistWorkspaceTestPorts.PlaylistSummarySelectionRestoreSink,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,

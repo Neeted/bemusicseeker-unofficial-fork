@@ -22,6 +22,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
 {
     private readonly Action<Action> dispatchPresentation;
 
+    private readonly Action<PlaylistSummarySelectionRestoreRequest> playlistSummarySelectionRestoreSink;
+
     private readonly MainChartListViewModel detailMainChartList;
 
     private readonly Action<string> detailRetentionLog;
@@ -117,6 +119,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Action<IReadOnlyList<string>> playlistUrlInstallSink,
         Action<Uri> playlistUrlBrowserOpenSink,
         Action playlistUrlInstallTreeExpansionSink,
+        Action<PlaylistSummarySelectionRestoreRequest> playlistSummarySelectionRestoreSink,
         Action<Exception, string> externalPlaylistImportWarningLog,
         Action<string> externalPlaylistImportInfoLog,
         Action<Exception, string> beatorajaTableUrlImportWarningLog,
@@ -167,6 +170,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistUrlBrowserOpenSink));
         this.playlistUrlInstallTreeExpansionSink = playlistUrlInstallTreeExpansionSink
             ?? throw new ArgumentNullException(nameof(playlistUrlInstallTreeExpansionSink));
+        this.playlistSummarySelectionRestoreSink = playlistSummarySelectionRestoreSink
+            ?? throw new ArgumentNullException(nameof(playlistSummarySelectionRestoreSink));
         this.externalPlaylistImportWarningLog = externalPlaylistImportWarningLog
             ?? throw new ArgumentNullException(nameof(externalPlaylistImportWarningLog));
         this.externalPlaylistImportInfoLog = externalPlaylistImportInfoLog
@@ -290,7 +295,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    internal Task<long> DropSummaryRowsInBmtOrderAsync(
+    internal Task DropSummaryRowsInBmtOrderAsync(
         IEnumerable<PlaylistSummaryRow> visibleRows,
         IEnumerable<PlaylistSummaryRow> draggedRows,
         int visibleInsertIndex,
@@ -298,11 +303,14 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     {
         List<PlaylistSummaryRow> visibleRowsSnapshot = [.. (visibleRows ?? [])];
         List<PlaylistSummaryRow> draggedRowsSnapshot = [.. (draggedRows ?? [])];
-        return Task.Run(() => DropSummaryRowsInBmtOrderCore(
-            visibleRowsSnapshot,
-            draggedRowsSnapshot,
-            visibleInsertIndex,
-            currentPlaylistId));
+        return Task.Run(() =>
+        {
+            DropSummaryRowsInBmtOrderCore(
+                visibleRowsSnapshot,
+                draggedRowsSnapshot,
+                visibleInsertIndex,
+                currentPlaylistId);
+        });
     }
 
     private long DropSummaryRowsInBmtOrderCore(
@@ -419,7 +427,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         pendingPlaylistSummarySelectionOperationId = operationId;
     }
 
-    internal bool TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest request)
+    private bool TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest request)
     {
         lock (playlistSummaryTransitionLock)
         {
@@ -568,11 +576,6 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
     private bool deferredPlaylistSummaryDataRefreshRequested;
 
     private bool deferredPlaylistSummaryPresentationRefreshRequested;
-
-    /// <summary>
-    /// Raised after the summary view is replaced and code-behind selection restoration can run.
-    /// </summary>
-    internal event EventHandler<PlaylistSummaryViewAppliedEventArgs> PlaylistSummaryViewApplied;
 
     /// <summary>
     /// Gets or sets the current playlist summary sort parameters.
@@ -1433,9 +1436,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         {
             TryPublish(() => RaisePropertyChanged(nameof(PlaylistSummaryText)), publishExceptions);
         }
-        PublishPlaylistSummaryViewApplied(
-            new PlaylistSummaryViewAppliedEventArgs(request.DataRebuildGeneration ?? 0L),
-            publishExceptions);
+        PublishPlaylistSummarySelectionRestore(publishExceptions);
         if (publishExceptions.Count > 0)
         {
             throw new PlaylistSummaryPublishException(new AggregateException(publishExceptions));
@@ -1455,17 +1456,14 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         }
     }
 
-    private void PublishPlaylistSummaryViewApplied(
-        PlaylistSummaryViewAppliedEventArgs eventArgs,
-        List<Exception> exceptions)
+    private void PublishPlaylistSummarySelectionRestore(List<Exception> exceptions)
     {
         TrySchedulePlaylistReloadCleanup();
-        Delegate[] subscribers = PlaylistSummaryViewApplied?.GetInvocationList() ?? [];
-        foreach (Delegate subscriber in subscribers)
+        if (TryTakePlaylistSummarySelectionRestore(out PlaylistSummarySelectionRestoreRequest request))
         {
-            EventHandler<PlaylistSummaryViewAppliedEventArgs> handler =
-                (EventHandler<PlaylistSummaryViewAppliedEventArgs>)subscriber;
-            TryPublish(() => handler(this, eventArgs), exceptions);
+            TryPublish(
+                () => dispatchPresentation(() => playlistSummarySelectionRestoreSink(request)),
+                exceptions);
         }
     }
 
@@ -1537,23 +1535,14 @@ internal struct PlaylistSummaryDataRefreshRequestResult
     internal bool Queued;
 }
 
-internal sealed class PlaylistSummaryViewAppliedEventArgs : EventArgs
-{
-    internal PlaylistSummaryViewAppliedEventArgs(long dataRebuildGeneration)
-    {
-        DataRebuildGeneration = dataRebuildGeneration;
-    }
-
-    internal long DataRebuildGeneration { get; }
-}
-
 internal sealed class PlaylistSummarySelectionRestoreRequest
 {
     internal PlaylistSummarySelectionRestoreRequest(
         IReadOnlyCollection<int> playlistIds,
         int? currentPlaylistId)
     {
-        PlaylistIds = new List<int>(playlistIds ?? throw new ArgumentNullException(nameof(playlistIds)));
+        PlaylistIds = Array.AsReadOnly(
+            (playlistIds ?? throw new ArgumentNullException(nameof(playlistIds))).ToArray());
         CurrentPlaylistId = currentPlaylistId;
     }
 

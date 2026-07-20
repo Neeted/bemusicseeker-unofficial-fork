@@ -8,6 +8,8 @@ public partial class MainWindowViewModel
 {
     internal event Action PlaylistUrlInstallTreeExpansionRequested;
 
+    internal event Action<PlaylistSummarySelectionRestoreRequest> PlaylistSummarySelectionRestoreRequested;
+
     private void PlaylistWorkspacePlaylistUrlDownloadStatusChanged(
         object sender,
         PlaylistUrlDownloadStatusSnapshot snapshot)
