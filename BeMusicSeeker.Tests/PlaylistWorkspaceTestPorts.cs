@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 
@@ -50,6 +51,14 @@ internal static class PlaylistWorkspaceTestPorts
         new InMemoryKeywordSearchHistorySettingsStore();
 
     internal static Func<BMSPlaylist> PlaylistStoreProvider => () => null!;
+
+    internal static Func<Action, Task> PlaylistRestoreUiApplyScheduler => action =>
+    {
+        action();
+        return Task.CompletedTask;
+    };
+
+    internal static Func<bool> PlaylistRestoreUiThreadCheck => () => true;
 
     internal static PlaylistPropertySaveService PlaylistPropertySaveService =>
         new PlaylistPropertySaveService(

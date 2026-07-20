@@ -146,7 +146,9 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<bool> playlistTreeRefreshSuppressedProvider,
         Func<string, bool> playlistTreeRefreshDeferredProvider,
         Func<string, Func<Task>, bool> playlistExternalSyncScheduler,
-        Func<string, Func<Task>, bool> playlistReferenceApplyScheduler)
+        Func<string, Func<Task>, bool> playlistReferenceApplyScheduler,
+        Func<Action, Task> playlistRestoreUiApplyScheduler,
+        Func<bool> playlistRestoreUiThreadCheck)
     {
         this.dispatchPresentation = dispatchPresentation ?? throw new ArgumentNullException(nameof(dispatchPresentation));
         detailMainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
@@ -230,6 +232,10 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistExternalSyncScheduler));
         this.playlistReferenceApplyScheduler = playlistReferenceApplyScheduler
             ?? throw new ArgumentNullException(nameof(playlistReferenceApplyScheduler));
+        this.playlistRestoreUiApplyScheduler = playlistRestoreUiApplyScheduler
+            ?? throw new ArgumentNullException(nameof(playlistRestoreUiApplyScheduler));
+        this.playlistRestoreUiThreadCheck = playlistRestoreUiThreadCheck
+            ?? throw new ArgumentNullException(nameof(playlistRestoreUiThreadCheck));
         propertySaveService.ValidationError += ForwardPlaylistPropertyValidationError;
         propertySaveService.ExternalSyncConfirmationRequested += ForwardPlaylistPropertyExternalSyncConfirmationRequested;
         propertySaveService.InvalidOutputDirectoryRequested += ForwardPlaylistPropertyInvalidOutputDirectoryRequested;

@@ -350,7 +350,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         table.RowsReplacementCanceled += (_, _) =>
         {
             Task lockProbe = Task.Run(() =>
@@ -410,7 +410,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         using var cancellation = new CancellationTokenSource();
         cancellation.Cancel();
         PlaylistDetailTerminalRequest request = CreatePlaylistTerminalRequest(
@@ -466,7 +466,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         var oldRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow };
         var candidateRows = new List<object> { new object() };
@@ -542,7 +542,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         var oldRow = new TrackingDisposableRow(throwOnDispose: true);
         var laterRow = new TrackingDisposableRow();
         var oldRows = new List<object> { oldRow, laterRow };
@@ -2749,7 +2749,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         PlaylistDetailScoreSnapshotRefreshRequestedEventArgs? refresh = null;
         workspace.PlaylistDetailScoreSnapshotRefreshRequested += (_, request) => refresh = request;
         var context = new MainChartListCellEditContext(
@@ -2819,7 +2819,7 @@ public sealed class PlaylistViewPipelineTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
         var context = new MainChartListCellEditContext(
             row,
             nameof(PlaylistDetailRow.Url),

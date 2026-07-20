@@ -10,6 +10,10 @@ public sealed partial class PlaylistWorkspaceViewModel
 {
     private readonly Func<string, Func<Task>, bool> playlistReferenceApplyScheduler;
 
+    private readonly Func<Action, Task> playlistRestoreUiApplyScheduler;
+
+    private readonly Func<bool> playlistRestoreUiThreadCheck;
+
     private readonly object playlistReferenceApplyLock = new();
 
     private int playlistReferenceApplyRequestedVersion;

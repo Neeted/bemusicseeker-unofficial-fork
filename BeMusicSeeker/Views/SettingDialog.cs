@@ -622,10 +622,8 @@ public partial class SettingDialog : UserControl, IComponentConnector
         if (result.Status == UiDialogStatus.Accepted)
         {
             settingDialogOperationGrid.IsEnabled = false;
-            await Task.Run(delegate
-            {
-                viewModel.RestoreBMSTables(result.FileName);
-            }).Logging("detailTabItemRestoreButtonClicked");
+            await viewModel.PlaylistWorkspace.RestorePlaylistBackupAsync(result.FileName)
+                .Logging("detailTabItemRestoreButtonClicked");
             await base.Dispatcher.BeginInvoke((Action)delegate
             {
                 UiDialogRoute.ShowMessageBox(Application.Current.MainWindow, "アプリケーションを終了します。", "確認", MessageBoxButton.OK, MessageBoxImage.Question, MessageBoxResult.OK);

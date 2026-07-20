@@ -228,7 +228,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false));
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck));
 
         Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspace(
             action => action(),
@@ -391,7 +391,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithLoggingPorts(
@@ -440,7 +440,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
     }
 
     private static PlaylistWorkspaceViewModel CreateWorkspaceWithColumnStore(
@@ -486,7 +486,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => false,
             () => { },
             _ => { },
-            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+            (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false, PlaylistWorkspaceTestPorts.PlaylistRestoreUiApplyScheduler, PlaylistWorkspaceTestPorts.PlaylistRestoreUiThreadCheck);
     }
 
     private sealed class FakePlaylistUrlDownloadGateway : IPlaylistUrlDownloadGateway
