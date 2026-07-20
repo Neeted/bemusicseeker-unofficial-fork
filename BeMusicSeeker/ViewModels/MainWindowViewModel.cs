@@ -115,6 +115,11 @@ public partial class MainWindowViewModel : ViewModel
     internal FolderAutoRenameWorkflowOwner FolderAutoRenameWorkflow { get; private set; }
 
     /// <summary>
+    /// Gets the one-shot startup update workflow owned by application composition.
+    /// </summary>
+    internal StartupUpdateWorkflowOwner StartupUpdateWorkflow { get; private set; }
+
+    /// <summary>
     /// Gets playback adapter state and telemetry while chart-row traversal remains on the shell ViewModel.
     /// </summary>
     public PlaybackPanelViewModel PlaybackPanel { get; }
@@ -3664,6 +3669,7 @@ public partial class MainWindowViewModel : ViewModel
         FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;
         FolderAutoRenameWorkflow.ProgressChanged += FolderAutoRenameWorkflowProgressChanged;
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
+        StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,

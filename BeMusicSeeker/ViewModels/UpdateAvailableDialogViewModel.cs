@@ -9,21 +9,21 @@ namespace BeMusicSeeker.ViewModels;
 
 internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, IDisposable
 {
-    private readonly MainWindowViewModel ownerViewModel;
+    private readonly OperationProgressHubViewModel progressHub;
     private UpdatePackageOption selectedPackage;
 
-    public UpdateAvailableDialogViewModel(UpdateCheckResult updateCheckResult, MainWindowViewModel ownerViewModel)
+    public UpdateAvailableDialogViewModel(UpdateCheckResult updateCheckResult, OperationProgressHubViewModel progressHub)
     {
         UpdateCheckResult = updateCheckResult ?? throw new ArgumentNullException(nameof(updateCheckResult));
-        this.ownerViewModel = ownerViewModel;
+        this.progressHub = progressHub;
         Packages = new ObservableCollection<UpdatePackageOption>((UpdateCheckResult.Assets ?? [])
             .OrderBy(GetAssetDisplayPriority)
             .ThenBy(asset => asset?.FileName ?? string.Empty, StringComparer.OrdinalIgnoreCase)
             .Select(UpdatePackageOption.Create));
         selectedPackage = Packages.FirstOrDefault();
-        if (ownerViewModel != null)
+        if (progressHub != null)
         {
-            ownerViewModel.PropertyChanged += OwnerViewModelPropertyChanged;
+            progressHub.PropertyChanged += ProgressHubPropertyChanged;
         }
     }
 
@@ -55,7 +55,7 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
 
     public bool HasSelectableAssets => Packages.Count > 0;
 
-    public bool CanStartUpdate => HasSelectableAssets && ownerViewModel?.IsStartupProgressActive != true;
+    public bool CanStartUpdate => HasSelectableAssets && progressHub?.IsStartupProgressActive != true;
 
     public string StartBlockedReason => CanStartUpdate ? string.Empty : Resources.UpdateDialog_StartupBlocked;
 
@@ -78,15 +78,15 @@ internal sealed class UpdateAvailableDialogViewModel : INotifyPropertyChanged, I
 
     public void Dispose()
     {
-        if (ownerViewModel != null)
+        if (progressHub != null)
         {
-            ownerViewModel.PropertyChanged -= OwnerViewModelPropertyChanged;
+            progressHub.PropertyChanged -= ProgressHubPropertyChanged;
         }
     }
 
-    private void OwnerViewModelPropertyChanged(object sender, PropertyChangedEventArgs e)
+    private void ProgressHubPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName == nameof(MainWindowViewModel.IsStartupProgressActive))
+        if (e.PropertyName == nameof(OperationProgressHubViewModel.IsStartupProgressActive))
         {
             RaisePropertyChanged(nameof(CanStartUpdate));
             RaisePropertyChanged(nameof(StartBlockedReason));

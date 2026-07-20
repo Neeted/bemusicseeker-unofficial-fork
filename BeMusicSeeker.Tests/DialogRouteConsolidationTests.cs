@@ -223,6 +223,15 @@ public sealed class DialogRouteConsolidationTests
         Assert.IsFalse(mainWindowCode.Contains(".ShowDialog("), "MainWindow modal windows must go through UiDialogCoordinator.");
         Assert.IsFalse(settingDialogCode.Contains(".ShowDialog("), "SettingDialog modal windows must go through UiDialogCoordinator.");
         StringAssert.Contains(mainWindowCode, "ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>");
+        StringAssert.Contains(mainWindowCode, "StartupUpdatePresentationRequest");
+        StringAssert.Contains(mainWindowCode, "startupViewModel.StartupUpdateWorkflow.Start();");
+        StringAssert.Contains(mainWindowCode, "new UpdateAvailableDialog(request.Result, (base.DataContext as MainWindowViewModel)?.ProgressHub)");
+        Assert.IsFalse(mainWindowCode.Contains("CheckForUpdatesAsync("), "MainWindow must not own the startup update check.");
+        Assert.IsFalse(mainWindowCode.Contains("DownloadAndApplyUpdateAsync("), "MainWindow must not own update download/apply orchestration.");
+        Assert.IsFalse(mainWindowCode.Contains("CleanupPreviousUpdateWorkDirectory("), "MainWindow must not own update work-directory cleanup.");
+        Assert.IsFalse(mainWindowCode.Contains("TryDeleteDownloadedUpdatePackage("), "MainWindow must not own downloaded-package cleanup.");
+        Assert.IsFalse(mainWindowCode.Contains("updateCheckService"), "MainWindow must not retain the update-check service field.");
+        Assert.IsFalse(mainWindowCode.Contains("updateDownloadService"), "MainWindow must not retain the update-download service field.");
         StringAssert.Contains(mainWindowCode, "ShowWindowAsync(new UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>");
         StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<Lr2PlayHistorySchemaUninstallDialog, Lr2PlayHistorySchemaUninstallMode>");
         StringAssert.Contains(settingDialogCode, "ShowWindowAsync(new UiWindowDialogRequest<PlayHistoryFolderDisplayPresetEditDialog, object>");

@@ -45,4 +45,48 @@ public sealed class UpdateAvailableDialogViewModelTests
         Assert.AreEqual("app", viewModel.Packages[0].Asset.Kind);
         Assert.AreEqual("app", viewModel.SelectedAsset.Kind);
     }
+
+    [TestMethod]
+    public void StartupProgressFromProgressHubBlocksAndUnblocksApply()
+    {
+        UpdateCheckResult result = UpdateCheckResult.Available(
+            new Version(2, 2, 0, 0),
+            "2.1.0.0",
+            "2.2.0.0",
+            [new UpdateAssetInfo
+            {
+                Kind = "app",
+                Label = "App only",
+                FileName = "app.zip",
+                Url = "https://example.test/app.zip",
+                Sha256 = new string('a', 64),
+                SizeBytes = 1,
+                IncludesChartInfoMetadata = false
+            }],
+            "https://example.test/releases/v2.2.0.0");
+        var progressHub = new OperationProgressHubViewModel();
+        using var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
+
+        Assert.IsTrue(viewModel.CanStartUpdate);
+        progressHub.IsStartupProgressActive = true;
+        Assert.IsFalse(viewModel.CanStartUpdate);
+        Assert.AreEqual(BeMusicSeeker.Properties.Resources.UpdateDialog_StartupBlocked, viewModel.StartBlockedReason);
+        progressHub.IsStartupProgressActive = false;
+        Assert.IsTrue(viewModel.CanStartUpdate);
+    }
+
+    [TestMethod]
+    public void DisposeStopsListeningToProgressHub()
+    {
+        UpdateCheckResult result = UpdateCheckResult.NoUpdate("1.0.0.0");
+        var progressHub = new OperationProgressHubViewModel();
+        var viewModel = new UpdateAvailableDialogViewModel(result, progressHub);
+        int notifications = 0;
+        viewModel.PropertyChanged += (_, _) => notifications++;
+
+        viewModel.Dispose();
+        progressHub.IsStartupProgressActive = true;
+
+        Assert.AreEqual(0, notifications);
+    }
 }

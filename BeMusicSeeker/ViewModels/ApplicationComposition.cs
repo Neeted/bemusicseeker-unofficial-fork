@@ -8,10 +8,13 @@ using System.Windows.Threading;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Update;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views;
 using BeMusicSeeker.Views.Dialogs;
 using Livet;
 using Ribbit.Logging;
+using Ribbit.Net;
 
 namespace BeMusicSeeker.ViewModels;
 
@@ -483,6 +486,21 @@ internal sealed class MainWindowChildComposition
             folderAutoRenameLog,
             reportFolderAutoRenameNotificationFailure,
             reportFolderAutoRenameFailure);
+        UpdateDownloadService updateDownloadService = new();
+        UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
+        StartupUpdateWorkflow = new StartupUpdateWorkflowOwner(
+            () => updateCheckService.CheckAsync(CommandLineSwitches.UpdateManifestUrl),
+            updateDownloadService.DownloadAndVerifyAsync,
+            updateDownloadService.PrepareUpdaterLaunch,
+            UpdateDownloadService.CleanupPreviousWorkDirectory,
+            packagePath => UpdateDownloadService.TryDeleteDownloadedPackage(
+                packagePath,
+                exception => NLogWrapper.FileLogger?.Warn(exception, "startup_update package cleanup failed")),
+            action => Task.Run(action),
+            dispatchMainChartListAction,
+            message => NLogWrapper.FileLogger?.Info(message),
+            exception => NLogWrapper.FileLogger?.Warn(exception, "startup_update warning"),
+            exception => NLogWrapper.FileLogger?.Error(exception, "startup_update error"));
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -504,6 +522,8 @@ internal sealed class MainWindowChildComposition
     internal MaintenanceRescanWorkflowOwner MaintenanceRescanWorkflow { get; }
 
     internal FolderAutoRenameWorkflowOwner FolderAutoRenameWorkflow { get; }
+
+    internal StartupUpdateWorkflowOwner StartupUpdateWorkflow { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

@@ -10,10 +10,10 @@ public partial class UpdateAvailableDialog : Window
 {
     private readonly UpdateAvailableDialogViewModel viewModel;
 
-    internal UpdateAvailableDialog(UpdateCheckResult updateCheckResult, MainWindowViewModel ownerViewModel)
+    internal UpdateAvailableDialog(UpdateCheckResult updateCheckResult, OperationProgressHubViewModel progressHub)
     {
         InitializeComponent();
-        viewModel = new UpdateAvailableDialogViewModel(updateCheckResult, ownerViewModel);
+        viewModel = new UpdateAvailableDialogViewModel(updateCheckResult, progressHub);
         DataContext = viewModel;
         Closed += (_, _) => viewModel.Dispose();
     }

@@ -38,7 +38,6 @@ using BeMusicSeeker.Views.Dialogs;
 using NLog;
 using Parago.Windows;
 using Ribbit.Logging;
-using Ribbit.Net;
 using Ribbit.Util.Extensions;
 using Ribbit.Windows;
 
@@ -60,10 +59,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private static readonly Logger installPerformanceLogger = NLogWrapper.GetLogger("InstallPerformance.MainWindow");
 
     private static readonly bool installPerformanceLoggingEnabled = CommandLineSwitches.IsInfoLoggingEnabled;
-
-    private static readonly UpdateCheckService updateCheckService = new(AppHttpClient.Create(5000));
-
-    private static readonly UpdateDownloadService updateDownloadService = new();
 
     private static readonly MethodInfo playlistTreeBringIndexIntoViewMethod = typeof(System.Windows.Controls.VirtualizingStackPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic) ?? typeof(System.Windows.Controls.VirtualizingPanel).GetMethod("BringIndexIntoView", BindingFlags.Instance | BindingFlags.NonPublic);
 
@@ -286,7 +281,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// </summary>
     public MainWindow()
     {
-        CleanupPreviousUpdateWorkDirectory();
         InitializeComponent();
         ApplySavedTreeViewWidth();
         AddHandler(UIElement.PreviewMouseDownEvent, new MouseButtonEventHandler(keywordSearchWindowPreviewMouseDown), true);
@@ -305,8 +299,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         // Add handler that catches already-handled TreeViewItem.Selected events to synchronize TreeView exclusivity
         gridTreePane.AddHandler(TreeViewItem.SelectedEvent, new RoutedEventHandler(gridTreePane_TreeViewItemSelected), true);
 
-        // Start async update check
-        Task.Run(async () => await CheckForUpdatesAsync());
+        if (base.DataContext is MainWindowViewModel startupViewModel)
+        {
+            startupViewModel.StartupUpdateWorkflow.Start();
+        }
     }
 
     private void MainWindow_ContentRendered(object sender, EventArgs e)
@@ -415,6 +411,10 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested += PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
         viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionSummaryReady += PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
+        viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
+        viewModel.StartupUpdateWorkflow.ShutdownPreparationRequested += MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
+        viewModel.StartupUpdateWorkflow.FailurePresentationRequested += MainWindowViewModel_StartupUpdateFailurePresentationRequested;
+        viewModel.StartupUpdateWorkflow.ApplicationShutdownRequested += MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
     }
 
     private void UnsubscribeViewModelUiInteractions()
@@ -434,12 +434,107 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested -= PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionSummaryReady -= PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
+        subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
+        subscribedViewModel.StartupUpdateWorkflow.ShutdownPreparationRequested -= MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
+        subscribedViewModel.StartupUpdateWorkflow.FailurePresentationRequested -= MainWindowViewModel_StartupUpdateFailurePresentationRequested;
+        subscribedViewModel.StartupUpdateWorkflow.ApplicationShutdownRequested -= MainWindowViewModel_StartupUpdateApplicationShutdownRequested;
         subscribedViewModel = null;
     }
 
     private void MainWindowViewModel_FolderAutoRenameTerminalPublished()
     {
         RefreshCustomTableViewDisplayAsync();
+    }
+
+    private void MainWindowViewModel_StartupUpdatePresentationRequested(StartupUpdatePresentationRequest request)
+    {
+        _ = PresentStartupUpdateAsync(request);
+    }
+
+    private async Task PresentStartupUpdateAsync(StartupUpdatePresentationRequest request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        try
+        {
+            if (_isClosingOrClosed)
+            {
+                request.Complete(null);
+                return;
+            }
+            UiWindowDialogResult<UpdateAssetInfo> dialogResult = await new UiDialogCoordinator()
+                .ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>(
+                    () => new UpdateAvailableDialog(request.Result, (base.DataContext as MainWindowViewModel)?.ProgressHub),
+                    dialog => dialog.SelectedAsset,
+                    this));
+            ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Update available dialog");
+            request.Complete(dialogResult.IsAccepted ? dialogResult.Value : null);
+        }
+        catch (Exception exception)
+        {
+            request.Fail(exception);
+        }
+    }
+
+    private void MainWindowViewModel_StartupUpdateShutdownPreparationRequested(StartupUpdateShutdownPreparationRequest request)
+    {
+        _ = CompleteStartupUpdateShutdownPreparationAsync(request);
+    }
+
+    private async Task CompleteStartupUpdateShutdownPreparationAsync(StartupUpdateShutdownPreparationRequest request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+        try
+        {
+            request.Complete(await EnsureShutdownPreparedAsync(request.Reason).ConfigureAwait(true));
+        }
+        catch (Exception exception)
+        {
+            request.Fail(exception);
+        }
+    }
+
+    private void MainWindowViewModel_StartupUpdateFailurePresentationRequested(Exception exception)
+    {
+        bool updateShutdownPreparationFailed = _shutdownPreparationRunning
+            && !_shutdownPrepared
+            && (base.DataContext as MainWindowViewModel)?.StartupUpdateWorkflow.IsShutdownPreparationStarted == true;
+        if (_isClosingOrClosed && !updateShutdownPreparationFailed)
+        {
+            return;
+        }
+        if (updateShutdownPreparationFailed)
+        {
+            // Shutdown cancellation has already been issued by the ViewModel and
+            // cannot be rolled back safely.  Keep the window in a terminal
+            // shutdown-safe state, show the existing failure contract, and let
+            // the user close it without attempting the faulted preparation again.
+            _shutdownPreparationRunning = false;
+            _shutdownPrepared = true;
+        }
+        UiDialogRoute.ShowMessageBox(
+            "Failed to download or start the update.\n" + (exception?.Message ?? string.Empty),
+            "Update Failed",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
+    }
+
+    private void MainWindowViewModel_StartupUpdateApplicationShutdownRequested()
+    {
+        _shutdownPrepared = true;
+        if (Application.Current != null)
+        {
+            Application.Current.Shutdown();
+        }
+        else
+        {
+            Close();
+        }
     }
 
     private void MainWindowViewModel_SettingDialogOpenRequested(object sender, EventArgs e)
@@ -660,110 +755,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     }
 
     /// <summary>
-    /// GitHub上のバージョン情報ファイルを参照し、現在実行中のアプリケーションよりも
-    /// 新しいバージョンがリリースされていないか非同期でチェックします。
-    /// 新しいバージョンが利用可能な場合は、ユーザーにメッセージボックスで通知します。
-    /// </summary>
-    /// <returns>非同期タスクを表す <see cref="Task"/> オブジェクト。</returns>
-    private async Task CheckForUpdatesAsync()
-    {
-        try
-        {
-            UpdateCheckResult result = await updateCheckService.CheckAsync(CommandLineSwitches.UpdateManifestUrl);
-            if (_isClosingOrClosed)
-            {
-                return;
-            }
-            if (result.IsUpdateAvailable)
-            {
-                MainWindowViewModel viewModel = await base.Dispatcher.InvokeAsync(() =>
-                {
-                    return _isClosingOrClosed ? null : base.DataContext as MainWindowViewModel;
-                });
-                UpdateAssetInfo selectedAsset = null;
-                if (viewModel != null)
-                {
-                    UiWindowDialogResult<UpdateAssetInfo> dialogResult = await new UiDialogCoordinator()
-                        .ShowWindowAsync(new UiWindowDialogRequest<UpdateAvailableDialog, UpdateAssetInfo>(
-                            () => new UpdateAvailableDialog(result, viewModel),
-                            dialog => dialog.SelectedAsset,
-                            this));
-                    ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Update available dialog");
-                    selectedAsset = dialogResult.IsAccepted ? dialogResult.Value : null;
-                }
-
-                if (selectedAsset != null)
-                {
-                    await DownloadAndApplyUpdateAsync(selectedAsset);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn("Failed to check for updates: " + ex.Message);
-        }
-    }
-
-    private async Task DownloadAndApplyUpdateAsync(UpdateAssetInfo selectedAsset)
-    {
-        bool shutdownPreparationCompleted = false;
-        string packagePath = null;
-        try
-        {
-            packagePath = await updateDownloadService.DownloadAndVerifyAsync(selectedAsset).ConfigureAwait(false);
-            ProcessStartInfo updaterStartInfo = updateDownloadService.CreateUpdaterStartInfo(packagePath);
-            ShutdownPreparationResult shutdownResult = await EnsureShutdownPreparedAsync("update").ConfigureAwait(false);
-            shutdownPreparationCompleted = true;
-            NLogWrapper.FileLogger?.Info("Update apply shutdown prepared: " + shutdownResult.ToLogFields());
-
-            Process updaterProcess = Process.Start(updaterStartInfo);
-            if (updaterProcess == null)
-            {
-                throw new InvalidOperationException("Updater process did not start.");
-            }
-            base.Dispatcher.Invoke(() =>
-            {
-                _shutdownPrepared = true;
-                Application.Current.Shutdown();
-            });
-        }
-        catch (Exception ex)
-        {
-            Ribbit.Logging.NLogWrapper.FileLogger?.Error(ex, "Failed to apply update.");
-            if (shutdownPreparationCompleted)
-            {
-                TryDeleteDownloadedUpdatePackage(packagePath);
-                base.Dispatcher.Invoke(() =>
-                {
-                    _shutdownPrepared = true;
-                    Application.Current.Shutdown();
-                });
-                return;
-            }
-            base.Dispatcher.Invoke(() =>
-            {
-                UiDialogRoute.ShowMessageBox(
-                    "Failed to download or start the update.\n" + ex.Message,
-                    "Update Failed",
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Error);
-            });
-        }
-    }
-
-    private static void CleanupPreviousUpdateWorkDirectory()
-    {
-        try
-        {
-            UpdateDownloadService.CleanupPreviousWorkDirectory();
-        }
-        catch (Exception ex)
-        {
-            Ribbit.Logging.NLogWrapper.FileLogger?.Warn(ex, "Failed to cleanup previous update_work directory.");
-        }
-    }
-
-    /// <summary>
     /// アプリケーション起動時に、設定 (StartupSelectInstallPending) に基づいて
     /// プレイリストツリーの「インストール待ち（保留）」ノードを自動的に展開・選択します。
     /// </summary>
@@ -974,25 +965,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private static void TryDeleteDownloadedUpdatePackage(string packagePath)
-    {
-        if (string.IsNullOrWhiteSpace(packagePath))
-        {
-            return;
-        }
-        try
-        {
-            if (File.Exists(packagePath))
-            {
-                File.Delete(packagePath);
-            }
-        }
-        catch (Exception ex)
-        {
-            NLogWrapper.FileLogger?.Warn("Failed to delete downloaded update package: " + ex.Message);
-        }
-    }
-
     private Task<ShutdownPreparationResult> EnsureShutdownPreparedAsync(string reason)
     {
         lock (shutdownPreparationLock)
@@ -1057,6 +1029,19 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }).Task.ConfigureAwait(false);
     }
 
+    private async Task CompleteCloseAfterStartupUpdateWorkflowAsync(StartupUpdateWorkflowOwner startupUpdateWorkflow)
+    {
+        try
+        {
+            await startupUpdateWorkflow.WaitForIdleAsync().ConfigureAwait(true);
+        }
+        catch (Exception exception)
+        {
+            NLogWrapper.FileLogger?.Error(exception, "Failed to drain startup update workflow before closing.");
+        }
+        await CompleteCloseAfterShutdownPreparedAsync("window_close").ConfigureAwait(true);
+    }
+
     /// <summary>
     /// ウィンドウが閉じられる直前に呼び出されます。
     /// 現在のUI状態（TreeViewの幅、ウィンドウの配置や最大化状態など）を
@@ -1068,6 +1053,16 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         if (!_shutdownPrepared)
         {
             e.Cancel = true;
+            MainWindowViewModel closingViewModel = base.DataContext as MainWindowViewModel;
+            if (closingViewModel?.StartupUpdateWorkflow.NotifyClosing() == true)
+            {
+                _shutdownPreparationRunning = true;
+                _isClosingOrClosed = true;
+                calcelAllContextMenuTasks();
+                CloseContextMenuIfOpen(_lastOpenedContextMenu);
+                _ = CompleteCloseAfterStartupUpdateWorkflowAsync(closingViewModel.StartupUpdateWorkflow);
+                return;
+            }
             if (!_shutdownPreparationRunning)
             {
                 _shutdownPreparationRunning = true;

@@ -489,6 +489,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.RegularChartListOwner);
             Assert.IsNotNull(childComposition.PackageInstallWorkflow);
             Assert.IsNotNull(childComposition.FolderAutoRenameWorkflow);
+            Assert.IsNotNull(childComposition.StartupUpdateWorkflow);
         }
         finally
         {

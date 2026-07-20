@@ -63,12 +63,7 @@ internal sealed class UpdateDownloadService
         return packagePath;
     }
 
-    public Process StartUpdater(string packagePath)
-    {
-        return Process.Start(CreateUpdaterStartInfo(packagePath));
-    }
-
-    public ProcessStartInfo CreateUpdaterStartInfo(string packagePath)
+    public PreparedUpdaterLaunch PrepareUpdaterLaunch(string packagePath)
     {
         string appDirectory = AppDomain.CurrentDomain.BaseDirectory;
         string sourceUpdaterPath = Path.Combine(appDirectory, "BeMusicSeeker.Updater.exe");
@@ -83,7 +78,7 @@ internal sealed class UpdateDownloadService
         LongPathFileSystem.CopyFile(sourceUpdaterPath, updaterPath, overwrite: true);
 
         string appExePath = Assembly.GetExecutingAssembly().Location;
-        return new ProcessStartInfo(updaterPath)
+        ProcessStartInfo startInfo = new ProcessStartInfo(updaterPath)
         {
             UseShellExecute = false,
             WorkingDirectory = currentUpdaterDirectory,
@@ -94,6 +89,7 @@ internal sealed class UpdateDownloadService
                 "--pid", Process.GetCurrentProcess().Id.ToString(),
                 "--restart-exe", appExePath)
         };
+        return new PreparedUpdaterLaunch(startInfo);
     }
 
     internal static string GetUpdateWorkRoot()
@@ -107,6 +103,25 @@ internal sealed class UpdateDownloadService
         if (LongPathFileSystem.DirectoryExists(workRoot))
         {
             LongPathFileSystem.DeleteDirectory(workRoot, recursive: true);
+        }
+    }
+
+    internal static void TryDeleteDownloadedPackage(string packagePath, Action<Exception> warningReporter = null)
+    {
+        if (string.IsNullOrWhiteSpace(packagePath))
+        {
+            return;
+        }
+        try
+        {
+            if (LongPathFileSystem.FileExists(packagePath))
+            {
+                LongPathFileSystem.DeleteFile(packagePath);
+            }
+        }
+        catch (Exception exception)
+        {
+            warningReporter?.Invoke(exception);
         }
     }
 
