@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Markup;
 using System.Windows.Threading;
@@ -264,9 +265,9 @@ internal sealed class ApplicationComposition
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
-        Action<DroppedInstallBatchRequest, System.Threading.CancellationToken> processDroppedInstallBatch,
-        Action<DropInstallQueueStatusSnapshot> updateDropInstallQueueStatus,
-        Action<Exception> handleDroppedInstallBatchException)
+        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
+        Action<Action> dispatchPackageInstallUi,
+        Action<Exception> reportPackageInstallWorkflowNotificationFailure = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -278,9 +279,9 @@ internal sealed class ApplicationComposition
             mainViewLog,
             dispatchMainChartListAction,
             mainViewLogWarning,
-            processDroppedInstallBatch,
-            updateDropInstallQueueStatus,
-            handleDroppedInstallBatchException);
+            installPackageBatch,
+            dispatchPackageInstallUi,
+            reportPackageInstallWorkflowNotificationFailure);
     }
 
     internal IBMSPlayer CreateBmsPlayer(
@@ -399,9 +400,9 @@ internal sealed class MainWindowChildComposition
         Action<string> mainViewLog,
         Action<Action> dispatchMainChartListAction,
         Action<string> mainViewLogWarning,
-        Action<DroppedInstallBatchRequest, System.Threading.CancellationToken> processDroppedInstallBatch,
-        Action<DropInstallQueueStatusSnapshot> updateDropInstallQueueStatus,
-        Action<Exception> handleDroppedInstallBatchException)
+        Func<BMSLibrary, IEnumerable<string>, CancellationToken, Action, Action<string, int, int>, IReadOnlyList<ChartPackage>> installPackageBatch,
+        Action<Action> dispatchPackageInstallUi,
+        Action<Exception> reportPackageInstallWorkflowNotificationFailure = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -426,10 +427,10 @@ internal sealed class MainWindowChildComposition
             mainViewLog,
             dispatchMainChartListAction,
             mainViewLogWarning);
-        DropInstallQueueProcessor = new DropInstallQueueProcessor(
-            processDroppedInstallBatch,
-            updateDropInstallQueueStatus,
-            handleDroppedInstallBatchException);
+        PackageInstallWorkflow = new PackageInstallWorkflowOwner(
+            installPackageBatch,
+            dispatchPackageInstallUi,
+            reportPackageInstallWorkflowNotificationFailure);
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -446,7 +447,7 @@ internal sealed class MainWindowChildComposition
 
     internal RegularChartListOwner RegularChartListOwner { get; }
 
-    internal DropInstallQueueProcessor DropInstallQueueProcessor { get; }
+    internal PackageInstallWorkflowOwner PackageInstallWorkflow { get; }
 }
 
 /// <summary>

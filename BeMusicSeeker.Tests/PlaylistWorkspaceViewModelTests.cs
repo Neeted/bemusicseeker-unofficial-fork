@@ -932,13 +932,17 @@ public sealed class PlaylistWorkspaceViewModelTests
     {
         string rootSource = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string workspaceSource = SourceTextTestHelper.ReadPlaylistWorkspaceViewModelSourceText();
-        string installMethod = SourceTextTestHelper.ExtractMethodBody(rootSource, "public void InstallChartPackages(");
+        string workflowSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "PackageInstallWorkflowOwner.cs");
 
-        StringAssert.Contains(installMethod, "PlaylistWorkspace.AttachInstalledPackageReferences(list);");
-        Assert.AreEqual(-1, installMethod.IndexOf("AddReferenceBMSTablesToPackageCharts", StringComparison.Ordinal));
-        Assert.AreEqual(-1, installMethod.IndexOf("AcquireReaderLockBMSTables", StringComparison.Ordinal));
-        Assert.AreEqual(-1, installMethod.IndexOf("FreeReaderLockBMSTables", StringComparison.Ordinal));
-        Assert.AreEqual(-1, installMethod.IndexOf("InvalidateNormalLibraryReferenceTableSortKeys", StringComparison.Ordinal));
+        StringAssert.Contains(rootSource, "PlaylistWorkspace.AttachInstalledPackageReferences(receipt.Packages);");
+        StringAssert.Contains(workflowSource, "CompletionPublished");
+        Assert.AreEqual(-1, workflowSource.IndexOf("AddReferenceBMSTablesToPackageCharts", StringComparison.Ordinal));
+        Assert.AreEqual(-1, workflowSource.IndexOf("AcquireReaderLockBMSTables", StringComparison.Ordinal));
+        Assert.AreEqual(-1, workflowSource.IndexOf("FreeReaderLockBMSTables", StringComparison.Ordinal));
+        Assert.AreEqual(-1, workflowSource.IndexOf("InvalidateNormalLibraryReferenceTableSortKeys", StringComparison.Ordinal));
         StringAssert.Contains(workspaceSource, "internal void AttachInstalledPackageReferences(IReadOnlyList<ChartPackage> packages)");
         StringAssert.Contains(workspaceSource, "playlistStore.AcquireReaderLockBMSTables();");
         StringAssert.Contains(workspaceSource, "GetPlaylistLibrary().AddReferenceBMSTablesToPackageCharts");

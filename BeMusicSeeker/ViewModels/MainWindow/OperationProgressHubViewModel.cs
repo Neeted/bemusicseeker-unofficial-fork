@@ -1,4 +1,5 @@
 using System;
+using BeMusicSeeker.Models;
 using Livet;
 
 namespace BeMusicSeeker.ViewModels;
@@ -81,6 +82,14 @@ public sealed class OperationProgressHubViewModel : ViewModel
     private bool isLr2SongDbSyncCancelVisible;
 
     private bool isLr2SongDbSyncCleanupVisible;
+
+    private DropInstallQueueStatusSnapshot dropInstallQueueStatus = new();
+
+    private PendingInstallEstimateQueueStatusSnapshot pendingInstallQueueStatus = new();
+
+    private InstallEstimationProgressSnapshot installEstimationProgress = new();
+
+    private PlaylistUrlDownloadStatusSnapshot playlistUrlDownloadStatus = PlaylistUrlDownloadStatusSnapshot.Inactive;
 
     /// <summary>
     /// Gets whether install, drop-install, playlist URL download, or estimate status is visible.
@@ -415,6 +424,30 @@ public sealed class OperationProgressHubViewModel : ViewModel
         set => SetValue(ref isLr2SongDbSyncCleanupVisible, value, nameof(IsLr2SongDbSyncCleanupVisible));
     }
 
+    internal void UpdateDropInstallQueueStatus(DropInstallQueueStatusSnapshot snapshot)
+    {
+        dropInstallQueueStatus = snapshot ?? new DropInstallQueueStatusSnapshot();
+        RefreshInstallPipelinePresentation();
+    }
+
+    internal void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
+    {
+        pendingInstallQueueStatus = snapshot?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
+        RefreshInstallPipelinePresentation();
+    }
+
+    internal void UpdateInstallEstimationProgress(InstallEstimationProgressSnapshot snapshot)
+    {
+        installEstimationProgress = snapshot?.Clone() ?? new InstallEstimationProgressSnapshot();
+        RefreshInstallPipelinePresentation();
+    }
+
+    internal void UpdatePlaylistUrlDownloadStatus(PlaylistUrlDownloadStatusSnapshot snapshot)
+    {
+        playlistUrlDownloadStatus = snapshot ?? PlaylistUrlDownloadStatusSnapshot.Inactive;
+        RefreshInstallPipelinePresentation();
+    }
+
     private void SetStringValue(ref string storage, string value, string propertyName)
     {
         SetValue(ref storage, value ?? string.Empty, propertyName);
@@ -427,5 +460,105 @@ public sealed class OperationProgressHubViewModel : ViewModel
             storage = value;
             RaisePropertyChanged(propertyName);
         }
+    }
+
+    private void RefreshInstallPipelinePresentation()
+    {
+        if (playlistUrlDownloadStatus.IsActive)
+        {
+            IsInstallPipelineStatusActive = true;
+            InstallPipelineLabel = string.Format(
+                string.IsNullOrWhiteSpace(playlistUrlDownloadStatus.LabelFormat)
+                    ? BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format
+                    : playlistUrlDownloadStatus.LabelFormat,
+                Math.Max(0, playlistUrlDownloadStatus.CompletedCount),
+                Math.Max(0, playlistUrlDownloadStatus.TotalCount));
+            InstallPipelineSubLabel = playlistUrlDownloadStatus.CurrentDisplayName;
+            InstallPipelineMaximum = Math.Max(1, playlistUrlDownloadStatus.TotalCount);
+            InstallPipelineValue = Math.Max(0, playlistUrlDownloadStatus.CompletedCount);
+            InstallPipelineCanCancel = playlistUrlDownloadStatus.CanCancel;
+            return;
+        }
+
+        bool dropActive = dropInstallQueueStatus.IsActive;
+        bool pendingQueueActive = pendingInstallQueueStatus.IsActive;
+        bool estimateActive = installEstimationProgress.IsActive;
+        int pendingBatchCount = Math.Max(0, dropInstallQueueStatus.PendingBatchCount)
+            + Math.Max(0, pendingInstallQueueStatus.PendingBatchCount);
+        if (dropActive)
+        {
+            IsInstallPipelineStatusActive = true;
+            InstallPipelineLabel = string.Format(
+                BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format,
+                Math.Max(0, dropInstallQueueStatus.CompletedPathCount),
+                Math.Max(0, dropInstallQueueStatus.TotalPathCount),
+                pendingBatchCount);
+            InstallPipelineSubLabel = GetDropInstallQueueSubLabel(dropInstallQueueStatus);
+            int currentWorkTotal = Math.Max(0, dropInstallQueueStatus.CurrentWorkTotal);
+            int currentWorkIndex = Math.Max(0, dropInstallQueueStatus.CurrentWorkIndex);
+            bool showCurrentWorkProgress = dropInstallQueueStatus.IsCurrentWorkInProgress
+                && currentWorkTotal > 0
+                && currentWorkIndex > 0;
+            InstallPipelineMaximum = showCurrentWorkProgress
+                ? Math.Max(1, currentWorkTotal)
+                : Math.Max(1, dropInstallQueueStatus.TotalPathCount);
+            InstallPipelineValue = showCurrentWorkProgress
+                ? Math.Min(currentWorkIndex, InstallPipelineMaximum)
+                : Math.Max(0, dropInstallQueueStatus.CompletedPathCount);
+            InstallPipelineCanCancel = dropInstallQueueStatus.CanCancel;
+            return;
+        }
+        if (estimateActive)
+        {
+            IsInstallPipelineStatusActive = true;
+            InstallPipelineLabel = string.Format(
+                BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
+                Math.Max(0, installEstimationProgress.CompletedWorkCount),
+                Math.Max(0, installEstimationProgress.TotalWorkCount),
+                pendingBatchCount);
+            InstallPipelineSubLabel = installEstimationProgress.CurrentDisplayName;
+            InstallPipelineMaximum = Math.Max(1, installEstimationProgress.TotalWorkCount);
+            InstallPipelineValue = Math.Max(0, installEstimationProgress.CompletedWorkCount);
+            InstallPipelineCanCancel = false;
+            return;
+        }
+        if (pendingQueueActive)
+        {
+            IsInstallPipelineStatusActive = true;
+            InstallPipelineLabel = string.Format(
+                BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
+                Math.Max(0, pendingInstallQueueStatus.CompletedPackageCount),
+                Math.Max(1, pendingInstallQueueStatus.CurrentPackageCount),
+                pendingBatchCount);
+            InstallPipelineSubLabel = pendingInstallQueueStatus.CurrentDisplayName;
+            InstallPipelineMaximum = Math.Max(1, pendingInstallQueueStatus.CurrentPackageCount);
+            InstallPipelineValue = Math.Max(0, pendingInstallQueueStatus.CompletedPackageCount);
+            InstallPipelineCanCancel = false;
+            return;
+        }
+
+        IsInstallPipelineStatusActive = false;
+        InstallPipelineLabel = string.Empty;
+        InstallPipelineSubLabel = string.Empty;
+        InstallPipelineValue = 0;
+        InstallPipelineMaximum = 1;
+        InstallPipelineCanCancel = false;
+    }
+
+    private static string GetDropInstallQueueSubLabel(DropInstallQueueStatusSnapshot snapshot)
+    {
+        if (snapshot == null)
+        {
+            return string.Empty;
+        }
+        if (snapshot.IsCurrentWorkInProgress && snapshot.CurrentWorkIndex > 0 && snapshot.CurrentWorkTotal > 0)
+        {
+            return string.Format(
+                BeMusicSeeker.Properties.Resources.Drop_install_queue_extracting_sub_label_format,
+                Math.Max(0, snapshot.CurrentWorkIndex),
+                Math.Max(0, snapshot.CurrentWorkTotal),
+                snapshot.CurrentWorkDisplayName ?? string.Empty);
+        }
+        return snapshot.CurrentDisplayName ?? string.Empty;
     }
 }

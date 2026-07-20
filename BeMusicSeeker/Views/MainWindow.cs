@@ -487,7 +487,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        installChartPackages([request.FilePath]);
+        (base.DataContext as MainWindowViewModel)?.PackageInstallWorkflow.EnqueueSingle(request.FilePath);
         newlyInstalledTreeViewItem.IsExpanded = true;
     }
 
@@ -499,7 +499,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        (base.DataContext as MainWindowViewModel)?.EnqueueDroppedInstallPaths(request.FilePaths);
+        (base.DataContext as MainWindowViewModel)?.PackageInstallWorkflow.Enqueue(request.FilePaths);
         newlyInstalledTreeViewItem.IsExpanded = true;
     }
 
@@ -890,7 +890,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             string[] pathSnapshot = [.. filePaths];
             if (pathSnapshot.Length > 0)
             {
-                viewModel?.EnqueueDroppedInstallPaths(pathSnapshot);
+                viewModel?.PackageInstallWorkflow.Enqueue(pathSnapshot);
                 newlyInstalledTreeViewItem.IsExpanded = true;
             }
         }
@@ -6621,7 +6621,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private bool CanStartPlaylistExternalPackageLookup(IEnumerable<object> rows)
     {
         return !IsPlaylistUrlDownloadRunning
-            && base.DataContext is not MainWindowViewModel { IsDropInstallQueueActive: true }
+            && base.DataContext is MainWindowViewModel viewModel
+            && !viewModel.PackageInstallWorkflow.IsActive
             && PlaylistContextMenuTargetResolver.BuildPlaylistExternalPackageMd5Targets(rows).Count > 0;
     }
 
@@ -6634,48 +6635,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    /// <summary>
-    /// 取得された複数のBMSファイル（またはアーカイブのパス）の一覧をもとに、
-    /// ViewModelのインストールモジュールを非同期で呼び出し、アプリケーションのデータベースやフォルダへ導入します。
-    /// 導入件数が複数の場合は進捗表示付きのポップアップダイアログ (ProgressDialog) を表示します。
-    /// </summary>
-    /// <param name="filePaths">インストール対象の一連のファイルシステムパス群。</param>
-    private async void installChartPackages(IEnumerable<string> filePaths)
-    {
-        var viewModel = base.DataContext as MainWindowViewModel;
-        int progIdx = 0;
-        int failNum = 0;
-        List<string> installs = [.. filePaths];
-        int total = installs.Count;
-        if (total == 0)
-        {
-            return;
-        }
-        var cancelTokenSource = new CancellationTokenSource();
-        Task task = Task.Run(delegate
-        {
-            viewModel.InstallChartPackages(installs, cancelTokenSource.Token, delegate (bool s)
-            {
-                progIdx++;
-                if (!s)
-                {
-                    failNum++;
-                }
-            });
-        }, cancelTokenSource.Token).Logging("MainWindow.installChartPackages");
-        if (total == 1)
-        {
-            await task;
-            return;
-        }
-        await RunProgressUntilTaskCompletesAsync(
-            task,
-            cancelTokenSource,
-            BeMusicSeeker.Properties.Resources.Install,
-            "",
-            context => context.ReportWithCancellationCheck(100 * progIdx / total, "[{0}/{1}] {2}", Math.Min(progIdx + 1, total), total, installs[Math.Min(progIdx, total - 1)]));
-    }
-
     private void cancelDropInstallQueueClick(object sender, RoutedEventArgs e)
     {
         if (IsPlaylistUrlDownloadRunning)
@@ -6683,7 +6642,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             (base.DataContext as MainWindowViewModel)?.PlaylistWorkspace.CancelPlaylistUrlDownload();
             return;
         }
-        (base.DataContext as MainWindowViewModel)?.CancelDroppedInstallQueue();
+        (base.DataContext as MainWindowViewModel)?.PackageInstallWorkflow.CancelAll();
     }
 
     private void cancelMaintenanceRescanClick(object sender, RoutedEventArgs e)

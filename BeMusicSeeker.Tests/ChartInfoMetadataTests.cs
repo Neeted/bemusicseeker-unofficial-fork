@@ -4110,14 +4110,27 @@ createTempDirectory);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1, commitChunkSizeOverride: 1);
             List<string> logs = [];
+            object logsSync = new();
 
             ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
                 null,
-                message => logs.Add("INFO " + message),
-                message => logs.Add("WARN " + message));
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("INFO " + message);
+                    }
+                },
+                message =>
+                {
+                    lock (logsSync)
+                    {
+                        logs.Add("WARN " + message);
+                    }
+                });
 
             Assert.AreEqual(1, result.BackfilledCount);
             Assert.AreEqual(0, result.ParseFailedCount);

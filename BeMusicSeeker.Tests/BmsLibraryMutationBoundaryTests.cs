@@ -99,7 +99,7 @@ public sealed class BmsLibraryMutationBoundaryTests
         string source = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string librarySource = SourceTextTestHelper.ReadBmsLibrarySourceText();
         string runMethod = ExtractMethodBody(source, "private void RunChartPackageMutation(");
-        string autoInstallMethod = ExtractMethodBody(source, "public void InstallChartPackages(");
+        string autoInstallMethod = ExtractMethodBody(source, "private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(");
         string forceInstallMethod = ExtractMethodBody(source, "public void ForceInstallPendingPackages(");
         string repairInstallDestinationMethod = ExtractMethodBody(source, "private void SearchCorrectInstallationDirectoryCharts(");
         string autoInstallLibraryMethod = ExtractMethodBody(librarySource, "public List<ChartPackage> InstallChartPackagesAuto(");

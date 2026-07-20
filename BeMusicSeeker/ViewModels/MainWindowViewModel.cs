@@ -100,6 +100,11 @@ public partial class MainWindowViewModel : ViewModel
     public OperationProgressHubViewModel ProgressHub { get; }
 
     /// <summary>
+    /// Gets the composed package-install workflow that owns dropped and playlist-url ingress.
+    /// </summary>
+    internal PackageInstallWorkflowOwner PackageInstallWorkflow { get; private set; }
+
+    /// <summary>
     /// Gets playback adapter state and telemetry while chart-row traversal remains on the shell ViewModel.
     /// </summary>
     public PlaybackPanelViewModel PlaybackPanel { get; }
@@ -512,6 +517,8 @@ public partial class MainWindowViewModel : ViewModel
 
     private readonly ChartFileOperationSynchronizer chartFileOperations = new();
 
+    private readonly SemaphoreSlim packageInstallLibraryGate = new(1, 1);
+
     private int chartPackageMutationDepth;
 
     private readonly object duplicateChartGroupsRefreshLock = new();
@@ -594,34 +601,6 @@ public partial class MainWindowViewModel : ViewModel
     private int lastMainViewBuildThreadId;
 
     private int lastMainViewBuildMode;
-
-    private readonly DropInstallQueueProcessor dropInstallQueueProcessor;
-
-    private bool _IsDropInstallQueueActive;
-
-    private string _DropInstallQueueLabel = string.Empty;
-
-    private string _DropInstallQueueSubLabel = string.Empty;
-
-    private bool _DropInstallQueueCanCancel;
-
-    private int _DropInstallQueuePendingBatchCount;
-
-    private bool _IsPendingEstimateQueueActive;
-
-    private string _PendingEstimateQueueLabel = string.Empty;
-
-    private string _PendingEstimateQueueSubLabel = string.Empty;
-
-    private int _PendingEstimateQueuePendingBatchCount;
-
-    private DropInstallQueueStatusSnapshot latestDropInstallQueueStatus = new();
-
-    private PendingInstallEstimateQueueStatusSnapshot latestPendingEstimateQueueStatus = new();
-
-    private InstallEstimationProgressSnapshot latestInstallEstimationProgress = new();
-
-    private PlaylistUrlDownloadStatusSnapshot latestPlaylistUrlDownloadStatus = PlaylistUrlDownloadStatusSnapshot.Inactive;
 
     private CancellationTokenSource maintenanceRescanCancellationTokenSource;
 
@@ -2995,208 +2974,6 @@ public partial class MainWindowViewModel : ViewModel
 
     public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
 
-    public bool IsDropInstallQueueActive
-    {
-        get
-        {
-            return _IsDropInstallQueueActive;
-        }
-        private set
-        {
-            if (_IsDropInstallQueueActive != value)
-            {
-                _IsDropInstallQueueActive = value;
-                RaisePropertyChanged("IsDropInstallQueueActive");
-            }
-        }
-    }
-
-    public string DropInstallQueueLabel
-    {
-        get
-        {
-            return _DropInstallQueueLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_DropInstallQueueLabel == normalized))
-            {
-                _DropInstallQueueLabel = normalized;
-                RaisePropertyChanged("DropInstallQueueLabel");
-            }
-        }
-    }
-
-    public string DropInstallQueueSubLabel
-    {
-        get
-        {
-            return _DropInstallQueueSubLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_DropInstallQueueSubLabel == normalized))
-            {
-                _DropInstallQueueSubLabel = normalized;
-                RaisePropertyChanged("DropInstallQueueSubLabel");
-            }
-        }
-    }
-
-    public bool DropInstallQueueCanCancel
-    {
-        get
-        {
-            return _DropInstallQueueCanCancel;
-        }
-        private set
-        {
-            if (_DropInstallQueueCanCancel != value)
-            {
-                _DropInstallQueueCanCancel = value;
-                RaisePropertyChanged("DropInstallQueueCanCancel");
-            }
-        }
-    }
-
-    public int DropInstallQueuePendingBatchCount
-    {
-        get
-        {
-            return _DropInstallQueuePendingBatchCount;
-        }
-        private set
-        {
-            if (_DropInstallQueuePendingBatchCount != value)
-            {
-                _DropInstallQueuePendingBatchCount = value;
-                RaisePropertyChanged("DropInstallQueuePendingBatchCount");
-            }
-        }
-    }
-
-    public bool IsPendingEstimateQueueActive
-    {
-        get
-        {
-            return _IsPendingEstimateQueueActive;
-        }
-        private set
-        {
-            if (_IsPendingEstimateQueueActive != value)
-            {
-                _IsPendingEstimateQueueActive = value;
-                RaisePropertyChanged("IsPendingEstimateQueueActive");
-            }
-        }
-    }
-
-    public string PendingEstimateQueueLabel
-    {
-        get
-        {
-            return _PendingEstimateQueueLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_PendingEstimateQueueLabel == normalized))
-            {
-                _PendingEstimateQueueLabel = normalized;
-                RaisePropertyChanged("PendingEstimateQueueLabel");
-            }
-        }
-    }
-
-    public string PendingEstimateQueueSubLabel
-    {
-        get
-        {
-            return _PendingEstimateQueueSubLabel;
-        }
-        private set
-        {
-            string normalized = value ?? string.Empty;
-            if (!(_PendingEstimateQueueSubLabel == normalized))
-            {
-                _PendingEstimateQueueSubLabel = normalized;
-                RaisePropertyChanged("PendingEstimateQueueSubLabel");
-            }
-        }
-    }
-
-    public int PendingEstimateQueuePendingBatchCount
-    {
-        get
-        {
-            return _PendingEstimateQueuePendingBatchCount;
-        }
-        private set
-        {
-            if (_PendingEstimateQueuePendingBatchCount != value)
-            {
-                _PendingEstimateQueuePendingBatchCount = value;
-                RaisePropertyChanged("PendingEstimateQueuePendingBatchCount");
-            }
-        }
-    }
-
-    /// <summary>
-    /// Gets whether install, drop-install, playlist URL download, or estimate status is visible.
-    /// </summary>
-    public bool IsInstallPipelineStatusActive
-    {
-        get => ProgressHub.IsInstallPipelineStatusActive;
-        private set => ProgressHub.IsInstallPipelineStatusActive = value;
-    }
-
-    /// <summary>
-    /// Gets the primary install pipeline status label.
-    /// </summary>
-    public string InstallPipelineLabel
-    {
-        get => ProgressHub.InstallPipelineLabel;
-        private set => ProgressHub.InstallPipelineLabel = value;
-    }
-
-    /// <summary>
-    /// Gets the secondary install pipeline status label.
-    /// </summary>
-    public string InstallPipelineSubLabel
-    {
-        get => ProgressHub.InstallPipelineSubLabel;
-        private set => ProgressHub.InstallPipelineSubLabel = value;
-    }
-
-    /// <summary>
-    /// Gets the current install pipeline progress value.
-    /// </summary>
-    public int InstallPipelineValue
-    {
-        get => ProgressHub.InstallPipelineValue;
-        private set => ProgressHub.InstallPipelineValue = value;
-    }
-
-    /// <summary>
-    /// Gets the install pipeline progress maximum.
-    /// </summary>
-    public int InstallPipelineMaximum
-    {
-        get => ProgressHub.InstallPipelineMaximum;
-        private set => ProgressHub.InstallPipelineMaximum = value;
-    }
-
-    /// <summary>
-    /// Gets whether the active install pipeline work can be canceled.
-    /// </summary>
-    public bool InstallPipelineCanCancel
-    {
-        get => ProgressHub.InstallPipelineCanCancel;
-        private set => ProgressHub.InstallPipelineCanCancel = value;
-    }
-
     /// <summary>
     /// Gets whether maintenance rescan progress is visible.
     /// </summary>
@@ -3857,7 +3634,7 @@ public partial class MainWindowViewModel : ViewModel
             () => PlaylistWorkspace.PlaylistTreeTables,
             LogPlaylistViewApply,
             LogPlaylistRetention,
-            () => IsDropInstallQueueActive,
+            () => PackageInstallWorkflow?.IsActive == true,
             LogExternalPlaylistImportWarning,
             LogExternalPlaylistImportInfo,
             LogBeatorajaTableUrlImportWarning,
@@ -3933,15 +3710,19 @@ public partial class MainWindowViewModel : ViewModel
             LogMainViewBuild,
             DispatchMainChartListAction,
             LogMainViewBuildWarning,
-            ProcessDroppedInstallBatch,
-            UpdateDropInstallQueueStatus,
-            HandleDroppedInstallBatchException);
+            ExecutePackageInstallMutation,
+            DispatchPackageInstallUi,
+            ReportPackageInstallWorkflowNotificationFailure);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
         ChartFilters.ModeFilterChanged += ChartFiltersModeFilterChanged;
         ChartFilters.KeywordFilterChanged += ChartFiltersKeywordFilterChanged;
         PlayHistory = childComposition.PlayHistory;
+        PackageInstallWorkflow = childComposition.PackageInstallWorkflow;
+        PackageInstallWorkflow.StatusChanged += PackageInstallWorkflowStatusChanged;
+        PackageInstallWorkflow.CompletionPublished += PackageInstallWorkflowCompletionPublished;
+        PackageInstallWorkflow.FailurePublished += PackageInstallWorkflowFailurePublished;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
@@ -3993,7 +3774,6 @@ public partial class MainWindowViewModel : ViewModel
         PlayHistory.RestoreDisplayTargetIdentity(playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity);
         RefreshPlayHistoryDisplayTargetSetsFromSettings(queueRefreshWhenSelectionChanges: false);
         settingDialog = applicationComposition.CreateSettingDialogViewModel(this);
-        dropInstallQueueProcessor = childComposition.DropInstallQueueProcessor;
     }
 
     private void MainChartListSortRequested(object sender, MainChartListSortRequestedEventArgs request)
@@ -4368,7 +4148,16 @@ public partial class MainWindowViewModel : ViewModel
             return;
         }
 
-        RaisePropertyChanged(propertyName);
+        bool installPipelineProperty = propertyName == nameof(OperationProgressHubViewModel.IsInstallPipelineStatusActive)
+            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineSubLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineValue)
+            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineMaximum)
+            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineCanCancel);
+        if (!installPipelineProperty)
+        {
+            RaisePropertyChanged(propertyName);
+        }
         if (propertyName == nameof(IsStartupProgressActive))
         {
             RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
@@ -4465,7 +4254,7 @@ public partial class MainWindowViewModel : ViewModel
         TryShutdownStep("playlist_index_prewarm", PlaylistWorkspace.CancelPlaylistLibraryIndexPrewarmForShutdown);
         TryShutdownStep("playlist_reload_cleanup", PlaylistWorkspace.CancelPlaylistReloadCleanupForShutdown);
         TryShutdownStep("maintenance_rescan", CancelMaintenanceRescan);
-        TryShutdownStep("drop_install", () => dropInstallQueueProcessor?.CancelAll());
+        TryShutdownStep("package_install", () => PackageInstallWorkflow?.RequestShutdown());
         TryShutdownStep("startup_background_queue", () => CancelStartupBackgroundTasksForShutdown(reason));
     }
 
@@ -4604,10 +4393,10 @@ public partial class MainWindowViewModel : ViewModel
     {
         await WaitForConditionAsync(
             "dropInstallQueue",
-            () => dropInstallQueueProcessor == null || dropInstallQueueProcessor.IsIdle,
+            () => PackageInstallWorkflow == null || PackageInstallWorkflow.IsIdle,
             ShutdownQueueDrainWarningThreshold,
             tracker,
-            () => "idle=" + FormatBool(dropInstallQueueProcessor == null || dropInstallQueueProcessor.IsIdle)).ConfigureAwait(false);
+            () => "idle=" + FormatBool(PackageInstallWorkflow == null || PackageInstallWorkflow.IsIdle)).ConfigureAwait(false);
     }
 
     private async Task WaitForPlaylistBuildIdleAsync(ShutdownWaitTracker tracker)
@@ -5498,7 +5287,16 @@ public partial class MainWindowViewModel : ViewModel
         {
             InvalidatePlayHistoryReadCache("initialize");
             LibraryProfile libraryProfile = CreateLibraryProfileForStartup(startupSettings);
-            files = applicationComposition.CreateBmsLibrary(libraryProfile);
+            await packageInstallLibraryGate.WaitAsync();
+            try
+            {
+                files = applicationComposition.CreateBmsLibrary(libraryProfile);
+                PackageInstallWorkflow.AttachLibrary(files);
+            }
+            finally
+            {
+                packageInstallLibraryGate.Release();
+            }
             regularChartListOwner.AttachNormalLibraryRefreshSource(files);
             PlaybackPanel.AttachLibrary(files);
             tables = applicationComposition.CreateBmsPlaylist(
@@ -7529,275 +7327,89 @@ public partial class MainWindowViewModel : ViewModel
         RefreshLibraryMainViewForDataDependency(MainViewDataDependency.IdentitySortKey, NormalLibraryInstallDestinationChangedReason);
     }
 
-    /// <summary>
-    /// 指定されたパスのBMSファイルやアーカイブ群をBMSLibraryへ自動インストール・登録します。
-    /// 登録完了後、読み込み済みの各プレイリスト (BMSTable) に対しても新規検出されたファイル群のリファレンス追加（参照解決）を試みます。
-    /// </summary>
-    /// <param name="installPaths">インストールの対象となるファイルまたはディレクトリパスのコレクション。</param>
-    /// <param name="token">処理を中止するためのキャンセレーショントークン。</param>
-    /// <param name="onEachCompleted">インストール処理完了時に呼ばれるコールバック。</param>
-    public void InstallChartPackages(IEnumerable<string> installPaths, CancellationToken token = default, Action<bool> onEachCompleted = null, Action onEachPathProcessed = null, Action<string, int, int> onEachArchiveExtractStarted = null)
+    private IReadOnlyList<ChartPackage> ExecutePackageInstallMutation(
+        BMSLibrary library,
+        IEnumerable<string> installPaths,
+        CancellationToken token,
+        Action onEachPathProcessed,
+        Action<string, int, int> onEachArchiveExtractStarted)
     {
-        if (files == null)
-        {
-            return;
-        }
-        string[] normalizedInstallPaths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
-        if (normalizedInstallPaths.Length == 0)
-        {
-            return;
-        }
-        List<ChartPackage> list = [];
+        packageInstallLibraryGate.Wait();
         try
         {
-            RunChartPackageMutation(delegate
+            if (library == null || !ReferenceEquals(files, library))
             {
-                if (!token.IsCancellationRequested)
-                {
-                    list.AddRange(files.InstallChartPackagesAuto(normalizedInstallPaths, token, onEachPathProcessed, onEachArchiveExtractStarted));
-                }
-            }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree);
-        }
-        catch (FileNotFoundException ex)
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-            onEachCompleted?.Invoke(obj: false);
-            return;
-        }
-        if (list.Count > 0)
-        {
-            PlaylistWorkspace.AttachInstalledPackageReferences(list);
-        }
-        onEachCompleted?.Invoke(obj: !token.IsCancellationRequested);
-    }
-
-    public void EnqueueDroppedInstallPaths(IEnumerable<string> paths)
-    {
-        dropInstallQueueProcessor?.Enqueue(paths);
-    }
-
-    public void CancelDroppedInstallQueue()
-    {
-        dropInstallQueueProcessor?.CancelAll();
-    }
-
-    private static string GetInstallPathDisplayName(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return string.Empty;
-        }
-        string trimmed = path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        string fileName = Path.GetFileName(trimmed);
-        return string.IsNullOrWhiteSpace(fileName) ? path : fileName;
-    }
-
-    private void ProcessDroppedInstallBatch(DroppedInstallBatchRequest request, CancellationToken token)
-    {
-        if (request == null || request.PathCount == 0 || files == null)
-        {
-            return;
-        }
-        int completedPathCount = 0;
-        InstallChartPackages(request.Paths, token, null, delegate
-        {
-            completedPathCount++;
-            dropInstallQueueProcessor?.ReportActiveBatchProgress(completedPathCount);
-        }, delegate (string path, int index, int total)
-        {
-            dropInstallQueueProcessor?.ReportActiveBatchCurrentWork(index, total, GetInstallPathDisplayName(path));
-        });
-    }
-
-    private void HandleDroppedInstallBatchException(Exception ex)
-    {
-        if (ex == null)
-        {
-            return;
-        }
-        Action action = delegate
-        {
-            ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_failed_installation + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand);
-        };
-        if (System.Windows.Application.Current?.Dispatcher == null || System.Windows.Application.Current.Dispatcher.CheckAccess())
-        {
-            action();
-        }
-        else
-        {
-            System.Windows.Application.Current.Dispatcher.BeginInvoke(action);
-        }
-    }
-
-    private void UpdateDropInstallQueueStatus(DropInstallQueueStatusSnapshot snapshot)
-    {
-        Action reflect = delegate
-        {
-            latestDropInstallQueueStatus = snapshot ?? new DropInstallQueueStatusSnapshot();
-            bool isActive = snapshot != null && snapshot.IsActive;
-            IsDropInstallQueueActive = isActive;
-            DropInstallQueueCanCancel = isActive && snapshot.CanCancel;
-            DropInstallQueuePendingBatchCount = isActive ? snapshot.PendingBatchCount : 0;
-            if (!isActive)
-            {
-                DropInstallQueueLabel = string.Empty;
-                DropInstallQueueSubLabel = string.Empty;
+                throw new InvalidOperationException("The package-install library generation is no longer active.");
             }
-            else
+            string[] normalizedInstallPaths = [.. (installPaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
+            if (normalizedInstallPaths.Length == 0 || token.IsCancellationRequested)
             {
-                DropInstallQueueLabel = string.Format(BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format, Math.Max(0, snapshot.CompletedPathCount), Math.Max(0, snapshot.TotalPathCount), snapshot.PendingBatchCount);
-                DropInstallQueueSubLabel = GetDropInstallQueueSubLabel(snapshot);
+                return [];
             }
-            RefreshInstallPipelineStatus();
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
+            List<ChartPackage> installedPackages = [];
+            RunChartPackageMutation(
+                () => installedPackages.AddRange(library.InstallChartPackagesAuto(
+                    normalizedInstallPaths,
+                    token,
+                    onEachPathProcessed,
+                    onEachArchiveExtractStarted)),
+                refreshMask: UiRefreshChannel.LibraryMainView
+                    | UiRefreshChannel.InstallTree
+                    | UiRefreshChannel.LibraryFolderTree
+                    | UiRefreshChannel.DuplicateTree);
+            return installedPackages;
         }
-        else
+        finally
         {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
+            packageInstallLibraryGate.Release();
         }
+    }
+
+    private void DispatchPackageInstallUi(Action action)
+    {
+        InvokeMainChartListPresentationAction(action);
+    }
+
+    private void PackageInstallWorkflowStatusChanged(DropInstallQueueStatusSnapshot snapshot)
+    {
+        ProgressHub.UpdateDropInstallQueueStatus(snapshot);
+    }
+
+    private void PackageInstallWorkflowCompletionPublished(PackageInstallCompletionReceipt receipt)
+    {
+        if (receipt?.Packages.Count > 0)
+        {
+            PlaylistWorkspace.AttachInstalledPackageReferences(receipt.Packages);
+        }
+    }
+
+    private void PackageInstallWorkflowFailurePublished(PackageInstallFailure failure)
+    {
+        if (failure?.Exception == null)
+        {
+            return;
+        }
+        ShowUiMessage(
+            BeMusicSeeker.Properties.Resources.Msg_failed_installation
+                + Environment.NewLine
+                + failure.Exception.Message,
+            BeMusicSeeker.Properties.Resources.Error,
+            MessageBoxImage.Hand);
+    }
+
+    private static void ReportPackageInstallWorkflowNotificationFailure(Exception exception)
+    {
+        NLogWrapper.FileLogger?.Error(exception, "package_install_workflow_notification_failed");
     }
 
     private void UpdatePendingEstimateQueueStatus(PendingInstallEstimateQueueStatusSnapshot snapshot)
     {
-        Action reflect = delegate
-        {
-            latestPendingEstimateQueueStatus = snapshot?.Clone() ?? new PendingInstallEstimateQueueStatusSnapshot();
-            bool isActive = snapshot != null && snapshot.IsActive;
-            IsPendingEstimateQueueActive = isActive;
-            PendingEstimateQueuePendingBatchCount = isActive ? snapshot.PendingBatchCount : 0;
-            if (!isActive)
-            {
-                PendingEstimateQueueLabel = string.Empty;
-                PendingEstimateQueueSubLabel = string.Empty;
-            }
-            else
-            {
-                PendingEstimateQueueLabel = string.Format(
-                    BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
-                    Math.Max(0, snapshot.CompletedPackageCount),
-                    Math.Max(snapshot.CurrentPackageCount, 0),
-                    Math.Max(snapshot.PendingBatchCount, 0));
-                PendingEstimateQueueSubLabel = snapshot.CurrentDisplayName ?? string.Empty;
-            }
-            RefreshInstallPipelineStatus();
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-        }
+        DispatchMainChartListAction(() => ProgressHub.UpdatePendingEstimateQueueStatus(snapshot));
     }
 
     private void UpdateInstallEstimationProgressStatus(InstallEstimationProgressSnapshot snapshot)
     {
-        Action reflect = delegate
-        {
-            latestInstallEstimationProgress = snapshot?.Clone() ?? new InstallEstimationProgressSnapshot();
-            RefreshInstallPipelineStatus();
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-        }
-    }
-
-    private static string GetDropInstallQueueSubLabel(DropInstallQueueStatusSnapshot snapshot)
-    {
-        if (snapshot == null)
-        {
-            return string.Empty;
-        }
-        if (snapshot.IsCurrentWorkInProgress && snapshot.CurrentWorkIndex > 0 && snapshot.CurrentWorkTotal > 0)
-        {
-            return string.Format(
-                BeMusicSeeker.Properties.Resources.Drop_install_queue_extracting_sub_label_format,
-                Math.Max(0, snapshot.CurrentWorkIndex),
-                Math.Max(0, snapshot.CurrentWorkTotal),
-                snapshot.CurrentWorkDisplayName ?? string.Empty);
-        }
-        return snapshot.CurrentDisplayName ?? string.Empty;
-    }
-
-    private void RefreshInstallPipelineStatus()
-    {
-        if (latestPlaylistUrlDownloadStatus.IsActive)
-        {
-            IsInstallPipelineStatusActive = true;
-            InstallPipelineLabel = string.Format(
-                string.IsNullOrWhiteSpace(latestPlaylistUrlDownloadStatus.LabelFormat) ? BeMusicSeeker.Properties.Resources.Playlist_url_download_progress_label_format : latestPlaylistUrlDownloadStatus.LabelFormat,
-                Math.Max(0, latestPlaylistUrlDownloadStatus.CompletedCount),
-                Math.Max(0, latestPlaylistUrlDownloadStatus.TotalCount));
-            InstallPipelineSubLabel = latestPlaylistUrlDownloadStatus.CurrentDisplayName ?? string.Empty;
-            InstallPipelineMaximum = Math.Max(1, latestPlaylistUrlDownloadStatus.TotalCount);
-            InstallPipelineValue = Math.Max(0, latestPlaylistUrlDownloadStatus.CompletedCount);
-            InstallPipelineCanCancel = latestPlaylistUrlDownloadStatus.CanCancel;
-            return;
-        }
-        bool dropActive = latestDropInstallQueueStatus != null && latestDropInstallQueueStatus.IsActive;
-        bool pendingQueueActive = latestPendingEstimateQueueStatus != null && latestPendingEstimateQueueStatus.IsActive;
-        bool estimateActive = latestInstallEstimationProgress != null && latestInstallEstimationProgress.IsActive;
-        int pendingBatchCount = Math.Max(0, latestDropInstallQueueStatus?.PendingBatchCount ?? 0) + Math.Max(0, latestPendingEstimateQueueStatus?.PendingBatchCount ?? 0);
-        if (dropActive)
-        {
-            IsInstallPipelineStatusActive = true;
-            InstallPipelineLabel = string.Format(
-                BeMusicSeeker.Properties.Resources.Drop_install_queue_label_format,
-                Math.Max(0, latestDropInstallQueueStatus.CompletedPathCount),
-                Math.Max(0, latestDropInstallQueueStatus.TotalPathCount),
-                pendingBatchCount);
-            InstallPipelineSubLabel = GetDropInstallQueueSubLabel(latestDropInstallQueueStatus);
-            int currentWorkTotal = Math.Max(0, latestDropInstallQueueStatus.CurrentWorkTotal);
-            int currentWorkIndex = Math.Max(0, latestDropInstallQueueStatus.CurrentWorkIndex);
-            bool showCurrentWorkProgress = latestDropInstallQueueStatus.IsCurrentWorkInProgress && currentWorkTotal > 0 && currentWorkIndex > 0;
-            InstallPipelineMaximum = showCurrentWorkProgress ? Math.Max(1, currentWorkTotal) : Math.Max(1, latestDropInstallQueueStatus.TotalPathCount);
-            InstallPipelineValue = showCurrentWorkProgress ? Math.Min(currentWorkIndex, InstallPipelineMaximum) : Math.Max(0, latestDropInstallQueueStatus.CompletedPathCount);
-            InstallPipelineCanCancel = latestDropInstallQueueStatus.CanCancel;
-            return;
-        }
-        if (estimateActive)
-        {
-            IsInstallPipelineStatusActive = true;
-            InstallPipelineLabel = string.Format(
-                BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
-                Math.Max(0, latestInstallEstimationProgress.CompletedWorkCount),
-                Math.Max(0, latestInstallEstimationProgress.TotalWorkCount),
-                pendingBatchCount);
-            InstallPipelineSubLabel = latestInstallEstimationProgress.CurrentDisplayName ?? string.Empty;
-            InstallPipelineMaximum = Math.Max(1, latestInstallEstimationProgress.TotalWorkCount);
-            InstallPipelineValue = Math.Max(0, latestInstallEstimationProgress.CompletedWorkCount);
-            InstallPipelineCanCancel = false;
-            return;
-        }
-        if (pendingQueueActive)
-        {
-            IsInstallPipelineStatusActive = true;
-            InstallPipelineLabel = string.Format(
-                BeMusicSeeker.Properties.Resources.Pending_estimate_queue_label_format,
-                Math.Max(0, latestPendingEstimateQueueStatus.CompletedPackageCount),
-                Math.Max(1, latestPendingEstimateQueueStatus.CurrentPackageCount),
-                pendingBatchCount);
-            InstallPipelineSubLabel = latestPendingEstimateQueueStatus.CurrentDisplayName ?? string.Empty;
-            InstallPipelineMaximum = Math.Max(1, latestPendingEstimateQueueStatus.CurrentPackageCount);
-            InstallPipelineValue = Math.Max(0, latestPendingEstimateQueueStatus.CompletedPackageCount);
-            InstallPipelineCanCancel = false;
-            return;
-        }
-        IsInstallPipelineStatusActive = false;
-        InstallPipelineLabel = string.Empty;
-        InstallPipelineSubLabel = string.Empty;
-        InstallPipelineValue = 0;
-        InstallPipelineMaximum = 1;
-        InstallPipelineCanCancel = false;
+        DispatchMainChartListAction(() => ProgressHub.UpdateInstallEstimationProgress(snapshot));
     }
 
     private void UpdatePlaylistSyncProgressStatus(PlaylistSyncProgressSnapshot snapshot)

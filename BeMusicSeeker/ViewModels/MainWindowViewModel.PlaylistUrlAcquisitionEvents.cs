@@ -9,18 +9,6 @@ public partial class MainWindowViewModel
         object sender,
         PlaylistUrlDownloadStatusSnapshot snapshot)
     {
-        Action reflect = delegate
-        {
-            latestPlaylistUrlDownloadStatus = snapshot ?? PlaylistUrlDownloadStatusSnapshot.Inactive;
-            RefreshInstallPipelineStatus();
-        };
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect);
-        }
+        DispatchMainChartListAction(() => ProgressHub.UpdatePlaylistUrlDownloadStatus(snapshot));
     }
 }

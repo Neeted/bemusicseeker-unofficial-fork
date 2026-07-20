@@ -475,15 +475,8 @@ public sealed class ApplicationCompositionTests
             _ =>
             {
             },
-            (_, _) =>
-            {
-            },
-            _ =>
-            {
-            },
-            _ =>
-            {
-            });
+            (_, _, _, _, _) => [],
+            action => action());
 
         try
         {
@@ -494,7 +487,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.ChartFilters);
             Assert.IsNotNull(childComposition.PlayHistory);
             Assert.IsNotNull(childComposition.RegularChartListOwner);
-            Assert.IsNotNull(childComposition.DropInstallQueueProcessor);
+            Assert.IsNotNull(childComposition.PackageInstallWorkflow);
         }
         finally
         {
@@ -560,9 +553,8 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 action => action(),
                 _ => { },
-                (_, _) => { },
-                _ => { },
-                _ => { });
+                (_, _, _, _, _) => [],
+                action => action());
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -666,9 +658,8 @@ public sealed class ApplicationCompositionTests
                 _ => { },
                 action => action(),
                 _ => { },
-                (_, _) => { },
-                _ => { },
-                _ => { });
+                (_, _, _, _, _) => [],
+                action => action());
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

@@ -3507,7 +3507,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(workspaceCode, "GetPlaylistUrlAcquisitionOptions");
         StringAssert.Contains(workspaceCode, "DispatchPlaylistUrlAcquisitionAction");
         StringAssert.Contains(workspaceCode, "PlaylistUrlDownloadStatusChanged");
-        StringAssert.Contains(statusBridge, "RefreshInstallPipelineStatus");
+        StringAssert.Contains(statusBridge, "UpdatePlaylistUrlDownloadStatus");
 
         string dropHandler = ExtractBetween(mainWindowCode, "private void Window_Drop", "private void Window_DragOver");
         string dragOverHandler = ExtractBetween(mainWindowCode, "private void Window_DragOver", "private void Window_MouseLeftButtonDown");
