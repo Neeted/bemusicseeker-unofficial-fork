@@ -44,6 +44,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     public async Task WorkspaceRequiresExplicitCompositionPortsAndForwardsBrowserFallbackOnDispatcher()
     {
         int dispatchCount = 0;
+        Uri? openedUri = null;
         PlaylistWorkspaceViewModel workspace = CreateWorkspace(action =>
         {
             dispatchCount++;
@@ -52,14 +53,23 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         {
             ScanBmsFilesOnStartup = false,
             AutoInstall = true
-        });
-        Uri? openedUri = null;
-        workspace.PlaylistUrlBrowserOpenRequested += (_, request) => openedUri = request.Uri;
+        }, browserSink: uri => openedUri = uri);
 
         await workspace.OpenSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/"));
 
         Assert.AreEqual("https://example.invalid/folder/", openedUri?.ToString());
         Assert.AreEqual(1, dispatchCount);
+    }
+
+    [TestMethod]
+    public async Task BrowserFallbackSinkExceptionIsNotSuppressed()
+    {
+        PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+            action => action(),
+            browserSink: _ => throw new InvalidOperationException("browser sink failure"));
+
+        await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => workspace.OpenSinglePlaylistUrlAsync(new Uri("https://example.invalid/folder/")));
     }
 
     [TestMethod]
@@ -195,6 +205,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -216,6 +227,11 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => { },
             _ => { },
             (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false));
+
+        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspace(
+            action => action(),
+            browserSink: null,
+            useDefaultBrowserSink: false));
     }
 
     [TestMethod]
@@ -323,7 +339,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         Action<Action> dispatch,
         Func<PlaylistUrlAcquisitionOptionsSnapshot>? optionsProvider = null,
         PlaylistUrlAcquisitionWorkflow? acquisitionWorkflow = null,
-        Action<IReadOnlyList<string>>? installSink = null)
+        Action<IReadOnlyList<string>>? installSink = null,
+        Action<Uri>? browserSink = null,
+        bool useDefaultBrowserSink = true)
     {
         return new PlaylistWorkspaceViewModel(
             dispatch,
@@ -338,6 +356,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             optionsProvider ?? PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             installSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
+            useDefaultBrowserSink
+                ? browserSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink
+                : browserSink!,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -384,6 +405,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             externalWarningLog,
             externalInfoLog,
             beatorajaWarningLog,
@@ -427,6 +449,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,

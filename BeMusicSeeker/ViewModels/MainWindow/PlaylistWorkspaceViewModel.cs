@@ -115,6 +115,7 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
         Func<PlaylistUrlAcquisitionOptionsSnapshot> playlistUrlAcquisitionOptionsProvider,
         Func<bool> playlistUrlInstallQueueActiveProvider,
         Action<IReadOnlyList<string>> playlistUrlInstallSink,
+        Action<Uri> playlistUrlBrowserOpenSink,
         Action<Exception, string> externalPlaylistImportWarningLog,
         Action<string> externalPlaylistImportInfoLog,
         Action<Exception, string> beatorajaTableUrlImportWarningLog,
@@ -161,6 +162,8 @@ public sealed partial class PlaylistWorkspaceViewModel : ViewModel
             ?? throw new ArgumentNullException(nameof(playlistUrlInstallQueueActiveProvider));
         this.playlistUrlInstallSink = playlistUrlInstallSink
             ?? throw new ArgumentNullException(nameof(playlistUrlInstallSink));
+        this.playlistUrlBrowserOpenSink = playlistUrlBrowserOpenSink
+            ?? throw new ArgumentNullException(nameof(playlistUrlBrowserOpenSink));
         this.externalPlaylistImportWarningLog = externalPlaylistImportWarningLog
             ?? throw new ArgumentNullException(nameof(externalPlaylistImportWarningLog));
         this.externalPlaylistImportInfoLog = externalPlaylistImportInfoLog

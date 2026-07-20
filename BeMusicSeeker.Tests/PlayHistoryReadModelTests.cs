@@ -3443,6 +3443,7 @@ public sealed class PlayHistoryReadModelTests
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
                 PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
+            PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,

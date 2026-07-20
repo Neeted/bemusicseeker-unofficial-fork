@@ -26,6 +26,8 @@ internal static class PlaylistWorkspaceTestPorts
 
     internal static Action<IReadOnlyList<string>> PlaylistUrlInstallSink => _ => { };
 
+    internal static Action<Uri> PlaylistUrlBrowserOpenSink => _ => { };
+
     internal static Action<Exception, string> ExternalPlaylistImportWarningLog => (_, _) => { };
 
     internal static Action<string> ExternalPlaylistImportInfoLog => _ => { };

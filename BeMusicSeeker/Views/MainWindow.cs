@@ -358,7 +358,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
         viewModel.PlaylistWorkspace.PlaylistUrlInstallQueued += PlaylistWorkspacePlaylistUrlInstallQueued;
-        viewModel.PlaylistWorkspace.PlaylistUrlBrowserOpenRequested += PlaylistWorkspacePlaylistUrlBrowserOpenRequested;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
         viewModel.StartupUpdateWorkflow.ShutdownPreparationRequested += MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
@@ -378,7 +377,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallQueued -= PlaylistWorkspacePlaylistUrlInstallQueued;
-        subscribedViewModel.PlaylistWorkspace.PlaylistUrlBrowserOpenRequested -= PlaylistWorkspacePlaylistUrlBrowserOpenRequested;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.ShutdownPreparationRequested -= MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
@@ -559,17 +557,6 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     private void PlaylistWorkspacePlaylistUrlInstallQueued()
     {
         newlyInstalledTreeViewItem.IsExpanded = true;
-    }
-
-    private void PlaylistWorkspacePlaylistUrlBrowserOpenRequested(
-        object sender,
-        PlaylistUrlBrowserOpenRequestedEventArgs request)
-    {
-        if (request?.Uri == null || !request.Uri.IsAbsoluteUri)
-        {
-            return;
-        }
-        Process.Start(request.Uri.ToString());
     }
 
     private void playbackPanelViewPlaybackStarting(object sender, RoutedEventArgs e) => scrollIntoView();

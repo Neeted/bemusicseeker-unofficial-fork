@@ -3573,6 +3573,7 @@ public partial class MainWindowViewModel : ViewModel
                 }
                 PackageInstallWorkflow.Enqueue(paths);
             },
+            uri => Process.Start(uri.ToString()),
             LogExternalPlaylistImportWarning,
             LogExternalPlaylistImportInfo,
             LogBeatorajaTableUrlImportWarning,

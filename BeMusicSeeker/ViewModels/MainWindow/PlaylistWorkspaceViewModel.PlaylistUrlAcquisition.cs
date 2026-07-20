@@ -89,16 +89,6 @@ internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
     internal string LabelFormat { get; }
 }
 
-internal sealed class PlaylistUrlBrowserOpenRequestedEventArgs : EventArgs
-{
-    internal PlaylistUrlBrowserOpenRequestedEventArgs(Uri uri)
-    {
-        Uri = uri;
-    }
-
-    internal Uri Uri { get; }
-}
-
 internal sealed class PlaylistUrlAcquisitionSummaryReadyEventArgs : EventArgs
 {
     internal PlaylistUrlAcquisitionSummaryReadyEventArgs(
@@ -164,6 +154,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly Action<IReadOnlyList<string>> playlistUrlInstallSink;
 
+    private readonly Action<Uri> playlistUrlBrowserOpenSink;
+
     private int playlistUrlAcquisitionRunning;
 
     private CancellationTokenSource playlistUrlAcquisitionCancellation;
@@ -179,8 +171,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     internal event EventHandler<PlaylistUrlDownloadStatusSnapshot> PlaylistUrlDownloadStatusChanged;
 
     internal event Action PlaylistUrlInstallQueued;
-
-    internal event EventHandler<PlaylistUrlBrowserOpenRequestedEventArgs> PlaylistUrlBrowserOpenRequested;
 
     internal event EventHandler<PlaylistUrlAcquisitionConfirmationRequestedEventArgs> PlaylistUrlAcquisitionConfirmationRequested;
 
@@ -220,8 +210,11 @@ public sealed partial class PlaylistWorkspaceViewModel
             }
         }
 
-        RaisePlaylistUrlBrowserOpenRequested(
-            new PlaylistUrlBrowserOpenRequestedEventArgs(url));
+        if (!url.IsAbsoluteUri)
+        {
+            return;
+        }
+        DispatchPlaylistUrlAcquisitionAction(() => playlistUrlBrowserOpenSink(url));
     }
 
     internal async Task DownloadSelectedPlaylistUrlsAsync(IEnumerable<Uri> urls, bool isDiffUrl)
@@ -695,11 +688,6 @@ public sealed partial class PlaylistWorkspaceViewModel
         playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot));
         DispatchPlaylistUrlAcquisitionAction(() => PlaylistUrlInstallQueued?.Invoke());
         return true;
-    }
-
-    private void RaisePlaylistUrlBrowserOpenRequested(PlaylistUrlBrowserOpenRequestedEventArgs request)
-    {
-        DispatchPlaylistUrlAcquisitionAction(() => PlaylistUrlBrowserOpenRequested?.Invoke(this, request));
     }
 
     private void DispatchPlaylistUrlAcquisitionAction(Action action)
