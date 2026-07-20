@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Ribbit.Net;
 
 namespace BeMusicSeeker.Tests;
 
@@ -88,6 +92,94 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     }
 
     [TestMethod]
+    public async Task SingleDownloadedPackage_UsesInstallSinkBeforeQueuedPresentation()
+    {
+        string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var gateway = new FakePlaylistUrlDownloadGateway(temporaryDirectory, new byte[] { 1, 2, 3 });
+            var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            var events = new List<string>();
+            IReadOnlyList<string>? capturedPaths = null;
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+                action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot { ScanBmsFilesOnStartup = true, AutoInstall = true },
+                acquisitionWorkflow,
+                paths =>
+                {
+                    events.Add("sink");
+                    capturedPaths = paths;
+                });
+            workspace.PlaylistUrlInstallQueued += () => events.Add("queued");
+
+            await workspace.OpenSinglePlaylistUrlAsync(new Uri("https://example.invalid/single.zip"));
+
+            CollectionAssert.AreEqual(new[] { "sink", "queued" }, events);
+            Assert.IsNotNull(capturedPaths);
+            Assert.AreEqual(1, capturedPaths!.Count);
+            Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
+            Assert.IsTrue(File.Exists(capturedPaths[0]));
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeSummary()
+    {
+        string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var gateway = new FakePlaylistUrlDownloadGateway(temporaryDirectory, new byte[] { 4, 5, 6 });
+            var acquisitionWorkflow = new PlaylistUrlAcquisitionWorkflow(gateway, _ => { });
+            var events = new List<string>();
+            IReadOnlyList<string>? capturedPaths = null;
+            PlaylistWorkspaceViewModel workspace = CreateWorkspace(
+                action => action(),
+                () => new PlaylistUrlAcquisitionOptionsSnapshot(),
+                acquisitionWorkflow,
+                paths =>
+                {
+                    events.Add("sink");
+                    capturedPaths = paths;
+                });
+            workspace.PlaylistUrlAcquisitionConfirmationRequested += (_, request) => request.Confirmed = true;
+            workspace.PlaylistUrlInstallQueued += () => events.Add("queued");
+            workspace.PlaylistUrlAcquisitionSummaryReady += (_, _) => events.Add("summary");
+
+            await workspace.DownloadSelectedPlaylistUrlsAsync(
+                [
+                    new Uri("https://example.invalid/first.zip"),
+                    new Uri("https://example.invalid/second.zip")
+                ],
+                isDiffUrl: false);
+
+            CollectionAssert.AreEqual(new[] { "sink", "queued", "summary" }, events);
+            Assert.IsNotNull(capturedPaths);
+            Assert.AreEqual(2, capturedPaths!.Count);
+            Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
+            foreach (string path in capturedPaths)
+            {
+                Assert.IsTrue(File.Exists(path));
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
     public void ConstructorRequiresExplicitPlaylistUrlPorts()
     {
         Assert.ThrowsException<ArgumentNullException>(() => new PlaylistWorkspaceViewModel(
@@ -102,6 +194,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -228,7 +321,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
 
     private static PlaylistWorkspaceViewModel CreateWorkspace(
         Action<Action> dispatch,
-        Func<PlaylistUrlAcquisitionOptionsSnapshot>? optionsProvider = null)
+        Func<PlaylistUrlAcquisitionOptionsSnapshot>? optionsProvider = null,
+        PlaylistUrlAcquisitionWorkflow? acquisitionWorkflow = null,
+        Action<IReadOnlyList<string>>? installSink = null)
     {
         return new PlaylistWorkspaceViewModel(
             dispatch,
@@ -238,10 +333,11 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             _ => { },
             _ => { },
             () => new CustomFolderOutputSettingsSnapshot(),
-            PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
+            acquisitionWorkflow ?? PlaylistWorkspaceTestPorts.CreateUrlAcquisitionWorkflow(),
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             optionsProvider ?? PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            installSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -287,6 +383,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             externalWarningLog,
             externalInfoLog,
             beatorajaWarningLog,
@@ -329,6 +426,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
             PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -350,5 +448,34 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             () => { },
             _ => { },
             (exception, message) => { }, request => request(false), request => request(false), () => false, _ => false, (_, _) => false, (_, _) => false);
+    }
+
+    private sealed class FakePlaylistUrlDownloadGateway : IPlaylistUrlDownloadGateway
+    {
+        private readonly string temporaryDirectory;
+
+        private readonly byte[] content;
+
+        internal FakePlaylistUrlDownloadGateway(string temporaryDirectory, byte[] content)
+        {
+            this.temporaryDirectory = temporaryDirectory;
+            this.content = content;
+        }
+
+        public Task<AppHttpResponse> OpenReadAsync(Uri uri, CancellationToken cancellationToken)
+        {
+            return Task.FromResult<AppHttpResponse>(new AppHttpResponse(uri, new MemoryStream(content, writable: false)));
+        }
+
+        public string GetTemporaryDirectory() => temporaryDirectory;
+
+        public FileStream OpenWrite(string path, FileMode mode, FileAccess access, FileShare share)
+        {
+            return new FileStream(path, mode, access, share);
+        }
+
+        public bool FileExists(string path) => File.Exists(path);
+
+        public void DeleteFile(string path) => File.Delete(path);
     }
 }

@@ -357,8 +357,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
-        viewModel.PlaylistWorkspace.PlaylistUrlSingleInstallRequested += PlaylistWorkspacePlaylistUrlSingleInstallRequested;
-        viewModel.PlaylistWorkspace.PlaylistUrlInstallQueueRequested += PlaylistWorkspacePlaylistUrlInstallQueueRequested;
+        viewModel.PlaylistWorkspace.PlaylistUrlInstallQueued += PlaylistWorkspacePlaylistUrlInstallQueued;
         viewModel.PlaylistWorkspace.PlaylistUrlBrowserOpenRequested += PlaylistWorkspacePlaylistUrlBrowserOpenRequested;
         viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionConfirmationRequested += PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested;
         viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested += PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
@@ -381,8 +380,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.settingDialog.PresentationRequested -= MainWindowViewModel_SettingDialogPresentationRequested;
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
-        subscribedViewModel.PlaylistWorkspace.PlaylistUrlSingleInstallRequested -= PlaylistWorkspacePlaylistUrlSingleInstallRequested;
-        subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallQueueRequested -= PlaylistWorkspacePlaylistUrlInstallQueueRequested;
+        subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallQueued -= PlaylistWorkspacePlaylistUrlInstallQueued;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlBrowserOpenRequested -= PlaylistWorkspacePlaylistUrlBrowserOpenRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionConfirmationRequested -= PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested -= PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
@@ -564,27 +562,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         playbackPanelView.RotatePanelState();
     }
 
-    private void PlaylistWorkspacePlaylistUrlSingleInstallRequested(
-        object sender,
-        PlaylistUrlSingleInstallRequestedEventArgs request)
+    private void PlaylistWorkspacePlaylistUrlInstallQueued()
     {
-        if (request == null || string.IsNullOrWhiteSpace(request.FilePath))
-        {
-            return;
-        }
-        (base.DataContext as MainWindowViewModel)?.PackageInstallWorkflow.EnqueueSingle(request.FilePath);
-        newlyInstalledTreeViewItem.IsExpanded = true;
-    }
-
-    private void PlaylistWorkspacePlaylistUrlInstallQueueRequested(
-        object sender,
-        PlaylistUrlInstallQueueRequestedEventArgs request)
-    {
-        if (request?.FilePaths == null || request.FilePaths.Count == 0)
-        {
-            return;
-        }
-        (base.DataContext as MainWindowViewModel)?.PackageInstallWorkflow.Enqueue(request.FilePaths);
         newlyInstalledTreeViewItem.IsExpanded = true;
     }
 

@@ -89,26 +89,6 @@ internal sealed class PlaylistUrlDownloadStatusSnapshot : EventArgs
     internal string LabelFormat { get; }
 }
 
-internal sealed class PlaylistUrlSingleInstallRequestedEventArgs : EventArgs
-{
-    internal PlaylistUrlSingleInstallRequestedEventArgs(string filePath)
-    {
-        FilePath = filePath ?? string.Empty;
-    }
-
-    internal string FilePath { get; }
-}
-
-internal sealed class PlaylistUrlInstallQueueRequestedEventArgs : EventArgs
-{
-    internal PlaylistUrlInstallQueueRequestedEventArgs(IEnumerable<string> filePaths)
-    {
-        FilePaths = [.. (filePaths ?? []).Where(path => !string.IsNullOrWhiteSpace(path))];
-    }
-
-    internal IReadOnlyList<string> FilePaths { get; }
-}
-
 internal sealed class PlaylistUrlBrowserOpenRequestedEventArgs : EventArgs
 {
     internal PlaylistUrlBrowserOpenRequestedEventArgs(Uri uri)
@@ -182,6 +162,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly Func<bool> playlistUrlInstallQueueActiveProvider;
 
+    private readonly Action<IReadOnlyList<string>> playlistUrlInstallSink;
+
     private int playlistUrlAcquisitionRunning;
 
     private CancellationTokenSource playlistUrlAcquisitionCancellation;
@@ -196,9 +178,7 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     internal event EventHandler<PlaylistUrlDownloadStatusSnapshot> PlaylistUrlDownloadStatusChanged;
 
-    internal event EventHandler<PlaylistUrlSingleInstallRequestedEventArgs> PlaylistUrlSingleInstallRequested;
-
-    internal event EventHandler<PlaylistUrlInstallQueueRequestedEventArgs> PlaylistUrlInstallQueueRequested;
+    internal event Action PlaylistUrlInstallQueued;
 
     internal event EventHandler<PlaylistUrlBrowserOpenRequestedEventArgs> PlaylistUrlBrowserOpenRequested;
 
@@ -230,10 +210,8 @@ public sealed partial class PlaylistWorkspaceViewModel
         {
             PlaylistUrlDownloadResult result = await DownloadSinglePlaylistUrlCandidateWithStatusAsync(url).ConfigureAwait(false);
             if (result.Kind == PlaylistUrlDownloadResultKind.Downloaded
-                && playlistUrlAcquisitionWorkflow.IsStagedFileReady(result.FilePath))
+                && QueuePlaylistUrlInstallPaths([result.FilePath]))
             {
-                RaisePlaylistUrlSingleInstallRequested(
-                    new PlaylistUrlSingleInstallRequestedEventArgs(result.FilePath));
                 return;
             }
             if (result.Kind == PlaylistUrlDownloadResultKind.BlockedBySizeLimit)
@@ -705,21 +683,18 @@ public sealed partial class PlaylistWorkspaceViewModel
         DispatchPlaylistUrlAcquisitionAction(() => PlaylistUrlAcquisitionSummaryReady?.Invoke(this, summary));
     }
 
-    private void QueuePlaylistUrlInstallPaths(IEnumerable<string> paths)
+    private bool QueuePlaylistUrlInstallPaths(IEnumerable<string> paths)
     {
-        List<string> pathSnapshot = [.. (paths ?? []).Where(path => playlistUrlAcquisitionWorkflow.IsStagedFileReady(path))];
-        if (pathSnapshot.Count == 0)
+        string[] pathSnapshot = [.. (paths ?? [])
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Where(path => playlistUrlAcquisitionWorkflow.IsStagedFileReady(path))];
+        if (pathSnapshot.Length == 0)
         {
-            return;
+            return false;
         }
-        PlaylistUrlInstallQueueRequestedEventArgs request =
-            new(pathSnapshot);
-        DispatchPlaylistUrlAcquisitionAction(() => PlaylistUrlInstallQueueRequested?.Invoke(this, request));
-    }
-
-    private void RaisePlaylistUrlSingleInstallRequested(PlaylistUrlSingleInstallRequestedEventArgs request)
-    {
-        DispatchPlaylistUrlAcquisitionAction(() => PlaylistUrlSingleInstallRequested?.Invoke(this, request));
+        playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot));
+        DispatchPlaylistUrlAcquisitionAction(() => PlaylistUrlInstallQueued?.Invoke());
+        return true;
     }
 
     private void RaisePlaylistUrlBrowserOpenRequested(PlaylistUrlBrowserOpenRequestedEventArgs request)

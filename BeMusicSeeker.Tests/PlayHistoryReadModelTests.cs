@@ -3442,6 +3442,7 @@ public sealed class PlayHistoryReadModelTests
                 PlaylistWorkspaceTestPorts.CreateExternalPackageLookupService(),
                 PlaylistWorkspaceTestPorts.UrlAcquisitionOptionsProvider,
                 PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
+            PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
                 PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
                 PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,

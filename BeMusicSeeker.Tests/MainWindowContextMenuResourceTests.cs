@@ -3472,10 +3472,20 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainWindowCode, "viewModel.PlaylistWorkspace.DownloadSelectedPlaylistExternalPackagesAsync(");
         Assert.IsFalse(mainWindowCode.Contains("DownloadPlaylistUrlCandidateAsync"));
         Assert.IsFalse(mainWindowCode.Contains("playlistUrlBulkDownload"));
+        StringAssert.Contains(mainWindowCode, "PlaylistUrlInstallQueued += PlaylistWorkspacePlaylistUrlInstallQueued");
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistWorkspacePlaylistUrlSingleInstallRequested"));
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistWorkspacePlaylistUrlInstallQueueRequested"));
+        Assert.IsFalse(mainWindowCode.Contains("PackageInstallWorkflow.EnqueueSingle"));
+        Assert.IsFalse(mainWindowCode.Contains("PackageInstallWorkflow.Enqueue(request"));
         StringAssert.Contains(workspaceCode, "DownloadCandidateAsync");
         StringAssert.Contains(workspaceCode, "DownloadSelectedPlaylistUrlsAsync");
         StringAssert.Contains(workspaceCode, "DownloadSelectedPlaylistExternalPackagesAsync");
         StringAssert.Contains(workspaceCode, "CancelPlaylistUrlDownload");
+        StringAssert.Contains(workspaceCode, "playlistUrlInstallSink");
+        StringAssert.Contains(workspaceCode, "playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot))");
+        StringAssert.Contains(workspaceCode, "PlaylistUrlInstallQueued");
+        Assert.IsFalse(workspaceCode.Contains("PlaylistUrlSingleInstallRequestedEventArgs"));
+        Assert.IsFalse(workspaceCode.Contains("PlaylistUrlInstallQueueRequestedEventArgs"));
         StringAssert.Contains(workflowCode, "IPlaylistUrlDownloadGateway");
         Assert.IsFalse(workflowCode.Contains("NLog"));
         Assert.IsFalse(workspaceOwnerCode.Contains("ConfigurePlaylistUrlAcquisition"));
@@ -3485,6 +3495,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(compositionCode, "PlaylistExternalPackageLookupService.CreateDefault()");
         StringAssert.Contains(compositionCode, "playlistUrlAcquisitionOptionsProvider");
         StringAssert.Contains(compositionCode, "playlistUrlInstallQueueActiveProvider");
+        StringAssert.Contains(compositionCode, "playlistUrlInstallSink");
         StringAssert.Contains(compositionCode, "externalPlaylistImportWarningLog");
         StringAssert.Contains(compositionCode, "externalPlaylistImportInfoLog");
         StringAssert.Contains(compositionCode, "beatorajaTableUrlImportWarningLog");

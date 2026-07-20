@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.ViewModels;
 
@@ -22,6 +23,8 @@ internal static class PlaylistWorkspaceTestPorts
         () => new PlaylistUrlAcquisitionOptionsSnapshot();
 
     internal static Func<bool> InactiveInstallQueueProvider => () => false;
+
+    internal static Action<IReadOnlyList<string>> PlaylistUrlInstallSink => _ => { };
 
     internal static Action<Exception, string> ExternalPlaylistImportWarningLog => (_, _) => { };
 

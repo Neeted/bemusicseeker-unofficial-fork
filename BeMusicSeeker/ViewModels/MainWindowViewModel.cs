@@ -3565,6 +3565,14 @@ public partial class MainWindowViewModel : ViewModel
             LogPlaylistViewApply,
             LogPlaylistRetention,
             () => PackageInstallWorkflow?.IsActive == true,
+            paths =>
+            {
+                if (PackageInstallWorkflow == null)
+                {
+                    throw new InvalidOperationException("Package install workflow is not composed.");
+                }
+                PackageInstallWorkflow.Enqueue(paths);
+            },
             LogExternalPlaylistImportWarning,
             LogExternalPlaylistImportInfo,
             LogBeatorajaTableUrlImportWarning,
