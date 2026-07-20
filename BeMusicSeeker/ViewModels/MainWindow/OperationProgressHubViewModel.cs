@@ -275,6 +275,31 @@ public sealed class OperationProgressHubViewModel : ViewModel
         internal set => SetValue(ref folderAutoRenameProgressMaximum, Math.Max(1.0, value), nameof(FolderAutoRenameProgressMaximum));
     }
 
+    internal void UpdateFolderAutoRenameProgress(FolderAutoRenameProgressSnapshot progress)
+    {
+        if (progress == null)
+        {
+            return;
+        }
+        if (progress.IsCompleted)
+        {
+            FolderAutoRenameProgressLabel = string.Empty;
+            FolderAutoRenameProgressSubLabel = string.Empty;
+            FolderAutoRenameProgressValue = 0.0;
+            FolderAutoRenameProgressMaximum = 1.0;
+            IsFolderAutoRenameProgressActive = false;
+            return;
+        }
+
+        int total = Math.Max(progress.TotalCount, 1);
+        int processed = Math.Max(0, Math.Min(progress.ProcessedCount, total));
+        IsFolderAutoRenameProgressActive = true;
+        FolderAutoRenameProgressMaximum = total;
+        FolderAutoRenameProgressValue = processed;
+        FolderAutoRenameProgressLabel = BeMusicSeeker.Properties.Resources.Rename_folder_auto + " " + processed + "/" + total;
+        FolderAutoRenameProgressSubLabel = progress.CurrentPath ?? string.Empty;
+    }
+
     /// <summary>
     /// Gets whether playlist sync progress is visible.
     /// </summary>

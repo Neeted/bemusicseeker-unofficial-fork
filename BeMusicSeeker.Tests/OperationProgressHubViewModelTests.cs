@@ -81,4 +81,38 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(0, hub.InstallPipelineValue);
         Assert.AreEqual(1, hub.InstallPipelineMaximum);
     }
+
+    [TestMethod]
+    public void FolderAutoRenamePresentation_NormalizesProgressAndClearsOnCompletion()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var hub = new OperationProgressHubViewModel();
+
+        hub.UpdateFolderAutoRenameProgress(new FolderAutoRenameProgressSnapshot
+        {
+            TotalCount = 0,
+            ProcessedCount = 4,
+            CurrentPath = "source"
+        });
+
+        Assert.IsTrue(hub.IsFolderAutoRenameProgressActive);
+        Assert.AreEqual(1.0, hub.FolderAutoRenameProgressMaximum);
+        Assert.AreEqual(1.0, hub.FolderAutoRenameProgressValue);
+        StringAssert.Contains(hub.FolderAutoRenameProgressLabel, "1/1");
+        Assert.AreEqual("source", hub.FolderAutoRenameProgressSubLabel);
+
+        hub.UpdateFolderAutoRenameProgress(new FolderAutoRenameProgressSnapshot
+        {
+            TotalCount = 1,
+            ProcessedCount = 1,
+            CurrentPath = "source",
+            IsCompleted = true
+        });
+
+        Assert.IsFalse(hub.IsFolderAutoRenameProgressActive);
+        Assert.AreEqual(0.0, hub.FolderAutoRenameProgressValue);
+        Assert.AreEqual(1.0, hub.FolderAutoRenameProgressMaximum);
+        Assert.AreEqual(string.Empty, hub.FolderAutoRenameProgressLabel);
+        Assert.AreEqual(string.Empty, hub.FolderAutoRenameProgressSubLabel);
+    }
 }

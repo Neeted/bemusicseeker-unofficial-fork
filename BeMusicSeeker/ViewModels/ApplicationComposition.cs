@@ -272,7 +272,14 @@ internal sealed class ApplicationComposition
         Func<Action, Task> maintenanceRescanScheduler = null,
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
-        Action<Exception> reportMaintenanceRescanWorkflowFailure = null)
+        Action<Exception> reportMaintenanceRescanWorkflowFailure = null,
+        Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> folderAutoRenameSelectedExecutor = null,
+        Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> folderAutoRenameAllExecutor = null,
+        Func<BMSLibrary, string, bool> folderAutoRenameAllTargetChecker = null,
+        Func<Action, Task> folderAutoRenameScheduler = null,
+        Action<string> folderAutoRenameLog = null,
+        Action<Exception> reportFolderAutoRenameNotificationFailure = null,
+        Action<Exception> reportFolderAutoRenameFailure = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -291,7 +298,14 @@ internal sealed class ApplicationComposition
             maintenanceRescanScheduler,
             maintenanceRescanLog,
             reportMaintenanceRescanWorkflowNotificationFailure,
-            reportMaintenanceRescanWorkflowFailure);
+            reportMaintenanceRescanWorkflowFailure,
+            folderAutoRenameSelectedExecutor,
+            folderAutoRenameAllExecutor,
+            folderAutoRenameAllTargetChecker,
+            folderAutoRenameScheduler,
+            folderAutoRenameLog,
+            reportFolderAutoRenameNotificationFailure,
+            reportFolderAutoRenameFailure);
     }
 
     internal IBMSPlayer CreateBmsPlayer(
@@ -417,7 +431,14 @@ internal sealed class MainWindowChildComposition
         Func<Action, Task> maintenanceRescanScheduler = null,
         Action<string> maintenanceRescanLog = null,
         Action<Exception> reportMaintenanceRescanWorkflowNotificationFailure = null,
-        Action<Exception> reportMaintenanceRescanWorkflowFailure = null)
+        Action<Exception> reportMaintenanceRescanWorkflowFailure = null,
+        Func<BMSLibrary, ChartFolderAutoRenameRequest, Action<int, int, string>, FolderAutoRenameExecutionResult> folderAutoRenameSelectedExecutor = null,
+        Func<BMSLibrary, string, Action<int, int, string>, FolderAutoRenameExecutionResult> folderAutoRenameAllExecutor = null,
+        Func<BMSLibrary, string, bool> folderAutoRenameAllTargetChecker = null,
+        Func<Action, Task> folderAutoRenameScheduler = null,
+        Action<string> folderAutoRenameLog = null,
+        Action<Exception> reportFolderAutoRenameNotificationFailure = null,
+        Action<Exception> reportFolderAutoRenameFailure = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -453,6 +474,15 @@ internal sealed class MainWindowChildComposition
             maintenanceRescanLog,
             reportMaintenanceRescanWorkflowNotificationFailure,
             reportMaintenanceRescanWorkflowFailure);
+        FolderAutoRenameWorkflow = new FolderAutoRenameWorkflowOwner(
+            folderAutoRenameSelectedExecutor ?? MissingFolderAutoRenameSelectedExecutor,
+            folderAutoRenameAllExecutor ?? MissingFolderAutoRenameAllExecutor,
+            folderAutoRenameAllTargetChecker ?? MissingFolderAutoRenameAllTargetChecker,
+            folderAutoRenameScheduler ?? (action => Task.Run(action)),
+            dispatchMainChartListAction,
+            folderAutoRenameLog,
+            reportFolderAutoRenameNotificationFailure,
+            reportFolderAutoRenameFailure);
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -473,12 +503,35 @@ internal sealed class MainWindowChildComposition
 
     internal MaintenanceRescanWorkflowOwner MaintenanceRescanWorkflow { get; }
 
+    internal FolderAutoRenameWorkflowOwner FolderAutoRenameWorkflow { get; }
+
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,
         Action<MaintenanceWorkflowProgress> progress,
         CancellationToken cancellationToken)
     {
         throw new InvalidOperationException("Maintenance rescan executor is not configured.");
+    }
+
+    private static FolderAutoRenameExecutionResult MissingFolderAutoRenameSelectedExecutor(
+        BMSLibrary library,
+        ChartFolderAutoRenameRequest request,
+        Action<int, int, string> progressReporter)
+    {
+        throw new InvalidOperationException("Folder auto-rename selected executor is not configured.");
+    }
+
+    private static FolderAutoRenameExecutionResult MissingFolderAutoRenameAllExecutor(
+        BMSLibrary library,
+        string parentDirectory,
+        Action<int, int, string> progressReporter)
+    {
+        throw new InvalidOperationException("Folder auto-rename all executor is not configured.");
+    }
+
+    private static bool MissingFolderAutoRenameAllTargetChecker(BMSLibrary library, string parentDirectory)
+    {
+        throw new InvalidOperationException("Folder auto-rename target checker is not configured.");
     }
 }
 

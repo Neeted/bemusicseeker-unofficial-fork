@@ -110,6 +110,11 @@ public partial class MainWindowViewModel : ViewModel
     internal MaintenanceRescanWorkflowOwner MaintenanceRescanWorkflow { get; private set; }
 
     /// <summary>
+    /// Gets the composed folder auto-rename workflow.
+    /// </summary>
+    internal FolderAutoRenameWorkflowOwner FolderAutoRenameWorkflow { get; private set; }
+
+    /// <summary>
     /// Gets playback adapter state and telemetry while chart-row traversal remains on the shell ViewModel.
     /// </summary>
     public PlaybackPanelViewModel PlaybackPanel { get; }
@@ -2123,7 +2128,11 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     PlaybackPanel.StopIfPlayingCharts(playbackTargetCharts);
                 }
-                BeginUiUpdateSuppression(refreshMask);
+                bool uiSuppressionStarted = refreshMask != UiRefreshChannel.None;
+                if (uiSuppressionStarted)
+                {
+                    BeginUiUpdateSuppression(refreshMask);
+                }
                 try
                 {
                     beforeAction?.Invoke();
@@ -2133,7 +2142,10 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     try
                     {
-                        EndUiUpdateSuppression();
+                        if (uiSuppressionStarted)
+                        {
+                            EndUiUpdateSuppression();
+                        }
                     }
                     finally
                     {
@@ -2188,7 +2200,11 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     PlaybackPanel.StopIfPlayingCharts(playbackTargetCharts);
                 }
-                BeginUiUpdateSuppression(refreshMask);
+                bool uiSuppressionStarted = refreshMask != UiRefreshChannel.None;
+                if (uiSuppressionStarted)
+                {
+                    BeginUiUpdateSuppression(refreshMask);
+                }
                 try
                 {
                     beforeAction?.Invoke();
@@ -2198,7 +2214,10 @@ public partial class MainWindowViewModel : ViewModel
                 {
                     try
                     {
-                        EndUiUpdateSuppression();
+                        if (uiSuppressionStarted)
+                        {
+                            EndUiUpdateSuppression();
+                        }
                     }
                     finally
                     {
@@ -2978,51 +2997,6 @@ public partial class MainWindowViewModel : ViewModel
     public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
 
     /// <summary>
-    /// Gets whether automatic folder rename progress is visible.
-    /// </summary>
-    public bool IsFolderAutoRenameProgressActive
-    {
-        get => ProgressHub.IsFolderAutoRenameProgressActive;
-        private set => ProgressHub.IsFolderAutoRenameProgressActive = value;
-    }
-
-    /// <summary>
-    /// Gets the primary automatic folder rename progress label.
-    /// </summary>
-    public string FolderAutoRenameProgressLabel
-    {
-        get => ProgressHub.FolderAutoRenameProgressLabel;
-        private set => ProgressHub.FolderAutoRenameProgressLabel = value;
-    }
-
-    /// <summary>
-    /// Gets the secondary automatic folder rename progress label.
-    /// </summary>
-    public string FolderAutoRenameProgressSubLabel
-    {
-        get => ProgressHub.FolderAutoRenameProgressSubLabel;
-        private set => ProgressHub.FolderAutoRenameProgressSubLabel = value;
-    }
-
-    /// <summary>
-    /// Gets the current automatic folder rename progress value.
-    /// </summary>
-    public double FolderAutoRenameProgressValue
-    {
-        get => ProgressHub.FolderAutoRenameProgressValue;
-        private set => ProgressHub.FolderAutoRenameProgressValue = value;
-    }
-
-    /// <summary>
-    /// Gets the automatic folder rename progress maximum.
-    /// </summary>
-    public double FolderAutoRenameProgressMaximum
-    {
-        get => ProgressHub.FolderAutoRenameProgressMaximum;
-        private set => ProgressHub.FolderAutoRenameProgressMaximum = value;
-    }
-
-    /// <summary>
     /// Gets whether playlist sync progress is visible.
     /// </summary>
     public bool IsPlaylistSyncProgressActive
@@ -3666,7 +3640,14 @@ public partial class MainWindowViewModel : ViewModel
             action => Task.Run(action),
             message => NLogWrapper.FileLogger?.Info(message),
             ReportMaintenanceRescanWorkflowNotificationFailure,
-            ReportMaintenanceRescanWorkflowFailure);
+            ReportMaintenanceRescanWorkflowFailure,
+            ExecuteFolderAutoRenameSelectedMutation,
+            ExecuteFolderAutoRenameAllMutation,
+            HasFolderAutoRenameAllTargets,
+            action => Task.Run(action),
+            message => NLogWrapper.FileLogger?.Info(message),
+            ReportFolderAutoRenameWorkflowNotificationFailure,
+            ReportFolderAutoRenameWorkflowFailure);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3680,6 +3661,9 @@ public partial class MainWindowViewModel : ViewModel
         MaintenanceRescanWorkflow = childComposition.MaintenanceRescanWorkflow;
         MaintenanceRescanWorkflow.ProgressChanged += MaintenanceRescanWorkflowProgressChanged;
         MaintenanceRescanWorkflow.CompletionPublished += MaintenanceRescanWorkflowCompletionPublished;
+        FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;
+        FolderAutoRenameWorkflow.ProgressChanged += FolderAutoRenameWorkflowProgressChanged;
+        FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
@@ -4117,7 +4101,12 @@ public partial class MainWindowViewModel : ViewModel
             || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanValue)
             || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanMaximum)
             || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanCanCancel);
-        if (!installPipelineProperty && !maintenanceRescanProperty)
+        bool folderAutoRenameProperty = propertyName == nameof(OperationProgressHubViewModel.IsFolderAutoRenameProgressActive)
+            || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressSubLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressValue)
+            || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressMaximum);
+        if (!installPipelineProperty && !maintenanceRescanProperty && !folderAutoRenameProperty)
         {
             RaisePropertyChanged(propertyName);
         }
@@ -4181,6 +4170,7 @@ public partial class MainWindowViewModel : ViewModel
         await (regularChartListStopTask ?? Task.CompletedTask).ConfigureAwait(false);
         await WaitForDropInstallQueueIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForMaintenanceRescanIdleAsync(waitTracker).ConfigureAwait(false);
+        await WaitForFolderAutoRenameIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistBuildIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForPlaylistSummaryDataBuildIdleAsync(waitTracker).ConfigureAwait(false);
         await WaitForStartupBackgroundTasksIdleAsync(waitTracker).ConfigureAwait(false);
@@ -4218,6 +4208,7 @@ public partial class MainWindowViewModel : ViewModel
         TryShutdownStep("playlist_index_prewarm", PlaylistWorkspace.CancelPlaylistLibraryIndexPrewarmForShutdown);
         TryShutdownStep("playlist_reload_cleanup", PlaylistWorkspace.CancelPlaylistReloadCleanupForShutdown);
         TryShutdownStep("maintenance_rescan", () => MaintenanceRescanWorkflow?.RequestShutdown());
+        TryShutdownStep("folder_auto_rename", () => FolderAutoRenameWorkflow?.RequestShutdown());
         TryShutdownStep("package_install", () => PackageInstallWorkflow?.RequestShutdown());
         TryShutdownStep("startup_background_queue", () => CancelStartupBackgroundTasksForShutdown(reason));
     }
@@ -4371,6 +4362,16 @@ public partial class MainWindowViewModel : ViewModel
             ShutdownQueueDrainWarningThreshold,
             tracker,
             () => "idle=" + FormatBool(MaintenanceRescanWorkflow == null || MaintenanceRescanWorkflow.IsIdle)).ConfigureAwait(false);
+    }
+
+    private async Task WaitForFolderAutoRenameIdleAsync(ShutdownWaitTracker tracker)
+    {
+        await WaitForConditionAsync(
+            "folderAutoRename",
+            () => FolderAutoRenameWorkflow == null || FolderAutoRenameWorkflow.IsIdle,
+            ShutdownQueueDrainWarningThreshold,
+            tracker,
+            () => "idle=" + FormatBool(FolderAutoRenameWorkflow == null || FolderAutoRenameWorkflow.IsIdle)).ConfigureAwait(false);
     }
 
     private async Task WaitForPlaylistBuildIdleAsync(ShutdownWaitTracker tracker)
@@ -5267,6 +5268,7 @@ public partial class MainWindowViewModel : ViewModel
                 files = applicationComposition.CreateBmsLibrary(libraryProfile);
                 PackageInstallWorkflow.AttachLibrary(files);
                 MaintenanceRescanWorkflow.AttachLibrary(files);
+                FolderAutoRenameWorkflow.AttachLibrary(files);
             }
             finally
             {
@@ -6925,61 +6927,29 @@ public partial class MainWindowViewModel : ViewModel
         NLogWrapper.FileLogger?.Error(exception, "maintenance_rescan failed scope=all_owned");
     }
 
-    private void BeginFolderAutoRenameProgress()
+    private void FolderAutoRenameWorkflowProgressChanged(FolderAutoRenameProgressSnapshot progress)
     {
-        Action reflect = delegate
-        {
-            IsFolderAutoRenameProgressActive = true;
-            FolderAutoRenameProgressMaximum = 1.0;
-            FolderAutoRenameProgressValue = 0.0;
-            FolderAutoRenameProgressLabel = BeMusicSeeker.Properties.Resources.Rename_folder_auto;
-            FolderAutoRenameProgressSubLabel = string.Empty;
-        };
-        DispatchFolderAutoRenameProgressUpdate(reflect);
+        ProgressHub.UpdateFolderAutoRenameProgress(progress);
     }
 
-    private void UpdateFolderAutoRenameProgressStatus(int totalCount, int processedCount, string currentPath)
+    private void FolderAutoRenameWorkflowCompletionPublished(FolderAutoRenameCompletionReceipt receipt)
     {
-        Action reflect = delegate
-        {
-            int total = Math.Max(totalCount, 1);
-            int processed = Math.Max(0, Math.Min(processedCount, total));
-            IsFolderAutoRenameProgressActive = true;
-            FolderAutoRenameProgressMaximum = total;
-            FolderAutoRenameProgressValue = processed;
-            FolderAutoRenameProgressLabel = BeMusicSeeker.Properties.Resources.Rename_folder_auto + " " + processed + "/" + total;
-            FolderAutoRenameProgressSubLabel = currentPath ?? string.Empty;
-        };
-        DispatchFolderAutoRenameProgressUpdate(reflect);
-    }
-
-    private void FinishFolderAutoRenameProgress()
-    {
-        Action reflect = delegate
-        {
-            FolderAutoRenameProgressLabel = string.Empty;
-            FolderAutoRenameProgressSubLabel = string.Empty;
-            FolderAutoRenameProgressValue = 0.0;
-            FolderAutoRenameProgressMaximum = 1.0;
-            IsFolderAutoRenameProgressActive = false;
-        };
-        DispatchFolderAutoRenameProgressUpdate(reflect);
-    }
-
-    private static void DispatchFolderAutoRenameProgressUpdate(Action reflect)
-    {
-        if (reflect == null)
+        if (receipt?.RefreshRequired != true)
         {
             return;
         }
-        if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
-        {
-            reflect();
-        }
-        else
-        {
-            DispatcherHelper.UIDispatcher.BeginInvoke(reflect, DispatcherPriority.Background);
-        }
+        regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
+        InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+    }
+
+    private static void ReportFolderAutoRenameWorkflowNotificationFailure(Exception exception)
+    {
+        NLogWrapper.FileLogger?.Error(exception, "folder_auto_rename_workflow_notification_failed");
+    }
+
+    private static void ReportFolderAutoRenameWorkflowFailure(Exception exception)
+    {
+        NLogWrapper.FileLogger?.Error(exception, "folder_auto_rename failed");
     }
 
     private void RefreshResourceHealthViewsAfterMaintenanceChanged()
@@ -10320,66 +10290,51 @@ public partial class MainWindowViewModel : ViewModel
         }, [request.Chart], UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
     }
 
-    public void AutoRenameAllChartFolders(string parentDir = null)
+    private bool HasFolderAutoRenameAllTargets(BMSLibrary library, string parentDirectory)
     {
-        bool progressStarted = false;
-        RunChartPackageMutation(delegate
+        if (!ReferenceEquals(files, library) || library == null)
         {
-            if (files?.HasAutoRenameAllChartFolderTargets(parentDir) != true)
-            {
-                return;
-            }
-            BeginFolderAutoRenameProgress();
-            progressStarted = true;
-            try
-            {
-                PlaybackPanel.StopPlayback(closeProcess: true);
-                if (files?.AutoRenameAllChartFolders(parentDir, UpdateFolderAutoRenameProgressStatus) == true)
-                {
-                    regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
-                    InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
-                }
-            }
-            finally
-            {
-                if (progressStarted)
-                {
-                    FinishFolderAutoRenameProgress();
-                }
-            }
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
+            return false;
+        }
+        bool hasTargets = false;
+        RunChartPackageMutation(
+            () => hasTargets = library.HasAutoRenameAllChartFolderTargets(parentDirectory),
+            refreshMask: UiRefreshChannel.None,
+            stopPlayback: () => { });
+        return hasTargets;
     }
 
-    internal void AutoRenameChartFolders(IEnumerable<ChartFile> chartFilesSource)
+    private FolderAutoRenameExecutionResult ExecuteFolderAutoRenameSelectedMutation(
+        BMSLibrary library,
+        ChartFolderAutoRenameRequest request,
+        Action<int, int, string> progressReporter)
     {
-        List<ChartFile> charts = [.. (chartFilesSource ?? []).Where(chart => chart != null)];
-        if (charts.Count == 0)
+        if (!ReferenceEquals(files, library) || request?.HasTargets != true)
         {
-            return;
+            return new FolderAutoRenameExecutionResult();
         }
-        RunChartPackageMutation(delegate
-        {
-            BeginFolderAutoRenameProgress();
-            try
-            {
-                files.AutoRenameChartFolders(charts, progressReporter: UpdateFolderAutoRenameProgressStatus);
-                regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
-                InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
-            }
-            finally
-            {
-                FinishFolderAutoRenameProgress();
-            }
-        }, charts, UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
+        RunChartPackageMutation(
+            () => library.AutoRenameChartFolders(request.Charts, progressReporter: progressReporter),
+            request.Charts,
+            UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
+        return new FolderAutoRenameExecutionResult { RefreshRequired = true };
     }
 
-    internal void AutoRenameChartFolders(ChartFolderAutoRenameRequest request)
+    private FolderAutoRenameExecutionResult ExecuteFolderAutoRenameAllMutation(
+        BMSLibrary library,
+        string parentDirectory,
+        Action<int, int, string> progressReporter)
     {
-        if (request?.HasTargets != true)
+        if (!ReferenceEquals(files, library))
         {
-            return;
+            return new FolderAutoRenameExecutionResult();
         }
-        AutoRenameChartFolders(request.Charts);
+        bool changed = false;
+        RunChartPackageMutation(
+            () => changed = library.AutoRenameAllChartFolders(parentDirectory, progressReporter),
+            refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree,
+            stopPlayback: () => PlaybackPanel.StopPlayback(closeProcess: true));
+        return new FolderAutoRenameExecutionResult { RefreshRequired = changed };
     }
 
     internal void MoveLibraryCharts(ChartLibraryMoveRequest request)

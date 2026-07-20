@@ -2170,10 +2170,9 @@ public sealed class MainWindowContextMenuResourceTests
             mainWindowCode,
             "bool canAutoRenameFolders =",
             "if (menuItem17 != null)");
-        string autoRenameAll = ExtractBetween(
+        string autoRenameAll = ExtractMethodBody(
             viewModelCode,
-            "public void AutoRenameAllChartFolders",
-            "internal void AutoRenameChartFolders");
+            "private FolderAutoRenameExecutionResult ExecuteFolderAutoRenameAllMutation(");
         string autoRenameAllModel = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker", "Models", "BMSLibrary.LibraryFileOperationOwner.cs");
         string cellEditEnded = ExtractBetween(
@@ -2189,7 +2188,8 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(autoRenameClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
         StringAssert.Contains(autoRenameClick, "ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request)");
-        StringAssert.Contains(autoRenameClick, "AutoRenameChartFolders(request)");
+        StringAssert.Contains(autoRenameClick, "viewModel.FolderAutoRenameWorkflow.StartSelected(request);");
+        Assert.IsFalse(autoRenameClick.Contains("Task.Run"));
         Assert.IsFalse(autoRenameClick.Contains("CreateChartOperationTargetSnapshot"));
         Assert.IsFalse(autoRenameClick.Contains("targetSnapshot"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
@@ -2200,8 +2200,18 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(moveFileClick.Contains("viewModel.MoveLibraryCharts(targets, dstDir)"));
         StringAssert.Contains(contextMenuOpening, "contextMenuState.CanAutoRenameFolders");
         StringAssert.Contains(contextMenuStateBuilderCode, "hasBmsSelection || hasBmsonSelection");
-        StringAssert.Contains(autoRenameAll, "files?.HasAutoRenameAllChartFolderTargets(parentDir) != true");
-        StringAssert.Contains(autoRenameAll, "files?.AutoRenameAllChartFolders(parentDir, UpdateFolderAutoRenameProgressStatus) == true");
+        StringAssert.Contains(autoRenameAll, "RunChartPackageMutation(");
+        StringAssert.Contains(autoRenameAll, "library.AutoRenameAllChartFolders(parentDirectory, progressReporter)");
+        StringAssert.Contains(autoRenameAll, "stopPlayback: () => PlaybackPanel.StopPlayback(closeProcess: true)");
+        StringAssert.Contains(viewModelCode, "FolderAutoRenameWorkflow = childComposition.FolderAutoRenameWorkflow;");
+        StringAssert.Contains(viewModelCode, "FolderAutoRenameWorkflow.ProgressChanged += FolderAutoRenameWorkflowProgressChanged;");
+        StringAssert.Contains(viewModelCode, "FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;");
+        Assert.IsFalse(viewModelCode.Contains("public void AutoRenameAllChartFolders"));
+        Assert.IsFalse(viewModelCode.Contains("internal void AutoRenameChartFolders"));
+        Assert.IsFalse(viewModelCode.Contains("BeginFolderAutoRenameProgress"));
+        Assert.IsFalse(viewModelCode.Contains("UpdateFolderAutoRenameProgressStatus"));
+        Assert.IsFalse(viewModelCode.Contains("FinishFolderAutoRenameProgress"));
+        Assert.IsFalse(viewModelCode.Contains("DispatchFolderAutoRenameProgressUpdate"));
         Assert.IsFalse(autoRenameAll.Contains("IEnumerable<BeMusicSeeker.Models.BMSFile> enumerable = BMSFiles;"));
         StringAssert.Contains(autoRenameAllModel, "CreateOwnedRealPathChartDirectoriesUnsafe(");
         StringAssert.Contains(autoRenameAllModel, "BuildAutoRenamePlansForSourceFolders");

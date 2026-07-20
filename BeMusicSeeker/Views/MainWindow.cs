@@ -414,6 +414,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionConfirmationRequested += PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested;
         viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested += PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
         viewModel.PlaylistWorkspace.PlaylistUrlAcquisitionSummaryReady += PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady;
+        viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
     }
 
     private void UnsubscribeViewModelUiInteractions()
@@ -432,7 +433,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionConfirmationRequested -= PlaylistWorkspacePlaylistUrlAcquisitionConfirmationRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionNotificationRequested -= PlaylistWorkspacePlaylistUrlAcquisitionNotificationRequested;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlAcquisitionSummaryReady -= PlaylistWorkspacePlaylistUrlAcquisitionSummaryReady;
+        subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel = null;
+    }
+
+    private void MainWindowViewModel_FolderAutoRenameTerminalPublished()
+    {
+        RefreshCustomTableViewDisplayAsync();
     }
 
     private void MainWindowViewModel_SettingDialogOpenRequested(object sender, EventArgs e)
@@ -4433,20 +4440,14 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         string path = placementTarget.Header.ToString();
-        if (base.DataContext is MainWindowViewModel viewModel && LongPathFileSystem.DirectoryExists(path) && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_folders, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is MainWindowViewModel viewModel
+            && viewModel.FolderAutoRenameWorkflow?.IsActive != true
+            && LongPathFileSystem.DirectoryExists(path)
+            && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_folders, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
-            Task.Run(delegate
-            {
-                try
-                {
-                    viewModel.AutoRenameAllChartFolders(path);
-                }
-                finally
-                {
-                    RefreshCustomTableViewDisplayAsync();
-                }
-            }).Logging("treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
+            viewModel.FolderAutoRenameWorkflow.StartAll(path);
         }
+        e.Handled = true;
     }
 
     private void treeViewInstalledContextMenuClearAllClick(object sender, RoutedEventArgs e)
@@ -5926,7 +5927,8 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
         if (menuItem16 != null)
         {
-            bool canAutoRenameFolders = contextMenuState.CanAutoRenameFolders;
+            bool canAutoRenameFolders = contextMenuState.CanAutoRenameFolders
+                && mainWindowViewModel.FolderAutoRenameWorkflow?.IsActive != true;
             menuItem16.Visibility = ((!canAutoRenameFolders) ? Visibility.Collapsed : Visibility.Visible);
             menuItem16.IsEnabled = canAutoRenameFolders;
         }
@@ -6901,20 +6903,12 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request))
+        if (ChartFolderAutoRenameRequest.TryCreate(targets, out ChartFolderAutoRenameRequest request)
+            && viewModel.FolderAutoRenameWorkflow?.IsActive != true)
         {
-            Task.Run(delegate
-            {
-                try
-                {
-                    viewModel.AutoRenameChartFolders(request);
-                }
-                finally
-                {
-                    RefreshCustomTableViewDisplayAsync();
-                }
-            }).Logging("tableContextMenuItemAutoRenameFolderClick");
+            viewModel.FolderAutoRenameWorkflow.StartSelected(request);
         }
+        e.Handled = true;
     }
 
     private void tableContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
