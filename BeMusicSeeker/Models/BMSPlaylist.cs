@@ -2846,7 +2846,6 @@ public partial class BMSPlaylist : NotificationObject
             RootFileEnumerationEntry fileEntry = physicalSurface.Resolve(file.FilePath);
             if (fileEntry?.LastWriteTimeUtc == null)
             {
-                projection.ForceWriteFilePaths.Add(file.FilePath);
                 needsRepair = true;
                 continue;
             }

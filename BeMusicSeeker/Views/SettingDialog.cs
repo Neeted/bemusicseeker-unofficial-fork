@@ -73,43 +73,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
         textBlockBuildNum.Text = "Build: " + text;
     }
 
-    private void CancelAndClose(object sender, RoutedEventArgs e)
-    {
-        var stopwatch = Stopwatch.StartNew();
-        bool reset = false;
-        MainWindowViewModel.SettingDialogViewModel.RestartMode restartMode = MainWindowViewModel.SettingDialogViewModel.RestartMode.None;
-        if (base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel } mainWindowViewModel)
-        {
-            restartMode = settingDialogViewModel.IsNeedRestartForSaveOrCancel();
-            if (ShouldResetSettingsOnCancel(settingDialogViewModel))
-            {
-                reset = true;
-                settingDialogViewModel.ResetSettings();
-                SyncAppearanceThemeSelection(settingDialogViewModel);
-            }
-            HideThisOverlay();
-            if (restartMode.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.All))
-            {
-                mainWindowViewModel.Initialize();
-            }
-            else if (restartMode.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
-            {
-                mainWindowViewModel.ReloadFileDiff();
-            }
-            else if (restartMode.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly))
-            {
-                mainWindowViewModel.ReloadScoresOnly();
-            }
-        }
-        LogSettingsDialogPerformance("settings_cancel", stopwatch, "reset=" + reset.ToString().ToLowerInvariant() + " restartMode=" + restartMode);
-    }
-
     private void SettingDialogIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
         if (e.NewValue is true && base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
             var stopwatch = Stopwatch.StartNew();
-            SyncAppearanceThemeSelection(settingDialogViewModel);
+            RefreshAppearanceThemeSelection(settingDialogViewModel);
             settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();
             long handlerMs = stopwatch.ElapsedMilliseconds;
             string detail =
@@ -125,7 +94,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
     }
 
-    private void SyncAppearanceThemeSelection(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
+    internal void RefreshAppearanceThemeSelection(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
     {
         comboBoxAppearanceTheme.GetBindingExpression(Selector.SelectedValueProperty)?.UpdateTarget();
         comboBoxAppearanceTheme.SelectedValue ??= settingDialogViewModel.AppearanceTheme;
@@ -343,125 +312,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
         PickRootFolderForSetting(nameof(settingDialogViewModel.LR2BackupPath), settingDialogViewModel.LR2BackupPath);
     }
 
-    private async void SaveAndClose(object sender, RoutedEventArgs e)
-    {
-        if (!(base.DataContext is MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel))
-        {
-            return;
-        }
-        var totalStopwatch = Stopwatch.StartNew();
-        long validationMs = 0L;
-        long saveMs = 0L;
-        string outcome = "unknown";
-        MainWindowViewModel.SettingDialogViewModel.RestartMode needRestart = MainWindowViewModel.SettingDialogViewModel.RestartMode.None;
-        bool shouldInitializeAfterSave = false;
-        settingDialogRootGrid.IsEnabled = false;
-        try
-        {
-            if (viewModel.IsLibraryOperationInProgress)
-            {
-                outcome = "blocked_operation";
-                totalStopwatch.Stop();
-                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
-                settingDialogViewModel.ResetSettings();
-                SyncAppearanceThemeSelection(settingDialogViewModel);
-                return;
-            }
-            if (ShouldCloseSettingsWithoutSave(viewModel, settingDialogViewModel))
-            {
-                outcome = "no_changes";
-                HideThisOverlay();
-                return;
-            }
-            shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;
-            string errMsg;
-            var validationStopwatch = Stopwatch.StartNew();
-            bool isValid = shouldInitializeAfterSave
-                ? settingDialogViewModel.CheckValidation(out errMsg)
-                : settingDialogViewModel.CheckValidationBeforeSave(out errMsg);
-            validationMs = validationStopwatch.ElapsedMilliseconds;
-            LogSettingsDialogPerformance(
-                "settings_validation",
-                validationStopwatch,
-                "valid=" + isValid.ToString().ToLowerInvariant()
-                + " initial=" + shouldInitializeAfterSave.ToString().ToLowerInvariant());
-            if (isValid)
-            {
-                if (!settingDialogViewModel.ConfirmCustomFolderOutputBaseJukeboxAdoptionBeforeSave(out _))
-                {
-                    outcome = "custom_folder_jukebox_adoption_cancelled";
-                    return;
-                }
-                needRestart = shouldInitializeAfterSave
-                    ? MainWindowViewModel.SettingDialogViewModel.RestartMode.None
-                    : settingDialogViewModel.IsNeedRestartForSaved();
-                var saveStopwatch = Stopwatch.StartNew();
-                if (shouldInitializeAfterSave)
-                {
-                    await settingDialogViewModel.SaveSettingsForInitialInitialize();
-                    saveMs = saveStopwatch.ElapsedMilliseconds;
-                    HideThisOverlay();
-                    if (viewModel.IsFirstStartup)
-                    {
-                        totalStopwatch.Stop();
-                        UiDialogRoute.ShowMessageBox(BeMusicSeeker.Properties.Resources.Msg_initsetting_completed, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Asterisk, MessageBoxResult.OK);
-                        totalStopwatch.Start();
-                    }
-                    viewModel.Initialize();
-                    outcome = "saved_initial";
-                }
-                else
-                {
-                    await settingDialogViewModel.SaveSettings();
-                    saveMs = saveStopwatch.ElapsedMilliseconds;
-                    if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.All))
-                    {
-                        viewModel.Initialize();
-                    }
-                    else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly)
-                        && needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
-                    {
-                        viewModel.Initialize();
-                    }
-                    else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.ScoreOnly))
-                    {
-                        viewModel.ReloadScoresOnly();
-                    }
-                    else if (needRestart.HasFlag(MainWindowViewModel.SettingDialogViewModel.RestartMode.FolderOnly))
-                    {
-                        viewModel.ReloadFileDiff();
-                    }
-                    HideThisOverlay();
-                    outcome = "saved";
-                }
-            }
-            else
-            {
-                outcome = "invalid";
-                totalStopwatch.Stop();
-                UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
-            }
-        }
-        catch (Exception ex)
-        {
-            outcome = "failed";
-            totalStopwatch.Stop();
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
-        }
-        finally
-        {
-            settingDialogRootGrid.IsEnabled = true;
-            LogSettingsDialogPerformance(
-                "settings_save_and_close",
-                totalStopwatch,
-                "outcome=" + outcome
-                + " initial=" + shouldInitializeAfterSave.ToString().ToLowerInvariant()
-                + " restartMode=" + needRestart
-                + " validationMs=" + validationMs
-                + " saveMs=" + saveMs);
-        }
-    }
-
     private void resetCustomTableAppearanceDefaultsButtonClick(object sender, RoutedEventArgs e)
     {
         GetSettingDialogViewModel().ResetCustomTableAppearanceDefaults();
@@ -534,12 +384,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
         ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup save picker");
         if (result.Status == UiDialogStatus.Accepted)
         {
-            settingDialogRootGrid.IsEnabled = false;
+            settingDialogOperationGrid.IsEnabled = false;
             await Task.Run(delegate
             {
                 viewModel.BackupBMSTables(result.FileName);
             }).Logging("detailTabItemBackupButtonClicked");
-            settingDialogRootGrid.IsEnabled = true;
+            settingDialogOperationGrid.IsEnabled = true;
         }
     }
 
@@ -580,7 +430,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             return;
         }
 
-        settingDialogRootGrid.IsEnabled = false;
+        settingDialogOperationGrid.IsEnabled = false;
         try
         {
             Lr2PlayHistorySchemaCheckResult result = await Task.Run(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaCore);
@@ -614,7 +464,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         finally
         {
-            settingDialogRootGrid.IsEnabled = true;
+            settingDialogOperationGrid.IsEnabled = true;
         }
     }
 
@@ -669,7 +519,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
 
         Lr2PlayHistorySchemaUninstallMode uninstallMode = dialogResult.Value;
-        settingDialogRootGrid.IsEnabled = false;
+        settingDialogOperationGrid.IsEnabled = false;
         try
         {
             Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
@@ -704,7 +554,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         }
         finally
         {
-            settingDialogRootGrid.IsEnabled = true;
+            settingDialogOperationGrid.IsEnabled = true;
         }
     }
 
@@ -731,31 +581,6 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
         }
-    }
-
-    /// <summary>
-    /// キャンセル時に保存済み設定へ戻す必要があるかどうかを判定します。
-    /// </summary>
-    /// <param name="settingDialogViewModel">設定画面の ViewModel。</param>
-    /// <returns>未保存の変更がある場合は <c>true</c>。</returns>
-    internal static bool ShouldResetSettingsOnCancel(MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
-    {
-        return settingDialogViewModel?.HasPendingSettingChanges() == true;
-    }
-
-    /// <summary>
-    /// OK クリック時に保存と検証を省略して閉じられる状態かどうかを判定します。
-    /// 既にライブラリが成立していて未保存変更が無い場合、閉じるだけでよいため重い再検証を避けます。
-    /// </summary>
-    /// <param name="viewModel">メイン画面の ViewModel。</param>
-    /// <param name="settingDialogViewModel">設定画面の ViewModel。</param>
-    /// <returns>保存処理を呼ばずに閉じてよい場合は <c>true</c>。</returns>
-    internal static bool ShouldCloseSettingsWithoutSave(
-        MainWindowViewModel viewModel,
-        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
-    {
-        return viewModel?.HasActiveLibraryProfile == true
-            && settingDialogViewModel?.HasPendingSettingChanges() != true;
     }
 
     /// <summary>
@@ -792,7 +617,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         ThrowIfPickerFailed(result.Status, result.Error, "Playlist backup restore picker");
         if (result.Status == UiDialogStatus.Accepted)
         {
-            settingDialogRootGrid.IsEnabled = false;
+            settingDialogOperationGrid.IsEnabled = false;
             await Task.Run(delegate
             {
                 viewModel.RestoreBMSTables(result.FileName);
@@ -821,7 +646,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
             return;
         }
         bool closeAfterSuccess = false;
-        settingDialogRootGrid.IsEnabled = false;
+        settingDialogOperationGrid.IsEnabled = false;
         try
         {
             await Task.Run(delegate
@@ -844,7 +669,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             if (!closeAfterSuccess)
             {
-                settingDialogRootGrid.IsEnabled = true;
+                settingDialogOperationGrid.IsEnabled = true;
             }
         }
     }

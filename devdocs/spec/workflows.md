@@ -4,7 +4,7 @@
 
 ## Startup
 
-入口: `MainWindowViewModel.Initialize()`
+入口: XAML の `MainWindowViewModel.InitializeAsync()` (`async void` presentation boundary)。実処理は awaitable な `InitializeForSettingsAsync()` が担う。
 
 概略:
 

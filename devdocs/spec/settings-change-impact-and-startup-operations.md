@@ -22,13 +22,13 @@ Cancel は次の契約に従う。
 
 - 変更なしの場合は設定ダイアログを閉じるだけにし、全設定 restore、LR2 config 再読み込み、ファイル差分更新、スコア再読み込みを行わない。
 - 変更がある場合は `ResetSettings()` で snapshot の値へ戻し、テーマなど preview 適用済みの UI 状態も保存済み値へ戻す。
-- Cancel 後に再読み込みが必要な変更が残っていた場合だけ、`IsNeedRestartForSaveOrCancel()` の結果に従って `Initialize()`、`ReloadFileDiff()`、または `ReloadScoresOnly()` を起動する。
+- Cancel は保存済み snapshot へ戻した後、必要な preview 状態を shell へ通知して設定ダイアログを閉じる。Cancel から library 初期化や reload operation は起動しない。
 
 OK は次の契約に従う。
 
 - 既存プロファイルで `IsLibraryOperationInProgress == true` の場合、保存せず警告を表示して snapshot の値へ戻す。
-- 変更なしの場合は保存・検証・post-save 処理を行わず閉じる。
-- 初回設定では full validation を行い、保存後に `Initialize()` を起動する。
+- 変更なしの場合は、active library profile が有効なら保存・検証・post-save 処理を行わず閉じる。初期化失敗後など active profile が無い場合は、変更がなくても初期設定 apply と初期化 retry の経路へ進む。
+- 初回設定では full validation を行い、保存後に awaitable な `InitializeForSettingsAsync()` を起動する。通常の XAML `ContentRendered` 境界は `InitializeAsync()` (`async void`) がこの core を await する。
 - 既存プロファイルでは `CheckValidationBeforeSave()` を使う。validation に関係する設定が変わった場合は full validation を行い、変わっていない場合は現在の必須設定が外部要因で壊れていないかだけを確認する。
 - `Settings.Default.Save()` は user.config 対象の変更がある場合だけ呼ぶ。
 - `lr2config.Save()` は LR2 BMS 検索ルートまたは autoreload 設定を保存する必要がある場合だけ呼ぶ。
@@ -81,11 +81,11 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 ログ出力の例外は保存結果、schema check 結果、UI cleanup に影響させない。
 
 - `settings_dialog_open`: ダイアログ表示時の theme selection 同期、schema status presentation 更新、`ContextIdle` 到達までの時間を記録する。`handlerMs` には visible changed handler 自体の時間を記録する。
-- `settings_cancel`: Cancel 操作の時間、reset 有無、restart mode を記録する。
+- `settings_cancel`: Cancel 操作の時間と reset 有無を記録する。
 - `settings_validation`: OK 時 validation の時間と結果を記録する。
 - `settings_change_classification`: 保存時に算出した変更種別と `SettingsPostSaveImpact` を記録する。
 - `settings_save`: `SaveSettingsCore()` 全体の時間、validation 結果、変更種別、user.config / LR2 config 保存有無と保存時間を記録する。
-- `settings_save_and_close`: OK button handler 全体の時間、結果、validation 時間、保存時間、restart mode を記録する。ユーザーが MessageBox を閉じるまでの待ち時間は含めない。
+- `settings_apply`: OK command 全体の時間、結果、validation 時間、保存時間、restart mode を記録する。ユーザーが MessageBox を閉じるまでの待ち時間は含めない。
 - `settings_post_save`: post-save impact ごとの処理時間を記録する。
 - `settings_backup_snapshot`: snapshot 更新時の scope、standalone roots、custom folder bases、LR2 roots snapshot、play history preset refresh / snapshot の時間を記録する。
 - `settings_schema_status_score_load_check`: score DB 読み込み境界の read-only schema check 時間と結果を記録する。
@@ -182,13 +182,12 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 
 対象例:
 
-- LR2 連携モードの切り替え
 - LR2 song.db パス
 - `Score-only` と `Folder/File Diff` の同時変更
 
 扱い:
 
-- 既存プロファイルが有効な通常状態では `Initialize()` を起動する。
+- 既存プロファイルが有効な通常状態では、LR2 song.db 境界または score/folder の同時変更に対して `InitializeForSettingsAsync()` を起動する。LR2 linked / standalone の mode 切替は process restart として扱い、この operation では処理しない。
 - 起動・リロード進捗が active の間は適用不可。
 
 ## Startup Apply Gate
@@ -226,7 +225,7 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 
 ## Operation Serialization
 
-`Initialize()`, `ReloadFileDiff()`, `ReloadScoresOnly()`, `ReloadTables()`, `ReinitializeLibrary()` は `_semaphore` で直列化される。
+`InitializeForSettingsAsync()`, `ReloadFileDiff()`, `ReloadScoresOnly()`, `ReloadTables()`, `ReinitializeLibrary()` は `_semaphore` で直列化される。XAML の `InitializeAsync()` はこの awaitable operation を起動する presentation boundary である。
 ただし `_semaphore` は同時実行を防ぐだけで、ユーザー操作から 2 回目の operation を予約することまでは防がない。
 
 そのため設定画面 OK の時点で active operation を拒否し、意図しない予約を作らない。
@@ -236,7 +235,7 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 起動・リロード進捗は operation token で所有者を区別する。
 
 - 新しい progress operation は `_semaphore` 取得後、実際にその operation を開始する直前に作成する。
-- 初回 `Initialize()` は新しい `BMSLibrary` / `BMSPlaylist` を作成してから progress baseline を取る。
+- 初回 `InitializeForSettingsAsync()` は新しい `BMSLibrary` / `BMSPlaylist` を作成してから progress baseline を取る。
 - UI suppress の遅延 flush、ライブラリフォルダツリーの遅延更新、外部 playlist sync、playlist reference apply は、スケジュール時の operation token と現在の token が一致する場合だけ進捗フェーズを完了させる。
 
 これにより、古い operation の遅延イベントが新しい operation の `StartupReadyUi`, `StartupReadyOperable`, playlist reference, external sync などを誤って進めることを防ぐ。

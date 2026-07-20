@@ -15,9 +15,9 @@
 
 ### `UI-05 Shell closure`
 
-状態: ready
+状態: in progress
 
-active outcome base commit: `d538f01f`
+active outcome base commit: `6d170cb9`
 active execution package: `UI-05 Shell closure`
 sequence cursor: `UI05 planner required`
 
@@ -75,7 +75,7 @@ UI-01 は public surface の変更だけを理由に再開しない。旧 sort /
 | Configuration ownership | not met | `Settings.Default` が ViewModel / domain / XAML / tests に広く残る |
 | Platform boundary | not met | HintPath DLL、native layout、P/Invoke、external process、WPF / WinForms が混在 |
 | Migration readiness | not met | resource-health / maintenance / chart-info owner と generic mutation の prepare / durable commit / live apply / immutable receipt publish protocol、broad host retirement、package / install-destination / file-operation owner、LR2 synchronization owner、playlist-reference owner、LIB-06 facade / scan integration closure、PL-01 persistence / reload owner、PL-02 external-sync / output owner は成立済み。残る shell consumer owner は UI-05、platform boundary は MIG-01 で扱う |
-| Quality | in progress | PL-02 の完了証跡に加え、UI-05-U1 settings-dialog open handoff の Release build、targeted behavior verification、static review を完了。UI-05 outcome-wide Full verification、残る shell units、Gate evidence は未完了 |
+| Quality | in progress | PL-02 の完了証跡に加え、UI-05-U1 settings-dialog open handoff と UI-05-U2 settings edit-completion owner handoff の Release build、targeted behavior verification、static review を完了。UI-05 outcome-wide Full verification、残る shell units、Gate evidence は未完了 |
 
 数値は状態の正本ではない。Gate audit 時は実ソースから再計測し、partial / host file への移動で達成扱いにしない。
 

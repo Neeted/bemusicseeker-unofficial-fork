@@ -514,14 +514,20 @@ public sealed class PlaylistConcurrencyArchitectureTests
     [TestMethod]
     public void SettingDialogStartupMessage_UsesViewModelLifecycleBoundary()
     {
-        string source = SourceTextTestHelper.ReadProductionSourceText(
+        string viewSource = SourceTextTestHelper.ReadProductionSourceText(
             "BeMusicSeeker",
             "Views",
             "SettingDialog.cs");
+        string viewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker",
+            "ViewModels",
+            "MainWindow",
+            "MainWindowViewModel.SettingDialogViewModel.cs");
 
-        StringAssert.Contains(source, "viewModel.IsFirstStartup");
-        Assert.IsFalse(source.Contains("firstStartup"));
-        Assert.IsFalse(source.Contains("((App)Application.Current).firstStartup"));
+        StringAssert.Contains(viewModelSource, "ownerViewModel.IsFirstStartup");
+        StringAssert.Contains(viewModelSource, "Msg_initsetting_completed");
+        Assert.IsFalse(viewSource.Contains("firstStartup"));
+        Assert.IsFalse(viewSource.Contains("((App)Application.Current).firstStartup"));
     }
 
     [TestMethod]
@@ -568,7 +574,8 @@ public sealed class PlaylistConcurrencyArchitectureTests
         StringAssert.Contains(mainWindowSource, "applicationComposition.CreateSettingDialogViewModel(this)");
         Assert.IsFalse(mainWindowSource.Contains("new SettingDialogViewModel(this)"));
         StringAssert.Contains(compositionSource, "ISettingsEditSession settingsEditSession = null");
-        StringAssert.Contains(compositionSource, "settingsEditSession);");
+        StringAssert.Contains(compositionSource, "settingsEditSession,");
+        StringAssert.Contains(compositionSource, "() => initializeOwner(owner)");
     }
 
     [TestMethod]

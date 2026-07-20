@@ -78,9 +78,31 @@ public partial class MainWindowViewModel
             ScoreOnly = 4
         }
 
+        internal enum PresentationRequestKind
+        {
+            CloseOverlay,
+            RefreshAppearanceSelection
+        }
+
+        internal sealed class PresentationRequestedEventArgs : EventArgs
+        {
+            internal PresentationRequestedEventArgs(PresentationRequestKind kind)
+            {
+                Kind = kind;
+            }
+
+            internal PresentationRequestKind Kind { get; }
+        }
+
         private readonly MainWindowViewModel ownerViewModel;
 
         private ViewModelCommand openCommand;
+
+        private ViewModelCommand applyCommand;
+
+        private ViewModelCommand cancelCommand;
+
+        private bool isEditCompletionInProgress;
 
         private readonly Action reloadSettings;
 
@@ -90,10 +112,17 @@ public partial class MainWindowViewModel
 
         private readonly ISettingsEditSession settingsEditSession;
 
+        private readonly Func<Task<bool>> initializeOwner;
+
         /// <summary>
         /// Requests that the shell present the settings dialog.
         /// </summary>
         internal event EventHandler OpenRequested;
+
+        /// <summary>
+        /// Requests a shell presentation update after an edit-completion decision.
+        /// </summary>
+        internal event EventHandler<PresentationRequestedEventArgs> PresentationRequested;
 
         /// <summary>
         /// Gets the command used by views to request the settings dialog.
@@ -101,11 +130,236 @@ public partial class MainWindowViewModel
         public ViewModelCommand OpenCommand => openCommand ??= new ViewModelCommand(RequestOpen);
 
         /// <summary>
+        /// Gets the command that validates and applies the settings draft.
+        /// </summary>
+        public ViewModelCommand ApplyCommand => applyCommand ??= new ViewModelCommand(ExecuteApplyCommand);
+
+        /// <summary>
+        /// Gets the command that restores the saved settings snapshot and closes the dialog.
+        /// </summary>
+        public ViewModelCommand CancelCommand => cancelCommand ??= new ViewModelCommand(ExecuteCancelCommand);
+
+        /// <summary>
+        /// Gets a value indicating whether an apply operation is currently completing.
+        /// </summary>
+        public bool IsEditCompletionInProgress
+        {
+            get => isEditCompletionInProgress;
+            private set
+            {
+                if (isEditCompletionInProgress == value)
+                {
+                    return;
+                }
+
+                isEditCompletionInProgress = value;
+                RaisePropertyChanged(() => IsEditCompletionInProgress);
+                RaisePropertyChanged(() => IsEditCompletionEnabled);
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether the settings editor can accept another completion command.
+        /// </summary>
+        public bool IsEditCompletionEnabled => !IsEditCompletionInProgress;
+
+        /// <summary>
         /// Publishes a settings-dialog open request to the shell.
         /// </summary>
         internal void RequestOpen()
         {
             OpenRequested?.Invoke(this, EventArgs.Empty);
+        }
+
+        private void RequestPresentation(PresentationRequestKind kind)
+        {
+            PresentationRequested?.Invoke(this, new PresentationRequestedEventArgs(kind));
+        }
+
+        private async void ExecuteApplyCommand()
+        {
+            await ApplySettingsAsync();
+        }
+
+        private void ExecuteCancelCommand()
+        {
+            if (IsEditCompletionInProgress)
+            {
+                return;
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            bool reset = false;
+            if (HasPendingSettingChanges())
+            {
+                reset = true;
+                ResetSettings();
+                RequestPresentation(PresentationRequestKind.RefreshAppearanceSelection);
+            }
+
+            RequestPresentation(PresentationRequestKind.CloseOverlay);
+            LogSettingsPerformance(
+                "settings_cancel",
+                stopwatch,
+                "reset=" + reset.ToString().ToLowerInvariant());
+        }
+
+        /// <summary>
+        /// Completes the settings edit through validation, durable persistence, and the existing reload handoff.
+        /// </summary>
+        internal async Task ApplySettingsAsync()
+        {
+            if (IsEditCompletionInProgress)
+            {
+                return;
+            }
+
+            IsEditCompletionInProgress = true;
+            var totalStopwatch = Stopwatch.StartNew();
+            long validationMs = 0L;
+            long saveMs = 0L;
+            string outcome = "unknown";
+            RestartMode needRestart = RestartMode.None;
+            bool shouldInitializeAfterSave = false;
+            try
+            {
+                if (ownerViewModel.IsLibraryOperationInProgress)
+                {
+                    outcome = "blocked_operation";
+                    totalStopwatch.Stop();
+                    MainWindowViewModel.ShowUiMessage(
+                        BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization,
+                        BeMusicSeeker.Properties.Resources.Warning,
+                        MessageBoxImage.Exclamation,
+                        "Settings apply blocked notification");
+                    ResetSettings();
+                    RequestPresentation(PresentationRequestKind.RefreshAppearanceSelection);
+                    return;
+                }
+
+                if (ownerViewModel.HasActiveLibraryProfile && !HasPendingSettingChanges())
+                {
+                    outcome = "no_changes";
+                    RequestPresentation(PresentationRequestKind.CloseOverlay);
+                    return;
+                }
+
+                shouldInitializeAfterSave = !ownerViewModel.HasActiveLibraryProfile;
+                string errMsg;
+                var validationStopwatch = Stopwatch.StartNew();
+                bool isValid = shouldInitializeAfterSave
+                    ? CheckValidation(out errMsg)
+                    : CheckValidationBeforeSave(out errMsg);
+                validationMs = validationStopwatch.ElapsedMilliseconds;
+                LogSettingsPerformance(
+                    "settings_validation",
+                    validationStopwatch,
+                    "valid=" + isValid.ToString().ToLowerInvariant()
+                    + " initial=" + shouldInitializeAfterSave.ToString().ToLowerInvariant());
+                if (!isValid)
+                {
+                    outcome = "invalid";
+                    totalStopwatch.Stop();
+                    MainWindowViewModel.ShowUiMessage(
+                        BeMusicSeeker.Properties.Resources.Msg_invalid_setting + Environment.NewLine + Environment.NewLine + errMsg,
+                        BeMusicSeeker.Properties.Resources.Error,
+                        MessageBoxImage.Hand,
+                        "Settings validation notification");
+                    return;
+                }
+
+                totalStopwatch.Stop();
+                bool customFolderOutputBaseJukeboxAdoptionConfirmed = ConfirmCustomFolderOutputBaseJukeboxAdoptionBeforeSave(out _);
+                totalStopwatch.Start();
+                if (!customFolderOutputBaseJukeboxAdoptionConfirmed)
+                {
+                    outcome = "custom_folder_jukebox_adoption_cancelled";
+                    return;
+                }
+
+                needRestart = shouldInitializeAfterSave ? RestartMode.None : IsNeedRestartForSaved();
+                var saveStopwatch = Stopwatch.StartNew();
+                if (shouldInitializeAfterSave)
+                {
+                    await SaveSettingsForInitialInitialize();
+                    saveMs = saveStopwatch.ElapsedMilliseconds;
+                    if (ownerViewModel.IsFirstStartup)
+                    {
+                        totalStopwatch.Stop();
+                        MainWindowViewModel.ShowUiMessage(
+                            BeMusicSeeker.Properties.Resources.Msg_initsetting_completed,
+                            BeMusicSeeker.Properties.Resources.Information,
+                            MessageBoxImage.Asterisk,
+                            "Initial settings completion notification");
+                        totalStopwatch.Start();
+                    }
+                    bool initializationSucceeded = await initializeOwner();
+                    if (initializationSucceeded)
+                    {
+                        RequestPresentation(PresentationRequestKind.CloseOverlay);
+                        outcome = "saved_initial";
+                    }
+                    else
+                    {
+                        ownerViewModel.MarkLibraryInitializationFailed();
+                        outcome = "saved_initialization_failed";
+                    }
+                }
+                else
+                {
+                    await SaveSettings();
+                    saveMs = saveStopwatch.ElapsedMilliseconds;
+                    bool initializationSucceeded = true;
+                    if (needRestart.HasFlag(RestartMode.All)
+                        || (needRestart.HasFlag(RestartMode.ScoreOnly) && needRestart.HasFlag(RestartMode.FolderOnly)))
+                    {
+                        initializationSucceeded = await initializeOwner();
+                        if (!initializationSucceeded)
+                        {
+                            ownerViewModel.MarkLibraryInitializationFailed();
+                        }
+                    }
+                    else if (needRestart.HasFlag(RestartMode.ScoreOnly))
+                    {
+                        ownerViewModel.ReloadScoresOnly();
+                    }
+                    else if (needRestart.HasFlag(RestartMode.FolderOnly))
+                    {
+                        ownerViewModel.ReloadFileDiff();
+                    }
+                    if (initializationSucceeded)
+                    {
+                        RequestPresentation(PresentationRequestKind.CloseOverlay);
+                        outcome = "saved";
+                    }
+                    else
+                    {
+                        outcome = "saved_initialization_failed";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                outcome = "failed";
+                totalStopwatch.Stop();
+                MainWindowViewModel.ShowUiMessage(
+                    BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
+                    BeMusicSeeker.Properties.Resources.Error,
+                    MessageBoxImage.Hand,
+                    "Settings apply failure notification");
+            }
+            finally
+            {
+                IsEditCompletionInProgress = false;
+                LogSettingsPerformance(
+                    "settings_apply",
+                    totalStopwatch,
+                    "outcome=" + outcome
+                    + " initial=" + shouldInitializeAfterSave.ToString().ToLowerInvariant()
+                    + " restartMode=" + needRestart
+                    + " validationMs=" + validationMs
+                    + " saveMs=" + saveMs);
+            }
         }
 
         private Settings ApplicationSettings => settingsEditSession.Values;
@@ -3120,13 +3374,15 @@ public partial class MainWindowViewModel
             MainWindowViewModel owner,
             Action reloadSettings,
             Action saveSettings,
-            ISettingsEditSession settingsEditSession)
+            ISettingsEditSession settingsEditSession,
+            Func<Task<bool>> initializeOwner = null)
         {
             SettingDialogViewModel settingDialogViewModel = this;
             ownerViewModel = owner;
             this.reloadSettings = reloadSettings ?? throw new ArgumentNullException(nameof(reloadSettings));
             this.saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
             this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
+            this.initializeOwner = initializeOwner ?? (() => owner.InitializeForSettingsAsync());
             playHistoryDisplaySettingsStore = owner.PlayHistoryDisplaySettingsStore;
             appearanceThemeOptions =
             [
@@ -6577,10 +6833,6 @@ public partial class MainWindowViewModel
             return restartMode;
         }
 
-        public RestartMode IsNeedRestartForSaveOrCancel()
-        {
-            return RestartMode.None;
-        }
     }
 
 }

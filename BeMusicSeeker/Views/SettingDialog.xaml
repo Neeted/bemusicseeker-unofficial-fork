@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <UserControl x:Class="BeMusicSeeker.Views.SettingDialog" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" xmlns:v="clr-namespace:BeMusicSeeker.Views" xmlns:vm="clr-namespace:BeMusicSeeker.ViewModels" xmlns:d="http://schemas.microsoft.com/expression/blend/2008" xmlns:qc="http://QuickConverter.CodePlex.com/" xmlns:sys="clr-namespace:System;assembly=mscorlib" xmlns:prop="clr-namespace:BeMusicSeeker.Properties" x:Name="settingDialog">
-  <Grid Name="settingDialogRootGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
+  <Grid Name="settingDialogRootGrid" IsEnabled="{Binding settingDialog.IsEditCompletionEnabled}">
+    <Grid Name="settingDialogOperationGrid" TextElement.Foreground="{DynamicResource App.TextBrush}">
     <FrameworkElement.Resources>
       <ResourceDictionary>
         <v:expanderDetailedLR2PathConverter x:Key="expanderDetailedLR2PathConverter" />
@@ -141,8 +142,8 @@
     <Border Width="640" Height="500" CornerRadius="8" Background="{DynamicResource App.DialogBackgroundBrush}" BorderBrush="{DynamicResource App.DialogBorderBrush}" BorderThickness="1" Padding="12" SnapsToDevicePixels="True">
       <DockPanel HorizontalAlignment="Stretch" VerticalAlignment="Stretch" LastChildFill="True">
           <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" VerticalAlignment="Bottom" HorizontalAlignment="Right" Margin="0,8,0,0">
-            <Button Name="buttonOK" Content="OK" MinWidth="64" Margin="0,0,8,0" Click="SaveAndClose" />
-            <Button Name="buttonCancel" Content="Cancel" MinWidth="64" Click="CancelAndClose" />
+            <Button Name="buttonOK" Content="OK" MinWidth="64" Margin="0,0,8,0" Command="{Binding settingDialog.ApplyCommand}" />
+            <Button Name="buttonCancel" Content="Cancel" MinWidth="64" Command="{Binding settingDialog.CancelCommand}" />
           </StackPanel>
           <TabControl DockPanel.Dock="Top">
             <TabItem Name="tabItemGeneral" FontFamily="Meiryo UI" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.General, Mode=OneWay}">
@@ -1152,5 +1153,6 @@
           </TabControl>
         </DockPanel>
     </Border>
+    </Grid>
   </Grid>
 </UserControl>

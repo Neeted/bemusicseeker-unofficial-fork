@@ -66,4 +66,65 @@ public sealed class PlaylistCustomFolderOutputOwnerTests
             }
         }
     }
+
+    [TestMethod]
+    public void Materialization_DoesNotRewriteCurrentFileWhenPhysicalSurfaceHasNoEntry()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "bmseeker-custom-folder-owner-" + Guid.NewGuid().ToString("N"));
+        var settings = new CustomFolderOutputSettingsSnapshot
+        {
+            LR2RootPath = root,
+            LR2CustomFolderOutputBaseDir = root,
+            LR2CustomFolderOutputBaseDirRootType = root,
+            OperationModeLR2DB = true
+        };
+        var table = new BMSTable
+        {
+            playlist_id = 43,
+            name = "Owner idempotence test",
+            Output_dir = "owner-output"
+        };
+        var owner = new PlaylistCustomFolderOutputOwner(
+            () => settings,
+            (currentTable, currentSettings) =>
+            [
+                new PlaylistCustomFolderOutputOwner.CustomFolderDefinition
+                {
+                    RelativeDirectory = string.Empty,
+                    Text = "#COMMAND song.hash = 'def'\r\n#TITLE Owner idempotence test\r\n",
+                    IsRandomVariant = false
+                }
+            ],
+            (currentTable, currentSettings) => Path.Combine(currentSettings.LR2CustomFolderOutputBaseDir, currentTable.Output_dir),
+            (directories, reason) => CustomFolderOutputPhysicalSurface.Empty,
+            (projections, currentSettings) => projections.Select(projection => projection.OutputDirectory).ToArray(),
+            (directory, currentTable, currentSettings) => [directory],
+            _ => { });
+
+        try
+        {
+            PlaylistCustomFolderOutputOwner.CustomFolderOutputProjection projection = owner.CreateProjection(table);
+            PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult first = owner.MaterializeBatch([projection]);
+            string filePath = projection.Files[0].FilePath;
+            DateTime expectedTimestamp = new(2001, 2, 3, 4, 5, 6, DateTimeKind.Utc);
+            File.SetLastWriteTimeUtc(filePath, expectedTimestamp);
+
+            PlaylistCustomFolderOutputOwner.CustomFolderBatchMaterializationResult second = owner.MaterializeBatch([projection]);
+
+            Assert.AreEqual(1, first.WrittenFileCount);
+            Assert.AreEqual(0, second.WrittenFileCount);
+            Assert.AreEqual(1, second.UnchangedFileCount);
+            Assert.AreEqual(expectedTimestamp, File.GetLastWriteTimeUtc(filePath));
+            CollectionAssert.AreEqual(
+                System.Text.Encoding.GetEncoding("shift_jis").GetBytes("#COMMAND song.hash = 'def'\r\n#TITLE Owner idempotence test\r\n"),
+                File.ReadAllBytes(filePath));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+            {
+                Directory.Delete(root, recursive: true);
+            }
+        }
+    }
 }

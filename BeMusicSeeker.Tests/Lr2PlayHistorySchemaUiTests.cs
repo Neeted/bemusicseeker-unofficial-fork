@@ -121,7 +121,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         StringAssert.Contains(installHandler, "Task.Run(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaCore)");
         StringAssert.Contains(installHandler, "Task.Run(() =>");
         StringAssert.Contains(installHandler, "settingDialogViewModel.CheckLr2PlayHistorySchemaCore(expectedScoreDbPath, expectedOperationMode)");
-        StringAssert.Contains(normalizedInstallHandler, "!= MessageBoxResult.OK)\n        {\n            return;\n        }\n\n        settingDialogRootGrid.IsEnabled = false;");
+        StringAssert.Contains(normalizedInstallHandler, "!= MessageBoxResult.OK)\n        {\n            return;\n        }\n\n        settingDialogOperationGrid.IsEnabled = false;");
         Assert.IsTrue(
             installHandler.IndexOf("Msg_confirm_lr2_play_history_schema_install_or_repair", StringComparison.Ordinal)
             < installHandler.IndexOf("Task.Run(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaCore)", StringComparison.Ordinal));

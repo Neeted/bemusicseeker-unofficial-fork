@@ -405,6 +405,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         UnsubscribeViewModelUiInteractions();
         subscribedViewModel = viewModel;
         viewModel.settingDialog.OpenRequested += MainWindowViewModel_SettingDialogOpenRequested;
+        viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
         viewModel.PlaylistWorkspace.PlaylistUrlSingleInstallRequested += PlaylistWorkspacePlaylistUrlSingleInstallRequested;
@@ -422,6 +423,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             return;
         }
         subscribedViewModel.settingDialog.OpenRequested -= MainWindowViewModel_SettingDialogOpenRequested;
+        subscribedViewModel.settingDialog.PresentationRequested -= MainWindowViewModel_SettingDialogPresentationRequested;
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
         subscribedViewModel.PlaylistWorkspace.PlaylistUrlSingleInstallRequested -= PlaylistWorkspacePlaylistUrlSingleInstallRequested;
@@ -441,6 +443,26 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
 
         ShowOverlayDialog(settingDialog);
+    }
+
+    private void MainWindowViewModel_SettingDialogPresentationRequested(
+        object sender,
+        MainWindowViewModel.SettingDialogViewModel.PresentationRequestedEventArgs request)
+    {
+        if (request == null)
+        {
+            return;
+        }
+
+        if (request.Kind == MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay)
+        {
+            HideOverlayDialog(settingDialog);
+        }
+        else if (request.Kind == MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.RefreshAppearanceSelection
+            && base.DataContext is MainWindowViewModel viewModel)
+        {
+            settingDialog.RefreshAppearanceThemeSelection(viewModel.settingDialog);
+        }
     }
 
     private void MainWindowViewModel_InitialSetupLanguageDialogRequested(object sender, EventArgs e)

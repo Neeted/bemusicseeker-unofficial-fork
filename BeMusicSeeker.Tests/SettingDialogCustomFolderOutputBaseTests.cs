@@ -32,12 +32,12 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
 
             Assert.IsFalse(dialog.HasPendingSettingChanges());
-            Assert.IsFalse(SettingDialog.ShouldResetSettingsOnCancel(dialog));
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
 
             Settings.Default.ShowRecommUpdatedMsg = !previousShowRecommUpdatedMsg;
 
             Assert.IsTrue(dialog.HasPendingSettingChanges());
-            Assert.IsTrue(SettingDialog.ShouldResetSettingsOnCancel(dialog));
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
 
             Settings.Default.ShowRecommUpdatedMsg = previousShowRecommUpdatedMsg;
 
@@ -46,7 +46,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             Settings.Default.ShowDuplicateFileCheckConfirmMsg = !previousShowDuplicateFileCheckConfirmMsg;
 
             Assert.IsTrue(dialog.HasPendingSettingChanges());
-            Assert.IsTrue(SettingDialog.ShouldResetSettingsOnCancel(dialog));
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
 
             Settings.Default.ShowDuplicateFileCheckConfirmMsg = previousShowDuplicateFileCheckConfirmMsg;
 
@@ -108,7 +108,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
     }
 
     [TestMethod]
-    public void ShouldCloseSettingsWithoutSave_ClosesOnlyActiveUnchangedProfiles()
+    public void PendingSettingsRemainIndependentOfActiveLibraryProfile()
     {
         bool previousShowRecommUpdatedMsg = Settings.Default.ShowRecommUpdatedMsg;
         try
@@ -116,15 +116,15 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             var viewModel = new MainWindowViewModel();
             MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
 
-            Assert.IsFalse(SettingDialog.ShouldCloseSettingsWithoutSave(viewModel, dialog));
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
 
             SetViewModelField(viewModel, "hasActiveLibraryProfile", true);
 
-            Assert.IsTrue(SettingDialog.ShouldCloseSettingsWithoutSave(viewModel, dialog));
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
 
             Settings.Default.ShowRecommUpdatedMsg = !Settings.Default.ShowRecommUpdatedMsg;
 
-            Assert.IsFalse(SettingDialog.ShouldCloseSettingsWithoutSave(viewModel, dialog));
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
         }
         finally
         {
@@ -187,7 +187,7 @@ public sealed class SettingDialogCustomFolderOutputBaseTests
             editSession.PlaylistOptions.ToList().ForEach(option => option.IsSelected = false);
             Assert.IsTrue(dialog.HasPendingSettingChanges());
             SetViewModelField(viewModel, "hasActiveLibraryProfile", true);
-            Assert.IsFalse(SettingDialog.ShouldCloseSettingsWithoutSave(viewModel, dialog));
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
             Assert.IsFalse(dialog.TryApplyPlayHistoryFolderDisplayPresetEditSession(editSession, out string noPlaylistError));
             StringAssert.Contains(noPlaylistError, Resources.Error_PlayHistoryFolderPresetNoPlaylist.Split(':')[0]);
             Assert.AreEqual(secondPresetNameBeforeDuplicateValidation, secondPreset.Name);

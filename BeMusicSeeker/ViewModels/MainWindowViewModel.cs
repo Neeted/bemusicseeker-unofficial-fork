@@ -5567,13 +5567,37 @@ public partial class MainWindowViewModel : ViewModel
         return new LR2Config(startupSettings.LR2ConfigXmlPath);
     }
 
-    public async void Initialize()
+    public async void InitializeAsync()
+    {
+        await InitializeForSettingsAsync();
+    }
+
+    internal void MarkLibraryInitializationFailed()
+    {
+        if (initializationCompleted)
+        {
+            initializationCompleted = false;
+            RaisePropertyChanged(() => IsInitializationCompleted);
+        }
+        if (hasActiveLibraryProfile)
+        {
+            hasActiveLibraryProfile = false;
+            RaisePropertyChanged(() => HasActiveLibraryProfile);
+        }
+    }
+
+    internal async Task<bool> InitializeForSettingsAsync()
     {
         await _semaphore.WaitAsync();
         SetStartupUiInteractionBlocked(true);
         LogInitStage("start", "Initialize");
         initializationCompleted = false;
         RaisePropertyChanged(() => IsInitializationCompleted);
+        if (hasActiveLibraryProfile)
+        {
+            hasActiveLibraryProfile = false;
+            RaisePropertyChanged(() => HasActiveLibraryProfile);
+        }
         _ = string.Empty;
         string text = Assembly.GetEntryAssembly().GetName().Version.ToString();
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
@@ -5597,7 +5621,7 @@ public partial class MainWindowViewModel : ViewModel
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
             RaiseSettingDialogOpenRequested();
-            return;
+            return false;
         }
         if (!settingDialog.CheckValidation(out string startupValidationErrorMessage))
         {
@@ -5607,7 +5631,7 @@ public partial class MainWindowViewModel : ViewModel
                 _semaphore.Release();
                 SetStartupUiInteractionBlocked(false);
                 RaiseInitialSetupLanguageDialogRequested();
-                return;
+                return false;
             }
             else
             {
@@ -5616,7 +5640,7 @@ public partial class MainWindowViewModel : ViewModel
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
             RaiseSettingDialogOpenRequested();
-            return;
+            return false;
         }
         try
         {
@@ -5624,7 +5648,7 @@ public partial class MainWindowViewModel : ViewModel
             {
                 _semaphore.Release();
                 SetStartupUiInteractionBlocked(false);
-                return;
+                return false;
             }
         }
         catch (Exception ex)
@@ -5636,7 +5660,7 @@ public partial class MainWindowViewModel : ViewModel
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
             RaiseSettingDialogOpenRequested();
-            return;
+            return false;
         }
         long operationToken;
         try
@@ -5680,7 +5704,7 @@ public partial class MainWindowViewModel : ViewModel
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
             RaiseSettingDialogOpenRequested();
-            return;
+            return false;
         }
         LoadColumnSetting();
         listenerForBMSLibrary = new PropertyChangedEventListener(files);
@@ -6071,7 +6095,7 @@ public partial class MainWindowViewModel : ViewModel
             _semaphore.Release();
             SetStartupUiInteractionBlocked(false);
             RaiseSettingDialogOpenRequested();
-            return;
+            return false;
         }
         finally
         {
@@ -6113,6 +6137,7 @@ public partial class MainWindowViewModel : ViewModel
             StartupProgressPhase.RankingRefreshDone,
             StartupProgressPhase.MaintenanceDeferredDone,
             StartupProgressPhase.InstallableMaintenanceDeferredDone);
+        return true;
     }
 
     private void PlaylistWorkspacePlaylistTablesPresentationChanged(object sender, EventArgs e)

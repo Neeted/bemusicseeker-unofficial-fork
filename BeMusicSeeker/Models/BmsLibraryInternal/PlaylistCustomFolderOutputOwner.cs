@@ -231,7 +231,8 @@ internal sealed class PlaylistCustomFolderOutputOwner
                         LongPathFileSystem.CreateDirectory(fileDirectory);
                     }
                     bool writeRequired = projection.ForceWriteFilePaths.Contains(file.FilePath)
-                        || physicalEntry?.LastWriteTimeUtc == null;
+                        || (physicalEntry?.LastWriteTimeUtc == null
+                            && !IsExistingFileContentCurrent(file.FilePath, text, shiftJis));
                     if (writeRequired)
                     {
                         WriteAllText(file.FilePath, text, shiftJis);
@@ -678,6 +679,18 @@ internal sealed class PlaylistCustomFolderOutputOwner
         using FileStream stream = LongPathFileSystem.Open(path, FileMode.Create, FileAccess.Write, FileShare.None);
         using var writer = new StreamWriter(stream, encoding);
         writer.Write(text);
+    }
+
+    private static bool IsExistingFileContentCurrent(string path, string text, Encoding encoding)
+    {
+        if (!LongPathFileSystem.FileExists(path))
+        {
+            return false;
+        }
+
+        byte[] expected = encoding.GetBytes(text ?? string.Empty);
+        byte[] actual = LongPathFileSystem.ReadAllBytes(path);
+        return expected.SequenceEqual(actual);
     }
 
     private static IEnumerable<string> ReadLines(string text)

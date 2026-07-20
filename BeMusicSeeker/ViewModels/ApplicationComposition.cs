@@ -51,6 +51,8 @@ internal sealed class ApplicationComposition
 
     private readonly Func<IBMSPlayer> defaultBmsPlayerFactory;
 
+    private readonly Func<MainWindowViewModel, Task<bool>> initializeOwner;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -66,13 +68,16 @@ internal sealed class ApplicationComposition
         IKeywordSearchHistorySettingsStore keywordSearchHistorySettingsStore = null,
         IPlayHistoryDisplaySettingsStore playHistoryDisplaySettingsStore = null,
         ISettingsEditSession settingsEditSession = null,
-        Func<IBMSPlayer> defaultBmsPlayerFactory = null)
+        Func<IBMSPlayer> defaultBmsPlayerFactory = null,
+        Func<MainWindowViewModel, Task<bool>> initializeOwner = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
         playbackSettingsStore = new SettingsPlaybackSettingsStore(() => this.settingsEditSession.Values);
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
             ?? (() => new InternalBMSAutoPlayerSoundOnly());
+        this.initializeOwner = initializeOwner
+            ?? (owner => owner.InitializeForSettingsAsync());
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
             ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.startupSettingsProvider = startupSettingsProvider
@@ -246,7 +251,8 @@ internal sealed class ApplicationComposition
             owner,
             reloadSettings,
             saveSettings,
-            settingsEditSession);
+            settingsEditSession,
+            () => initializeOwner(owner));
     }
 
     internal MainWindowChildComposition CreateMainWindowChildComposition(

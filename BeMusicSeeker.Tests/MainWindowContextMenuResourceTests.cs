@@ -515,14 +515,13 @@ public sealed class MainWindowContextMenuResourceTests
     {
         XDocument mainWindowDocument = LoadMainWindowXamlDocument();
         string settingDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.xaml"));
-        string settingDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string editDialogXaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.xaml"));
         string editDialogCode = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "PlayHistoryFolderDisplayPresetEditDialog.cs"));
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string displayTargetOwner = SourceTextTestHelper.ReadProductionSourceText("BeMusicSeeker", "ViewModels", "MainWindow", "PlayHistoryWorkflowOwner.DisplayTargets.cs");
         string toolbar = FindElementByAttribute(mainWindowDocument, "Name", "mainTableToolbar")
             .ToString(SaveOptions.DisableFormatting);
-        string saveAndClose = ExtractBetween(settingDialogCode, "private async void SaveAndClose", "internal static bool ShouldResetSettingsOnCancel");
+        string applySettings = ExtractBetween(viewModelCode, "internal async Task ApplySettingsAsync()", "private Settings ApplicationSettings");
         string saveSettings = ExtractBetween(viewModelCode, "public async Task SaveSettings()", "public async Task SaveSettingsForInitialInitialize()");
         string saveSettingsCore = ExtractBetween(viewModelCode, "private async Task SaveSettingsCore", "public void SaveOperationModeForRestart");
 
@@ -555,7 +554,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(settingDialogXaml, "Click=\"buttonAddPlayHistoryFolderDisplayPresetClicked\"");
         StringAssert.Contains(settingDialogXaml, "Click=\"buttonRemovePlayHistoryFolderDisplayPresetClicked\"");
         StringAssert.Contains(settingDialogXaml, "Click=\"buttonEditPlayHistoryFolderDisplayPresetClicked\"");
-        StringAssert.Contains(saveAndClose, "await settingDialogViewModel.SaveSettings();");
+        StringAssert.Contains(applySettings, "await SaveSettings();");
         StringAssert.Contains(saveSettings, "await SaveSettingsCore(runPostSaveActions: true);");
         StringAssert.Contains(saveSettingsCore, "PersistPlayHistoryFolderDisplayPresetsIfChanged();");
     }
@@ -1475,7 +1474,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public async Task SaveSettings()");
         string initialize = ExtractBetween(
             viewModelCode,
-            "public async void Initialize()",
+            "internal async Task<bool> InitializeForSettingsAsync()",
             "listenerForBMSLibrary = new PropertyChangedEventListener(files);");
         string saveFollowup = ExtractBetween(
             viewModelCode,
@@ -1537,39 +1536,36 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
-    public void SettingDialogSaveAndClose_DoesNotHandleOperationModeRestart()
+    public void SettingDialogApplyCommand_UsesOwnerCompletionRoute()
     {
         string root = FindRepositoryRoot();
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
+        string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
+        string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string appCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.cs"));
-        string saveAndClose = ExtractBetween(
-            settingDialogCode,
-            "private async void SaveAndClose",
-            "private async void detailTabItemBackupButtonClicked");
-
-        Assert.IsFalse(saveAndClose.Contains("Resources.Confirm_RestartForOperationModeChange"));
-        Assert.IsFalse(saveAndClose.Contains("SaveSettingsForRestart"));
-        StringAssert.Contains(saveAndClose, "try");
-        StringAssert.Contains(saveAndClose, "finally");
-        StringAssert.Contains(saveAndClose, "shouldInitializeAfterSave = !viewModel.HasActiveLibraryProfile;");
-        StringAssert.Contains(saveAndClose, "LogSettingsDialogPerformance(");
-        StringAssert.Contains(saveAndClose, "MainWindowViewModel.SettingDialogViewModel.RestartMode.None");
-        StringAssert.Contains(saveAndClose, "if (shouldInitializeAfterSave)");
-        StringAssert.Contains(saveAndClose, "SaveSettingsForInitialInitialize()");
-        StringAssert.Contains(saveAndClose, "HideThisOverlay();");
-        StringAssert.Contains(saveAndClose, "Msg_initsetting_completed");
-        Assert.IsTrue(saveAndClose.IndexOf("Msg_initsetting_completed", StringComparison.Ordinal) < saveAndClose.IndexOf("viewModel.Initialize();", StringComparison.Ordinal));
-        StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidation(out errMsg)");
-        StringAssert.Contains(saveAndClose, "settingDialogViewModel.CheckValidationBeforeSave(out errMsg)");
-        StringAssert.Contains(saveAndClose, "settingDialogRootGrid.IsEnabled = true;");
-        Assert.IsTrue(saveAndClose.IndexOf("settingDialogRootGrid.IsEnabled = true;", StringComparison.Ordinal) < saveAndClose.IndexOf("\"settings_save_and_close\"", StringComparison.Ordinal));
-        StringAssert.Contains(saveAndClose, "viewModel.IsLibraryOperationInProgress");
-        StringAssert.Contains(saveAndClose, "Resources.Msg_settings_apply_blocked_during_initialization");
-        StringAssert.Contains(saveAndClose, "settingDialogViewModel.ResetSettings();");
-        StringAssert.Contains(saveAndClose, "SyncAppearanceThemeSelection(settingDialogViewModel);");
-        StringAssert.Contains(saveAndClose, "Msg_invalid_setting");
-        StringAssert.Contains(saveAndClose, "Msg_error_unexpected");
-        Assert.IsTrue(saveAndClose.IndexOf("viewModel.IsLibraryOperationInProgress", StringComparison.Ordinal) < saveAndClose.IndexOf("SaveSettingsForInitialInitialize()", StringComparison.Ordinal));
+        Assert.IsFalse(settingDialogCode.Contains("SaveAndClose"));
+        Assert.IsFalse(settingDialogCode.Contains("CancelAndClose"));
+        Assert.IsFalse(settingDialogCode.Contains("ShouldResetSettingsOnCancel"));
+        Assert.IsFalse(settingDialogCode.Contains("ShouldCloseSettingsWithoutSave"));
+        Assert.IsFalse(settingDialogCode.Contains("IsNeedRestartForSaveOrCancel"));
+        StringAssert.Contains(settingDialogXaml, "Command=\"{Binding settingDialog.ApplyCommand}\"");
+        StringAssert.Contains(settingDialogXaml, "Command=\"{Binding settingDialog.CancelCommand}\"");
+        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding settingDialog.IsEditCompletionEnabled}\"");
+        StringAssert.Contains(mainWindowXaml, "MethodName=\"InitializeAsync\" MethodTarget=\"{Binding}\"");
+        StringAssert.Contains(viewModelCode, "public async void InitializeAsync()");
+        StringAssert.Contains(viewModelCode, "await InitializeForSettingsAsync();");
+        StringAssert.Contains(viewModelCode, "internal async Task ApplySettingsAsync()");
+        StringAssert.Contains(viewModelCode, "await SaveSettingsForInitialInitialize();");
+        StringAssert.Contains(viewModelCode, "await SaveSettings();");
+        StringAssert.Contains(viewModelCode, "RequestPresentation(PresentationRequestKind.CloseOverlay);");
+        StringAssert.Contains(viewModelCode, "bool initializationSucceeded = true;");
+        StringAssert.Contains(viewModelCode, "initializationSucceeded = await initializeOwner();");
+        StringAssert.Contains(viewModelCode, "ownerViewModel.MarkLibraryInitializationFailed();");
+        StringAssert.Contains(viewModelCode, "if (initializationSucceeded)");
+        StringAssert.Contains(viewModelCode, "IsEditCompletionInProgress = false;");
+        Assert.IsFalse(settingDialogCode.Contains("settings_save_and_close"));
+        Assert.IsFalse(settingDialogCode.Contains("SyncAppearanceThemeSelection"));
         Assert.IsFalse(settingDialogCode.Contains("firstStartupInitializationStarted"));
         StringAssert.Contains(appCode, "public void RestartApplication()");
         StringAssert.Contains(appCode, "ReleaseSingleInstanceMutex();");
@@ -1587,7 +1583,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
         string initialize = ExtractBetween(
             viewModelCode,
-            "public async void Initialize()",
+            "internal async Task<bool> InitializeForSettingsAsync()",
             "public void CloseProcess()");
         string validationFailure = ExtractBetween(
             initialize,
@@ -1645,7 +1641,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public async void ReinitializeLibrary()");
         string initialize = ExtractBetween(
             viewModelCode,
-            "public async void Initialize()",
+            "internal async Task<bool> InitializeForSettingsAsync()",
             "public void CloseProcess()");
         string endSuppression = ExtractBetween(
             viewModelCode,
@@ -1908,10 +1904,9 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private void backupSavedSettingsCore(SettingsSnapshotRefreshScope scope)",
             "private async Task necessaryStepsAfterSaved(SettingsPostSaveImpact impact)");
-        string restartDecision = ExtractBetween(
+        string restartDecision = ExtractMethodBody(
             viewModelCode,
-            "public RestartMode IsNeedRestartForSaved()",
-            "public RestartMode IsNeedRestartForSaveOrCancel()");
+            "public RestartMode IsNeedRestartForSaved()");
         string pendingDecision = ExtractBetween(
             viewModelCode,
             "internal bool HasPendingSettingChanges()",
@@ -1920,10 +1915,6 @@ public sealed class MainWindowContextMenuResourceTests
             viewModelCode,
             "private async Task SaveSettingsCore(bool runPostSaveActions)",
             "public void SaveOperationModeForRestart");
-        string saveOrCancelDecision = ExtractMethodBody(
-            viewModelCode,
-            "public RestartMode IsNeedRestartForSaveOrCancel()");
-
         StringAssert.Contains(backupSavedSettings, "tempStandaloneBmsRootPaths = SerializeBmsRootPathsForChangeTracking(StandaloneBmsRootPathList);");
         StringAssert.Contains(backupSavedSettings, "tempLR2ConfigBmsSearchRoots = SerializeLR2ConfigBmsSearchRoots();");
         StringAssert.Contains(backupSavedSettings, "scope.HasFlag(SettingsSnapshotRefreshScope.StandaloneSearchRoots)");
@@ -1947,7 +1938,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(restartDecision, "HasLR2ConfigBmsSearchRootsChanged()");
         StringAssert.Contains(restartDecision, "HasStandaloneBmsRootPathsChanged()");
         StringAssert.Contains(restartDecision, "HasCustomFolderOutputBaseSettingsChanged()");
-        StringAssert.Contains(saveOrCancelDecision, "return RestartMode.None;");
+        Assert.IsFalse(viewModelCode.Contains("IsNeedRestartForSaveOrCancel"));
     }
 
     [TestMethod]
@@ -2036,7 +2027,7 @@ public sealed class MainWindowContextMenuResourceTests
             < viewModelCode.IndexOf("() => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false)", StringComparison.Ordinal),
             "LR2 generated-data preparation must stay behind the LR2 preparation/queue gate instead of running as an unguarded pre-step.");
         Assert.IsFalse(
-            manualResyncClickHandler.IndexOf("settingDialogRootGrid.IsEnabled = false;", StringComparison.Ordinal) >= 0,
+            manualResyncClickHandler.IndexOf("settingDialogOperationGrid.IsEnabled = false;", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must not disable the entire settings dialog while playlist projection is running.");
         Assert.IsFalse(
             manualResyncClickHandler.IndexOf("ClearValue(UIElement.IsEnabledProperty)", StringComparison.Ordinal) >= 0
@@ -3899,9 +3890,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(uninstallClickHandler, "UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_failed_uninstall");
         StringAssert.Contains(uninstallClickHandler, "if (viewModel.IsLibraryOperationInProgress)");
         StringAssert.Contains(uninstallClickHandler, "BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization");
-        StringAssert.Contains(uninstallClickHandler, "settingDialogRootGrid.IsEnabled = false;");
+        StringAssert.Contains(uninstallClickHandler, "settingDialogOperationGrid.IsEnabled = false;");
         StringAssert.Contains(uninstallClickHandler, "if (!closeAfterSuccess)");
-        StringAssert.Contains(uninstallClickHandler, "settingDialogRootGrid.IsEnabled = true;");
+        StringAssert.Contains(uninstallClickHandler, "settingDialogOperationGrid.IsEnabled = true;");
         Assert.IsTrue(
             uninstallClickHandler.IndexOf("Msg_success_uninstall", StringComparison.Ordinal)
             < uninstallClickHandler.IndexOf("アプリケーションを終了します", StringComparison.Ordinal));
@@ -3909,7 +3900,7 @@ public sealed class MainWindowContextMenuResourceTests
             uninstallClickHandler.IndexOf("viewModel.IsLibraryOperationInProgress", StringComparison.Ordinal)
             < uninstallClickHandler.IndexOf("続行しますか？", StringComparison.Ordinal));
         Assert.IsTrue(
-            uninstallClickHandler.IndexOf("settingDialogRootGrid.IsEnabled = false;", StringComparison.Ordinal)
+            uninstallClickHandler.IndexOf("settingDialogOperationGrid.IsEnabled = false;", StringComparison.Ordinal)
             < uninstallClickHandler.IndexOf("viewModel.UninstallAllData();", StringComparison.Ordinal));
         Assert.IsTrue(
             uninstallClickHandler.IndexOf("base.Dispatcher.BeginInvoke", StringComparison.Ordinal)
