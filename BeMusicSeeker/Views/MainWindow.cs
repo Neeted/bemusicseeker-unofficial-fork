@@ -357,7 +357,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         viewModel.settingDialog.PresentationRequested += MainWindowViewModel_SettingDialogPresentationRequested;
         viewModel.InitialSetupLanguageDialogRequested += MainWindowViewModel_InitialSetupLanguageDialogRequested;
         viewModel.InitializationSucceeded += MainWindowViewModel_InitializationSucceeded;
-        viewModel.PlaylistWorkspace.PlaylistUrlInstallQueued += PlaylistWorkspacePlaylistUrlInstallQueued;
+        viewModel.PlaylistUrlInstallTreeExpansionRequested += MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested;
         viewModel.FolderAutoRenameWorkflow.TerminalPublished += MainWindowViewModel_FolderAutoRenameTerminalPublished;
         viewModel.StartupUpdateWorkflow.PresentationRequested += MainWindowViewModel_StartupUpdatePresentationRequested;
         viewModel.StartupUpdateWorkflow.ShutdownPreparationRequested += MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
@@ -376,7 +376,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         subscribedViewModel.settingDialog.PresentationRequested -= MainWindowViewModel_SettingDialogPresentationRequested;
         subscribedViewModel.InitialSetupLanguageDialogRequested -= MainWindowViewModel_InitialSetupLanguageDialogRequested;
         subscribedViewModel.InitializationSucceeded -= MainWindowViewModel_InitializationSucceeded;
-        subscribedViewModel.PlaylistWorkspace.PlaylistUrlInstallQueued -= PlaylistWorkspacePlaylistUrlInstallQueued;
+        subscribedViewModel.PlaylistUrlInstallTreeExpansionRequested -= MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested;
         subscribedViewModel.FolderAutoRenameWorkflow.TerminalPublished -= MainWindowViewModel_FolderAutoRenameTerminalPublished;
         subscribedViewModel.StartupUpdateWorkflow.PresentationRequested -= MainWindowViewModel_StartupUpdatePresentationRequested;
         subscribedViewModel.StartupUpdateWorkflow.ShutdownPreparationRequested -= MainWindowViewModel_StartupUpdateShutdownPreparationRequested;
@@ -554,7 +554,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         playbackPanelView.RotatePanelState();
     }
 
-    private void PlaylistWorkspacePlaylistUrlInstallQueued()
+    private void MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested()
     {
         newlyInstalledTreeViewItem.IsExpanded = true;
     }

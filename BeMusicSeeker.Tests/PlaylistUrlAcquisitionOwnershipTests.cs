@@ -102,7 +102,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     }
 
     [TestMethod]
-    public async Task SingleDownloadedPackage_UsesInstallSinkBeforeQueuedPresentation()
+    public async Task SingleDownloadedPackage_UsesInstallSinkBeforeTreeExpansionPresentation()
     {
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
@@ -120,12 +120,12 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 {
                     events.Add("sink");
                     capturedPaths = paths;
-                });
-            workspace.PlaylistUrlInstallQueued += () => events.Add("queued");
+                },
+                treeExpansionSink: () => events.Add("expanded"));
 
             await workspace.OpenSinglePlaylistUrlAsync(new Uri("https://example.invalid/single.zip"));
 
-            CollectionAssert.AreEqual(new[] { "sink", "queued" }, events);
+            CollectionAssert.AreEqual(new[] { "sink", "expanded" }, events);
             Assert.IsNotNull(capturedPaths);
             Assert.AreEqual(1, capturedPaths!.Count);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
@@ -141,7 +141,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
     }
 
     [TestMethod]
-    public async Task BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeSummary()
+    public async Task BulkDownloadedPackages_UsesCopiedInstallSnapshotBeforeTreeExpansionAndSummary()
     {
         string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PlaylistUrlAcquisitionOwnershipTests), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(temporaryDirectory);
@@ -159,9 +159,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 {
                     events.Add("sink");
                     capturedPaths = paths;
-                });
+                },
+                treeExpansionSink: () => events.Add("expanded"));
             workspace.PlaylistUrlAcquisitionConfirmationRequested += (_, request) => request.Confirmed = true;
-            workspace.PlaylistUrlInstallQueued += () => events.Add("queued");
             workspace.PlaylistUrlAcquisitionSummaryReady += (_, _) => events.Add("summary");
 
             await workspace.DownloadSelectedPlaylistUrlsAsync(
@@ -171,7 +171,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
                 ],
                 isDiffUrl: false);
 
-            CollectionAssert.AreEqual(new[] { "sink", "queued", "summary" }, events);
+            CollectionAssert.AreEqual(new[] { "sink", "expanded", "summary" }, events);
             Assert.IsNotNull(capturedPaths);
             Assert.AreEqual(2, capturedPaths!.Count);
             Assert.IsTrue(((IList<string>)capturedPaths).IsReadOnly);
@@ -206,6 +206,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+            PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -232,6 +233,10 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             action => action(),
             browserSink: null,
             useDefaultBrowserSink: false));
+        Assert.ThrowsException<ArgumentNullException>(() => CreateWorkspace(
+            action => action(),
+            treeExpansionSink: null,
+            useDefaultTreeExpansionSink: false));
     }
 
     [TestMethod]
@@ -341,7 +346,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
         PlaylistUrlAcquisitionWorkflow? acquisitionWorkflow = null,
         Action<IReadOnlyList<string>>? installSink = null,
         Action<Uri>? browserSink = null,
-        bool useDefaultBrowserSink = true)
+        bool useDefaultBrowserSink = true,
+        Action? treeExpansionSink = null,
+        bool useDefaultTreeExpansionSink = true)
     {
         return new PlaylistWorkspaceViewModel(
             dispatch,
@@ -359,6 +366,9 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             useDefaultBrowserSink
                 ? browserSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink
                 : browserSink!,
+            useDefaultTreeExpansionSink
+                ? treeExpansionSink ?? PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink
+                : treeExpansionSink!,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,
@@ -406,6 +416,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+            PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
             externalWarningLog,
             externalInfoLog,
             beatorajaWarningLog,
@@ -450,6 +461,7 @@ public sealed class PlaylistUrlAcquisitionOwnershipTests
             PlaylistWorkspaceTestPorts.InactiveInstallQueueProvider,
             PlaylistWorkspaceTestPorts.PlaylistUrlInstallSink,
             PlaylistWorkspaceTestPorts.PlaylistUrlBrowserOpenSink,
+            PlaylistWorkspaceTestPorts.PlaylistUrlInstallTreeExpansionSink,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportWarningLog,
             PlaylistWorkspaceTestPorts.ExternalPlaylistImportInfoLog,
             PlaylistWorkspaceTestPorts.BeatorajaTableUrlImportWarningLog,

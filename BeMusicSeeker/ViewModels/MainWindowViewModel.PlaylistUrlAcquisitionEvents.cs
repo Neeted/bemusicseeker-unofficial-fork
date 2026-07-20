@@ -6,6 +6,8 @@ namespace BeMusicSeeker.ViewModels;
 
 public partial class MainWindowViewModel
 {
+    internal event Action PlaylistUrlInstallTreeExpansionRequested;
+
     private void PlaylistWorkspacePlaylistUrlDownloadStatusChanged(
         object sender,
         PlaylistUrlDownloadStatusSnapshot snapshot)

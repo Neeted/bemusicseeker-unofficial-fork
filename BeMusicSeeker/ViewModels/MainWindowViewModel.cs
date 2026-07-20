@@ -3574,6 +3574,7 @@ public partial class MainWindowViewModel : ViewModel
                 PackageInstallWorkflow.Enqueue(paths);
             },
             uri => Process.Start(uri.ToString()),
+            () => PlaylistUrlInstallTreeExpansionRequested?.Invoke(),
             LogExternalPlaylistImportWarning,
             LogExternalPlaylistImportInfo,
             LogBeatorajaTableUrlImportWarning,

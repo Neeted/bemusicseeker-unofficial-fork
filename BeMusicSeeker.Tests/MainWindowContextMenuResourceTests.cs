@@ -3472,7 +3472,8 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainWindowCode, "viewModel.PlaylistWorkspace.DownloadSelectedPlaylistExternalPackagesAsync(");
         Assert.IsFalse(mainWindowCode.Contains("DownloadPlaylistUrlCandidateAsync"));
         Assert.IsFalse(mainWindowCode.Contains("playlistUrlBulkDownload"));
-        StringAssert.Contains(mainWindowCode, "PlaylistUrlInstallQueued += PlaylistWorkspacePlaylistUrlInstallQueued");
+        StringAssert.Contains(mainWindowCode, "PlaylistUrlInstallTreeExpansionRequested += MainWindowViewModel_PlaylistUrlInstallTreeExpansionRequested");
+        Assert.IsFalse(mainWindowCode.Contains("PlaylistUrlInstallQueued += PlaylistWorkspacePlaylistUrlInstallQueued"));
         Assert.IsFalse(mainWindowCode.Contains("PlaylistWorkspacePlaylistUrlSingleInstallRequested"));
         Assert.IsFalse(mainWindowCode.Contains("PlaylistWorkspacePlaylistUrlInstallQueueRequested"));
         Assert.IsFalse(mainWindowCode.Contains("PackageInstallWorkflow.EnqueueSingle"));
@@ -3488,7 +3489,9 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(workspaceCode, "CancelPlaylistUrlDownload");
         StringAssert.Contains(workspaceCode, "playlistUrlInstallSink");
         StringAssert.Contains(workspaceCode, "playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot))");
-        StringAssert.Contains(workspaceCode, "PlaylistUrlInstallQueued");
+        StringAssert.Contains(workspaceCode, "playlistUrlInstallTreeExpansionSink");
+        StringAssert.Contains(workspaceCode, "DispatchPlaylistUrlAcquisitionAction(playlistUrlInstallTreeExpansionSink)");
+        Assert.IsFalse(workspaceCode.Contains("PlaylistUrlInstallQueued"));
         StringAssert.Contains(workspaceCode, "playlistUrlBrowserOpenSink");
         StringAssert.Contains(workspaceCode, "DispatchPlaylistUrlAcquisitionAction(() => playlistUrlBrowserOpenSink(url))");
         Assert.IsFalse(workspaceCode.Contains("PlaylistUrlSingleInstallRequestedEventArgs"));
@@ -3498,6 +3501,7 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(workspaceOwnerCode.Contains("ConfigurePlaylistUrlAcquisition"));
         StringAssert.Contains(workspaceOwnerCode, "playlistUrlAcquisitionOptionsProvider");
         StringAssert.Contains(workspaceOwnerCode, "playlistUrlBrowserOpenSink");
+        StringAssert.Contains(workspaceOwnerCode, "playlistUrlInstallTreeExpansionSink");
         StringAssert.Contains(workspaceCode, "playlistUrlInstallQueueActiveProvider");
         StringAssert.Contains(compositionCode, "new PlaylistUrlAcquisitionWorkflow(");
         StringAssert.Contains(compositionCode, "PlaylistExternalPackageLookupService.CreateDefault()");
@@ -3505,6 +3509,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(compositionCode, "playlistUrlInstallQueueActiveProvider");
         StringAssert.Contains(compositionCode, "playlistUrlInstallSink");
         StringAssert.Contains(compositionCode, "playlistUrlBrowserOpenSink");
+        StringAssert.Contains(compositionCode, "playlistUrlInstallTreeExpansionSink");
         StringAssert.Contains(compositionCode, "externalPlaylistImportWarningLog");
         StringAssert.Contains(compositionCode, "externalPlaylistImportInfoLog");
         StringAssert.Contains(compositionCode, "beatorajaTableUrlImportWarningLog");

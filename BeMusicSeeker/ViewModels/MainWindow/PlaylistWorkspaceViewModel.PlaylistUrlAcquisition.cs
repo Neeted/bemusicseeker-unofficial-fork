@@ -156,6 +156,8 @@ public sealed partial class PlaylistWorkspaceViewModel
 
     private readonly Action<Uri> playlistUrlBrowserOpenSink;
 
+    private readonly Action playlistUrlInstallTreeExpansionSink;
+
     private int playlistUrlAcquisitionRunning;
 
     private CancellationTokenSource playlistUrlAcquisitionCancellation;
@@ -169,8 +171,6 @@ public sealed partial class PlaylistWorkspaceViewModel
     private string playlistUrlAcquisitionLabelFormat = string.Empty;
 
     internal event EventHandler<PlaylistUrlDownloadStatusSnapshot> PlaylistUrlDownloadStatusChanged;
-
-    internal event Action PlaylistUrlInstallQueued;
 
     internal event EventHandler<PlaylistUrlAcquisitionConfirmationRequestedEventArgs> PlaylistUrlAcquisitionConfirmationRequested;
 
@@ -686,7 +686,7 @@ public sealed partial class PlaylistWorkspaceViewModel
             return false;
         }
         playlistUrlInstallSink(Array.AsReadOnly(pathSnapshot));
-        DispatchPlaylistUrlAcquisitionAction(() => PlaylistUrlInstallQueued?.Invoke());
+        DispatchPlaylistUrlAcquisitionAction(playlistUrlInstallTreeExpansionSink);
         return true;
     }
 
