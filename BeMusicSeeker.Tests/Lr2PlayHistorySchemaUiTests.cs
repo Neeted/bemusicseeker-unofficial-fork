@@ -1,8 +1,13 @@
 using System;
 using System.IO;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
+using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace BeMusicSeeker.Tests;
@@ -66,6 +71,35 @@ public sealed class Lr2PlayHistorySchemaUiTests
     }
 
     [TestMethod]
+    public async Task SettingDialogViewModel_InstallOrRepair_BlockedOperationUsesOwnerDialog()
+    {
+        var owner = new MainWindowViewModel();
+        var dialogs = new RecordingUiDialogService();
+        var settingDialog = new MainWindowViewModel.SettingDialogViewModel(
+            owner,
+            reloadSettings: () => { },
+            saveSettings: () => { },
+            settingsEditSession: SettingsEditSession.CreateDefault(),
+            reloadScoresOnly: () => Task.CompletedTask,
+            reloadFileDiff: () => Task.CompletedTask,
+            schemaDialogs: dialogs,
+            invalidatePlayHistoryReadCache: _ => { });
+        owner.SetStartupUiInteractionBlocked(true);
+        try
+        {
+            await settingDialog.InstallOrRepairLr2PlayHistorySchemaAsync();
+
+            Assert.AreEqual(1, dialogs.MessageCount);
+            Assert.AreEqual(0, dialogs.ConfirmationCount);
+            StringAssert.Contains(dialogs.LastMessage, Resources.Msg_settings_apply_blocked_during_initialization);
+        }
+        finally
+        {
+            owner.SetStartupUiInteractionBlocked(false);
+        }
+    }
+
+    [TestMethod]
     public void SettingDialog_Lr2PlayHistorySchemaUiUsesExplicitInstallBoundary()
     {
         string root = FindRepositoryRoot();
@@ -114,24 +148,32 @@ public sealed class Lr2PlayHistorySchemaUiTests
 
         string installHandler = ExtractBetween(
             codeBehind,
-            "private async Task InstallOrRepairLr2PlayHistorySchemaAsync",
-            "private async void detailTabItemRestoreButtonClicked");
+            "private async void installOrRepairLr2PlayHistorySchemaButtonClicked",
+            "private async void uninstallLr2PlayHistorySchemaButtonClicked");
         string normalizedInstallHandler = installHandler.Replace("\r\n", "\n");
-        StringAssert.Contains(installHandler, "Msg_confirm_lr2_play_history_schema_install_or_repair");
-        StringAssert.Contains(installHandler, "Task.Run(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaCore)");
-        StringAssert.Contains(installHandler, "Task.Run(() =>");
-        StringAssert.Contains(installHandler, "settingDialogViewModel.CheckLr2PlayHistorySchemaCore(expectedScoreDbPath, expectedOperationMode)");
-        StringAssert.Contains(normalizedInstallHandler, "!= MessageBoxResult.OK)\n        {\n            return;\n        }\n\n        settingDialogOperationGrid.IsEnabled = false;");
+        StringAssert.Contains(installHandler, "await settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync();");
+        StringAssert.Contains(normalizedInstallHandler, "settingDialogOperationGrid.IsEnabled = false;");
+        Assert.IsFalse(installHandler.Contains("InstallOrRepairLr2PlayHistorySchemaCore"));
+        Assert.IsFalse(installHandler.Contains("ApplyLr2PlayHistorySchemaCheckResult"));
+        Assert.IsFalse(installHandler.Contains("InvalidatePlayHistoryReadCache"));
+        Assert.IsFalse(installHandler.Contains("ReloadScoresOnlyAsync"));
         Assert.IsTrue(
-            installHandler.IndexOf("Msg_confirm_lr2_play_history_schema_install_or_repair", StringComparison.Ordinal)
-            < installHandler.IndexOf("Task.Run(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaCore)", StringComparison.Ordinal));
-        StringAssert.Contains(installHandler, "await settingDialogViewModel.ReloadScoresOnlyAsync();");
+            installHandler.IndexOf("settingDialogOperationGrid.IsEnabled = false;", StringComparison.Ordinal)
+            < installHandler.IndexOf("await settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync();", StringComparison.Ordinal));
+        StringAssert.Contains(viewModel, "internal async Task InstallOrRepairLr2PlayHistorySchemaAsync()");
+        StringAssert.Contains(viewModel, "Msg_confirm_lr2_play_history_schema_install_or_repair");
+        StringAssert.Contains(viewModel, "await RefreshLr2PlayHistorySchemaStatusAsync(force: true);");
+        StringAssert.Contains(viewModel, "InstallOrRepairLr2PlayHistorySchemaCore(scoreDbPath, isLr2LinkedProfile)");
+        StringAssert.Contains(viewModel, "invalidatePlayHistoryReadCache(\"lr2_play_history_schema_install_or_repair\")");
+        StringAssert.Contains(viewModel, "await ReloadScoresOnlyAsync();");
+        string installOwnerCommand = ExtractBetween(
+            viewModel,
+            "internal async Task InstallOrRepairLr2PlayHistorySchemaAsync()",
+            "private async Task RefreshLr2PlayHistorySchemaStatusAsync");
         Assert.IsTrue(
-            installHandler.IndexOf("ApplyLr2PlayHistorySchemaCheckResult", StringComparison.Ordinal)
-            < installHandler.IndexOf("await settingDialogViewModel.ReloadScoresOnlyAsync();", StringComparison.Ordinal));
-        Assert.IsFalse(installHandler.Contains("SaveSettings("));
-        Assert.IsFalse(installHandler.Contains("Settings.Default.Save"));
-        Assert.IsFalse(installHandler.Contains("lr2config.Save"));
+            installOwnerCommand.IndexOf("ApplyLr2PlayHistorySchemaCheckResult(result);", StringComparison.Ordinal)
+            < installOwnerCommand.IndexOf("await ReloadScoresOnlyAsync();", StringComparison.Ordinal));
+        Assert.IsFalse(viewModel.Contains("public async Task InstallOrRepairLr2PlayHistorySchemaAsync"));
         StringAssert.Contains(codeBehind, "private async void uninstallLr2PlayHistorySchemaButtonClicked");
         StringAssert.Contains(codeBehind, "await settingDialogViewModel.ReloadScoresOnlyAsync();");
         Assert.IsFalse(codeBehind.Contains("viewModel.ReloadScoresOnly();"));
@@ -143,7 +185,7 @@ public sealed class Lr2PlayHistorySchemaUiTests
         StringAssert.Contains(viewModel, "Lr2ScoreDbPathResolver.ResolvePlayerScoreDbPath(startupSettings.LR2RootPath, lr2config.GetPlayerId)");
         StringAssert.Contains(viewModel, "Lr2ScoreDbPathResolver.BuildPlayerScoreDbPath(ApplicationSettings.LR2RootPath, () => lr2config?.GetPlayerId())");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().Check(scoreDbPath, isLr2LinkedProfile)");
-        StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, OperationModeLR2DB)");
+        StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile)");
         StringAssert.Contains(viewModel, "new Lr2PlayHistorySchemaService().Uninstall(scoreDbPath, OperationModeLR2DB, uninstallMode)");
         StringAssert.Contains(viewModel, "lr2PlayHistorySchemaCheckResult == null || CanInstallLr2PlayHistorySchema || CanRepairLr2PlayHistorySchema");
         StringAssert.Contains(viewModel, "play_history_schema_");
@@ -200,6 +242,54 @@ public sealed class Lr2PlayHistorySchemaUiTests
             index += pattern.Length;
         }
         return count;
+    }
+
+    private sealed class RecordingUiDialogService : IUiDialogService
+    {
+        internal int MessageCount { get; private set; }
+
+        internal int ConfirmationCount { get; private set; }
+
+        internal string LastMessage { get; private set; } = string.Empty;
+
+        public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
+        {
+            MessageCount++;
+            LastMessage = request.MessageBoxText;
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
+        }
+
+        public Task<UiDialogResult> ConfirmAsync(UiConfirmationRequest request, CancellationToken cancellationToken = default)
+        {
+            ConfirmationCount++;
+            return Task.FromResult(UiDialogResult.FromMessageBoxResult(MessageBoxResult.Cancel));
+        }
+
+        public Task<UiWindowDialogResult<TResult>> ShowWindowAsync<TWindow, TResult>(UiWindowDialogRequest<TWindow, TResult> request, CancellationToken cancellationToken = default)
+            where TWindow : Window
+        {
+            return Task.FromResult(new UiWindowDialogResult<TResult>(UiDialogStatus.CancelledByUser));
+        }
+
+        public Task<UiFilePickerResult> PickFileAsync(UiFilePickerRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new UiFilePickerResult(UiDialogStatus.CancelledByUser));
+        }
+
+        public Task<UiFolderPickerResult> PickFolderAsync(UiFolderPickerRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new UiFolderPickerResult(UiDialogStatus.CancelledByUser));
+        }
+
+        public Task<UiSaveFilePickerResult> PickSaveFileAsync(UiSaveFilePickerRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new UiSaveFilePickerResult(UiDialogStatus.CancelledByUser));
+        }
+
+        public Task<UiProgressResult> RunWithProgressAsync(UiProgressRequest request, Func<UiProgressContext, Task> operation, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(new UiProgressResult(UiDialogStatus.CancelledByUser));
+        }
     }
 
     private static string ExtractBetween(string text, string start, string end)

@@ -407,72 +407,14 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void installOrRepairLr2PlayHistorySchemaButtonClicked(object sender, RoutedEventArgs e)
     {
-        await InstallOrRepairLr2PlayHistorySchemaAsync();
-    }
-
-    private async Task InstallOrRepairLr2PlayHistorySchemaAsync()
-    {
-        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
+        if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel })
         {
             return;
         }
-        if (viewModel.IsLibraryOperationInProgress)
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation);
-            return;
-        }
-
-        await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: true);
-        if (!settingDialogViewModel.CanInstallOrRepairLr2PlayHistorySchema)
-        {
-            return;
-        }
-        if (UiDialogRoute.ShowMessageBox(
-            Window.GetWindow(this),
-            BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_play_history_schema_install_or_repair
-                + Environment.NewLine
-                + Environment.NewLine
-                + "score DB: "
-                + settingDialogViewModel.Lr2PlayHistoryScoreDbPath,
-            BeMusicSeeker.Properties.Resources.Confirm,
-            MessageBoxButton.OKCancel,
-            MessageBoxImage.Exclamation,
-            MessageBoxResult.Cancel) != MessageBoxResult.OK)
-        {
-            return;
-        }
-
         settingDialogOperationGrid.IsEnabled = false;
         try
         {
-            Lr2PlayHistorySchemaCheckResult result = await Task.Run(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaCore);
-            settingDialogViewModel.ApplyLr2PlayHistorySchemaCheckResult(result);
-            if (result.Status == Lr2PlayHistorySchemaStatus.Installed)
-            {
-                viewModel.InvalidatePlayHistoryReadCache("lr2_play_history_schema_install_or_repair");
-                UiDialogRoute.ShowMessageBox(
-                    Window.GetWindow(this),
-                    BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_install_or_repair,
-                    BeMusicSeeker.Properties.Resources.Success,
-                    MessageBoxButton.OK,
-                    MessageBoxImage.Asterisk);
-                if (viewModel.HasActiveLibraryProfile)
-                {
-                    await settingDialogViewModel.ReloadScoresOnlyAsync();
-                }
-                return;
-            }
-
-            UiDialogRoute.ShowMessageBox(
-                Window.GetWindow(this),
-                result.Message,
-                BeMusicSeeker.Properties.Resources.Warning,
-                MessageBoxButton.OK,
-                MessageBoxImage.Exclamation);
-        }
-        catch (Exception ex)
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxButton.OK, MessageBoxImage.Hand);
+            await settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaAsync();
         }
         finally
         {

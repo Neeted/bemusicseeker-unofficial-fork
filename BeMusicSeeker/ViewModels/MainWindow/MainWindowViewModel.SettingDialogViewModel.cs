@@ -118,6 +118,10 @@ public partial class MainWindowViewModel
 
         private readonly Action<Exception> reportApplyFailure;
 
+        private readonly IUiDialogService schemaDialogs;
+
+        private readonly Action<string> invalidatePlayHistoryReadCache;
+
         /// <summary>
         /// Requests that the shell present the settings dialog.
         /// </summary>
@@ -1079,6 +1083,117 @@ public partial class MainWindowViewModel
         /// </summary>
         public bool CanUninstallLr2PlayHistorySchema => OperationModeLR2DB && !string.IsNullOrWhiteSpace(Lr2PlayHistoryScoreDbPath);
 
+        internal async Task InstallOrRepairLr2PlayHistorySchemaAsync()
+        {
+            if (ownerViewModel.IsLibraryOperationInProgress)
+            {
+                await ShowLr2PlayHistorySchemaMessageAsync(
+                    BeMusicSeeker.Properties.Resources.Msg_settings_apply_blocked_during_initialization,
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxImage.Exclamation,
+                    "LR2 play history schema install blocked notification");
+                return;
+            }
+
+            await RefreshLr2PlayHistorySchemaStatusAsync(force: true);
+            if (!CanInstallOrRepairLr2PlayHistorySchema)
+            {
+                return;
+            }
+
+            string scoreDbPath = Lr2PlayHistoryScoreDbPath;
+            bool isLr2LinkedProfile = OperationModeLR2DB;
+            UiDialogResult confirmation = await schemaDialogs.ConfirmAsync(new UiConfirmationRequest(
+                BeMusicSeeker.Properties.Resources.Msg_confirm_lr2_play_history_schema_install_or_repair
+                    + Environment.NewLine
+                    + Environment.NewLine
+                    + "score DB: "
+                    + scoreDbPath,
+                BeMusicSeeker.Properties.Resources.Confirm,
+                MessageBoxButton.OKCancel,
+                MessageBoxImage.Exclamation,
+                MessageBoxResult.Cancel));
+            UiDialogRoute.ThrowIfNotShown(confirmation, "LR2 play history schema install confirmation");
+            if (!confirmation.IsAccepted)
+            {
+                return;
+            }
+
+            try
+            {
+                Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
+                    InstallOrRepairLr2PlayHistorySchemaCore(scoreDbPath, isLr2LinkedProfile));
+                if (isLr2LinkedProfile != OperationModeLR2DB
+                    || !string.Equals(scoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+
+                ApplyLr2PlayHistorySchemaCheckResult(result);
+                if (result.Status == Lr2PlayHistorySchemaStatus.Installed)
+                {
+                    invalidatePlayHistoryReadCache("lr2_play_history_schema_install_or_repair");
+                    await ShowLr2PlayHistorySchemaMessageAsync(
+                        BeMusicSeeker.Properties.Resources.Msg_success_lr2_play_history_schema_install_or_repair,
+                        BeMusicSeeker.Properties.Resources.Success,
+                        MessageBoxImage.Asterisk,
+                        "LR2 play history schema install success notification");
+                    if (ownerViewModel.HasActiveLibraryProfile)
+                    {
+                        await ReloadScoresOnlyAsync();
+                    }
+                    return;
+                }
+
+                await ShowLr2PlayHistorySchemaMessageAsync(
+                    result.Message,
+                    BeMusicSeeker.Properties.Resources.Warning,
+                    MessageBoxImage.Exclamation,
+                    "LR2 play history schema install result notification");
+            }
+            catch (Exception ex)
+            {
+                await ShowLr2PlayHistorySchemaMessageAsync(
+                    BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
+                    BeMusicSeeker.Properties.Resources.Error,
+                    MessageBoxImage.Hand,
+                    "LR2 play history schema install failure notification");
+            }
+        }
+
+        private async Task RefreshLr2PlayHistorySchemaStatusAsync(bool force)
+        {
+            string expectedScoreDbPath = Lr2PlayHistoryScoreDbPath;
+            bool expectedOperationMode = OperationModeLR2DB;
+            if (!force && HasFreshLr2PlayHistorySchemaCheckResult(expectedScoreDbPath, expectedOperationMode))
+            {
+                return;
+            }
+
+            Lr2PlayHistorySchemaCheckResult result = await Task.Run(() =>
+                CheckLr2PlayHistorySchemaCore(expectedScoreDbPath, expectedOperationMode));
+            if (expectedOperationMode == OperationModeLR2DB
+                && string.Equals(expectedScoreDbPath, Lr2PlayHistoryScoreDbPath, StringComparison.OrdinalIgnoreCase))
+            {
+                ApplyLr2PlayHistorySchemaCheckResult(result);
+            }
+        }
+
+        private async Task ShowLr2PlayHistorySchemaMessageAsync(
+            string message,
+            string caption,
+            MessageBoxImage icon,
+            string routeName)
+        {
+            UiDialogResult result = await schemaDialogs.ShowMessageAsync(new UiMessageRequest(
+                message,
+                caption,
+                MessageBoxButton.OK,
+                icon,
+                MessageBoxResult.OK));
+            UiDialogRoute.ThrowIfNotShown(result, routeName);
+        }
+
         internal void ResetLr2PlayHistorySchemaStatus()
         {
             string nextScoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
@@ -1109,12 +1224,13 @@ public partial class MainWindowViewModel
             ResetLr2PlayHistorySchemaStatus();
         }
 
-        internal Lr2PlayHistorySchemaCheckResult InstallOrRepairLr2PlayHistorySchemaCore()
+        internal Lr2PlayHistorySchemaCheckResult InstallOrRepairLr2PlayHistorySchemaCore(
+            string scoreDbPath,
+            bool isLr2LinkedProfile)
         {
-            string scoreDbPath = ResolveLr2PlayHistoryScoreDbPath();
-            LogLr2PlayHistorySchema("install_or_repair_start", scoreDbPath, OperationModeLR2DB);
-            Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, OperationModeLR2DB);
-            LogLr2PlayHistorySchema("install_or_repair_done", result, OperationModeLR2DB);
+            LogLr2PlayHistorySchema("install_or_repair_start", scoreDbPath, isLr2LinkedProfile);
+            Lr2PlayHistorySchemaCheckResult result = new Lr2PlayHistorySchemaService().InstallOrRepair(scoreDbPath, isLr2LinkedProfile);
+            LogLr2PlayHistorySchema("install_or_repair_done", result, isLr2LinkedProfile);
             return result;
         }
 
@@ -3481,7 +3597,9 @@ public partial class MainWindowViewModel
             Func<Task<bool>> initializeOwner = null,
             Func<Task> reloadScoresOnly = null,
             Action<Exception> reportApplyFailure = null,
-            Func<Task> reloadFileDiff = null)
+            Func<Task> reloadFileDiff = null,
+            IUiDialogService schemaDialogs = null,
+            Action<string> invalidatePlayHistoryReadCache = null)
         {
             SettingDialogViewModel settingDialogViewModel = this;
             ownerViewModel = owner;
@@ -3497,6 +3615,8 @@ public partial class MainWindowViewModel
                     BeMusicSeeker.Properties.Resources.Error,
                     MessageBoxImage.Hand,
                     "Settings apply failure notification"));
+            this.schemaDialogs = schemaDialogs ?? new UiDialogCoordinator();
+            this.invalidatePlayHistoryReadCache = invalidatePlayHistoryReadCache ?? owner.InvalidatePlayHistoryReadCache;
             playHistoryDisplaySettingsStore = owner.PlayHistoryDisplaySettingsStore;
             appearanceThemeOptions =
             [

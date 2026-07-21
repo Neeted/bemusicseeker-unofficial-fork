@@ -296,7 +296,9 @@ internal sealed class ApplicationComposition
             reportSettingsApplyFailure,
             reloadFileDiff == null
                 ? owner.ReloadFileDiffAsync
-                : () => reloadFileDiff(owner));
+                : () => reloadFileDiff(owner),
+            schemaDialogs: new UiDialogCoordinator(),
+            invalidatePlayHistoryReadCache: owner.InvalidatePlayHistoryReadCache);
     }
 
     internal MainWindowChildComposition CreateMainWindowChildComposition(
