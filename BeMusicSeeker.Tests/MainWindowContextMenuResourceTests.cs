@@ -2276,21 +2276,23 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "files?.Lr2Synchronization.SyncLr2BuiltinCustomFolderRows(reason) ?? Lr2SongDbSyncPreparedDataSurface.Empty;");
         StringAssert.Contains(viewModelCode, "Lr2SongDbSyncPreparedDataSurface.Merge(playlistSurface, builtinSurface);");
         StringAssert.Contains(viewModelCode, "() => files?.QueueLr2SongDbSync(reason, force: false, allowIncompleteToQueue: false)");
-        StringAssert.Contains(viewModelCode, "public async Task RequestLr2SongDbSyncAsync(string reason, bool force)");
-        StringAssert.Contains(viewModelCode, "files?.QueueLr2SongDbSync(");
-        StringAssert.Contains(viewModelCode, "() => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)");
+        StringAssert.Contains(viewModelCode, "internal async Task RequestLr2SongDbSyncAsync()");
+        Assert.IsFalse(viewModelCode.Contains("public async Task RequestLr2SongDbSyncAsync(string reason, bool force)"));
+        StringAssert.Contains(viewModelCode, "ownerViewModel.files?.QueueLr2SongDbSync(");
+        StringAssert.Contains(viewModelCode, "() => ownerViewModel.ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason)");
         StringAssert.Contains(viewModelCode, "files?.TryRunLr2SongDbSyncDataPreparation(");
         StringAssert.Contains(viewModelCode, "files?.PublishLr2SongDbSyncExternalStageProgress(");
-        StringAssert.Contains(viewModelCode, "public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile");
-        StringAssert.Contains(viewModelCode, "&& settingDialog?.OperationModeLR2DB == true");
-        StringAssert.Contains(viewModelCode, "&& settingDialog?.IsFileDiffReloadPending != true");
-        StringAssert.Contains(viewModelCode, "&& !IsLibraryOperationInProgress;");
+        StringAssert.Contains(viewModelCode, "public bool CanRequestLr2SongDbSyncDataResync => ownerViewModel.HasActiveLibraryProfile");
+        StringAssert.Contains(viewModelCode, "&& OperationModeLR2DB");
+        StringAssert.Contains(viewModelCode, "&& !fileDiffReloadPending");
+        StringAssert.Contains(viewModelCode, "&& !ownerViewModel.IsLibraryOperationInProgress;");
+        Assert.IsFalse(viewModelCode.Contains("public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile"));
         StringAssert.Contains(settingDialogXaml, "<Grid Margin=\"20,2,10,4\" IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\">");
         StringAssert.Contains(settingDialogXaml, "HorizontalAlignment=\"Center\"");
-        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}\"");
-        StringAssert.Contains(manualResyncClickHandler, "viewModel.settingDialog?.IsFileDiffReloadPending == true");
-        StringAssert.Contains(manualResyncClickHandler, "if (!viewModel.CanRequestLr2SongDbSyncDataResync)");
-        StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2SongDbSyncAsync(\"setting_dialog_manual_resync\", force: true);");
+        StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding settingDialog.CanRequestLr2SongDbSyncDataResync, Mode=OneWay}\"");
+        StringAssert.Contains(manualResyncClickHandler, "viewModel.settingDialog is not MainWindowViewModel.SettingDialogViewModel settingDialogViewModel");
+        StringAssert.Contains(manualResyncClickHandler, "if (!settingDialogViewModel.CanRequestLr2SongDbSyncDataResync)");
+        StringAssert.Contains(settingDialogCode, "await settingDialogViewModel.RequestLr2SongDbSyncAsync();");
         StringAssert.Contains(manualResyncClickHandler, "HideThisOverlay();");
         StringAssert.Contains(manualResyncClickHandler, "await Dispatcher.Yield(DispatcherPriority.Background);");
         StringAssert.Contains(playlistCode, "RepairMissingCustomFolderOutputsAfterHydrationCore(reason, verifyRootOutputDirectoryRows, settings)");
@@ -2315,7 +2317,7 @@ public sealed class MainWindowContextMenuResourceTests
             || manualResyncClickHandler.IndexOf(".IsEnabled = false", StringComparison.Ordinal) >= 0,
             "Manual LR2 generated-data sync must not overwrite the button IsEnabled binding.");
         Assert.IsTrue(
-            manualResyncClickHandler.IndexOf("if (!viewModel.CanRequestLr2SongDbSyncDataResync)", StringComparison.Ordinal)
+            manualResyncClickHandler.IndexOf("if (!settingDialogViewModel.CanRequestLr2SongDbSyncDataResync)", StringComparison.Ordinal)
             < manualResyncClickHandler.IndexOf("Msg_confirm_lr2_song_db_sync_data_resync", StringComparison.Ordinal),
             "Manual LR2 generated-data sync must reject invalid profile/operation state before showing the destructive confirmation.");
         StringAssert.Contains(buildPostSaveImpact, "tempOperationModeLR2DB != ApplicationSettings.OperationModeLR2DB");

@@ -181,7 +181,7 @@
                         <Run Text=": " />
                         <Run Text="{Binding settingDialog.Lr2PlayHistorySchemaStatusText, Mode=OneWay}" />
                       </TextBlock>
-                      <Button Grid.Row="1" Grid.Column="0" Width="190" Height="24" HorizontalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" IsEnabled="{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
+                      <Button Grid.Row="1" Grid.Column="0" Width="190" Height="24" HorizontalAlignment="Center" Content="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync, Mode=OneWay}" ToolTip="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Lr2_song_db_sync_data_resync_tooltip, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanRequestLr2SongDbSyncDataResync, Mode=OneWay}" Click="resyncLr2SongDbSyncDataButtonClicked" />
                       <Button Grid.Row="1" Grid.Column="1" Width="130" Height="24" HorizontalAlignment="Center" Content="{Binding settingDialog.Lr2PlayHistorySchemaInstallOrRepairButtonText, Mode=OneWay}" IsEnabled="{Binding settingDialog.CanInstallOrRepairLr2PlayHistorySchema, Mode=OneWay}" Click="installOrRepairLr2PlayHistorySchemaButtonClicked" />
                     </Grid>
                     <Grid Margin="10,0,0,4" IsEnabled="{Binding settingDialog.IsBmsSearchRootEditorEnabled}">

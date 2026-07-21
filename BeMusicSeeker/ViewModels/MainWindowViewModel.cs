@@ -454,22 +454,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     internal bool IsFirstStartup => firstStartupProvider();
 
-    /// <summary>
-    /// 設定画面から LR2 `song` / `folder` 派生データの手動再同期を要求できる状態かどうかを返します。
-    /// この再同期は現在の所持譜面とプレイリストを入力にするため、初回設定中のように
-    /// ライブラリプロファイルがまだ成立していない間は許可しません。
-    /// </summary>
-    public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile
-        && settingDialog?.OperationModeLR2DB == true
-        && settingDialog?.IsScoreReloadPending != true
-        && settingDialog?.IsFileDiffReloadPending != true
-        && !IsLibraryOperationInProgress;
-
-    private void RaiseLr2SongDbSyncDataResyncAvailabilityChanged()
-    {
-        RaisePropertyChanged(() => CanRequestLr2SongDbSyncDataResync);
-    }
-
     private bool bmsonMigrationApprovedForSession;
 
     private bool initialSetupCompletionMessagePending;
@@ -2068,7 +2052,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             RaisePropertyChanged(() => IsChartPackageMutationInProgress);
             RaisePropertyChanged(() => IsLibraryOperationInProgress);
-            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         }
     }
 
@@ -2079,14 +2062,12 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             RaisePropertyChanged(() => IsChartPackageMutationInProgress);
             RaisePropertyChanged(() => IsLibraryOperationInProgress);
-            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         }
         else if (depth < 0)
         {
             Interlocked.Exchange(ref chartPackageMutationDepth, 0);
             RaisePropertyChanged(() => IsChartPackageMutationInProgress);
             RaisePropertyChanged(() => IsLibraryOperationInProgress);
-            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         }
     }
 
@@ -3173,7 +3154,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         _IsStartupUiInteractionBlocked = value;
         RaisePropertyChanged("IsStartupUiInteractionBlocked");
         RaisePropertyChanged("IsLibraryOperationInProgress");
-        RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
     }
 
     public bool IsLibraryOperationInProgress
@@ -4403,7 +4383,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         if (propertyName == nameof(IsStartupProgressActive))
         {
             RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
-            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
             RecomputeLr2SongDbSyncStatusPresentation();
         }
     }
@@ -5991,7 +5970,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         hasActiveLibraryProfile = true;
         RaisePropertyChanged(() => IsInitializationCompleted);
         RaisePropertyChanged(() => HasActiveLibraryProfile);
-        RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         PlaylistWorkspace.SchedulePlaylistLibraryIndexPrewarm("initialize_completed");
         _semaphore.Release();
         LogInitStage("deferred_playlist_ref_waiting_for_playlist_entries_hydration", "Initialize");
@@ -7306,7 +7284,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             startupProgressState = state;
         }
         RaisePropertyChanged(() => IsLibraryOperationInProgress);
-        RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         RecomputeStartupProgressPresentation();
         return state.OperationToken;
     }
@@ -7351,7 +7328,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         if (retryable)
         {
             RaisePropertyChanged(() => IsLibraryOperationInProgress);
-            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         }
     }
 
@@ -8106,23 +8082,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                 force,
                 () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason));
         }).Logging("RequestLr2SongDbSync");
-    }
-
-    public async Task RequestLr2SongDbSyncAsync(string reason, bool force)
-    {
-        if (!ApplicationSettings.OperationModeLR2DB)
-        {
-            return;
-        }
-
-        await Task.Run(async delegate
-        {
-            files?.QueueLr2SongDbSync(
-                reason,
-                force,
-                () => ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason));
-            await Task.CompletedTask.ConfigureAwait(false);
-        }).ConfigureAwait(false);
     }
 
     public void SyncLr2SongDbSyncFolderDataAfterSettingsChange(string reason)

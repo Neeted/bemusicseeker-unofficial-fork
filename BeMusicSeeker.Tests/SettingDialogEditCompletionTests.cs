@@ -79,6 +79,45 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public async Task SettingDialogViewModel_OwnsLr2ManualResyncAvailability()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings settings = CreateValidStandaloneSettings(root);
+            settings.OperationModeLR2DB = true;
+            var settingsSession = new CountingSettingsEditSession(settings);
+            MainWindowViewModel viewModel = CreateViewModel(settingsSession, firstStartup: false);
+            SetActiveLibraryProfile(viewModel, true);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            var changedProperties = new List<string>();
+            dialog.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+            Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
+
+            InvokePrivateMethod(dialog, "SetScoreReloadPending", true);
+
+            Assert.IsFalse(dialog.CanRequestLr2SongDbSyncDataResync);
+            CollectionAssert.Contains(changedProperties, nameof(dialog.CanRequestLr2SongDbSyncDataResync));
+
+            changedProperties.Clear();
+            InvokePrivateMethod(dialog, "SetScoreReloadPending", false);
+            Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
+
+            InvokePrivateMethod(viewModel, "SetStartupUiInteractionBlocked", true);
+            Assert.IsFalse(dialog.CanRequestLr2SongDbSyncDataResync);
+            InvokePrivateMethod(viewModel, "SetStartupUiInteractionBlocked", false);
+            Assert.IsTrue(dialog.CanRequestLr2SongDbSyncDataResync);
+
+            await dialog.RequestLr2SongDbSyncAsync();
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public void SettingDialogOkClick_AwaitsOwnerCompletionBeforeClosing()
     {
         RunOnStaDispatcherThread(() =>
@@ -691,6 +730,13 @@ public sealed class SettingDialogEditCompletionTests
         instance.GetType()
             .GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!
             .SetValue(instance, value);
+    }
+
+    private static void InvokePrivateMethod(object instance, string methodName, params object[] arguments)
+    {
+        instance.GetType()
+            .GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(instance, arguments);
     }
 
     private static void RunOnStaDispatcherThread(Action action)

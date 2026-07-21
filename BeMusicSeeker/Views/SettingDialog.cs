@@ -341,16 +341,12 @@ public partial class SettingDialog : UserControl, IComponentConnector
 
     private async void resyncLr2SongDbSyncDataButtonClicked(object sender, RoutedEventArgs e)
     {
-        if (base.DataContext is not MainWindowViewModel viewModel)
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || viewModel.settingDialog is not MainWindowViewModel.SettingDialogViewModel settingDialogViewModel)
         {
             return;
         }
-        if (viewModel.settingDialog?.IsScoreReloadPending == true
-            || viewModel.settingDialog?.IsFileDiffReloadPending == true)
-        {
-            return;
-        }
-        if (!viewModel.CanRequestLr2SongDbSyncDataResync)
+        if (!settingDialogViewModel.CanRequestLr2SongDbSyncDataResync)
         {
             if (viewModel.IsLibraryOperationInProgress)
             {
@@ -372,7 +368,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
         await Dispatcher.Yield(DispatcherPriority.Background);
         try
         {
-            await viewModel.RequestLr2SongDbSyncAsync("setting_dialog_manual_resync", force: true);
+            await settingDialogViewModel.RequestLr2SongDbSyncAsync();
         }
         catch (Exception ex)
         {

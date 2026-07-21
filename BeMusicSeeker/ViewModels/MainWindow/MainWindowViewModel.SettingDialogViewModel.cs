@@ -376,6 +376,23 @@ public partial class MainWindowViewModel
             return ReloadFileDiffCoreAsync();
         }
 
+        internal async Task RequestLr2SongDbSyncAsync()
+        {
+            if (!ApplicationSettings.OperationModeLR2DB)
+            {
+                return;
+            }
+
+            const string reason = "setting_dialog_manual_resync";
+            await Task.Run(delegate
+            {
+                ownerViewModel.files?.QueueLr2SongDbSync(
+                    reason,
+                    force: true,
+                    () => ownerViewModel.ReOutputAllCustomFoldersForLr2GeneratedDataSync(reason));
+            }).ConfigureAwait(false);
+        }
+
         private async Task ReloadFileDiffCoreAsync()
         {
             try
@@ -413,7 +430,7 @@ public partial class MainWindowViewModel
 
             scoreReloadPending = value;
             RaisePropertyChanged(() => IsEditCancellationEnabled);
-            ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         }
 
         private void SetFileDiffReloadPending(bool value)
@@ -425,12 +442,14 @@ public partial class MainWindowViewModel
 
             fileDiffReloadPending = value;
             RaisePropertyChanged(() => IsEditCancellationEnabled);
-            ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         }
 
         private Settings ApplicationSettings => settingsEditSession.Values;
 
         private readonly PropertyChangedEventListener ownerViewModelEventListener;
+
+        private readonly PropertyChangedEventListener playlistWorkspaceEventListener;
 
         private readonly PropertyChangedEventListener resourceServiceEventListener;
 
@@ -718,6 +737,20 @@ public partial class MainWindowViewModel
 
         public bool CanUseLr2Features => OperationModeLR2DB;
 
+        /// <summary>
+        /// 設定画面から LR2 の派生データ再同期を要求できる状態かどうかを返します。
+        /// </summary>
+        public bool CanRequestLr2SongDbSyncDataResync => ownerViewModel.HasActiveLibraryProfile
+            && OperationModeLR2DB
+            && !scoreReloadPending
+            && !fileDiffReloadPending
+            && !ownerViewModel.IsLibraryOperationInProgress;
+
+        private void RaiseLr2SongDbSyncDataResyncAvailabilityChanged()
+        {
+            RaisePropertyChanged(() => CanRequestLr2SongDbSyncDataResync);
+        }
+
         public bool IsOperationModeChanged => tempOperationModeLR2DB != OperationModeLR2DB;
 
         public bool CanSaveSettings => CheckValidationForSave();
@@ -738,7 +771,7 @@ public partial class MainWindowViewModel
             RaisePropertyChanged(() => IsBmsSearchRootEditorEnabled);
             RaisePropertyChanged(() => BMSInstallDir);
             RaiseValidationStateChanged();
-            ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
             ResetLr2PlayHistorySchemaStatus();
         }
 
@@ -3476,12 +3509,21 @@ public partial class MainWindowViewModel
                 new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.FillMissingMd5Sha256),
                 new BeatorajaBmtHashOutputModeOption(BeMusicSeeker.Models.BeatorajaBmtHashOutputMode.PreferSha256Only)
             ];
-            ownerViewModelEventListener = new PropertyChangedEventListener(ownerViewModel.PlaylistWorkspace);
-            ownerViewModelEventListener.RegisterHandler(() => owner.PlaylistWorkspace.PlaylistTreeTables, delegate
+            playlistWorkspaceEventListener = new PropertyChangedEventListener(ownerViewModel.PlaylistWorkspace);
+            playlistWorkspaceEventListener.RegisterHandler(() => owner.PlaylistWorkspace.PlaylistTreeTables, delegate
             {
                 settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.LR2ConfigBMSDirectories);
                 settingDialogViewModel.RaisePropertyChanged(() => settingDialogViewModel.AvailableBMSDirectories);
                 settingDialogViewModel.MarkPlayHistoryFolderDisplayPresetPlaylistOptionsDirty();
+            });
+            ownerViewModelEventListener = new PropertyChangedEventListener(ownerViewModel);
+            ownerViewModelEventListener.RegisterHandler(() => owner.HasActiveLibraryProfile, delegate
+            {
+                settingDialogViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+            });
+            ownerViewModelEventListener.RegisterHandler(() => owner.IsLibraryOperationInProgress, delegate
+            {
+                settingDialogViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
             });
             resourceServiceEventListener = new PropertyChangedEventListener(ResourceService.Current);
             resourceServiceEventListener.RegisterHandler(() => ResourceService.Current.Resources, delegate
@@ -6769,7 +6811,7 @@ public partial class MainWindowViewModel
             ResetPlayHistoryFolderDisplayPresetsForCancel();
             RaisePropertyChanged(() => OperationModeLR2DB);
             RaisePropertyChanged(() => CanUseLr2Features);
-            ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
             RaisePropertyChanged(() => LR2RootPath);
             RaisePropertyChanged(() => BMSRootPath);
             RaisePropertyChanged(() => StandaloneBmsRootPathList);
