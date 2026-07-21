@@ -169,4 +169,45 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(0.0, hub.PlaylistSyncProgressValue);
         Assert.AreEqual(0.0, hub.PlaylistSyncProgressMaximum);
     }
+
+    [TestMethod]
+    public void StartupProgressPresentation_AppliesValuesInBindingOrder()
+    {
+        var hub = new OperationProgressHubViewModel();
+        var changedProperties = new List<string>();
+        hub.PropertyChanged += (_, args) => changedProperties.Add(args.PropertyName);
+
+        hub.UpdateStartupProgress(true, "running", "phase", 2.0, 5.0);
+
+        Assert.IsTrue(hub.IsStartupProgressActive);
+        Assert.AreEqual("running", hub.StartupProgressLabel);
+        Assert.AreEqual("phase", hub.StartupProgressSubLabel);
+        Assert.AreEqual(2.0, hub.StartupProgressValue);
+        Assert.AreEqual(5.0, hub.StartupProgressMaximum);
+        CollectionAssert.AreEqual(
+            new[]
+            {
+                nameof(hub.IsStartupProgressActive),
+                nameof(hub.StartupProgressLabel),
+                nameof(hub.StartupProgressSubLabel),
+                nameof(hub.StartupProgressValue),
+                nameof(hub.StartupProgressMaximum)
+            },
+            changedProperties);
+    }
+
+    [TestMethod]
+    public void StartupProgressPresentation_InactiveAndNullValuesClearState()
+    {
+        var hub = new OperationProgressHubViewModel();
+        hub.UpdateStartupProgress(true, "running", "phase", 2.0, 5.0);
+
+        hub.UpdateStartupProgress(false, null, null, 0.0, 1.0);
+
+        Assert.IsFalse(hub.IsStartupProgressActive);
+        Assert.AreEqual(string.Empty, hub.StartupProgressLabel);
+        Assert.AreEqual(string.Empty, hub.StartupProgressSubLabel);
+        Assert.AreEqual(0.0, hub.StartupProgressValue);
+        Assert.AreEqual(1.0, hub.StartupProgressMaximum);
+    }
 }

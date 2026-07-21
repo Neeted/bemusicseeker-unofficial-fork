@@ -1278,6 +1278,13 @@ public sealed class MainWindowContextMenuResourceTests
         AssertStatusBarBinding(statusBar, "IsLr2SongDbSyncCancelVisible");
         AssertStatusBarBinding(statusBar, "IsLr2SongDbSyncCleanupVisible");
         AssertStatusBarBinding(statusBar, "IsLr2SongDbSyncStatusProgressVisible");
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsStartupProgressActive"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public string StartupProgressLabel"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public string StartupProgressSubLabel"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public double StartupProgressValue"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public double StartupProgressMaximum"));
+        StringAssert.Contains(mainWindowViewModelCode, "ProgressHub.UpdateStartupProgress(isActive, label, subLabel, value, maximum);");
+        StringAssert.Contains(mainWindowViewModelCode, "nameof(OperationProgressHubViewModel.IsStartupProgressActive)");
         AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusProgressMaximum");
         AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusProgressValue");
 

@@ -421,6 +421,15 @@ public sealed class OperationProgressHubViewModel : ViewModel
         internal set => SetValue(ref startupProgressMaximum, value, nameof(StartupProgressMaximum));
     }
 
+    internal void UpdateStartupProgress(bool isActive, string label, string subLabel, double value, double maximum)
+    {
+        IsStartupProgressActive = isActive;
+        StartupProgressLabel = label;
+        StartupProgressSubLabel = subLabel;
+        StartupProgressValue = value;
+        StartupProgressMaximum = maximum;
+    }
+
     /// <summary>
     /// Gets whether LR2 song DB sync status is visible.
     /// </summary>

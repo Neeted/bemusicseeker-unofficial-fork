@@ -3173,51 +3173,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
 
     /// <summary>
-    /// 起動・リロード進捗をステータスバーへ表示中かどうかを返します。
-    /// </summary>
-    public bool IsStartupProgressActive
-    {
-        get => ProgressHub.IsStartupProgressActive;
-        private set => ProgressHub.IsStartupProgressActive = value;
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗の主ラベルを返します。
-    /// </summary>
-    public string StartupProgressLabel
-    {
-        get => ProgressHub.StartupProgressLabel;
-        private set => ProgressHub.StartupProgressLabel = value;
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗の補助ラベルを返します。
-    /// </summary>
-    public string StartupProgressSubLabel
-    {
-        get => ProgressHub.StartupProgressSubLabel;
-        private set => ProgressHub.StartupProgressSubLabel = value;
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗バーの現在値を返します。
-    /// </summary>
-    public double StartupProgressValue
-    {
-        get => ProgressHub.StartupProgressValue;
-        private set => ProgressHub.StartupProgressValue = value;
-    }
-
-    /// <summary>
-    /// 起動・リロード進捗バーの最大値を返します。
-    /// </summary>
-    public double StartupProgressMaximum
-    {
-        get => ProgressHub.StartupProgressMaximum;
-        private set => ProgressHub.StartupProgressMaximum = value;
-    }
-
-    /// <summary>
     /// Gets whether LR2 song DB sync status is visible.
     /// </summary>
     public bool IsLr2SongDbSyncStatusActive
@@ -4336,11 +4291,16 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressSubLabel)
             || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressValue)
             || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressMaximum);
-        if (!installPipelineProperty && !maintenanceRescanProperty && !folderAutoRenameProperty && !playlistSyncProgressProperty)
+        bool startupProgressProperty = propertyName == nameof(OperationProgressHubViewModel.IsStartupProgressActive)
+            || propertyName == nameof(OperationProgressHubViewModel.StartupProgressLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.StartupProgressSubLabel)
+            || propertyName == nameof(OperationProgressHubViewModel.StartupProgressValue)
+            || propertyName == nameof(OperationProgressHubViewModel.StartupProgressMaximum);
+        if (!installPipelineProperty && !maintenanceRescanProperty && !folderAutoRenameProperty && !playlistSyncProgressProperty && !startupProgressProperty)
         {
             RaisePropertyChanged(propertyName);
         }
-        if (propertyName == nameof(IsStartupProgressActive))
+        if (propertyName == nameof(OperationProgressHubViewModel.IsStartupProgressActive))
         {
             RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
             RecomputeLr2SongDbSyncStatusPresentation();
@@ -8307,11 +8267,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                     return;
                 }
             }
-            IsStartupProgressActive = isActive;
-            StartupProgressLabel = label;
-            StartupProgressSubLabel = subLabel;
-            StartupProgressValue = value;
-            StartupProgressMaximum = maximum;
+            ProgressHub.UpdateStartupProgress(isActive, label, subLabel, value, maximum);
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {
