@@ -315,7 +315,12 @@ internal sealed class ApplicationComposition
         IDuplicateMaintenancePlaybackPort duplicateMaintenancePlayback = null,
         IUiDialogService duplicateMaintenanceDialogService = null,
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
-        Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null)
+        Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
+        ISelectedChartMutationActivityPort selectedChartMutationActivity = null,
+        ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
+        ISelectedChartMutationPlaybackPort selectedChartMutationPlayback = null,
+        IUiDialogService selectedChartMutationDialogService = null,
+        Func<BMSLibrary> selectedChartMutationLibraryProvider = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -355,7 +360,12 @@ internal sealed class ApplicationComposition
             duplicateMaintenancePlayback,
             duplicateMaintenanceDialogService,
             showDuplicateFileCheckConfirmProvider,
-            duplicateMaintenanceLibraryProvider);
+            duplicateMaintenanceLibraryProvider,
+            selectedChartMutationActivity,
+            selectedChartMutationRefresh,
+            selectedChartMutationPlayback,
+            selectedChartMutationDialogService,
+            selectedChartMutationLibraryProvider);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -522,7 +532,12 @@ internal sealed class MainWindowChildComposition
         IDuplicateMaintenancePlaybackPort duplicateMaintenancePlayback = null,
         IUiDialogService duplicateMaintenanceDialogService = null,
         Func<bool> showDuplicateFileCheckConfirmProvider = null,
-        Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null)
+        Func<BMSLibrary> duplicateMaintenanceLibraryProvider = null,
+        ISelectedChartMutationActivityPort selectedChartMutationActivity = null,
+        ISelectedChartMutationRefreshPort selectedChartMutationRefresh = null,
+        ISelectedChartMutationPlaybackPort selectedChartMutationPlayback = null,
+        IUiDialogService selectedChartMutationDialogService = null,
+        Func<BMSLibrary> selectedChartMutationLibraryProvider = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -611,6 +626,13 @@ internal sealed class MainWindowChildComposition
             duplicateMaintenancePlayback ?? throw new ArgumentNullException(nameof(duplicateMaintenancePlayback)),
             duplicateMaintenanceDialogService ?? throw new ArgumentNullException(nameof(duplicateMaintenanceDialogService)),
             showDuplicateFileCheckConfirmProvider ?? throw new ArgumentNullException(nameof(showDuplicateFileCheckConfirmProvider)));
+        SelectedChartMutations = new SelectedChartMutationWorkflowOwner(
+            selectedChartMutationLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartMutationLibraryProvider)),
+            chartFileOperations,
+            selectedChartMutationActivity ?? throw new ArgumentNullException(nameof(selectedChartMutationActivity)),
+            selectedChartMutationRefresh ?? throw new ArgumentNullException(nameof(selectedChartMutationRefresh)),
+            selectedChartMutationPlayback ?? throw new ArgumentNullException(nameof(selectedChartMutationPlayback)),
+            selectedChartMutationDialogService ?? throw new ArgumentNullException(nameof(selectedChartMutationDialogService)));
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -646,6 +668,8 @@ internal sealed class MainWindowChildComposition
     internal PackageCatalogWorkflowOwner PackageCatalogWorkflow { get; }
 
     internal DuplicateMaintenanceWorkflowOwner DuplicateMaintenanceWorkflow { get; }
+
+    internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

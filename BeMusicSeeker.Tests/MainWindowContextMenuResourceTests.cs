@@ -2378,7 +2378,7 @@ public sealed class MainWindowContextMenuResourceTests
         string autoRenameClick = ExtractBetween(
             mainWindowCode,
             "private void tableContextMenuItemAutoRenameFolderClick",
-            "private void tableContextMenuItemRenameBMSFileClick");
+            "private async void tableContextMenuItemRenameBMSFileClick");
         string moveFileClick = ExtractBetween(
             mainWindowCode,
             "private async void tableContextMenuItemMoveFileClick",
@@ -2411,10 +2411,10 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(autoRenameClick.Contains("targetSnapshot"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedChartCompatibilityAdapters"));
         Assert.IsFalse(autoRenameClick.Contains("GetSelectedBmsChartFiles(ChartOperationCapabilities.None)"));
-        StringAssert.Contains(moveFileClick, "GetSelectedChartTargets().Where(target => target.HasCapability(ChartOperationCapabilities.MoveInLibrary)");
-        StringAssert.Contains(moveFileClick, "ChartLibraryMoveRequest.TryCreate(targets, dstDir, out ChartLibraryMoveRequest request)");
-        StringAssert.Contains(moveFileClick, "viewModel.MoveLibraryCharts(request)");
-        Assert.IsFalse(moveFileClick.Contains("viewModel.MoveLibraryCharts(targets, dstDir)"));
+        StringAssert.Contains(moveFileClick, "GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary)");
+        StringAssert.Contains(moveFileClick, "new SelectedChartMoveRequest(targets, dstDir)");
+        StringAssert.Contains(moveFileClick, "viewModel.SelectedChartMutations");
+        Assert.IsFalse(moveFileClick.Contains("viewModel.MoveLibraryCharts"));
         StringAssert.Contains(contextMenuOpening, "contextMenuState.CanAutoRenameFolders");
         StringAssert.Contains(contextMenuStateBuilderCode, "hasBmsSelection || hasBmsonSelection");
         StringAssert.Contains(autoRenameAll, "RunChartPackageMutation(");
@@ -2744,8 +2744,8 @@ public sealed class MainWindowContextMenuResourceTests
             "private void keywordSearchBoxTextChanged");
         string renameInvalidExtensionClick = ExtractBetween(
             mainWindowCode,
-            "private void tableContextMenuItemRenameBMSFileClick",
-            "private void tableContextMenuItemRemoveBMSFileClick");
+            "private async void tableContextMenuItemRenameBMSFileClick",
+            "private async void tableContextMenuItemRemoveBMSFileClick");
         string encodingFixClick = ExtractBetween(
             mainWindowCode,
             "private void fixEncodingSelectedBMS",
@@ -2769,9 +2769,10 @@ public sealed class MainWindowContextMenuResourceTests
 
         StringAssert.Contains(contextMenuResource, "TryResolveTableContextMenuPolicy(row, GetCurrentChartOperationSourceScope(), out usePlaylistMissingContextMenu)");
         Assert.IsFalse(contextMenuResource.Contains("GetRealBmsFile"));
-        StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedBmsFormatCharts(ChartOperationCapabilities.RenameInvalidExtension)");
-        StringAssert.Contains(renameInvalidExtensionClick, "viewModel.RenameBMSFilesExtensions(list, \".bmx\")");
-        Assert.IsFalse(renameInvalidExtensionClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RenameInvalidExtension)"));
+        StringAssert.Contains(renameInvalidExtensionClick, "GetSelectedChartTargets(ChartOperationCapabilities.RenameInvalidExtension)");
+        StringAssert.Contains(renameInvalidExtensionClick, "SelectedInvalidExtensionRenameRequest");
+        StringAssert.Contains(renameInvalidExtensionClick, "viewModel.SelectedChartMutations");
+        Assert.IsFalse(renameInvalidExtensionClick.Contains("viewModel.RenameBMSFilesExtensions"));
         StringAssert.Contains(encodingFixClick, "GetSelectedBmsFiles(ChartOperationCapabilities.RunBmsEncodingFix)");
         Assert.IsFalse(encodingFixClick.Contains("GetSelectedChartCompatibilityAdapters(ChartOperationCapabilities.RunBmsEncodingFix)"));
         StringAssert.Contains(audioConvertClick, "GetSelectedBmsFiles(ChartOperationCapabilities.ConvertToAudio)");

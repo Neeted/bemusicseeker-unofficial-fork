@@ -513,7 +513,12 @@ public sealed class ApplicationCompositionTests
             duplicateMaintenancePlayback: new NoOpDuplicateMaintenancePlaybackPort(),
             duplicateMaintenanceDialogService: new TestUiDialogService(),
             showDuplicateFileCheckConfirmProvider: () => false,
-            duplicateMaintenanceLibraryProvider: () => null!);
+            duplicateMaintenanceLibraryProvider: () => null!,
+            selectedChartMutationActivity: new NoOpSelectedChartMutationActivityPort(),
+            selectedChartMutationRefresh: new NoOpSelectedChartMutationRefreshPort(),
+            selectedChartMutationPlayback: new NoOpSelectedChartMutationPlaybackPort(),
+            selectedChartMutationDialogService: new TestUiDialogService(),
+            selectedChartMutationLibraryProvider: () => null!);
 
         try
         {
@@ -611,7 +616,12 @@ public sealed class ApplicationCompositionTests
                 duplicateMaintenancePlayback: new NoOpDuplicateMaintenancePlaybackPort(),
                 duplicateMaintenanceDialogService: new TestUiDialogService(),
                 showDuplicateFileCheckConfirmProvider: () => false,
-                duplicateMaintenanceLibraryProvider: () => null!);
+                duplicateMaintenanceLibraryProvider: () => null!,
+                selectedChartMutationActivity: new NoOpSelectedChartMutationActivityPort(),
+                selectedChartMutationRefresh: new NoOpSelectedChartMutationRefreshPort(),
+                selectedChartMutationPlayback: new NoOpSelectedChartMutationPlaybackPort(),
+                selectedChartMutationDialogService: new TestUiDialogService(),
+                selectedChartMutationLibraryProvider: () => null!);
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -730,7 +740,12 @@ public sealed class ApplicationCompositionTests
                 duplicateMaintenancePlayback: new NoOpDuplicateMaintenancePlaybackPort(),
                 duplicateMaintenanceDialogService: new TestUiDialogService(),
                 showDuplicateFileCheckConfirmProvider: () => false,
-                duplicateMaintenanceLibraryProvider: () => null!);
+                duplicateMaintenanceLibraryProvider: () => null!,
+                selectedChartMutationActivity: new NoOpSelectedChartMutationActivityPort(),
+                selectedChartMutationRefresh: new NoOpSelectedChartMutationRefreshPort(),
+                selectedChartMutationPlayback: new NoOpSelectedChartMutationPlaybackPort(),
+                selectedChartMutationDialogService: new TestUiDialogService(),
+                selectedChartMutationLibraryProvider: () => null!);
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

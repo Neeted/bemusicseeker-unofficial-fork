@@ -6390,143 +6390,69 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         e.Handled = true;
     }
 
-    private void tableContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemRenameBMSFileClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_rename_invalid_extension"))
         {
             e.Handled = true;
             return;
         }
-        List<ChartFile> charts = GetSelectedBmsFormatCharts(ChartOperationCapabilities.RenameInvalidExtension);
-        var viewModel = base.DataContext as MainWindowViewModel;
-        bool isPendingSelected = IsPendingMainViewSection(GetCurrentMainViewOperationSection());
-        if (charts.Count <= 0 || UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_rename_to_invalid, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        Task.Run(delegate
+        e.Handled = true;
+        SelectedInvalidExtensionRenameConfirmationResult confirmation = viewModel.SelectedChartMutations
+            .ConfirmRenameInvalidExtensions(new SelectedInvalidExtensionRenameRequest(
+                GetSelectedChartTargets(ChartOperationCapabilities.RenameInvalidExtension),
+                IsPendingMainViewSection(GetCurrentMainViewOperationSection())));
+        if (!confirmation.Accepted)
         {
-            List<ChartFile> list = [.. charts.Where(chart => (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".b", StringComparison.OrdinalIgnoreCase))];
-            List<ChartFile> list2 = [.. charts.Where(chart => (Path.GetExtension(chart.Path) ?? string.Empty).StartsWith(".p", StringComparison.OrdinalIgnoreCase))];
-            if (list.Count > 0)
+            if (confirmation.Failure != null)
             {
-                if (isPendingSelected)
-                {
-                    viewModel.RenamePendingBmsFormatChartFileExtensions(list, ".bmx");
-                }
-                else
-                {
-                    viewModel.RenameBMSFilesExtensions(list, ".bmx");
-                }
+                _ = Task.FromException(confirmation.Failure).Logging("tableContextMenuItemRenameBMSFileClick");
             }
-            if (list2.Count > 0)
-            {
-                if (isPendingSelected)
-                {
-                    viewModel.RenamePendingBmsFormatChartFileExtensions(list2, ".pmx");
-                }
-                else
-                {
-                    viewModel.RenameBMSFilesExtensions(list2, ".pmx");
-                }
-            }
-        }).Logging("tableContextMenuItemRenameBMSFileClick");
+            return;
+        }
+        SelectedChartMutationResult result = await viewModel.SelectedChartMutations
+            .RenameInvalidExtensionsAsync(confirmation.Operation);
+        if (!result.Succeeded && result.Failure != null)
+        {
+            _ = Task.FromException(result.Failure).Logging("tableContextMenuItemRenameBMSFileClick");
+        }
     }
 
-    private void tableContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemRemoveBMSFileClick(object sender, RoutedEventArgs e)
     {
         if (ShouldBlockChartPackageMutationInteraction("datagrid_remove_chart"))
         {
             e.Handled = true;
             return;
         }
+        if (base.DataContext is not MainWindowViewModel viewModel)
+        {
+            return;
+        }
         MainViewOperationSection section = GetCurrentMainViewOperationSection();
-        bool isPendingSelected = IsPendingMainViewSection(section);
-        List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(isPendingSelected);
+        List<ChartOperationTarget> selectedTargets = GetSelectedChartTargets(IsPendingMainViewSection(section));
         TryGetContextMenuChartTarget(sender, e.Source, out ChartOperationTarget contextTarget);
-        ChartDeleteTargetResolution resolution = ChartDeleteTargetResolver.Resolve(selectedTargets, contextTarget, section);
-        if (installPerformanceLoggingEnabled)
+        e.Handled = true;
+        SelectedChartDeleteConfirmationResult confirmation = viewModel.SelectedChartMutations
+            .ConfirmDelete(new SelectedChartDeleteRequest(selectedTargets, contextTarget, section));
+        if (!confirmation.Accepted)
         {
-            installPerformanceLogger.Info("delete_chart_request section=" + section
-                + " contextScope=" + (resolution.ContextScope?.ToString() ?? "None")
-                + " selected=" + resolution.SelectedInputCount
-                + " fallback=" + resolution.UsedContextFallback
-                + " route=" + resolution.Route.ToString().ToLowerInvariant()
-                + " targetCount=" + resolution.Targets.Count
-                + " droppedMixedScope=" + resolution.MixedScopeDroppedCount);
-        }
-        if (base.DataContext is not MainWindowViewModel viewModel || resolution.Targets.Count == 0)
-        {
-            return;
-        }
-        bool deleteContainingPackageFoldersWhenNoBms = false;
-        if (resolution.Route == ChartDeleteRoute.Pending)
-        {
-            if (!ShowPendingDeleteConfirmDialog(out deleteContainingPackageFoldersWhenNoBms))
+            if (confirmation.Failure != null)
             {
-                return;
-            }
-        }
-        else if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_recycle, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
-        {
-            if (installPerformanceLoggingEnabled)
-            {
-                installPerformanceLogger.Info("delete_chart_confirm route=" + resolution.Route.ToString().ToLowerInvariant() + " accepted=False");
+                _ = Task.FromException(confirmation.Failure).Logging("tableContextMenuItemRemoveBMSFileClick");
             }
             return;
         }
-        if (installPerformanceLoggingEnabled)
+        SelectedChartMutationResult result = await viewModel.SelectedChartMutations
+            .DeleteAsync(confirmation.Operation);
+        if (!result.Succeeded && result.Failure != null)
         {
-            installPerformanceLogger.Info("delete_chart_confirm route=" + resolution.Route.ToString().ToLowerInvariant() + " accepted=True");
+            _ = Task.FromException(result.Failure).Logging("tableContextMenuItemRemoveBMSFileClick");
         }
-        List<string> approvedWholeFolderDeletePaths = null;
-        if (resolution.Route == ChartDeleteRoute.Library)
-        {
-            approvedWholeFolderDeletePaths = [];
-            foreach (string folderPath in viewModel.GetLibraryWholeFolderDeleteConfirmationPaths(resolution.Targets))
-            {
-                bool approved = UiDialogRoute.ShowMessageBox(
-                    Window.GetWindow(this),
-                    string.Format(BeMusicSeeker.Properties.Resources.Confirm_DeleteFolderWithNoBms, folderPath),
-                    BeMusicSeeker.Properties.Resources.MessageBoxTitle_Confirm,
-                    MessageBoxButton.YesNo,
-                    MessageBoxImage.Question,
-                    MessageBoxResult.Yes) == MessageBoxResult.Yes;
-                if (installPerformanceLoggingEnabled)
-                {
-                    installPerformanceLogger.Info("delete_chart_folder_confirm path=" + folderPath + " accepted=" + approved);
-                }
-                if (approved)
-                {
-                    approvedWholeFolderDeletePaths.Add(folderPath);
-                }
-            }
-        }
-        Task.Run(delegate
-        {
-            if (resolution.Route == ChartDeleteRoute.Pending)
-            {
-                viewModel.RemovePendingCharts(resolution.Targets, sendToRecycleBin: true, deleteContainingPackageFoldersWhenNoBms: deleteContainingPackageFoldersWhenNoBms);
-            }
-            else
-            {
-                viewModel.RemoveLibraryCharts(resolution.Targets, approvedWholeFolderDeletePaths);
-            }
-        }).Logging("tableContextMenuItemRemoveBMSFileClick");
-    }
-
-    private bool ShowPendingDeleteConfirmDialog(out bool deleteContainingPackageFoldersWhenNoBms)
-    {
-        UiWindowDialogResult<bool> dialogResult = new UiDialogCoordinator()
-            .ShowWindowAsync(new UiWindowDialogRequest<PendingDeleteConfirmDialog, bool>(
-                () => new PendingDeleteConfirmDialog(),
-                dialog => dialog.DeleteFolderWhenNoBmsChecked,
-                this))
-            .GetAwaiter()
-            .GetResult();
-        ThrowIfWindowDialogFailed(dialogResult.Status, dialogResult.Error, "Pending delete confirmation dialog");
-        deleteContainingPackageFoldersWhenNoBms = dialogResult.Value;
-        return dialogResult.IsAccepted;
     }
 
     private async void tableContextMenuItemMoveFileClick(object sender, RoutedEventArgs e)
@@ -6536,21 +6462,32 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             e.Handled = true;
             return;
         }
-        List<ChartOperationTarget> targets = [.. GetSelectedChartTargets().Where(target => target.HasCapability(ChartOperationCapabilities.MoveInLibrary) && !string.IsNullOrWhiteSpace(target.Chart?.Path))];
+        List<ChartOperationTarget> targets = GetSelectedChartTargets(ChartOperationCapabilities.MoveInLibrary);
         if (sender is not MenuItem menuItem)
         {
             return;
         }
-        if (base.DataContext is MainWindowViewModel viewModel && menuItem.DataContext is string dstDir && targets.Count > 0 && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_move_to_other_root, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
+        if (base.DataContext is not MainWindowViewModel viewModel
+            || menuItem.DataContext is not string dstDir)
         {
-            if (!ChartLibraryMoveRequest.TryCreate(targets, dstDir, out ChartLibraryMoveRequest request))
+            return;
+        }
+        e.Handled = true;
+        SelectedChartMoveConfirmationResult confirmation = viewModel.SelectedChartMutations
+            .ConfirmMove(new SelectedChartMoveRequest(targets, dstDir));
+        if (!confirmation.Accepted)
+        {
+            if (confirmation.Failure != null)
             {
-                return;
+                _ = Task.FromException(confirmation.Failure).Logging("tableContextMenuItemMoveFileClick");
             }
-            await Task.Run(delegate
-            {
-                viewModel.MoveLibraryCharts(request);
-            }).Logging("tableContextMenuItemMoveFileClick");
+            return;
+        }
+        SelectedChartMutationResult result = await viewModel.SelectedChartMutations
+            .MoveAsync(confirmation.Operation);
+        if (!result.Succeeded && result.Failure != null)
+        {
+            _ = Task.FromException(result.Failure).Logging("tableContextMenuItemMoveFileClick");
         }
     }
 

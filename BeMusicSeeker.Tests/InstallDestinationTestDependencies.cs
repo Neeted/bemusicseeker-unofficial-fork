@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 
@@ -74,4 +75,45 @@ internal sealed class TestUiDialogService : IUiDialogService
         UiProgressRequest request,
         Func<UiProgressContext, Task> operation,
         CancellationToken cancellationToken = default) => throw new NotSupportedException();
+}
+
+internal sealed class NoOpSelectedChartMutationActivityPort : ISelectedChartMutationActivityPort
+{
+    public void BeginActivity()
+    {
+    }
+
+    public void EndActivity()
+    {
+    }
+}
+
+internal sealed class NoOpSelectedChartMutationRefreshPort : ISelectedChartMutationRefreshPort
+{
+    public void BeginRefreshSuppression(SelectedChartMutationRefreshScope scope)
+    {
+    }
+
+    public void EndRefreshSuppression()
+    {
+    }
+
+    public void ApplyLibraryPathMutationRefresh()
+    {
+    }
+}
+
+internal sealed class NoOpSelectedChartMutationPlaybackPort : ISelectedChartMutationPlaybackPort
+{
+    public void StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts)
+    {
+    }
+
+    public void StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts)
+    {
+    }
+
+    public void StopPlaybackForChartDirectories(IReadOnlyList<string> directories)
+    {
+    }
 }

@@ -88,7 +88,7 @@ internal sealed class ShutdownPreparationResult
 /// ライブラリ（BMSファイル群）やプレイリストの管理、各ビュー状態の維持、内蔵および外部BMSプレイヤー機能の連携のほか、
 /// UI (MainWindow) とのデータバインディングやルーティングを担います。
 /// </summary>
-public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, IDuplicateMaintenancePlaybackPort
+public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPresentation, IPendingPackageMutationPresentation, IDuplicateMaintenanceActivityPort, IDuplicateMaintenanceRefreshPort, IDuplicateMaintenancePlaybackPort, ISelectedChartMutationActivityPort, ISelectedChartMutationRefreshPort, ISelectedChartMutationPlaybackPort
 {
     internal event EventHandler InitialSetupLanguageDialogRequested;
 
@@ -121,6 +121,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     internal PackageCatalogWorkflowOwner PackageCatalog { get; private set; }
 
     internal DuplicateMaintenanceWorkflowOwner DuplicateMaintenanceWorkflow { get; private set; }
+
+    internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; private set; }
 
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
@@ -2142,6 +2144,58 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         ReleaseDuplicateRefreshPriorityWindowAfterUiRefresh(reason + "_ui_refresh_done");
     }
 
+    void ISelectedChartMutationActivityPort.BeginActivity()
+    {
+        BeginChartPackageMutation();
+    }
+
+    void ISelectedChartMutationActivityPort.EndActivity()
+    {
+        EndChartPackageMutation();
+    }
+
+    void ISelectedChartMutationRefreshPort.BeginRefreshSuppression(SelectedChartMutationRefreshScope scope)
+    {
+        UiRefreshChannel refreshMask = scope switch
+        {
+            SelectedChartMutationRefreshScope.Pending =>
+                UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree,
+            SelectedChartMutationRefreshScope.Library =>
+                UiRefreshChannel.LibraryMainView
+                | UiRefreshChannel.LibraryFolderTree
+                | UiRefreshChannel.InstallTree
+                | UiRefreshChannel.DuplicateTree,
+            _ => throw new ArgumentOutOfRangeException(nameof(scope), scope, "Unsupported selected chart mutation refresh scope.")
+        };
+        BeginUiUpdateSuppression(refreshMask);
+    }
+
+    void ISelectedChartMutationRefreshPort.EndRefreshSuppression()
+    {
+        EndUiUpdateSuppression();
+    }
+
+    void ISelectedChartMutationRefreshPort.ApplyLibraryPathMutationRefresh()
+    {
+        regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
+        InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
+    }
+
+    void ISelectedChartMutationPlaybackPort.StopPlaybackForPendingCharts(IReadOnlyList<ChartFile> charts)
+    {
+        PlaybackPanel.StopIfPlayingCharts(charts);
+    }
+
+    void ISelectedChartMutationPlaybackPort.StopPlaybackForLibraryCharts(IReadOnlyList<LibraryChartRef> charts)
+    {
+        PlaybackPanel.StopIfPlayingLibraryCharts(charts);
+    }
+
+    void ISelectedChartMutationPlaybackPort.StopPlaybackForChartDirectories(IReadOnlyList<string> directories)
+    {
+        PlaybackPanel.StopIfPlayingChartDirectories(directories);
+    }
+
     void IPendingPackageMutationPresentation.BeginActivity()
     {
         BeginChartPackageMutation();
@@ -3779,7 +3833,12 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             duplicateMaintenancePlayback: this,
             duplicateMaintenanceDialogService: new UiDialogCoordinator(),
             showDuplicateFileCheckConfirmProvider: () => ApplicationSettings.ShowDuplicateFileCheckConfirmMsg,
-            duplicateMaintenanceLibraryProvider: () => files);
+            duplicateMaintenanceLibraryProvider: () => files,
+            selectedChartMutationActivity: this,
+            selectedChartMutationRefresh: this,
+            selectedChartMutationPlayback: this,
+            selectedChartMutationDialogService: new UiDialogCoordinator(),
+            selectedChartMutationLibraryProvider: () => files);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3802,6 +3861,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PackageCatalog = childComposition.PackageCatalogWorkflow;
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
+        SelectedChartMutations = childComposition.SelectedChartMutations;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
@@ -6148,11 +6208,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     private static List<ChartFile> GetBmsFormatCharts(IEnumerable<ChartFile> charts)
     {
         return [.. (charts ?? []).Where(ChartFileKindResolver.IsBmsChartFile)];
-    }
-
-    private static List<LibraryChartRef> GetBmsLibraryChartRefs(IEnumerable<LibraryChartRef> charts)
-    {
-        return [.. (charts ?? []).Where(chart => chart?.Kind == LibraryChartKind.Bms)];
     }
 
     /// <summary>
@@ -9404,66 +9459,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
-    internal List<string> GetLibraryWholeFolderDeleteConfirmationPaths(IEnumerable<ChartOperationTarget> targets)
-    {
-        List<LibraryChartRef> charts = [.. ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary)];
-        if (charts.Count == 0)
-        {
-            return [];
-        }
-        using (chartFileOperations.Enter())
-        {
-            return files.GetLibraryWholeFolderDeleteConfirmationPaths(charts);
-        }
-    }
-
-    internal void RemoveLibraryCharts(IEnumerable<ChartOperationTarget> targets, IEnumerable<string> approvedWholeFolderDeletePaths = null)
-    {
-        List<LibraryChartRef> charts = [.. ToLibraryChartRefs(targets, ChartOperationCapabilities.RemoveFromLibrary)];
-        if (charts.Count == 0)
-        {
-            return;
-        }
-        RunChartPackageMutation(delegate
-        {
-            files.RemoveLibraryCharts(charts, approvedWholeFolderDeletePaths: approvedWholeFolderDeletePaths);
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.InstallTree | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.DuplicateTree, stopPlayback: () =>
-        {
-            PlaybackPanel.StopIfPlayingLibraryCharts(GetBmsLibraryChartRefs(charts));
-            PlaybackPanel.StopIfPlayingChartDirectories(approvedWholeFolderDeletePaths);
-        });
-    }
-
-    internal void RemovePendingCharts(IEnumerable<ChartOperationTarget> targets, bool sendToRecycleBin = true, bool deleteContainingPackageFoldersWhenNoBms = false)
-    {
-        List<ChartFile> charts = [.. (targets ?? [])
-            .Where(target => target != null && target.HasCapability(ChartOperationCapabilities.UpdateInstallDestination))
-            .Select(target => target.Chart)
-            .Where(chart => chart != null)];
-        RunPendingInstallMutation(delegate
-        {
-            files.RemovePendingCharts(charts, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
-        }, deleteContainingPackageFoldersWhenNoBms ? charts : GetBmsFormatCharts(charts));
-    }
-
-    internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt)
-    {
-        List<ChartFile> chartList = GetBmsFormatCharts(charts);
-        RunChartPackageMutation(delegate
-        {
-            files.RenameBMSFilesExtensions(chartList, newExt, true);
-        }, chartList, UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree);
-    }
-
-    internal void RenamePendingBmsFormatChartFileExtensions(IEnumerable<ChartFile> charts, string newExt)
-    {
-        List<ChartFile> chartList = GetBmsFormatCharts(charts);
-        RunPendingInstallMutation(delegate
-        {
-            files.RenamePendingBmsFormatChartFileExtensions(chartList, newExt);
-        }, chartList);
-    }
-
     internal void RenameChartFolder(RenameChartFolderRequest request, string newFolder)
     {
         string chartPath = request?.Chart?.Path;
@@ -9530,28 +9525,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree,
             stopPlayback: () => PlaybackPanel.StopPlayback(closeProcess: true));
         return new FolderAutoRenameExecutionResult { RefreshRequired = changed };
-    }
-
-    internal void MoveLibraryCharts(ChartLibraryMoveRequest request)
-    {
-        if (request?.HasTargets != true || string.IsNullOrWhiteSpace(request.NewParentDirectory))
-        {
-            return;
-        }
-        RunChartPackageMutation(delegate
-        {
-            files.MoveLibraryRootFolder(request.Charts, request.NewParentDirectory, false);
-            regularChartListOwner.ApplyLatestNormalLibraryRefreshNotification("library_charts_changed");
-            InvalidateNormalLibrarySortKeysAfterPathMutation(hasBmsPathMutation: true, hasBmsonPathMutation: true);
-        }, refreshMask: UiRefreshChannel.LibraryMainView | UiRefreshChannel.LibraryFolderTree | UiRefreshChannel.InstallTree | UiRefreshChannel.DuplicateTree, stopPlayback: () => PlaybackPanel.StopIfPlayingLibraryCharts(request.Charts));
-    }
-
-    private static IEnumerable<LibraryChartRef> ToLibraryChartRefs(IEnumerable<ChartOperationTarget> targets, ChartOperationCapabilities requiredCapability)
-    {
-        return (targets ?? [])
-            .Where(target => target != null && target.HasCapability(requiredCapability))
-            .Select(target => target.ToLibraryChartRef())
-            .Where(chart => chart != null);
     }
 
     /// <summary>
