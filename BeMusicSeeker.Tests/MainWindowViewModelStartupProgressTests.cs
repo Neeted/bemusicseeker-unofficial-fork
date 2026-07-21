@@ -1,3 +1,5 @@
+using System;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Properties;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -427,27 +429,32 @@ public sealed class MainWindowViewModelStartupProgressTests
     [TestMethod]
     public void Lr2SongDbSyncWarningStatus_IsVisibleWhenStartupProgressFailed()
     {
-        Assert.IsFalse(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
-            hasWarningStatus: true,
-            startupProgressActive: true,
-            startupProgressFailed: false));
-        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
-            hasWarningStatus: true,
-            startupProgressActive: true,
-            startupProgressFailed: true));
-        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
-            hasWarningStatus: true,
-            startupProgressActive: false,
-            startupProgressFailed: false));
-        Assert.IsTrue(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
-            hasWarningStatus: true,
-            startupProgressActive: true,
-            startupProgressFailed: false,
-            startupProgressTracksLr2SongDbSync: false));
-        Assert.IsFalse(MainWindowViewModel.ShouldShowLr2SongDbSyncStatusForTest(
-            hasWarningStatus: false,
-            startupProgressActive: true,
-            startupProgressFailed: true));
+        TestResourceInitializer.EnsureJapaneseResources();
+        var hub = new OperationProgressHubViewModel();
+        Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(
+            new Lr2SongDbSyncStatusSnapshot
+            {
+                Status = Lr2SongDbSyncStatusKind.Running,
+                Stage = "song_rows",
+                StageProcessedCount = 4,
+                StageTotalCount = 10
+            },
+            new DateTime(2026, 6, 5, 12, 0, 0));
+
+        hub.UpdateLr2SongDbSyncStatus(status, startupProgressBlocksStatus: true);
+        Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
+
+        hub.UpdateLr2SongDbSyncStatusSuppression(startupProgressBlocksStatus: false);
+
+        Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
+        Assert.AreEqual(status.StatusText, hub.Lr2SongDbSyncStatusLabel);
+        Assert.AreEqual(status.ProgressText, hub.Lr2SongDbSyncStatusSubLabel);
+        Assert.AreEqual(status.ProgressValue, hub.Lr2SongDbSyncStatusProgressValue);
+        Assert.AreEqual(status.ProgressMaximum, hub.Lr2SongDbSyncStatusProgressMaximum);
+
+        hub.UpdateLr2SongDbSyncStatusSuppression(startupProgressBlocksStatus: true);
+
+        Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
     }
 
     [TestMethod]

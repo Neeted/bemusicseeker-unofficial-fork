@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using BeMusicSeeker.Models;
+using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.ViewModels;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -209,5 +211,76 @@ public sealed class OperationProgressHubViewModelTests
         Assert.AreEqual(string.Empty, hub.StartupProgressSubLabel);
         Assert.AreEqual(0.0, hub.StartupProgressValue);
         Assert.AreEqual(1.0, hub.StartupProgressMaximum);
+    }
+
+    [TestMethod]
+    public void Lr2SongDbSyncPresentation_UsesRuntimeStatusAndSuppression()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var hub = new OperationProgressHubViewModel();
+        Lr2SongDbSyncRuntimeStatus status = Lr2SongDbSyncStatusMapper.Create(
+            new Lr2SongDbSyncStatusSnapshot
+            {
+                Status = Lr2SongDbSyncStatusKind.Running,
+                Stage = "song_rows",
+                StageProcessedCount = 4,
+                StageTotalCount = 10
+            },
+            new DateTime(2026, 6, 5, 12, 0, 0));
+
+        hub.UpdateLr2SongDbSyncStatus(status, startupProgressBlocksStatus: false);
+
+        Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
+        Assert.AreEqual(status.StatusText, hub.Lr2SongDbSyncStatusLabel);
+        Assert.AreEqual(status.ProgressText, hub.Lr2SongDbSyncStatusSubLabel);
+        Assert.AreEqual(status.Detail, hub.Lr2SongDbSyncStatusToolTip);
+        Assert.AreEqual(status.ProgressValue, hub.Lr2SongDbSyncStatusProgressValue);
+        Assert.AreEqual(status.ProgressMaximum, hub.Lr2SongDbSyncStatusProgressMaximum);
+        Assert.IsTrue(hub.IsLr2SongDbSyncStatusProgressVisible);
+        Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
+        Assert.IsTrue(hub.IsLr2SongDbSyncCancelVisible);
+
+        hub.UpdateLr2SongDbSyncStatusSuppression(startupProgressBlocksStatus: true);
+
+        Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
+        Assert.AreEqual(string.Empty, hub.Lr2SongDbSyncStatusLabel);
+        Assert.AreEqual(1.0, hub.Lr2SongDbSyncStatusProgressMaximum);
+        Assert.IsFalse(hub.IsLr2SongDbSyncStatusProgressVisible);
+        Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
+    }
+
+    [TestMethod]
+    public void Lr2SongDbSyncPresentation_UsesCleanupForStartupScanBlockersAndClearsNotNeeded()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var hub = new OperationProgressHubViewModel();
+        Lr2SongDbSyncRuntimeStatus blockers = Lr2SongDbSyncStatusMapper.Create(
+            new Lr2SongDbSyncStatusSnapshot
+            {
+                Status = Lr2SongDbSyncStatusKind.Incomplete,
+                Stage = Lr2SongDbSyncService.StartupScanBlockersStage,
+                LastError = "startup scan blockers"
+            },
+            DateTime.MinValue);
+
+        hub.UpdateLr2SongDbSyncStatus(blockers, startupProgressBlocksStatus: false);
+
+        Assert.IsTrue(hub.IsLr2SongDbSyncStatusActive);
+        Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
+        Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
+        Assert.IsTrue(hub.IsLr2SongDbSyncCleanupVisible);
+
+        hub.UpdateLr2SongDbSyncStatus(null, startupProgressBlocksStatus: false);
+
+        Assert.IsFalse(hub.IsLr2SongDbSyncStatusActive);
+        Assert.AreEqual(string.Empty, hub.Lr2SongDbSyncStatusLabel);
+        Assert.AreEqual(string.Empty, hub.Lr2SongDbSyncStatusSubLabel);
+        Assert.AreEqual(string.Empty, hub.Lr2SongDbSyncStatusToolTip);
+        Assert.AreEqual(0.0, hub.Lr2SongDbSyncStatusProgressValue);
+        Assert.AreEqual(1.0, hub.Lr2SongDbSyncStatusProgressMaximum);
+        Assert.IsFalse(hub.IsLr2SongDbSyncStatusProgressVisible);
+        Assert.IsFalse(hub.IsLr2SongDbSyncRetryVisible);
+        Assert.IsFalse(hub.IsLr2SongDbSyncCancelVisible);
+        Assert.IsFalse(hub.IsLr2SongDbSyncCleanupVisible);
     }
 }

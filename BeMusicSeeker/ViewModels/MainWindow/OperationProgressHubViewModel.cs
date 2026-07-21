@@ -84,6 +84,10 @@ public sealed class OperationProgressHubViewModel : ViewModel
 
     private bool isLr2SongDbSyncCleanupVisible;
 
+    private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
+
+    private bool isStartupProgressBlockingLr2SongDbSyncStatus;
+
     private DropInstallQueueStatusSnapshot dropInstallQueueStatus = new();
 
     private PendingInstallEstimateQueueStatusSnapshot pendingInstallQueueStatus = new();
@@ -499,7 +503,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
     public bool IsLr2SongDbSyncRetryVisible
     {
         get => isLr2SongDbSyncRetryVisible;
-        set => SetValue(ref isLr2SongDbSyncRetryVisible, value, nameof(IsLr2SongDbSyncRetryVisible));
+        internal set => SetValue(ref isLr2SongDbSyncRetryVisible, value, nameof(IsLr2SongDbSyncRetryVisible));
     }
 
     /// <summary>
@@ -508,7 +512,7 @@ public sealed class OperationProgressHubViewModel : ViewModel
     public bool IsLr2SongDbSyncCancelVisible
     {
         get => isLr2SongDbSyncCancelVisible;
-        set => SetValue(ref isLr2SongDbSyncCancelVisible, value, nameof(IsLr2SongDbSyncCancelVisible));
+        internal set => SetValue(ref isLr2SongDbSyncCancelVisible, value, nameof(IsLr2SongDbSyncCancelVisible));
     }
 
     /// <summary>
@@ -517,7 +521,36 @@ public sealed class OperationProgressHubViewModel : ViewModel
     public bool IsLr2SongDbSyncCleanupVisible
     {
         get => isLr2SongDbSyncCleanupVisible;
-        set => SetValue(ref isLr2SongDbSyncCleanupVisible, value, nameof(IsLr2SongDbSyncCleanupVisible));
+        internal set => SetValue(ref isLr2SongDbSyncCleanupVisible, value, nameof(IsLr2SongDbSyncCleanupVisible));
+    }
+
+    internal void UpdateLr2SongDbSyncStatus(Lr2SongDbSyncRuntimeStatus status, bool startupProgressBlocksStatus)
+    {
+        latestLr2SongDbSyncStatus = status ?? Lr2SongDbSyncStatusMapper.CreateNone();
+        isStartupProgressBlockingLr2SongDbSyncStatus = startupProgressBlocksStatus;
+        RecomputeLr2SongDbSyncStatusPresentation();
+    }
+
+    internal void UpdateLr2SongDbSyncStatusSuppression(bool startupProgressBlocksStatus)
+    {
+        isStartupProgressBlockingLr2SongDbSyncStatus = startupProgressBlocksStatus;
+        RecomputeLr2SongDbSyncStatusPresentation();
+    }
+
+    private void RecomputeLr2SongDbSyncStatusPresentation()
+    {
+        Lr2SongDbSyncRuntimeStatus status = latestLr2SongDbSyncStatus ?? Lr2SongDbSyncStatusMapper.CreateNone();
+        bool isActive = status.HasWarningStatus && !isStartupProgressBlockingLr2SongDbSyncStatus;
+        IsLr2SongDbSyncStatusActive = isActive;
+        Lr2SongDbSyncStatusLabel = isActive ? status.StatusText : string.Empty;
+        Lr2SongDbSyncStatusSubLabel = isActive ? status.ProgressText : string.Empty;
+        Lr2SongDbSyncStatusToolTip = isActive ? status.Detail : string.Empty;
+        Lr2SongDbSyncStatusProgressValue = isActive ? status.ProgressValue : 0.0;
+        Lr2SongDbSyncStatusProgressMaximum = isActive ? status.ProgressMaximum : 1.0;
+        IsLr2SongDbSyncStatusProgressVisible = isActive && status.HasProgress;
+        IsLr2SongDbSyncRetryVisible = isActive && status.CanRetry;
+        IsLr2SongDbSyncCancelVisible = isActive && status.CanCancel;
+        IsLr2SongDbSyncCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
     }
 
     internal void UpdateDropInstallQueueStatus(DropInstallQueueStatusSnapshot snapshot)

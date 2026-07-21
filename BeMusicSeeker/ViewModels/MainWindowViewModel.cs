@@ -605,8 +605,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private bool _IsStartupUiInteractionBlocked;
 
-    private Lr2SongDbSyncRuntimeStatus latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.CreateNone();
-
     private string _KeywordSearchWarningText = string.Empty;
 
     private bool _IsKeywordSearchHelpOpen;
@@ -3173,95 +3171,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     public bool IsChartPackageMutationInProgress => Volatile.Read(ref chartPackageMutationDepth) > 0;
 
     /// <summary>
-    /// Gets whether LR2 song DB sync status is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncStatusActive
-    {
-        get => ProgressHub.IsLr2SongDbSyncStatusActive;
-        private set => ProgressHub.IsLr2SongDbSyncStatusActive = value;
-    }
-
-    /// <summary>
-    /// Gets the primary LR2 song DB sync status label.
-    /// </summary>
-    public string Lr2SongDbSyncStatusLabel
-    {
-        get => ProgressHub.Lr2SongDbSyncStatusLabel;
-        private set => ProgressHub.Lr2SongDbSyncStatusLabel = value;
-    }
-
-    /// <summary>
-    /// Gets the secondary LR2 song DB sync status label.
-    /// </summary>
-    public string Lr2SongDbSyncStatusSubLabel
-    {
-        get => ProgressHub.Lr2SongDbSyncStatusSubLabel;
-        private set => ProgressHub.Lr2SongDbSyncStatusSubLabel = value;
-    }
-
-    /// <summary>
-    /// Gets LR2 song DB sync status detail text for tooltips.
-    /// </summary>
-    public string Lr2SongDbSyncStatusToolTip
-    {
-        get => ProgressHub.Lr2SongDbSyncStatusToolTip;
-        private set => ProgressHub.Lr2SongDbSyncStatusToolTip = value;
-    }
-
-    /// <summary>
-    /// Gets the current LR2 song DB sync status progress value.
-    /// </summary>
-    public double Lr2SongDbSyncStatusProgressValue
-    {
-        get => ProgressHub.Lr2SongDbSyncStatusProgressValue;
-        private set => ProgressHub.Lr2SongDbSyncStatusProgressValue = value;
-    }
-
-    /// <summary>
-    /// Gets the LR2 song DB sync status progress maximum.
-    /// </summary>
-    public double Lr2SongDbSyncStatusProgressMaximum
-    {
-        get => ProgressHub.Lr2SongDbSyncStatusProgressMaximum;
-        private set => ProgressHub.Lr2SongDbSyncStatusProgressMaximum = value;
-    }
-
-    /// <summary>
-    /// Gets whether the LR2 song DB sync status progress bar is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncStatusProgressVisible
-    {
-        get => ProgressHub.IsLr2SongDbSyncStatusProgressVisible;
-        private set => ProgressHub.IsLr2SongDbSyncStatusProgressVisible = value;
-    }
-
-    /// <summary>
-    /// Gets whether the LR2 song DB sync retry action is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncRetryVisible
-    {
-        get => ProgressHub.IsLr2SongDbSyncRetryVisible;
-        set => ProgressHub.IsLr2SongDbSyncRetryVisible = value;
-    }
-
-    /// <summary>
-    /// Gets whether the LR2 song DB sync cancel action is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncCancelVisible
-    {
-        get => ProgressHub.IsLr2SongDbSyncCancelVisible;
-        set => ProgressHub.IsLr2SongDbSyncCancelVisible = value;
-    }
-
-    /// <summary>
-    /// Gets whether the LR2 song DB sync cleanup action is visible.
-    /// </summary>
-    public bool IsLr2SongDbSyncCleanupVisible
-    {
-        get => ProgressHub.IsLr2SongDbSyncCleanupVisible;
-        set => ProgressHub.IsLr2SongDbSyncCleanupVisible = value;
-    }
-    /// <summary>
     /// Compatibility forwarder for callers that still address the former root filter property.
     /// </summary>
     public ModeFilterType ModeFilter
@@ -4263,48 +4172,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private void ProgressHubPropertyChanged(object sender, PropertyChangedEventArgs e)
     {
-        string propertyName = e?.PropertyName;
-        if (string.IsNullOrWhiteSpace(propertyName))
+        if (e?.PropertyName != nameof(OperationProgressHubViewModel.IsStartupProgressActive))
         {
             return;
         }
 
-        bool installPipelineProperty = propertyName == nameof(OperationProgressHubViewModel.IsInstallPipelineStatusActive)
-            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineSubLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineValue)
-            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineMaximum)
-            || propertyName == nameof(OperationProgressHubViewModel.InstallPipelineCanCancel);
-        bool maintenanceRescanProperty = propertyName == nameof(OperationProgressHubViewModel.IsMaintenanceRescanProgressActive)
-            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanSubLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanValue)
-            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanMaximum)
-            || propertyName == nameof(OperationProgressHubViewModel.MaintenanceRescanCanCancel);
-        bool folderAutoRenameProperty = propertyName == nameof(OperationProgressHubViewModel.IsFolderAutoRenameProgressActive)
-            || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressSubLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressValue)
-            || propertyName == nameof(OperationProgressHubViewModel.FolderAutoRenameProgressMaximum);
-        bool playlistSyncProgressProperty = propertyName == nameof(OperationProgressHubViewModel.IsPlaylistSyncProgressActive)
-            || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressSubLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressValue)
-            || propertyName == nameof(OperationProgressHubViewModel.PlaylistSyncProgressMaximum);
-        bool startupProgressProperty = propertyName == nameof(OperationProgressHubViewModel.IsStartupProgressActive)
-            || propertyName == nameof(OperationProgressHubViewModel.StartupProgressLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.StartupProgressSubLabel)
-            || propertyName == nameof(OperationProgressHubViewModel.StartupProgressValue)
-            || propertyName == nameof(OperationProgressHubViewModel.StartupProgressMaximum);
-        if (!installPipelineProperty && !maintenanceRescanProperty && !folderAutoRenameProperty && !playlistSyncProgressProperty && !startupProgressProperty)
-        {
-            RaisePropertyChanged(propertyName);
-        }
-        if (propertyName == nameof(OperationProgressHubViewModel.IsStartupProgressActive))
-        {
-            RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
-            RecomputeLr2SongDbSyncStatusPresentation();
-        }
+        RaisePropertyChanged(nameof(IsLibraryOperationInProgress));
+        ProgressHub.UpdateLr2SongDbSyncStatusSuppression(IsStartupProgressBlockingLr2SongDbSyncStatus());
     }
 
     public bool IsShutdownRequested => Volatile.Read(ref shutdownRequested) != 0;
@@ -7919,52 +7793,19 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     private void UpdateLr2SongDbSyncRuntimeStatus(Lr2SongDbSyncStatusSnapshot snapshot)
     {
-        latestLr2SongDbSyncStatus = Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.Now);
-        RecomputeLr2SongDbSyncStatusPresentation();
-    }
-
-    private void RecomputeLr2SongDbSyncStatusPresentation()
-    {
-        Lr2SongDbSyncRuntimeStatus status = latestLr2SongDbSyncStatus ?? Lr2SongDbSyncStatusMapper.CreateNone();
-        bool isActive = ShouldShowLr2SongDbSyncStatus(status.HasWarningStatus, IsStartupProgressBlockingLr2SongDbSyncStatus());
-        IsLr2SongDbSyncStatusActive = isActive;
-        Lr2SongDbSyncStatusLabel = isActive ? status.StatusText : string.Empty;
-        Lr2SongDbSyncStatusSubLabel = isActive ? status.ProgressText : string.Empty;
-        Lr2SongDbSyncStatusToolTip = isActive ? status.Detail : string.Empty;
-        Lr2SongDbSyncStatusProgressValue = isActive ? status.ProgressValue : 0.0;
-        Lr2SongDbSyncStatusProgressMaximum = isActive ? status.ProgressMaximum : 1.0;
-        IsLr2SongDbSyncStatusProgressVisible = isActive && status.HasProgress;
-        IsLr2SongDbSyncRetryVisible = isActive && status.CanRetry;
-        IsLr2SongDbSyncCancelVisible = isActive && status.CanCancel;
-        IsLr2SongDbSyncCleanupVisible = isActive && status.CanCleanupStartupScanBlockers;
+        ProgressHub.UpdateLr2SongDbSyncStatus(
+            Lr2SongDbSyncStatusMapper.Create(snapshot, DateTime.Now),
+            IsStartupProgressBlockingLr2SongDbSyncStatus());
     }
 
     private bool IsStartupProgressBlockingLr2SongDbSyncStatus()
     {
         lock (startupProgressLock)
         {
-            return IsStartupProgressBlockingLr2SongDbSyncStatus(
-                startupProgressState.IsActive,
-                startupProgressState.IsFailed,
-                CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone));
+            return startupProgressState.IsActive
+                && !startupProgressState.IsFailed
+                && CanCompleteStartupProgressPhase(startupProgressState, StartupProgressPhase.Lr2SongDbSyncDone);
         }
-    }
-
-    private static bool IsStartupProgressBlockingLr2SongDbSyncStatus(bool startupProgressActive, bool startupProgressFailed, bool startupProgressTracksLr2SongDbSync)
-    {
-        return startupProgressActive && !startupProgressFailed && startupProgressTracksLr2SongDbSync;
-    }
-
-    private static bool ShouldShowLr2SongDbSyncStatus(bool hasWarningStatus, bool startupProgressBlocksLr2Status)
-    {
-        return hasWarningStatus && !startupProgressBlocksLr2Status;
-    }
-
-    internal static bool ShouldShowLr2SongDbSyncStatusForTest(bool hasWarningStatus, bool startupProgressActive, bool startupProgressFailed, bool startupProgressTracksLr2SongDbSync = true)
-    {
-        return ShouldShowLr2SongDbSyncStatus(
-            hasWarningStatus,
-            IsStartupProgressBlockingLr2SongDbSyncStatus(startupProgressActive, startupProgressFailed, startupProgressTracksLr2SongDbSync));
     }
 
     public void RetryLr2SongDbSync()
@@ -8268,6 +8109,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                 }
             }
             ProgressHub.UpdateStartupProgress(isActive, label, subLabel, value, maximum);
+            ProgressHub.UpdateLr2SongDbSyncStatusSuppression(IsStartupProgressBlockingLr2SongDbSyncStatus());
         };
         if (DispatcherHelper.UIDispatcher == null || DispatcherHelper.UIDispatcher.CheckAccess())
         {

@@ -1287,6 +1287,30 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(mainWindowViewModelCode, "nameof(OperationProgressHubViewModel.IsStartupProgressActive)");
         AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusProgressMaximum");
         AssertStatusBarBinding(statusBar, "Lr2SongDbSyncStatusProgressValue");
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsLr2SongDbSyncStatusActive"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public string Lr2SongDbSyncStatusLabel"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public string Lr2SongDbSyncStatusSubLabel"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public string Lr2SongDbSyncStatusToolTip"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public double Lr2SongDbSyncStatusProgressValue"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public double Lr2SongDbSyncStatusProgressMaximum"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsLr2SongDbSyncStatusProgressVisible"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsLr2SongDbSyncRetryVisible"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsLr2SongDbSyncCancelVisible"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("public bool IsLr2SongDbSyncCleanupVisible"));
+        StringAssert.Contains(mainWindowViewModelCode, "ProgressHub.UpdateLr2SongDbSyncStatus(");
+        StringAssert.Contains(mainWindowViewModelCode, "ProgressHub.UpdateLr2SongDbSyncStatusSuppression(");
+        string startupProgressRecompute = ExtractMethodBody(
+            mainWindowViewModelCode,
+            "private void RecomputeStartupProgressPresentation()");
+        StringAssert.Contains(startupProgressRecompute, "ProgressHub.UpdateLr2SongDbSyncStatusSuppression(IsStartupProgressBlockingLr2SongDbSyncStatus());");
+        Assert.IsTrue(
+            startupProgressRecompute.IndexOf("ProgressHub.UpdateStartupProgress(", StringComparison.Ordinal)
+            < startupProgressRecompute.IndexOf("ProgressHub.UpdateLr2SongDbSyncStatusSuppression(", StringComparison.Ordinal));
+        string progressHubHandler = ExtractMethodBody(
+            mainWindowViewModelCode,
+            "private void ProgressHubPropertyChanged(object sender, PropertyChangedEventArgs e)");
+        Assert.IsFalse(progressHubHandler.Contains("RaisePropertyChanged(propertyName)"));
+        Assert.IsFalse(mainWindowViewModelCode.Contains("ShouldShowLr2SongDbSyncStatusForTest"));
 
         Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cancelDropInstallQueueClick\""));
         Assert.AreEqual(1, CountOccurrences(statusBar.ToString(SaveOptions.DisableFormatting), "Click=\"cancelMaintenanceRescanClick\""));
