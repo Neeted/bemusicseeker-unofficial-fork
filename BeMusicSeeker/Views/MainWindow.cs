@@ -3454,6 +3454,15 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
+    private async void treeViewPlaylistRootContextMenuItemReloadClick(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is not MainWindowViewModel viewModel || sender is not MenuItem)
+        {
+            return;
+        }
+        await viewModel.ReloadTablesAsync().LoggingAndPropagate("treeViewPlaylistRootContextMenuItemReloadClick");
+    }
+
     /// <summary>
     /// プレイリストルートのコンテキストメニュー「新しいプレイリストを作成」がクリックされた際の処理。
     /// 非同期で空のBMSTable（プレイリスト）を生成し、直後にプロパティ変更ダイアログを表示させます。

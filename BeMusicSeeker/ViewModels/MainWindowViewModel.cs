@@ -5037,7 +5037,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     /// データベース側からプレイリスト情報 (BMSTable) を再読み込みし、コレクションを更新します。<br/>
     /// バックグラウンドで初期化を行い、更新完了後に外部同期などを再スケジュールします。
     /// </summary>
-    public async void ReloadTables()
+    internal async Task ReloadTablesAsync()
     {
         if (!initializationCompleted)
         {
@@ -5052,7 +5052,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             await Task.Run(delegate
             {
                 tables.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
-            }).Logging("ReloadTables");
+            }).LoggingAndPropagate("ReloadTables");
             scheduleDeferredExternalSync = true;
         }
         catch (Exception ex)

@@ -3254,14 +3254,26 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void ReloadTables_DoesNotInitializeScoresOnly()
     {
+        string root = FindRepositoryRoot();
+        string xaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string method = ExtractBetween(
             viewModelCode,
-            "public async void ReloadTables()",
+            "internal async Task ReloadTablesAsync()",
             "public async void ReloadScoresOnly()");
+        string handler = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewPlaylistRootContextMenuItemReloadClick",
+            "private async void treeViewPlaylistRootContextMenuItemCreateNewPlaylistClick");
 
+        StringAssert.Contains(xaml, "Click=\"treeViewPlaylistRootContextMenuItemReloadClick\"");
+        Assert.IsFalse(xaml.Contains("LivetCallMethodAction MethodName=\"ReloadTables\""));
+        StringAssert.Contains(handler, "await viewModel.ReloadTablesAsync().LoggingAndPropagate(\"treeViewPlaylistRootContextMenuItemReloadClick\")");
         StringAssert.Contains(method, "tables.ReloadTables(queueBeatorajaBmtExportAfterHydration: false)");
         StringAssert.Contains(method, "PlaylistWorkspace.QueueExternalPlaylistSync(");
+        StringAssert.Contains(method, ".LoggingAndPropagate(\"ReloadTables\")");
+        Assert.IsFalse(viewModelCode.Contains("public async void ReloadTables()"));
         Assert.IsFalse(method.Contains("files.InitializeScoresOnly"));
         Assert.IsFalse(method.Contains("QueueDeferredScoreHydration"));
         Assert.IsFalse(method.Contains("QueueDeferredRankingRefresh"));

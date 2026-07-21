@@ -1652,7 +1652,7 @@ public sealed class BmsPlaylistUpdateTests
                 return true;
             };
 
-            playlist.ReloadTables();
+            playlist.ReloadTables(queueBeatorajaBmtExportAfterHydration: false);
 
             Assert.IsTrue(hydrationQueued);
             Assert.AreEqual(1, playlist.PlaylistEntriesHydrationRequestedVersion);

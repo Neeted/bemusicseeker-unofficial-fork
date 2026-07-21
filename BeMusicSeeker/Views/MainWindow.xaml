@@ -278,13 +278,7 @@
           </MenuItem>
         </MenuItem>
         <Separator />
-        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}">
-          <i:Interaction.Triggers>
-            <i:EventTrigger EventName="Click">
-              <l:LivetCallMethodAction MethodName="ReloadTables" MethodTarget="{Binding Source={StaticResource vm}}" />
-            </i:EventTrigger>
-          </i:Interaction.Triggers>
-        </MenuItem>
+        <MenuItem Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="treeViewPlaylistRootContextMenuItemReloadClick" />
       </ContextMenu>
       <ContextMenu x:Key="treeViewPlaylistTableContextMenu" HasDropShadow="True" Opened="treeViewPlaylistTableContextMenuOpend">
         <MenuItem Name="treeViewPlaylistTableContextMenuItemReload" Header="{Binding Source={x:Static vm:ResourceService.Current}, Path=Resources.Reload, Mode=OneWay}" Click="treeViewPlaylistTableContextMenuItemReloadClick" />
