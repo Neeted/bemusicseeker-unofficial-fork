@@ -729,6 +729,23 @@ public sealed class MainWindowContextMenuResourceTests
     }
 
     [TestMethod]
+    public void ChartInfoParseFailureContextMenu_RoutesRemovalThroughWorkflowOwner()
+    {
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
+        string handler = ExtractBetween(
+            mainWindowCode,
+            "private async void tableContextMenuItemRemoveChartInfoParseFailureClick",
+            "private void tableContextMenuItemAutoRenameFolderClick");
+
+        StringAssert.Contains(handler, "viewModel.ChartInfoParseFailureRemoval.RemoveAsync");
+        StringAssert.Contains(handler, "new ChartInfoParseFailureRemovalRequest(md5s)");
+        StringAssert.Contains(handler, "() => e.Handled = true");
+        Assert.IsFalse(handler.Contains("UiDialogRoute.ShowMessageBox"));
+        Assert.IsFalse(handler.Contains("Task.Run"));
+        Assert.IsFalse(handler.Contains("viewModel.RemoveChartInfoParseFailuresByMd5"));
+    }
+
+    [TestMethod]
     public void ResourceHealthContextMenu_AllowsBmsonOnlyChartTargets()
     {
         ChartOperationTarget bmsonTarget = CreateContextMenuTarget(
@@ -2815,7 +2832,7 @@ public sealed class MainWindowContextMenuResourceTests
         string handler = ExtractBetween(
             mainWindowCode,
             "private async void tableContextMenuItemForceFileScanCheckAllCharts",
-            "private void tableContextMenuItemRemoveChartInfoParseFailureClick");
+            "private async void tableContextMenuItemRemoveChartInfoParseFailureClick");
 
         StringAssert.Contains(handler, "ShouldBlockStartupUiInteraction(\"datagrid_context_menu_full_scan_all_charts\")");
         StringAssert.Contains(handler, "viewModel.MaintenanceRescanWorkflow.RequestStartAsync()");

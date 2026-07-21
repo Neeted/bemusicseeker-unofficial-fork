@@ -522,7 +522,9 @@ public sealed class ApplicationCompositionTests
             selectedChartResourceHealthRefresh: new NoOpSelectedChartResourceHealthRefreshPort(),
             selectedChartResourceHealthDialogService: new TestUiDialogService(),
             selectedChartResourceHealthLibraryProvider: () => null!,
-            maintenanceRescanDialogService: new TestUiDialogService());
+            maintenanceRescanDialogService: new TestUiDialogService(),
+            chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
+            chartInfoParseFailureRemovalLibraryProvider: () => null!);
 
         try
         {
@@ -536,6 +538,7 @@ public sealed class ApplicationCompositionTests
             Assert.IsNotNull(childComposition.RegularChartListOwner);
             Assert.IsNotNull(childComposition.PackageInstallWorkflow);
             Assert.IsNotNull(childComposition.MaintenanceRescanWorkflow);
+            Assert.IsNotNull(childComposition.ChartInfoParseFailureRemoval);
             Assert.IsNotNull(childComposition.FolderAutoRenameWorkflow);
             Assert.IsNotNull(childComposition.StartupUpdateWorkflow);
             Assert.IsNotNull(childComposition.ElevatedProcessWarningWorkflow);
@@ -630,7 +633,9 @@ public sealed class ApplicationCompositionTests
             selectedChartResourceHealthRefresh: new NoOpSelectedChartResourceHealthRefreshPort(),
             selectedChartResourceHealthDialogService: new TestUiDialogService(),
             selectedChartResourceHealthLibraryProvider: () => null!,
-            maintenanceRescanDialogService: new TestUiDialogService());
+            maintenanceRescanDialogService: new TestUiDialogService(),
+            chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
+            chartInfoParseFailureRemovalLibraryProvider: () => null!);
             try
             {
                 long generationBeforeVisibleRefresh = workspace.CurrentPlaylistSummaryDataRebuildGeneration;
@@ -758,7 +763,9 @@ public sealed class ApplicationCompositionTests
             selectedChartResourceHealthRefresh: new NoOpSelectedChartResourceHealthRefreshPort(),
             selectedChartResourceHealthDialogService: new TestUiDialogService(),
             selectedChartResourceHealthLibraryProvider: () => null!,
-            maintenanceRescanDialogService: new TestUiDialogService());
+            maintenanceRescanDialogService: new TestUiDialogService(),
+            chartInfoParseFailureRemovalDialogService: new TestUiDialogService(),
+            chartInfoParseFailureRemovalLibraryProvider: () => null!);
             try
             {
                 workspace.IsPlaylistSummaryMode = true;

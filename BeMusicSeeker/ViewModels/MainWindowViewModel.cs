@@ -126,6 +126,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
     internal SelectedChartResourceHealthWorkflowOwner SelectedChartResourceHealth { get; private set; }
 
+    internal ChartInfoParseFailureRemovalWorkflowOwner ChartInfoParseFailureRemoval { get; private set; }
+
     internal PendingPackageWorkflowOwner PendingPackages { get; private set; }
 
     /// <summary>
@@ -3852,7 +3854,9 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             selectedChartResourceHealthRefresh: this,
             selectedChartResourceHealthDialogService: new UiDialogCoordinator(),
             selectedChartResourceHealthLibraryProvider: () => files,
-            maintenanceRescanDialogService: new UiDialogCoordinator());
+            maintenanceRescanDialogService: new UiDialogCoordinator(),
+            chartInfoParseFailureRemovalDialogService: new UiDialogCoordinator(),
+            chartInfoParseFailureRemovalLibraryProvider: () => files);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3877,6 +3881,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         DuplicateMaintenanceWorkflow = childComposition.DuplicateMaintenanceWorkflow;
         SelectedChartMutations = childComposition.SelectedChartMutations;
         SelectedChartResourceHealth = childComposition.SelectedChartResourceHealth;
+        ChartInfoParseFailureRemoval = childComposition.ChartInfoParseFailureRemoval;
         PendingPackages = childComposition.PendingPackageWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
@@ -6985,16 +6990,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             treeViewFilterTypeSelected,
             isInit: true);
         PlaylistWorkspace.CommitMainTableColumnSetting(MainChartList, selection);
-    }
-
-    public void RemoveChartInfoParseFailuresByMd5(IEnumerable<string> md5s)
-    {
-        files?.RemoveChartInfoParseFailuresByMd5(NormalizeChartInfoParseFailureMd5s(md5s));
-    }
-
-    internal static string[] NormalizeChartInfoParseFailureMd5s(IEnumerable<string> md5s)
-    {
-        return BMSLibrary.NormalizeChartInfoParseFailureMd5s(md5s);
     }
 
     internal void FixEncodingBMSFiles(IEnumerable<BeMusicSeeker.Models.BMSFile> bmsFiles, string encoding = "")

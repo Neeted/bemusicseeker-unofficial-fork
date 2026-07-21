@@ -3626,7 +3626,7 @@ createTempDirectory);
     {
         CollectionAssert.AreEqual(
             new[] { new string('a', 32), new string('b', 32) },
-            MainWindowViewModel.NormalizeChartInfoParseFailureMd5s([null, " ", new string('A', 32), new string('a', 32), " " + new string('B', 32) + " "]));
+            new ChartInfoParseFailureRemovalRequest([null, " ", new string('A', 32), new string('a', 32), " " + new string('B', 32) + " "]).Md5s.ToArray());
     }
 
     [TestMethod]

@@ -6347,7 +6347,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void tableContextMenuItemRemoveChartInfoParseFailureClick(object sender, RoutedEventArgs e)
+    private async void tableContextMenuItemRemoveChartInfoParseFailureClick(object sender, RoutedEventArgs e)
     {
         if (!TryGetContextMenuRow(e.Source, out _) || !IsChartInfoParseErrorMainViewSection(GetCurrentMainViewOperationSection()))
         {
@@ -6358,15 +6358,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_remove_chart_info_parse_failure_record, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) == MessageBoxResult.Cancel)
+        ChartInfoParseFailureRemovalResult result = await viewModel.ChartInfoParseFailureRemoval.RemoveAsync(
+            new ChartInfoParseFailureRemovalRequest(md5s),
+            () => e.Handled = true);
+        if (result.Status == ChartInfoParseFailureRemovalStatus.Failed && result.Failure != null)
         {
-            return;
+            _ = Task.FromException(result.Failure).Logging("tableContextMenuItemRemoveChartInfoParseFailureClick");
         }
-        e.Handled = true;
-        Task.Run(delegate
-        {
-            viewModel.RemoveChartInfoParseFailuresByMd5(md5s);
-        }).Logging("tableContextMenuItemRemoveChartInfoParseFailureClick");
     }
 
     private void tableContextMenuItemAutoRenameFolderClick(object sender, RoutedEventArgs e)

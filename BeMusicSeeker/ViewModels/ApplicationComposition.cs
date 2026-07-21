@@ -324,7 +324,10 @@ internal sealed class ApplicationComposition
         ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
         IUiDialogService selectedChartResourceHealthDialogService = null,
         Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
-        IUiDialogService maintenanceRescanDialogService = null)
+        IUiDialogService maintenanceRescanDialogService = null,
+        Func<BMSLibrary> chartInfoParseFailureRemovalLibraryProvider = null,
+        IUiDialogService chartInfoParseFailureRemovalDialogService = null,
+        Func<Action, Task> chartInfoParseFailureRemovalScheduler = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -373,7 +376,10 @@ internal sealed class ApplicationComposition
             selectedChartResourceHealthRefresh,
             selectedChartResourceHealthDialogService,
             selectedChartResourceHealthLibraryProvider,
-            maintenanceRescanDialogService);
+            maintenanceRescanDialogService,
+            chartInfoParseFailureRemovalLibraryProvider,
+            chartInfoParseFailureRemovalDialogService,
+            chartInfoParseFailureRemovalScheduler);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -549,7 +555,10 @@ internal sealed class MainWindowChildComposition
         ISelectedChartResourceHealthRefreshPort selectedChartResourceHealthRefresh = null,
         IUiDialogService selectedChartResourceHealthDialogService = null,
         Func<BMSLibrary> selectedChartResourceHealthLibraryProvider = null,
-        IUiDialogService maintenanceRescanDialogService = null)
+        IUiDialogService maintenanceRescanDialogService = null,
+        Func<BMSLibrary> chartInfoParseFailureRemovalLibraryProvider = null,
+        IUiDialogService chartInfoParseFailureRemovalDialogService = null,
+        Func<Action, Task> chartInfoParseFailureRemovalScheduler = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -650,6 +659,10 @@ internal sealed class MainWindowChildComposition
             selectedChartResourceHealthLibraryProvider ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthLibraryProvider)),
             selectedChartResourceHealthRefresh ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthRefresh)),
             selectedChartResourceHealthDialogService ?? throw new ArgumentNullException(nameof(selectedChartResourceHealthDialogService)));
+        ChartInfoParseFailureRemoval = new ChartInfoParseFailureRemovalWorkflowOwner(
+            chartInfoParseFailureRemovalLibraryProvider ?? throw new ArgumentNullException(nameof(chartInfoParseFailureRemovalLibraryProvider)),
+            chartInfoParseFailureRemovalDialogService ?? throw new ArgumentNullException(nameof(chartInfoParseFailureRemovalDialogService)),
+            chartInfoParseFailureRemovalScheduler ?? (action => Task.Run(action)));
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -689,6 +702,8 @@ internal sealed class MainWindowChildComposition
     internal SelectedChartMutationWorkflowOwner SelectedChartMutations { get; }
 
     internal SelectedChartResourceHealthWorkflowOwner SelectedChartResourceHealth { get; }
+
+    internal ChartInfoParseFailureRemovalWorkflowOwner ChartInfoParseFailureRemoval { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,
