@@ -3467,7 +3467,7 @@ public partial class MainWindowViewModel
             this.reloadSettings = reloadSettings ?? throw new ArgumentNullException(nameof(reloadSettings));
             this.saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
             this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
-            this.initializeOwner = initializeOwner ?? (() => owner.InitializeForSettingsAsync());
+            this.initializeOwner = initializeOwner ?? (() => owner.InitializeAsync());
             this.reloadScoresOnly = reloadScoresOnly ?? owner.ReloadScoresOnlyAsync;
             this.reloadFileDiff = reloadFileDiff ?? owner.ReloadFileDiffAsync;
             this.reportApplyFailure = reportApplyFailure

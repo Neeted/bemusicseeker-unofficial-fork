@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
@@ -3940,15 +3941,15 @@ createTempDirectory);
             file.SetHash(digest.hash);
             var gateway = new BmsLibraryDbGateway(songDbPath);
             var service = new ChartInfoBuildService(File.ReadAllBytes, workerCountOverride: 1, commitChunkSizeOverride: 2, parseTimeoutOverride: TimeSpan.Zero);
-            List<string> logs = [];
+            var logs = new ConcurrentQueue<string>();
 
             ChartInfoBackfillResult result = BackfillChartInfos(service,
                 gateway,
                 [file],
                 [],
                 null,
-                message => logs.Add("INFO " + message),
-                message => logs.Add("WARN " + message));
+                message => logs.Enqueue("INFO " + message),
+                message => logs.Enqueue("WARN " + message));
 
             Assert.AreEqual(1, result.TargetCount);
             Assert.AreEqual(1, result.ParseFailedCount);

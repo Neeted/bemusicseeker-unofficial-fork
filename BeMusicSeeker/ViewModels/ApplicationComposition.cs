@@ -94,7 +94,7 @@ internal sealed class ApplicationComposition
         this.defaultBmsPlayerFactory = defaultBmsPlayerFactory
             ?? (() => new InternalBMSAutoPlayerSoundOnly());
         this.initializeOwner = initializeOwner
-            ?? (owner => owner.InitializeForSettingsAsync());
+            ?? (owner => owner.InitializeAsync());
         this.reloadScoresOnly = reloadScoresOnly;
         this.reloadFileDiff = reloadFileDiff;
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;

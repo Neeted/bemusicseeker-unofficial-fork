@@ -892,10 +892,6 @@
     </ResourceDictionary>
   </FrameworkElement.Resources>
   <i:Interaction.Triggers>
-    <i:EventTrigger EventName="ContentRendered">
-      <l:LivetCallMethodAction MethodName="InitializeAsync" MethodTarget="{Binding}" />
-      <l:LivetCallMethodAction MethodName="ApplyStartupInitialSelectionRequest" MethodTarget="{Binding ElementName=window, Mode=OneWay}" />
-    </i:EventTrigger>
     <i:EventTrigger EventName="Closed">
       <l:LivetCallMethodAction MethodName="CloseProcess" MethodTarget="{Binding}" />
       <l:DataContextDisposeAction />

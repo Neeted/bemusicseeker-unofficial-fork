@@ -249,16 +249,22 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         }
     }
 
-    private void MainWindow_ContentRendered(object sender, EventArgs e)
+    private async void MainWindow_ContentRendered(object sender, EventArgs e)
     {
         ContentRendered -= MainWindow_ContentRendered;
-        Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)(() =>
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
-            if (base.DataContext is MainWindowViewModel viewModel)
-            {
-                viewModel.ElevatedProcessWarningWorkflow.Start(CanPresentElevatedProcessWarning);
-            }
+            ApplyStartupInitialSelectionRequest();
+            return;
+        }
+
+        Task<bool> initializationTask = viewModel.InitializeAsync();
+        ApplyStartupInitialSelectionRequest();
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.ContextIdle, (Action)(() =>
+        {
+            viewModel.ElevatedProcessWarningWorkflow.Start(CanPresentElevatedProcessWarning);
         }));
+        await initializationTask.LoggingAndPropagate("MainWindow_ContentRendered");
     }
 
     private bool CanPresentElevatedProcessWarning()
@@ -537,7 +543,7 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
     /// アプリケーション起動時に、設定 (StartupSelectInstallPending) に基づいて
     /// プレイリストツリーの「インストール待ち（保留）」ノードを自動的に展開・選択します。
     /// </summary>
-    public void ApplyStartupInitialSelectionRequest()
+    private void ApplyStartupInitialSelectionRequest()
     {
         if (startupInitialSelectionApplied)
         {

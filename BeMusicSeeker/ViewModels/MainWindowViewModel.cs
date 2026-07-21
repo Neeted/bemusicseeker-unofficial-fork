@@ -5444,11 +5444,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         return new LR2Config(startupSettings.LR2ConfigXmlPath);
     }
 
-    public async void InitializeAsync()
-    {
-        await InitializeForSettingsAsync();
-    }
-
     internal void MarkLibraryInitializationFailed()
     {
         if (initializationCompleted)
@@ -5463,7 +5458,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         }
     }
 
-    internal async Task<bool> InitializeForSettingsAsync()
+    internal async Task<bool> InitializeAsync()
     {
         await _semaphore.WaitAsync();
         SetStartupUiInteractionBlocked(true);
@@ -5476,7 +5471,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             RaisePropertyChanged(() => HasActiveLibraryProfile);
         }
         _ = string.Empty;
-        string text = Assembly.GetEntryAssembly().GetName().Version.ToString();
+        string text = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? string.Empty;
         WindowTitle = "BeMusicSeeker Unofficial Fork - " + text;
         StartupSettingsSnapshot startupSettings;
         CustomFolderOutputSettingsSnapshot startupCustomFolderSettings = null;

@@ -1725,7 +1725,7 @@ public sealed class MainWindowContextMenuResourceTests
             "public async Task SaveSettings()");
         string initialize = ExtractBetween(
             viewModelCode,
-            "internal async Task<bool> InitializeForSettingsAsync()",
+            "internal async Task<bool> InitializeAsync()",
             "listenerForBMSLibrary = new PropertyChangedEventListener(files);");
         string saveFollowup = ExtractBetween(
             viewModelCode,
@@ -1793,6 +1793,7 @@ public sealed class MainWindowContextMenuResourceTests
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
         string settingDialogXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.xaml"));
         string mainWindowXaml = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "MainWindow.xaml"));
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string appCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "App.cs"));
         Assert.IsFalse(settingDialogCode.Contains("SaveAndClose"));
@@ -1803,9 +1804,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(settingDialogXaml, "Command=\"{Binding settingDialog.ApplyCommand}\"");
         StringAssert.Contains(settingDialogXaml, "Command=\"{Binding settingDialog.CancelCommand}\"");
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding settingDialog.IsEditCompletionEnabled}\"");
-        StringAssert.Contains(mainWindowXaml, "MethodName=\"InitializeAsync\" MethodTarget=\"{Binding}\"");
-        StringAssert.Contains(viewModelCode, "public async void InitializeAsync()");
-        StringAssert.Contains(viewModelCode, "await InitializeForSettingsAsync();");
+        Assert.IsFalse(mainWindowXaml.Contains("EventName=\"ContentRendered\""));
+        StringAssert.Contains(mainWindowCode, "Task<bool> initializationTask = viewModel.InitializeAsync();");
+        StringAssert.Contains(mainWindowCode, "ApplyStartupInitialSelectionRequest();");
+        StringAssert.Contains(mainWindowCode, "await initializationTask.LoggingAndPropagate(\"MainWindow_ContentRendered\")");
+        Assert.IsFalse(viewModelCode.Contains("public async void InitializeAsync()"));
+        Assert.IsFalse(viewModelCode.Contains("InitializeForSettingsAsync"));
         StringAssert.Contains(viewModelCode, "internal async Task ApplySettingsAsync()");
         StringAssert.Contains(viewModelCode, "await SaveSettingsForInitialInitialize();");
         StringAssert.Contains(viewModelCode, "await SaveSettings();");
@@ -1834,7 +1838,7 @@ public sealed class MainWindowContextMenuResourceTests
         string initialDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "InitialSetupLanguageDialog.xaml.cs"));
         string initialize = ExtractBetween(
             viewModelCode,
-            "internal async Task<bool> InitializeForSettingsAsync()",
+            "internal async Task<bool> InitializeAsync()",
             "public void CloseProcess()");
         string validationFailure = ExtractBetween(
             initialize,
@@ -1896,7 +1900,7 @@ public sealed class MainWindowContextMenuResourceTests
             "internal static string BuildAppSchemaRepairWarningMessage");
         string initialize = ExtractBetween(
             viewModelCode,
-            "internal async Task<bool> InitializeForSettingsAsync()",
+            "internal async Task<bool> InitializeAsync()",
             "public void CloseProcess()");
         string endSuppression = ExtractBetween(
             viewModelCode,

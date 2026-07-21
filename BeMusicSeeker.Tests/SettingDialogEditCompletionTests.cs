@@ -317,6 +317,36 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public async Task InitializeAsync_FirstStartupValidationFailureCompletesFalseAndRequestsInitialSetup()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            Settings invalidSettings = CreateValidStandaloneSettings(root);
+            invalidSettings.BMSRootPath = string.Empty;
+            invalidSettings.StandaloneBmsRootPaths = string.Empty;
+            var settingsSession = new CountingSettingsEditSession(invalidSettings);
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: true);
+            int initialSetupRequestCount = 0;
+            viewModel.InitialSetupLanguageDialogRequested += (_, _) => initialSetupRequestCount++;
+
+            bool initialized = await viewModel.InitializeAsync();
+
+            Assert.IsFalse(initialized);
+            Assert.AreEqual(1, initialSetupRequestCount);
+            Assert.IsFalse(viewModel.IsStartupUiInteractionBlocked);
+            Assert.IsFalse(viewModel.IsInitializationCompleted);
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ApplySettingsAsync_InitialSettings_SavesClosesAndInitializes()
     {
         string root = CreateTemporaryRoot();

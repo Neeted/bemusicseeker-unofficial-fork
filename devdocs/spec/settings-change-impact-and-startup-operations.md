@@ -30,7 +30,7 @@ OK は次の契約に従う。
 
 - 既存プロファイルで `IsLibraryOperationInProgress == true` の場合、保存せず警告を表示して snapshot の値へ戻す。
 - 変更なしの場合は、active library profile が有効なら保存・検証・post-save 処理を行わず閉じる。初期化失敗後など active profile が無い場合は、変更がなくても初期設定 apply と初期化 retry の経路へ進む。
-- 初回設定では full validation を行い、保存後に awaitable な `InitializeForSettingsAsync()` を起動する。通常の XAML `ContentRendered` 境界は `InitializeAsync()` (`async void`) がこの core を await する。
+- 初回設定では full validation を行い、保存後に awaitable な `InitializeAsync()` を起動する。`MainWindow.ContentRendered` (`async void` event boundary) と設定 apply の両 caller が同じ owner を await する。
 - 既存プロファイルでは `CheckValidationBeforeSave()` を使う。validation に関係する設定が変わった場合は full validation を行い、変わっていない場合は現在の必須設定が外部要因で壊れていないかだけを確認する。
 - `Settings.Default.Save()` は user.config 対象の変更がある場合だけ呼ぶ。
 - `lr2config.Save()` は LR2 BMS 検索ルートまたは autoreload 設定を保存する必要がある場合だけ呼ぶ。
@@ -190,7 +190,7 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 
 扱い:
 
-- 既存プロファイルが有効な通常状態では、LR2 song.db 境界または score/folder の同時変更に対して `InitializeForSettingsAsync()` を起動する。LR2 linked / standalone の mode 切替は process restart として扱い、この operation では処理しない。
+- 既存プロファイルが有効な通常状態では、LR2 song.db 境界または score/folder の同時変更に対して `InitializeAsync()` を起動する。LR2 linked / standalone の mode 切替は process restart として扱い、この operation では処理しない。
 - 失敗していない起動・リロード進捗が active の間は適用不可。
 
 ## Startup Apply Gate
@@ -228,7 +228,7 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 
 ## Operation Serialization
 
-`InitializeForSettingsAsync()`, `ReloadFileDiffAsync()`, `ReloadScoresOnlyAsync()`, `ReloadTables()`, `ReinitializeLibraryAsync()` は `_semaphore` で直列化される。XAML の `InitializeAsync()` はこの awaitable operation を起動する presentation boundary である。
+`InitializeAsync()`, `ReloadFileDiffAsync()`, `ReloadScoresOnlyAsync()`, `ReloadTables()`, `ReinitializeLibraryAsync()` は `_semaphore` で直列化される。`MainWindow.ContentRendered` はこの awaitable operation を起動して初期選択を適用する presentation boundary である。
 ただし `_semaphore` は同時実行を防ぐだけで、ユーザー操作から 2 回目の operation を予約することまでは防がない。
 
 そのため設定画面 OK の時点で active operation を拒否し、意図しない予約を作らない。score-only / file-diff operation または設定画面から起動した初期化が失敗した場合は、失敗表示を保持しつつ `IsLibraryOperationInProgress` の busy 判定を解除し、semaphore と UI suppression の cleanup 後に設定画面 OK から同じ反映を再試行できるようにする。他の active / failed operation は従来どおり busy として扱う。
@@ -238,7 +238,7 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 起動・リロード進捗は operation token で所有者を区別する。
 
 - 新しい progress operation は `_semaphore` 取得後、実際にその operation を開始する直前に作成する。
-- 初回 `InitializeForSettingsAsync()` は新しい `BMSLibrary` / `BMSPlaylist` を作成してから progress baseline を取る。
+- 初回 `InitializeAsync()` は新しい `BMSLibrary` / `BMSPlaylist` を作成してから progress baseline を取る。
 - UI suppress の遅延 flush、ライブラリフォルダツリーの遅延更新、外部 playlist sync、playlist reference apply は、スケジュール時の operation token と現在の token が一致する場合だけ進捗フェーズを完了させる。
 
 これにより、古い operation の遅延イベントが新しい operation の `StartupReadyUi`, `StartupReadyOperable`, playlist reference, external sync などを誤って進めることを防ぐ。
