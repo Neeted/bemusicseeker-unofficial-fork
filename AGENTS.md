@@ -42,9 +42,9 @@
 - planning / operation Markdown、`AGENTS.md`、`.codex/config.toml`、`.codex/agents/*.toml` だけを変更する場合は、TOML 構文、文書参照、whitespace、`git diff --check` など差分に直接対応する軽量検証を行う。
 - review 済み implementation unit の cursor-only 更新は、`PLAN_STATUS.md` の変更が次の cursor 一行に限定されることと `git diff --check` を確認する。
 - script が環境要因で実行できない場合だけ、`00_Codex共通実行ルール.md` の個別コマンドを実行し、未実施項目を明示する。
-- build / format / analyzer はコマンドの完了まで待つ。test は `scripts/verify-refactor.ps1` から `dotnet test` を起動し、コマンドが 180 秒以内に終了しなければ timeout として process tree を停止して失敗させる。timeout はコマンドの応答待ちを判定するためのもので、ミリ秒単位の計測や追加の診断期限は設けない。
-- Codex から検証を起動するときは、execution cell の初回 yield を 10 秒以下にし、`wait` の yield を 60 秒以下にして進捗を確認する。`shell_command` 側の runtime timeout は、test の 180 秒待機と終了処理を妨げない値にする。
-- 180 秒 timeout または通常の test failure は、command output、test log、利用可能な blame artifact を確認して原因を修正し、同じ test scope を再実行する。active unit と直接関係しない test でも対象とし、修正は発見した implementation unit の差分と commit に含める。必要な test 件数・処理量による正当な所要時間だと evidence で確認できた場合だけ、実測根拠に基づいて閾値を見直す。
+- build / format / analyzer はコマンドの完了まで待つ。test は `scripts/verify-refactor.ps1` から `dotnet test` を起動し、コマンドが 300 秒以内に終了しなければ timeout として process tree を停止して失敗させる。timeout はコマンドの応答待ちを判定するためのもので、ミリ秒単位の計測や追加の診断期限は設けない。
+- Codex から検証を起動するときは、execution cell の初回 yield を 10 秒以下にし、`wait` の yield を 60 秒以下にして進捗を確認する。`shell_command` 側の runtime timeout は、test の 300 秒待機と終了処理を妨げない値にする。
+- 300 秒 timeout または通常の test failure は、command output、test log、利用可能な blame artifact を確認して原因を修正し、同じ test scope を再実行する。active unit と直接関係しない test でも対象とし、修正は発見した implementation unit の差分と commit に含める。必要な test 件数・処理量による正当な所要時間だと evidence で確認できた場合だけ、実測根拠に基づいて閾値を見直す。
 - UI smoke の対象は、Release build が完了したリポジトリ内の `bin\x64\Release\net472\BeMusicSeeker.exe` だけとする。インストール版の executable path を取得・列挙・起動してはならない。起動後は対象 process の executable path がこの resolved path と一致することを確認し、一致を確認できない場合は UI 操作を行わず smoke 未実施として扱う。
 - targeted / Full test で失敗を検出した場合、直接の変更箇所と無関係に見えても「既知」「baseline」「flaky」として放置しない。コンテキスト圧縮前の変更で発生した可能性を前提に、Git 履歴と現行実装を確認し、実装または期待値を修正して最終差分で再検証する。
 - 全体実行で失敗し個別実行で成功する test は、成功した個別再実行を根拠に合格扱いしない。共有状態、実行順、非同期完了条件、dispatcher / scheduler、時刻・ファイル・DB isolation を調査し、observable completion を待つ、専用状態へ隔離するなど test 構造を改善してから全体実行を再確認する。

@@ -338,6 +338,10 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
+        if (viewModel.settingDialog?.IsScoreReloadPending == true)
+        {
+            return;
+        }
         if (!viewModel.CanRequestLr2SongDbSyncDataResync)
         {
             if (viewModel.IsLibraryOperationInProgress)
@@ -450,7 +454,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                     MessageBoxImage.Asterisk);
                 if (viewModel.HasActiveLibraryProfile)
                 {
-                    viewModel.ReloadScoresOnly();
+                    await settingDialogViewModel.ReloadScoresOnlyAsync();
                 }
                 return;
             }
@@ -540,7 +544,7 @@ public partial class SettingDialog : UserControl, IComponentConnector
                     MessageBoxImage.Asterisk);
                 if (viewModel.HasActiveLibraryProfile)
                 {
-                    viewModel.ReloadScoresOnly();
+                    await settingDialogViewModel.ReloadScoresOnlyAsync();
                 }
                 return;
             }

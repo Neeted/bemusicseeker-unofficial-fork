@@ -125,11 +125,16 @@ public sealed class Lr2PlayHistorySchemaUiTests
         Assert.IsTrue(
             installHandler.IndexOf("Msg_confirm_lr2_play_history_schema_install_or_repair", StringComparison.Ordinal)
             < installHandler.IndexOf("Task.Run(settingDialogViewModel.InstallOrRepairLr2PlayHistorySchemaCore)", StringComparison.Ordinal));
-        StringAssert.Contains(installHandler, "viewModel.ReloadScoresOnly();");
+        StringAssert.Contains(installHandler, "await settingDialogViewModel.ReloadScoresOnlyAsync();");
+        Assert.IsTrue(
+            installHandler.IndexOf("ApplyLr2PlayHistorySchemaCheckResult", StringComparison.Ordinal)
+            < installHandler.IndexOf("await settingDialogViewModel.ReloadScoresOnlyAsync();", StringComparison.Ordinal));
         Assert.IsFalse(installHandler.Contains("SaveSettings("));
         Assert.IsFalse(installHandler.Contains("Settings.Default.Save"));
         Assert.IsFalse(installHandler.Contains("lr2config.Save"));
         StringAssert.Contains(codeBehind, "private async void uninstallLr2PlayHistorySchemaButtonClicked");
+        StringAssert.Contains(codeBehind, "await settingDialogViewModel.ReloadScoresOnlyAsync();");
+        Assert.IsFalse(codeBehind.Contains("viewModel.ReloadScoresOnly();"));
         StringAssert.Contains(codeBehind, "private void SettingDialogIsVisibleChanged");
         Assert.IsFalse(codeBehind.Contains("await RefreshLr2PlayHistorySchemaStatusAsync(settingDialogViewModel, force: false);"));
         StringAssert.Contains(codeBehind, "settingDialogViewModel.RefreshLr2PlayHistorySchemaStatusPresentation();");

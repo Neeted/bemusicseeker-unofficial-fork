@@ -1532,7 +1532,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaRootPath");
         StringAssert.Contains(viewModelCode, "Resources.Error_InvalidBeatorajaScoreDbPath");
         string settingDialogCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Views", "SettingDialog.cs"));
-        StringAssert.Contains(settingDialogCode, "ReloadScoresOnly()");
+        StringAssert.Contains(settingDialogCode, "ReloadScoresOnlyAsync()");
         Assert.IsFalse(settingDialogCode.Contains("ReloadTables()"));
         Assert.IsFalse(xaml.Contains("Content=\"beatoraja"));
         Assert.IsFalse(xaml.Contains("Title=\"score.db"));
@@ -3240,10 +3240,12 @@ public sealed class MainWindowContextMenuResourceTests
         string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
         string method = ExtractBetween(
             viewModelCode,
-            "public async void ReloadScoresOnly()",
+            "internal async Task ReloadScoresOnlyAsync()",
             "public async void ReloadFileDiff()");
 
         StringAssert.Contains(method, "files.InitializeScoresOnly(null)");
+        StringAssert.Contains(method, ".LoggingAndPropagate(\"ReloadScoresOnly\")");
+        Assert.IsFalse(viewModelCode.Contains("public async void ReloadScoresOnly()"));
         Assert.IsFalse(method.Contains("ReloadTables("));
         Assert.IsFalse(method.Contains("tables.Initialize("));
         Assert.IsFalse(method.Contains("StartDeferredExternalPlaylistSync("));
@@ -3261,7 +3263,7 @@ public sealed class MainWindowContextMenuResourceTests
         string method = ExtractBetween(
             viewModelCode,
             "internal async Task ReloadTablesAsync()",
-            "public async void ReloadScoresOnly()");
+            "internal async Task ReloadScoresOnlyAsync()");
         string handler = ExtractBetween(
             mainWindowCode,
             "private async void treeViewPlaylistRootContextMenuItemReloadClick",

@@ -60,6 +60,10 @@ internal sealed class ApplicationComposition
 
     private readonly Func<MainWindowViewModel, Task<bool>> initializeOwner;
 
+    private readonly Func<MainWindowViewModel, Task> reloadScoresOnly;
+
+    private readonly Action<Exception> reportSettingsApplyFailure;
+
     internal ApplicationComposition(
         Func<BmsLibraryOptionsSnapshot> bmsLibraryOptionsProvider = null,
         Func<StartupSettingsSnapshot> startupSettingsProvider = null,
@@ -77,7 +81,9 @@ internal sealed class ApplicationComposition
         ISettingsEditSession settingsEditSession = null,
         Func<IBMSPlayer> defaultBmsPlayerFactory = null,
         Func<MainWindowViewModel, Task<bool>> initializeOwner = null,
-        Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider = null)
+        Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider = null,
+        Func<MainWindowViewModel, Task> reloadScoresOnly = null,
+        Action<Exception> reportSettingsApplyFailure = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -86,6 +92,8 @@ internal sealed class ApplicationComposition
             ?? (() => new InternalBMSAutoPlayerSoundOnly());
         this.initializeOwner = initializeOwner
             ?? (owner => owner.InitializeForSettingsAsync());
+        this.reloadScoresOnly = reloadScoresOnly;
+        this.reportSettingsApplyFailure = reportSettingsApplyFailure;
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
             ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
         this.startupSettingsProvider = startupSettingsProvider
@@ -277,7 +285,11 @@ internal sealed class ApplicationComposition
             reloadSettings,
             saveSettings,
             settingsEditSession,
-            () => initializeOwner(owner));
+            () => initializeOwner(owner),
+            reloadScoresOnly == null
+                ? owner.ReloadScoresOnlyAsync
+                : () => reloadScoresOnly(owner),
+            reportSettingsApplyFailure);
     }
 
     internal MainWindowChildComposition CreateMainWindowChildComposition(

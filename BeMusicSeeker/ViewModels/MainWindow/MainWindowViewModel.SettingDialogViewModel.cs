@@ -114,6 +114,10 @@ public partial class MainWindowViewModel
 
         private readonly Func<Task<bool>> initializeOwner;
 
+        private readonly Func<Task> reloadScoresOnly;
+
+        private readonly Action<Exception> reportApplyFailure;
+
         /// <summary>
         /// Requests that the shell present the settings dialog.
         /// </summary>
@@ -155,6 +159,7 @@ public partial class MainWindowViewModel
                 isEditCompletionInProgress = value;
                 RaisePropertyChanged(() => IsEditCompletionInProgress);
                 RaisePropertyChanged(() => IsEditCompletionEnabled);
+                RaisePropertyChanged(() => IsEditCancellationEnabled);
             }
         }
 
@@ -162,6 +167,13 @@ public partial class MainWindowViewModel
         /// Gets a value indicating whether the settings editor can accept another completion command.
         /// </summary>
         public bool IsEditCompletionEnabled => !IsEditCompletionInProgress;
+
+        /// <summary>
+        /// Gets a value indicating whether the settings editor can be cancelled without leaving a failed score reload pending.
+        /// </summary>
+        public bool IsEditCancellationEnabled => !IsEditCompletionInProgress && !scoreReloadPending;
+
+        internal bool IsScoreReloadPending => scoreReloadPending;
 
         /// <summary>
         /// Publishes a settings-dialog open request to the shell.
@@ -183,7 +195,7 @@ public partial class MainWindowViewModel
 
         private void ExecuteCancelCommand()
         {
-            if (IsEditCompletionInProgress)
+            if (IsEditCompletionInProgress || scoreReloadPending)
             {
                 return;
             }
@@ -296,6 +308,7 @@ public partial class MainWindowViewModel
                     bool initializationSucceeded = await initializeOwner();
                     if (initializationSucceeded)
                     {
+                        SetScoreReloadPending(false);
                         RequestPresentation(PresentationRequestKind.CloseOverlay);
                         outcome = "saved_initial";
                     }
@@ -321,7 +334,7 @@ public partial class MainWindowViewModel
                     }
                     else if (needRestart.HasFlag(RestartMode.ScoreOnly))
                     {
-                        ownerViewModel.ReloadScoresOnly();
+                        await ReloadScoresOnlyAsync();
                     }
                     else if (needRestart.HasFlag(RestartMode.FolderOnly))
                     {
@@ -329,6 +342,7 @@ public partial class MainWindowViewModel
                     }
                     if (initializationSucceeded)
                     {
+                        SetScoreReloadPending(false);
                         RequestPresentation(PresentationRequestKind.CloseOverlay);
                         outcome = "saved";
                     }
@@ -342,11 +356,7 @@ public partial class MainWindowViewModel
             {
                 outcome = "failed";
                 totalStopwatch.Stop();
-                MainWindowViewModel.ShowUiMessage(
-                    BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
-                    BeMusicSeeker.Properties.Resources.Error,
-                    MessageBoxImage.Hand,
-                    "Settings apply failure notification");
+                reportApplyFailure(ex);
             }
             finally
             {
@@ -362,6 +372,37 @@ public partial class MainWindowViewModel
             }
         }
 
+        internal Task ReloadScoresOnlyAsync()
+        {
+            return ReloadScoresOnlyCoreAsync();
+        }
+
+        private async Task ReloadScoresOnlyCoreAsync()
+        {
+            try
+            {
+                await reloadScoresOnly();
+                SetScoreReloadPending(false);
+            }
+            catch
+            {
+                SetScoreReloadPending(true);
+                throw;
+            }
+        }
+
+        private void SetScoreReloadPending(bool value)
+        {
+            if (scoreReloadPending == value)
+            {
+                return;
+            }
+
+            scoreReloadPending = value;
+            RaisePropertyChanged(() => IsEditCancellationEnabled);
+            ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+        }
+
         private Settings ApplicationSettings => settingsEditSession.Values;
 
         private readonly PropertyChangedEventListener ownerViewModelEventListener;
@@ -369,6 +410,8 @@ public partial class MainWindowViewModel
         private readonly PropertyChangedEventListener resourceServiceEventListener;
 
         private bool tempOperationModeLR2DB;
+
+        private bool scoreReloadPending;
 
         private string tempLR2RootPath;
 
@@ -3375,7 +3418,9 @@ public partial class MainWindowViewModel
             Action reloadSettings,
             Action saveSettings,
             ISettingsEditSession settingsEditSession,
-            Func<Task<bool>> initializeOwner = null)
+            Func<Task<bool>> initializeOwner = null,
+            Func<Task> reloadScoresOnly = null,
+            Action<Exception> reportApplyFailure = null)
         {
             SettingDialogViewModel settingDialogViewModel = this;
             ownerViewModel = owner;
@@ -3383,6 +3428,13 @@ public partial class MainWindowViewModel
             this.saveSettings = saveSettings ?? throw new ArgumentNullException(nameof(saveSettings));
             this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
             this.initializeOwner = initializeOwner ?? (() => owner.InitializeForSettingsAsync());
+            this.reloadScoresOnly = reloadScoresOnly ?? owner.ReloadScoresOnlyAsync;
+            this.reportApplyFailure = reportApplyFailure
+                ?? (ex => MainWindowViewModel.ShowUiMessage(
+                    BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
+                    BeMusicSeeker.Properties.Resources.Error,
+                    MessageBoxImage.Hand,
+                    "Settings apply failure notification"));
             playHistoryDisplaySettingsStore = owner.PlayHistoryDisplaySettingsStore;
             appearanceThemeOptions =
             [
@@ -5418,7 +5470,8 @@ public partial class MainWindowViewModel
                 || tempOperationModeLR2DB != operationModeLR2DB
                 || HasSearchRootSettingsChanged()
                 || HasCustomFolderAdditionalOutputBaseDirsChanged()
-                || HasPlayHistoryFolderDisplayPresetDraftsChanged();
+                || HasPlayHistoryFolderDisplayPresetDraftsChanged()
+                || scoreReloadPending;
         }
 
         private bool HasSettingValueChanges()
@@ -6794,7 +6847,7 @@ public partial class MainWindowViewModel
 
         public RestartMode IsNeedRestartForSaved()
         {
-            RestartMode restartMode = RestartMode.None;
+            RestartMode restartMode = scoreReloadPending ? RestartMode.ScoreOnly : RestartMode.None;
             bool scoreSourceChanged = tempUseBeatorajaScoreDb != ApplicationSettings.UseBeatorajaScoreDb
                 || !string.Equals(tempBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempBeatorajaPlayerId, ApplicationSettings.BeatorajaPlayerId, StringComparison.OrdinalIgnoreCase)

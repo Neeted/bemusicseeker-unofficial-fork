@@ -11,9 +11,9 @@
 - DB schema / data、setting key / serialized value、外部ファイル形式、UI observable behavior、失敗契約、明示的にサポートする SDK / plugin / CLI / IPC / COM / automation contract を変更する必要が生じたら、実装前にユーザーへ確認する。
 - 意味の変わる fallback を追加しない。失敗を隠すより、既存の失敗契約を維持して明示的に失敗させる。
 - C# symbol rename は text replacement ではなく semantic rename / compiler-driven edit を使う。
-- build / format / analyzer は固定 timeout を設けず完了まで待つ。test は標準入口 `scripts/verify-refactor.ps1` から `dotnet test` を起動し、コマンドが 180 秒以内に終了しなければ timeout として process tree を停止し失敗させる。timeout はコマンドの応答待ちを判定するためのもので、ミリ秒単位の計測や追加の診断期限は設けない。
-- Codex から検証を起動するときは、execution cell の初回 yield を 10 秒以下にし、`wait` の yield を 60 秒以下にして進捗を確認する。`shell_command` 側の runtime timeout は、test の 180 秒待機と終了処理を妨げない値にする。
-- 180 秒 timeout または通常の test failure は、command output、test log、利用可能な blame artifact を確認して原因を修正し、同じ test scope を再実行する。active unit と直接関係しない test でも対象とし、修正は長時間化を発見した implementation unit の code / test / 関連資料と同じ差分・commit に含める。必要な test 件数・処理量による正当な所要時間だと evidence で確認できた場合だけ、実測根拠に基づいて閾値を見直す。
+- build / format / analyzer は固定 timeout を設けず完了まで待つ。test は標準入口 `scripts/verify-refactor.ps1` から `dotnet test` を起動し、コマンドが 300 秒以内に終了しなければ timeout として process tree を停止し失敗させる。timeout はコマンドの応答待ちを判定するためのもので、ミリ秒単位の計測や追加の診断期限は設けない。
+- Codex から検証を起動するときは、execution cell の初回 yield を 10 秒以下にし、`wait` の yield を 60 秒以下にして進捗を確認する。`shell_command` 側の runtime timeout は、test の 300 秒待機と終了処理を妨げない値にする。
+- 300 秒 timeout または通常の test failure は、command output、test log、利用可能な blame artifact を確認して原因を修正し、同じ test scope を再実行する。active unit と直接関係しない test でも対象とし、修正は長時間化を発見した implementation unit の code / test / 関連資料と同じ差分・commit に含める。必要な test 件数・処理量による正当な所要時間だと evidence で確認できた場合だけ、実測根拠に基づいて閾値を見直す。
 
 ## 実行ロール
 

@@ -242,6 +242,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
 
         internal bool IsFailed;
 
+        internal bool IsRetryableFailure;
+
         internal string FailureSubLabel = string.Empty;
 
         internal StartupProgressPhase CompletedPhases;
@@ -459,6 +461,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     /// </summary>
     public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile
         && settingDialog?.OperationModeLR2DB == true
+        && settingDialog?.IsScoreReloadPending != true
         && !IsLibraryOperationInProgress;
 
     private void RaiseLr2SongDbSyncDataResyncAvailabilityChanged()
@@ -3178,7 +3181,10 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             lock (startupProgressLock)
             {
-                return _IsStartupUiInteractionBlocked || startupProgressState.IsActive || IsChartPackageMutationInProgress;
+                return _IsStartupUiInteractionBlocked
+                    || (startupProgressState.IsActive
+                        && (!startupProgressState.IsFailed || !startupProgressState.IsRetryableFailure))
+                    || IsChartPackageMutationInProgress;
             }
         }
     }
@@ -5085,7 +5091,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     /// <summary>
     /// score source / score.db 設定変更を、playlist/table reload を伴わずに反映します。
     /// </summary>
-    public async void ReloadScoresOnly()
+    internal async Task ReloadScoresOnlyAsync()
     {
         if (!initializationCompleted)
         {
@@ -5094,7 +5100,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         LogInitStage("start", "ReloadScoresOnly");
         await _semaphore.WaitAsync();
         long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ScoreOnly);
-        bool refreshViews = false;
         try
         {
             BeginUiUpdateSuppression(UiRefreshChannel.LibraryMainView);
@@ -5104,10 +5109,17 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             {
                 LogInitStage("score_reload_call", "ReloadScoresOnly");
                 files.InitializeScoresOnly(null);
-            }).Logging("ReloadScoresOnly");
+            }).LoggingAndPropagate("ReloadScoresOnly");
             PublishLatestLr2PlayHistorySchemaCheckResultFromLibrary();
             LogInitStage("score_reload_done", "ReloadScoresOnly");
-            refreshViews = true;
+            RefreshLibraryMainViewForCurrentFilter();
+            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
+                "score_only_reload");
+            SkipUnrequestedStartupProgressPhases(
+                "ReloadScoresOnly:scheduled",
+                operationToken,
+                StartupProgressPhase.ScoreHydrationDone,
+                StartupProgressPhase.RankingRefreshDone);
         }
         catch (Exception ex)
         {
@@ -5120,18 +5132,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
             LogInitStage("ui_suppress_end_called", "ReloadScoresOnly");
             _semaphore.Release();
+            MarkStartupProgressFailureCleanupComplete(operationToken);
         }
-        if (refreshViews)
-        {
-            RefreshLibraryMainViewForCurrentFilter();
-            PlaylistWorkspace.RequestPlaylistSummaryDataRefresh(
-                "score_only_reload");
-        }
-        SkipUnrequestedStartupProgressPhases(
-            "ReloadScoresOnly:scheduled",
-            operationToken,
-            StartupProgressPhase.ScoreHydrationDone,
-            StartupProgressPhase.RankingRefreshDone);
     }
 
     internal void InvalidatePlayHistoryReadCache(string reason)
@@ -5986,6 +5988,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             EndUiUpdateSuppression();
             LogInitStage("ui_suppress_end_called", "Initialize");
+            MarkStartupProgressFailureCleanupComplete(operationToken);
         }
         if (firstStartupProvider())
         {
@@ -7310,6 +7313,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         {
             startupProgressState = state;
         }
+        RaisePropertyChanged(() => IsLibraryOperationInProgress);
+        RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         RecomputeStartupProgressPresentation();
         return state.OperationToken;
     }
@@ -7332,6 +7337,29 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             startupProgressState.CompletionHideScheduled = false;
         }
         RecomputeStartupProgressPresentation();
+    }
+
+    private void MarkStartupProgressFailureCleanupComplete(long operationToken)
+    {
+        bool retryable = false;
+        lock (startupProgressLock)
+        {
+            if (startupProgressState.IsActive
+                && startupProgressState.OperationToken == operationToken
+                && (startupProgressState.OperationKind == StartupProgressOperationKind.ScoreOnly
+                    || startupProgressState.OperationKind == StartupProgressOperationKind.Startup)
+                && startupProgressState.IsFailed)
+            {
+                startupProgressState.IsRetryableFailure = true;
+                retryable = true;
+            }
+        }
+
+        if (retryable)
+        {
+            RaisePropertyChanged(() => IsLibraryOperationInProgress);
+            RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+        }
     }
 
     /// <summary>

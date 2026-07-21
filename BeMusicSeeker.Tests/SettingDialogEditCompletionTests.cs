@@ -46,6 +46,168 @@ public sealed class SettingDialogEditCompletionTests
     }
 
     [TestMethod]
+    public async Task ApplySettingsAsync_ScoreSourceChange_AwaitsReloadBeforeClosing()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            using var reloadStarted = new ManualResetEventSlim();
+            var reloadRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                reloadScoresOnly: _ =>
+                {
+                    sequence.Add("reload-start");
+                    reloadStarted.Set();
+                    return reloadRelease.Task.ContinueWith(
+                        _ => sequence.Add("reload-completed"),
+                        CancellationToken.None,
+                        TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                });
+            SetActiveLibraryProfile(viewModel, true);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            dialog.PresentationRequested += (_, request) => sequence.Add(request.Kind.ToString());
+            dialog.BeatorajaPlayerId = "player2";
+
+            Task applyTask = dialog.ApplySettingsAsync();
+            reloadStarted.Wait();
+            Assert.IsTrue(dialog.IsEditCompletionInProgress);
+            Assert.IsFalse(applyTask.IsCompleted);
+            CollectionAssert.DoesNotContain(sequence, "CloseOverlay");
+
+            reloadRelease.SetResult(true);
+            await applyTask;
+
+            Assert.IsTrue(sequence.Count >= 4, string.Join("|", sequence));
+            Assert.AreEqual("save", sequence[0]);
+            Assert.AreEqual("reload-start", sequence[1]);
+            Assert.AreEqual("reload-completed", sequence[2]);
+            Assert.AreEqual("CloseOverlay", sequence[3]);
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.IsTrue(dialog.IsEditCompletionEnabled);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_ScoreReloadFailureKeepsChangesForRetry()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var sequence = new List<string>();
+            int reloadCount = 0;
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                reloadScoresOnly: _ =>
+                {
+                    reloadCount++;
+                    sequence.Add("reload-" + reloadCount);
+                    return reloadCount == 1
+                        ? Task.FromException(new InvalidOperationException("score reload failed"))
+                        : Task.CompletedTask;
+                },
+                reportSettingsApplyFailure: _ => sequence.Add("failure"));
+            SetActiveLibraryProfile(viewModel, true);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
+            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+            dialog.BeatorajaPlayerId = "player2";
+
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(1, reloadCount);
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            CollectionAssert.DoesNotContain(
+                requests,
+                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+            Assert.IsTrue(dialog.IsEditCompletionEnabled);
+            Assert.IsFalse(dialog.IsEditCancellationEnabled);
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(new[] { "save", "reload-1", "failure", "reload-2" }, sequence);
+            Assert.AreEqual(1, settingsSession.SaveCount);
+            Assert.AreEqual(2, reloadCount);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+            CollectionAssert.Contains(
+                requests,
+                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+            Assert.IsTrue(dialog.IsEditCompletionEnabled);
+            Assert.IsTrue(dialog.IsEditCancellationEnabled);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_InitialRetryAfterFullReloadClearsScoreReloadPending()
+    {
+        string root = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            int reloadCount = 0;
+            int initializeCount = 0;
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                initializeOwner: _ =>
+                {
+                    initializeCount++;
+                    return Task.FromResult(initializeCount > 1);
+                },
+                reloadScoresOnly: _ =>
+                {
+                    reloadCount++;
+                    return reloadCount == 1
+                        ? Task.FromException(new InvalidOperationException("score reload failed"))
+                        : Task.CompletedTask;
+                },
+                reportSettingsApplyFailure: _ => { });
+            SetActiveLibraryProfile(viewModel, true);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            dialog.BeatorajaPlayerId = "player2";
+
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(1, reloadCount);
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+
+            SetPrivateField(dialog, "tempOperationModeLR2DB", !dialog.OperationModeLR2DB);
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(1, initializeCount);
+            Assert.IsFalse(viewModel.HasActiveLibraryProfile);
+            Assert.IsTrue(dialog.HasPendingSettingChanges());
+
+            await dialog.ApplySettingsAsync();
+
+            Assert.AreEqual(2, initializeCount);
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+            Assert.IsTrue(dialog.IsEditCancellationEnabled);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
     public async Task ApplySettingsAsync_InitialSettings_SavesClosesAndInitializes()
     {
         string root = CreateTemporaryRoot();
@@ -221,7 +383,9 @@ public sealed class SettingDialogEditCompletionTests
     private static MainWindowViewModel CreateViewModel(
         CountingSettingsEditSession settingsSession,
         bool firstStartup,
-        Func<MainWindowViewModel, Task<bool>>? initializeOwner = null)
+        Func<MainWindowViewModel, Task<bool>>? initializeOwner = null,
+        Func<MainWindowViewModel, Task>? reloadScoresOnly = null,
+        Action<Exception>? reportSettingsApplyFailure = null)
     {
         return new ApplicationComposition(
             firstStartupProvider: () => firstStartup,
@@ -229,7 +393,9 @@ public sealed class SettingDialogEditCompletionTests
             reloadSettings: settingsSession.Reload,
             saveSettings: settingsSession.Save,
             settingsEditSession: settingsSession,
-            initializeOwner: initializeOwner)
+            initializeOwner: initializeOwner,
+            reloadScoresOnly: reloadScoresOnly,
+            reportSettingsApplyFailure: reportSettingsApplyFailure)
             .CreateMainWindowViewModel();
     }
 

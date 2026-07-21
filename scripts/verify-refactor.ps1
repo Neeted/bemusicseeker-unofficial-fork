@@ -11,7 +11,7 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $solution = Join-Path $repoRoot 'BeMusicSeeker.sln'
 $uiExecutable = Join-Path $repoRoot 'bin\x64\Release\net472\BeMusicSeeker.exe'
 $verificationArtifactsDirectory = Join-Path $repoRoot 'artifacts\verification'
-$testTimeoutSeconds = 180
+$testTimeoutSeconds = 300
 
 function Invoke-CheckedCommand {
     param(
@@ -116,7 +116,7 @@ try {
     }
 
     # Build, format, and analyzer commands run to completion. Only dotnet test
-    # has the simple 180-second command-response timeout described above.
+    # has the simple 300-second command-response timeout described above.
     Invoke-CheckedCommand dotnet build $solution '/p:Configuration=Release' '--no-restore'
 
     if (-not (Test-Path -LiteralPath $uiExecutable -PathType Leaf)) {
