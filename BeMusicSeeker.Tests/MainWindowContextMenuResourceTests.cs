@@ -3000,7 +3000,8 @@ public sealed class MainWindowContextMenuResourceTests
     public void PendingPackageChartHandlersUseChartTargetsForPackageOperations()
     {
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string viewModelCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string forceInstall = ExtractBetween(
             mainWindowCode,
             "private async void forceInstallSelectedPendingCharts",
@@ -3023,8 +3024,12 @@ public sealed class MainWindowContextMenuResourceTests
             "private async void tableContextMenuItemConvertToAudioFileClick");
         string openInstallDestination = ExtractBetween(
             mainWindowCode,
-            "private void tableContextMenuItemOpenInstallDestinationClick",
-            "private void treeViewInstallPackageContextMenuOpenInstallDestinationClick");
+            "private async void tableContextMenuItemOpenInstallDestinationClick",
+            "private async void treeViewInstallPackageContextMenuOpenInstallDestinationClick");
+        string openPackageInstallDestination = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewInstallPackageContextMenuOpenInstallDestinationClick",
+            "private static string GetBmsIrSongUrl");
         string clearPackageDestination = ExtractBetween(
             mainWindowCode,
             "private async void treeViewInstallPackageContextMenuRemoveInstallDestinationClick",
@@ -3114,7 +3119,12 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(viewModelCode.Contains("SearchMergeDestinationForPendingPackages"));
         Assert.IsFalse(viewModelCode.Contains("ClearInstallDestinationForPendingPackages"));
         StringAssert.Contains(openInstallDestination, "GetSelectedChartTargets(ChartOperationCapabilities.UpdateInstallDestination, isPendingSection: true)");
-        StringAssert.Contains(openInstallDestination, "TryResolveInstallDestination(targets[0].Chart");
+        StringAssert.Contains(openInstallDestination, ".OpenInstallDestinationForChartsAsync(targets)");
+        StringAssert.Contains(openInstallDestination, ".LoggingAndPropagate(\"tableContextMenuItemOpenInstallDestinationClick\")");
+        Assert.IsFalse(openInstallDestination.Contains("TryResolveInstallDestination"));
+        StringAssert.Contains(openPackageInstallDestination, ".OpenInstallDestinationForPackageAsync(dataContext)");
+        StringAssert.Contains(openPackageInstallDestination, ".LoggingAndPropagate(\"treeViewInstallPackageContextMenuOpenInstallDestinationClick\")");
+        Assert.IsFalse(viewModelCode.Contains("TryGetInstalledDirectoryByHash"));
         Assert.IsFalse(openInstallDestination.Contains("GetSelectedPendingChartCompatibilityAdapters"));
     }
 

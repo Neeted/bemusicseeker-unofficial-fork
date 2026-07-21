@@ -5812,72 +5812,9 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ExplorerOpenService.OpenFileAndSelect(path);
     }
 
-    private bool TryResolveInstallDestination(ChartFile chart, out string installDir, out string reason)
+    private async void tableContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        installDir = null;
-        reason = null;
-        if (chart == null)
-        {
-            reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
-            return false;
-        }
-        if (!string.IsNullOrWhiteSpace(chart.InstallDestination))
-        {
-            if (LongPathFileSystem.DirectoryExists(chart.InstallDestination))
-            {
-                installDir = chart.InstallDestination;
-                return true;
-            }
-            reason = string.Format(BeMusicSeeker.Properties.Resources.Msg_open_install_destination_not_found, chart.InstallDestination);
-            return false;
-        }
-        string lookupHash = ChartLookupKey.GetPrimaryHash(chart);
-        if (!string.IsNullOrWhiteSpace(lookupHash)
-            && base.DataContext is MainWindowViewModel mainWindowViewModel
-            && mainWindowViewModel.TryGetInstalledDirectoryByHash(lookupHash, out string installDir2))
-        {
-            installDir = installDir2;
-            return true;
-        }
-        reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
-        return false;
-    }
-
-    private bool TryResolveInstallDestination(ChartPackage pkg, out string installDir, out string reason)
-    {
-        installDir = null;
-        reason = null;
-        if (pkg == null)
-        {
-            reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
-            return false;
-        }
-        foreach (var entry in pkg.ChartEntries)
-        {
-            if (TryResolveInstallDestination(entry?.Chart, out installDir, out reason))
-            {
-                return true;
-            }
-        }
-        if (string.IsNullOrWhiteSpace(reason))
-        {
-            reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
-        }
-        return false;
-    }
-
-    private void OpenInstallDestinationInExplorer(string installDir)
-    {
-        if (string.IsNullOrWhiteSpace(installDir))
-        {
-            return;
-        }
-        ExplorerOpenService.OpenDirectory(installDir);
-    }
-
-    private void tableContextMenuItemOpenInstallDestinationClick(object sender, RoutedEventArgs e)
-    {
-        if (base.DataContext is not MainWindowViewModel || !IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
+        if (base.DataContext is not MainWindowViewModel viewModel || !IsPendingMainViewSection(GetCurrentMainViewOperationSection()))
         {
             return;
         }
@@ -5886,30 +5823,21 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         {
             return;
         }
-        if (targets.Count > 1)
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_open_install_destination_multiple_selected, BeMusicSeeker.Properties.Resources.Information, MessageBoxButton.OK, MessageBoxImage.Information, MessageBoxResult.OK);
-        }
-        if (!TryResolveInstallDestination(targets[0].Chart, out string installDir, out string reason))
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            return;
-        }
-        OpenInstallDestinationInExplorer(installDir);
+        await viewModel.PendingPackages
+            .OpenInstallDestinationForChartsAsync(targets)
+            .LoggingAndPropagate("tableContextMenuItemOpenInstallDestinationClick");
     }
 
-    private void treeViewInstallPackageContextMenuOpenInstallDestinationClick(object sender, RoutedEventArgs e)
+    private async void treeViewInstallPackageContextMenuOpenInstallDestinationClick(object sender, RoutedEventArgs e)
     {
-        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: ChartPackage dataContext } } }))
+        if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem { DataContext: ChartPackage dataContext } } })
+            || base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        if (!TryResolveInstallDestination(dataContext, out string installDir, out string reason))
-        {
-            UiDialogRoute.ShowMessageBox(Window.GetWindow(this), reason, BeMusicSeeker.Properties.Resources.Warning, MessageBoxButton.OK, MessageBoxImage.Exclamation, MessageBoxResult.OK);
-            return;
-        }
-        OpenInstallDestinationInExplorer(installDir);
+        await viewModel.PendingPackages
+            .OpenInstallDestinationForPackageAsync(dataContext)
+            .LoggingAndPropagate("treeViewInstallPackageContextMenuOpenInstallDestinationClick");
     }
 
     private static string GetBmsIrSongUrl(string md5)

@@ -8890,16 +8890,6 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         };
     }
 
-    public bool TryGetInstalledDirectoryByHash(string hash, out string installDir)
-    {
-        installDir = null;
-        if (files == null)
-        {
-            return false;
-        }
-        return files.TryGetInstalledDirectoryByHash(hash, out installDir);
-    }
-
     private void ShowPlaylistLoadFailure(Exception ex)
     {
         string message = BeMusicSeeker.Properties.Resources.Msg_failed_load_playlist;

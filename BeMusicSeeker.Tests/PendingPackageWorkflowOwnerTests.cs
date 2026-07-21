@@ -9,6 +9,7 @@ using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
 using BeMusicSeeker.Models.LR2;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.ViewModels;
 using BeMusicSeeker.Views.Dialogs;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -18,6 +19,216 @@ namespace BeMusicSeeker.Tests;
 [TestClass]
 public sealed class PendingPackageWorkflowOwnerTests
 {
+    [TestMethod]
+    public async Task OpenInstallDestinationForChartsAsync_UsesDirectDestinationAndOpensIt()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var openedDirectories = new List<string>();
+            var dialogs = AcceptedDialogs();
+            var owner = CreateOwner(
+                () => null!,
+                [],
+                new RecordingStore([]),
+                dialogs,
+                directory =>
+                {
+                    openedDirectories.Add(directory);
+                    return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
+                });
+
+            await owner.OpenInstallDestinationForChartsAsync(
+                [CreateTarget(CreateChart(installDestination: temporaryDirectory))]);
+
+            CollectionAssert.AreEqual(new[] { temporaryDirectory }, openedDirectories);
+            Assert.AreEqual(0, dialogs.MessageRequests.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task OpenInstallDestinationForChartsAsync_StaleDirectDestinationDoesNotUseHashFallback()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        int providerCallCount = 0;
+        var dialogs = AcceptedDialogs();
+        var openedDirectories = new List<string>();
+        var owner = CreateOwner(
+            () =>
+            {
+                providerCallCount++;
+                return null!;
+            },
+            [],
+            new RecordingStore([]),
+            dialogs,
+            directory =>
+            {
+                openedDirectories.Add(directory);
+                return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
+            });
+
+        string staleDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        await owner.OpenInstallDestinationForChartsAsync(
+            [CreateTarget(CreateChart(installDestination: staleDirectory))]);
+
+        Assert.AreEqual(0, providerCallCount);
+        Assert.AreEqual(0, openedDirectories.Count);
+        Assert.AreEqual(
+            string.Format(BeMusicSeeker.Properties.Resources.Msg_open_install_destination_not_found, staleDirectory),
+            dialogs.MessageRequests.Single().MessageBoxText);
+    }
+
+    [TestMethod]
+    public async Task OpenInstallDestinationForChartsAsync_NotifiesMultipleSelectionBeforeOpeningFirstTarget()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            var openedDirectories = new List<string>();
+            var dialogs = AcceptedDialogs();
+            var owner = CreateOwner(
+                () => null!,
+                [],
+                new RecordingStore([]),
+                dialogs,
+                directory =>
+                {
+                    openedDirectories.Add(directory);
+                    return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
+                });
+
+            await owner.OpenInstallDestinationForChartsAsync(
+                [
+                    CreateTarget(CreateChart(installDestination: temporaryDirectory)),
+                    CreateTarget(CreateChart(path: @"C:\Charts\second.bms", installDestination: temporaryDirectory))
+                ]);
+
+            Assert.AreEqual(1, dialogs.MessageRequests.Count);
+            Assert.AreEqual(
+                BeMusicSeeker.Properties.Resources.Msg_open_install_destination_multiple_selected,
+                dialogs.MessageRequests[0].MessageBoxText);
+            CollectionAssert.AreEqual(new[] { temporaryDirectory }, openedDirectories);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task OpenInstallDestinationForPackageAsync_UsesFirstResolvableChartEntry()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        string temporaryDirectory = Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(temporaryDirectory);
+        try
+        {
+            ChartPackage package = ChartPackage.FromChartEntries(
+            [
+                PackageChartEntry.FromChart(CreateChart()),
+                PackageChartEntry.FromChart(CreateChart(
+                    path: @"C:\Charts\second.bms",
+                    installDestination: temporaryDirectory))
+            ]);
+            var openedDirectories = new List<string>();
+            var dialogs = AcceptedDialogs();
+            var owner = CreateOwner(
+                () => null!,
+                [],
+                new RecordingStore([]),
+                dialogs,
+                directory =>
+                {
+                    openedDirectories.Add(directory);
+                    return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
+                });
+
+            await owner.OpenInstallDestinationForPackageAsync(package);
+
+            CollectionAssert.AreEqual(new[] { temporaryDirectory }, openedDirectories);
+            Assert.AreEqual(0, dialogs.MessageRequests.Count);
+        }
+        finally
+        {
+            if (Directory.Exists(temporaryDirectory))
+            {
+                Directory.Delete(temporaryDirectory, recursive: true);
+            }
+        }
+    }
+
+    [TestMethod]
+    public async Task OpenInstallDestinationForPackageAsync_AllEntriesMissingShowsWarning()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        ChartPackage package = ChartPackage.FromChartEntries(
+        [
+            PackageChartEntry.FromChart(CreateChart()),
+            PackageChartEntry.FromChart(CreateChart(path: @"C:\Charts\second.bms"))
+        ]);
+        var dialogs = AcceptedDialogs();
+        var openedDirectories = new List<string>();
+        var owner = CreateOwner(
+            () => null!,
+            [],
+            new RecordingStore([]),
+            dialogs,
+            directory =>
+            {
+                openedDirectories.Add(directory);
+                return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
+            });
+
+        await owner.OpenInstallDestinationForPackageAsync(package);
+
+        Assert.AreEqual(0, openedDirectories.Count);
+        Assert.AreEqual(
+            BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing,
+            dialogs.MessageRequests.Single().MessageBoxText);
+    }
+
+    [TestMethod]
+    public async Task OpenInstallDestinationForChartsAsync_DialogFailurePropagatesWithoutOpeningExplorer()
+    {
+        TestResourceInitializer.EnsureJapaneseResources();
+        var failure = new InvalidOperationException("dialog failed");
+        var dialogs = AcceptedDialogs();
+        dialogs.MessageResult = UiDialogResult.Failed(failure);
+        var openedDirectories = new List<string>();
+        var owner = CreateOwner(
+            () => null!,
+            [],
+            new RecordingStore([]),
+            dialogs,
+            directory =>
+            {
+                openedDirectories.Add(directory);
+                return new ExplorerOpenResult { Kind = ExplorerOpenResultKind.OpenedDirectory };
+            });
+
+        InvalidOperationException exception = await Assert.ThrowsExceptionAsync<InvalidOperationException>(
+            () => owner.OpenInstallDestinationForChartsAsync(
+                [CreateTarget(CreateChart(installDestination: Path.Combine(Path.GetTempPath(), nameof(PendingPackageWorkflowOwnerTests), Guid.NewGuid().ToString("N"))))]));
+
+        Assert.AreSame(failure, exception.InnerException);
+        Assert.AreEqual(0, openedDirectories.Count);
+    }
+
     [TestMethod]
     public async Task SearchPendingAsync_AppliesMutationAndTerminalRefreshInOrder()
     {
@@ -836,7 +1047,8 @@ public sealed class PendingPackageWorkflowOwnerTests
         Func<BMSLibrary> libraryProvider,
         List<string> events,
         IPendingPackageStore store,
-        IUiDialogService dialogs)
+        IUiDialogService dialogs,
+        Func<string, ExplorerOpenResult>? explorerOpener = null)
     {
         return new PendingPackageWorkflowOwner(
             libraryProvider,
@@ -844,7 +1056,8 @@ public sealed class PendingPackageWorkflowOwnerTests
             new RecordingPresentation(events),
             dialogs,
             DefaultSettings,
-            store);
+            store,
+            explorerOpener);
     }
 
     private static FakeUiDialogService AcceptedDialogs()
@@ -1219,6 +1432,8 @@ public sealed class PendingPackageWorkflowOwnerTests
 
         internal UiMessageRequest? MessageRequest { get; private set; }
 
+        internal List<UiMessageRequest> MessageRequests { get; } = [];
+
         internal UiDialogResult? MessageResult { get; set; }
 
         internal UiProgressRequest? ProgressRequest { get; private set; }
@@ -1233,6 +1448,7 @@ public sealed class PendingPackageWorkflowOwnerTests
         public Task<UiDialogResult> ShowMessageAsync(UiMessageRequest request, CancellationToken cancellationToken = default)
         {
             MessageRequest = request;
+            MessageRequests.Add(request);
             return Task.FromResult(MessageResult ?? UiDialogResult.FromMessageBoxResult(MessageBoxResult.OK));
         }
 

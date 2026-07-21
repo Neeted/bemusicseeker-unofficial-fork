@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using BeMusicSeeker.Models;
 using BeMusicSeeker.Models.BmsLibraryInternal;
+using BeMusicSeeker.Models.Utils;
 using BeMusicSeeker.Views.Dialogs;
 
 namespace BeMusicSeeker.ViewModels;
@@ -121,6 +122,7 @@ internal sealed class PendingPackageWorkflowOwner
     private readonly IUiDialogService dialogs;
     private readonly IPendingPackageStore store;
     private readonly Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider;
+    private readonly Func<string, ExplorerOpenResult> explorerOpener;
 
     internal PendingPackageWorkflowOwner(
         Func<BMSLibrary> libraryProvider,
@@ -128,7 +130,8 @@ internal sealed class PendingPackageWorkflowOwner
         IPendingPackageMutationPresentation presentation,
         IUiDialogService dialogs,
         Func<InstallDestinationWorkflowSettingsSnapshot> settingsProvider,
-        IPendingPackageStore store = null)
+        IPendingPackageStore store = null,
+        Func<string, ExplorerOpenResult> explorerOpener = null)
     {
         this.libraryProvider = libraryProvider ?? throw new ArgumentNullException(nameof(libraryProvider));
         this.chartFileOperations = chartFileOperations ?? throw new ArgumentNullException(nameof(chartFileOperations));
@@ -136,6 +139,67 @@ internal sealed class PendingPackageWorkflowOwner
         this.dialogs = dialogs ?? throw new ArgumentNullException(nameof(dialogs));
         this.settingsProvider = settingsProvider ?? throw new ArgumentNullException(nameof(settingsProvider));
         this.store = store ?? new BmsLibraryPendingPackageStore();
+        this.explorerOpener = explorerOpener ?? ExplorerOpenService.OpenDirectory;
+    }
+
+    internal async Task OpenInstallDestinationForChartsAsync(
+        IEnumerable<ChartOperationTarget> targets)
+    {
+        if (targets == null)
+        {
+            throw new ArgumentNullException(nameof(targets));
+        }
+        IReadOnlyList<ChartOperationTarget> targetSnapshot = [.. targets];
+        if (targetSnapshot.Count == 0)
+        {
+            return;
+        }
+        if (targetSnapshot.Count > 1)
+        {
+            await ShowMessageAsync(
+                BeMusicSeeker.Properties.Resources.Msg_open_install_destination_multiple_selected,
+                BeMusicSeeker.Properties.Resources.Information,
+                MessageBoxImage.Information,
+                "Open install destination multiple selection notice");
+        }
+        if (!TryResolveInstallDestination(
+            targetSnapshot[0]?.Chart,
+            out string installDirectory,
+            out string reason))
+        {
+            await ShowMessageAsync(
+                reason,
+                BeMusicSeeker.Properties.Resources.Warning,
+                MessageBoxImage.Exclamation,
+                "Open install destination warning");
+            return;
+        }
+        OpenInstallDestination(installDirectory);
+    }
+
+    internal async Task OpenInstallDestinationForPackageAsync(ChartPackage package)
+    {
+        if (package == null)
+        {
+            throw new ArgumentNullException(nameof(package));
+        }
+        string reason = null;
+        IReadOnlyList<PackageChartEntry> entrySnapshot = [.. package.ChartEntries ?? []];
+        foreach (PackageChartEntry entry in entrySnapshot)
+        {
+            if (TryResolveInstallDestination(entry?.Chart, out string installDirectory, out reason))
+            {
+                OpenInstallDestination(installDirectory);
+                return;
+            }
+        }
+        await ShowMessageAsync(
+            string.IsNullOrWhiteSpace(reason)
+                ? BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing
+                : reason,
+            BeMusicSeeker.Properties.Resources.Warning,
+            MessageBoxImage.Exclamation,
+            "Open install destination warning");
     }
 
     internal Task SearchPackagesAsync(
@@ -731,6 +795,64 @@ internal sealed class PendingPackageWorkflowOwner
             image,
             MessageBoxResult.OK));
         EnsureMessageWasShown(result, routeName);
+    }
+
+    private bool TryResolveInstallDestination(
+        ChartFile chart,
+        out string installDirectory,
+        out string reason)
+    {
+        installDirectory = null;
+        reason = null;
+        if (chart == null)
+        {
+            reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
+            return false;
+        }
+        if (!string.IsNullOrWhiteSpace(chart.InstallDestination))
+        {
+            if (LongPathFileSystem.DirectoryExists(chart.InstallDestination))
+            {
+                installDirectory = chart.InstallDestination;
+                return true;
+            }
+            reason = string.Format(
+                BeMusicSeeker.Properties.Resources.Msg_open_install_destination_not_found,
+                chart.InstallDestination);
+            return false;
+        }
+        string lookupHash = ChartLookupKey.GetPrimaryHash(chart);
+        if (!string.IsNullOrWhiteSpace(lookupHash)
+            && TryGetInstalledDirectoryByHash(lookupHash, out string resolvedDirectory))
+        {
+            installDirectory = resolvedDirectory;
+            return true;
+        }
+        reason = BeMusicSeeker.Properties.Resources.Msg_open_install_destination_missing;
+        return false;
+    }
+
+    private bool TryGetInstalledDirectoryByHash(string hash, out string installDirectory)
+    {
+        installDirectory = null;
+        BMSLibrary library = libraryProvider();
+        if (library == null)
+        {
+            return false;
+        }
+        using (chartFileOperations.Enter())
+        {
+            return library.TryGetInstalledDirectoryByHash(hash, out installDirectory);
+        }
+    }
+
+    private void OpenInstallDestination(string installDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(installDirectory))
+        {
+            return;
+        }
+        _ = explorerOpener(installDirectory);
     }
 
     private static async Task<ExceptionDispatchInfo> CaptureOperationFailureAsync(
