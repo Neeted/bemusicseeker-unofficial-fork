@@ -22,8 +22,8 @@ Cancel は次の契約に従う。
 
 - 変更なしの場合は設定ダイアログを閉じるだけにし、全設定 restore、LR2 config 再読み込み、ファイル差分更新、スコア再読み込みを行わない。
 - 変更がある場合は `ResetSettings()` で snapshot の値へ戻し、テーマなど preview 適用済みの UI 状態も保存済み値へ戻す。
-- score reload が失敗して retry pending の場合は、保存済み設定とライブ状態の不一致を隠さないため Cancel を無効にし、OK から同じ score reload を再試行できる状態を保つ。
-- retry pending 中は LR2 手動再同期など設定画面を閉じる別の操作も無効にし、失敗した score reload の retry を迂回できないようにする。
+- score reload または file diff reload が失敗して retry pending の場合は、保存済み設定とライブ状態の不一致を隠さないため Cancel を無効にし、OK から同じ operation を再試行できる状態を保つ。
+- retry pending 中は LR2 手動再同期など設定画面を閉じる別の操作も無効にし、失敗した reload の retry を迂回できないようにする。
 - Cancel は保存済み snapshot へ戻した後、必要な preview 状態を shell へ通知して設定ダイアログを閉じる。Cancel から library 初期化や reload operation は起動しない。
 
 OK は次の契約に従う。
@@ -38,7 +38,7 @@ OK は次の契約に従う。
 - custom folder search root 同期は `CustomFolderSearchRootSync` impact がある場合だけ実行する。
 - player 再生成、LR2 backup 有効化通知、playlist URL completion refresh、LR2 generated-data sync、beatoraja BMT export は、それぞれ対応する impact flag がある場合だけ実行する。
 - 保存完了後は `SettingsSnapshotRefreshScope` で snapshot 更新範囲を分類し、変更された設定範囲に必要な snapshot / 表示状態だけを現在値へ更新する。
-- `ReloadScoresOnlyAsync()` は設定ダイアログから使う唯一の score reload capability とし、成功時に retry pending を解除し、失敗時は pending を保持して次の OK を同じ reload へ接続する。schema 導入 / 修復 / 削除後の score reload もこの capability を使う。
+- `ReloadScoresOnlyAsync()` と `ReloadFileDiffAsync()` は設定ダイアログから使う awaitable reload capability とし、成功時に対応する retry pending を解除し、失敗時は pending を保持して次の OK を同じ reload へ接続する。schema 導入 / 修復 / 削除後の score reload も score capability を使う。
 
 `SettingsSnapshotRefreshScope` は保存後 snapshot 更新の範囲を表す。`backupSavedSettings()` は初期化や reset 後の full snapshot 更新に使い、通常の OK 保存後は `backupSavedSettingsCore(scope)` で部分更新する。
 
@@ -125,7 +125,7 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 - ライブラリ初期化、ファイル差分更新、スコア再読み込みは起動しない。
 - OK は user.config への保存と即時反映が必要な UI 状態だけを扱い、LR2 `config.xml` / custom folder 出力先 / BMS root の整合処理を起動しない。
 - Cancel は保存済み snapshot と現在値の差分が無い場合は閉じるだけにし、全設定の restore、theme / culture 再適用、`LR2Config` 再読み込みを行わない。
-- 失敗していない起動・リロード進捗が active の間は、設定保存自体を受け付けない。score-only operation または設定画面から起動した初期化の失敗後は、cleanup 済みの failed 表示を保持しつつ同じ設定反映を retry できる。
+- 失敗していない起動・リロード進捗が active の間は、設定保存自体を受け付けない。score-only / file-diff operation または設定画面から起動した初期化の失敗後は、cleanup 済みの failed 表示を保持しつつ同じ設定反映を retry できる。
 
 ### Score-only
 
@@ -140,7 +140,7 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 - 既存プロファイルが有効な通常状態では `ReloadScoresOnlyAsync()` を起動する。
 - LR2 play history schema check は score DB 読み込み境界で read-only に行い、共有 cache へ結果を publish する。設定画面を開くだけでは check しない。
 - score reload 後は Play History read cache を破棄する。Play History view は次回利用時に現在の score source から履歴 row を全件ロードし直す。
-- 失敗していない起動・リロード進捗が active の間は適用不可。score-only operation の失敗後は cleanup 済みなら retry できる。score reload pending 中に full initialize へ遷移して失敗した場合も、cleanup 後は初期設定 apply の retry を受け付ける。
+- 失敗していない起動・リロード進捗が active の間は適用不可。score-only / file-diff operation の失敗後は cleanup 済みなら retry できる。reload pending 中に full initialize へ遷移して失敗した場合も、cleanup 後は初期設定 apply の retry を受け付ける。
 
 ### Play History Display
 
@@ -177,9 +177,9 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 
 扱い:
 
-- 既存プロファイルが有効な通常状態では `ReloadFileDiff()` を起動する。
+- 既存プロファイルが有効な通常状態では awaitable な `ReloadFileDiffAsync()` を起動する。
 - LR2 custom folder 出力先の LR2 `config.xml` search root 同期、出力先移行、管理外 `.lr2folder` 同期は、custom folder 出力先設定が変わった場合だけ実行する。
-- 失敗していない起動・リロード進捗が active の間は適用不可。
+- 失敗していない起動・リロード進捗が active の間は適用不可。file-diff operation の失敗後は cleanup 済みなら retry できる。
 
 ### Full Reinitialize
 
@@ -197,7 +197,7 @@ score DB を読む既存の境界で read-only schema check を実行し、そ�
 
 設定画面 OK は、保存前に現在のライブラリ operation を確認する。
 
-- `IsLibraryOperationInProgress == true`: 保存せず、設定を適用できない旨を表示する。failed score-only operation または設定画面から起動した初期化は cleanup 後にこの busy 判定から外れるため、保存済み設定を再保存せず同じ反映を retry できる。
+- `IsLibraryOperationInProgress == true`: 保存せず、設定を適用できない旨を表示する。failed score-only / file-diff operation または設定画面から起動した初期化は cleanup 後にこの busy 判定から外れるため、保存済み設定を再保存せず同じ反映を retry できる。
 - `IsLibraryOperationInProgress == false`: 通常の保存・反映判定に進む。
 
 初回設定ダイアログは、まだ進捗 operation が active ではないため保存可能とする。
@@ -228,10 +228,10 @@ LR2 play history schema check は設定画面表示時の自動処理にしな�
 
 ## Operation Serialization
 
-`InitializeForSettingsAsync()`, `ReloadFileDiff()`, `ReloadScoresOnlyAsync()`, `ReloadTables()`, `ReinitializeLibrary()` は `_semaphore` で直列化される。XAML の `InitializeAsync()` はこの awaitable operation を起動する presentation boundary である。
+`InitializeForSettingsAsync()`, `ReloadFileDiffAsync()`, `ReloadScoresOnlyAsync()`, `ReloadTables()`, `ReinitializeLibrary()` は `_semaphore` で直列化される。XAML の `InitializeAsync()` はこの awaitable operation を起動する presentation boundary である。
 ただし `_semaphore` は同時実行を防ぐだけで、ユーザー操作から 2 回目の operation を予約することまでは防がない。
 
-そのため設定画面 OK の時点で active operation を拒否し、意図しない予約を作らない。score-only operation または設定画面から起動した初期化が失敗した場合は、失敗表示を保持しつつ `IsLibraryOperationInProgress` の busy 判定を解除し、semaphore と UI suppression の cleanup 後に設定画面 OK から同じ反映を再試行できるようにする。他の active / failed operation は従来どおり busy として扱う。
+そのため設定画面 OK の時点で active operation を拒否し、意図しない予約を作らない。score-only / file-diff operation または設定画面から起動した初期化が失敗した場合は、失敗表示を保持しつつ `IsLibraryOperationInProgress` の busy 判定を解除し、semaphore と UI suppression の cleanup 後に設定画面 OK から同じ反映を再試行できるようにする。他の active / failed operation は従来どおり busy として扱う。
 
 ## Progress Ownership
 

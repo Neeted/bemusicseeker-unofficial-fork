@@ -129,7 +129,7 @@ public sealed class SettingDialogEditCompletionTests
 
             Assert.AreEqual(1, reloadCount);
             Assert.AreEqual(1, settingsSession.SaveCount);
-            Assert.IsTrue(dialog.HasPendingSettingChanges());
+            Assert.IsTrue(dialog.HasPendingSettingChanges(), string.Join("|", sequence));
             CollectionAssert.DoesNotContain(
                 requests,
                 MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
@@ -151,6 +151,115 @@ public sealed class SettingDialogEditCompletionTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_FolderChange_AwaitsFileDiffBeforeClosing()
+    {
+        string root = CreateTemporaryRoot();
+        string addedRoot = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            using var reloadStarted = new ManualResetEventSlim();
+            var reloadRelease = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                reloadFileDiff: _ =>
+                {
+                    sequence.Add("reload-start");
+                    reloadStarted.Set();
+                    return reloadRelease.Task.ContinueWith(
+                        _ => sequence.Add("reload-completed"),
+                        CancellationToken.None,
+                        TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+                });
+            SetActiveLibraryProfile(viewModel, true);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            dialog.PresentationRequested += (_, request) => sequence.Add(request.Kind.ToString());
+            dialog.StandaloneBmsRootPathList.Add(addedRoot);
+
+            Task applyTask = dialog.ApplySettingsAsync();
+            reloadStarted.Wait();
+            Assert.IsTrue(dialog.IsEditCompletionInProgress);
+            Assert.IsFalse(applyTask.IsCompleted);
+            CollectionAssert.DoesNotContain(sequence, "CloseOverlay");
+
+            reloadRelease.SetResult(true);
+            await applyTask;
+
+            CollectionAssert.AreEqual(
+                new[] { "save", "reload-start", "reload-completed", "CloseOverlay" },
+                sequence,
+                string.Join("|", sequence));
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(addedRoot, recursive: true);
+        }
+    }
+
+    [TestMethod]
+    public async Task ApplySettingsAsync_FolderDiffFailureKeepsOverlayOpen()
+    {
+        string root = CreateTemporaryRoot();
+        string addedRoot = CreateTemporaryRoot();
+        try
+        {
+            var settingsSession = new CountingSettingsEditSession(CreateValidStandaloneSettings(root));
+            var sequence = new List<string>();
+            settingsSession.SaveObserved = () => sequence.Add("save");
+            int reloadCount = 0;
+            MainWindowViewModel viewModel = CreateViewModel(
+                settingsSession,
+                firstStartup: false,
+                reloadFileDiff: _ =>
+                {
+                    reloadCount++;
+                    sequence.Add("reload-" + reloadCount);
+                    return reloadCount == 1
+                        ? Task.FromException(new InvalidOperationException("file diff failed"))
+                        : Task.CompletedTask;
+                },
+                reportSettingsApplyFailure: _ => sequence.Add("failure"));
+            SetActiveLibraryProfile(viewModel, true);
+            MainWindowViewModel.SettingDialogViewModel dialog = viewModel.settingDialog;
+            dialog.StandaloneBmsRootPathList.Add(addedRoot);
+            var requests = new List<MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind>();
+            dialog.PresentationRequested += (_, request) => requests.Add(request.Kind);
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(new[] { "save", "reload-1", "failure" }, sequence);
+            Assert.IsTrue(dialog.HasPendingSettingChanges(), string.Join("|", sequence));
+            Assert.IsFalse(dialog.IsEditCancellationEnabled);
+            CollectionAssert.DoesNotContain(
+                requests,
+                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+
+            await dialog.ApplySettingsAsync();
+
+            CollectionAssert.AreEqual(
+                new[] { "save", "reload-1", "failure", "reload-2" },
+                sequence,
+                string.Join("|", sequence));
+            Assert.IsFalse(dialog.HasPendingSettingChanges());
+            Assert.IsTrue(dialog.IsEditCancellationEnabled);
+            CollectionAssert.Contains(
+                requests,
+                MainWindowViewModel.SettingDialogViewModel.PresentationRequestKind.CloseOverlay);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+            Directory.Delete(addedRoot, recursive: true);
         }
     }
 
@@ -385,7 +494,8 @@ public sealed class SettingDialogEditCompletionTests
         bool firstStartup,
         Func<MainWindowViewModel, Task<bool>>? initializeOwner = null,
         Func<MainWindowViewModel, Task>? reloadScoresOnly = null,
-        Action<Exception>? reportSettingsApplyFailure = null)
+        Action<Exception>? reportSettingsApplyFailure = null,
+        Func<MainWindowViewModel, Task>? reloadFileDiff = null)
     {
         return new ApplicationComposition(
             firstStartupProvider: () => firstStartup,
@@ -395,7 +505,8 @@ public sealed class SettingDialogEditCompletionTests
             settingsEditSession: settingsSession,
             initializeOwner: initializeOwner,
             reloadScoresOnly: reloadScoresOnly,
-            reportSettingsApplyFailure: reportSettingsApplyFailure)
+            reportSettingsApplyFailure: reportSettingsApplyFailure,
+            reloadFileDiff: reloadFileDiff)
             .CreateMainWindowViewModel();
     }
 

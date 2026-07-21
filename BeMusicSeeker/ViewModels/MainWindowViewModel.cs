@@ -462,6 +462,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
     public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile
         && settingDialog?.OperationModeLR2DB == true
         && settingDialog?.IsScoreReloadPending != true
+        && settingDialog?.IsFileDiffReloadPending != true
         && !IsLibraryOperationInProgress;
 
     private void RaiseLr2SongDbSyncDataResyncAvailabilityChanged()
@@ -5143,14 +5144,13 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
         LogPlayHistoryEvent("play_history_read_cache_invalidated", "reason=" + (reason ?? string.Empty));
     }
 
-    public async void ReloadFileDiff()
+    internal async Task ReloadFileDiffAsync()
     {
         if (!initializationCompleted)
         {
             return;
         }
         LogInitStage("start", "ReloadFileDiff");
-        bool scheduleDeferredPlaylistRef = false;
         await _semaphore.WaitAsync();
         long operationToken = StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff);
         try
@@ -5164,14 +5164,20 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
                 files.QueueLr2SongDbSync(
                     "ReloadFileDiff",
                     prepareGeneratedData: () => ReOutputAllCustomFoldersForLr2GeneratedDataSync("ReloadFileDiff"));
-            }).Logging("ReloadFileDiff");
+            }).LoggingAndPropagate("ReloadFileDiff");
             LogInitStage("file_diff_reload_done", "ReloadFileDiff");
-            scheduleDeferredPlaylistRef = true;
             if (!TrySuppress(UiRefreshChannel.LibraryFolderTree))
             {
                 bmsParentFolderListViewInitialized = false;
                 ScheduleDeferredLibraryFolderTreeRefresh();
             }
+            PlaylistWorkspace.QueuePlaylistReferenceApply("ReloadFileDiff", operationToken);
+            LogInitStage("deferred_playlist_ref_queued", "ReloadFileDiff");
+            SkipUnrequestedStartupProgressPhases(
+                "ReloadFileDiff:scheduled",
+                operationToken,
+                StartupProgressPhase.PlaylistReferenceApplied,
+                StartupProgressPhase.PlaylistEntriesHydrationDone);
         }
         catch (Exception ex)
         {
@@ -5184,17 +5190,8 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             MarkStartupProgressPhaseCompleted(StartupProgressPhase.StartupReadyOperable);
             LogInitStage("ui_suppress_end_called", "ReloadFileDiff");
             _semaphore.Release();
+            MarkStartupProgressFailureCleanupComplete(operationToken);
         }
-        if (scheduleDeferredPlaylistRef)
-        {
-            PlaylistWorkspace.QueuePlaylistReferenceApply("ReloadFileDiff", operationToken);
-            LogInitStage("deferred_playlist_ref_queued", "ReloadFileDiff");
-        }
-        SkipUnrequestedStartupProgressPhases(
-            "ReloadFileDiff:scheduled",
-            operationToken,
-            StartupProgressPhase.PlaylistReferenceApplied,
-            StartupProgressPhase.PlaylistEntriesHydrationDone);
     }
 
     public async void ReinitializeLibrary()
@@ -7347,6 +7344,7 @@ public partial class MainWindowViewModel : ViewModel, IPackageCatalogMutationPre
             if (startupProgressState.IsActive
                 && startupProgressState.OperationToken == operationToken
                 && (startupProgressState.OperationKind == StartupProgressOperationKind.ScoreOnly
+                    || startupProgressState.OperationKind == StartupProgressOperationKind.ReloadFileDiff
                     || startupProgressState.OperationKind == StartupProgressOperationKind.Startup)
                 && startupProgressState.IsFailed)
             {

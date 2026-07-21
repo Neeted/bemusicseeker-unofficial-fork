@@ -62,6 +62,8 @@ internal sealed class ApplicationComposition
 
     private readonly Func<MainWindowViewModel, Task> reloadScoresOnly;
 
+    private readonly Func<MainWindowViewModel, Task> reloadFileDiff;
+
     private readonly Action<Exception> reportSettingsApplyFailure;
 
     internal ApplicationComposition(
@@ -83,7 +85,8 @@ internal sealed class ApplicationComposition
         Func<MainWindowViewModel, Task<bool>> initializeOwner = null,
         Func<InstallDestinationWorkflowSettingsSnapshot> installDestinationSettingsProvider = null,
         Func<MainWindowViewModel, Task> reloadScoresOnly = null,
-        Action<Exception> reportSettingsApplyFailure = null)
+        Action<Exception> reportSettingsApplyFailure = null,
+        Func<MainWindowViewModel, Task> reloadFileDiff = null)
     {
         this.settingsEditSession = settingsEditSession
             ?? BeMusicSeeker.Models.SettingsEditSession.CreateDefault();
@@ -93,6 +96,7 @@ internal sealed class ApplicationComposition
         this.initializeOwner = initializeOwner
             ?? (owner => owner.InitializeForSettingsAsync());
         this.reloadScoresOnly = reloadScoresOnly;
+        this.reloadFileDiff = reloadFileDiff;
         this.reportSettingsApplyFailure = reportSettingsApplyFailure;
         this.bmsLibraryOptionsProvider = bmsLibraryOptionsProvider
             ?? (() => BmsLibraryOptionsSnapshot.CreateCurrent(this.settingsEditSession.Values));
@@ -289,7 +293,10 @@ internal sealed class ApplicationComposition
             reloadScoresOnly == null
                 ? owner.ReloadScoresOnlyAsync
                 : () => reloadScoresOnly(owner),
-            reportSettingsApplyFailure);
+            reportSettingsApplyFailure,
+            reloadFileDiff == null
+                ? owner.ReloadFileDiffAsync
+                : () => reloadFileDiff(owner));
     }
 
     internal MainWindowChildComposition CreateMainWindowChildComposition(

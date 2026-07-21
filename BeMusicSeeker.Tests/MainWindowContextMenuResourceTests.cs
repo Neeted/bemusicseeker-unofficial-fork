@@ -1092,9 +1092,18 @@ public sealed class MainWindowContextMenuResourceTests
     [TestMethod]
     public void LibraryFolderContextMenus_ExposeLightReloadAndFullReinitialize()
     {
+        string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
         string xaml = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "BeMusicSeeker", "Views", "MainWindow.xaml"));
 
-        Assert.AreEqual(2, CountOccurrences(xaml, "MethodName=\"ReloadFileDiff\""));
+        Assert.AreEqual(0, CountOccurrences(xaml, "MethodName=\"ReloadFileDiff\""));
+        Assert.AreEqual(2, CountOccurrences(xaml, "Click=\"treeViewLibraryFolderContextMenuItemReloadClick\""));
+        string reloadHandler = ExtractBetween(
+            mainWindowCode,
+            "private async void treeViewLibraryFolderContextMenuItemReloadClick",
+            "private async void treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
+        StringAssert.Contains(reloadHandler, "await viewModel.ReloadFileDiffAsync()");
+        StringAssert.Contains(reloadHandler, ".LoggingAndPropagate(\"treeViewLibraryFolderContextMenuItemReloadClick\")");
+        Assert.IsFalse(mainWindowCode.Contains("viewModel.ReloadFileDiff();"));
         Assert.AreEqual(2, CountOccurrences(xaml, "MethodName=\"ReinitializeLibrary\""));
         Assert.AreEqual(2, CountOccurrences(xaml, "Path=Resources.Reinitialize_library, Mode=OneWay"));
         Assert.IsFalse(string.IsNullOrWhiteSpace(Resources.Reinitialize_library));
@@ -1766,7 +1775,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(restartMethod, "SaveOperationModeForRestart(value);");
         StringAssert.Contains(restartMethod, "RestartApplication()");
         Assert.IsFalse(restartMethod.Contains("CheckValidation("));
-        Assert.IsFalse(restartMethod.Contains("ReloadFileDiff()"));
+        Assert.IsFalse(restartMethod.Contains("ReloadFileDiffAsync()"));
         Assert.IsFalse(restartMethod.Contains("ReloadScoresOnly()"));
     }
 
@@ -1872,7 +1881,7 @@ public sealed class MainWindowContextMenuResourceTests
         string compositionCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "ViewModels", "ApplicationComposition.cs"));
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
-            "public async void ReloadFileDiff()",
+            "internal async Task ReloadFileDiffAsync()",
             "public async void ReinitializeLibrary()");
         string initialize = ExtractBetween(
             viewModelCode,
@@ -1893,7 +1902,15 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "private bool IsStartupProgressOperationTokenCurrent(long operationToken)");
         StringAssert.Contains(viewModelCode, "playlistSyncProgressUiVersion");
         StringAssert.Contains(viewModelCode, "if (uiVersion != Interlocked.Read(ref playlistSyncProgressUiVersion))");
+        StringAssert.Contains(viewModelCode, "startupProgressState.OperationKind == StartupProgressOperationKind.ReloadFileDiff");
         Assert.IsTrue(reloadFileDiff.IndexOf("await _semaphore.WaitAsync();", StringComparison.Ordinal) < reloadFileDiff.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.ReloadFileDiff)", StringComparison.Ordinal));
+        StringAssert.Contains(reloadFileDiff, ".LoggingAndPropagate(\"ReloadFileDiff\")");
+        Assert.IsTrue(
+            reloadFileDiff.IndexOf("files.QueueLr2SongDbSync(", StringComparison.Ordinal)
+            < reloadFileDiff.IndexOf("PlaylistWorkspace.QueuePlaylistReferenceApply(", StringComparison.Ordinal));
+        Assert.IsTrue(
+            reloadFileDiff.IndexOf("PlaylistWorkspace.QueuePlaylistReferenceApply(", StringComparison.Ordinal)
+            < reloadFileDiff.IndexOf("MarkStartupProgressFailureCleanupComplete(operationToken)", StringComparison.Ordinal));
         Assert.IsTrue(initialize.IndexOf("applicationComposition.CreateBmsLibrary(libraryProfile)", StringComparison.Ordinal) < initialize.IndexOf("StartStartupProgressOperation(StartupProgressOperationKind.Startup)", StringComparison.Ordinal));
         StringAssert.Contains(initialize, "PlaylistWorkspace.QueueExternalPlaylistSync(");
         StringAssert.Contains(initialize, "queueBeatorajaBmtExportAfterHydration: startupSettings.SkipInitPlaylistLoad");
@@ -2195,7 +2212,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private bool IsLR2SongDBPathValid()");
         string rootAdd = ExtractBetween(
             viewModelCode,
-            "public void AddBmsSearchRootPathFromMainWindowPicker",
+            "public async Task AddBmsSearchRootPathFromMainWindowPicker",
             "public void AddBmsSearchRootPathFromPicker");
         string saveCore = ExtractBetween(
             viewModelCode,
@@ -2210,7 +2227,7 @@ public sealed class MainWindowContextMenuResourceTests
             "private static bool HasPostSaveImpact");
         string reloadFileDiff = ExtractBetween(
             viewModelCode,
-            "public async void ReloadFileDiff()",
+            "internal async Task ReloadFileDiffAsync()",
             "public async void ReinitializeLibrary()");
         string manualResyncClickHandler = ExtractBetween(
             settingDialogCode,
@@ -2224,7 +2241,7 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. lr2config.GetBMSSearchDirectories()];");
         StringAssert.Contains(runtimeSync, "ownerViewModel.files.SearchTargets = [.. GetStandaloneBmsRootPathsForCurrentSession()];");
         StringAssert.Contains(rootAdd, "ApplyRuntimeSearchRootsForCurrentMode();");
-        Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("ownerViewModel.ReloadFileDiff();", StringComparison.Ordinal));
+        Assert.IsTrue(rootAdd.IndexOf("ApplyRuntimeSearchRootsForCurrentMode();", StringComparison.Ordinal) < rootAdd.IndexOf("await ReloadFileDiffAsync();", StringComparison.Ordinal));
         StringAssert.Contains(saveCore, "ApplyRuntimeSearchRootsForCurrentMode();");
         StringAssert.Contains(viewModelCode, "SyncLr2SongDbSyncFolderDataAfterSettingsChange(\"SettingDialog.SaveSettings\")");
         StringAssert.Contains(viewModelCode, "private Lr2SongDbSyncPreparedDataSurface ReOutputAllCustomFoldersForLr2GeneratedDataSync(string reason)");
@@ -2239,10 +2256,12 @@ public sealed class MainWindowContextMenuResourceTests
         StringAssert.Contains(viewModelCode, "files?.PublishLr2SongDbSyncExternalStageProgress(");
         StringAssert.Contains(viewModelCode, "public bool CanRequestLr2SongDbSyncDataResync => HasActiveLibraryProfile");
         StringAssert.Contains(viewModelCode, "&& settingDialog?.OperationModeLR2DB == true");
+        StringAssert.Contains(viewModelCode, "&& settingDialog?.IsFileDiffReloadPending != true");
         StringAssert.Contains(viewModelCode, "&& !IsLibraryOperationInProgress;");
         StringAssert.Contains(settingDialogXaml, "<Grid Margin=\"20,2,10,4\" IsEnabled=\"{Binding IsChecked, ElementName=radioButtonUseLR2}\">");
         StringAssert.Contains(settingDialogXaml, "HorizontalAlignment=\"Center\"");
         StringAssert.Contains(settingDialogXaml, "IsEnabled=\"{Binding CanRequestLr2SongDbSyncDataResync, Mode=OneWay}\"");
+        StringAssert.Contains(manualResyncClickHandler, "viewModel.settingDialog?.IsFileDiffReloadPending == true");
         StringAssert.Contains(manualResyncClickHandler, "if (!viewModel.CanRequestLr2SongDbSyncDataResync)");
         StringAssert.Contains(settingDialogCode, "await viewModel.RequestLr2SongDbSyncAsync(\"setting_dialog_manual_resync\", force: true);");
         StringAssert.Contains(manualResyncClickHandler, "HideThisOverlay();");
@@ -2376,11 +2395,11 @@ public sealed class MainWindowContextMenuResourceTests
         string parentFolderCacheCode = File.ReadAllText(Path.Combine(root, "BeMusicSeeker", "Models", "BmsLibraryInternal", "BmsLibraryParentFolderCacheService.cs"));
         string unregisterHandler = ExtractBetween(
             mainWindowCode,
-            "private void treeViewLibraryFolderContextMenuItemUnregisterRootFolder",
+            "private async void treeViewLibraryFolderContextMenuItemUnregisterRootFolder",
             "private void treeViewLibraryFolderContextMenuItemAutoRenameAllFoldersClick");
 
         Assert.IsFalse(unregisterHandler.Contains("Task.Run"));
-        StringAssert.Contains(unregisterHandler, "viewModel.RemoveBMSDirectoryFromRootFolderAndSave(path);");
+        StringAssert.Contains(unregisterHandler, "await settingDialogViewModel.RemoveBMSDirectoryFromRootFolderAndSave(path)");
         Assert.IsFalse(parentFolderCacheCode.Contains("throw new NotImplementedException();"));
         StringAssert.Contains(parentFolderCacheCode, "return true;");
     }
@@ -3241,7 +3260,7 @@ public sealed class MainWindowContextMenuResourceTests
         string method = ExtractBetween(
             viewModelCode,
             "internal async Task ReloadScoresOnlyAsync()",
-            "public async void ReloadFileDiff()");
+            "internal async Task ReloadFileDiffAsync()");
 
         StringAssert.Contains(method, "files.InitializeScoresOnly(null)");
         StringAssert.Contains(method, ".LoggingAndPropagate(\"ReloadScoresOnly\")");

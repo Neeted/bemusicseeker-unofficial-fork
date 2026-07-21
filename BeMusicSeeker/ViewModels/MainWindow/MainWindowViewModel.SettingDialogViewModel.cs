@@ -116,6 +116,8 @@ public partial class MainWindowViewModel
 
         private readonly Func<Task> reloadScoresOnly;
 
+        private readonly Func<Task> reloadFileDiff;
+
         private readonly Action<Exception> reportApplyFailure;
 
         /// <summary>
@@ -169,11 +171,13 @@ public partial class MainWindowViewModel
         public bool IsEditCompletionEnabled => !IsEditCompletionInProgress;
 
         /// <summary>
-        /// Gets a value indicating whether the settings editor can be cancelled without leaving a failed score reload pending.
+        /// Gets a value indicating whether the settings editor can be cancelled without leaving a failed score or file-diff reload pending.
         /// </summary>
-        public bool IsEditCancellationEnabled => !IsEditCompletionInProgress && !scoreReloadPending;
+        public bool IsEditCancellationEnabled => !IsEditCompletionInProgress && !scoreReloadPending && !fileDiffReloadPending;
 
         internal bool IsScoreReloadPending => scoreReloadPending;
+
+        internal bool IsFileDiffReloadPending => fileDiffReloadPending;
 
         /// <summary>
         /// Publishes a settings-dialog open request to the shell.
@@ -195,7 +199,7 @@ public partial class MainWindowViewModel
 
         private void ExecuteCancelCommand()
         {
-            if (IsEditCompletionInProgress || scoreReloadPending)
+            if (IsEditCompletionInProgress || scoreReloadPending || fileDiffReloadPending)
             {
                 return;
             }
@@ -309,6 +313,7 @@ public partial class MainWindowViewModel
                     if (initializationSucceeded)
                     {
                         SetScoreReloadPending(false);
+                        SetFileDiffReloadPending(false);
                         RequestPresentation(PresentationRequestKind.CloseOverlay);
                         outcome = "saved_initial";
                     }
@@ -338,11 +343,12 @@ public partial class MainWindowViewModel
                     }
                     else if (needRestart.HasFlag(RestartMode.FolderOnly))
                     {
-                        ownerViewModel.ReloadFileDiff();
+                        await ReloadFileDiffAsync();
                     }
                     if (initializationSucceeded)
                     {
                         SetScoreReloadPending(false);
+                        SetFileDiffReloadPending(false);
                         RequestPresentation(PresentationRequestKind.CloseOverlay);
                         outcome = "saved";
                     }
@@ -377,6 +383,25 @@ public partial class MainWindowViewModel
             return ReloadScoresOnlyCoreAsync();
         }
 
+        internal Task ReloadFileDiffAsync()
+        {
+            return ReloadFileDiffCoreAsync();
+        }
+
+        private async Task ReloadFileDiffCoreAsync()
+        {
+            try
+            {
+                await reloadFileDiff();
+                SetFileDiffReloadPending(false);
+            }
+            catch
+            {
+                SetFileDiffReloadPending(true);
+                throw;
+            }
+        }
+
         private async Task ReloadScoresOnlyCoreAsync()
         {
             try
@@ -403,6 +428,18 @@ public partial class MainWindowViewModel
             ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
         }
 
+        private void SetFileDiffReloadPending(bool value)
+        {
+            if (fileDiffReloadPending == value)
+            {
+                return;
+            }
+
+            fileDiffReloadPending = value;
+            RaisePropertyChanged(() => IsEditCancellationEnabled);
+            ownerViewModel.RaiseLr2SongDbSyncDataResyncAvailabilityChanged();
+        }
+
         private Settings ApplicationSettings => settingsEditSession.Values;
 
         private readonly PropertyChangedEventListener ownerViewModelEventListener;
@@ -412,6 +449,8 @@ public partial class MainWindowViewModel
         private bool tempOperationModeLR2DB;
 
         private bool scoreReloadPending;
+
+        private bool fileDiffReloadPending;
 
         private string tempLR2RootPath;
 
@@ -3420,7 +3459,8 @@ public partial class MainWindowViewModel
             ISettingsEditSession settingsEditSession,
             Func<Task<bool>> initializeOwner = null,
             Func<Task> reloadScoresOnly = null,
-            Action<Exception> reportApplyFailure = null)
+            Action<Exception> reportApplyFailure = null,
+            Func<Task> reloadFileDiff = null)
         {
             SettingDialogViewModel settingDialogViewModel = this;
             ownerViewModel = owner;
@@ -3429,6 +3469,7 @@ public partial class MainWindowViewModel
             this.settingsEditSession = settingsEditSession ?? throw new ArgumentNullException(nameof(settingsEditSession));
             this.initializeOwner = initializeOwner ?? (() => owner.InitializeForSettingsAsync());
             this.reloadScoresOnly = reloadScoresOnly ?? owner.ReloadScoresOnlyAsync;
+            this.reloadFileDiff = reloadFileDiff ?? owner.ReloadFileDiffAsync;
             this.reportApplyFailure = reportApplyFailure
                 ?? (ex => MainWindowViewModel.ShowUiMessage(
                     BeMusicSeeker.Properties.Resources.Msg_error_unexpected + Environment.NewLine + Environment.NewLine + ex.Message,
@@ -4396,7 +4437,7 @@ public partial class MainWindowViewModel
             SetSettingProperty(propertyName, path);
         }
 
-        public void AddBmsSearchRootPathFromMainWindowPicker(string path)
+        public async Task AddBmsSearchRootPathFromMainWindowPicker(string path)
         {
             if (path == null)
             {
@@ -4413,7 +4454,7 @@ public partial class MainWindowViewModel
                 ApplyRuntimeSearchRootsForCurrentMode();
                 if (isBMSDirectoryAdded)
                 {
-                    ownerViewModel.ReloadFileDiff();
+                    await ReloadFileDiffAsync();
                 }
                 else
                 {
@@ -5030,7 +5071,7 @@ public partial class MainWindowViewModel
             }
         }
 
-        public void RemoveBMSDirectoryFromRootFolderAndSave(string dir)
+        public async Task RemoveBMSDirectoryFromRootFolderAndSave(string dir)
         {
             if (string.IsNullOrWhiteSpace(dir))
             {
@@ -5044,7 +5085,7 @@ public partial class MainWindowViewModel
                     ApplyRuntimeSearchRootsForCurrentMode();
                     if (isBMSDirectoryRemoved)
                     {
-                        ownerViewModel.ReloadFileDiff();
+                        await ReloadFileDiffAsync();
                     }
                     else
                     {
@@ -5067,7 +5108,7 @@ public partial class MainWindowViewModel
                 ApplyRuntimeSearchRootsForCurrentMode();
                 if (isBMSDirectoryRemoved)
                 {
-                    ownerViewModel.ReloadFileDiff();
+                    await ReloadFileDiffAsync();
                 }
                 else
                 {
@@ -5471,7 +5512,8 @@ public partial class MainWindowViewModel
                 || HasSearchRootSettingsChanged()
                 || HasCustomFolderAdditionalOutputBaseDirsChanged()
                 || HasPlayHistoryFolderDisplayPresetDraftsChanged()
-                || scoreReloadPending;
+                || scoreReloadPending
+                || fileDiffReloadPending;
         }
 
         private bool HasSettingValueChanges()
@@ -6848,6 +6890,10 @@ public partial class MainWindowViewModel
         public RestartMode IsNeedRestartForSaved()
         {
             RestartMode restartMode = scoreReloadPending ? RestartMode.ScoreOnly : RestartMode.None;
+            if (fileDiffReloadPending)
+            {
+                restartMode |= RestartMode.FolderOnly;
+            }
             bool scoreSourceChanged = tempUseBeatorajaScoreDb != ApplicationSettings.UseBeatorajaScoreDb
                 || !string.Equals(tempBeatorajaRootPath, ApplicationSettings.BeatorajaRootPath, StringComparison.OrdinalIgnoreCase)
                 || !string.Equals(tempBeatorajaPlayerId, ApplicationSettings.BeatorajaPlayerId, StringComparison.OrdinalIgnoreCase)

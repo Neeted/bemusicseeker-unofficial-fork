@@ -338,7 +338,8 @@ public partial class SettingDialog : UserControl, IComponentConnector
         {
             return;
         }
-        if (viewModel.settingDialog?.IsScoreReloadPending == true)
+        if (viewModel.settingDialog?.IsScoreReloadPending == true
+            || viewModel.settingDialog?.IsFileDiffReloadPending == true)
         {
             return;
         }

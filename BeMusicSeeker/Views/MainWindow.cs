@@ -165,25 +165,24 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             || ReferenceEquals(dialog, loadPlaylistURIDialog);
     }
 
-    private void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
+    private async void addRootFolderMenuItemClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is not MainWindowViewModel { settingDialog: { } settingDialogViewModel } viewModel)
         {
             return;
         }
 
-        UiFolderPickerResult result = new UiDialogCoordinator()
+        UiFolderPickerResult result = await new UiDialogCoordinator()
             .PickFolderAsync(new UiFolderPickerRequest(
                 selectedPath: viewModel.BMSParentFolderList?.FirstOrDefault(),
                 multiselect: false,
                 ensurePathExists: true,
-                owner: this))
-            .GetAwaiter()
-            .GetResult();
+                owner: this));
         ThrowIfPickerFailed(result.Status, result.Error, "Main window add root folder picker");
         if (result.Status == UiDialogStatus.Accepted)
         {
-            settingDialogViewModel.AddBmsSearchRootPathFromMainWindowPicker(result.FolderPath);
+            await settingDialogViewModel.AddBmsSearchRootPathFromMainWindowPicker(result.FolderPath)
+                .LoggingAndPropagate("addRootFolderMenuItemClick");
         }
     }
 
@@ -3964,25 +3963,35 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
         ExplorerOpenService.OpenDirectory(text);
     }
 
+    private async void treeViewLibraryFolderContextMenuItemReloadClick(object sender, RoutedEventArgs e)
+    {
+        if (base.DataContext is MainWindowViewModel viewModel && sender is MenuItem)
+        {
+            await viewModel.ReloadFileDiffAsync()
+                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemReloadClick");
+        }
+    }
+
     /// <summary>
     /// BMS検索フォルダコンテキストメニュー「BMS検索フォルダから除外」実行時の処理。
     /// ユーザー確認ダイアログ表示後、アプリケーション設定のBMSルートフォルダー一覧から該当のパスを除外して保存します。
     /// </summary>
-    private void treeViewLibraryFolderContextMenuItemUnregisterRootFolder(object sender, RoutedEventArgs e)
+    private async void treeViewLibraryFolderContextMenuItemUnregisterRootFolder(object sender, RoutedEventArgs e)
     {
         if (!(e.Source is MenuItem { Parent: ContextMenu { PlacementTarget: TreeViewItem placementTarget } }))
         {
             return;
         }
         string path = placementTarget.Header.ToString();
-        if (base.DataContext is not MainWindowViewModel)
+        if (base.DataContext is not MainWindowViewModel viewModel)
         {
             return;
         }
-        MainWindowViewModel.SettingDialogViewModel viewModel = (base.DataContext as MainWindowViewModel).settingDialog;
+        MainWindowViewModel.SettingDialogViewModel settingDialogViewModel = viewModel.settingDialog;
         if (LongPathFileSystem.DirectoryExists(path) && UiDialogRoute.ShowMessageBox(Window.GetWindow(this), BeMusicSeeker.Properties.Resources.Msg_unregister_root_folder, BeMusicSeeker.Properties.Resources.Confirm, MessageBoxButton.OKCancel, MessageBoxImage.Question, MessageBoxResult.Cancel) != MessageBoxResult.Cancel)
         {
-            viewModel.RemoveBMSDirectoryFromRootFolderAndSave(path);
+            await settingDialogViewModel.RemoveBMSDirectoryFromRootFolderAndSave(path)
+                .LoggingAndPropagate("treeViewLibraryFolderContextMenuItemUnregisterRootFolder");
         }
     }
 
