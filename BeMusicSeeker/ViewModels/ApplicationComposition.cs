@@ -294,7 +294,8 @@ internal sealed class ApplicationComposition
         Func<Action, Task> folderAutoRenameScheduler = null,
         Action<string> folderAutoRenameLog = null,
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
-        Action<Exception> reportFolderAutoRenameFailure = null)
+        Action<Exception> reportFolderAutoRenameFailure = null,
+        ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -320,7 +321,28 @@ internal sealed class ApplicationComposition
             folderAutoRenameScheduler,
             folderAutoRenameLog,
             reportFolderAutoRenameNotificationFailure,
-            reportFolderAutoRenameFailure);
+            reportFolderAutoRenameFailure,
+            scoreViewerRegistrationWorkflow ?? CreateScoreViewerRegistrationWorkflowOwner());
+    }
+
+    private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
+    {
+        Action<Exception, string> warningLog = (exception, message) =>
+        {
+            if (exception == null)
+            {
+                NLogWrapper.FileLogger?.Warn(message);
+            }
+            else
+            {
+                NLogWrapper.FileLogger?.Warn(exception, message);
+            }
+        };
+        return new ScoreViewerRegistrationWorkflowOwner(
+            new AppScoreViewerRegistrationGateway(),
+            new WpfScoreViewerRegistrationInteraction(warningLog),
+            () => settingsEditSession.Values.ShowScoreViewerRegisterConfirmMsg,
+            warningLog);
     }
 
     internal IBMSPlayer CreateBmsPlayer(
@@ -453,7 +475,8 @@ internal sealed class MainWindowChildComposition
         Func<Action, Task> folderAutoRenameScheduler = null,
         Action<string> folderAutoRenameLog = null,
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
-        Action<Exception> reportFolderAutoRenameFailure = null)
+        Action<Exception> reportFolderAutoRenameFailure = null,
+        ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -517,6 +540,8 @@ internal sealed class MainWindowChildComposition
             ProcessElevationProbe.IsCurrentProcessElevated,
             (exception, context) => NLogWrapper.FileLogger?.Warn(exception, context),
             message => NLogWrapper.FileLogger?.Warn(message));
+        ScoreViewerRegistrationWorkflow = scoreViewerRegistrationWorkflow
+            ?? throw new ArgumentNullException(nameof(scoreViewerRegistrationWorkflow));
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -542,6 +567,8 @@ internal sealed class MainWindowChildComposition
     internal StartupUpdateWorkflowOwner StartupUpdateWorkflow { get; }
 
     internal ElevatedProcessWarningWorkflowOwner ElevatedProcessWarningWorkflow { get; }
+
+    internal ScoreViewerRegistrationWorkflowOwner ScoreViewerRegistrationWorkflow { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,

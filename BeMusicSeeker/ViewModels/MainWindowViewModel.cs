@@ -114,6 +114,8 @@ public partial class MainWindowViewModel : ViewModel
     /// </summary>
     internal FolderAutoRenameWorkflowOwner FolderAutoRenameWorkflow { get; private set; }
 
+    internal ScoreViewerRegistrationWorkflowOwner ScoreViewerRegistration { get; private set; }
+
     /// <summary>
     /// Gets the one-shot startup update workflow owned by application composition.
     /// </summary>
@@ -620,12 +622,6 @@ public partial class MainWindowViewModel : ViewModel
     private MainViewUpdateMode treeViewFilterTypeSelected;
 
     private object treeViewFilterParameterSelected;
-
-    private static readonly string scoreRegisterUrl = "https://bms-score-viewer-backend.sayakaisbaka.workers.dev/bms/score/register";
-
-    private static readonly string scoreStatusUrl = "https://bms-score-viewer-backend.sayakaisbaka.workers.dev/bms/score/status?md5=";
-
-    private static readonly string scoreViewUrl = "https://bms-score-viewer.pages.dev/view?md5=";
 
     public SettingDialogViewModel settingDialog { get; private set; }
 
@@ -3657,6 +3653,7 @@ public partial class MainWindowViewModel : ViewModel
         FolderAutoRenameWorkflow.CompletionPublished += FolderAutoRenameWorkflowCompletionPublished;
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
+        ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
@@ -10432,110 +10429,6 @@ public partial class MainWindowViewModel : ViewModel
                 ShowUiMessage(BeMusicSeeker.Properties.Resources.Msg_error_cache_download + Environment.NewLine + Environment.NewLine + ex.Message, BeMusicSeeker.Properties.Resources.Error, MessageBoxImage.Hand, "Ranking cache download failure notification");
             }
         }
-    }
-
-    /// <summary>
-    /// Score Viewer 登録対象の状態を調べ、UI 確認前の実行計画を作成します。
-    /// 未所持 playlist 行では path が null でも閲覧 URL を返せます。
-    /// </summary>
-    /// <param name="targets">登録対象の軽量ターゲット一覧。</param>
-    /// <returns>hash-only、登録済み、upload 必要、status 失敗を区別した計画。</returns>
-    internal ScoreViewerRegistrationPlan PrepareScoreViewerRegistration(List<ScoreViewerTarget> targets)
-    {
-        if (targets == null)
-        {
-            throw new ArgumentNullException(nameof(targets));
-        }
-        List<ScoreViewerTarget> normalizedTargets = [.. targets.Where(target => target != null && !string.IsNullOrWhiteSpace(target.Hash))];
-        if (normalizedTargets.Count == 0)
-        {
-            return new ScoreViewerRegistrationPlan([]);
-        }
-        var items = new List<ScoreViewerRegistrationItem>();
-        foreach (ScoreViewerTarget target in normalizedTargets)
-        {
-            string currentFileHash = target.Hash;
-            if (string.IsNullOrWhiteSpace(target.Path) || !LongPathFileSystem.FileExists(target.Path))
-            {
-                items.Add(ScoreViewerRegistrationItem.HashOnly(target, currentFileHash, scoreViewUrl + currentFileHash));
-                continue;
-            }
-
-            try
-            {
-                string statusJson = AppHttpClient.Shared.GetString(new Uri(scoreStatusUrl + currentFileHash), Encoding.UTF8);
-                dynamic statusVal = DynamicJson.Parse(statusJson);
-                if (statusVal.status == "OK")
-                {
-                    items.Add(ScoreViewerRegistrationItem.AlreadyRegistered(target, currentFileHash, scoreViewUrl + currentFileHash));
-                    continue;
-                }
-            }
-            catch (Exception ex)
-            {
-                NLogWrapper.FileLogger?.Warn(ex, "score_viewer_status_failed path=" + (target.Path ?? string.Empty) + " md5=" + (target.Hash ?? string.Empty));
-                items.Add(ScoreViewerRegistrationItem.StatusCheckFailed(target, currentFileHash, ex));
-                continue;
-            }
-
-            items.Add(ScoreViewerRegistrationItem.NeedsUpload(target, currentFileHash));
-        }
-        return new ScoreViewerRegistrationPlan(items);
-    }
-
-    /// <summary>
-    /// UI 側で確認済みの Score Viewer upload を実行し、登録結果を返します。
-    /// </summary>
-    /// <param name="plan">事前に作成された登録計画。</param>
-    /// <param name="uploadConfirmed">upload 必要 target の登録を UI 側で確認済みなら true。</param>
-    /// <returns>登録済み、upload 成功、失敗、キャンセルを区別した結果。</returns>
-    internal ScoreViewerRegistrationResult CompleteScoreViewerRegistration(ScoreViewerRegistrationPlan plan, bool uploadConfirmed)
-    {
-        if (plan == null)
-        {
-            throw new ArgumentNullException(nameof(plan));
-        }
-        var items = new List<ScoreViewerRegistrationItem>();
-        foreach (ScoreViewerRegistrationItem item in plan.Items)
-        {
-            if (!item.IsUploadCandidate)
-            {
-                items.Add(item);
-                continue;
-            }
-            if (!uploadConfirmed)
-            {
-                items.Add(ScoreViewerRegistrationItem.UploadDeclined(item.Target, item.Hash));
-                continue;
-            }
-
-            try
-            {
-                string registerResponseJson = AppHttpClient.Shared.PostFile(new Uri(scoreRegisterUrl), item.Target.Path, responseEncoding: Encoding.UTF8, headers: new Dictionary<string, string> { { "Accept", "application/json" } }, logErrorResponseBody: true);
-                dynamic registerResponseVal = DynamicJson.Parse(registerResponseJson);
-                string currentFileHash = item.Hash;
-                if (registerResponseVal.status == "OK")
-                {
-                    string responseHash = Convert.ToString(registerResponseVal.md5, CultureInfo.InvariantCulture);
-                    if (!string.IsNullOrWhiteSpace(responseHash))
-                    {
-                        currentFileHash = responseHash;
-                    }
-                    items.Add(ScoreViewerRegistrationItem.Uploaded(item.Target, currentFileHash, scoreViewUrl + currentFileHash));
-                    continue;
-                }
-                string failureStatus = Convert.ToString(registerResponseVal.status, CultureInfo.InvariantCulture);
-                string failureMessage = string.IsNullOrWhiteSpace(failureStatus) ? "Unexpected Score Viewer upload response." : "Score Viewer upload status: " + failureStatus;
-                NLogWrapper.FileLogger?.Warn("score_viewer_upload_rejected path=" + (item.Target.Path ?? string.Empty) + " md5=" + (item.Hash ?? string.Empty) + " status=" + failureStatus);
-                items.Add(ScoreViewerRegistrationItem.UploadFailed(item.Target, item.Hash, failureMessage));
-            }
-            catch (Exception ex)
-            {
-                NLogWrapper.FileLogger?.Warn(ex, "score_viewer_upload_failed path=" + (item.Target.Path ?? string.Empty) + " md5=" + (item.Hash ?? string.Empty));
-                items.Add(ScoreViewerRegistrationItem.UploadFailed(item.Target, item.Hash, ex.Message, ex));
-            }
-        }
-        return new ScoreViewerRegistrationResult(items);
     }
 
     private static bool ShowUiConfirmation(

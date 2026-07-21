@@ -105,44 +105,45 @@ public sealed class DialogRouteConsolidationTests
     }
 
     [TestMethod]
-    public void ScoreViewerRegistration_UsesCoordinatorForConfirmationRoute()
+    public void ScoreViewerRegistration_UsesFeatureWorkflowOwner()
     {
-        string root = FindRepositoryRoot();
-        string viewModelCode = SourceTextTestHelper.ReadMainWindowViewModelSourceText();
+        string rootViewModelCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
         string mainWindowCode = SourceTextTestHelper.ReadMainWindowSourceText();
-        string prepareScoreViewerRegistration = ExtractBetween(viewModelCode, "internal ScoreViewerRegistrationPlan PrepareScoreViewerRegistration", "internal ScoreViewerRegistrationResult CompleteScoreViewerRegistration");
-        string completeScoreViewerRegistration = ExtractBetween(viewModelCode, "internal ScoreViewerRegistrationResult CompleteScoreViewerRegistration", "private static bool ShowUiConfirmation");
-        string runScoreViewerRegistration = ExtractBetween(mainWindowCode, "private async Task RunScoreViewerRegistrationAsync", "private async Task<bool> ConfirmScoreViewerUploadIfNeededAsync");
-        string confirmScoreViewerUpload = ExtractBetween(mainWindowCode, "private async Task<bool> ConfirmScoreViewerUploadIfNeededAsync", "private async Task ShowScoreViewerRegistrationResultAsync");
+        string workflowCode = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "ScoreViewerRegistration.cs");
+        string runScoreViewerRegistration = ExtractBetween(
+            workflowCode,
+            "internal async Task<ScoreViewerRegistrationResult> RunAsync",
+            "internal ScoreViewerRegistrationPlan Prepare");
 
-        Assert.IsFalse(prepareScoreViewerRegistration.Contains("UiDialogCoordinator"), "Score Viewer status preflight must not show dialogs from the background operation.");
-        Assert.IsFalse(completeScoreViewerRegistration.Contains("UiDialogCoordinator"), "Score Viewer upload completion must not show dialogs from the background operation.");
-        Assert.IsFalse(prepareScoreViewerRegistration.Contains("ShowUiConfirmation"), "Score Viewer status preflight must not show confirmations.");
-        Assert.IsFalse(completeScoreViewerRegistration.Contains("ShowUiConfirmation"), "Score Viewer upload completion must not show confirmations.");
-        Assert.IsFalse(prepareScoreViewerRegistration.Contains("ShowUiMessage"), "Score Viewer status preflight must return result state instead of showing messages.");
-        Assert.IsFalse(completeScoreViewerRegistration.Contains("ShowUiMessage"), "Score Viewer upload completion must return result state instead of showing messages.");
-        Assert.IsFalse(viewModelCode.Contains("new ConfirmationMessage"), "Score Viewer registration must not use the Livet confirmation route.");
-        Assert.IsFalse(viewModelCode.Contains("RaiseInteractionMessageOnUiThread"), "Score Viewer registration confirmation must not depend on Livet trigger wiring.");
-        StringAssert.Contains(runScoreViewerRegistration, "viewModel.PrepareScoreViewerRegistration(targets)");
-        StringAssert.Contains(runScoreViewerRegistration, "ConfirmScoreViewerUploadIfNeededAsync(plan)");
-        StringAssert.Contains(runScoreViewerRegistration, "viewModel.CompleteScoreViewerRegistration(plan, uploadConfirmed)");
+        StringAssert.Contains(mainWindowCode, "viewModel.ScoreViewerRegistration.RunAsync(");
+        Assert.IsFalse(mainWindowCode.Contains("RunScoreViewerRegistrationAsync"));
+        Assert.IsFalse(mainWindowCode.Contains("ConfirmScoreViewerUploadIfNeededAsync"));
+        Assert.IsFalse(mainWindowCode.Contains("ShowScoreViewerRegistrationResultAsync"));
+        Assert.IsFalse(rootViewModelCode.Contains("PrepareScoreViewerRegistration"));
+        Assert.IsFalse(rootViewModelCode.Contains("CompleteScoreViewerRegistration"));
+        Assert.IsFalse(rootViewModelCode.Contains("scoreRegisterUrl"));
+        Assert.IsFalse(rootViewModelCode.Contains("scoreStatusUrl"));
+        Assert.IsFalse(rootViewModelCode.Contains("scoreViewUrl"));
+        StringAssert.Contains(workflowCode, "IScoreViewerRegistrationGateway");
+        StringAssert.Contains(workflowCode, "IScoreViewerRegistrationInteraction");
+        StringAssert.Contains(runScoreViewerRegistration, "interaction.ConfirmUploadAsync(");
+        StringAssert.Contains(runScoreViewerRegistration, "Complete(plan, uploadConfirmed)");
         Assert.IsTrue(
-            runScoreViewerRegistration.IndexOf("ConfirmScoreViewerUploadIfNeededAsync(plan)", StringComparison.Ordinal)
-            < runScoreViewerRegistration.IndexOf("viewModel.CompleteScoreViewerRegistration(plan, uploadConfirmed)", StringComparison.Ordinal),
+            runScoreViewerRegistration.IndexOf("interaction.ConfirmUploadAsync(", StringComparison.Ordinal)
+            < runScoreViewerRegistration.IndexOf("Complete(plan, uploadConfirmed)", StringComparison.Ordinal),
             "Score Viewer upload must happen only after UI confirmation has completed.");
-        StringAssert.Contains(confirmScoreViewerUpload, "UiDialogCoordinator");
-        StringAssert.Contains(confirmScoreViewerUpload, "UiDialogStatus.Failed => throw");
-        StringAssert.Contains(prepareScoreViewerRegistration, "ScoreViewerRegistrationItem.HashOnly");
-        StringAssert.Contains(prepareScoreViewerRegistration, "ScoreViewerRegistrationItem.AlreadyRegistered");
-        StringAssert.Contains(prepareScoreViewerRegistration, "ScoreViewerRegistrationItem.NeedsUpload");
-        StringAssert.Contains(prepareScoreViewerRegistration, "ScoreViewerRegistrationItem.StatusCheckFailed");
-        StringAssert.Contains(completeScoreViewerRegistration, "ScoreViewerRegistrationItem.Uploaded");
-        StringAssert.Contains(completeScoreViewerRegistration, "ScoreViewerRegistrationItem.UploadFailed");
-        StringAssert.Contains(completeScoreViewerRegistration, "ScoreViewerRegistrationItem.UploadDeclined");
-        Assert.IsTrue(
-            completeScoreViewerRegistration.IndexOf("string registerResponseJson = AppHttpClient.Shared.PostFile", StringComparison.Ordinal)
-            > completeScoreViewerRegistration.IndexOf("if (!uploadConfirmed)", StringComparison.Ordinal),
-            "Score Viewer upload must happen only after the explicit upload confirmation gate.");
+        StringAssert.Contains(workflowCode, "UiDialogCoordinator");
+        StringAssert.Contains(workflowCode, "UiDialogStatus.Failed => throw");
+        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.HashOnly");
+        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.AlreadyRegistered");
+        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.NeedsUpload");
+        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.StatusCheckFailed");
+        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.Uploaded");
+        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.UploadFailed");
+        StringAssert.Contains(workflowCode, "ScoreViewerRegistrationItem.UploadDeclined");
+        Assert.IsFalse(mainWindowCode.Contains("Settings.Default.ShowScoreViewerRegisterConfirmMsg"));
     }
 
     [TestMethod]
