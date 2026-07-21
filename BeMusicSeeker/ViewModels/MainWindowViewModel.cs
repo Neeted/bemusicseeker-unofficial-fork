@@ -116,6 +116,8 @@ public partial class MainWindowViewModel : ViewModel
 
     internal ScoreViewerRegistrationWorkflowOwner ScoreViewerRegistration { get; private set; }
 
+    internal ZeroNoteMaintenanceWorkflowOwner ZeroNoteMaintenance { get; private set; }
+
     /// <summary>
     /// Gets the one-shot startup update workflow owned by application composition.
     /// </summary>
@@ -3634,7 +3636,8 @@ public partial class MainWindowViewModel : ViewModel
             action => Task.Run(action),
             message => NLogWrapper.FileLogger?.Info(message),
             ReportFolderAutoRenameWorkflowNotificationFailure,
-            ReportFolderAutoRenameWorkflowFailure);
+            ReportFolderAutoRenameWorkflowFailure,
+            zeroNoteLibraryProvider: () => files);
         ProgressHub = childComposition.ProgressHub;
         PlaybackPanel = childComposition.PlaybackPanel;
         ChartFilters = childComposition.ChartFilters;
@@ -3654,6 +3657,7 @@ public partial class MainWindowViewModel : ViewModel
         StartupUpdateWorkflow = childComposition.StartupUpdateWorkflow;
         ElevatedProcessWarningWorkflow = childComposition.ElevatedProcessWarningWorkflow;
         ScoreViewerRegistration = childComposition.ScoreViewerRegistrationWorkflow;
+        ZeroNoteMaintenance = childComposition.ZeroNoteMaintenanceWorkflow;
         PlayHistory.ConfigureDisplayTargetPersistence(identity => playHistoryDisplaySettingsStore.SelectedDisplayTargetIdentity = identity);
         PlayHistory.ConfigureDisplayTargetCatalogRefresh(
             () => IsShutdownRequested,
@@ -10055,18 +10059,6 @@ public partial class MainWindowViewModel : ViewModel
         {
             files.RemovePendingCharts(charts, sendToRecycleBin, deleteContainingPackageFoldersWhenNoBms);
         }, deleteContainingPackageFoldersWhenNoBms ? charts : GetBmsFormatCharts(charts));
-    }
-
-    public void RecheckZeroNoteWarnings()
-    {
-        using (chartFileOperations.Enter())
-        {
-            if (files == null)
-            {
-                return;
-            }
-            files.RecheckZeroNoteWarnings();
-        }
     }
 
     internal void RenameBMSFilesExtensions(IEnumerable<ChartFile> charts, string newExt)

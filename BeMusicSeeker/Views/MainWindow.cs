@@ -3340,14 +3340,13 @@ public partial class MainWindow : Window, IComponentConnector, IStyleConnector
             .Logging("chartInfoParseErrorFolderSelect");
     }
 
-    private void treeViewZeroNoteContextMenuItemRecheckClick(object sender, RoutedEventArgs e)
+    private async void treeViewZeroNoteContextMenuItemRecheckClick(object sender, RoutedEventArgs e)
     {
         if (base.DataContext is MainWindowViewModel viewModel)
         {
-            Task.Run(delegate
-            {
-                viewModel.RecheckZeroNoteWarnings();
-            }).Logging("treeViewZeroNoteContextMenuItemRecheckClick");
+            await viewModel.ZeroNoteMaintenance
+                .RecheckAsync()
+                .Logging("treeViewZeroNoteContextMenuItemRecheckClick");
         }
     }
 

@@ -110,7 +110,7 @@ public sealed class MainWindowContextMenuResourceTests
         string maintenanceRoutes = ExtractBetween(
             mainWindowSource,
             "private async void fullScanCheckFolderSelect",
-            "private void treeViewZeroNoteContextMenuItemRecheckClick");
+            "private async void treeViewZeroNoteContextMenuItemRecheckClick");
 
         string[] modes =
         [
@@ -138,6 +138,24 @@ public sealed class MainWindowContextMenuResourceTests
         Assert.IsFalse(rootViewModelSource.Contains("MaintenanceFilterType"));
         Assert.IsFalse(rootViewModelSource.Contains("duplicateChartGroupsRefreshLock"));
         Assert.IsFalse(rootViewModelSource.Contains("duplicateChartGroupsRefreshRunning"));
+    }
+
+    [TestMethod]
+    public void ZeroNoteRecheck_RoutesThroughMaintenanceWorkflowOwner()
+    {
+        string mainWindowSource = SourceTextTestHelper.ReadMainWindowSourceText();
+        string rootViewModelSource = SourceTextTestHelper.ReadProductionSourceText(
+            "BeMusicSeeker", "ViewModels", "MainWindowViewModel.cs");
+        string route = ExtractBetween(
+            mainWindowSource,
+            "private async void treeViewZeroNoteContextMenuItemRecheckClick",
+            "private async void newlyInstalledFolderSelect");
+
+        StringAssert.Contains(route, "viewModel.ZeroNoteMaintenance");
+        StringAssert.Contains(route, ".RecheckAsync()");
+        Assert.IsFalse(route.Contains("Task.Run"));
+        Assert.IsFalse(rootViewModelSource.Contains("void RecheckZeroNoteWarnings("));
+        Assert.IsFalse(rootViewModelSource.Contains("files.RecheckZeroNoteWarnings()"));
     }
 
     [TestMethod]

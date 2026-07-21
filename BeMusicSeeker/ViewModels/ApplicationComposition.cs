@@ -295,7 +295,8 @@ internal sealed class ApplicationComposition
         Action<string> folderAutoRenameLog = null,
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
         Action<Exception> reportFolderAutoRenameFailure = null,
-        ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null)
+        ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
+        Func<BMSLibrary> zeroNoteLibraryProvider = null)
     {
         return new MainWindowChildComposition(
             mainChartList,
@@ -322,7 +323,8 @@ internal sealed class ApplicationComposition
             folderAutoRenameLog,
             reportFolderAutoRenameNotificationFailure,
             reportFolderAutoRenameFailure,
-            scoreViewerRegistrationWorkflow ?? CreateScoreViewerRegistrationWorkflowOwner());
+            scoreViewerRegistrationWorkflow ?? CreateScoreViewerRegistrationWorkflowOwner(),
+            zeroNoteLibraryProvider);
     }
 
     private ScoreViewerRegistrationWorkflowOwner CreateScoreViewerRegistrationWorkflowOwner()
@@ -476,7 +478,8 @@ internal sealed class MainWindowChildComposition
         Action<string> folderAutoRenameLog = null,
         Action<Exception> reportFolderAutoRenameNotificationFailure = null,
         Action<Exception> reportFolderAutoRenameFailure = null,
-        ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null)
+        ScoreViewerRegistrationWorkflowOwner scoreViewerRegistrationWorkflow = null,
+        Func<BMSLibrary> zeroNoteLibraryProvider = null)
     {
         MainChartList = mainChartList ?? throw new ArgumentNullException(nameof(mainChartList));
         PlaylistWorkspace = playlistWorkspace ?? throw new ArgumentNullException(nameof(playlistWorkspace));
@@ -542,6 +545,9 @@ internal sealed class MainWindowChildComposition
             message => NLogWrapper.FileLogger?.Warn(message));
         ScoreViewerRegistrationWorkflow = scoreViewerRegistrationWorkflow
             ?? throw new ArgumentNullException(nameof(scoreViewerRegistrationWorkflow));
+        ZeroNoteMaintenanceWorkflow = new ZeroNoteMaintenanceWorkflowOwner(
+            zeroNoteLibraryProvider ?? (() => null),
+            chartFileOperations);
     }
 
     internal MainChartListViewModel MainChartList { get; }
@@ -569,6 +575,8 @@ internal sealed class MainWindowChildComposition
     internal ElevatedProcessWarningWorkflowOwner ElevatedProcessWarningWorkflow { get; }
 
     internal ScoreViewerRegistrationWorkflowOwner ScoreViewerRegistrationWorkflow { get; }
+
+    internal ZeroNoteMaintenanceWorkflowOwner ZeroNoteMaintenanceWorkflow { get; }
 
     private static MaintenanceWorkflowResult MissingMaintenanceRescanExecutor(
         BMSLibrary library,
